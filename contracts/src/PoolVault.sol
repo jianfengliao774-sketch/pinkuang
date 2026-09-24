@@ -540,8 +540,6 @@ contract PoolVault is
 
     function _update(address from, address to, uint256 amount) internal override {
         VaultStorage storage s = _vaultStorage();
-        // Empty Beacon clones and the locked implementation have no subscription configuration.
-        if (s.factory == address(0)) revert Unauthorized();
         // Neither contract can manage a member's shares, votes or pull-payment rights.
         // Apply to minting too, so a future subscription entry point cannot bypass the guard.
         if (to == address(this) || to == s.factory) revert InvalidShareRecipient();
