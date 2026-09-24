@@ -1,6 +1,6 @@
 # TapeOut 合伙拼矿机
 
-当前任务：**T1a 认购退款与升级骨架**，详见 [M1a 交付说明](docs/M1a.md)。Q1–Q9 的实测结论与已确认勘误见 [M0 报告](docs/M0-report.md)。尚未部署。
+当前任务：**T1b 原子购机与余款领取**，详见 [M1b 交付说明](docs/M1b.md)。认购退款基础见 [M1a 交付说明](docs/M1a.md)，Q1–Q9 的实测结论与已确认勘误见 [M0 报告](docs/M0-report.md)。尚未部署。
 
 目标仓库：[jianfengliao774-sketch/pinkuang](https://github.com/jianfengliao774-sketch/pinkuang)。
 
@@ -47,15 +47,15 @@ npm run validate:upgrades
 Windows 中文路径请使用：
 
 ```sh
-node scripts/check-local.mjs T1a
+node scripts/check-local.mjs T1b
 ```
 
 该命令在系统临时目录创建英文路径的源码副本，核对 Solidity/config 文件 SHA-256 后执行检查，
-日志保存在原项目 `docs/logs/T1a/`。临时目录记录于 `summary.json`，保留供复核。
+日志保存在原项目 `docs/logs/T1b/contracts/`。临时目录记录于 `summary.json`，保留供复核。
 在其他英文路径克隆项目时可以直接使用上述 npm 命令。
 
-`npm test` 运行认购退款、治理和状态不变量；协议测试另运行 `npm run test:fork`。
-CI 执行 Slither 及明确指定 Factory/Vault 的升级验证，兼容/不兼容布局均有验证。
+`npm test` 运行认购退款、购机、治理和状态不变量；协议测试另运行 `npm run test:fork`。
+CI 执行 Slither 及明确指定 Factory/Vault 的升级验证，对照已交付 T1a 的真实布局，兼容/不兼容 fixture 均有验证。CI 证据使用当前 run 的独立临时目录，避免混入仓库已有日志。
 后续正式升级还必须提供已部署版本的 referenceContract / `@custom:oz-upgrades-from`，不能把本卡 V2 fixture 当作任意未来版本兼容证明。
 
 依赖由 `package-lock.json` 锁定：OpenZeppelin Contracts / Contracts-Upgradeable 5.0.2、
@@ -65,7 +65,7 @@ NPM 安装和 FFI 配置依据 [OpenZeppelin 官方 Foundry 指南](https://docs
 
 ## 固定区块 fork 验证
 
-固定 BSC 主网区块 `123728000`；四组测试覆盖开挖、转移与收益、市场成交、BEM 权限和双向换币。
+固定 BSC 主网区块 `123728000`；五组测试覆盖开挖、转移与收益、市场成交、BEM 权限、双向换币，以及实际 PoolVault 的市场购机和卖家直卖。
 执行前将 `.env.example` 的 BSC_RPC_URL 和 FORK_BLOCK 导出为进程环境变量（脚本不会自动读取 .env）。
 Windows 中文目录会自动拷贝到 ASCII 临时目录并核对源码哈希。
 
@@ -73,7 +73,7 @@ Windows 中文目录会自动拷贝到 ASCII 临时目录并核对源码哈希�
 npm run test:fork
 ```
 
-缺少 RPC 或区块不同均退出码 1。原始输出和源码哈希保存在 `docs/logs/T0.2/`。
+缺少 RPC 或区块不同均退出码 1。当前原始输出和源码哈希保存在 `docs/logs/T1b/fork/`；M0 原始证据继续保留在 `docs/logs/T0.2/`。可设置 `VALIDATION_TASK` 按任务保存日志。
 GitHub Actions 在 push / PR 上通过公开归档 RPC 运行同一固定区块测试，不向 PR 提供 RPC 凭据。
 也可通过 workflow_dispatch 的 `run_fork` 开关重跑。节点失效会失败，不会跳过后标成通过。
 

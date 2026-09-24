@@ -1,0 +1,208 @@
+No files changed, compilation skipped
+
+Ran 12 tests for test/unit/PoolGovernance.t.sol:PoolGovernanceTest
+[PASS] test_BeaconOwnershipCannotMigrateEvenThroughTimelock() (gas: 98941)
+[PASS] test_BeaconUpgradeChangesAllPoolsOnlyAfter48Hours() (gas: 5250169)
+[PASS] test_CreateBothWhitelistedCircuitTypesAndDirectSale() (gas: 1030505)
+[PASS] test_CreatePoolRegistryAndTreasurySnapshot() (gas: 983624)
+[PASS] test_CreateRejectsInvalidEconomicAndTimingParameters() (gas: 213879)
+[PASS] test_DailyAdminDoesNotGiveOperatorOwnerPowers() (gas: 582904)
+[PASS] test_FactoryUpgradeRequiresRealTimelockQueueAndPreservesRegistry() (gas: 2266214)
+[PASS] test_GovernanceRolesAndNoDeployerAdmin() (gas: 77022)
+[PASS] test_InitializationRejectsMissingRolesAndUnprotectedGovernance() (gas: 2257238)
+[PASS] test_InitializeIsAtomicAndCannotBeRepeated() (gas: 38708)
+[PASS] test_TimelockDelayCannotBeReducedBelow48Hours() (gas: 63457)
+[PASS] test_TimelockProposeCancelAndPublicExecuteBoundaries() (gas: 57985)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 6.36ms (4.03ms CPU time)
+
+Ran 29 tests for test/unit/PoolFunding.t.sol:PoolFundingTest
+[PASS] testFuzz_paymentMustMatchExactIntegerShares(uint8,uint96) (runs: 256, μ: 57329, ~: 57248)
+Logs:
+  Bound result 6
+  Bound result 36186
+
+[PASS] test_assetOwedExposesOnlyNativeBnbLiability() (gas: 323337)
+[PASS] test_bnbCallbackCannotWithdrawTwice() (gas: 430496)
+[PASS] test_checkpointTracksMembershipAndSameTimestampFinalState() (gas: 685627)
+[PASS] test_cumulativeShareCapAndRepeatMembership() (gas: 336416)
+[PASS] test_currentAndFutureCheckpointLookupsReject() (gas: 33388)
+[PASS] test_depositBeforeDeadlineButRejectAtDeadlineAndAfter() (gas: 320797)
+[PASS] test_depositOneAndFortyNineShares() (gas: 467424)
+[PASS] test_erc20TransfersAndApprovalsCannotReplaceBnbSubscription() (gas: 584034)
+[PASS] test_failedBnbTransferRestoresPullCredit() (gas: 363351)
+[PASS] test_finalizeBeforeFundingDeadlineAndRepeatedFinalizeRejected() (gas: 357539)
+[PASS] test_fundingTimeoutCreditsActualContributionsOnly() (gas: 525704)
+[PASS] test_initialStateAndAssetBindings() (gas: 73999)
+[PASS] test_nonCanonicalUint8AbiCannotMintFractionalShares() (gas: 36389)
+[PASS] test_oneHundredMemberFailureHasBoundedGasAndConservesBnb() (gas: 17012003)
+Logs:
+  finalizeFailure 100 members gas: 2358968
+
+[PASS] test_operatorReplacementRevokesOldAuthorityInExistingPool() (gas: 78388)
+[PASS] test_overRemainingSharesRejectedThenLastShareCompletes() (gas: 817889)
+[PASS] test_pauseOnlyDepositsAndDoesNotBlockWithdrawalOrFailure() (gas: 552335)
+[PASS] test_pauseRequiresOperatorAndResumeRestoresDeposits() (gas: 355859)
+[PASS] test_plainBnbTransferCannotSubscribe() (gas: 39810)
+[PASS] test_purchaseTimeoutAndExactDeadline() (gas: 694983)
+[PASS] test_redepositDoesNotOverwritePriorPullCreditOrDuplicateRefund() (gas: 484820)
+[PASS] test_refundHasNoBemClaimIntervalOrExpiry() (gas: 707977)
+[PASS] test_repeatedWithdrawAndNonMemberCannotTakeOthersBnb() (gas: 339245)
+[PASS] test_shareTransferAndTransferFromRejectedBeforeActive() (gas: 333643)
+[PASS] test_threeMembersFortyNineFortyNineTwoFundExactly() (gas: 654662)
+[PASS] test_withdrawDepositAfterDeadlineBeforeFinalizationRemainsAvailable() (gas: 350637)
+[PASS] test_withdrawDepositIsPullAndRemovesCurrentMember() (gas: 463014)
+[PASS] test_zeroAndFiftySharesRejected() (gas: 52772)
+Suite result: ok. 29 passed; 0 failed; 0 skipped; finished in 30.20ms (44.54ms CPU time)
+
+Ran 37 tests for test/unit/PoolPurchase.t.sol:PoolPurchaseTest
+[PASS] testFuzz_badClaimPostconditionsRollback(uint8) (runs: 256, μ: 988252, ~: 980608)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_badPostPurchaseOwnershipOrMiningRollsBack(uint8) (runs: 256, μ: 1149244, ~: 1169492)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_directBadCallbackRollsBackSellerCreditAndReward(uint8) (runs: 256, μ: 1477423, ~: 1461993)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_wrongOrDuplicateCallbackRollsBack(uint8) (runs: 256, μ: 1128265, ~: 1106922)
+Logs:
+  Bound result 3
+
+[PASS] test_callbackCannotReenterAnotherPurchase() (gas: 1252308)
+[PASS] test_claimCallbackCannotReenterAnotherPurchase() (gas: 1301495)
+[PASS] test_claimCallbackCannotWithdrawExistingCredit() (gas: 1399018)
+[PASS] test_claimFailureDoesNotGetSwallowedEvenWhenPendingZero() (gas: 868219)
+[PASS] test_directDeadlineRejectsAtDeadline() (gas: 1190066)
+[PASS] test_directOnlyConfiguredSellerAndRequiresApproval() (gas: 1376433)
+[PASS] test_directPurchasedEventIdentifiesPathAndPrice() (gas: 1488055)
+[PASS] test_directRepeatPurchaseCannotCreditSellerTwice() (gas: 1492948)
+[PASS] test_directSellerMayBeAMemberWithoutMixingSellerPriceAndSurplus() (gas: 1516591)
+[PASS] test_directSellerReceivesPullCreditAndHistoricalBem() (gas: 1544154)
+[PASS] test_existingSellerBemCannotMaskMissingSettlementReceipt() (gas: 984635)
+[PASS] test_inactiveMinerCannotBePurchased() (gas: 838284)
+[PASS] test_marketDeadlineRejectsAtDeadlineAndLeavesRefundAvailable() (gas: 870363)
+[PASS] test_marketFailureRollsBackPreviouslyMintedSellerReward() (gas: 1108719)
+[PASS] test_marketPriceCapInclusiveAndOneWeiExcessRejected() (gas: 1285084)
+[PASS] test_marketPurchaseOneSecondBeforeDeadlineSucceedsDespiteDepositPause() (gas: 1175932)
+[PASS] test_marketPurchasePaysOnlyListedPriceAndCreditsOriginalSurplus() (gas: 1180645)
+[PASS] test_marketRejectsInvalidListingWrongNftAndWrongTokenId() (gas: 1005217)
+[PASS] test_marketRejectsSellerWhoseOwnershipChanged() (gas: 823463)
+[PASS] test_marketSettlementEventPrecedesNftTransferAndPurchase() (gas: 1147711)
+[PASS] test_minerBecomingInactiveDuringClaimRollsBackEverything() (gas: 1190919)
+[PASS] test_miningRecordMustMatchRequestedNft() (gas: 838474)
+[PASS] test_noSurplusWhenPurchaseUsesEntireRaise() (gas: 1603562)
+[PASS] test_previousWithdrawalCreditAndForcedBnbDoNotInflateSurplus() (gas: 1226362)
+[PASS] test_purchaseRequiresFundedAndCannotRepeat() (gas: 1154217)
+[PASS] test_rejectingDirectSellerDoesNotBlockPurchaseAndKeepsPullCredit() (gas: 1723015)
+[PASS] test_surplusDoesNotPermitOrdinaryTransfersBeforeT1d() (gas: 1142125)
+[PASS] test_surplusRemainderReservedSeparatelyAndAllMembersConserveBnb() (gas: 1348567)
+[PASS] test_surplusWithdrawImmediatelyAtPurchaseTimestampAndOnlyOnce() (gas: 1215802)
+[PASS] test_unconfiguredDirectPathRejected() (gas: 653989)
+[PASS] test_unsolicitedTargetNftTransferRejectedOutsidePurchaseContext() (gas: 690945)
+[PASS] test_zeroStoredPendingStillClaimsUnreportedRewards() (gas: 1162960)
+[PASS] test_zeroTotalRewardCanStillBeSettledAndPurchased() (gas: 1116198)
+Suite result: ok. 37 passed; 0 failed; 0 skipped; finished in 213.64ms (509.61ms CPU time)
+
+Ran 2 tests for test/invariant/PoolFundingInvariant.t.sol:PoolFundingInvariantTest
+[PASS] invariant_fundingUsesRealBnbAndRefundsRemainSolvent() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 1199  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 1249  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 1158  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 1202  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 1140  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 1116  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 1128  | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 1124
+  Bound result 6082
+  Bound result 80496
+  Bound result 1236605762
+  Bound result 3165
+  Bound result 1779915
+  Bound result 8932
+  Bound result 11892
+  Bound result 49
+  Bound result 49
+  Bound result 233207
+  Bound result 8380
+  Bound result 2
+  Bound result 805936057157056898
+  Bound result 324406
+  Bound result 307892480720597298
+  Bound result 9860
+  Bound result 96754
+  Bound result 4248
+  Bound result 169
+  Bound result 7128
+  Bound result 3
+  Bound result 263815
+  Bound result 1
+  Bound result 92575
+  Bound result 10513
+
+[PASS] invariant_shareSupplyAndCurrentMemberIndexAgree() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 1199  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 1249  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 1158  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 1202  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 1140  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 1116  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 1128  | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 1125
+  Bound result 6082
+  Bound result 80496
+  Bound result 1236605762
+  Bound result 3098
+  Bound result 1779915
+  Bound result 8904
+  Bound result 245016
+  Bound result 49
+  Bound result 49
+  Bound result 233207
+  Bound result 678688616855754601
+  Bound result 2
+  Bound result 805936057157056898
+  Bound result 111579
+  Bound result 307892480720597298
+  Bound result 9948
+  Bound result 96754
+  Bound result 772
+  Bound result 168
+  Bound result 9142
+  Bound result 3
+  Bound result 263815
+  Bound result 1
+  Bound result 160857
+  Bound result 10355
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 8.06s (13.64s CPU time)
+
+Ran 4 test suites in 8.06s (8.31s CPU time): 80 tests passed, 0 failed, 0 skipped (80 total tests)
