@@ -37,8 +37,10 @@ jobs:
         run: npm run fmt:check
       - name: Compile and check sizes
         run: npm run build
-      - name: Unit and invariant tests (not implemented until M1)
+      - name: Funding, refund, governance and invariant tests
         run: npm test
+      - name: Initial implementation and upgrade storage validation
+        run: npm run validate:upgrades
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,8 +53,12 @@ jobs:
           else
             echo 'NOT APPLICABLE (M0): no business Solidity sources for Slither.'
           fi
-      - name: Upgrade validation (not applicable until M1)
-        run: npm run validate:upgrades
+      - name: Preserve T1a validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1a-validation-evidence
+          path: docs/logs/T1a/
 
   fork:
     if: github.event_name != 'workflow_dispatch' || inputs.run_fork

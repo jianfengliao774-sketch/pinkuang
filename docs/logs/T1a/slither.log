@@ -1,0 +1,49 @@
+'forge clean' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-oQRwEN\contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-oQRwEN\contracts)
+INFO:Detectors:
+Detector: timestamp
+PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#144-156) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#151)
+PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#56-71) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#60)
+PoolVault.deposit(uint8) (src/PoolVault.sol#73-93) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#77)
+PoolVault.finalizeFailure() (src/PoolVault.sol#110-134) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.params.fundingDeadline (src/PoolVault.sol#114)
+	- block.timestamp < s.params.purchaseDeadline (src/PoolVault.sol#116)
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#159-169) uses timestamp for comparisons
+	Dangerous comparisons:
+	- previousCount != currentCount (src/PoolVault.sol#168)
+PoolVault._syncMember(PoolVault.VaultStorage,address) (src/PoolVault.sol#171-193) uses timestamp for comparisons
+	Dangerous comparisons:
+	- currentShares != 0 && previousShares == 0 (src/PoolVault.sol#179)
+	- currentShares == 0 && previousShares != 0 (src/PoolVault.sol#183)
+PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#195-198) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#196)
+PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#200-203) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#201)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+PoolFactory._factoryStorage() (src/PoolFactory.sol#158-161) uses assembly
+	- INLINE ASM (src/PoolFactory.sol#160)
+PoolVault._vaultStorage() (src/PoolVault.sol#52-54) uses assembly
+	- INLINE ASM (src/PoolVault.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in PoolVault.withdrawBnb() (src/PoolVault.sol#141-150):
+	- (success,None) = msg.sender.call{value: amount}() (src/PoolVault.sol#147)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: naming-convention
+Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#209-211) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Slither:. analyzed (58 contracts with 101 detectors), 12 result(s) found

@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
+
+/// @notice Creates independently funded BNB pools. Daily administration and upgrade authority are separate.
+contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, IPoolFactoryRoles {
+    uint256 public constant TOTAL_SHARES = 100;
+    uint256 public constant MINIMUM_UPGRADE_DELAY = 48 hours;
+    address public constant TAPEOUT_CIRCUITS = 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C;
+    address public constant BEHEMOTH_CIRCUITS = 0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C;
+
+    /// @custom:storage-location erc7201:tapeout.storage.PoolFactory
+    struct FactoryStorage {
+        address operator;
+        address treasury;
+        address timelock;
+        address beacon;
+        bool creationPaused;
+        mapping(address => bool) isPool;
+        address[] allPools;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolFactory")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant FACTORY_STORAGE = 0x7df0f2776085c7e815f62ac029a5c2187a970116ca74c4ab435eb122a2a16a00;
+
+    error InvalidAddress();
+    error InvalidGovernance();
+    error Unauthorized();
+    error CreationPaused();
+
+    event PoolCreated(
+        address indexed pool,
+        address indexed circuits,
+        uint256 indexed circuitId,
+        uint256 targetRaise,
+        uint256 priceCap,
+        address treasury
+    );
+    event OperatorChanged(address indexed previousOperator, address indexed newOperator);
+    event TreasuryChanged(address indexed previousTreasury, address indexed newTreasury);
+    event CreationPauseChanged(bool paused);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address ownerMultisig, address operator_, address treasury_, address timelock_, address beacon_)
+        external
+        initializer
+    {
+        if (ownerMultisig == address(0) || operator_ == address(0) || treasury_ == address(0)) revert InvalidAddress();
+        if (timelock_.code.length == 0 || beacon_.code.length == 0) revert InvalidGovernance();
+        if (
+            TimelockController(payable(timelock_)).getMinDelay() < MINIMUM_UPGRADE_DELAY
+                || UpgradeableBeacon(beacon_).owner() != timelock_
+        ) revert InvalidGovernance();
+        __Ownable_init(ownerMultisig);
+        __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
+        FactoryStorage storage $ = _factoryStorage();
+        $.operator = operator_;
+        $.treasury = treasury_;
+        $.timelock = timelock_;
+        $.beacon = beacon_;
+    }
+
+    function createPool(IPoolVault.PoolParams calldata params) external nonReentrant returns (address pool) {
+        FactoryStorage storage $ = _factoryStorage();
+        if (msg.sender != $.operator) revert Unauthorized();
+        if ($.creationPaused) revert CreationPaused();
+        _validateParams(params);
+        pool = address(
+            new BeaconProxy($.beacon, abi.encodeCall(IPoolVault.initialize, (address(this), params, $.treasury)))
+        );
+        $.isPool[pool] = true;
+        $.allPools.push(pool);
+        emit PoolCreated(pool, params.circuits, params.circuitId, params.targetRaise, params.priceCap, $.treasury);
+    }
+
+    function setOperator(address operator_) external onlyOwner {
+        if (operator_ == address(0)) revert InvalidAddress();
+        FactoryStorage storage $ = _factoryStorage();
+        emit OperatorChanged($.operator, operator_);
+        $.operator = operator_;
+    }
+
+    /// @notice Updates the treasury for future pools; existing pool parameters stay fixed.
+    function setTreasury(address treasury_) external onlyOwner {
+        if (treasury_ == address(0)) revert InvalidAddress();
+        FactoryStorage storage $ = _factoryStorage();
+        emit TreasuryChanged($.treasury, treasury_);
+        $.treasury = treasury_;
+    }
+
+    function pauseCreation(bool paused) external onlyOwner {
+        _factoryStorage().creationPaused = paused;
+        emit CreationPauseChanged(paused);
+    }
+
+    function operator() external view returns (address) {
+        return _factoryStorage().operator;
+    }
+
+    function treasury() external view returns (address) {
+        return _factoryStorage().treasury;
+    }
+
+    function timelock() external view returns (address) {
+        return _factoryStorage().timelock;
+    }
+
+    function beacon() external view returns (address) {
+        return _factoryStorage().beacon;
+    }
+
+    function creationPaused() external view returns (bool) {
+        return _factoryStorage().creationPaused;
+    }
+
+    function isPool(address pool) external view returns (bool) {
+        return _factoryStorage().isPool[pool];
+    }
+
+    function allPools(uint256 index) external view returns (address) {
+        return _factoryStorage().allPools[index];
+    }
+
+    function poolCount() external view returns (uint256) {
+        return _factoryStorage().allPools.length;
+    }
+
+    function _authorizeUpgrade(address) internal view override {
+        if (msg.sender != _factoryStorage().timelock) revert Unauthorized();
+    }
+
+    function _validateParams(IPoolVault.PoolParams calldata params) private view {
+        if (params.circuits != TAPEOUT_CIRCUITS && params.circuits != BEHEMOTH_CIRCUITS) {
+            revert IPoolVault.WrongCircuit();
+        }
+        if (params.targetRaise == 0) revert IPoolVault.InvalidParameters();
+        if (params.targetRaise % TOTAL_SHARES != 0) revert IPoolVault.FundingTargetNotDivisible();
+        if (params.priceCap == 0 || params.priceCap > params.targetRaise) revert IPoolVault.OverPriceCap();
+        if (params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline) {
+            revert IPoolVault.InvalidParameters();
+        }
+        if ((params.directSeller == address(0)) != (params.directPrice == 0)) revert IPoolVault.InvalidParameters();
+        if (params.directPrice > params.priceCap) revert IPoolVault.OverPriceCap();
+    }
+
+    function _factoryStorage() private pure returns (FactoryStorage storage $) {
+        bytes32 slot = FACTORY_STORAGE;
+        assembly { $.slot := slot }
+    }
+}

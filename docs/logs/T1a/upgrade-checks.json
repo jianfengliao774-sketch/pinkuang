@@ -1,0 +1,38 @@
+[
+  {
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "contract": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "contract": "test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture",
+    "reference": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "contract": "test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "contract": "test/utils/InvalidVaultLayout.sol:InvalidVaultLayout",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": true,
+    "standaloneOk": true,
+    "storageLayoutOk": false,
+    "ok": false
+  }
+]
