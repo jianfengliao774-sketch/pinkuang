@@ -1,9 +1,19 @@
-import { readdirSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validate as validateCompilerOutput, solcInputOutputDecoder, getContractVersion,
+  getStorageLayout, getStorageUpgradeReport } from '@openzeppelin/upgrades-core';
 import { validateUpgradeSafety } from '@openzeppelin/upgrades-core/dist/cli/validate/validate-upgrade-safety.js';
 import prepareUpgradeBuildInfo from './prepare-upgrade-build-info.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const task = process.env.VALIDATION_TASK ?? 'T1b';
+if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid VALIDATION_TASK');
+const logRoot = resolve(process.env.VALIDATION_EVIDENCE_ROOT ?? join(root, 'docs/logs', task, 'contracts'));
+mkdirSync(logRoot, { recursive: true });
+const startedAt = new Date().toISOString();
 const sources = readdirSync(`${root}/contracts/src`, { recursive: true });
 if (!sources.some(path => path.endsWith('.sol'))) {
   console.log('NOT APPLICABLE (T0.1): no business implementations or prior storage layout exist.');
@@ -13,13 +23,14 @@ if (!sources.some(path => path.endsWith('.sol'))) {
 // same validation engine used by openzeppelin-foundry-upgrades, with real references.
 const buildInfo = prepareUpgradeBuildInfo(root);
 const results = [];
+const sha256 = value => createHash('sha256').update(value).digest('hex');
 async function validate(contract, reference, negative = false) {
   const report = await validateUpgradeSafety(buildInfo, contract, reference, { requireReference: Boolean(reference) });
   console.log(`\nValidation target: ${contract}${reference ? ` against ${reference}` : ' (initial implementation)'}`);
   console.log(report.explain(false));
   if (report.numTotal !== 1) throw new Error(`Expected exactly one report for ${contract}`);
   const detail = report.upgradeableContractReports[0];
-  results.push({ contract, reference, negative, standaloneOk: detail.standaloneReport.ok,
+  results.push({ kind: 'implementation-or-fixture', contract, reference, negative, standaloneOk: detail.standaloneReport.ok,
     storageLayoutOk: detail.storageLayoutReport?.ok, ok: report.ok });
   if (negative) {
     if (report.ok || !detail.standaloneReport.ok || detail.storageLayoutReport?.ok !== false) {
@@ -30,12 +41,69 @@ async function validate(contract, reference, negative = false) {
     throw new Error(`Upgrade validation failed: ${contract}`);
   }
 }
-await validate('src/PoolFactory.sol:PoolFactory');
-await validate('src/PoolVault.sol:PoolVault');
-await validate('test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture', 'src/PoolFactory.sol:PoolFactory');
-await validate('test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture', 'src/PoolVault.sol:PoolVault');
-await validate('test/utils/InvalidVaultLayout.sol:InvalidVaultLayout', 'src/PoolVault.sol:PoolVault', true);
-mkdirSync(`${root}/docs/logs/T1a`, { recursive: true });
-copyFileSync(`${root}/contracts/out/upgrade-build-info-audit.json`, `${root}/docs/logs/T1a/upgrade-build-info-audit.json`);
-writeFileSync(`${root}/docs/logs/T1a/upgrade-checks.json`, JSON.stringify(results, null, 2) + '\n');
-console.log('Initial safety checks, both compatible upgrades, and incompatible-layout rejection completed.');
+
+function requireNamespacedLayout(layout, name) {
+  const namespace = `erc7201:tapeout.storage.${name}`;
+  assert(layout && Array.isArray(layout.storage), `Missing ordinary storage layout: ${name}`);
+  assert(layout.types && Object.keys(layout.types).length > 0, `Missing storage types: ${name}`);
+  assert(layout.namespaces?.[namespace]?.length > 0, `Missing business namespace: ${name}`);
+  for (const [key, fields] of Object.entries(layout.namespaces)) {
+    assert(Array.isArray(fields) && fields.length > 0, `Empty namespace: ${key}`);
+    for (const field of fields) {
+      assert(typeof field.label === 'string' && field.label.length > 0, `Unlabelled field in ${key}`);
+      assert(typeof field.type === 'string' && layout.types[field.type], `Missing field type in ${key}`);
+    }
+  }
+  return layout.namespaces[namespace].length;
+}
+
+function validateT1aBaselines() {
+  const compilations = readdirSync(buildInfo).filter(file => file.endsWith('.json')).map(file => {
+    const info = JSON.parse(readFileSync(join(buildInfo, file), 'utf8'));
+    return { info, data: validateCompilerOutput(info.output, solcInputOutputDecoder(info.input, info.output),
+      info.solcVersion, info.input) };
+  });
+  for (const name of ['PoolFactory', 'PoolVault']) {
+    const contract = `src/${name}.sol:${name}`;
+    const baselinePath = `docs/storage/T1a-${name}.json`;
+    const baselineBytes = readFileSync(join(root, baselinePath));
+    const baseline = JSON.parse(baselineBytes.toString('utf8'));
+    assert.equal(baseline.schemaVersion, 1, `Unsupported baseline schema: ${baselinePath}`);
+    assert.equal(baseline.contract, contract, `Wrong baseline target: ${baselinePath}`);
+    assert.equal(baseline.provenance.commit, '339c034e4bf4b504dcd4a7479d272a7f662497fc', 'Unexpected T1a baseline commit');
+    assert(/^[0-9a-f]{64}$/.test(baseline.provenance.sourceSha256), 'Missing baseline source provenance');
+    const matches = compilations.filter(({ data }) => data[contract]);
+    assert.equal(matches.length, 1, `Expected exactly one compiled layout for ${contract}; use a clean build`);
+    const { info, data } = matches[0];
+    const current = getStorageLayout(data, getContractVersion(data, contract));
+    const previousFieldCount = requireNamespacedLayout(baseline.layout, name);
+    const currentFieldCount = requireNamespacedLayout(current, name);
+    const report = getStorageUpgradeReport(baseline.layout, current, {});
+    results.push({ kind: 'T1a-baseline', contract, baselinePath, baselineCommit: baseline.provenance.commit,
+      baselineFileSha256: sha256(baselineBytes), baselineSourceSha256: baseline.provenance.sourceSha256,
+      currentSourceSha256: sha256(info.input.sources[`src/${name}.sol`].content),
+      previousFieldCount, currentFieldCount, storageLayoutOk: report.ok, ok: report.ok });
+    console.log(`\nT1a baseline -> current ${contract}: ${report.ok ? 'PASS' : 'FAIL'} (${previousFieldCount} -> ${currentFieldCount} business fields)`);
+    if (!report.ok) {
+      console.error(report.explain(false));
+      throw new Error(`Storage is incompatible with the delivered T1a baseline: ${contract}`);
+    }
+  }
+}
+
+let ok = false;
+try {
+  await validate('src/PoolFactory.sol:PoolFactory');
+  await validate('src/PoolVault.sol:PoolVault');
+  validateT1aBaselines();
+  await validate('test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture', 'src/PoolFactory.sol:PoolFactory');
+  await validate('test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture', 'src/PoolVault.sol:PoolVault');
+  await validate('test/utils/InvalidVaultLayout.sol:InvalidVaultLayout', 'src/PoolVault.sol:PoolVault', true);
+  ok = true;
+  console.log('Initial checks, delivered T1a baselines, both compatible fixtures, and incompatible-layout rejection completed.');
+} finally {
+  copyFileSync(join(root, 'contracts/out/upgrade-build-info-audit.json'), join(logRoot, 'upgrade-build-info-audit.json'));
+  writeFileSync(join(logRoot, 'upgrade-checks.json'), JSON.stringify(results, null, 2) + '\n');
+  writeFileSync(join(logRoot, 'upgrade-summary.json'), JSON.stringify({ task, startedAt,
+    finishedAt: new Date().toISOString(), ok, checks: results.length }, null, 2) + '\n');
+}

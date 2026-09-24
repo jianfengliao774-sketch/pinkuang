@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       run_fork:
-        description: Run T0.2 on the reviewed fixed FORK_BLOCK
+        description: Run protocol and T1b purchase forks on the reviewed fixed block
         type: boolean
         default: false
 
@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 20
     env:
       FOUNDRY_PROFILE: ci
+      VALIDATION_TASK: T1b
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,32 +34,24 @@ jobs:
         with:
           version: v1.7.1
       - run: npm ci
-      - name: Formatting
-        run: npm run fmt:check
-      - name: Compile and check sizes
-        run: npm run build
-      - name: Funding, refund, governance and invariant tests
-        run: npm test
-      - name: Initial implementation and upgrade storage validation
-        run: npm run validate:upgrades
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python -m pip install slither-analyzer==0.11.5
-      - name: Static analysis
-        working-directory: contracts
-        run: |
-          if find src -name '*.sol' -print -quit | grep -q .; then
-            slither . --filter-paths '../node_modules/|test/|script/' --fail-medium
-          else
-            echo 'NOT APPLICABLE (M0): no business Solidity sources for Slither.'
-          fi
-      - name: Preserve T1a validation evidence
+      - name: Format, sizes, unit and invariant tests, T1a layout compatibility, Slither
+        id: validation
+        env:
+          # This directory is outside the checkout and unique to the current run.
+          # Checked-in local logs cannot be uploaded as remote-run evidence.
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1b-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/check-local.mjs
+      - name: Preserve current contracts validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: t1a-validation-evidence
-          path: docs/logs/T1a/
+          name: t1b-contracts-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1b-contracts-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
 
   fork:
     if: github.event_name != 'workflow_dispatch' || inputs.run_fork
@@ -67,6 +60,7 @@ jobs:
     timeout-minutes: 30
     env:
       FOUNDRY_PROFILE: ci
+      VALIDATION_TASK: T1b
       # Public archive endpoint: no credentials are exposed to pull request code.
       BSC_RPC_URL: https://bsc-mainnet.public.blastapi.io
       FORK_BLOCK: '123728000'
@@ -80,10 +74,14 @@ jobs:
         with:
           version: v1.7.1
       - run: npm ci
-      - run: npm run test:fork
-      - name: Preserve raw fork evidence
+      - name: Protocol and purchase fork tests
+        env:
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1b-fork-${{ github.run_id }}-${{ github.run_attempt }}
+        run: npm run test:fork
+      - name: Preserve current raw fork evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m0-fork-evidence
-          path: docs/logs/T0.2/
+          name: t1b-fork-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1b-fork-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn

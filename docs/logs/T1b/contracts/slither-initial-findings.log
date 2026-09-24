@@ -1,0 +1,71 @@
+'forge clean' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-qjulnC\contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-qjulnC\contracts)
+INFO:Detectors:
+Detector: weak-prng
+PoolVault._finishPurchase(PoolVault.VaultStorage,uint256,uint8,uint256,bytes32) (src/PoolVault.sol#258-275) uses a weak PRNG: "s.surplusRemainder = surplus % TOTAL_SHARES (src/PoolVault.sol#272)" 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#weak-PRNG
+INFO:Detectors:
+Detector: reentrancy-balance
+Reentrancy in PoolVault._settleSellerRewards(PoolVault.VaultStorage,address,bytes32,bytes32) (src/PoolVault.sol#220-238):
+	External call allowing reentrancy:
+	- ITapeoutMining(MINING).claim(key) (src/PoolVault.sol#224-227)
+	Balance read before the call:
+	- beforeBalance = IERC20(BEM).balanceOf(seller) (src/PoolVault.sol#222)
+	Possible stale balance used after the call in a condition:
+	- afterBalance < beforeBalance || afterBalance - beforeBalance < pendingBefore (src/PoolVault.sol#229)
+		- stale variable `beforeBalance`
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities
+INFO:Detectors:
+Detector: unused-return
+PoolVault.buyFromMarket(uint256) (src/PoolVault.sol#171-187) ignores return value by (seller,circuits,tokenId,price,None,valid) = ICircuitMarket(CIRCUIT_MARKET).listingView(listingId) (src/PoolVault.sol#173-174)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: timestamp
+PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#144-156) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#151)
+PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#74-89) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#78)
+PoolVault.deposit(uint8) (src/PoolVault.sol#91-111) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#95)
+PoolVault.finalizeFailure() (src/PoolVault.sol#128-152) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.params.fundingDeadline (src/PoolVault.sol#132)
+	- block.timestamp < s.params.purchaseDeadline (src/PoolVault.sol#134)
+PoolVault._requirePurchaseWindow() (src/PoolVault.sol#207-211) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.purchaseDeadline (src/PoolVault.sol#210)
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#302-316) uses timestamp for comparisons
+	Dangerous comparisons:
+	- previousCount != currentCount (src/PoolVault.sol#315)
+PoolVault._syncMember(PoolVault.VaultStorage,address) (src/PoolVault.sol#318-340) uses timestamp for comparisons
+	Dangerous comparisons:
+	- currentShares != 0 && previousShares == 0 (src/PoolVault.sol#326)
+	- currentShares == 0 && previousShares != 0 (src/PoolVault.sol#330)
+PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#342-345) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#343)
+PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#347-350) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#348)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+PoolFactory._factoryStorage() (src/PoolFactory.sol#158-161) uses assembly
+	- INLINE ASM (src/PoolFactory.sol#160)
+PoolVault._vaultStorage() (src/PoolVault.sol#70-72) uses assembly
+	- INLINE ASM (src/PoolVault.sol#71)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in PoolVault.withdrawBnb() (src/PoolVault.sol#159-169):
+	- (success,None) = msg.sender.call{value: amount}() (src/PoolVault.sol#166)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: naming-convention
+Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#356-358) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Slither:. analyzed (61 contracts with 101 detectors), 16 result(s) found
