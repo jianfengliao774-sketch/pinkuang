@@ -9,6 +9,7 @@
 [sha256.json](docs/sources/sha256.json)。不使用 v0.2。
 
 交付状态和原始检查输出见 [docs/T0.1.md](docs/T0.1.md)。
+项目方指定后续页面风格参照“芯火夺宝”，参考版本与候选信息见 [视觉参考记录](docs/design-reference.md)。
 
 ## 工程目录
 
