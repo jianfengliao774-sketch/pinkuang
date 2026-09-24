@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 // Windows solc 0.8.24 cannot reliably resolve non-ASCII dependency paths.
 // Compile an identical snapshot in an ASCII directory, preserving all logs at source.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const task = process.argv[2] ?? process.env.VALIDATION_TASK ?? 'T1c';
+const task = process.argv[2] ?? process.env.VALIDATION_TASK ?? 'T1d';
 if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid validation task name');
 const logRoot = resolve(process.env.VALIDATION_EVIDENCE_ROOT ?? join(root, 'docs/logs', task, 'contracts'));
 mkdirSync(logRoot, { recursive: true });

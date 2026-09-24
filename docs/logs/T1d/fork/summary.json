@@ -1,0 +1,54 @@
+{
+  "task": "T1d",
+  "stage": "fork",
+  "startedAt": "2026-09-24T10:19:25.133Z",
+  "status": "passed",
+  "sourceCommit": "1e015e9e7d33f52e7c89065af33b9601025c3647",
+  "ci": null,
+  "forkBlock": 123728000,
+  "chainId": 56,
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-fork-bZyeqK",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "args": [
+        "test",
+        "--match-path",
+        "test/fork/**",
+        "--fork-url",
+        "bsc",
+        "--fork-block-number",
+        "123728000",
+        "-vv"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "finishedAt": "2026-09-24T10:20:07.054Z"
+}

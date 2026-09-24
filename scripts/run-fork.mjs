@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const task = process.env.VALIDATION_TASK ?? 'T1c';
+const task = process.env.VALIDATION_TASK ?? 'T1d';
 if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid VALIDATION_TASK');
 const pinnedBlock = '123728000';
 if (!process.env.BSC_RPC_URL || process.env.FORK_BLOCK !== pinnedBlock) {

@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const keccak = value => `0x${Buffer.from(keccak256(value)).toString('hex')}`;
-const expectedLibraries = ['MiningOperations', 'RewardAccounting'];
+const expectedLibraries = ['MiningOperations', 'RewardAccounting', 'ShareCheckpoints'];
 const mining = '0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46';
 
 function readArtifact(root, name) {
@@ -61,7 +61,7 @@ function vaultLinks(bytecode, label) {
     }
   }
   assert.deepEqual(links.map(link => link.name).sort(), expectedLibraries,
-    `${label} must link exactly MiningOperations and RewardAccounting`);
+    `${label} must link exactly MiningOperations, RewardAccounting and ShareCheckpoints`);
   return links;
 }
 
@@ -76,7 +76,7 @@ function* walkAst(value) {
 }
 
 // This gate examines compiler AST nodes, not source-text regexes. Its scope is
-// deliberately the two production library source units, not a general security audit.
+// deliberately the three production library source units, not a general security audit.
 function reviewLibraryAst(name, artifact) {
   assert.equal(artifact.ast?.absolutePath, `src/libraries/${name}.sol`, `Wrong source AST: ${name}`);
   const definitions = artifact.ast.nodes.filter(node => node.nodeType === 'ContractDefinition' && node.name === name);
@@ -154,6 +154,6 @@ export default function auditLinkedLibraries(root, logRoot) {
   };
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(join(evidenceRoot, 'library-link-audit.json'), JSON.stringify(audit, null, 2) + '\n');
-  console.log('PASS: PoolVault links exactly 2 reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.');
+  console.log('PASS: PoolVault links exactly 3 reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.');
   return audit;
 }

@@ -14,6 +14,7 @@ import {ICircuitMarket} from "./interfaces/ICircuitMarket.sol";
 import {PoolRewardState} from "./PoolRewardState.sol";
 import {RewardAccounting} from "./libraries/RewardAccounting.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
+import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
@@ -62,6 +63,8 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         address expectedNftSeller;
         address expectedNftOperator;
         bool nftReceived;
+        // T1d: tokens stay with their beneficial owner while this amount is listed.
+        mapping(address => uint256) lockedShares;
     }
 
     bytes32 private constant VAULT_STORAGE_LOCATION =
@@ -358,6 +361,65 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         RewardAccounting.settle(_rewardStorage(), member, balanceOf(member));
     }
 
+    function transfer(address to, uint256 amount) public override nonReentrant returns (bool) {
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override nonReentrant returns (bool) {
+        return super.transferFrom(from, to, amount);
+    }
+
+    function _onlyShareMarket(VaultStorage storage s) private view {
+        if (msg.sender != IPoolFactoryRoles(s.factory).shareMarket()) revert Unauthorized();
+    }
+
+    function _requireShareQuantity(uint256 amount) private pure {
+        if (amount == 0) revert InvalidShareCount();
+        if (amount > maxShares) revert ShareOutOfRange();
+    }
+
+    function lock(address member, uint256 amount) external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        _onlyShareMarket(s);
+        if (s.state != State.Active) revert WrongState();
+        _requireShareQuantity(amount);
+        uint256 previous = s.lockedShares[member];
+        if (amount > balanceOf(member) - previous) revert InsufficientUnlockedShares();
+        s.lockedShares[member] = previous + amount;
+        emit LockedSharesChanged(member, previous, previous + amount);
+    }
+
+    function unlock(address member, uint256 amount) external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        _onlyShareMarket(s);
+        _requireShareQuantity(amount);
+        uint256 previous = s.lockedShares[member];
+        if (amount > previous) revert InsufficientLockedShares();
+        s.lockedShares[member] = previous - amount;
+        emit LockedSharesChanged(member, previous, previous - amount);
+    }
+
+    function transferLocked(address seller, address buyer, uint256 amount) external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        _onlyShareMarket(s);
+        _requireShareQuantity(amount);
+        uint256 previous = s.lockedShares[seller];
+        if (amount > previous) revert InsufficientLockedShares();
+        // Release precisely this order's fill, then use the normal guarded balance path.
+        // There is no global bypass flag that another transfer could inherit.
+        s.lockedShares[seller] = previous - amount;
+        emit LockedSharesChanged(seller, previous, previous - amount);
+        _transfer(seller, buyer, amount);
+    }
+
+    function lockedShares(address member) external view returns (uint256) {
+        return _vaultStorage().lockedShares[member];
+    }
+
+    function availableShares(address member) external view returns (uint256) {
+        return balanceOf(member) - _vaultStorage().lockedShares[member];
+    }
+
     function expiryEnabled() external view returns (bool) {
         return !_rewardStorage().expiryDisabled;
     }
@@ -414,43 +476,41 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     }
 
     function _update(address from, address to, uint256 amount) internal override {
-        // T1d must insert harvest/debt settlement and locked-share rules before enabling transfers.
-        if (from != address(0) && to != address(0)) revert WrongState();
         VaultStorage storage s = _vaultStorage();
-        // T1d will relax the transfer guard only after installing reward and locked-share rules.
-        // Keep these before super._update: same-second transfers must not carry old purchase surplus.
+        if (from != address(0) && to != address(0)) {
+            if (s.state != State.Active) revert WrongState();
+            address market = IPoolFactoryRoles(s.factory).shareMarket();
+            // Register before enabling transfers, so the market can never become a voting member.
+            if (market == address(0)) revert WrongState();
+            if (to == market) revert MarketCannotHoldShares();
+            _requireShareQuantity(amount);
+            if (amount > balanceOf(from) - s.lockedShares[from]) revert InsufficientUnlockedShares();
+            // A failed ordinary harvest must not shift unclaimed old income to the new owner.
+            _harvest(true);
+            _settleRewards(from);
+            if (to != from) _settleRewards(to);
+        } else if (s.state != State.Funding) {
+            revert WrongState();
+        }
+        // Before changing balances, permanently assign acquisition-time BNB to the old holders.
         if (from != address(0)) _materializePurchaseSurplus(s, from);
         if (to != address(0)) _materializePurchaseSurplus(s, to);
         super._update(from, to, amount);
-        if (from != address(0)) _syncMember(s, from);
-        if (to != address(0)) _syncMember(s, to);
-        (uint208 previousCount, uint208 currentCount) =
-            s.memberHistory.push(clock(), SafeCast.toUint208(s.activeMembers.length));
-        if (previousCount != currentCount) emit MemberCountChanged(previousCount, currentCount);
-    }
-
-    function _syncMember(VaultStorage storage s, address member) private {
-        uint256 balance = balanceOf(member);
-        uint256 index = s.memberIndexPlusOne[member];
-        (uint208 previousShares, uint208 currentShares) =
-            s.shareHistory[member].push(clock(), SafeCast.toUint208(balance));
-        // These are integer SHARE VALUES returned by Checkpoints, not its timestamp keys.
-        // Zero is precisely the membership boundary; neither value is an external BNB balance.
-        // slither-disable-next-line incorrect-equality
-        if (currentShares != 0 && previousShares == 0) {
-            s.activeMembers.push(member);
-            s.memberIndexPlusOne[member] = s.activeMembers.length;
-            // slither-disable-next-line incorrect-equality
-        } else if (currentShares == 0 && previousShares != 0) {
-            uint256 last = s.activeMembers.length;
-            if (index != last) {
-                address moved = s.activeMembers[last - 1];
-                s.activeMembers[index - 1] = moved;
-                s.memberIndexPlusOne[moved] = index;
-            }
-            s.activeMembers.pop();
-            delete s.memberIndexPlusOne[member];
+        if ((from != address(0) && balanceOf(from) > maxShares) || (to != address(0) && balanceOf(to) > maxShares)) {
+            revert ShareOutOfRange();
         }
+        (uint208 previousCount, uint208 currentCount) = ShareCheckpoints.sync(
+            s.activeMembers,
+            s.memberIndexPlusOne,
+            s.shareHistory,
+            s.memberHistory,
+            from,
+            to,
+            balanceOf(from),
+            balanceOf(to),
+            clock()
+        );
+        if (previousCount != currentCount) emit MemberCountChanged(previousCount, currentCount);
     }
 
     function getPastShares(address member, uint48 timestamp) external view returns (uint256) {
