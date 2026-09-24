@@ -67,7 +67,10 @@ function run(name, args) {
 run('toolchain', ['--version']);
 run('forge-fmt', ['fmt', '--check']);
 run('forge-build-sizes', ['build', '--sizes', '--force']);
-run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock, '-vv']);
+// Public archive RPCs throttle bursty storage reads. Serialize fork tests and
+// retain Foundry's provider limiter at a conservative rate; do not skip failures.
+run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock,
+  '--threads', '1', '--compute-units-per-second', '50', '-vv']);
 summary.status = 'passed';
 summary.finishedAt = new Date().toISOString();
 writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
