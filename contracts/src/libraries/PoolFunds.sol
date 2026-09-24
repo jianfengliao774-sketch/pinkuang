@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IPoolVault} from "../interfaces/IPoolVault.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
 
@@ -14,6 +15,12 @@ library PoolFunds {
     event BnbWithdrawn(address indexed user, uint256 amount);
     event Purchased(uint256 cost, uint8 path, uint256 listingId);
     event PurchaseSurplusSettled(address indexed user, uint256 shares, uint256 amount);
+
+    /// @notice Wallet metadata identifies both the collection and the intended miner.
+    function shareName(address circuits, uint256 circuitId) external pure returns (string memory) {
+        string memory collection = circuits == 0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C ? "Behemoth" : "TapeOut";
+        return string.concat(collection, " #", Strings.toString(circuitId), " Pool Share");
+    }
 
     function finalizeFailure(PoolVaultState.VaultStorage storage s) external {
         uint8 reason = 0;

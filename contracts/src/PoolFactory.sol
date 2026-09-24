@@ -5,9 +5,11 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
+import {IShareMarket} from "./interfaces/IShareMarket.sol";
 
 interface IRegisteredShareMarket {
     function factory() external view returns (address);
@@ -64,7 +66,38 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         external
         initializer
     {
-        if (ownerMultisig == address(0) || operator_ == address(0) || treasury_ == address(0)) revert InvalidAddress();
+        _initializeFactory(ownerMultisig, operator_, treasury_, timelock_, beacon_);
+    }
+
+    /// @notice Atomic bootstrap only: create and register the market before the new deployment is returned.
+    /// @dev The proxy must already have code, so the coordinator creates it and calls this in the same transaction.
+    /// Later registry changes remain subject to registerShareMarket's timelock and one-time binding.
+    function initializeDeployment(
+        address ownerMultisig,
+        address operator_,
+        address treasury_,
+        address timelock_,
+        address beacon_,
+        address marketImplementation
+    ) external initializer {
+        _initializeFactory(ownerMultisig, operator_, treasury_, timelock_, beacon_);
+        if (marketImplementation.code.length == 0) revert InvalidAddress();
+        address market = address(
+            new ERC1967Proxy(marketImplementation, abi.encodeCall(IShareMarket.initialize, (address(this), timelock_)))
+        );
+        _registerShareMarket(_factoryStorage(), market);
+    }
+
+    function _initializeFactory(
+        address ownerMultisig,
+        address operator_,
+        address treasury_,
+        address timelock_,
+        address beacon_
+    ) private onlyInitializing {
+        if (ownerMultisig == address(0) || operator_ == address(0) || treasury_ == address(0)) {
+            revert InvalidAddress();
+        }
         if (timelock_.code.length == 0 || beacon_.code.length == 0) revert InvalidGovernance();
         if (
             TimelockController(payable(timelock_)).getMinDelay() < MINIMUM_UPGRADE_DELAY
@@ -135,6 +168,10 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     function registerShareMarket(address market) external nonReentrant {
         FactoryStorage storage s = _factoryStorage();
         if (msg.sender != s.timelock) revert Unauthorized();
+        _registerShareMarket(s, market);
+    }
+
+    function _registerShareMarket(FactoryStorage storage s, address market) private {
         if (s.shareMarket != address(0)) revert ShareMarketAlreadyRegistered();
         if (market.code.length == 0) revert InvalidAddress();
         if (

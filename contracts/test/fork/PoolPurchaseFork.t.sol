@@ -105,7 +105,8 @@ contract PoolPurchaseForkTest is Test {
         assertGt(MINING.pending(key), 0);
 
         PoolTimelock timelock = new PoolTimelock(OWNER);
-        PoolVault vaultImplementation = new PoolVault();
+        address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        PoolVault vaultImplementation = new PoolVault(predictedFactory);
         PoolBeacon beacon = new PoolBeacon(address(vaultImplementation), address(timelock));
         PoolFactory factoryImplementation = new PoolFactory();
         factory = PoolFactory(

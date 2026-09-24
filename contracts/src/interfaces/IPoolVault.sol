@@ -55,6 +55,7 @@ interface IPoolVault {
     error InsufficientUnlockedShares();
     error InsufficientLockedShares();
     error MarketCannotHoldShares();
+    error InvalidShareRecipient();
     error AlreadyVoted();
     error ProposalActive();
     error ProposeCooldown();

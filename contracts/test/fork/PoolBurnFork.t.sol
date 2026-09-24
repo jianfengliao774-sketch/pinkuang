@@ -54,7 +54,8 @@ contract PoolBurnForkTest is Test {
         assertEq(SWAP_POOL.token1(), WBNB);
         assertEq(SWAP_POOL.fee(), 10_000);
         PoolTimelock timelock = new PoolTimelock(OWNER);
-        PoolBeacon beacon = new PoolBeacon(address(new PoolVault()), address(timelock));
+        address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        PoolBeacon beacon = new PoolBeacon(address(new PoolVault(predictedFactory)), address(timelock));
         PoolFactory factory = PoolFactory(
             address(
                 new ERC1967Proxy(

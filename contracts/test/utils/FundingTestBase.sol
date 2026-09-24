@@ -56,7 +56,8 @@ abstract contract FundingTestBase is Test {
     function setUp() public virtual {
         vm.warp(1_800_000_000);
         timelock = new PoolTimelock(OWNER);
-        vaultImplementation = new PoolVault();
+        address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        vaultImplementation = new PoolVault(predictedFactory);
         beacon = new PoolBeacon(address(vaultImplementation), address(timelock));
         PoolFactory implementation = new PoolFactory();
         poolFactory = PoolFactory(

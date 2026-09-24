@@ -155,8 +155,8 @@ export default function auditLinkedLibraries(root, logRoot) {
     context: {
       execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
       reentrancy: 'Vault owns the nonReentrant entry points. Libraries have no independent reentrancy lock or Vault callback.',
-      upgradeValidationException: 'PoolVault permits only external-library-linking; this does not skip storage validation.',
-      limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders remain unlinked; a library runtime template also has its own-address deployment fixup. Deployment must separately verify each linked address and runtime code.',
+      upgradeValidationException: 'PoolVault narrowly annotates its locking constructor, OFFICIAL_FACTORY immutable, and external-library-linking; storage validation is not skipped. Storage compatibility does not verify the immutable factory value.',
+      limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };
   mkdirSync(evidenceRoot, { recursive: true });

@@ -47,7 +47,8 @@ contract PoolShareTransferForkTest is Test {
         key = MINING.minerKey(Addresses.TAPEOUT_CIRCUITS, TOKEN_ID);
         assertEq(MINING.getMiner(key).status, 1);
         PoolTimelock timelock = new PoolTimelock(OWNER);
-        PoolVault implementation = new PoolVault();
+        address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        PoolVault implementation = new PoolVault(predictedFactory);
         PoolBeacon beacon = new PoolBeacon(address(implementation), address(timelock));
         PoolFactory factoryImplementation = new PoolFactory();
         PoolFactory factory = PoolFactory(

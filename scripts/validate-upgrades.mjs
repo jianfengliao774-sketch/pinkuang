@@ -70,14 +70,14 @@ function validateDeliveredBaselines() {
   const marketLayout = getStorageLayout(markets[0].data, getContractVersion(markets[0].data, marketContract));
   assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 6, 'Unexpected initial market field count');
   console.log('ShareMarket: six business fields and nonempty inherited namespaces extracted.');
-  for (const milestone of ['T1a', 'T1b', 'T1c', 'T1d', 'T1eVoting']) for (const name of (milestone === 'T1eVoting' ? ['PoolVault'] : milestone === 'T1d' ? ['PoolFactory', 'PoolVault', 'ShareMarket'] : ['PoolFactory', 'PoolVault'])) {
+  for (const milestone of ['T1a', 'T1b', 'T1c', 'T1d', 'T1eVoting', 'T1e']) for (const name of (milestone === 'T1eVoting' ? ['PoolVault'] : ['T1d', 'T1e'].includes(milestone) ? ['PoolFactory', 'PoolVault', 'ShareMarket'] : ['PoolFactory', 'PoolVault'])) {
     const contract = `src/${name}.sol:${name}`;
     const baselinePath = `docs/storage/${milestone}-${name}.json`;
     const baselineBytes = readFileSync(join(root, baselinePath));
     const baseline = JSON.parse(baselineBytes.toString('utf8'));
     assert.equal(baseline.schemaVersion, 1, `Unsupported baseline schema: ${baselinePath}`);
     assert.equal(baseline.contract, contract, `Wrong baseline target: ${baselinePath}`);
-    assert.equal(baseline.provenance.commit, ({T1a:'339c034e4bf4b504dcd4a7479d272a7f662497fc', T1b:'6d090612c4b5ce0409b08b90a0573912aaee95f9', T1c:'0d676cd666fd2e5e8160e1d3c961d8a15f2caea3', T1d:'5551c7710afb0c978e80cc9ab9a8dda8e768ea2a', T1eVoting:'7e988a344150c91c58b3eac39b26dd8e90529a1c'})[milestone], 'Unexpected delivered baseline commit');
+    assert.equal(baseline.provenance.commit, ({T1a:'339c034e4bf4b504dcd4a7479d272a7f662497fc', T1b:'6d090612c4b5ce0409b08b90a0573912aaee95f9', T1c:'0d676cd666fd2e5e8160e1d3c961d8a15f2caea3', T1d:'5551c7710afb0c978e80cc9ab9a8dda8e768ea2a', T1eVoting:'7e988a344150c91c58b3eac39b26dd8e90529a1c', T1e:'8ba9fb1541e82cff8bced3c9caff0159748e33d6'})[milestone], 'Unexpected delivered baseline commit');
     assert(/^[0-9a-f]{64}$/.test(baseline.provenance.sourceSha256), 'Missing baseline source provenance');
     const matches = compilations.filter(({ data }) => data[contract]);
     assert.equal(matches.length, 1, `Expected exactly one compiled layout for ${contract}; use a clean build`);
@@ -88,6 +88,9 @@ function validateDeliveredBaselines() {
       assert.equal(current.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 21, 'Unexpected sale namespace field count');
       if (milestone === 'T1eVoting') {
         assert.equal(baseline.layout.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 5, 'Missing delivered voting namespace');
+      }
+      if (milestone === 'T1e') {
+        assert.equal(baseline.layout.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 21, 'Missing complete delivered sale namespace');
       }
     }
     const previousFieldCount = requireNamespacedLayout(baseline.layout, name);
@@ -117,7 +120,7 @@ try {
   await validate('test/unit/ShareMarket.t.sol:ShareMarketV2Fixture', 'src/ShareMarket.sol:ShareMarket');
   await validate('test/utils/InvalidVaultLayout.sol:InvalidVaultLayout', 'src/PoolVault.sol:PoolVault', true);
   ok = true;
-  console.log('Initial checks, delivered T1a/T1b/T1c/T1d baselines, three compatible fixtures, and incompatible-layout rejection completed.');
+  console.log('Initial checks, delivered T1a through complete T1e baselines, three compatible fixtures, and incompatible-layout rejection completed.');
 } finally {
   copyFileSync(join(root, 'contracts/out/upgrade-build-info-audit.json'), join(logRoot, 'upgrade-build-info-audit.json'));
   writeFileSync(join(logRoot, 'upgrade-checks.json'), JSON.stringify(results, null, 2) + '\n');

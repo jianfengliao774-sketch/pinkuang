@@ -154,6 +154,14 @@ contract PurchaseMockMining {
     }
 
     function claim(bytes32 key) external {
+        // Actual fixed-block Mining rejects all non-mining states with this selector.
+        // Keep this independent of injected failures so ordinary tests exercise real eligibility.
+        if (miners[key].status != 1) {
+            assembly {
+                mstore(0, 0x5f9bb3be)
+                revert(28, 4)
+            }
+        }
         require(claimFault != 1, "injected claim revert");
         ++claimCalls;
         if (reentryData.length > 0) {
@@ -168,6 +176,7 @@ contract PurchaseMockMining {
         if (amount > 0) PurchaseMockBem(Addresses.BEM).mint(claimFault == 3 ? address(0xBAD) : owner, amount);
         if (claimFault == 4) PurchaseMockNft(miner.circuits).forceTransfer(address(0xBAD), miner.circuitId);
         if (claimFault == 5) miners[key].status = 3;
+        if (claimFault == 6) miners[key].status = 255;
     }
 
     receive() external payable {}

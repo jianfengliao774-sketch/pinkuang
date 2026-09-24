@@ -50,19 +50,28 @@ contract PoolVault is
     address public constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
     address public constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
+    /// @dev Shared by all proxies behind this implementation; every upgrade must preserve this factory binding.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable OFFICIAL_FACTORY;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address officialFactory_) {
+        if (officialFactory_ == address(0)) revert Unauthorized();
+        OFFICIAL_FACTORY = officialFactory_;
         _disableInitializers();
     }
 
     function initialize(address factory_, PoolParams calldata params_, address treasury_) external initializer {
-        if (msg.sender != factory_ || factory_.code.length == 0 || treasury_ == address(0)) revert Unauthorized();
+        if (
+            factory_ != OFFICIAL_FACTORY || msg.sender != OFFICIAL_FACTORY || factory_.code.length == 0
+                || treasury_ == address(0)
+        ) revert Unauthorized();
         if (params_.targetRaise == 0 || params_.targetRaise % TOTAL_SHARES != 0) revert FundingTargetNotDivisible();
         if (params_.priceCap == 0 || params_.priceCap > params_.targetRaise) revert OverPriceCap();
         if (params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline) {
             revert InvalidParameters();
         }
-        __ERC20_init("TapeOut Pool Share", "TPS");
+        __ERC20_init(PoolFunds.shareName(params_.circuits, params_.circuitId), "TPS");
         __ReentrancyGuard_init();
         VaultStorage storage s = _vaultStorage();
         s.factory = factory_;
@@ -531,6 +540,11 @@ contract PoolVault is
 
     function _update(address from, address to, uint256 amount) internal override {
         VaultStorage storage s = _vaultStorage();
+        // Empty Beacon clones and the locked implementation have no subscription configuration.
+        if (s.factory == address(0)) revert Unauthorized();
+        // Neither contract can manage a member's shares, votes or pull-payment rights.
+        // Apply to minting too, so a future subscription entry point cannot bypass the guard.
+        if (to == address(this) || to == s.factory) revert InvalidShareRecipient();
         if (from != address(0) && to != address(0)) {
             if (s.state != State.Active) revert WrongState();
             address market = IPoolFactoryRoles(s.factory).shareMarket();

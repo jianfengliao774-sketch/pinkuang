@@ -18,6 +18,9 @@ import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 /// @dev Inherits the same statically linked, reviewed libraries as PoolVault; adds only version().
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract PoolVaultV2Fixture is PoolVault {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(address officialFactory_) PoolVault(officialFactory_) {}
+
     function version() external pure returns (uint256) {
         return 2;
     }
@@ -49,7 +52,8 @@ contract PoolGovernanceTest is Test {
     function setUp() public {
         vm.warp(1_000_000);
         timelock = new PoolTimelock(MULTISIG);
-        vaultImplementation = new PoolVault();
+        address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        vaultImplementation = new PoolVault(predictedFactory);
         beacon = new PoolBeacon(address(vaultImplementation), address(timelock));
         factoryImplementation = new PoolFactory();
         factory = PoolFactory(
@@ -282,7 +286,7 @@ contract PoolGovernanceTest is Test {
         vm.deal(OPERATOR, 0.07 ether);
         vm.prank(OPERATOR);
         PoolVault(payable(second)).deposit{value: 0.07 ether}(7);
-        PoolVaultV2Fixture next = new PoolVaultV2Fixture();
+        PoolVaultV2Fixture next = new PoolVaultV2Fixture(address(factory));
         vm.prank(MULTISIG);
         vm.expectRevert();
         beacon.upgradeTo(address(next));

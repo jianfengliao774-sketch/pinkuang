@@ -19,6 +19,8 @@ interface IShareRegistry {
 
 /// @dev Test-only lifecycle fixture for share orders while the whole NFT is Listed.
 contract ShareTransferVaultHarness is RewardsVaultHarness {
+    constructor(address officialFactory_) RewardsVaultHarness(officialFactory_) {}
+
     function fixtureSetListed() external {
         require(_vaultStorage().state == State.Active, "fixture requires acquired Active NFT");
         _vaultStorage().state = State.Listed;
@@ -52,7 +54,7 @@ abstract contract ShareTransferTestBase is RewardsTestBase {
                 )
             )
         );
-        ShareTransferVaultHarness harness = new ShareTransferVaultHarness();
+        ShareTransferVaultHarness harness = new ShareTransferVaultHarness(address(poolFactory));
         bytes memory registration = abi.encodeCall(IShareRegistry.registerShareMarket, (address(shareMarket)));
         bytes memory upgrade = abi.encodeWithSignature("upgradeTo(address)", address(harness));
         bytes32 registrationSalt = keccak256("share-market-test-registration");
