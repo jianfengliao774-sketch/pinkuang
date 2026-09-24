@@ -1,6 +1,6 @@
 # TapeOut 合伙拼矿机
 
-当前任务：**T0.1 工程初始化**。业务合约尚未实现，协议行为尚未完成 M0 fork 验证。
+当前任务：**T0.2 协议分叉验证**。Q1–Q9 的实测结论、文档差异和适用边界见 [M0 报告](docs/M0-report.md)。业务合约尚未实现。
 
 目标仓库：[jianfengliao774-sketch/pinkuang](https://github.com/jianfengliao774-sketch/pinkuang)。
 
@@ -54,7 +54,8 @@ node scripts/check-local.mjs
 日志保存在原项目 `docs/logs/T0.1/`。临时目录记录于 `summary.json`，保留供复核。
 在其他英文路径克隆项目时可以直接使用上述 npm 命令。
 
-当前会得到空测试结果，Slither 和业务升级布局检查会明确输出 `NOT APPLICABLE`。
+`npm test` 只运行非 fork 测试，当前该部分为空；协议测试必须另运行 `npm run test:fork`。
+Slither 和业务升级布局检查会明确输出 `NOT APPLICABLE`。
 从 M1 出现业务 Solidity 源文件后 CI 执行 Slither 及升级验证；T1a 必须补齐实现合约的升级测试，
 后续升级必须提供已部署版本的 referenceContract / `@custom:oz-upgrades-from`，不能把首版安全检查当作版本兼容证明。
 
@@ -63,19 +64,19 @@ openzeppelin-foundry-upgrades 0.4.2、升级验证引擎 1.46.0、forge-std v1.9
 选择 OZ 5.0.2 保持两套合约同版本及 Solidity 0.8.24 / Shanghai 兼容；未引入其他业务合约库。
 NPM 安装和 FFI 配置依据 [OpenZeppelin 官方 Foundry 指南](https://docs.openzeppelin.com/upgrades-plugins/foundry/foundry-upgrades)。
 
-## 后续 fork 验证
+## 固定区块 fork 验证
 
-T0.2 才实现 `contracts/test/fork/ProtocolProbe.t.sol` 并确定固定区块。
-`.env.example` 提供变量说明，本卡不填未经选定的 `FORK_BLOCK`。
-执行前将 BSC_RPC_URL 和 FORK_BLOCK 导出为进程环境变量，Windows 可另设置 OPENZEPPELIN_BASH_PATH。
+固定 BSC 主网区块 `123728000`；四组测试覆盖开挖、转移与收益、市场成交、BEM 权限和双向换币。
+执行前将 `.env.example` 的 BSC_RPC_URL 和 FORK_BLOCK 导出为进程环境变量（脚本不会自动读取 .env）。
+Windows 中文目录会自动拷贝到 ASCII 临时目录并核对源码哈希。
 
 ```sh
 npm run test:fork
 ```
 
-缺少 RPC、固定区块或 ProtocolProbe 时退出码为 1，不能把空 fork 测试记作通过。
-GitHub Actions 使用 secret `BSC_RPC_URL` 和 variable `FORK_BLOCK`；通过 workflow_dispatch 的
-`run_fork` 开关手动触发，不在外部 PR 上暴露 RPC 凭据。
+缺少 RPC 或区块不同均退出码 1。原始输出和源码哈希保存在 `docs/logs/T0.2/`。
+GitHub Actions 在 push / PR 上通过公开归档 RPC 运行同一固定区块测试，不向 PR 提供 RPC 凭据。
+也可通过 workflow_dispatch 的 `run_fork` 开关重跑。节点失效会失败，不会跳过后标成通过。
 
 ## 当前边界
 
@@ -83,4 +84,4 @@ GitHub Actions 使用 secret `BSC_RPC_URL` 和 variable `FORK_BLOCK`；通过 wo
 地址来源和大小写校验不等于 BscScan 人工复核或链上行为验证。
 本工程没有部署入口，不读取私钥，不发送链上交易。
 
-按计划一次只交付一张任务卡：T0.1 验收后再开始 T0.2，M0 通过前不写业务合约。
+本卡交付限于 M0。后续实现须处理报告中已证实的文档差异；页面风格继续遵循“芯火夺宝”要求。

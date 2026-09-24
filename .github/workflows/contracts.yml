@@ -37,7 +37,7 @@ jobs:
         run: npm run fmt:check
       - name: Compile and check sizes
         run: npm run build
-      - name: Unit and invariant tests (empty in T0.1)
+      - name: Unit and invariant tests (not implemented until M1)
         run: npm test
       - uses: actions/setup-python@v5
         with:
@@ -49,20 +49,21 @@ jobs:
           if find src -name '*.sol' -print -quit | grep -q .; then
             slither . --filter-paths '../node_modules/|test/|script/' --fail-medium
           else
-            echo 'NOT APPLICABLE (T0.1): no business Solidity sources for Slither.'
+            echo 'NOT APPLICABLE (M0): no business Solidity sources for Slither.'
           fi
       - name: Upgrade validation (not applicable until M1)
         run: npm run validate:upgrades
 
   fork:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_fork
+    if: github.event_name != 'workflow_dispatch' || inputs.run_fork
     needs: contracts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       FOUNDRY_PROFILE: ci
-      BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
-      FORK_BLOCK: ${{ vars.FORK_BLOCK }}
+      # Public archive endpoint: no credentials are exposed to pull request code.
+      BSC_RPC_URL: https://bsc-mainnet.public.blastapi.io
+      FORK_BLOCK: '123728000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,3 +75,9 @@ jobs:
           version: v1.7.1
       - run: npm ci
       - run: npm run test:fork
+      - name: Preserve raw fork evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-fork-evidence
+          path: docs/logs/T0.2/
