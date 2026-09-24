@@ -5,21 +5,29 @@ import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
-import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {ICircuitMarket} from "./interfaces/ICircuitMarket.sol";
 import {PoolRewardState} from "./PoolRewardState.sol";
+import {PoolSaleState} from "./PoolSaleState.sol";
 import {RewardAccounting} from "./libraries/RewardAccounting.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
 import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
+import {SaleGovernance} from "./libraries/SaleGovernance.sol";
+import {PurchaseValidation} from "./libraries/PurchaseValidation.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
-contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, IERC721Receiver, PoolRewardState {
+contract PoolVault is
+    ERC20Upgradeable,
+    ReentrancyGuardUpgradeable,
+    IPoolVault,
+    IERC721Receiver,
+    PoolRewardState,
+    PoolSaleState
+{
     using Checkpoints for Checkpoints.Trace208;
 
     uint256 public constant TOTAL_SHARES = 100;
@@ -178,22 +186,12 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
 
     function buyFromMarket(uint256 listingId) external nonReentrant {
         VaultStorage storage s = _requirePurchaseWindow();
-        // M0: feeBps is deducted from the seller's price; the buyer pays exactly price.
-        // Deliberately ignore that display field: adding it would charge the buyer twice.
-        // slither-disable-next-line unused-return
-        (address seller, address circuits, uint256 tokenId, uint96 price,, bool valid) =
-            ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
-        if (!valid || seller == address(0) || price == 0) revert InvalidListing();
-        if (circuits != s.params.circuits || tokenId != s.params.circuitId) revert WrongCircuit();
-        if (price > s.params.priceCap) revert OverPriceCap();
-        if (IERC721(circuits).ownerOf(tokenId) != seller) revert InvalidListing();
-        bytes32 key = _activeMinerKey(s);
-        _settleSellerRewards(
-            s, seller, key, keccak256(abi.encode(address(this), uint8(0), listingId, seller, key, price))
+        (address seller, uint256 price, bytes32 key) = PurchaseValidation.prepareMarketPurchase(
+            s.params.circuits, s.params.circuitId, s.params.priceCap, listingId
         );
         _expectNft(s, seller, CIRCUIT_MARKET);
         // M0 proves that the listed price is the buyer's entire payment, including the seller-borne 1% fee.
-        ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId, price);
+        ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId, SafeCast.toUint96(price));
         _finishPurchase(s, price, 0, listingId, key);
     }
 
@@ -201,12 +199,8 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         VaultStorage storage s = _requirePurchaseWindow();
         address seller = s.params.directSeller;
         uint256 price = s.params.directPrice;
-        if (seller == address(0) || msg.sender != seller) revert Unauthorized();
-        if (price == 0 || price > s.params.priceCap) revert OverPriceCap();
-        if (IERC721(s.params.circuits).ownerOf(s.params.circuitId) != seller) revert InvalidListing();
-        bytes32 key = _activeMinerKey(s);
-        _settleSellerRewards(
-            s, seller, key, keccak256(abi.encode(address(this), uint8(1), uint256(0), seller, key, price))
+        bytes32 key = PurchaseValidation.prepareDirectPurchase(
+            s.params.circuits, s.params.circuitId, seller, price, s.params.priceCap
         );
         _expectNft(s, seller, address(this));
         IERC721(s.params.circuits).safeTransferFrom(seller, address(this), s.params.circuitId);
@@ -222,33 +216,7 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     }
 
     function _activeMinerKey(VaultStorage storage s) private view returns (bytes32 key) {
-        key = ITapeoutMining(MINING).minerKey(s.params.circuits, s.params.circuitId);
-        ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);
-        if (miner.circuits != s.params.circuits || miner.circuitId != s.params.circuitId) revert WrongCircuit();
-        if (miner.status != 1) revert MinerNotActive();
-    }
-
-    function _settleSellerRewards(VaultStorage storage s, address seller, bytes32 key, bytes32 tradeId) private {
-        uint256 pendingBefore = ITapeoutMining(MINING).pending(key);
-        uint256 beforeBalance = IERC20(BEM).balanceOf(seller);
-        // M0 shows pending() can be stale, including zero. Never skip claim or swallow a failure.
-        try ITapeoutMining(MINING).claim(key) {}
-        catch {
-            revert FinalRewardSettlementFailed();
-        }
-        uint256 afterBalance = IERC20(BEM).balanceOf(seller);
-        // Both callers hold nonReentrant. This delta proves receipt; the earlier balance
-        // is not used to authorize an outgoing payment after an unguarded external call.
-        // slither-disable-next-line reentrancy-balance
-        if (afterBalance < beforeBalance || afterBalance - beforeBalance < pendingBefore) {
-            revert FinalRewardSettlementFailed();
-        }
-        if (
-            ITapeoutMining(MINING).pending(key) != 0 || IERC721(s.params.circuits).ownerOf(s.params.circuitId) != seller
-        ) revert FinalRewardSettlementFailed();
-        emit RewardSettledBeforeTransfer(
-            s.params.circuits, s.params.circuitId, seller, afterBalance - beforeBalance, tradeId
-        );
+        return PurchaseValidation.activeMinerKey(s.params.circuits, s.params.circuitId);
     }
 
     function _expectNft(VaultStorage storage s, address seller, address expectedOperator) private {
@@ -359,6 +327,50 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
 
     function _settleRewards(address member) internal {
         RewardAccounting.settle(_rewardStorage(), member, balanceOf(member));
+    }
+
+    function propose(uint256 price, uint256 refPrice, uint64 refAt) external nonReentrant returns (uint256 proposalId) {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        return SaleGovernance.propose(
+            _saleStorage(),
+            s.memberHistory,
+            SaleGovernance.ProposalInput(s.activatedAt, balanceOf(msg.sender), price, refPrice, refAt)
+        );
+    }
+
+    function vote(uint256 proposalId, bool support) external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        SaleGovernance.vote(_saleStorage(), s.shareHistory, proposalId, support);
+    }
+
+    function getProposal(uint256 proposalId) external view returns (Proposal memory) {
+        Proposal storage p = _saleStorage().proposals[proposalId];
+        if (p.proposer == address(0)) revert InvalidProposal();
+        return p;
+    }
+
+    function hasVoted(uint256 proposalId, address member) external view returns (bool) {
+        return _saleStorage().hasVoted[proposalId][member];
+    }
+
+    function lastProposed(address member) external view returns (uint64) {
+        return _saleStorage().lastProposed[member];
+    }
+
+    function activeProposalId() external view returns (uint256) {
+        return _saleStorage().activeProposalId;
+    }
+
+    function nextProposalId() external view returns (uint256) {
+        uint256 next = _saleStorage().nextProposalId;
+        return next == 0 ? 1 : next;
+    }
+
+    /// @notice Reports the two vote thresholds; execution must separately check state and expiry.
+    function proposalPassed(uint256 proposalId) external view returns (bool) {
+        return SaleGovernance.passed(_saleStorage(), proposalId);
     }
 
     function transfer(address to, uint256 amount) public override nonReentrant returns (bool) {

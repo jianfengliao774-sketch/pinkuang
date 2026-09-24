@@ -1,6 +1,6 @@
 # TapeOut 合伙拼矿机
 
-当前任务：**T1d 份额转让与 ShareMarket**，详见 [M1d 交付说明](docs/M1d.md)。挖矿分账见 [M1c](docs/M1c.md)，购机见 [M1b](docs/M1b.md)，认购退款基础见 [M1a](docs/M1a.md)，Q1–Q9 的实测结论与已确认勘误见 [M0 报告](docs/M0-report.md)。尚未部署。
+当前任务：**T1e 进行中，已实现出售提案与历史快照投票**，进度与尚未完成范围见 [M1e](docs/M1e.md)。份额转让与 ShareMarket 已交付，见 [M1d](docs/M1d.md)。挖矿分账见 [M1c](docs/M1c.md)，购机见 [M1b](docs/M1b.md)，认购退款基础见 [M1a](docs/M1a.md)，Q1–Q9 的实测结论与已确认勘误见 [M0 报告](docs/M0-report.md)。尚未部署。
 
 目标仓库：[jianfengliao774-sketch/pinkuang](https://github.com/jianfengliao774-sketch/pinkuang)。
 
@@ -28,7 +28,7 @@ docs/            原始需求、交付说明、原始日志
 .github/         GitHub Actions 工作流
 ```
 
-已实现认购退款、原子购机、收益分账、份额转让与份额市场。投票出售、复投及部署入口仍按后续任务卡实施。
+已实现认购退款、原子购机、收益分账、份额转让与份额市场。提案和快照投票已进入 T1e 草稿；挂牌执行、整机成交、出售款及销毁预算、复投和部署入口尚未实现。
 
 ## 安装和检查
 
@@ -46,15 +46,15 @@ npm run validate:upgrades
 Windows 中文路径请使用：
 
 ```sh
-node scripts/check-local.mjs T1d
+node scripts/check-local.mjs T1e
 ```
 
 该命令在系统临时目录创建英文路径的源码副本，核对 Solidity/config 文件 SHA-256 后执行检查，
-日志保存在原项目 `docs/logs/T1d/contracts/`。临时目录记录于 `summary.json`，保留供复核。
+日志保存在原项目 `docs/logs/T1e/contracts/`。临时目录记录于 `summary.json`，保留供复核。
 在其他英文路径克隆项目时可以直接使用上述 npm 命令。
 
-`npm test` 运行认购退款、购机、挖矿权限、收益、转让、份额市场、治理和状态不变量；协议测试另运行 `npm run test:fork`。
-CI 执行 Slither 及明确指定 Factory/Vault/ShareMarket 的升级验证，对照已交付 T1a/T1b/T1c 的真实布局，并检查实际抽取的命名空间和三个固定库链接，兼容/不兼容 fixture 均有验证。CI 证据使用当前 run 的独立临时目录，避免混入仓库已有日志。
+`npm test` 运行认购退款、购机、挖矿权限、收益、转让、份额市场、出售投票、治理和状态不变量；协议测试另运行 `npm run test:fork`。
+CI 执行 Slither 及明确指定 Factory/Vault/ShareMarket 的升级验证，对照已交付 T1a/T1b/T1c/T1d 的真实布局，并检查实际抽取的命名空间和五个固定库链接，兼容/不兼容 fixture 均有验证。CI 证据使用当前 run 的独立临时目录，避免混入仓库已有日志。
 后续正式升级还必须提供已部署版本的 referenceContract / `@custom:oz-upgrades-from`，不能把本卡 V2 fixture 当作任意未来版本兼容证明。
 
 依赖由 `package-lock.json` 锁定：OpenZeppelin Contracts / Contracts-Upgradeable 5.0.2、
@@ -72,7 +72,7 @@ Windows 中文目录会自动拷贝到 ASCII 临时目录并核对源码哈希�
 npm run test:fork
 ```
 
-缺少 RPC 或区块不同均退出码 1。当前原始输出和源码哈希保存在 `docs/logs/T1d/fork/`；M0 原始证据继续保留在 `docs/logs/T0.2/`。可设置 `VALIDATION_TASK` 按任务保存日志。
+缺少 RPC 或区块不同均退出码 1。当前原始输出和源码哈希保存在 `docs/logs/T1e/fork/`；M0 原始证据继续保留在 `docs/logs/T0.2/`。可设置 `VALIDATION_TASK` 按任务保存日志。
 GitHub Actions 在 push / PR 上通过公开归档 RPC 运行同一固定区块测试，不向 PR 提供 RPC 凭据。
 也可通过 workflow_dispatch 的 `run_fork` 开关重跑。节点失效会失败，不会跳过后标成通过。
 

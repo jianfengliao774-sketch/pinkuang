@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-24T10:42:22.295Z",
+  "ok": true,
+  "vault": {
+    "source": {
+      "path": "contracts/src/PoolVault.sol",
+      "sourceSha256": "4171bbaf398ac488c6c0aeaa7544dcb02160271f4e299fd9036cdd560f9ed715",
+      "compilerMetadataKeccak256": "0x0cd2cd42a9b2ac9daa0db103669c93db20101389c48c7033a1250f8f2d835209"
+    },
+    "artifactPath": "contracts/out/PoolVault.sol/PoolVault.json",
+    "artifactSha256": "79cb911f2b2eafcdcfbee0756e808794ef3f515e0062a2c862129743da9db7cf",
+    "runtimeBytecodeTemplate": {
+      "sha256": "8248901c09be038c6c5901407d473857c8fc3789beb0ac784b8d59b964abb5b8",
+      "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+      "byteLength": 21483,
+      "isDeployedCodeHash": false
+    },
+    "creationLinks": [
+      {
+        "source": "src/libraries/MiningOperations.sol",
+        "name": "MiningOperations",
+        "positions": [
+          {
+            "start": 9366,
+            "length": 20
+          },
+          {
+            "start": 15702,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+      },
+      {
+        "source": "src/libraries/PurchaseValidation.sol",
+        "name": "PurchaseValidation",
+        "positions": [
+          {
+            "start": 6100,
+            "length": 20
+          },
+          {
+            "start": 13417,
+            "length": 20
+          },
+          {
+            "start": 17499,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+      },
+      {
+        "source": "src/libraries/RewardAccounting.sol",
+        "name": "RewardAccounting",
+        "positions": [
+          {
+            "start": 7506,
+            "length": 20
+          },
+          {
+            "start": 7911,
+            "length": 20
+          },
+          {
+            "start": 8379,
+            "length": 20
+          },
+          {
+            "start": 15777,
+            "length": 20
+          },
+          {
+            "start": 18171,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+      },
+      {
+        "source": "src/libraries/SaleGovernance.sol",
+        "name": "SaleGovernance",
+        "positions": [
+          {
+            "start": 8699,
+            "length": 20
+          },
+          {
+            "start": 11272,
+            "length": 20
+          },
+          {
+            "start": 11800,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+      },
+      {
+        "source": "src/libraries/ShareCheckpoints.sol",
+        "name": "ShareCheckpoints",
+        "positions": [
+          {
+            "start": 17118,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$3b9cb3bf55748b5c493715a4e15268fc92$__"
+      }
+    ],
+    "runtimeLinks": [
+      {
+        "source": "src/libraries/MiningOperations.sol",
+        "name": "MiningOperations",
+        "positions": [
+          {
+            "start": 9139,
+            "length": 20
+          },
+          {
+            "start": 15475,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+      },
+      {
+        "source": "src/libraries/PurchaseValidation.sol",
+        "name": "PurchaseValidation",
+        "positions": [
+          {
+            "start": 5873,
+            "length": 20
+          },
+          {
+            "start": 13190,
+            "length": 20
+          },
+          {
+            "start": 17272,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+      },
+      {
+        "source": "src/libraries/RewardAccounting.sol",
+        "name": "RewardAccounting",
+        "positions": [
+          {
+            "start": 7279,
+            "length": 20
+          },
+          {
+            "start": 7684,
+            "length": 20
+          },
+          {
+            "start": 8152,
+            "length": 20
+          },
+          {
+            "start": 15550,
+            "length": 20
+          },
+          {
+            "start": 17944,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+      },
+      {
+        "source": "src/libraries/SaleGovernance.sol",
+        "name": "SaleGovernance",
+        "positions": [
+          {
+            "start": 8472,
+            "length": 20
+          },
+          {
+            "start": 11045,
+            "length": 20
+          },
+          {
+            "start": 11573,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+      },
+      {
+        "source": "src/libraries/ShareCheckpoints.sol",
+        "name": "ShareCheckpoints",
+        "positions": [
+          {
+            "start": 16891,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$3b9cb3bf55748b5c493715a4e15268fc92$__"
+      }
+    ]
+  },
+  "libraries": [
+    {
+      "name": "MiningOperations",
+      "source": {
+        "path": "contracts/src/libraries/MiningOperations.sol",
+        "sourceSha256": "70a58ed5021da460a2f77ccf65a7510a19357b8aebb98a49a0cd04dbe468bbf9",
+        "compilerMetadataKeccak256": "0xa7a906b382500ee63d91900dc37fa265ddf870e6af7c6e278565d7f906edf972"
+      },
+      "artifactPath": "contracts/out/MiningOperations.sol/MiningOperations.json",
+      "artifactSha256": "e88973196e9cae217cdcce346500be2d96083541503f15f96dd3a89e0f8ce9fa",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "e47a7016d651d84ba8e47f8cc00a316aa5901249302f013c3caeeae9fb50147a",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 5911,
+        "isDeployedCodeHash": false
+      },
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [
+          {
+            "target": "MINING",
+            "address": "0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46",
+            "sourceLocation": "2642:11:143"
+          }
+        ],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "PurchaseValidation",
+      "source": {
+        "path": "contracts/src/libraries/PurchaseValidation.sol",
+        "sourceSha256": "966188aa125e9d98ba6ec73bac0ddd27a69be9798ce3f46c0fbb5383acbf696a",
+        "compilerMetadataKeccak256": "0xc2fd2e3a771de1b131d7b4461970e4b7f0a5c6b47e1b3d25f4061334b7861a2b"
+      },
+      "artifactPath": "contracts/out/PurchaseValidation.sol/PurchaseValidation.json",
+      "artifactSha256": "27a80f4a869e1b68c94ec736226347478f7418d0499d170581d90026fb1b397b",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "97f4d4c8c35fb31390f15fa314145f317cc507c7ba501a489ff12d612aad978e",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 3532,
+        "isDeployedCodeHash": false
+      },
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "RewardAccounting",
+      "source": {
+        "path": "contracts/src/libraries/RewardAccounting.sol",
+        "sourceSha256": "a7ac045c0e5e67132cee91ecb21a473c28bb09c148d35151ec9a686a516aec6b",
+        "compilerMetadataKeccak256": "0x6076ed5d37dca5abf183c40b6ba85b19dc9204dd042e96a10a4383b1c533e85f"
+      },
+      "artifactPath": "contracts/out/RewardAccounting.sol/RewardAccounting.json",
+      "artifactSha256": "a60e5ebead1070988b8b8095ec364f630bddba0cd015ce97df38a78b8f7a63c4",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "a2fea7199938efff44db621a5048b23bbbfc8164c282b709f6f2b739404bb625",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 5565,
+        "isDeployedCodeHash": false
+      },
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "SaleGovernance",
+      "source": {
+        "path": "contracts/src/libraries/SaleGovernance.sol",
+        "sourceSha256": "c967f28fa247800b68361e2e7f613c18f298746acd04deb9f7aa3c5fa4676440",
+        "compilerMetadataKeccak256": "0x201a6d0ca3ce33afbc47db1e50d3a5847523042b2ebbca1c09b987fc9bbc6052"
+      },
+      "artifactPath": "contracts/out/SaleGovernance.sol/SaleGovernance.json",
+      "artifactSha256": "3fb1b761ef279e7e41e47d993a5dadf6bccbafac0e10ab167a4e77815103ef10",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "4ac62715551f97567f83f0e93c27540f20c6ccb47c1020facc8f55d8c2350347",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 2919,
+        "isDeployedCodeHash": false
+      },
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "ShareCheckpoints",
+      "source": {
+        "path": "contracts/src/libraries/ShareCheckpoints.sol",
+        "sourceSha256": "29ba22ed281267e34fbeb9795bbcd10b4c0efd57acb7a623f1938bdd0232af18",
+        "compilerMetadataKeccak256": "0x6d6da862e0f131e1c0e5d1b8610eee12d164a47291b81eeb1114c0d96c9c7eb0"
+      },
+      "artifactPath": "contracts/out/ShareCheckpoints.sol/ShareCheckpoints.json",
+      "artifactSha256": "868de4b3a255af8de1b946bc1445dfa5bcb7bbcfffd044506df41db539585797",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "3282e44fd9abf5aa0e94b3d4f0325ddd84c18e89e7d691e99c1aed30a11deefa",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 1466,
+        "isDeployedCodeHash": false
+      },
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    }
+  ],
+  "context": {
+    "execution": "Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.",
+    "reentrancy": "Vault owns the nonReentrant entry points. Libraries have no independent reentrancy lock or Vault callback.",
+    "upgradeValidationException": "PoolVault permits only external-library-linking; this does not skip storage validation.",
+    "limitations": "Compiler templates are not deployed code hashes. Vault link placeholders remain unlinked; a library runtime template also has its own-address deployment fixup. Deployment must separately verify each linked address and runtime code."
+  }
+}

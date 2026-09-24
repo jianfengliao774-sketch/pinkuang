@@ -55,6 +55,11 @@ interface IPoolVault {
     error InsufficientUnlockedShares();
     error InsufficientLockedShares();
     error MarketCannotHoldShares();
+    error AlreadyVoted();
+    error ProposalActive();
+    error ProposeCooldown();
+    error InvalidProposal();
+    error ProposalNotPassed();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
     event DepositWithdrawn(address indexed user, uint8 shares, uint256 amount);
@@ -76,6 +81,16 @@ interface IPoolVault {
     event MiningClaimFailed(bytes32 indexed key, bytes reason);
     event ExpiryConfigured(bool enabled);
     event LockedSharesChanged(address indexed member, uint256 previousLocked, uint256 currentLocked);
+    event SaleProposed(
+        uint256 indexed proposalId,
+        address indexed proposer,
+        uint256 price,
+        uint256 refPrice,
+        uint64 refAt,
+        uint64 endsAt
+    );
+    event SaleSnapshotRecorded(uint256 indexed proposalId, uint48 snapshotTs, uint256 members, uint256 shares);
+    event Voted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -93,6 +108,8 @@ interface IPoolVault {
     function lock(address member, uint256 amount) external;
     function unlock(address member, uint256 amount) external;
     function transferLocked(address seller, address buyer, uint256 amount) external;
+    function propose(uint256 price, uint256 refPrice, uint64 refAt) external returns (uint256 proposalId);
+    function vote(uint256 proposalId, bool support) external;
     function asset() external view returns (address);
     function assetDecimals() external view returns (uint8);
     function assetOwed(address asset_, address member) external view returns (uint256);
