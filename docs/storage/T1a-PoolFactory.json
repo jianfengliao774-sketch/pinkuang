@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolFactory.sol:PoolFactory",
+  "provenance": {
+    "milestone": "T1a",
+    "commit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "sourcePath": "contracts/src/PoolFactory.sol",
+    "sourceSha256": "5394efe4750da2b85769ae2d0478d26eed99c61af22a0ac6885788b057e937ed",
+    "sourceHashDefinition": "SHA-256 of exact compiler-input UTF-8 source bytes, asserted equal to the committed Git blob.",
+    "testedBuildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-oQRwEN",
+    "compilerBuildInfoFile": "bd377f0aac735298.json",
+    "compilerBuildInfoSha256": "037377c34d1936228af0274101d69dce41d2e144f615cedfaa3162fca73fd696",
+    "preparedBuildInfoSha256": "703c43d2f06ea23752303e1c1ad24e5fc10483bba268caecaf7ec146d78b68df",
+    "unchangedCompilerOutputSha256": "666f79389b12ca7dab5bc6a93c7cecdcd2c894d4c97bd48a6dd47224d88ee9a0",
+    "metadataVerifiedInputAliasesAdded": 17,
+    "solcVersion": "0.8.24",
+    "upgradesCoreVersion": "1.46.0",
+    "extraction": "@openzeppelin/upgrades-core validate(output, solcInputOutputDecoder(input, output), solcVersion, input), then getStorageLayout(validationData, getContractVersion(validationData, fullyQualifiedName)). The returned layout is preserved without hand-authored fields."
+  },
+  "contractVersion": {
+    "withMetadata": "af8b4a8a7a95bca4803c4aeacf2c4708a49dc90ba6958b4aa900fedbc5355fff",
+    "withoutMetadata": "2c731722c19ca13585b440569f04435b87bf6cfc6883ebbe6d56c4935c3cb81b",
+    "linkedWithoutMetadata": "2c731722c19ca13585b440569f04435b87bf6cfc6883ebbe6d56c4935c3cb81b"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolFactory": [
+        {
+          "contract": "PoolFactory",
+          "label": "operator",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:21"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:22"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "timelock",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:23"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "beacon",
+          "type": "t_address",
+          "src": "src\\PoolFactory.sol:24"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "creationPaused",
+          "type": "t_bool",
+          "src": "src\\PoolFactory.sol:25"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "isPool",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src\\PoolFactory.sol:26"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "allPools",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src\\PoolFactory.sol:27"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

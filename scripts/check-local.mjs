@@ -8,10 +8,12 @@ import { fileURLToPath } from 'node:url';
 // Windows solc 0.8.24 cannot reliably resolve non-ASCII dependency paths.
 // Compile an identical snapshot in an ASCII directory, preserving all logs at source.
 const root = fileURLToPath(new URL('../', import.meta.url));
+const task = process.argv[2] ?? 'T1a';
+if (!/^[A-Za-z0-9.-]+$/.test(task)) throw new Error('Invalid task log name');
 let buildRoot = root;
 if (process.platform === 'win32' && /[^\x00-\x7f]/.test(root)) {
   if (/[^\x00-\x7f]/.test(tmpdir())) throw new Error('Set TEMP to an ASCII path before checking.');
-  buildRoot = mkdtempSync(join(tmpdir(), 'tapeout-t01-'));
+  buildRoot = mkdtempSync(join(tmpdir(), 'tapeout-check-'));
   for (const path of ['contracts', 'node_modules', 'scripts', 'package.json', 'package-lock.json']) {
     cpSync(join(root, path), join(buildRoot, path), {
       recursive: true,
@@ -21,7 +23,7 @@ if (process.platform === 'win32' && /[^\x00-\x7f]/.test(root)) {
     });
   }
 }
-const logRoot = join(root, 'docs/logs/T0.1');
+const logRoot = join(root, `docs/logs/${task}`);
 mkdirSync(logRoot, { recursive: true });
 const paths = readdirSync(join(root, 'contracts'), { recursive: true })
   .filter(path => /\.(sol|toml|txt)$/.test(path) && !/^(out|cache|broadcast)[/\\]/.test(path)).sort();
@@ -51,6 +53,10 @@ run('toolchain', forge, ['--version'], buildRoot);
 run('forge-fmt', forge, ['fmt', '--check'], join(buildRoot, 'contracts'));
 run('forge-build-sizes', forge, ['build', '--sizes'], join(buildRoot, 'contracts'));
 run('forge-test', forge, ['test', '--no-match-path', 'test/fork/**', '-vv'], join(buildRoot, 'contracts'));
+run('upgrade-validation', process.execPath, ['scripts/validate-upgrades.mjs'], buildRoot);
+if (buildRoot !== root && existsSync(join(buildRoot, 'docs/logs/T1a'))) {
+  cpSync(join(buildRoot, 'docs/logs/T1a'), logRoot, { recursive: true });
+}
 const businessSources = readdirSync(join(buildRoot, 'contracts/src'), { recursive: true }).filter(p => p.endsWith('.sol'));
 if (businessSources.length) {
   const localSlither = join(root, '.venv/Scripts/slither.exe');
@@ -62,5 +68,4 @@ if (businessSources.length) {
   writeFileSync(join(logRoot, 'slither.log'), message);
   console.log(message);
 }
-run('upgrade-validation', process.execPath, ['scripts/validate-upgrades.mjs'], buildRoot);
 console.log(`Logs saved under ${logRoot}`);
