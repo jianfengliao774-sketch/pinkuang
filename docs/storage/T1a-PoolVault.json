@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolVault.sol:PoolVault",
+  "provenance": {
+    "milestone": "T1a",
+    "commit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "sourcePath": "contracts/src/PoolVault.sol",
+    "sourceSha256": "ee0b598caf5b5166bd9cfdf57abfed344b65a9cad9d733dfd2f5da492bee6334",
+    "sourceHashDefinition": "SHA-256 of exact compiler-input UTF-8 source bytes, asserted equal to the committed Git blob.",
+    "testedBuildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-oQRwEN",
+    "compilerBuildInfoFile": "bd377f0aac735298.json",
+    "compilerBuildInfoSha256": "037377c34d1936228af0274101d69dce41d2e144f615cedfaa3162fca73fd696",
+    "preparedBuildInfoSha256": "703c43d2f06ea23752303e1c1ad24e5fc10483bba268caecaf7ec146d78b68df",
+    "unchangedCompilerOutputSha256": "666f79389b12ca7dab5bc6a93c7cecdcd2c894d4c97bd48a6dd47224d88ee9a0",
+    "metadataVerifiedInputAliasesAdded": 17,
+    "solcVersion": "0.8.24",
+    "upgradesCoreVersion": "1.46.0",
+    "extraction": "@openzeppelin/upgrades-core validate(output, solcInputOutputDecoder(input, output), solcVersion, input), then getStorageLayout(validationData, getContractVersion(validationData, fullyQualifiedName)). The returned layout is preserved without hand-authored fields."
+  },
+  "contractVersion": {
+    "withMetadata": "e6fc792fae6214ed93bec3eacf074885a538907f5ba4d516b3f2ed29f655cb3a",
+    "withoutMetadata": "16130b625cf77aff74d2b5905b17531b5c1738816de03eedbfddbc1afe61afd2",
+    "linkedWithoutMetadata": "16130b625cf77aff74d2b5905b17531b5c1738816de03eedbfddbc1afe61afd2"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_struct(PoolParams)11151_storage": {
+        "label": "struct IPoolVault.PoolParams",
+        "members": [
+          {
+            "label": "circuits",
+            "type": "t_address"
+          },
+          {
+            "label": "circuitId",
+            "type": "t_uint256"
+          },
+          {
+            "label": "targetRaise",
+            "type": "t_uint256"
+          },
+          {
+            "label": "priceCap",
+            "type": "t_uint256"
+          },
+          {
+            "label": "directSeller",
+            "type": "t_address"
+          },
+          {
+            "label": "directPrice",
+            "type": "t_uint256"
+          },
+          {
+            "label": "fundingDeadline",
+            "type": "t_uint64"
+          },
+          {
+            "label": "purchaseDeadline",
+            "type": "t_uint64"
+          }
+        ]
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      },
+      "t_enum(State)11134": {
+        "label": "enum IPoolVault.State",
+        "members": [
+          "Funding",
+          "Funded",
+          "Active",
+          "Listed",
+          "Closed",
+          "Refunding"
+        ]
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "label": "mapping(address => uint256)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_mapping(t_address,t_struct(Trace208)5131_storage)": {
+        "label": "mapping(address => struct Checkpoints.Trace208)"
+      },
+      "t_struct(Trace208)5131_storage": {
+        "label": "struct Checkpoints.Trace208",
+        "members": [
+          {
+            "label": "_checkpoints",
+            "type": "t_array(t_struct(Checkpoint208)5136_storage)dyn_storage"
+          }
+        ]
+      },
+      "t_array(t_struct(Checkpoint208)5136_storage)dyn_storage": {
+        "label": "struct Checkpoints.Checkpoint208[]"
+      },
+      "t_struct(Checkpoint208)5136_storage": {
+        "label": "struct Checkpoints.Checkpoint208",
+        "members": [
+          {
+            "label": "_key",
+            "type": "t_uint48"
+          },
+          {
+            "label": "_value",
+            "type": "t_uint208"
+          }
+        ]
+      },
+      "t_uint48": {
+        "label": "uint48"
+      },
+      "t_uint208": {
+        "label": "uint208"
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+        "label": "mapping(address => mapping(address => uint256))"
+      },
+      "t_string_storage": {
+        "label": "string"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolVault": [
+        {
+          "contract": "PoolVault",
+          "label": "factory",
+          "type": "t_address",
+          "src": "src\\PoolVault.sol:27"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src\\PoolVault.sol:28"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "params",
+          "type": "t_struct(PoolParams)11151_storage",
+          "src": "src\\PoolVault.sol:29"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "state",
+          "type": "t_enum(State)11134",
+          "src": "src\\PoolVault.sol:30"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "depositPaused",
+          "type": "t_bool",
+          "src": "src\\PoolVault.sol:31"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "refundsRecorded",
+          "type": "t_bool",
+          "src": "src\\PoolVault.sol:32"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "unitPriceWei",
+          "type": "t_uint256",
+          "src": "src\\PoolVault.sol:33"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "totalRaised",
+          "type": "t_uint256",
+          "src": "src\\PoolVault.sol:34"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "totalBnbOwed",
+          "type": "t_uint256",
+          "src": "src\\PoolVault.sol:35"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "contributedWei",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVault.sol:36"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "bnbOwed",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVault.sol:37"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "activeMembers",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src\\PoolVault.sol:38"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "memberIndexPlusOne",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVault.sol:39"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "shareHistory",
+          "type": "t_mapping(t_address,t_struct(Trace208)5131_storage)",
+          "src": "src\\PoolVault.sol:40"
+        },
+        {
+          "contract": "PoolVault",
+          "label": "memberHistory",
+          "type": "t_struct(Trace208)5131_storage",
+          "src": "src\\PoolVault.sol:41"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ERC20": [
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_balances",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:38"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_allowances",
+          "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_totalSupply",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:42"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_name",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:44"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_symbol",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:45"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

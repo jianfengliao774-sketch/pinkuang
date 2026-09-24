@@ -2,6 +2,8 @@
 
 本卡依据 v0.4、开工计划 T1a，以及项目方已确认的 [M0 协议勘误](M0-report.md) 实现。范围为募集退款与升级骨架，购机、挖矿收益分账、份额二级市场和出售在后续卡实现；当前没有上线或部署。
 
+远端验证已通过：[Actions #35980916121](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35980916121)，代码提交 `339c034e4bf4b504dcd4a7479d272a7f662497fc`。contracts job 包含 43 项单测/不变量、完整升级校验和 Slither；fork job 的 28 项 M0 回归也通过。[原始 contracts 日志](logs/T1a/github-job-107572323272.log) 和 [fork 日志](logs/T1a/github-job-107572699517.log) 均已保存。PR 事件的 [第二次独立 CI](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35980948901) 同样通过。
+
 ## 行为
 
 - 每池 100 个零小数份额，每地址最多 49 份。`deposit(uint8)` 的 BNB 必须精确等于份数乘单价；目标金额不能被 100 整除时拒绝创建。49+49+2 可以募满，不留下不可认购碎片。
@@ -44,6 +46,8 @@ node scripts/check-local.mjs T1a
 100 人最坏失败退款记账实测 **2,358,901 gas**，测试上限 8,000,000；循环只写负债，任何成员拒收都不阻碍其他成员退款。提款拒收时整笔回滚恢复待领余额；回调重入不能多领。
 
 升级验证包括初始 Factory/Vault 安全检查、真实 V2 布局兼容与跨时间锁升级后的份额/负债/BNB 保持。负例自身安全检查通过、存储布局检查失败，且断言失败原因必须来自布局；没有开启 unsafeSkipStorageCheck。两个仅增加 version() 的 V2 fixture 对 missing-initializer 作精确注释，使用继承的原 initializer，不需要或允许二次初始化业务状态。
+
+已从已测编译产物导出 [Factory 布局基线](storage/T1a-PoolFactory.json) 和 [Vault 布局基线](storage/T1a-PoolVault.json)，源码字节与提交 339c034 一致，保留完整 OZ layout 和来源哈希，供后续卡实际对比旧版，而非仅对新版本自身派生的 fixture 检查。
 
 Windows Foundry 的 build-info 输出包含 43 个输入未列出的相同源文件别名。准备器只从已有 input 内容中按输出 metadata 的 Keccak 匹配补齐，原始 build-info 保留，output 整体 SHA-256 不变。Linux 无缺失时逐字节复制，不修改 ABI、AST、字节码或布局。五项结构化结果与审计均保存。
 
