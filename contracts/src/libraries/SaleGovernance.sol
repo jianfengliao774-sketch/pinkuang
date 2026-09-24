@@ -6,13 +6,14 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolSaleState} from "../PoolSaleState.sol";
 
 /// @notice Beneficial-owner voting, executed in the PoolVault storage context.
-/// @dev Vault checks Active state and provides its current balance and activation
-/// time. This library makes no external calls and never changes shares or assets.
+/// @dev Vault checks the required Active/Listed state and provides its current
+/// balance and activation time. This library never calls out or changes assets.
 library SaleGovernance {
     using Checkpoints for Checkpoints.Trace208;
 
     uint256 private constant PROPOSE_INTERVAL = 7 days;
     uint256 private constant VOTE_DURATION = 1 days;
+    uint256 private constant LISTING_DURATION = 7 days;
     uint256 private constant TOTAL_SHARES = 100;
 
     struct ProposalInput {
@@ -30,6 +31,8 @@ library SaleGovernance {
     error ProposalActive();
     error InvalidProposal();
     error AlreadyVoted();
+    error ProposalNotPassed();
+    error InvalidListing();
 
     event SaleProposed(
         uint256 indexed proposalId,
@@ -43,6 +46,8 @@ library SaleGovernance {
         uint256 indexed proposalId, uint48 snapshotTs, uint256 snapshotMemberCount, uint256 snapshotTotalShares
     );
     event Voted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
+    event SaleListed(uint256 indexed proposalId, uint256 listingId, uint256 price, uint64 expiresAt);
+    event SaleExpired(uint256 indexed proposalId);
 
     function propose(
         PoolSaleState.SaleStorage storage s,
@@ -108,6 +113,36 @@ library SaleGovernance {
     /// @notice Reports only the vote result; execution must independently check its deadline and state.
     function passed(PoolSaleState.SaleStorage storage s, uint256 proposalId) external view returns (bool) {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
+        return _passed(p);
+    }
+
+    /// @notice Opens only the Vault's controlled listing; no external market receives an approval.
+    function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId) external {
+        PoolSaleState.Proposal storage p = _proposal(s, proposalId);
+        if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
+        if (block.timestamp >= p.endsAt) revert DeadlinePassed();
+        if (!_passed(p)) revert ProposalNotPassed();
+        p.executed = true;
+        s.listedProposalId = proposalId;
+        s.listedAt = SafeCast.toUint64(block.timestamp);
+        s.expiresAt = SafeCast.toUint64(block.timestamp + LISTING_DURATION);
+        s.salePrice = p.price;
+        emit SaleListed(proposalId, 0, p.price, s.expiresAt);
+    }
+
+    /// @notice Removes only the expired listing; executed proposal history can never be reused.
+    function cancel(PoolSaleState.SaleStorage storage s) external {
+        uint256 proposalId = s.listedProposalId;
+        if (proposalId == 0) revert InvalidListing();
+        if (block.timestamp < s.expiresAt) revert DeadlineNotReached();
+        delete s.listedProposalId;
+        delete s.listedAt;
+        delete s.expiresAt;
+        delete s.salePrice;
+        emit SaleExpired(proposalId);
+    }
+
+    function _passed(PoolSaleState.Proposal storage p) private view returns (bool) {
         return p.yesCount * 2 > p.snapshotMemberCount && p.yesShares * 2 > p.snapshotTotalShares;
     }
 

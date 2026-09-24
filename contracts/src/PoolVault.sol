@@ -16,6 +16,10 @@ import {MiningOperations} from "./libraries/MiningOperations.sol";
 import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
 import {SaleGovernance} from "./libraries/SaleGovernance.sol";
 import {PurchaseValidation} from "./libraries/PurchaseValidation.sol";
+import {SaleSettlement} from "./libraries/SaleSettlement.sol";
+import {BurnOperations} from "./libraries/BurnOperations.sol";
+import {PoolVaultState} from "./PoolVaultState.sol";
+import {PoolFunds} from "./libraries/PoolFunds.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
@@ -26,7 +30,8 @@ contract PoolVault is
     IPoolVault,
     IERC721Receiver,
     PoolRewardState,
-    PoolSaleState
+    PoolSaleState,
+    PoolVaultState
 {
     using Checkpoints for Checkpoints.Trace208;
 
@@ -43,48 +48,11 @@ contract PoolVault is
     address public constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address public constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
     address public constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
-
-    /// @custom:storage-location erc7201:tapeout.storage.PoolVault
-    struct VaultStorage {
-        address factory;
-        address treasury;
-        PoolParams params;
-        State state;
-        bool depositPaused;
-        bool refundsRecorded;
-        uint256 unitPriceWei;
-        uint256 totalRaised;
-        uint256 totalBnbOwed;
-        mapping(address => uint256) contributedWei;
-        mapping(address => uint256) bnbOwed;
-        address[] activeMembers;
-        mapping(address => uint256) memberIndexPlusOne;
-        mapping(address => Checkpoints.Trace208) shareHistory;
-        Checkpoints.Trace208 memberHistory;
-        // T1b additions: append only; compare against docs/storage/T1a-PoolVault.json.
-        uint256 purchaseCost;
-        uint64 activatedAt;
-        uint256 surplusPerShareWei;
-        uint256 surplusRemainder;
-        uint256 surplusOutstandingWei;
-        mapping(address => bool) surplusSettled;
-        address expectedNftSeller;
-        address expectedNftOperator;
-        bool nftReceived;
-        // T1d: tokens stay with their beneficial owner while this amount is listed.
-        mapping(address => uint256) lockedShares;
-    }
-
-    bytes32 private constant VAULT_STORAGE_LOCATION =
-        0x91bfb6bda130bea719738fb057a72863be36ca25095a844c93b1e775e47e6d00;
+    address public constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
-    }
-
-    function _vaultStorage() internal pure returns (VaultStorage storage s) {
-        assembly { s.slot := VAULT_STORAGE_LOCATION }
     }
 
     function initialize(address factory_, PoolParams calldata params_, address treasury_) external initializer {
@@ -142,29 +110,7 @@ contract PoolVault is
     }
 
     function finalizeFailure() external nonReentrant {
-        VaultStorage storage s = _vaultStorage();
-        uint8 reason = 0;
-        if (s.state == State.Funding) {
-            if (block.timestamp < s.params.fundingDeadline) revert DeadlineNotReached();
-        } else if (s.state == State.Funded) {
-            if (block.timestamp < s.params.purchaseDeadline) revert DeadlineNotReached();
-            reason = 1;
-        } else {
-            revert WrongState();
-        }
-        if (s.refundsRecorded) revert WrongState();
-        s.state = State.Refunding;
-        s.refundsRecorded = true;
-        // At most 100 current members. Record liabilities only; never call members in this loop.
-        uint256 count = s.activeMembers.length;
-        for (uint256 i; i < count; ++i) {
-            address member = s.activeMembers[i];
-            uint256 amount = s.contributedWei[member];
-            s.contributedWei[member] = 0;
-            _creditBnb(s, member, amount);
-        }
-        // Frozen historical shares and totalRaised remain available after failure.
-        emit Failed(reason);
+        PoolFunds.finalizeFailure(_vaultStorage());
     }
 
     function _creditBnb(VaultStorage storage s, address member, uint256 amount) private {
@@ -175,13 +121,8 @@ contract PoolVault is
     function withdrawBnb() external nonReentrant {
         VaultStorage storage s = _vaultStorage();
         _materializePurchaseSurplus(s, msg.sender);
-        uint256 amount = s.bnbOwed[msg.sender];
-        if (amount == 0) revert NothingToClaim();
-        s.bnbOwed[msg.sender] = 0;
-        s.totalBnbOwed -= amount;
-        (bool success,) = msg.sender.call{value: amount}("");
-        if (!success) revert TransferFailed();
-        emit BnbWithdrawn(msg.sender, amount);
+        _materializeSaleProceeds(s, msg.sender);
+        PoolFunds.withdraw(s);
     }
 
     function buyFromMarket(uint256 listingId) external nonReentrant {
@@ -243,37 +184,15 @@ contract PoolVault is
         if (!s.nftReceived) revert UnexpectedNft();
         if (IERC721(s.params.circuits).ownerOf(s.params.circuitId) != address(this)) revert NotOwnerAfterBuy();
         if (_activeMinerKey(s) != expectedKey) revert WrongCircuit();
-        delete s.expectedNftSeller;
-        delete s.expectedNftOperator;
-        delete s.nftReceived;
-        s.purchaseCost = cost;
-        s.activatedAt = SafeCast.toUint64(block.timestamp);
-        s.state = State.Active;
-        uint256 surplus = s.totalRaised - cost;
-        s.surplusPerShareWei = surplus / TOTAL_SHARES;
-        // Deterministic integer division remainder, not randomness or a timestamp lottery.
-        // slither-disable-next-line weak-prng
-        s.surplusRemainder = surplus % TOTAL_SHARES;
-        s.surplusOutstandingWei = s.surplusPerShareWei * TOTAL_SHARES;
-        emit Purchased(cost, path, listingId);
+        PoolFunds.recordPurchase(s, cost, path, listingId);
     }
 
     function _pendingPurchaseSurplus(VaultStorage storage s, address member) private view returns (uint256) {
-        if (s.state != State.Active && s.state != State.Listed && s.state != State.Closed) return 0;
-        if (s.surplusSettled[member]) return 0;
-        // Until a member's first balance change, current shares equal their acquisition shares.
-        // _update MUST materialize both parties before any future Active transfer is enabled.
-        return balanceOf(member) * s.surplusPerShareWei;
+        return PoolFunds.pendingPurchase(s, member, balanceOf(member));
     }
 
     function _materializePurchaseSurplus(VaultStorage storage s, address member) private {
-        if (s.state != State.Active && s.state != State.Listed && s.state != State.Closed) return;
-        if (s.surplusSettled[member]) return;
-        uint256 amount = _pendingPurchaseSurplus(s, member);
-        s.surplusSettled[member] = true;
-        s.surplusOutstandingWei -= amount;
-        _creditBnb(s, member, amount);
-        emit PurchaseSurplusSettled(member, balanceOf(member), amount);
+        PoolFunds.materializePurchase(s, member, balanceOf(member));
     }
 
     function setDepositPaused(bool paused) external {
@@ -343,6 +262,129 @@ contract PoolVault is
         VaultStorage storage s = _vaultStorage();
         if (s.state != State.Active) revert WrongState();
         SaleGovernance.vote(_saleStorage(), s.shareHistory, proposalId, support);
+    }
+
+    function executeSale(uint256 proposalId) external nonReentrant {
+        _executeSale(proposalId);
+    }
+
+    /// @notice Re-listing always needs a fresh passed proposal; there is no direct price change.
+    function relist(uint256 proposalId) external nonReentrant {
+        _executeSale(proposalId);
+    }
+
+    function _executeSale(uint256 proposalId) private {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        SaleGovernance.execute(_saleStorage(), proposalId);
+        s.state = State.Listed;
+    }
+
+    function cancelExpired() external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Listed) revert WrongState();
+        SaleGovernance.cancel(_saleStorage());
+        s.state = State.Active;
+    }
+
+    function completeSale() external payable nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        SaleStorage storage sale = _saleStorage();
+        if (s.state != State.Listed) revert WrongState();
+        if (block.timestamp >= sale.expiresAt) revert DeadlinePassed();
+        if (msg.value != sale.salePrice) revert PaymentMismatch();
+        // The guarded internal path proves receipt, zero pending and unchanged
+        // NFT/miner identity, then accounts all old-owner income before transfer.
+        (uint256 settledBem,,,) = _harvest(true);
+        uint256 fee = SaleSettlement.prepare(sale, msg.sender, msg.value, s.params.circuits, s.params.circuitId);
+        s.state = State.Closed;
+        _creditBnb(s, s.treasury, fee);
+        SaleSettlement.handover(sale, s.params.circuits, s.params.circuitId, settledBem);
+    }
+
+    /// @notice Reserved for a future verified adapter. Controlled sales settle atomically above.
+    function settleSale() external pure {
+        revert UnverifiedSaleRoute();
+    }
+
+    function executeBurn(uint256 minOut, uint256 maxIn) external nonReentrant returns (uint256 spent, uint256 burned) {
+        VaultStorage storage s = _vaultStorage();
+        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
+        if (s.state != State.Closed) revert WrongState();
+        (spent, burned) = BurnOperations.execute(_saleStorage(), minOut, maxIn);
+    }
+
+    function _materializeSaleProceeds(VaultStorage storage s, address member) private {
+        SaleStorage storage sale = _saleStorage();
+        if (sale.saleBuyer == address(0) || sale.saleSettled[member]) return;
+        uint256 shares = balanceOf(member);
+        uint256 amount = SaleSettlement.materialize(sale, member, shares);
+        _creditBnb(s, member, amount);
+        emit SaleProceedsSettled(member, shares, amount);
+    }
+
+    function pendingSaleProceeds(address member) public view returns (uint256) {
+        return SaleSettlement.pending(_saleStorage(), member, balanceOf(member));
+    }
+
+    function listedProposalId() external view returns (uint256) {
+        return _saleStorage().listedProposalId;
+    }
+
+    function listedAt() external view returns (uint64) {
+        return _saleStorage().listedAt;
+    }
+
+    function expiresAt() external view returns (uint64) {
+        return _saleStorage().expiresAt;
+    }
+
+    function salePrice() external view returns (uint256) {
+        return _saleStorage().salePrice;
+    }
+
+    function saleBuyer() external view returns (address) {
+        return _saleStorage().saleBuyer;
+    }
+
+    function completedAt() external view returns (uint64) {
+        return _saleStorage().completedAt;
+    }
+
+    function saleProceeds() external view returns (uint256) {
+        return _saleStorage().saleProceeds;
+    }
+
+    function salePerShareWei() external view returns (uint256) {
+        return _saleStorage().salePerShareWei;
+    }
+
+    function saleRemainder() external view returns (uint256) {
+        return _saleStorage().saleRemainder;
+    }
+
+    function saleOutstandingWei() external view returns (uint256) {
+        return _saleStorage().saleOutstandingWei;
+    }
+
+    function saleSettled(address member) external view returns (bool) {
+        return _saleStorage().saleSettled[member];
+    }
+
+    function saleTradeId() external view returns (bytes32) {
+        return _saleStorage().saleTradeId;
+    }
+
+    function burnBudget() external view returns (uint256) {
+        return _saleStorage().burnBudget;
+    }
+
+    function totalBurnBnbSpent() external view returns (uint256) {
+        return _saleStorage().totalBurnBnbSpent;
+    }
+
+    function totalBurnBem() external view returns (uint256) {
+        return _saleStorage().totalBurnBem;
     }
 
     function getProposal(uint256 proposalId) external view returns (Proposal memory) {
@@ -558,7 +600,7 @@ contract PoolVault is
     function assetOwed(address asset_, address member) external view returns (uint256) {
         if (asset_ != address(0)) revert UnsupportedSubscriptionAsset();
         VaultStorage storage s = _vaultStorage();
-        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member);
+        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member) + pendingSaleProceeds(member);
     }
 
     function state() external view returns (State) {
@@ -591,12 +633,12 @@ contract PoolVault is
 
     function bnbOwed(address member) external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member);
+        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member) + pendingSaleProceeds(member);
     }
 
     function totalBnbOwed() external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.totalBnbOwed + s.surplusOutstandingWei;
+        return s.totalBnbOwed + s.surplusOutstandingWei + _saleStorage().saleOutstandingWei;
     }
 
     function refundsRecorded() external view returns (bool) {
@@ -647,8 +689,11 @@ contract PoolVault is
         return _pendingPurchaseSurplus(_vaultStorage(), member);
     }
 
-    // Plain BNB does not constitute a subscription; buyer-side acquisition never needs a BNB receive callback.
+    // WBNB.withdraw uses a 2300-gas transfer. The outer guarded burn pre-warms and
+    // sets this exact expected refund; receive must not write storage or take a lock.
     receive() external payable {
-        revert UnsupportedSubscriptionAsset();
+        if (msg.sender != WBNB || msg.value == 0 || msg.value != _saleStorage().expectedWbnbRefund) {
+            revert UnsupportedSubscriptionAsset();
+        }
     }
 }

@@ -26,6 +26,22 @@ abstract contract PoolSaleState {
         mapping(address => uint64) lastProposed;
         mapping(uint256 => Proposal) proposals;
         mapping(uint256 => mapping(address => bool)) hasVoted;
+        uint256 listedProposalId;
+        uint64 listedAt;
+        uint64 expiresAt;
+        uint256 salePrice;
+        address saleBuyer;
+        uint64 completedAt;
+        uint256 saleProceeds;
+        uint256 salePerShareWei;
+        uint256 saleRemainder;
+        uint256 saleOutstandingWei;
+        mapping(address => bool) saleSettled;
+        uint256 burnBudget;
+        uint256 totalBurnBnbSpent;
+        uint256 totalBurnBem;
+        uint256 expectedWbnbRefund;
+        bytes32 saleTradeId;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolSales")) - 1)) & ~bytes32(uint256(0xff))
