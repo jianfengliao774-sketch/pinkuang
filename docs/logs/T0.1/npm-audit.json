@@ -1,0 +1,132 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@openzeppelin/foundry-upgrades": {
+      "name": "@openzeppelin/foundry-upgrades",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "@openzeppelin/upgrades-core"
+      ],
+      "effects": [],
+      "range": "*",
+      "nodes": [
+        "node_modules/@openzeppelin/foundry-upgrades"
+      ],
+      "fixAvailable": false
+    },
+    "@openzeppelin/upgrades-core": {
+      "name": "@openzeppelin/upgrades-core",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "ethereumjs-util"
+      ],
+      "effects": [
+        "@openzeppelin/foundry-upgrades"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@openzeppelin/upgrades-core"
+      ],
+      "fixAvailable": false
+    },
+    "elliptic": {
+      "name": "elliptic",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1112030,
+          "name": "elliptic",
+          "dependency": "elliptic",
+          "title": "Elliptic Uses a Cryptographic Primitive with a Risky Implementation",
+          "url": "https://github.com/advisories/GHSA-848j-6mx2-7j84",
+          "severity": "low",
+          "cwe": [
+            "CWE-1240"
+          ],
+          "cvss": {
+            "score": 5.6,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L"
+          },
+          "range": "<=6.6.1"
+        }
+      ],
+      "effects": [
+        "secp256k1"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/elliptic"
+      ],
+      "fixAvailable": false
+    },
+    "ethereum-cryptography": {
+      "name": "ethereum-cryptography",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        "secp256k1"
+      ],
+      "effects": [
+        "ethereumjs-util"
+      ],
+      "range": "0.1.0 - 0.1.3",
+      "nodes": [
+        "node_modules/ethereum-cryptography"
+      ],
+      "fixAvailable": false
+    },
+    "ethereumjs-util": {
+      "name": "ethereumjs-util",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        "ethereum-cryptography"
+      ],
+      "effects": [
+        "@openzeppelin/upgrades-core"
+      ],
+      "range": "4.5.1 || 5.2.1 || 6.2.1 || >=7.0.3",
+      "nodes": [
+        "node_modules/ethereumjs-util"
+      ],
+      "fixAvailable": false
+    },
+    "secp256k1": {
+      "name": "secp256k1",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        "elliptic"
+      ],
+      "effects": [
+        "ethereum-cryptography"
+      ],
+      "range": ">=2.0.0",
+      "nodes": [
+        "node_modules/secp256k1"
+      ],
+      "fixAvailable": false
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 6,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 6
+    },
+    "dependencies": {
+      "prod": 1,
+      "dev": 167,
+      "optional": 0,
+      "peer": 61,
+      "peerOptional": 0,
+      "total": 167
+    }
+  }
+}

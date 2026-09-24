@@ -1,0 +1,21 @@
+{
+  "name": "tapeout-pool",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TapeOut 合伙拼矿机 — T0.1 engineering bootstrap",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "fmt:check": "forge fmt --root contracts --check",
+    "build": "forge build --root contracts --sizes",
+    "test": "forge test --root contracts --no-match-path test/fork/** -vv",
+    "test:fork": "node scripts/run-fork.mjs",
+    "validate:upgrades": "node scripts/validate-upgrades.mjs"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "5.0.2",
+    "@openzeppelin/contracts-upgradeable": "5.0.2",
+    "@openzeppelin/foundry-upgrades": "0.4.2",
+    "@openzeppelin/upgrades-core": "1.46.0",
+    "forge-std": "https://codeload.github.com/foundry-rs/forge-std/tar.gz/77041d2ce690e692d6e03cc812b57d1ddaa4d505"
+  }
+}

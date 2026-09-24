@@ -1,0 +1,76 @@
+name: Contracts
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_fork:
+        description: Run T0.2 on the reviewed fixed FORK_BLOCK
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contracts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FOUNDRY_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: npm ci
+      - name: Formatting
+        run: npm run fmt:check
+      - name: Compile and check sizes
+        run: npm run build
+      - name: Unit and invariant tests (empty in T0.1)
+        run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install slither-analyzer==0.11.5
+      - name: Static analysis
+        working-directory: contracts
+        run: |
+          if find src -name '*.sol' -print -quit | grep -q .; then
+            slither . --filter-paths '../node_modules/|test/|script/' --fail-medium
+          else
+            echo 'NOT APPLICABLE (T0.1): no business Solidity sources for Slither.'
+          fi
+      - name: Upgrade validation (not applicable until M1)
+        run: npm run validate:upgrades
+
+  fork:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_fork
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FOUNDRY_PROFILE: ci
+      BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
+      FORK_BLOCK: ${{ vars.FORK_BLOCK }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - run: npm ci
+      - run: npm run test:fork
