@@ -2,7 +2,7 @@
 
 本卡按开发文档 v0.4 第 9、13.1 节和开工计划 T1d，实现 PoolVault 份额转让、卖家名下锁定、站内部分成交及 BNB 提款。收益沿用 [T1c](M1c.md) 的记账与到期规则；购机余款沿用 [T1b](M1b.md) 的原持有人归属。没有部署主网合约或广播主网交易。
 
-**验证状态：本地全树 175 项单元/不变量和 39 项固定块 fork 全部通过；格式、编译体积、13 项升级检查、三库链接审计和 Slither 均通过。原实现 PR 远端 CI 已通过；另一路 push fork 连续两次被公共 RPC 限流，已追加限速检查脚本，本地 39 项再次通过，等待新远端检查。** 完整日志与实际输入哈希见下表。
+**验证状态：本地全树 175 项单元/不变量和 39 项固定块 fork 全部通过；格式、编译体积、13 项升级检查、三库链接审计和 Slither 均通过。限速脚本修正后，push 和 PR 两套远端 CI 均已完整通过。** 完整日志与实际输入哈希见下表。
 
 | 验证项目 | 结果 |
 |---|---|
@@ -12,8 +12,8 @@
 | 格式、编译及体积 | [格式](logs/T1d/contracts/forge-fmt.log)、[编译和体积](logs/T1d/contracts/forge-build-sizes.log) 均 exit 0 |
 | 升级布局及三库链接检查 | [13 项升级检查](logs/T1d/contracts/upgrade-checks.json) 预期均成立；[三库审计](logs/T1d/contracts/library-link-audit.json) ok=true |
 | Slither | [--fail-medium exit 0](logs/T1d/contracts/slither.log)，保留 32 条 Low/Info 提示，处置说明见文末 |
-| push CI | [#35986805668](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35986805668)：contracts 通过，fork 首次及重跑均遇 RPC 429；失败如实保留 |
-| PR CI | [#35986821298](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35986821298)：全部 success；[39 项 fork 原始日志](logs/T1d/github-job-107592116669.log) |
+| push CI | [#35987549177](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35987549177)：全部 success；[contracts 日志](logs/T1d/github-job-107593658602.log)、[39 项 fork 日志](logs/T1d/github-job-107594389131.log) |
+| PR CI | [#35987554953](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35987554953)：全部 success |
 
 ## 份额与历史权益
 
@@ -105,4 +105,4 @@ npm run test:fork
 
 本卡无需新增业务决策。后续 T1e 的受控出售渠道及不在 tapeout.market 展示挂单的取舍，按开工计划第 1.3 节另请项目方确认，不影响本卡交付。
 
-远端 push 首次 fork 在 V3 池存储读取时遇到公共 RPC `HTTP 429 / Rate limit reached`，36 项通过、3 项 TokenSwapProbe 未能取齐状态；[原始失败日志](logs/T1d/github-job-107592013497-initial-failure.log) 已保留。同一实现提交的 PR fork 39 项全部通过。[重跑日志](logs/T1d/github-job-107592667418-retry-failure.log) 再次在另一处 Router 存储读取遇到 429，同样为 36 通过、3 项数据读取失败。现已在 run-fork.mjs 使用 Foundry 1.7.1 支持的 `--threads 1 --compute-units-per-second 50`，串行运行并保留保守的提供方请求限制；没有关闭限流、更换固定区块、更改合约源码/断言或跳过测试。[本地限速脚本复验](logs/T1d/fork-throttled/forge-test.log) 39 项通过，完整参数见 [summary](logs/T1d/fork-throttled/summary.json)，新远端结论另补记录。远端 contracts 的 [原始日志](logs/T1d/github-job-107591285015.log) 对应该实现提交的成功执行。
+远端 push 首次 fork 在 V3 池存储读取时遇到公共 RPC `HTTP 429 / Rate limit reached`，36 项通过、3 项 TokenSwapProbe 未能取齐状态；[原始失败日志](logs/T1d/github-job-107592013497-initial-failure.log) 已保留。同一实现提交的 PR fork 39 项全部通过。[重跑日志](logs/T1d/github-job-107592667418-retry-failure.log) 再次在另一处 Router 存储读取遇到 429，同样为 36 通过、3 项数据读取失败。现已在 run-fork.mjs 使用 Foundry 1.7.1 支持的 `--threads 1 --compute-units-per-second 50`，串行运行并保留保守的提供方请求限制；没有关闭限流、更换固定区块、更改合约源码/断言或跳过测试。[本地限速脚本复验](logs/T1d/fork-throttled/forge-test.log) 39 项通过，完整参数见 [summary](logs/T1d/fork-throttled/summary.json)，随后在 `d96f1e2576fd79aee60653cb8a904598781c7ea8` 上运行的新 push/PR CI 均全绿。该提交只增加验证脚本限流、报告、基线和原始日志，业务合约与 `5551c77` 相同。远端 contracts 的 [原始日志](logs/T1d/github-job-107591285015.log) 对应该实现提交的成功执行。
