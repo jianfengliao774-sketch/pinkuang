@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import {ShareTransferTestBase} from "../utils/ShareTransferTestBase.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
+import {PoolSaleState} from "../../src/PoolSaleState.sol";
+import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {SaleGovernance} from "../../src/libraries/SaleGovernance.sol";
+
+/// @notice Independent audit reproductions. Not part of the implementer's delivery.
+contract AuditFindingsTest is ShareTransferTestBase {
+    PoolVault internal vault;
+
+    function setUp() public override {
+        super.setUp();
+        vault = PoolVault(payable(address(pool)));
+        _transfer(BOB, CAROL, 23); // 49 / 26 / 25
+    }
+
+    /// A-1: real Mining.claim reverts for any miner whose status != 1 (verified on BSC mainnet by
+    /// eth_call with a state override of the status byte: status 0/2/3 all revert 0x5f9bb3be).
+    /// The unit mock only reverts when claimFault == 1, so we emulate the real behaviour here.
+    function test_Audit_RevokedMinerPermanentlyFreezesShareTransfersAndMarketFills() public {
+        mining.setStatus(key, 2); // 2 = revoked (tapeout PoD front-end status map)
+        mining.setClaimFault(1); // real protocol: claim(key) reverts for a non-active miner
+
+        // Ordinary harvest tolerates the failed claim, so already accounted BEM stays claimable.
+        vault.harvest();
+
+        // Every share movement uses the strict final-handover harvest and is now impossible.
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
+        vault.transfer(DAVE, 1);
+
+        // Listing still locks shares, but no buyer can ever fill the order.
+        vm.prank(ALICE);
+        uint256 orderId = shareMarket.list(address(pool), 10, 1 ether);
+        vm.deal(DAVE, 10 ether);
+        vm.prank(DAVE);
+        vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
+        shareMarket.fill{value: 10 ether}(orderId, 10);
+
+        // A revocation is permanent, so the pool can never move shares again. The planned
+        // completeSale() is specified to use the same strict settlement, so the NFT could never
+        // be sold either: there is no exit path once the miner is revoked.
+        vm.warp(block.timestamp + 365 days);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
+        vault.transfer(DAVE, 1);
+    }
+
+    /// A-2: one proposal slot + per-address cooldown lets a 1-share holder rotate its single
+    /// share through fresh addresses and keep the only proposal slot occupied indefinitely.
+    function test_Audit_OneShareRotatedThroughAddressesOccupiesProposalSlotContinuously() public {
+        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        address[8] memory sybils;
+        for (uint256 i; i < 8; ++i) {
+            sybils[i] = address(uint160(0xA0000 + i));
+        }
+        _transfer(CAROL, sybils[0], 1); // attacker owns exactly 1% of the pool
+
+        uint256 proposals;
+        for (uint256 day; day < 14; ++day) {
+            address holder = sybils[day % 7];
+            // Attacker proposes an unacceptable price the moment the previous proposal ends.
+            vm.prank(holder);
+            uint256 id = vault.propose(type(uint128).max, 0, 0);
+            ++proposals;
+
+            // Honest majority cannot open a real sale proposal during the whole 24 hours.
+            vm.warp(block.timestamp + 12 hours);
+            vm.prank(ALICE);
+            vm.expectRevert(SaleGovernance.ProposalActive.selector);
+            vault.propose(5 ether, 5 ether, uint64(block.timestamp));
+
+            // Nor can members reject it early; it stays in force until endsAt.
+            _voteNo(ALICE, id);
+            _voteNo(BOB, id);
+            vm.prank(ALICE);
+            vm.expectRevert(SaleGovernance.ProposalActive.selector);
+            vault.propose(5 ether, 5 ether, uint64(block.timestamp));
+
+            // Hand the single share to the next address, whose 7-day cooldown is unused.
+            PoolSaleState.Proposal memory p = vault.getProposal(id);
+            vm.warp(p.endsAt);
+            _transfer(holder, sybils[(day + 1) % 7], 1);
+        }
+        assertEq(proposals, 14, "a single 1% holder occupied the only slot for 14 consecutive days");
+    }
+
+    /// A-3: shares can be sent to the pool contract itself; they become an unrecoverable member
+    /// that accrues BEM/BNB nobody can claim and permanently counts toward the headcount base.
+    function test_Audit_SharesSentToVaultItselfAreStrandedAndCountAsMember() public {
+        uint256 membersBefore = vault.memberCount();
+        _transfer(ALICE, address(pool), 5);
+        assertEq(vault.balanceOf(address(pool)), 5);
+        assertEq(vault.memberCount(), membersBefore + 1, "vault itself became a voting member");
+    }
+
+    function _voteNo(address voter, uint256 id) private {
+        vm.prank(voter);
+        vault.vote(id, false);
+    }
+}

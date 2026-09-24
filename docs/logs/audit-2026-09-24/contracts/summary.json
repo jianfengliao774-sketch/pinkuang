@@ -1,0 +1,71 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-24T16:39:49.012Z",
+  "status": "passed",
+  "sourceCommit": "66e6f81f44e041cad02e9cac083c7f5d7a099a24",
+  "ci": null,
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-fgqHDk",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "upgrade-validation",
+      "executable": "C:\\Users\\Administrator\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+      "args": [
+        "scripts/validate-upgrades.mjs"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "slither",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.venv\\Scripts\\slither.exe",
+      "args": [
+        ".",
+        "--filter-paths",
+        "../node_modules/|test/|script/",
+        "--fail-medium"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "finishedAt": "2026-09-24T16:41:34.041Z"
+}
