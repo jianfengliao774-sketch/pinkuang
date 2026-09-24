@@ -1,0 +1,57 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-24T16:45:15.259Z",
+  "status": "failed",
+  "sourceCommit": "4f6bab6a03182be7aecf8b86a3c6fb5df76ed53a",
+  "ci": {
+    "runId": "36029485185",
+    "runAttempt": "1",
+    "job": "contracts",
+    "sha": "4f6bab6a03182be7aecf8b86a3c6fb5df76ed53a"
+  },
+  "buildRoot": "/home/runner/work/pinkuang/pinkuang/",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "forge",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "forge",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "forge",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "executable": "forge",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 1
+    }
+  ],
+  "finishedAt": "2026-09-24T16:46:33.177Z"
+}

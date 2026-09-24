@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const keccak = value => `0x${Buffer.from(keccak256(value)).toString('hex')}`;
-const expectedLibraries = ['MiningOperations', 'RewardAccounting', 'ShareCheckpoints'];
+const expectedLibraries = ['BurnOperations', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
 const mining = '0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46';
 
 function readArtifact(root, name) {
@@ -61,7 +61,7 @@ function vaultLinks(bytecode, label) {
     }
   }
   assert.deepEqual(links.map(link => link.name).sort(), expectedLibraries,
-    `${label} must link exactly MiningOperations, RewardAccounting and ShareCheckpoints`);
+    `${label} must link exactly the reviewed production libraries`);
   return links;
 }
 
@@ -76,7 +76,7 @@ function* walkAst(value) {
 }
 
 // This gate examines compiler AST nodes, not source-text regexes. Its scope is
-// deliberately the three production library source units, not a general security audit.
+// deliberately the listed production library source units, not a general security audit.
 function reviewLibraryAst(name, artifact) {
   assert.equal(artifact.ast?.absolutePath, `src/libraries/${name}.sol`, `Wrong source AST: ${name}`);
   const definitions = artifact.ast.nodes.filter(node => node.nodeType === 'ContractDefinition' && node.name === name);
@@ -103,10 +103,17 @@ function reviewLibraryAst(name, artifact) {
       if (node.memberName === 'call') {
         const target = node.expression;
         const declaration = state.find(node => node.id === target.referencedDeclaration);
-        assert(name === 'MiningOperations' && target.nodeType === 'Identifier' && target.name === 'MINING'
-          && declaration?.constant && declaration.value?.value?.toLowerCase() === mining,
-        `Unexpected raw CALL target in ${name}`);
-        rawCalls.push({ target: 'MINING', address: mining, sourceLocation: node.src });
+        if (name === 'MiningOperations') {
+          assert(target.nodeType === 'Identifier' && target.name === 'MINING'
+            && declaration?.constant && declaration.value?.value?.toLowerCase() === mining,
+          `Unexpected raw CALL target in ${name}`);
+          rawCalls.push({ target: 'MINING', address: mining, sourceLocation: node.src });
+        } else {
+          assert(name === 'PoolFunds' && target.nodeType === 'MemberAccess' && target.memberName === 'sender'
+            && target.expression?.nodeType === 'Identifier' && target.expression.name === 'msg',
+          `Unexpected raw CALL target in ${name}`);
+          rawCalls.push({ target: 'msg.sender', purpose: 'Original caller pulls its already-cleared BNB credit under Vault nonReentrant.', sourceLocation: node.src });
+        }
       }
     }
     if (node.nodeType === 'YulFunctionCall') {
@@ -114,7 +121,7 @@ function reviewLibraryAst(name, artifact) {
         `Unreviewed assembly external call or destructive operation in ${name}`);
     }
   }
-  assert.equal(rawCalls.length, name === 'MiningOperations' ? 1 : 0, `Raw CALL surface changed: ${name}`);
+  assert.equal(rawCalls.length, ['MiningOperations', 'PoolFunds'].includes(name) ? 1 : 0, `Raw CALL surface changed: ${name}`);
   return { compilerAstChecked: true, inheritance: [], ordinaryStorageFields: 0,
     mutableStateDeclarations: 0, explicitDelegatecallOrCallcode: false, selfdestruct: false, rawCalls,
     scope: 'Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests.' };
@@ -148,12 +155,12 @@ export default function auditLinkedLibraries(root, logRoot) {
     context: {
       execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
       reentrancy: 'Vault owns the nonReentrant entry points. Libraries have no independent reentrancy lock or Vault callback.',
-      upgradeValidationException: 'PoolVault permits only external-library-linking; this does not skip storage validation.',
-      limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders remain unlinked; a library runtime template also has its own-address deployment fixup. Deployment must separately verify each linked address and runtime code.',
+      upgradeValidationException: 'PoolVault narrowly annotates its locking constructor, OFFICIAL_FACTORY immutable, and external-library-linking; storage validation is not skipped. Storage compatibility does not verify the immutable factory value.',
+      limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(join(evidenceRoot, 'library-link-audit.json'), JSON.stringify(audit, null, 2) + '\n');
-  console.log('PASS: PoolVault links exactly 3 reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.');
+  console.log(`PASS: PoolVault links exactly ${expectedLibraries.length} reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.`);
   return audit;
 }

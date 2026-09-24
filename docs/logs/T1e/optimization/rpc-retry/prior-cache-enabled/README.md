@@ -1,0 +1,1 @@
+Superseded diagnostic run: this exploratory synthetic RPC used chainId 56 without --no-storage-caching. It may have changed the shared block 123728000 cache. Do not treat these files or the first contemporaneous local real-fork run as final acceptance evidence. See ../cache-quarantine.json and the final isolated-chain/no-storage-caching results in the parent directory.

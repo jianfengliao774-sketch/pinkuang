@@ -1,0 +1,35 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 14.03s
+Compiler run successful!
+
+Ran 23 tests for test/unit/PoolBurn.t.sol:PoolBurnTest
+[PASS] testFuzz_partialPullBudgetConservation(uint256,uint256) (runs: 256, μ: 1793537, ~: 1796354)
+Logs:
+  Bound result 199999999999999998
+  Bound result 63498635449928303
+
+[PASS] test_deadTransferFailureRollsBackBudgetSwapAndAllBalances() (gas: 1816967)
+[PASS] test_fullInputBurnPreservesEveryOtherAssetAndLiability() (gas: 1782647)
+[PASS] test_maxInOnlyBoundsThisCallAndCannotSpendMoreThanBudget() (gas: 1367963)
+[PASS] test_memberAndTreasuryWithdrawalsBeforeBurnLeaveBudgetBacked() (gas: 1972351)
+[PASS] test_missingNativeRefundRevertsAtomically() (gas: 1793322)
+[PASS] test_onlyCurrentOperatorInClosedCanExecute() (gas: 1487002)
+[PASS] test_outputBelowMinimumRevertsAllPaymentsAndAccounting() (gas: 1753835)
+[PASS] test_partialInputRefundUses2300GasProxyReceiveAndRetainsOldWbnb() (gas: 1873838)
+[PASS] test_plainBnbAndUnsolicitedWbnbSenderRefundRemainRejected() (gas: 1155674)
+[PASS] test_privilegedBemCallbackCannotReenterBurn() (gas: 1552941)
+[PASS] test_privilegedRouterCallbackCannotReenterBurn() (gas: 1530982)
+[PASS] test_routerCannotConsumeDonatedOldWbnb() (gas: 1782712)
+[PASS] test_routerCannotInflateWrappedRefundBeyondThisInput() (gas: 1794534)
+[PASS] test_routerCannotPullMoreThanExactAllowance() (gas: 1725886)
+[PASS] test_wrongDepositMintAmountRevertsAtomically() (gas: 1636949)
+[PASS] test_wrongNativeRefundAmountFailsReceiveAndRollsBack() (gas: 1801363)
+[PASS] test_wrongReportedOutputRevertsAllPaymentsAndAccounting() (gas: 1758060)
+[PASS] test_zeroActualSpendStillBurnsOutputAndRestoresEntireBudget() (gas: 1759954)
+[PASS] test_zeroMaxInAndZeroBudgetRejectWithoutRouterCall() (gas: 1666112)
+[PASS] test_zeroMaxInWithFundedBudgetRejects() (gas: 1556629)
+[PASS] test_zeroMinOutAllowedWithPositiveActualOutput() (gas: 1357269)
+[PASS] test_zeroOutputRejectsEvenWhenMinimumIsZero() (gas: 1731180)
+Suite result: ok. 23 passed; 0 failed; 0 skipped; finished in 145.37ms (183.17ms CPU time)
+
+Ran 1 test suite in 146.67ms (145.37ms CPU time): 23 tests passed, 0 failed, 0 skipped (23 total tests)

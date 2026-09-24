@@ -35,6 +35,8 @@ interface IRewardsFactory {
 /// @dev Only compiled with tests. This exposes the production settlement primitive for future share changes.
 /// It does not write synthetic balances, reward slots or epoch records.
 contract RewardsVaultHarness is PoolVault {
+    constructor(address officialFactory_) PoolVault(officialFactory_) {}
+
     function settleUser(address user) external {
         _settleRewards(user);
     }
@@ -101,7 +103,7 @@ abstract contract RewardsTestBase is FundingTestBase {
 
     function setUp() public virtual override {
         super.setUp();
-        RewardsVaultHarness harness = new RewardsVaultHarness();
+        RewardsVaultHarness harness = new RewardsVaultHarness(address(poolFactory));
         bytes memory upgrade = abi.encodeWithSignature("upgradeTo(address)", address(harness));
         bytes32 salt = keccak256("reward-test-harness");
         vm.prank(OWNER);

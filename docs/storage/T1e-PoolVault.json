@@ -1,0 +1,806 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolVault.sol:PoolVault",
+  "provenance": {
+    "milestone": "T1e",
+    "commit": "8ba9fb1541e82cff8bced3c9caff0159748e33d6",
+    "sourcePath": "contracts/src/PoolVault.sol",
+    "sourceSha256": "8a6e709004814755eae9ebf4fbd68075eefd5056161f20c7ec111018b2bbbc62",
+    "sourceHashDefinition": "SHA-256 of exact compiler-input UTF-8 source bytes, asserted equal to the committed Git blob.",
+    "testedBuildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-SIwEPu",
+    "compilerBuildInfoFile": "62b31cd76644d5b1.json",
+    "compilerBuildInfoSha256": "de3aed16023bbc807b770b9de6132494bcabd74cbab1c792bff3f6b3fb5983e4",
+    "preparedBuildInfoSha256": "4f9a070bee7addfb10143b28537836dbf1d9edb32781b0e7cacfc525cb35e90e",
+    "unchangedCompilerOutputSha256": "052009db6690b32d1b21de7a82ee90cce29e365b3043715d61918b7acb42f872",
+    "metadataVerifiedInputAliasesAdded": 16,
+    "metadataVerifiedInputAliases": [
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/access/AccessControl.sol",
+        "metadataKeccak256": "0xa0e92d42942f4f57c5be50568dac11e9d00c93efcb458026e18d2d9b9b2e7308"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/access/IAccessControl.sol",
+        "metadataKeccak256": "0xb6b36edd6a2999fd243ff226d6cbf84bd71af2432bbd0dfe19392996a1d9cb41"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/access/Ownable.sol",
+        "metadataKeccak256": "0xff6d0bb2e285473e5311d9d3caacb525ae3538a80758c10649a4d61029b017bb"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/proxy/Proxy.sol",
+        "metadataKeccak256": "0xc3f2ec76a3de8ed7a7007c46166f5550c72c7709e3fc7e8bb3111a7191cdedbd"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/proxy/beacon/IBeacon.sol",
+        "metadataKeccak256": "0xc59a78b07b44b2cf2e8ab4175fca91e8eca1eee2df7357b8d2a8833e5ea1f64c"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol",
+        "metadataKeccak256": "0xb69597a63b202e28401128bed6a6d259e8730191274471af7303eafb247881a3"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+        "metadataKeccak256": "0xc26cd2e2bcf59b87c986fc653545b35010db9c585a3f3312fe61d7b1b3805735"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol",
+        "metadataKeccak256": "0x6008dabfe393240d73d7dd7688033f72740d570aa422254d29a7dce8568f3aff"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol",
+        "metadataKeccak256": "0xaad20f8713b5cd98114278482d5d91b9758f9727048527d582e8e88fd4901fd8"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/utils/Address.sol",
+        "metadataKeccak256": "0xaf28a975a78550e45f65e559a3ad6a5ad43b9b8a37366999abd1b7084eb70721"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/utils/Context.sol",
+        "metadataKeccak256": "0x493033a8d1b176a037b2cc6a04dad01a5c157722049bbecf632ca876224dd4b2"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/utils/StorageSlot.sol",
+        "metadataKeccak256": "0x32ba59b4b7299237c8ba56319110989d7978a039faf754793064e967e5894418"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/utils/introspection/ERC165.sol",
+        "metadataKeccak256": "0x9e8778b14317ba9e256c30a76fd6c32b960af621987f56069e1e819c77c6a133"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts/utils/introspection/IERC165.sol",
+        "metadataKeccak256": "0x4296879f55019b23e135000eb36896057e7101fb7fb859c5ef690cf14643757b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+        "metadataKeccak256": "0x631188737069917d2f909d29ce62c4d48611d326686ba6683e26b72a23bfac0b"
+      },
+      {
+        "alias": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "copiedFrom": "C:/Users/Administrator/AppData/Local/Temp/tapeout-check-SIwEPu/node_modules/@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol",
+        "metadataKeccak256": "0xdbef5f0c787055227243a7318ef74c8a5a1108ca3a07f2b3a00ef67769e1e397"
+      }
+    ]
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_struct(PoolParams)15648_storage": {
+        "label": "struct IPoolVault.PoolParams",
+        "members": [
+          {
+            "label": "circuits",
+            "type": "t_address"
+          },
+          {
+            "label": "circuitId",
+            "type": "t_uint256"
+          },
+          {
+            "label": "targetRaise",
+            "type": "t_uint256"
+          },
+          {
+            "label": "priceCap",
+            "type": "t_uint256"
+          },
+          {
+            "label": "directSeller",
+            "type": "t_address"
+          },
+          {
+            "label": "directPrice",
+            "type": "t_uint256"
+          },
+          {
+            "label": "fundingDeadline",
+            "type": "t_uint64"
+          },
+          {
+            "label": "purchaseDeadline",
+            "type": "t_uint64"
+          }
+        ]
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      },
+      "t_enum(State)15631": {
+        "label": "enum IPoolVault.State",
+        "members": [
+          "Funding",
+          "Funded",
+          "Active",
+          "Listed",
+          "Closed",
+          "Refunding"
+        ]
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "label": "mapping(address => uint256)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_mapping(t_address,t_struct(Trace208)6610_storage)": {
+        "label": "mapping(address => struct Checkpoints.Trace208)"
+      },
+      "t_struct(Trace208)6610_storage": {
+        "label": "struct Checkpoints.Trace208",
+        "members": [
+          {
+            "label": "_checkpoints",
+            "type": "t_array(t_struct(Checkpoint208)6615_storage)dyn_storage"
+          }
+        ]
+      },
+      "t_array(t_struct(Checkpoint208)6615_storage)dyn_storage": {
+        "label": "struct Checkpoints.Checkpoint208[]"
+      },
+      "t_struct(Checkpoint208)6615_storage": {
+        "label": "struct Checkpoints.Checkpoint208",
+        "members": [
+          {
+            "label": "_key",
+            "type": "t_uint48"
+          },
+          {
+            "label": "_value",
+            "type": "t_uint208"
+          }
+        ]
+      },
+      "t_uint48": {
+        "label": "uint48"
+      },
+      "t_uint208": {
+        "label": "uint208"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)"
+      },
+      "t_mapping(t_address,t_uint64)": {
+        "label": "mapping(address => uint64)"
+      },
+      "t_mapping(t_uint256,t_struct(Proposal)11551_storage)": {
+        "label": "mapping(uint256 => struct PoolSaleState.Proposal)"
+      },
+      "t_struct(Proposal)11551_storage": {
+        "label": "struct PoolSaleState.Proposal",
+        "members": [
+          {
+            "label": "proposer",
+            "type": "t_address"
+          },
+          {
+            "label": "snapshotTs",
+            "type": "t_uint48"
+          },
+          {
+            "label": "endsAt",
+            "type": "t_uint64"
+          },
+          {
+            "label": "refAt",
+            "type": "t_uint64"
+          },
+          {
+            "label": "price",
+            "type": "t_uint256"
+          },
+          {
+            "label": "refPrice",
+            "type": "t_uint256"
+          },
+          {
+            "label": "snapshotMemberCount",
+            "type": "t_uint256"
+          },
+          {
+            "label": "snapshotTotalShares",
+            "type": "t_uint256"
+          },
+          {
+            "label": "yesCount",
+            "type": "t_uint256"
+          },
+          {
+            "label": "yesShares",
+            "type": "t_uint256"
+          },
+          {
+            "label": "executed",
+            "type": "t_bool"
+          }
+        ]
+      },
+      "t_mapping(t_uint256,t_mapping(t_address,t_bool))": {
+        "label": "mapping(uint256 => mapping(address => bool))"
+      },
+      "t_bytes32": {
+        "label": "bytes32"
+      },
+      "t_struct(Trace224)6089_storage": {
+        "label": "struct Checkpoints.Trace224",
+        "members": [
+          {
+            "label": "_checkpoints",
+            "type": "t_array(t_struct(Checkpoint224)6094_storage)dyn_storage"
+          }
+        ]
+      },
+      "t_array(t_struct(Checkpoint224)6094_storage)dyn_storage": {
+        "label": "struct Checkpoints.Checkpoint224[]"
+      },
+      "t_struct(Checkpoint224)6094_storage": {
+        "label": "struct Checkpoints.Checkpoint224",
+        "members": [
+          {
+            "label": "_key",
+            "type": "t_uint32"
+          },
+          {
+            "label": "_value",
+            "type": "t_uint224"
+          }
+        ]
+      },
+      "t_uint32": {
+        "label": "uint32"
+      },
+      "t_uint224": {
+        "label": "uint224"
+      },
+      "t_mapping(t_uint256,t_uint256)": {
+        "label": "mapping(uint256 => uint256)"
+      },
+      "t_mapping(t_uint256,t_bool)": {
+        "label": "mapping(uint256 => bool)"
+      },
+      "t_mapping(t_address,t_struct(RewardUser)11461_storage)": {
+        "label": "mapping(address => struct PoolRewardState.RewardUser)"
+      },
+      "t_struct(RewardUser)11461_storage": {
+        "label": "struct PoolRewardState.RewardUser",
+        "members": [
+          {
+            "label": "debtAcc",
+            "type": "t_uint256"
+          },
+          {
+            "label": "owed",
+            "type": "t_uint256"
+          },
+          {
+            "label": "globalRemainder",
+            "type": "t_uint256"
+          },
+          {
+            "label": "lastClaimAt",
+            "type": "t_uint64"
+          },
+          {
+            "label": "slots",
+            "type": "t_array(t_struct(RewardSlot)11447_storage)8_storage"
+          }
+        ]
+      },
+      "t_array(t_struct(RewardSlot)11447_storage)8_storage": {
+        "label": "struct PoolRewardState.RewardSlot[8]"
+      },
+      "t_struct(RewardSlot)11447_storage": {
+        "label": "struct PoolRewardState.RewardSlot",
+        "members": [
+          {
+            "label": "epoch",
+            "type": "t_uint32"
+          },
+          {
+            "label": "amount",
+            "type": "t_uint256"
+          },
+          {
+            "label": "remainder",
+            "type": "t_uint256"
+          }
+        ]
+      },
+      "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
+        "label": "mapping(address => mapping(address => uint256))"
+      },
+      "t_string_storage": {
+        "label": "string"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolVault": [
+        {
+          "contract": "PoolVaultState",
+          "label": "factory",
+          "type": "t_address",
+          "src": "src\\PoolVaultState.sol:12"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src\\PoolVaultState.sol:13"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "params",
+          "type": "t_struct(PoolParams)15648_storage",
+          "src": "src\\PoolVaultState.sol:14"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "state",
+          "type": "t_enum(State)15631",
+          "src": "src\\PoolVaultState.sol:15"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "depositPaused",
+          "type": "t_bool",
+          "src": "src\\PoolVaultState.sol:16"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "refundsRecorded",
+          "type": "t_bool",
+          "src": "src\\PoolVaultState.sol:17"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "unitPriceWei",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:18"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "totalRaised",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:19"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "totalBnbOwed",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:20"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "contributedWei",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVaultState.sol:21"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "bnbOwed",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVaultState.sol:22"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "activeMembers",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src\\PoolVaultState.sol:23"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "memberIndexPlusOne",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVaultState.sol:24"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "shareHistory",
+          "type": "t_mapping(t_address,t_struct(Trace208)6610_storage)",
+          "src": "src\\PoolVaultState.sol:25"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "memberHistory",
+          "type": "t_struct(Trace208)6610_storage",
+          "src": "src\\PoolVaultState.sol:26"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "purchaseCost",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:27"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "activatedAt",
+          "type": "t_uint64",
+          "src": "src\\PoolVaultState.sol:28"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "surplusPerShareWei",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:29"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "surplusRemainder",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:30"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "surplusOutstandingWei",
+          "type": "t_uint256",
+          "src": "src\\PoolVaultState.sol:31"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "surplusSettled",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src\\PoolVaultState.sol:32"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "expectedNftSeller",
+          "type": "t_address",
+          "src": "src\\PoolVaultState.sol:33"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "expectedNftOperator",
+          "type": "t_address",
+          "src": "src\\PoolVaultState.sol:34"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "nftReceived",
+          "type": "t_bool",
+          "src": "src\\PoolVaultState.sol:35"
+        },
+        {
+          "contract": "PoolVaultState",
+          "label": "lockedShares",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src\\PoolVaultState.sol:36"
+        }
+      ],
+      "erc7201:tapeout.storage.PoolSales": [
+        {
+          "contract": "PoolSaleState",
+          "label": "nextProposalId",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:24"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "activeProposalId",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:25"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "lastProposed",
+          "type": "t_mapping(t_address,t_uint64)",
+          "src": "src\\PoolSaleState.sol:26"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "proposals",
+          "type": "t_mapping(t_uint256,t_struct(Proposal)11551_storage)",
+          "src": "src\\PoolSaleState.sol:27"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "hasVoted",
+          "type": "t_mapping(t_uint256,t_mapping(t_address,t_bool))",
+          "src": "src\\PoolSaleState.sol:28"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "listedProposalId",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:29"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "listedAt",
+          "type": "t_uint64",
+          "src": "src\\PoolSaleState.sol:30"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "expiresAt",
+          "type": "t_uint64",
+          "src": "src\\PoolSaleState.sol:31"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "salePrice",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:32"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleBuyer",
+          "type": "t_address",
+          "src": "src\\PoolSaleState.sol:33"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "completedAt",
+          "type": "t_uint64",
+          "src": "src\\PoolSaleState.sol:34"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleProceeds",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:35"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "salePerShareWei",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:36"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleRemainder",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:37"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleOutstandingWei",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:38"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleSettled",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src\\PoolSaleState.sol:39"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "burnBudget",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:40"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "totalBurnBnbSpent",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:41"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "totalBurnBem",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:42"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "expectedWbnbRefund",
+          "type": "t_uint256",
+          "src": "src\\PoolSaleState.sol:43"
+        },
+        {
+          "contract": "PoolSaleState",
+          "label": "saleTradeId",
+          "type": "t_bytes32",
+          "src": "src\\PoolSaleState.sol:44"
+        }
+      ],
+      "erc7201:tapeout.storage.PoolRewards": [
+        {
+          "contract": "PoolRewardState",
+          "label": "expiryDisabled",
+          "type": "t_bool",
+          "src": "src\\PoolRewardState.sol:26"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "expiryConfigured",
+          "type": "t_bool",
+          "src": "src\\PoolRewardState.sol:27"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "acc",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:28"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "bemAccounted",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:29"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "accEndOf",
+          "type": "t_struct(Trace224)6089_storage",
+          "src": "src\\PoolRewardState.sol:30"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "epochNet",
+          "type": "t_mapping(t_uint256,t_uint256)",
+          "src": "src\\PoolRewardState.sol:31"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "epochPaid",
+          "type": "t_mapping(t_uint256,t_uint256)",
+          "src": "src\\PoolRewardState.sol:32"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "epochBurned",
+          "type": "t_mapping(t_uint256,t_uint256)",
+          "src": "src\\PoolRewardState.sol:33"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "epochBurnedFlag",
+          "type": "t_mapping(t_uint256,t_bool)",
+          "src": "src\\PoolRewardState.sol:34"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "users",
+          "type": "t_mapping(t_address,t_struct(RewardUser)11461_storage)",
+          "src": "src\\PoolRewardState.sol:35"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalGross",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:36"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalPlatform",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:37"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalBaseBurned",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:38"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalMemberNet",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:39"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalMemberPaid",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:40"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalExpiredBurned",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:41"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "epochRemainderScaled",
+          "type": "t_mapping(t_uint256,t_uint256)",
+          "src": "src\\PoolRewardState.sol:45"
+        },
+        {
+          "contract": "PoolRewardState",
+          "label": "totalGlobalRemainderScaled",
+          "type": "t_uint256",
+          "src": "src\\PoolRewardState.sol:47"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ERC20": [
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_balances",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:38"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_allowances",
+          "type": "t_mapping(t_address,t_mapping(t_address,t_uint256))",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:40"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_totalSupply",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:42"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_name",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:44"
+        },
+        {
+          "contract": "ERC20Upgradeable",
+          "label": "_symbol",
+          "type": "t_string_storage",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\token\\ERC20\\ERC20Upgradeable.sol:45"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

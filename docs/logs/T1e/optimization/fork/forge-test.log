@@ -1,0 +1,152 @@
+No files changed, compilation skipped
+
+Ran 5 tests for test/fork/MarketProbe.t.sol:MarketProbeTest
+[PASS] test_Q4_MarketBuyerPaysListedPriceAndSellerBearsOnePercent() (gas: 274063)
+Logs:
+  seller BNB delta: 990000000000000000
+  seller owed delta: 0
+  protocol BNB delta: 0
+  protocol owed delta: 10000000000000000
+  market BNB delta: 10000000000000000
+
+[PASS] test_Q4_MarketRejectsUnderpaymentAndFeeAddedOnTop() (gas: 616586)
+[PASS] test_Q5_ContractSellerReceivesBnbDirectlyAndHasNothingToWithdraw() (gas: 553156)
+Logs:
+  contract seller BNB after buy: 990000000000000000
+  contract seller owed after buy: 0
+  contract seller receive callbacks: 1
+  market BNB delta after buy: 10000000000000000
+
+[PASS] test_Q5_ProtocolFeeUsesOwedAndWithdraw() (gas: 553104)
+[PASS] test_Q5_RejectingSellerRevertsTradeInsteadOfCreatingOwed() (gas: 617959)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 15.98s (8.46s CPU time)
+
+Ran 10 tests for test/fork/MiningStartProbe.t.sol:MiningStartProbe
+[PASS] test_Q1_contractHolderArmStartStop_realProofs() (gas: 1798924)
+[PASS] test_Q1_strangerArmStartStopRevert() (gas: 1866686)
+[PASS] test_Q2_invalidMerkleProofRejectedThenValidProofAccepted() (gas: 2543590)
+[PASS] test_Q2_startAfterSixtyFourBlocksReverts() (gas: 1036513)
+[PASS] test_Q2_startAtElevenBlocks_realProofs() (gas: 1768359)
+[PASS] test_Q2_startAtSixtyFourBlocks_realProofs() (gas: 1768336)
+[PASS] test_Q2_startAtTenBlocks_realProofs() (gas: 1768403)
+[PASS] test_Q2_startInArmBlockReverts() (gas: 1036015)
+[PASS] test_Q2_stopCooldownDoesNotExpireByTimestampAlone() (gas: 1001382)
+[PASS] test_Q2_stopCooldownRequiresMoreThan1200Blocks_notSeconds() (gas: 3839728)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 13.95s (10.02s CPU time)
+
+Ran 3 tests for test/fork/PoolPurchaseFork.t.sol:PoolPurchaseForkTest
+[PASS] test_Fork_ProductionDirectPurchaseSettlesSellerAndCreditsPullProceeds() (gas: 1812993)
+Logs:
+  production direct purchase cost (wei): 10000000000000000
+  seller BEM settled before direct transfer (atoms): 342827
+
+[PASS] test_Fork_ProductionMarketPurchaseSettlesSellerThenDeliversAndKeepsMining() (gas: 1913144)
+Logs:
+  production market purchase cost (wei): 10000000000000000
+  seller BEM settled before market transfer (atoms): 342827
+  Vault new BEM after 3600 seconds (atoms): 39272
+
+[PASS] test_Fork_RealMarketPurchaseRetainsOnlyExplicitSurplusRemainder() (gas: 1808087)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 6.27s (5.11s CPU time)
+
+Ran 6 tests for test/fork/PoolRewardsFork.t.sol:PoolRewardsForkTest
+[PASS] test_Fork_AlreadyClaimedProtocolBemStillHarvestedOnce() (gas: 458541)
+[PASS] test_Fork_DirectBemTransferAccountedExactlyOnceAndAllThreeMembersPaid() (gas: 1104043)
+[PASS] test_Fork_ExpiredRealBemBurnsOnlyUnpaidEpochWithoutRepeatedBurn() (gas: 890514)
+[PASS] test_Fork_PermissionlessHarvestPaysOneFourNinetyFiveAndClaim24HourBoundary() (gas: 1486307)
+Logs:
+  real Mining gross BEM after 3600 seconds (atoms): 39272
+  platform fee BEM (atoms): 392
+  base burn BEM (atoms): 1570
+  members net BEM (atoms): 37310
+
+[PASS] test_Fork_ProductionMineArmAndStartWithRealProofsAfterExplicitLocalStopSetup() (gas: 2084429)
+Logs:
+  real start proof sample count: 32
+  real start verified mining weight: 2
+
+[PASS] test_Fork_ReclaimIneligibleActiveStateBubblesActualProtocolRevert() (gas: 200407)
+Logs:
+  real reclaim state rejection: 0x79710317
+
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 1.65s (1.65s CPU time)
+
+Ran 2 tests for test/fork/PoolShareTransferFork.t.sol:PoolShareTransferForkTest
+[PASS] test_Fork_MarketFillSettlesRealRewardsAndCreditsSellerBnbMinusOnePercent() (gas: 1418611)
+Logs:
+  share fill gross BNB (wei): 21000000000000000
+  share fill treasury BNB fee (wei): 210000000000000
+  share fill old-holder net BEM (atoms): 37310
+
+[PASS] test_Fork_OrdinaryTransferClaimsBeforeBalanceChangeAndPreservesOldRewardOwnership() (gas: 1550970)
+Logs:
+  ordinary transfer old-holder gross BEM (atoms): 39272
+  ordinary transfer old-holder net BEM (atoms): 37310
+  new holder first eligible later BEM (atoms): 3731
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 1.50s (557.86ms CPU time)
+
+Ran 8 tests for test/fork/ProtocolProbe.t.sol:ProtocolProbe
+[PASS] test_ProbeWhitelistRejectsUnknownSelectorAndStranger() (gas: 24757)
+[PASS] test_Q3_ActiveMinerContinuesAndClaimsToContractAfterTransfer() (gas: 252906)
+Logs:
+  pending before transfer (BEM atoms): 342456
+  initial actual claim (BEM atoms): 342827
+  pending after 3600 seconds and global update (BEM atoms): 39272
+  NEW rewards claimed to contract (BEM atoms): 39272
+
+[PASS] test_Q6_BareMarketSaleDoesNotForceFinalClaim() (gas: 350468)
+Logs:
+  unsettled BEM taken by new market owner: 342827
+
+[PASS] test_Q6_BuyerClaimsSellerThenBuysAtomically() (gas: 342834)
+Logs:
+  pre-purchase pending view: 342456
+  actual BEM paid to seller before purchase: 342827
+
+[PASS] test_Q6_ClaimFailurePreventsControlledTransfer() (gas: 89945)
+[PASS] test_Q6_ControlledSaleSettlesBeforeTransfer() (gas: 253559)
+Logs:
+  final BEM retained for previous holder: 382099
+
+[PASS] test_Q6_FailedBuyRollsBackPriorClaim() (gas: 365790)
+[PASS] test_Q7_ConsecutiveZeroPendingClaim() (gas: 179209)
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 1.74s (1.74s CPU time)
+
+Ran 5 tests for test/fork/TokenSwapProbe.t.sol:TokenSwapProbeTest
+[PASS] test_Q8_MintOnlyImmutableMiningMinterAndCap() (gas: 71677)
+Logs:
+  Q8 sole immutable minter: 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46
+  Q8 original totalSupply (BEM raw, 8 decimals): 22572656921338
+  Q8 MAX_SUPPLY (BEM raw, 8 decimals): 2100000000000000
+
+[PASS] test_Q9_BemToNativeBnbWithMinOutAndUnwrap() (gas: 176510)
+Logs:
+  Q9 SELL BEM raw -> native BNB wei
+  input raw: 1000000
+  instantaneous spot output, excluding fee and impact: 816053242925108
+  spot output after nominal 1% pool fee: 807892710495856
+  minimum output raw: 799813783390897
+  actual output raw: 807891677110236
+  nominal pool fee ppm: 10000
+  price impact plus rounding ppb vs fee-adjusted spot (rounded down): 1279
+
+[PASS] test_Q9_BnbToBemWithMinOutAndRefund() (gas: 160980)
+Logs:
+  Q9 BUY BNB wei -> BEM raw (8 decimals)
+  input raw: 1000000000000000
+  instantaneous spot output, excluding fee and impact: 1225410
+  spot output after nominal 1% pool fee: 1213155
+  minimum output raw: 1201023
+  actual output raw: 1213154
+  nominal pool fee ppm: 10000
+  price impact plus rounding ppb vs fee-adjusted spot (rounded down): 824
+
+[PASS] test_Q9_ExcessiveMinOutRevertsWithoutTakingBnb() (gas: 136401)
+[PASS] test_Q9_PoolAndRouterIdentity() (gas: 19363)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 5.97s (5.38s CPU time)
+
+Ran 7 test suites in 47.68s (47.05s CPU time): 39 tests passed, 0 failed, 0 skipped (39 total tests)
+2026-09-24T14:24:07.339414Z  WARN evm::traces::external: etherscan config not found
+2026-09-24T14:24:07.955782Z  WARN cache: non-matching block metadata
+2026-09-24T14:24:12.077010Z  WARN cache: non-matching block metadata

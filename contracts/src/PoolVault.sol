@@ -5,21 +5,34 @@ import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
-import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {ICircuitMarket} from "./interfaces/ICircuitMarket.sol";
 import {PoolRewardState} from "./PoolRewardState.sol";
+import {PoolSaleState} from "./PoolSaleState.sol";
 import {RewardAccounting} from "./libraries/RewardAccounting.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
 import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
+import {SaleGovernance} from "./libraries/SaleGovernance.sol";
+import {PurchaseValidation} from "./libraries/PurchaseValidation.sol";
+import {SaleSettlement} from "./libraries/SaleSettlement.sol";
+import {BurnOperations} from "./libraries/BurnOperations.sol";
+import {PoolVaultState} from "./PoolVaultState.sol";
+import {PoolFunds} from "./libraries/PoolFunds.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
-contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, IERC721Receiver, PoolRewardState {
+contract PoolVault is
+    ERC20Upgradeable,
+    ReentrancyGuardUpgradeable,
+    IPoolVault,
+    IERC721Receiver,
+    PoolRewardState,
+    PoolSaleState,
+    PoolVaultState
+{
     using Checkpoints for Checkpoints.Trace208;
 
     uint256 public constant TOTAL_SHARES = 100;
@@ -35,58 +48,30 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     address public constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address public constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
     address public constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+    address public constant WBNB = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
 
-    /// @custom:storage-location erc7201:tapeout.storage.PoolVault
-    struct VaultStorage {
-        address factory;
-        address treasury;
-        PoolParams params;
-        State state;
-        bool depositPaused;
-        bool refundsRecorded;
-        uint256 unitPriceWei;
-        uint256 totalRaised;
-        uint256 totalBnbOwed;
-        mapping(address => uint256) contributedWei;
-        mapping(address => uint256) bnbOwed;
-        address[] activeMembers;
-        mapping(address => uint256) memberIndexPlusOne;
-        mapping(address => Checkpoints.Trace208) shareHistory;
-        Checkpoints.Trace208 memberHistory;
-        // T1b additions: append only; compare against docs/storage/T1a-PoolVault.json.
-        uint256 purchaseCost;
-        uint64 activatedAt;
-        uint256 surplusPerShareWei;
-        uint256 surplusRemainder;
-        uint256 surplusOutstandingWei;
-        mapping(address => bool) surplusSettled;
-        address expectedNftSeller;
-        address expectedNftOperator;
-        bool nftReceived;
-        // T1d: tokens stay with their beneficial owner while this amount is listed.
-        mapping(address => uint256) lockedShares;
-    }
-
-    bytes32 private constant VAULT_STORAGE_LOCATION =
-        0x91bfb6bda130bea719738fb057a72863be36ca25095a844c93b1e775e47e6d00;
+    /// @dev Shared by all proxies behind this implementation; every upgrade must preserve this factory binding.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable OFFICIAL_FACTORY;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address officialFactory_) {
+        if (officialFactory_ == address(0)) revert Unauthorized();
+        OFFICIAL_FACTORY = officialFactory_;
         _disableInitializers();
     }
 
-    function _vaultStorage() internal pure returns (VaultStorage storage s) {
-        assembly { s.slot := VAULT_STORAGE_LOCATION }
-    }
-
     function initialize(address factory_, PoolParams calldata params_, address treasury_) external initializer {
-        if (msg.sender != factory_ || factory_.code.length == 0 || treasury_ == address(0)) revert Unauthorized();
+        if (
+            factory_ != OFFICIAL_FACTORY || msg.sender != OFFICIAL_FACTORY || factory_.code.length == 0
+                || treasury_ == address(0)
+        ) revert Unauthorized();
         if (params_.targetRaise == 0 || params_.targetRaise % TOTAL_SHARES != 0) revert FundingTargetNotDivisible();
         if (params_.priceCap == 0 || params_.priceCap > params_.targetRaise) revert OverPriceCap();
         if (params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline) {
             revert InvalidParameters();
         }
-        __ERC20_init("TapeOut Pool Share", "TPS");
+        __ERC20_init(PoolFunds.shareName(params_.circuits, params_.circuitId), "TPS");
         __ReentrancyGuard_init();
         VaultStorage storage s = _vaultStorage();
         s.factory = factory_;
@@ -134,29 +119,7 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     }
 
     function finalizeFailure() external nonReentrant {
-        VaultStorage storage s = _vaultStorage();
-        uint8 reason = 0;
-        if (s.state == State.Funding) {
-            if (block.timestamp < s.params.fundingDeadline) revert DeadlineNotReached();
-        } else if (s.state == State.Funded) {
-            if (block.timestamp < s.params.purchaseDeadline) revert DeadlineNotReached();
-            reason = 1;
-        } else {
-            revert WrongState();
-        }
-        if (s.refundsRecorded) revert WrongState();
-        s.state = State.Refunding;
-        s.refundsRecorded = true;
-        // At most 100 current members. Record liabilities only; never call members in this loop.
-        uint256 count = s.activeMembers.length;
-        for (uint256 i; i < count; ++i) {
-            address member = s.activeMembers[i];
-            uint256 amount = s.contributedWei[member];
-            s.contributedWei[member] = 0;
-            _creditBnb(s, member, amount);
-        }
-        // Frozen historical shares and totalRaised remain available after failure.
-        emit Failed(reason);
+        PoolFunds.finalizeFailure(_vaultStorage());
     }
 
     function _creditBnb(VaultStorage storage s, address member, uint256 amount) private {
@@ -167,33 +130,18 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     function withdrawBnb() external nonReentrant {
         VaultStorage storage s = _vaultStorage();
         _materializePurchaseSurplus(s, msg.sender);
-        uint256 amount = s.bnbOwed[msg.sender];
-        if (amount == 0) revert NothingToClaim();
-        s.bnbOwed[msg.sender] = 0;
-        s.totalBnbOwed -= amount;
-        (bool success,) = msg.sender.call{value: amount}("");
-        if (!success) revert TransferFailed();
-        emit BnbWithdrawn(msg.sender, amount);
+        _materializeSaleProceeds(s, msg.sender);
+        PoolFunds.withdraw(s);
     }
 
     function buyFromMarket(uint256 listingId) external nonReentrant {
         VaultStorage storage s = _requirePurchaseWindow();
-        // M0: feeBps is deducted from the seller's price; the buyer pays exactly price.
-        // Deliberately ignore that display field: adding it would charge the buyer twice.
-        // slither-disable-next-line unused-return
-        (address seller, address circuits, uint256 tokenId, uint96 price,, bool valid) =
-            ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
-        if (!valid || seller == address(0) || price == 0) revert InvalidListing();
-        if (circuits != s.params.circuits || tokenId != s.params.circuitId) revert WrongCircuit();
-        if (price > s.params.priceCap) revert OverPriceCap();
-        if (IERC721(circuits).ownerOf(tokenId) != seller) revert InvalidListing();
-        bytes32 key = _activeMinerKey(s);
-        _settleSellerRewards(
-            s, seller, key, keccak256(abi.encode(address(this), uint8(0), listingId, seller, key, price))
+        (address seller, uint256 price, bytes32 key) = PurchaseValidation.prepareMarketPurchase(
+            s.params.circuits, s.params.circuitId, s.params.priceCap, listingId
         );
         _expectNft(s, seller, CIRCUIT_MARKET);
         // M0 proves that the listed price is the buyer's entire payment, including the seller-borne 1% fee.
-        ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId, price);
+        ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId, SafeCast.toUint96(price));
         _finishPurchase(s, price, 0, listingId, key);
     }
 
@@ -201,12 +149,8 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         VaultStorage storage s = _requirePurchaseWindow();
         address seller = s.params.directSeller;
         uint256 price = s.params.directPrice;
-        if (seller == address(0) || msg.sender != seller) revert Unauthorized();
-        if (price == 0 || price > s.params.priceCap) revert OverPriceCap();
-        if (IERC721(s.params.circuits).ownerOf(s.params.circuitId) != seller) revert InvalidListing();
-        bytes32 key = _activeMinerKey(s);
-        _settleSellerRewards(
-            s, seller, key, keccak256(abi.encode(address(this), uint8(1), uint256(0), seller, key, price))
+        bytes32 key = PurchaseValidation.prepareDirectPurchase(
+            s.params.circuits, s.params.circuitId, seller, price, s.params.priceCap
         );
         _expectNft(s, seller, address(this));
         IERC721(s.params.circuits).safeTransferFrom(seller, address(this), s.params.circuitId);
@@ -222,33 +166,7 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     }
 
     function _activeMinerKey(VaultStorage storage s) private view returns (bytes32 key) {
-        key = ITapeoutMining(MINING).minerKey(s.params.circuits, s.params.circuitId);
-        ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);
-        if (miner.circuits != s.params.circuits || miner.circuitId != s.params.circuitId) revert WrongCircuit();
-        if (miner.status != 1) revert MinerNotActive();
-    }
-
-    function _settleSellerRewards(VaultStorage storage s, address seller, bytes32 key, bytes32 tradeId) private {
-        uint256 pendingBefore = ITapeoutMining(MINING).pending(key);
-        uint256 beforeBalance = IERC20(BEM).balanceOf(seller);
-        // M0 shows pending() can be stale, including zero. Never skip claim or swallow a failure.
-        try ITapeoutMining(MINING).claim(key) {}
-        catch {
-            revert FinalRewardSettlementFailed();
-        }
-        uint256 afterBalance = IERC20(BEM).balanceOf(seller);
-        // Both callers hold nonReentrant. This delta proves receipt; the earlier balance
-        // is not used to authorize an outgoing payment after an unguarded external call.
-        // slither-disable-next-line reentrancy-balance
-        if (afterBalance < beforeBalance || afterBalance - beforeBalance < pendingBefore) {
-            revert FinalRewardSettlementFailed();
-        }
-        if (
-            ITapeoutMining(MINING).pending(key) != 0 || IERC721(s.params.circuits).ownerOf(s.params.circuitId) != seller
-        ) revert FinalRewardSettlementFailed();
-        emit RewardSettledBeforeTransfer(
-            s.params.circuits, s.params.circuitId, seller, afterBalance - beforeBalance, tradeId
-        );
+        return PurchaseValidation.activeMinerKey(s.params.circuits, s.params.circuitId);
     }
 
     function _expectNft(VaultStorage storage s, address seller, address expectedOperator) private {
@@ -275,37 +193,15 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         if (!s.nftReceived) revert UnexpectedNft();
         if (IERC721(s.params.circuits).ownerOf(s.params.circuitId) != address(this)) revert NotOwnerAfterBuy();
         if (_activeMinerKey(s) != expectedKey) revert WrongCircuit();
-        delete s.expectedNftSeller;
-        delete s.expectedNftOperator;
-        delete s.nftReceived;
-        s.purchaseCost = cost;
-        s.activatedAt = SafeCast.toUint64(block.timestamp);
-        s.state = State.Active;
-        uint256 surplus = s.totalRaised - cost;
-        s.surplusPerShareWei = surplus / TOTAL_SHARES;
-        // Deterministic integer division remainder, not randomness or a timestamp lottery.
-        // slither-disable-next-line weak-prng
-        s.surplusRemainder = surplus % TOTAL_SHARES;
-        s.surplusOutstandingWei = s.surplusPerShareWei * TOTAL_SHARES;
-        emit Purchased(cost, path, listingId);
+        PoolFunds.recordPurchase(s, cost, path, listingId);
     }
 
     function _pendingPurchaseSurplus(VaultStorage storage s, address member) private view returns (uint256) {
-        if (s.state != State.Active && s.state != State.Listed && s.state != State.Closed) return 0;
-        if (s.surplusSettled[member]) return 0;
-        // Until a member's first balance change, current shares equal their acquisition shares.
-        // _update MUST materialize both parties before any future Active transfer is enabled.
-        return balanceOf(member) * s.surplusPerShareWei;
+        return PoolFunds.pendingPurchase(s, member, balanceOf(member));
     }
 
     function _materializePurchaseSurplus(VaultStorage storage s, address member) private {
-        if (s.state != State.Active && s.state != State.Listed && s.state != State.Closed) return;
-        if (s.surplusSettled[member]) return;
-        uint256 amount = _pendingPurchaseSurplus(s, member);
-        s.surplusSettled[member] = true;
-        s.surplusOutstandingWei -= amount;
-        _creditBnb(s, member, amount);
-        emit PurchaseSurplusSettled(member, balanceOf(member), amount);
+        PoolFunds.materializePurchase(s, member, balanceOf(member));
     }
 
     function setDepositPaused(bool paused) external {
@@ -359,6 +255,173 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
 
     function _settleRewards(address member) internal {
         RewardAccounting.settle(_rewardStorage(), member, balanceOf(member));
+    }
+
+    function propose(uint256 price, uint256 refPrice, uint64 refAt) external nonReentrant returns (uint256 proposalId) {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        return SaleGovernance.propose(
+            _saleStorage(),
+            s.memberHistory,
+            SaleGovernance.ProposalInput(s.activatedAt, balanceOf(msg.sender), price, refPrice, refAt)
+        );
+    }
+
+    function vote(uint256 proposalId, bool support) external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        SaleGovernance.vote(_saleStorage(), s.shareHistory, proposalId, support);
+    }
+
+    function executeSale(uint256 proposalId) external nonReentrant {
+        _executeSale(proposalId);
+    }
+
+    /// @notice Re-listing always needs a fresh passed proposal; there is no direct price change.
+    function relist(uint256 proposalId) external nonReentrant {
+        _executeSale(proposalId);
+    }
+
+    function _executeSale(uint256 proposalId) private {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Active) revert WrongState();
+        SaleGovernance.execute(_saleStorage(), proposalId);
+        s.state = State.Listed;
+    }
+
+    function cancelExpired() external nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        if (s.state != State.Listed) revert WrongState();
+        SaleGovernance.cancel(_saleStorage());
+        s.state = State.Active;
+    }
+
+    function completeSale() external payable nonReentrant {
+        VaultStorage storage s = _vaultStorage();
+        SaleStorage storage sale = _saleStorage();
+        if (s.state != State.Listed) revert WrongState();
+        if (block.timestamp >= sale.expiresAt) revert DeadlinePassed();
+        if (msg.value != sale.salePrice) revert PaymentMismatch();
+        // The guarded internal path proves receipt, zero pending and unchanged
+        // NFT/miner identity, then accounts all old-owner income before transfer.
+        (uint256 settledBem,,,) = _harvest(true);
+        uint256 fee = SaleSettlement.prepare(sale, msg.sender, msg.value, s.params.circuits, s.params.circuitId);
+        s.state = State.Closed;
+        _creditBnb(s, s.treasury, fee);
+        SaleSettlement.handover(sale, s.params.circuits, s.params.circuitId, settledBem);
+    }
+
+    /// @notice Reserved for a future verified adapter. Controlled sales settle atomically above.
+    function settleSale() external pure {
+        revert UnverifiedSaleRoute();
+    }
+
+    function executeBurn(uint256 minOut, uint256 maxIn) external nonReentrant returns (uint256 spent, uint256 burned) {
+        VaultStorage storage s = _vaultStorage();
+        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
+        if (s.state != State.Closed) revert WrongState();
+        (spent, burned) = BurnOperations.execute(_saleStorage(), minOut, maxIn);
+    }
+
+    function _materializeSaleProceeds(VaultStorage storage s, address member) private {
+        SaleStorage storage sale = _saleStorage();
+        if (sale.saleBuyer == address(0) || sale.saleSettled[member]) return;
+        uint256 shares = balanceOf(member);
+        uint256 amount = SaleSettlement.materialize(sale, member, shares);
+        _creditBnb(s, member, amount);
+        emit SaleProceedsSettled(member, shares, amount);
+    }
+
+    function pendingSaleProceeds(address member) public view returns (uint256) {
+        return SaleSettlement.pending(_saleStorage(), member, balanceOf(member));
+    }
+
+    function listedProposalId() external view returns (uint256) {
+        return _saleStorage().listedProposalId;
+    }
+
+    function listedAt() external view returns (uint64) {
+        return _saleStorage().listedAt;
+    }
+
+    function expiresAt() external view returns (uint64) {
+        return _saleStorage().expiresAt;
+    }
+
+    function salePrice() external view returns (uint256) {
+        return _saleStorage().salePrice;
+    }
+
+    function saleBuyer() external view returns (address) {
+        return _saleStorage().saleBuyer;
+    }
+
+    function completedAt() external view returns (uint64) {
+        return _saleStorage().completedAt;
+    }
+
+    function saleProceeds() external view returns (uint256) {
+        return _saleStorage().saleProceeds;
+    }
+
+    function salePerShareWei() external view returns (uint256) {
+        return _saleStorage().salePerShareWei;
+    }
+
+    function saleRemainder() external view returns (uint256) {
+        return _saleStorage().saleRemainder;
+    }
+
+    function saleOutstandingWei() external view returns (uint256) {
+        return _saleStorage().saleOutstandingWei;
+    }
+
+    function saleSettled(address member) external view returns (bool) {
+        return _saleStorage().saleSettled[member];
+    }
+
+    function saleTradeId() external view returns (bytes32) {
+        return _saleStorage().saleTradeId;
+    }
+
+    function burnBudget() external view returns (uint256) {
+        return _saleStorage().burnBudget;
+    }
+
+    function totalBurnBnbSpent() external view returns (uint256) {
+        return _saleStorage().totalBurnBnbSpent;
+    }
+
+    function totalBurnBem() external view returns (uint256) {
+        return _saleStorage().totalBurnBem;
+    }
+
+    function getProposal(uint256 proposalId) external view returns (Proposal memory) {
+        Proposal storage p = _saleStorage().proposals[proposalId];
+        if (p.proposer == address(0)) revert InvalidProposal();
+        return p;
+    }
+
+    function hasVoted(uint256 proposalId, address member) external view returns (bool) {
+        return _saleStorage().hasVoted[proposalId][member];
+    }
+
+    function lastProposed(address member) external view returns (uint64) {
+        return _saleStorage().lastProposed[member];
+    }
+
+    function activeProposalId() external view returns (uint256) {
+        return _saleStorage().activeProposalId;
+    }
+
+    function nextProposalId() external view returns (uint256) {
+        uint256 next = _saleStorage().nextProposalId;
+        return next == 0 ? 1 : next;
+    }
+
+    /// @notice Reports the two vote thresholds; execution must separately check state and expiry.
+    function proposalPassed(uint256 proposalId) external view returns (bool) {
+        return SaleGovernance.passed(_saleStorage(), proposalId);
     }
 
     function transfer(address to, uint256 amount) public override nonReentrant returns (bool) {
@@ -477,6 +540,9 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
 
     function _update(address from, address to, uint256 amount) internal override {
         VaultStorage storage s = _vaultStorage();
+        // Neither contract can manage a member's shares, votes or pull-payment rights.
+        // Apply to minting too, so a future subscription entry point cannot bypass the guard.
+        if (to == address(this) || to == s.factory) revert InvalidShareRecipient();
         if (from != address(0) && to != address(0)) {
             if (s.state != State.Active) revert WrongState();
             address market = IPoolFactoryRoles(s.factory).shareMarket();
@@ -546,7 +612,7 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
     function assetOwed(address asset_, address member) external view returns (uint256) {
         if (asset_ != address(0)) revert UnsupportedSubscriptionAsset();
         VaultStorage storage s = _vaultStorage();
-        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member);
+        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member) + pendingSaleProceeds(member);
     }
 
     function state() external view returns (State) {
@@ -579,12 +645,12 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
 
     function bnbOwed(address member) external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member);
+        return s.bnbOwed[member] + _pendingPurchaseSurplus(s, member) + pendingSaleProceeds(member);
     }
 
     function totalBnbOwed() external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.totalBnbOwed + s.surplusOutstandingWei;
+        return s.totalBnbOwed + s.surplusOutstandingWei + _saleStorage().saleOutstandingWei;
     }
 
     function refundsRecorded() external view returns (bool) {
@@ -635,8 +701,11 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         return _pendingPurchaseSurplus(_vaultStorage(), member);
     }
 
-    // Plain BNB does not constitute a subscription; buyer-side acquisition never needs a BNB receive callback.
+    // WBNB.withdraw uses a 2300-gas transfer. The outer guarded burn pre-warms and
+    // sets this exact expected refund; receive must not write storage or take a lock.
     receive() external payable {
-        revert UnsupportedSubscriptionAsset();
+        if (msg.sender != WBNB || msg.value == 0 || msg.value != _saleStorage().expectedWbnbRefund) {
+            revert UnsupportedSubscriptionAsset();
+        }
     }
 }

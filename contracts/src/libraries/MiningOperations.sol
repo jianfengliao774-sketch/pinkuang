@@ -56,26 +56,36 @@ library MiningOperations {
         _verifyIdentity(key, circuits, circuitId);
     }
 
-    /// @notice Claims as the NFT-owning Vault; only strict handover treats a claim failure as fatal.
+    /// @notice Strict handover permits a verified zero settlement for known non-mining states.
     function claimReward(address circuits, uint256 circuitId, bool finalHandover) external {
         if (IERC721(circuits).ownerOf(circuitId) != address(this)) revert IPoolVault.NotOwnerAfterBuy();
         bytes32 key = ITapeoutMining(MINING).minerKey(circuits, circuitId);
         ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);
         if (miner.circuits != circuits || miner.circuitId != circuitId) revert IPoolVault.WrongCircuit();
         uint256 pendingBefore = finalHandover ? ITapeoutMining(MINING).pending(key) : 0;
+        bool zeroSettlement = finalHandover && miner.status != 1;
+        if (zeroSettlement) {
+            // At the pinned implementation, states 0/2/3 have no claimable reward and
+            // claim always reverts. Do not call it for a proven empty settlement.
+            // Unknown states and any outstanding debt still fail closed.
+            if (miner.status > 3 || pendingBefore != 0) revert IPoolVault.FinalRewardSettlementFailed();
+        }
         uint256 beforeBalance = IERC20(BEM).balanceOf(address(this));
-        try ITapeoutMining(MINING).claim(key) {}
-        catch (bytes memory reason) {
-            if (finalHandover) revert IPoolVault.FinalRewardSettlementFailed();
-            // Ordinary harvest can still account previously received BEM. Expose the
-            // failed protocol claim so keepers never mistake it for a successful claim.
-            emit MiningClaimFailed(key, reason);
+        if (!zeroSettlement) {
+            try ITapeoutMining(MINING).claim(key) {}
+            catch (bytes memory reason) {
+                if (finalHandover) revert IPoolVault.FinalRewardSettlementFailed();
+                // Ordinary harvest can still account previously received BEM. Expose the
+                // failed protocol claim so keepers never mistake it for a successful claim.
+                emit MiningClaimFailed(key, reason);
+            }
         }
         if (IERC721(circuits).ownerOf(circuitId) != address(this)) revert IPoolVault.NotOwnerAfterBuy();
         if (ITapeoutMining(MINING).minerKey(circuits, circuitId) != key) revert IPoolVault.WrongCircuit();
         miner = ITapeoutMining(MINING).getMiner(key);
         if (miner.circuits != circuits || miner.circuitId != circuitId) revert IPoolVault.WrongCircuit();
         if (finalHandover) {
+            if (miner.status > 3) revert IPoolVault.FinalRewardSettlementFailed();
             uint256 afterBalance = IERC20(BEM).balanceOf(address(this));
             // Vault entry points hold nonReentrant. This historical balance only proves receipt.
             // slither-disable-next-line reentrancy-balance

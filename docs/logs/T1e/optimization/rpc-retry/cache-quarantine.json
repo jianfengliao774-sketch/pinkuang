@@ -1,0 +1,25 @@
+{
+  "reason": "Exploratory synthetic RPC omitted --no-storage-caching; possible shared BSC block cache contamination. Preserve original and rebuild real fork evidence from a fresh cache.",
+  "recordedAtUtc": "2026-09-24T14:27:25.2959792Z",
+  "sourceAbsolutePath": "C:\\Users\\Administrator\\.foundry\\cache\\rpc\\bsc\\123728000",
+  "sourceType": "file",
+  "byteLength": 83970,
+  "lastWriteTimeUtc": "2026-09-24T14:24:55.0156975Z",
+  "sha256": "701dda239b5865c2dc8a09739feb8164da5ba692683c7c5a2d4a79c9e6bd7e65",
+  "destinationAbsolutePath": "C:\\Users\\Administrator\\.foundry\\cache\\rpc\\bsc\\123728000.synthetic-quarantine-e5d135576a2444609efd7ed08a980760",
+  "affectedBlock": 123728000,
+  "chainId": 56,
+  "operation": "PowerShell Move-Item -LiteralPath; single file, no recursion",
+  "syntheticAccountAddresses": [
+    "0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38",
+    "0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353",
+    "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+    "0x0000000000000000000000000000000000000000",
+    "0x4e59b44847b379578588920ca78fbf26c0b4956c",
+    "0x3fab184622dc19b6109349b94811493bf2a45362",
+    "0x7109709ecfa91a80626ff3989d68f67f5b1dd12d"
+  ],
+  "isolatedAtUtc": "2026-09-24T14:27:25.3062795Z",
+  "sourceAbsentAfterMove": true,
+  "quarantinedHashMatches": true
+}
