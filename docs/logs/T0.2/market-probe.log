@@ -1,0 +1,26 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 6.40s
+Compiler run successful!
+
+Ran 5 tests for test/fork/MarketProbe.t.sol:MarketProbeTest
+[PASS] test_Q4_MarketBuyerPaysListedPriceAndSellerBearsOnePercent() (gas: 274063)
+Logs:
+  seller BNB delta: 990000000000000000
+  seller owed delta: 0
+  protocol BNB delta: 0
+  protocol owed delta: 10000000000000000
+  market BNB delta: 10000000000000000
+
+[PASS] test_Q4_MarketRejectsUnderpaymentAndFeeAddedOnTop() (gas: 616586)
+[PASS] test_Q5_ContractSellerReceivesBnbDirectlyAndHasNothingToWithdraw() (gas: 553156)
+Logs:
+  contract seller BNB after buy: 990000000000000000
+  contract seller owed after buy: 0
+  contract seller receive callbacks: 1
+  market BNB delta after buy: 10000000000000000
+
+[PASS] test_Q5_ProtocolFeeUsesOwedAndWithdraw() (gas: 553104)
+[PASS] test_Q5_RejectingSellerRevertsTradeInsteadOfCreatingOwed() (gas: 617959)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 609.01ms (2.62ms CPU time)
+
+Ran 1 test suite in 613.09ms (609.01ms CPU time): 5 tests passed, 0 failed, 0 skipped (5 total tests)

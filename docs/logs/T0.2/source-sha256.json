@@ -1,0 +1,12 @@
+{
+  "foundry.toml": "3f269fe3669220791607ae54206b93ba4e5a035f3cf735309fe90151f9f0bf51",
+  "remappings.txt": "7f0f188cc80b555bc77bcb444dbe5ad368eb3defece09181612dd1931dde67ea",
+  "script/Addresses.sol": "7e5f184020dc5e0ba1cf6648d42ba782e33665da6c3fbd1b247b84e151549961",
+  "test/fork/MarketProbe.t.sol": "a6865e72915cf07084221af4e45442d1bd42e919eda30ea5c221b3aaf15602ea",
+  "test/fork/MiningStartProbe.t.sol": "985ee9ca2d656485c22b4f8a39b4c8e6338ce1e228978c53829c05a66c371db2",
+  "test/fork/ProtocolProbe.t.sol": "08d2d6d51c59cf51aafe0ab8542408d421a676a51cab19d70e9daee04adcab61",
+  "test/fork/TokenSwapProbe.t.sol": "e1a6c7eaca6436f3c2644411ef42333bee95639460a79614deb51d00653a01aa",
+  "test/utils/DependencyImports.sol": "a6605ee375786775412cf71b9b25b62b5da04b8378aca0dc1491db3efd9e2eff",
+  "test/utils/MiningStartFixtures.sol": "40255086afe8cf4d6d7d0f7705745cb98c5d1c16c7561fb42bce694b9713057c",
+  "test/utils/ProbeHolder.sol": "569e30df3d27ea4f934c3346fb5d0b035b44e61b2bc5b396e5a201bc860f4f0e"
+}
