@@ -15,6 +15,8 @@ import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 /// @dev Adds only a pure version getter; reuses the inherited initializer and needs no second initialization.
 /// Existing pool storage preservation is exercised by the real timelock governance tests below.
 /// @custom:oz-upgrades-unsafe-allow missing-initializer
+/// @dev Inherits the same statically linked, reviewed libraries as PoolVault; adds only version().
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract PoolVaultV2Fixture is PoolVault {
     function version() external pure returns (uint256) {
         return 2;

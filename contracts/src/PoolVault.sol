@@ -11,9 +11,14 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {ICircuitMarket} from "./interfaces/ICircuitMarket.sol";
+import {PoolRewardState} from "./PoolRewardState.sol";
+import {RewardAccounting} from "./libraries/RewardAccounting.sol";
+import {MiningOperations} from "./libraries/MiningOperations.sol";
 
-/// @notice BNB funding, refunds and atomic NFT acquisition. Rewards and transfers activate in later task cards.
-contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, IERC721Receiver {
+/// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
+/// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
+contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, IERC721Receiver, PoolRewardState {
     using Checkpoints for Checkpoints.Trace208;
 
     uint256 public constant TOTAL_SHARES = 100;
@@ -67,7 +72,7 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         _disableInitializers();
     }
 
-    function _vaultStorage() private pure returns (VaultStorage storage s) {
+    function _vaultStorage() internal pure returns (VaultStorage storage s) {
         assembly { s.slot := VAULT_STORAGE_LOCATION }
     }
 
@@ -305,6 +310,107 @@ contract PoolVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, IPoolVault, 
         if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
         s.depositPaused = paused;
         emit DepositPauseChanged(paused);
+    }
+
+    /// @notice Called only by Factory as part of creation, before the pool is published.
+    function configureExpiry(bool enabled) external {
+        VaultStorage storage s = _vaultStorage();
+        RewardStorage storage r = _rewardStorage();
+        if (msg.sender != s.factory) revert Unauthorized();
+        if (r.expiryConfigured || s.state != State.Funding || totalSupply() != 0) revert InvalidParameters();
+        r.expiryConfigured = true;
+        r.expiryDisabled = !enabled;
+        emit ExpiryConfigured(enabled);
+    }
+
+    function mine(bytes calldata data) external nonReentrant returns (bytes memory result) {
+        VaultStorage storage s = _vaultStorage();
+        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
+        if (s.state != State.Active) revert WrongState();
+        result = MiningOperations.execute(s.params.circuits, s.params.circuitId, data);
+        emit MiningCall(bytes4(data[:4]), data);
+    }
+
+    function harvest() external nonReentrant returns (uint256 gross, uint256 fee, uint256 burned, uint256 net) {
+        State current = _vaultStorage().state;
+        if (current != State.Active && current != State.Listed) revert WrongState();
+        return _harvest(false);
+    }
+
+    /// @dev Also used by the later controlled sale, with strict settlement required.
+    function _harvest(bool finalHandover) internal returns (uint256 gross, uint256 fee, uint256 burned, uint256 net) {
+        VaultStorage storage s = _vaultStorage();
+        MiningOperations.claimReward(s.params.circuits, s.params.circuitId, finalHandover);
+        (gross, fee, burned, net) = RewardAccounting.account(_rewardStorage(), BEM, s.treasury);
+    }
+
+    function claim() external nonReentrant returns (uint256 amount) {
+        State current = _vaultStorage().state;
+        if (current == State.Active || current == State.Listed) _harvest(false);
+        return RewardAccounting.claim(_rewardStorage(), msg.sender, balanceOf(msg.sender), BEM);
+    }
+
+    function burnExpired(uint32 epoch) external nonReentrant returns (uint256 amount) {
+        return RewardAccounting.burnExpired(_rewardStorage(), epoch, BEM);
+    }
+
+    function _settleRewards(address member) internal {
+        RewardAccounting.settle(_rewardStorage(), member, balanceOf(member));
+    }
+
+    function expiryEnabled() external view returns (bool) {
+        return !_rewardStorage().expiryDisabled;
+    }
+
+    function claimable(address member) external view returns (uint256) {
+        return RewardAccounting.claimable(_rewardStorage(), member, balanceOf(member));
+    }
+
+    function accBemPerShare() external view returns (uint256) {
+        return _rewardStorage().acc;
+    }
+
+    function bemAccounted() external view returns (uint256) {
+        return _rewardStorage().bemAccounted;
+    }
+
+    function epochNet(uint32 epoch) external view returns (uint256) {
+        return _rewardStorage().epochNet[epoch];
+    }
+
+    function epochPaid(uint32 epoch) external view returns (uint256) {
+        return _rewardStorage().epochPaid[epoch];
+    }
+
+    function epochBurned(uint32 epoch) external view returns (uint256) {
+        return _rewardStorage().epochBurned[epoch];
+    }
+
+    /// @notice Sum of explicitly settled fractional BEM (scaled 1e36), retained as historical data after burn.
+    /// This is neither all unsettled dust nor an additional liability on top of epochNet - epochPaid.
+    function epochRemainderScaled(uint32 epoch) external view returns (uint256) {
+        return _rewardStorage().epochRemainderScaled[epoch];
+    }
+
+    function totalGlobalRemainderScaled() external view returns (uint256) {
+        return _rewardStorage().totalGlobalRemainderScaled;
+    }
+
+    function lastClaimAt(address member) external view returns (uint64) {
+        return _rewardStorage().users[member].lastClaimAt;
+    }
+
+    function bemOwed(address member) external view returns (uint256) {
+        return _rewardStorage().users[member].owed;
+    }
+
+    function rewardSlot(address member, uint8 index)
+        external
+        view
+        returns (uint32 epoch, uint256 amount, uint256 remainder)
+    {
+        RewardSlot storage slot = _rewardStorage().users[member].slots[index];
+        return (slot.epoch, slot.amount, slot.remainder);
     }
 
     function _update(address from, address to, uint256 amount) internal override {

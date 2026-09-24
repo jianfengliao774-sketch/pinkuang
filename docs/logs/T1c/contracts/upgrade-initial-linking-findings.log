@@ -1,0 +1,49 @@
+Upgrade build-info prepared: 1 file(s), 45 metadata-verified input aliases; compiler output unchanged.
+Preparation audit: C:\Users\ADMINI~1\AppData\Local\Temp\tapeout-check-3gnXAf\contracts\out\upgrade-build-info-audit.json
+
+Validation target: src/PoolFactory.sol:PoolFactory (initial implementation)
+ ✔  src/PoolFactory.sol:PoolFactory
+
+SUCCESS
+
+Validation target: src/PoolVault.sol:PoolVault (initial implementation)
+ ✔  src/PoolVault.sol:PoolVault
+
+SUCCESS
+
+T1a baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 7 business fields)
+
+T1a baseline -> current src/PoolVault.sol:PoolVault: PASS (15 -> 24 business fields)
+
+T1b baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 7 business fields)
+
+T1b baseline -> current src/PoolVault.sol:PoolVault: PASS (24 -> 24 business fields)
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture against src/PoolFactory.sol:PoolFactory
+ ✔  test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture (upgrades from src/PoolFactory.sol:PoolFactory)
+
+SUCCESS
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture against src/PoolVault.sol:PoolVault
+ ✘  test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture (upgrades from src/PoolVault.sol:PoolVault)
+
+      src/libraries/MiningOperations.sol: Linking external libraries like `MiningOperations` is not yet supported
+          Use libraries with internal functions only, or skip this check with the `unsafeAllowLinkedLibraries` flag 
+          if you have manually checked that the libraries are upgrade safe
+          https://zpl.in/upgrades/error-006
+      
+      src/libraries/RewardAccounting.sol: Linking external libraries like `RewardAccounting` is not yet supported
+          Use libraries with internal functions only, or skip this check with the `unsafeAllowLinkedLibraries` flag 
+          if you have manually checked that the libraries are upgrade safe
+          https://zpl.in/upgrades/error-006
+
+FAILED
+file:///C:/Users/ADMINI%7E1/AppData/Local/Temp/tapeout-check-3gnXAf/scripts/validate-upgrades.mjs:41
+    throw new Error(`Upgrade validation failed: ${contract}`);
+          ^
+
+Error: Upgrade validation failed: test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture
+    at validate (file:///C:/Users/ADMINI%7E1/AppData/Local/Temp/tapeout-check-3gnXAf/scripts/validate-upgrades.mjs:41:11)
+    at async file:///C:/Users/ADMINI%7E1/AppData/Local/Temp/tapeout-check-3gnXAf/scripts/validate-upgrades.mjs:103:3
+
+Node.js v24.19.0

@@ -1,0 +1,163 @@
+'forge clean' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-YcZVlF\contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-check-YcZVlF\contracts)
+INFO:Detectors:
+Detector: weak-prng
+RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#73-106) uses a weak PRNG: "slot = u.slots[epoch % 8] (src/libraries/RewardAccounting.sol#88)" 
+RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#109-130) uses a weak PRNG: "slot = u.slots[epoch % 8] (src/libraries/RewardAccounting.sol#122)" 
+RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#152-182) uses a weak PRNG: "slot.remainder = scaled_scope_0 % PRECISION (src/libraries/RewardAccounting.sol#176)" 
+RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#152-182) uses a weak PRNG: "slot = u.slots[epoch % 8] (src/libraries/RewardAccounting.sol#165)" 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#weak-PRNG
+INFO:Detectors:
+Detector: reentrancy-balance
+Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#35-66):
+	External call allowing reentrancy:
+	- token.safeTransfer(treasury,fee) (src/libraries/RewardAccounting.sol#62)
+	Balance read before the call:
+	- balance = token.balanceOf(address(this)) (src/libraries/RewardAccounting.sol#40)
+	Possible stale balance used after the call in a condition:
+	- token.balanceOf(address(this)) < s.bemAccounted (src/libraries/RewardAccounting.sol#64)
+		- stale variable `REF_1074`
+Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#35-66):
+	External call allowing reentrancy:
+	- token.safeTransfer(DEAD,burned) (src/libraries/RewardAccounting.sol#63)
+	Balance read before the call:
+	- balance = token.balanceOf(address(this)) (src/libraries/RewardAccounting.sol#40)
+	Possible stale balance used after the call in a condition:
+	- token.balanceOf(address(this)) < s.bemAccounted (src/libraries/RewardAccounting.sol#64)
+		- stale variable `REF_1074`
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities
+INFO:Detectors:
+Detector: incorrect-equality
+RewardAccounting._epochDelta(PoolRewardState.RewardStorage,uint256,uint256) (src/libraries/RewardAccounting.sol#188-199) uses a dangerous strict equality:
+	- epoch == 0 (src/libraries/RewardAccounting.sol#196)
+RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#152-182) uses a dangerous strict equality:
+	- delta == 0 || shares == 0 || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#164)
+RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#35-66) uses a dangerous strict equality:
+	- gross == 0 (src/libraries/RewardAccounting.sol#43)
+RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#109-130) uses a dangerous strict equality:
+	- slot.epoch == epoch (src/libraries/RewardAccounting.sol#124)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+INFO:Detectors:
+Detector: uninitialized-local
+RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256).remainder (src/libraries/RewardAccounting.sol#123) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+INFO:Detectors:
+Detector: unused-return
+PoolVault._harvest(bool) (src/PoolVault.sol#341-345) ignores return value by RewardAccounting.account(_rewardStorage(),BEM,s.treasury) (src/PoolVault.sol#344)
+RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#35-66) ignores return value by s.accEndOf.push(epoch,uint224(s.acc)) (src/libraries/RewardAccounting.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: reentrancy-events
+Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#35-66):
+	External calls:
+	- token.safeTransfer(treasury,fee) (src/libraries/RewardAccounting.sol#62)
+	- token.safeTransfer(DEAD,burned) (src/libraries/RewardAccounting.sol#63)
+	Event emitted after the call(s):
+	- Harvested(gross,fee,burned,net) (src/libraries/RewardAccounting.sol#65)
+Reentrancy in RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#133-150):
+	External calls:
+	- IERC20(bem).safeTransfer(DEAD,amount) (src/libraries/RewardAccounting.sol#148)
+	Event emitted after the call(s):
+	- EpochExpiredBurned(epoch,amount) (src/libraries/RewardAccounting.sol#149)
+Reentrancy in RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#73-106):
+	External calls:
+	- IERC20(bem).safeTransfer(user,amount) (src/libraries/RewardAccounting.sol#104)
+	Event emitted after the call(s):
+	- BemClaimed(user,amount) (src/libraries/RewardAccounting.sol#105)
+Reentrancy in MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87):
+	External calls:
+	- ITapeoutMining(MINING).claim(key) (src/libraries/MiningOperations.sol#67-73)
+	Event emitted after the call(s):
+	- MiningClaimFailed(key,reason) (src/libraries/MiningOperations.sol#72)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+INFO:Detectors:
+Detector: timestamp
+PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#157-169) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#164)
+PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#79-94) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#83)
+PoolVault.deposit(uint8) (src/PoolVault.sol#96-116) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#100)
+PoolVault.finalizeFailure() (src/PoolVault.sol#133-157) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.params.fundingDeadline (src/PoolVault.sol#137)
+	- block.timestamp < s.params.purchaseDeadline (src/PoolVault.sol#139)
+PoolVault._requirePurchaseWindow() (src/PoolVault.sol#215-219) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.purchaseDeadline (src/PoolVault.sol#218)
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#406-420) uses timestamp for comparisons
+	Dangerous comparisons:
+	- previousCount != currentCount (src/PoolVault.sol#419)
+PoolVault._syncMember(PoolVault.VaultStorage,address) (src/PoolVault.sol#422-444) uses timestamp for comparisons
+	Dangerous comparisons:
+	- currentShares != 0 && previousShares == 0 (src/PoolVault.sol#430)
+	- currentShares == 0 && previousShares != 0 (src/PoolVault.sol#434)
+PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#446-449) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#447)
+PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#451-454) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#452)
+RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#73-106) uses timestamp for comparisons
+	Dangerous comparisons:
+	- u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY (src/libraries/RewardAccounting.sol#79)
+	- epoch <= current (src/libraries/RewardAccounting.sol#87)
+	- slot.epoch != epoch || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#89)
+RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#109-130) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch <= current (src/libraries/RewardAccounting.sol#120)
+	- slot.epoch == epoch (src/libraries/RewardAccounting.sol#124)
+RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#133-150) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch >= current || current - epoch <= 7 (src/libraries/RewardAccounting.sol#140)
+RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#152-182) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch <= current (src/libraries/RewardAccounting.sol#162)
+	- delta == 0 || shares == 0 || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#164)
+	- slot.epoch != epoch (src/libraries/RewardAccounting.sol#166)
+RewardAccounting._firstLiveEpoch(uint256) (src/libraries/RewardAccounting.sol#184-186) uses timestamp for comparisons
+	Dangerous comparisons:
+	- current > 7 (src/libraries/RewardAccounting.sol#185)
+RewardAccounting._epochDelta(PoolRewardState.RewardStorage,uint256,uint256) (src/libraries/RewardAccounting.sol#188-199) uses timestamp for comparisons
+	Dangerous comparisons:
+	- right > s.acc (src/libraries/RewardAccounting.sol#195)
+	- left < debtAcc (src/libraries/RewardAccounting.sol#197)
+	- epoch == 0 (src/libraries/RewardAccounting.sol#196)
+	- right > left (src/libraries/RewardAccounting.sol#198)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+PoolFactory._factoryStorage() (src/PoolFactory.sol#171-174) uses assembly
+	- INLINE ASM (src/PoolFactory.sol#173)
+PoolRewardState._rewardStorage() (src/PoolRewardState.sol#48-52) uses assembly
+	- INLINE ASM (src/PoolRewardState.sol#49-51)
+PoolVault._vaultStorage() (src/PoolVault.sol#75-77) uses assembly
+	- INLINE ASM (src/PoolVault.sol#76)
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) uses assembly
+	- INLINE ASM (src/libraries/MiningOperations.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: cyclomatic-complexity
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) has a high cyclomatic complexity (15).
+MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87) has a high cyclomatic complexity (13).
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cyclomatic-complexity
+INFO:Detectors:
+Detector: dead-code
+PoolVault._settleRewards(address) (src/PoolVault.sol#357-359) is never used and should be removed
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dead-code
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in PoolVault.withdrawBnb() (src/PoolVault.sol#164-174):
+	- (success,None) = msg.sender.call{value: amount}() (src/PoolVault.sol#171)
+Low level call in MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57):
+	- (success,result) = MINING.call(data) (src/libraries/MiningOperations.sol#52)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: naming-convention
+Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#460-462) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Slither:. analyzed (67 contracts with 101 detectors), 42 result(s) found

@@ -32,4 +32,16 @@ interface ITapeoutMining {
     function getMiner(bytes32 key) external view returns (Miner memory);
     function pending(bytes32 key) external view returns (uint256);
     function claim(bytes32 key) external;
+    function arm(address circuits, uint256 circuitId) external;
+    function start(
+        address circuits,
+        uint256 circuitId,
+        uint32 taskId,
+        uint256 nonce,
+        bytes[] calldata inputs,
+        bytes[] calldata outputs,
+        bytes32[][] calldata proofs,
+        bytes32 extra
+    ) external;
+    function reclaim(bytes32 key) external;
 }

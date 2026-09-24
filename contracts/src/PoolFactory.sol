@@ -73,6 +73,18 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     }
 
     function createPool(IPoolVault.PoolParams calldata params) external nonReentrant returns (address pool) {
+        return _createPool(params, true);
+    }
+
+    function createPoolWithExpiry(IPoolVault.PoolParams calldata params, bool expiryEnabled)
+        external
+        nonReentrant
+        returns (address pool)
+    {
+        return _createPool(params, expiryEnabled);
+    }
+
+    function _createPool(IPoolVault.PoolParams calldata params, bool expiryEnabled) private returns (address pool) {
         FactoryStorage storage $ = _factoryStorage();
         if (msg.sender != $.operator) revert Unauthorized();
         if ($.creationPaused) revert CreationPaused();
@@ -80,6 +92,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         pool = address(
             new BeaconProxy($.beacon, abi.encodeCall(IPoolVault.initialize, (address(this), params, $.treasury)))
         );
+        IPoolVault(pool).configureExpiry(expiryEnabled);
         $.isPool[pool] = true;
         $.allPools.push(pool);
         emit PoolCreated(pool, params.circuits, params.circuitId, params.targetRaise, params.priceCap, $.treasury);
