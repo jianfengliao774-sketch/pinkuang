@@ -30,7 +30,7 @@
 | 本地全树单元及不变量 | [196 passed / 0 failed / 0 skipped](logs/T1e/contracts/forge-test.log)：175 项原有回归和 21 项新投票测试 |
 | 固定块 fork | [39 passed / 0 failed / 0 skipped](logs/T1e/fork/forge-test.log)：既有协议、购机、收益、转让路径回归，不是完整出售 fork |
 | 布局、库链接及静态检查 | [16 项升级检查](logs/T1e/contracts/upgrade-checks.json) 达到预期；[五库链接检查](logs/T1e/contracts/library-link-audit.json) ok=true；[Slither --fail-medium](logs/T1e/contracts/slither.log) exit 0，保留 36 条 Low/Info |
-| 远端 CI | 准备提交，完成后补入提交及 run 证据 |
+| 远端 CI | 提交 `aa7645c368c59ad22991fcea4a42467ff53ddc8c` 的 [PR CI #35988959287](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35988959287) 全部通过；[push CI #35988953098](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35988953098) 在失败任务重跑后也已全部通过 |
 
 投票测试位于 `contracts/test/unit/PoolVoting.t.sol`，覆盖 49/26/25 的双多数、两类恰好 50%、反对及重复票、取得矿机 7 天和每钱包提案 7 天边界、24 小时投票截止、过期提案替换、三种同秒份额移动、旧持有人清仓后的快照资格、锁定权益和创建/终态限制。Closed 负例使用既有测试专用生命周期 fixture，不代表真实出售已经完成。
 
@@ -53,3 +53,5 @@ npm run test:fork
 此决定未到达前继续完成独立投票工作，不把尚未确认的渠道写成已经交付的成交功能，也不把阶段进度当作 T1e 的完整验收。
 
 本地执行元数据：[contracts](logs/T1e/contracts/summary.json)、[fork](logs/T1e/fork/summary.json)；对应 [合约源码哈希](logs/T1e/contracts/source-sha256.json) 与 [验证输入哈希](logs/T1e/contracts/verification-input-sha256.json)。工作区未提交时 summary 的 sourceCommit 只是运行时 HEAD，实际被测内容以哈希为准。购机库搬移已独立对照 `5551c77` 的原检查/事件顺序复核，现有购机测试与真实协议 fork 不改断言通过。没有为通过检查新增 Slither 抑制，原已有精准注释随对应语句移动。
+
+远端 [contracts 原始日志](logs/T1e/github-job-107598172642.log) 与 [PR fork 日志](logs/T1e/github-job-107598843114.log) 已保存。push 的首次 fork 为 38 通过、1 项 TokenSwapProbe 读取池账户时收到 HTTP 429；[失败日志](logs/T1e/github-job-107598810187-initial-failure.log) 保留。同一提交的 PR fork 39 项全部通过，未改源码/断言/区块；[失败任务的第二次执行](logs/T1e/github-job-107599427384.log) 39 项全部通过；push 与 PR 现均 success，原始失败未删除。
