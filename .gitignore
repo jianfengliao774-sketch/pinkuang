@@ -1,0 +1,17 @@
+node_modules/
+.tools/
+.venv/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+coverage/
+*.lcov
+.DS_Store
+Thumbs.db

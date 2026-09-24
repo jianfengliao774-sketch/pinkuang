@@ -1,0 +1,5 @@
+missing-environment: expected exit=1, actual exit=1
+BSC_RPC_URL and a fixed positive FORK_BLOCK are required. Never default to latest.
+
+missing-probe: expected exit=1, actual exit=1
+T0.2 ProtocolProbe.t.sol is not implemented. Fork verification is NOT passed.
