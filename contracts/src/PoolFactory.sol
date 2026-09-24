@@ -9,6 +9,11 @@ import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/Upgradeabl
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 
+interface IRegisteredShareMarket {
+    function factory() external view returns (address);
+    function timelock() external view returns (address);
+}
+
 /// @notice Creates independently funded BNB pools. Daily administration and upgrade authority are separate.
 contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, IPoolFactoryRoles {
     uint256 public constant TOTAL_SHARES = 100;
@@ -25,6 +30,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         bool creationPaused;
         mapping(address => bool) isPool;
         address[] allPools;
+        address shareMarket;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolFactory")) - 1)) & ~bytes32(uint256(0xff))
@@ -34,6 +40,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     error InvalidGovernance();
     error Unauthorized();
     error CreationPaused();
+    error ShareMarketAlreadyRegistered();
 
     event PoolCreated(
         address indexed pool,
@@ -46,6 +53,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     event OperatorChanged(address indexed previousOperator, address indexed newOperator);
     event TreasuryChanged(address indexed previousTreasury, address indexed newTreasury);
     event CreationPauseChanged(bool paused);
+    event ShareMarketRegistered(address indexed market);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -120,6 +128,25 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
 
     function operator() external view returns (address) {
         return _factoryStorage().operator;
+    }
+
+    /// @notice Bind one fixed UUPS market proxy through the same 48-hour governance as code upgrades.
+    /// Replacing its address could strand existing locks, so later changes upgrade that proxy instead.
+    function registerShareMarket(address market) external nonReentrant {
+        FactoryStorage storage s = _factoryStorage();
+        if (msg.sender != s.timelock) revert Unauthorized();
+        if (s.shareMarket != address(0)) revert ShareMarketAlreadyRegistered();
+        if (market.code.length == 0) revert InvalidAddress();
+        if (
+            IRegisteredShareMarket(market).factory() != address(this)
+                || IRegisteredShareMarket(market).timelock() != s.timelock
+        ) revert InvalidGovernance();
+        s.shareMarket = market;
+        emit ShareMarketRegistered(market);
+    }
+
+    function shareMarket() external view returns (address) {
+        return _factoryStorage().shareMarket;
     }
 
     function treasury() external view returns (address) {

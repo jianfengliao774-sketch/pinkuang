@@ -52,6 +52,9 @@ interface IPoolVault {
     error EpochAlreadyBurned();
     error ExpiryDisabled();
     error AccountingDeficit();
+    error InsufficientUnlockedShares();
+    error InsufficientLockedShares();
+    error MarketCannotHoldShares();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
     event DepositWithdrawn(address indexed user, uint8 shares, uint256 amount);
@@ -72,6 +75,7 @@ interface IPoolVault {
     event MiningCall(bytes4 indexed selector, bytes data);
     event MiningClaimFailed(bytes32 indexed key, bytes reason);
     event ExpiryConfigured(bool enabled);
+    event LockedSharesChanged(address indexed member, uint256 previousLocked, uint256 currentLocked);
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -86,6 +90,9 @@ interface IPoolVault {
     function harvest() external returns (uint256 gross, uint256 fee, uint256 burned, uint256 net);
     function claim() external returns (uint256 amount);
     function burnExpired(uint32 epoch) external returns (uint256 amount);
+    function lock(address member, uint256 amount) external;
+    function unlock(address member, uint256 amount) external;
+    function transferLocked(address seller, address buyer, uint256 amount) external;
     function asset() external view returns (address);
     function assetDecimals() external view returns (uint8);
     function assetOwed(address asset_, address member) external view returns (uint256);
@@ -93,4 +100,5 @@ interface IPoolVault {
 
 interface IPoolFactoryRoles {
     function operator() external view returns (address);
+    function shareMarket() external view returns (address);
 }

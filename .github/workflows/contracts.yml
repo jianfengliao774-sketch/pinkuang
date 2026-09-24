@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       run_fork:
-        description: Run protocol and T1c purchase and reward forks on the reviewed fixed block
+        description: Run protocol and T1d purchase, reward and share-transfer forks on the reviewed fixed block
         type: boolean
         default: false
 
@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     env:
       FOUNDRY_PROFILE: ci
-      VALIDATION_TASK: T1c
+      VALIDATION_TASK: T1d
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,19 +38,19 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install slither-analyzer==0.11.5
-      - name: Format, sizes, unit and invariant tests, T1a/T1b layout compatibility, Slither
+      - name: Format, sizes, unit and invariant tests, T1a/T1b/T1c layout compatibility, Slither
         id: validation
         env:
           # This directory is outside the checkout and unique to the current run.
           # Checked-in local logs cannot be uploaded as remote-run evidence.
-          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1c-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1d-contracts-${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/check-local.mjs
       - name: Preserve current contracts validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: t1c-contracts-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/t1c-contracts-${{ github.run_id }}-${{ github.run_attempt }}/
+          name: t1d-contracts-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1d-contracts-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn
 
   fork:
@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 30
     env:
       FOUNDRY_PROFILE: ci
-      VALIDATION_TASK: T1c
+      VALIDATION_TASK: T1d
       # Public archive endpoint: no credentials are exposed to pull request code.
       BSC_RPC_URL: https://bsc-mainnet.public.blastapi.io
       FORK_BLOCK: '123728000'
@@ -74,14 +74,14 @@ jobs:
         with:
           version: v1.7.1
       - run: npm ci
-      - name: Protocol and purchase and reward fork tests
+      - name: Protocol and purchase, reward and share-transfer fork tests
         env:
-          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1c-fork-${{ github.run_id }}-${{ github.run_attempt }}
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1d-fork-${{ github.run_id }}-${{ github.run_attempt }}
         run: npm run test:fork
       - name: Preserve current raw fork evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: t1c-fork-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/t1c-fork-${{ github.run_id }}-${{ github.run_attempt }}/
+          name: t1d-fork-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/t1d-fork-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn

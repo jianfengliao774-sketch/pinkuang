@@ -1,0 +1,2163 @@
+﻿2026-09-24T10:29:49.2346499Z Current runner version: '2.337.0'
+2026-09-24T10:29:49.2380548Z ##[group]Runner Image Provisioner
+2026-09-24T10:29:49.2381747Z Hosted Compute Agent
+2026-09-24T10:29:49.2382892Z Version: 20260828.587
+2026-09-24T10:29:49.2383885Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-24T10:29:49.2385164Z Build Date: 2026-08-28T16:44:25Z
+2026-09-24T10:29:49.2386222Z Worker ID: {acccc587-a19f-4880-8130-20e10357807e}
+2026-09-24T10:29:49.2387545Z Azure Region: northcentralus
+2026-09-24T10:29:49.2388709Z ##[endgroup]
+2026-09-24T10:29:49.2390616Z ##[group]Operating System
+2026-09-24T10:29:49.2391630Z Ubuntu
+2026-09-24T10:29:49.2392497Z 24.04.5
+2026-09-24T10:29:49.2393260Z LTS
+2026-09-24T10:29:49.2394099Z ##[endgroup]
+2026-09-24T10:29:49.2394960Z ##[group]Runner Image
+2026-09-24T10:29:49.2395958Z Image: ubuntu-24.04
+2026-09-24T10:29:49.2396916Z Version: 20260907.300.1
+2026-09-24T10:29:49.2399518Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-24T10:29:49.2402125Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-24T10:29:49.2403829Z ##[endgroup]
+2026-09-24T10:29:49.2405605Z ##[group]GITHUB_TOKEN Permissions
+2026-09-24T10:29:49.2408874Z Contents: read
+2026-09-24T10:29:49.2409809Z Metadata: read
+2026-09-24T10:29:49.2410771Z ##[endgroup]
+2026-09-24T10:29:49.2413581Z Secret source: Actions
+2026-09-24T10:29:49.2415134Z Cache mode: write
+2026-09-24T10:29:49.2416295Z Prepare workflow directory
+2026-09-24T10:29:49.2831300Z Prepare all required actions
+2026-09-24T10:29:49.2879308Z Getting action download info
+2026-09-24T10:29:49.5435625Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-09-24T10:29:49.6265797Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-09-24T10:29:49.7180729Z Download action repository 'foundry-rs/foundry-toolchain@v1' (SHA:908c540300062bd5a7e473851cdb4282204cee09)
+2026-09-24T10:29:50.1306490Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-09-24T10:29:50.2223899Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-09-24T10:29:50.4458100Z Complete job name: contracts
+2026-09-24T10:29:50.5225820Z ##[group]Run actions/checkout@v4
+2026-09-24T10:29:50.5226662Z with:
+2026-09-24T10:29:50.5227147Z   repository: jianfengliao774-sketch/pinkuang
+2026-09-24T10:29:50.5231377Z   token: ***
+2026-09-24T10:29:50.5231842Z   ssh-strict: true
+2026-09-24T10:29:50.5232298Z   ssh-user: git
+2026-09-24T10:29:50.5232740Z   persist-credentials: true
+2026-09-24T10:29:50.5233215Z   clean: true
+2026-09-24T10:29:50.5233659Z   sparse-checkout-cone-mode: true
+2026-09-24T10:29:50.5234177Z   fetch-depth: 1
+2026-09-24T10:29:50.5234606Z   fetch-tags: false
+2026-09-24T10:29:50.5235054Z   show-progress: true
+2026-09-24T10:29:50.5235504Z   lfs: false
+2026-09-24T10:29:50.5235905Z   submodules: false
+2026-09-24T10:29:50.5236393Z   set-safe-directory: true
+2026-09-24T10:29:50.5236900Z   allow-unsafe-pr-checkout: false
+2026-09-24T10:29:50.5237737Z env:
+2026-09-24T10:29:50.5238150Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:29:50.5238604Z   VALIDATION_TASK: T1d
+2026-09-24T10:29:50.5239046Z ##[endgroup]
+2026-09-24T10:29:50.6309780Z Syncing repository: jianfengliao774-sketch/pinkuang
+2026-09-24T10:29:50.6312525Z ##[group]Getting Git version info
+2026-09-24T10:29:50.6313746Z Working directory is '/home/runner/work/pinkuang/pinkuang'
+2026-09-24T10:29:50.6315514Z [command]/usr/bin/git version
+2026-09-24T10:29:50.6336000Z git version 2.55.0
+2026-09-24T10:29:50.6355804Z ##[endgroup]
+2026-09-24T10:29:50.6371664Z Temporarily overriding HOME='/home/runner/work/_temp/e054ee24-d721-41aa-bec0-30d091a778fd' before making global git config changes
+2026-09-24T10:29:50.6373607Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-24T10:29:50.6376969Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/pinkuang/pinkuang
+2026-09-24T10:29:50.6424153Z Deleting the contents of '/home/runner/work/pinkuang/pinkuang'
+2026-09-24T10:29:50.6431891Z ##[group]Initializing the repository
+2026-09-24T10:29:50.6436454Z [command]/usr/bin/git init /home/runner/work/pinkuang/pinkuang
+2026-09-24T10:29:50.6516473Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-24T10:29:50.6519080Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-24T10:29:50.6520874Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-24T10:29:50.6522224Z hint: call:
+2026-09-24T10:29:50.6523009Z hint:
+2026-09-24T10:29:50.6523759Z hint: 	git config --global init.defaultBranch <name>
+2026-09-24T10:29:50.6524615Z hint:
+2026-09-24T10:29:50.6525412Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-24T10:29:50.6526550Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-24T10:29:50.6527756Z hint:
+2026-09-24T10:29:50.6528530Z hint: 	git branch -m <name>
+2026-09-24T10:29:50.6529295Z hint:
+2026-09-24T10:29:50.6530156Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-24T10:29:50.6531432Z Initialized empty Git repository in /home/runner/work/pinkuang/pinkuang/.git/
+2026-09-24T10:29:50.6533723Z [command]/usr/bin/git remote add origin https://github.com/jianfengliao774-sketch/pinkuang
+2026-09-24T10:29:50.6574579Z ##[endgroup]
+2026-09-24T10:29:50.6575766Z ##[group]Disabling automatic garbage collection
+2026-09-24T10:29:50.6579586Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-24T10:29:50.6612884Z ##[endgroup]
+2026-09-24T10:29:50.6613822Z ##[group]Setting up auth
+2026-09-24T10:29:50.6620360Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-24T10:29:50.6655034Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-24T10:29:50.6998217Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-24T10:29:50.7027570Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-24T10:29:50.7294007Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-24T10:29:50.7332301Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-24T10:29:50.7576829Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-24T10:29:50.7619268Z ##[endgroup]
+2026-09-24T10:29:50.7620549Z ##[group]Fetching the repository
+2026-09-24T10:29:50.7630386Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +d96f1e2576fd79aee60653cb8a904598781c7ea8:refs/remotes/origin/codex/t1d-share-market
+2026-09-24T10:29:51.2604853Z From https://github.com/jianfengliao774-sketch/pinkuang
+2026-09-24T10:29:51.2608010Z  * [new ref]         d96f1e2576fd79aee60653cb8a904598781c7ea8 -> origin/codex/t1d-share-market
+2026-09-24T10:29:51.2613537Z ##[endgroup]
+2026-09-24T10:29:51.2615970Z ##[group]Determining the checkout info
+2026-09-24T10:29:51.2618881Z ##[endgroup]
+2026-09-24T10:29:51.2620489Z [command]/usr/bin/git sparse-checkout disable
+2026-09-24T10:29:51.2670394Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-24T10:29:51.2708605Z ##[group]Checking out the ref
+2026-09-24T10:29:51.2722693Z [command]/usr/bin/git checkout --progress --force -B codex/t1d-share-market refs/remotes/origin/codex/t1d-share-market
+2026-09-24T10:29:51.2949379Z Switched to a new branch 'codex/t1d-share-market'
+2026-09-24T10:29:51.2955003Z branch 'codex/t1d-share-market' set up to track 'origin/codex/t1d-share-market'.
+2026-09-24T10:29:51.2965287Z ##[endgroup]
+2026-09-24T10:29:51.3012593Z [command]/usr/bin/git log -1 --format=%H
+2026-09-24T10:29:51.3046435Z d96f1e2576fd79aee60653cb8a904598781c7ea8
+2026-09-24T10:29:51.3418817Z ##[group]Run actions/setup-node@v4
+2026-09-24T10:29:51.3419993Z with:
+2026-09-24T10:29:51.3420887Z   node-version-file: .nvmrc
+2026-09-24T10:29:51.3421940Z   cache: npm
+2026-09-24T10:29:51.3422837Z   always-auth: false
+2026-09-24T10:29:51.3423808Z   check-latest: false
+2026-09-24T10:29:51.3433580Z   token: ***
+2026-09-24T10:29:51.3434477Z env:
+2026-09-24T10:29:51.3435322Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:29:51.3436321Z   VALIDATION_TASK: T1d
+2026-09-24T10:29:51.3437621Z ##[endgroup]
+2026-09-24T10:29:51.4848064Z Node version file is not JSON file
+2026-09-24T10:29:51.4849868Z Resolved .nvmrc as 24.19.0
+2026-09-24T10:29:51.4866089Z Attempting to download 24.19.0...
+2026-09-24T10:29:51.4973109Z (node:2249) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-24T10:29:51.4975905Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-24T10:29:52.2375258Z Acquiring 24.19.0 - x64 from https://github.com/actions/node-versions/releases/download/24.19.0-30872449280/node-24.19.0-linux-x64.tar.gz
+2026-09-24T10:29:52.6538242Z Extracting ...
+2026-09-24T10:29:52.6648586Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/29757257-ad9e-4685-9b17-76d7f5a04b2d -f /home/runner/work/_temp/845593d7-6720-496f-ad52-7832e7a01ca2
+2026-09-24T10:29:53.9986782Z Adding to the cache ...
+2026-09-24T10:29:55.6527901Z ##[group]Environment details
+2026-09-24T10:29:55.8749056Z node: v24.19.0
+2026-09-24T10:29:55.8749812Z npm: 11.17.0
+2026-09-24T10:29:55.8750145Z yarn: 1.22.22
+2026-09-24T10:29:55.8750849Z ##[endgroup]
+2026-09-24T10:29:55.8770967Z [command]/opt/hostedtoolcache/node/24.19.0/x64/bin/npm config get cache
+2026-09-24T10:29:55.9707024Z /home/runner/.npm
+2026-09-24T10:29:56.0854818Z Cache hit for: node-cache-Linux-x64-npm-7afb701bfe877516a300825394b81f4b295c2ecbebcae6d67eed11568a9d5798
+2026-09-24T10:29:56.0942564Z (node:2249) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-09-24T10:29:56.5181088Z Received 7423468 of 7423468 (100.0%), 21.9 MBs/sec
+2026-09-24T10:29:56.5181790Z Cache Size: ~7 MB (7423468 B)
+2026-09-24T10:29:56.5205817Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f33cc0cf-4a8a-4bf3-ace6-edcf3c7f9e5e/cache.tzst -P -C /home/runner/work/pinkuang/pinkuang --use-compress-program unzstd
+2026-09-24T10:29:56.5712323Z Cache restored successfully
+2026-09-24T10:29:56.5722497Z Cache restored from key: node-cache-Linux-x64-npm-7afb701bfe877516a300825394b81f4b295c2ecbebcae6d67eed11568a9d5798
+2026-09-24T10:29:56.5943307Z ##[group]Run foundry-rs/foundry-toolchain@v1
+2026-09-24T10:29:56.5943672Z with:
+2026-09-24T10:29:56.5943894Z   version: v1.7.1
+2026-09-24T10:29:56.5944124Z   network: ethereum
+2026-09-24T10:29:56.5944345Z   cache: true
+2026-09-24T10:29:56.5944643Z   cache-key: contracts-d96f1e2576fd79aee60653cb8a904598781c7ea8
+2026-09-24T10:29:56.5945032Z   cache-restore-keys: contracts-
+2026-09-24T10:29:56.5945295Z env:
+2026-09-24T10:29:56.5945512Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:29:56.5945744Z   VALIDATION_TASK: T1d
+2026-09-24T10:29:56.5945969Z ##[endgroup]
+2026-09-24T10:29:56.7195977Z Installing Foundry (version: v1.7.1)
+2026-09-24T10:29:56.7196974Z Downloading foundryup installer from foundry-rs/foundryup@a27902ef04dcb43061fabf343365cb5afc95fc48...
+2026-09-24T10:29:56.7494060Z Running foundryup installer...
+2026-09-24T10:29:57.1681013Z Running: foundryup --install 1.7.1
+2026-09-24T10:29:59.0540959Z Added /home/runner/.foundry/bin to PATH
+2026-09-24T10:29:59.0551592Z Primary key: linux-foundry-chain-fork-contracts-d96f1e2576fd79aee60653cb8a904598781c7ea8
+2026-09-24T10:29:59.0552725Z Restore keys: linux-foundry-chain-fork-contracts-
+2026-09-24T10:29:59.1499994Z Cache hit for restore-key: linux-foundry-chain-fork-contracts-5551c7710afb0c978e80cc9ab9a8dda8e768ea2a
+2026-09-24T10:29:59.3920517Z Received 24267 of 24267 (100.0%), 0.2 MBs/sec
+2026-09-24T10:29:59.3921191Z Cache Size: ~0 MB (24267 B)
+2026-09-24T10:29:59.3950889Z [command]/usr/bin/tar -xf /home/runner/work/_temp/44168bc7-2ac8-4547-933e-9e9e72102451/cache.tzst -P -C /home/runner/work/pinkuang/pinkuang --use-compress-program unzstd
+2026-09-24T10:29:59.4007815Z Cache restored successfully
+2026-09-24T10:29:59.4011833Z Cache restored from key: linux-foundry-chain-fork-contracts-5551c7710afb0c978e80cc9ab9a8dda8e768ea2a
+2026-09-24T10:29:59.4013009Z Running: forge --version
+2026-09-24T10:29:59.4067183Z forge Version: 1.7.1
+2026-09-24T10:29:59.4068001Z Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+2026-09-24T10:29:59.4068831Z Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)
+2026-09-24T10:29:59.4069840Z Build Profile: dist
+2026-09-24T10:29:59.4098142Z Running: cast --version
+2026-09-24T10:29:59.4132981Z cast Version: 1.7.1
+2026-09-24T10:29:59.4133581Z Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+2026-09-24T10:29:59.4134365Z Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)
+2026-09-24T10:29:59.4135016Z Build Profile: dist
+2026-09-24T10:29:59.4139750Z Running: anvil --version
+2026-09-24T10:29:59.4181191Z anvil Version: 1.7.1
+2026-09-24T10:29:59.4181778Z Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+2026-09-24T10:29:59.4182469Z Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)
+2026-09-24T10:29:59.4182835Z Build Profile: dist
+2026-09-24T10:29:59.4185465Z Running: chisel --version
+2026-09-24T10:29:59.4227137Z chisel Version: 1.7.1
+2026-09-24T10:29:59.4227909Z Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+2026-09-24T10:29:59.4228691Z Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)
+2026-09-24T10:29:59.4229445Z Build Profile: dist
+2026-09-24T10:29:59.4365685Z ##[group]Run npm ci
+2026-09-24T10:29:59.4366028Z [36;1mnpm ci[0m
+2026-09-24T10:29:59.4413742Z shell: /usr/bin/bash -e {0}
+2026-09-24T10:29:59.4414033Z env:
+2026-09-24T10:29:59.4414248Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:29:59.4414498Z   VALIDATION_TASK: T1d
+2026-09-24T10:29:59.4414739Z ##[endgroup]
+2026-09-24T10:30:01.7842781Z 
+2026-09-24T10:30:01.7843560Z added 167 packages, and audited 168 packages in 2s
+2026-09-24T10:30:01.7844024Z 
+2026-09-24T10:30:01.7845233Z 24 packages are looking for funding
+2026-09-24T10:30:01.7846142Z   run `npm fund` for details
+2026-09-24T10:30:01.7880677Z 
+2026-09-24T10:30:01.7881006Z 6 low severity vulnerabilities
+2026-09-24T10:30:01.7881319Z 
+2026-09-24T10:30:01.7881643Z Some issues need review, and may require choosing
+2026-09-24T10:30:01.7882105Z a different dependency.
+2026-09-24T10:30:01.7882268Z 
+2026-09-24T10:30:01.7882404Z Run `npm audit` for details.
+2026-09-24T10:30:01.7892442Z npm warn allow-scripts 2 packages have install scripts not yet covered by allowScripts:
+2026-09-24T10:30:01.7893688Z npm warn allow-scripts   keccak@3.0.4 (install: node-gyp-build || exit 0)
+2026-09-24T10:30:01.7894737Z npm warn allow-scripts   secp256k1@4.0.5 (install: node-gyp-build || exit 0)
+2026-09-24T10:30:01.7895457Z npm warn allow-scripts
+2026-09-24T10:30:01.7896605Z npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+2026-09-24T10:30:01.8456772Z ##[group]Run actions/setup-python@v5
+2026-09-24T10:30:01.8457098Z with:
+2026-09-24T10:30:01.8457655Z   python-version: 3.12
+2026-09-24T10:30:01.8457912Z   check-latest: false
+2026-09-24T10:30:01.8460574Z   token: ***
+2026-09-24T10:30:01.8460814Z   update-environment: true
+2026-09-24T10:30:01.8461092Z   allow-prereleases: false
+2026-09-24T10:30:01.8461342Z   freethreaded: false
+2026-09-24T10:30:01.8461573Z env:
+2026-09-24T10:30:01.8461788Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:30:01.8462023Z   VALIDATION_TASK: T1d
+2026-09-24T10:30:01.8462253Z ##[endgroup]
+2026-09-24T10:30:01.9805074Z ##[group]Installed versions
+2026-09-24T10:30:01.9886643Z (node:2426) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-24T10:30:01.9888137Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-24T10:30:01.9889343Z Successfully set up CPython (3.12.14)
+2026-09-24T10:30:01.9890205Z ##[endgroup]
+2026-09-24T10:30:02.0043049Z ##[group]Run python -m pip install slither-analyzer==0.11.5
+2026-09-24T10:30:02.0043532Z [36;1mpython -m pip install slither-analyzer==0.11.5[0m
+2026-09-24T10:30:02.0092019Z shell: /usr/bin/bash -e {0}
+2026-09-24T10:30:02.0092441Z env:
+2026-09-24T10:30:02.0092734Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:30:02.0093090Z   VALIDATION_TASK: T1d
+2026-09-24T10:30:02.0093570Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:02.0094249Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-09-24T10:30:02.0094976Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:02.0095616Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:02.0096014Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:02.0096418Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-09-24T10:30:02.0096759Z ##[endgroup]
+2026-09-24T10:30:03.8843951Z Collecting slither-analyzer==0.11.5
+2026-09-24T10:30:03.9322961Z   Downloading slither_analyzer-0.11.5-py3-none-any.whl.metadata (35 kB)
+2026-09-24T10:30:03.9546975Z Collecting crytic-compile<0.4.0,>=0.3.9 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:03.9587967Z   Downloading crytic_compile-0.3.11-py3-none-any.whl.metadata (3.8 kB)
+2026-09-24T10:30:03.9713462Z Collecting eth-abi>=5.0.1 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:03.9745433Z   Downloading eth_abi-6.0.0-py3-none-any.whl.metadata (2.4 kB)
+2026-09-24T10:30:03.9865416Z Collecting eth-typing>=5.0.0 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:03.9895821Z   Downloading eth_typing-6.0.0-py3-none-any.whl.metadata (3.1 kB)
+2026-09-24T10:30:04.0046682Z Collecting eth-utils>=5.0.0 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:04.0077646Z   Downloading eth_utils-6.0.0-py3-none-any.whl.metadata (5.6 kB)
+2026-09-24T10:30:04.0235348Z Collecting packaging (from slither-analyzer==0.11.5)
+2026-09-24T10:30:04.0267119Z   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+2026-09-24T10:30:04.0397913Z Collecting prettytable>=3.10.2 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:04.0435423Z   Downloading prettytable-3.18.0-py3-none-any.whl.metadata (37 kB)
+2026-09-24T10:30:04.1255424Z Collecting pycryptodome>=3.4.6 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:04.1290105Z   Downloading pycryptodome-3.23.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (3.4 kB)
+2026-09-24T10:30:04.1574558Z Collecting web3<8,>=7.10 (from slither-analyzer==0.11.5)
+2026-09-24T10:30:04.1606640Z   Downloading web3-7.16.0-py3-none-any.whl.metadata (5.6 kB)
+2026-09-24T10:30:04.2168931Z Collecting cbor2 (from crytic-compile<0.4.0,>=0.3.9->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.2200796Z   Downloading cbor2-6.1.4-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+2026-09-24T10:30:04.2310730Z Collecting solc-select>=v1.0.4 (from crytic-compile<0.4.0,>=0.3.9->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.2342592Z   Downloading solc_select-1.2.0-py3-none-any.whl.metadata (47 kB)
+2026-09-24T10:30:04.2547748Z Collecting eth-account>=0.13.6 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.2578500Z   Downloading eth_account-0.14.0-py3-none-any.whl.metadata (2.4 kB)
+2026-09-24T10:30:04.2689082Z Collecting eth-hash>=0.5.1 (from eth-hash[pycryptodome]>=0.5.1->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.2718820Z   Downloading eth_hash-0.8.0-py3-none-any.whl.metadata (4.1 kB)
+2026-09-24T10:30:04.2831252Z Collecting hexbytes>=1.2.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.2861820Z   Downloading hexbytes-2.0.0-py3-none-any.whl.metadata (2.1 kB)
+2026-09-24T10:30:04.7198961Z Collecting aiohttp>=3.7.4.post0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.7236861Z   Downloading aiohttp-3.14.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.3 kB)
+2026-09-24T10:30:04.8298682Z Collecting pydantic>=2.4.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.8332689Z   Downloading pydantic-2.13.5-py3-none-any.whl.metadata (110 kB)
+2026-09-24T10:30:04.8551995Z Collecting requests>=2.23.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.8583000Z   Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+2026-09-24T10:30:04.8733619Z Collecting typing-extensions>=4.0.1 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.8766082Z   Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+2026-09-24T10:30:04.8992009Z Collecting types-requests>=2.0.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.9022844Z   Downloading types_requests-2.33.0.20260906-py3-none-any.whl.metadata (2.2 kB)
+2026-09-24T10:30:04.9931176Z Collecting websockets<16.0.0,>=10.0.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:04.9965791Z   Downloading websockets-15.0.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.8 kB)
+2026-09-24T10:30:05.0061356Z Collecting pyunormalize>=15.0.0 (from web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.0090933Z   Downloading pyunormalize-17.0.0-py3-none-any.whl.metadata (5.7 kB)
+2026-09-24T10:30:05.0233016Z Collecting aiohappyeyeballs>=2.5.0 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.0265109Z   Downloading aiohappyeyeballs-2.7.1-py3-none-any.whl.metadata (5.9 kB)
+2026-09-24T10:30:05.0356921Z Collecting aiosignal>=1.4.0 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.0389393Z   Downloading aiosignal-1.4.0-py3-none-any.whl.metadata (3.7 kB)
+2026-09-24T10:30:05.0513853Z Collecting attrs>=17.3.0 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.0545675Z   Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+2026-09-24T10:30:05.1098527Z Collecting frozenlist>=1.1.1 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.1133713Z   Downloading frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (20 kB)
+2026-09-24T10:30:05.3249386Z Collecting multidict<7.0,>=4.5 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.3291715Z   Downloading multidict-6.9.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (5.3 kB)
+2026-09-24T10:30:05.3885587Z Collecting propcache>=0.2.0 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.3920025Z   Downloading propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (25 kB)
+2026-09-24T10:30:05.6386997Z Collecting yarl<2.0,>=1.17.0 (from aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.6422491Z   Downloading yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (111 kB)
+2026-09-24T10:30:05.6640055Z Collecting idna>=2.0 (from yarl<2.0,>=1.17.0->aiohttp>=3.7.4.post0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.6671451Z   Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+2026-09-24T10:30:05.6860666Z Collecting parsimonious<0.11.0,>=0.10.0 (from eth-abi>=5.0.1->slither-analyzer==0.11.5)
+2026-09-24T10:30:05.6891541Z   Downloading parsimonious-0.10.0-py3-none-any.whl.metadata (25 kB)
+2026-09-24T10:30:06.0225255Z Collecting regex>=2022.3.15 (from parsimonious<0.11.0,>=0.10.0->eth-abi>=5.0.1->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.0264139Z   Downloading regex-2026.9.10-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+2026-09-24T10:30:06.3045811Z Collecting bitarray>=2.4 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.3082187Z   Downloading bitarray-3.11.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (38 kB)
+2026-09-24T10:30:06.3211400Z Collecting eth-keyfile>=0.10 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.3245127Z   Downloading eth_keyfile-0.10.0-py3-none-any.whl.metadata (9.8 kB)
+2026-09-24T10:30:06.3352907Z Collecting eth-keys>=0.5 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.3384458Z   Downloading eth_keys-0.8.0-py3-none-any.whl.metadata (12 kB)
+2026-09-24T10:30:06.3492123Z Collecting eth-rlp>=3 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.3524134Z   Downloading eth_rlp-3.0.0-py3-none-any.whl.metadata (2.2 kB)
+2026-09-24T10:30:06.3655171Z Collecting rlp>=2 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.3685874Z   Downloading rlp-5.0.0-py3-none-any.whl.metadata (2.1 kB)
+2026-09-24T10:30:06.4290355Z Collecting ckzg>=2 (from eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.4325096Z   Downloading ckzg-2.1.8-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (887 bytes)
+2026-09-24T10:30:06.4517054Z Collecting py_ecc>=5.2.0 (from eth-keyfile>=0.10->eth-account>=0.13.6->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.4547174Z   Downloading py_ecc-8.0.0-py3-none-any.whl.metadata (3.1 kB)
+2026-09-24T10:30:06.5133335Z Collecting cytoolz>=0.10.1 (from eth-utils>=5.0.0->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.5166515Z   Downloading cytoolz-1.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (5.2 kB)
+2026-09-24T10:30:06.5311875Z Collecting annotated-types>=0.6.0 (from pydantic>=2.4.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:06.5342961Z   Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+2026-09-24T10:30:07.1651933Z Collecting pydantic-core==2.46.5 (from pydantic>=2.4.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.1689401Z   Downloading pydantic_core-2.46.5-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.6 kB)
+2026-09-24T10:30:07.1803082Z Collecting typing-inspection>=0.4.2 (from pydantic>=2.4.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.1833762Z   Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+2026-09-24T10:30:07.1951184Z Collecting toolz>=0.8.0 (from cytoolz>=0.10.1->eth-utils>=5.0.0->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.1982054Z   Downloading toolz-1.1.0-py3-none-any.whl.metadata (5.1 kB)
+2026-09-24T10:30:07.2142815Z Collecting wcwidth>=0.3.5 (from prettytable>=3.10.2->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.2175503Z   Downloading wcwidth-0.9.1-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (23 kB)
+2026-09-24T10:30:07.3206140Z Collecting charset_normalizer<4,>=2 (from requests>=2.23.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.3241546Z   Downloading charset_normalizer-3.5.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (45 kB)
+2026-09-24T10:30:07.3464489Z Collecting urllib3<3,>=1.26 (from requests>=2.23.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.3495973Z   Downloading urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+2026-09-24T10:30:07.3647010Z Collecting certifi>=2023.5.7 (from requests>=2.23.0->web3<8,>=7.10->slither-analyzer==0.11.5)
+2026-09-24T10:30:07.3677724Z   Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+2026-09-24T10:30:07.4153663Z Downloading slither_analyzer-0.11.5-py3-none-any.whl (752 kB)
+2026-09-24T10:30:07.4245862Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 752.1/752.1 kB 98.9 MB/s  0:00:00
+2026-09-24T10:30:07.4282950Z Downloading crytic_compile-0.3.11-py3-none-any.whl (99 kB)
+2026-09-24T10:30:07.4336145Z Downloading web3-7.16.0-py3-none-any.whl (1.4 MB)
+2026-09-24T10:30:07.4418162Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.4/1.4 MB 185.4 MB/s  0:00:00
+2026-09-24T10:30:07.4455561Z Downloading websockets-15.0.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl (182 kB)
+2026-09-24T10:30:07.4507042Z Downloading aiohttp-3.14.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (1.8 MB)
+2026-09-24T10:30:07.4603981Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 243.7 MB/s  0:00:00
+2026-09-24T10:30:07.4639204Z Downloading multidict-6.9.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (336 kB)
+2026-09-24T10:30:07.4694938Z Downloading yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (117 kB)
+2026-09-24T10:30:07.4745733Z Downloading aiohappyeyeballs-2.7.1-py3-none-any.whl (15 kB)
+2026-09-24T10:30:07.4792426Z Downloading aiosignal-1.4.0-py3-none-any.whl (7.5 kB)
+2026-09-24T10:30:07.4840761Z Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+2026-09-24T10:30:07.4889702Z Downloading eth_abi-6.0.0-py3-none-any.whl (53 kB)
+2026-09-24T10:30:07.4938199Z Downloading parsimonious-0.10.0-py3-none-any.whl (48 kB)
+2026-09-24T10:30:07.4988146Z Downloading eth_account-0.14.0-py3-none-any.whl (586 kB)
+2026-09-24T10:30:07.5040559Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 586.3/586.3 kB 122.6 MB/s  0:00:00
+2026-09-24T10:30:07.5120997Z Downloading bitarray-3.11.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (387 kB)
+2026-09-24T10:30:07.5180480Z Downloading ckzg-2.1.8-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (176 kB)
+2026-09-24T10:30:07.5232199Z Downloading eth_hash-0.8.0-py3-none-any.whl (8.0 kB)
+2026-09-24T10:30:07.5282367Z Downloading pycryptodome-3.23.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.3 MB)
+2026-09-24T10:30:07.5382861Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.3/2.3 MB 264.2 MB/s  0:00:00
+2026-09-24T10:30:07.5413598Z Downloading eth_keyfile-0.10.0-py3-none-any.whl (9.5 kB)
+2026-09-24T10:30:07.5460454Z Downloading eth_keys-0.8.0-py3-none-any.whl (20 kB)
+2026-09-24T10:30:07.5505143Z Downloading eth_rlp-3.0.0-py3-none-any.whl (15 kB)
+2026-09-24T10:30:07.5551196Z Downloading eth_typing-6.0.0-py3-none-any.whl (19 kB)
+2026-09-24T10:30:07.5597145Z Downloading eth_utils-6.0.0-py3-none-any.whl (102 kB)
+2026-09-24T10:30:07.5646430Z Downloading pydantic-2.13.5-py3-none-any.whl (472 kB)
+2026-09-24T10:30:07.5705714Z Downloading pydantic_core-2.46.5-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+2026-09-24T10:30:07.5796399Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 264.6 MB/s  0:00:00
+2026-09-24T10:30:07.5826933Z Downloading annotated_types-0.8.0-py3-none-any.whl (13 kB)
+2026-09-24T10:30:07.5876573Z Downloading cytoolz-1.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (2.9 MB)
+2026-09-24T10:30:07.5985906Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.9/2.9 MB 300.6 MB/s  0:00:00
+2026-09-24T10:30:07.6017011Z Downloading frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (242 kB)
+2026-09-24T10:30:07.6068942Z Downloading hexbytes-2.0.0-py3-none-any.whl (18 kB)
+2026-09-24T10:30:07.6118258Z Downloading idna-3.20-py3-none-any.whl (69 kB)
+2026-09-24T10:30:07.6166495Z Downloading prettytable-3.18.0-py3-none-any.whl (37 kB)
+2026-09-24T10:30:07.6217824Z Downloading propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (250 kB)
+2026-09-24T10:30:07.6270411Z Downloading py_ecc-8.0.0-py3-none-any.whl (47 kB)
+2026-09-24T10:30:07.6319848Z Downloading pyunormalize-17.0.0-py3-none-any.whl (51 kB)
+2026-09-24T10:30:07.6372108Z Downloading regex-2026.9.10-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (804 kB)
+2026-09-24T10:30:07.6430352Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 804.6/804.6 kB 187.7 MB/s  0:00:00
+2026-09-24T10:30:07.6453282Z Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+2026-09-24T10:30:07.6502100Z Downloading charset_normalizer-3.5.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (248 kB)
+2026-09-24T10:30:07.6553915Z Downloading urllib3-2.8.0-py3-none-any.whl (135 kB)
+2026-09-24T10:30:07.6604677Z Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+2026-09-24T10:30:07.6654545Z Downloading rlp-5.0.0-py3-none-any.whl (19 kB)
+2026-09-24T10:30:07.6701781Z Downloading solc_select-1.2.0-py3-none-any.whl (36 kB)
+2026-09-24T10:30:07.6748873Z Downloading toolz-1.1.0-py3-none-any.whl (58 kB)
+2026-09-24T10:30:07.6796450Z Downloading types_requests-2.33.0.20260906-py3-none-any.whl (21 kB)
+2026-09-24T10:30:07.6846680Z Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+2026-09-24T10:30:07.6895418Z Downloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+2026-09-24T10:30:07.6944532Z Downloading wcwidth-0.9.1-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (768 kB)
+2026-09-24T10:30:07.6996870Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 768.4/768.4 kB 181.7 MB/s  0:00:00
+2026-09-24T10:30:07.7028772Z Downloading cbor2-6.1.4-cp312-cp312-manylinux_2_28_x86_64.whl (461 kB)
+2026-09-24T10:30:07.7086354Z Downloading packaging-26.3-py3-none-any.whl (129 kB)
+2026-09-24T10:30:08.0083594Z Installing collected packages: ckzg, websockets, wcwidth, urllib3, typing-extensions, toolz, regex, pyunormalize, pycryptodome, propcache, packaging, multidict, idna, hexbytes, frozenlist, eth-hash, charset_normalizer, certifi, cbor2, bitarray, attrs, annotated-types, aiohappyeyeballs, yarl, typing-inspection, types-requests, requests, pydantic-core, prettytable, parsimonious, eth-typing, cytoolz, aiosignal, solc-select, pydantic, aiohttp, eth-utils, crytic-compile, rlp, py_ecc, eth-keys, eth-abi, eth-rlp, eth-keyfile, eth-account, web3, slither-analyzer
+2026-09-24T10:30:11.6517193Z 
+2026-09-24T10:30:11.6559348Z Successfully installed aiohappyeyeballs-2.7.1 aiohttp-3.14.3 aiosignal-1.4.0 annotated-types-0.8.0 attrs-26.1.0 bitarray-3.11.0 cbor2-6.1.4 certifi-2026.7.22 charset_normalizer-3.5.1 ckzg-2.1.8 crytic-compile-0.3.11 cytoolz-1.1.0 eth-abi-6.0.0 eth-account-0.14.0 eth-hash-0.8.0 eth-keyfile-0.10.0 eth-keys-0.8.0 eth-rlp-3.0.0 eth-typing-6.0.0 eth-utils-6.0.0 frozenlist-1.8.0 hexbytes-2.0.0 idna-3.20 multidict-6.9.1 packaging-26.3 parsimonious-0.10.0 prettytable-3.18.0 propcache-0.5.4 py_ecc-8.0.0 pycryptodome-3.23.0 pydantic-2.13.5 pydantic-core-2.46.5 pyunormalize-17.0.0 regex-2026.9.10 requests-2.34.2 rlp-5.0.0 slither-analyzer-0.11.5 solc-select-1.2.0 toolz-1.1.0 types-requests-2.33.0.20260906 typing-extensions-4.16.0 typing-inspection-0.4.4 urllib3-2.8.0 wcwidth-0.9.1 web3-7.16.0 websockets-15.0.1 yarl-1.25.1
+2026-09-24T10:30:11.8182557Z ##[group]Run node scripts/check-local.mjs
+2026-09-24T10:30:11.8182935Z [36;1mnode scripts/check-local.mjs[0m
+2026-09-24T10:30:11.8224296Z shell: /usr/bin/bash -e {0}
+2026-09-24T10:30:11.8224583Z env:
+2026-09-24T10:30:11.8224810Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:30:11.8225057Z   VALIDATION_TASK: T1d
+2026-09-24T10:30:11.8225363Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:11.8225818Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-09-24T10:30:11.8226251Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:11.8226647Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:11.8227042Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:30:11.8227662Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-09-24T10:30:11.8228141Z   VALIDATION_EVIDENCE_ROOT: /home/runner/work/_temp/t1d-contracts-35987549177-1
+2026-09-24T10:30:11.8228595Z ##[endgroup]
+2026-09-24T10:30:11.8809878Z toolchain: exit 0
+2026-09-24T10:30:11.8811295Z forge Version: 1.7.1
+2026-09-24T10:30:11.8811878Z Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+2026-09-24T10:30:11.8812518Z Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)
+2026-09-24T10:30:11.8813201Z Build Profile: dist
+2026-09-24T10:30:11.8813354Z 
+2026-09-24T10:30:11.9024677Z forge-fmt: exit 0
+2026-09-24T10:30:11.9024987Z 
+2026-09-24T10:30:41.4171387Z forge-build-sizes: exit 0
+2026-09-24T10:30:41.4174641Z Compiling 127 files with Solc 0.8.24
+2026-09-24T10:30:41.4175263Z Solc 0.8.24 finished in 28.22s
+2026-09-24T10:30:41.4175756Z Compiler run successful!
+2026-09-24T10:30:41.4176027Z 
+2026-09-24T10:30:41.4178461Z ╭----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------╮
+2026-09-24T10:30:41.4180896Z | Contract                                                                                                                                                 | Runtime Size (B) | Initcode Size (B) | Runtime Margin (B) | Initcode Margin (B) |
+2026-09-24T10:30:41.4182855Z +============================================================================================================================================================================================================================================+
+2026-09-24T10:30:41.4184620Z | Address                                                                                                                                                  | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4186664Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4189002Z | Addresses                                                                                                                                                | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4191040Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4192655Z | BeaconProxy                                                                                                                                              | 283              | 1,431             | 24,293             | 47,721              |
+2026-09-24T10:30:41.4194163Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4195368Z | Checkpoints                                                                                                                                              | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4196571Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4197979Z | Core                                                                                                                                                     | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4199141Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4200296Z | Defender                                                                                                                                                 | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4201642Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4202811Z | DefenderDeploy                                                                                                                                           | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4203999Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4205361Z | ERC1967Proxy (../node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol)                                                                    | 163              | 1,008             | 24,413             | 48,144              |
+2026-09-24T10:30:41.4206694Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4208816Z | ERC1967Proxy (/home/runner/work/pinkuang/pinkuang/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol)                                   | 163              | 1,008             | 24,413             | 48,144              |
+2026-09-24T10:30:41.4210266Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4211614Z | ERC1967Utils (../node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol)                                                                    | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4212942Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4214338Z | ERC1967Utils (/home/runner/work/pinkuang/pinkuang/node_modules/@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol)                                   | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4215918Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4217120Z | FundingTestToken                                                                                                                                         | 1,883            | 2,374             | 22,693             | 46,778              |
+2026-09-24T10:30:41.4218496Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4219702Z | InvalidVaultLayout                                                                                                                                       | 2,942            | 3,162             | 21,634             | 45,990              |
+2026-09-24T10:30:41.4220884Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4222224Z | MarketSellerProbe                                                                                                                                        | 1,481            | 1,539             | 23,095             | 47,613              |
+2026-09-24T10:30:41.4223405Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4224681Z | Math (../node_modules/@openzeppelin/contracts/utils/math/Math.sol)                                                                                       | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4225953Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4227514Z | Math (/home/runner/work/pinkuang/pinkuang/node_modules/@openzeppelin/contracts/utils/math/Math.sol)                                                      | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4229021Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4230233Z | MiningOperations                                                                                                                                         | 5,911            | 5,964             | 18,665             | 43,188              |
+2026-09-24T10:30:41.4232170Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4233746Z | MiningPermissionMock                                                                                                                                     | 7,518            | 7,547             | 17,058             | 41,605              |
+2026-09-24T10:30:41.4236164Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4238772Z | MiningStartFixtures                                                                                                                                      | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4240541Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4242321Z | PoolBeacon                                                                                                                                               | 515              | 1,105             | 24,061             | 48,047              |
+2026-09-24T10:30:41.4243537Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4244719Z | PoolFactory                                                                                                                                              | 9,020            | 9,269             | 15,556             | 39,883              |
+2026-09-24T10:30:41.4246101Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4247573Z | PoolFactoryV2Fixture                                                                                                                                     | 9,069            | 9,318             | 15,507             | 39,834              |
+2026-09-24T10:30:41.4249054Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4250525Z | PoolTimelock                                                                                                                                             | 6,608            | 7,519             | 17,968             | 41,633              |
+2026-09-24T10:30:41.4252069Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4253601Z | PoolVault                                                                                                                                                | 21,934           | 22,161            | 2,642              | 26,991              |
+2026-09-24T10:30:41.4255903Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4258671Z | PoolVaultV2Fixture                                                                                                                                       | 21,964           | 22,191            | 2,612              | 26,961              |
+2026-09-24T10:30:41.4260690Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4261865Z | ProbeHolder                                                                                                                                              | 5,646            | 6,188             | 18,930             | 42,964              |
+2026-09-24T10:30:41.4263447Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4264643Z | ProxyAdmin                                                                                                                                               | 1,031            | 1,276             | 23,545             | 47,876              |
+2026-09-24T10:30:41.4265823Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4267017Z | PurchaseCallbackRelay                                                                                                                                    | 565              | 594               | 24,011             | 48,558              |
+2026-09-24T10:30:41.4268479Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4269653Z | PurchaseMockBem                                                                                                                                          | 1,883            | 2,353             | 22,693             | 46,799              |
+2026-09-24T10:30:41.4271005Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4272410Z | PurchaseMockMarket                                                                                                                                       | 2,630            | 2,659             | 21,946             | 46,493              |
+2026-09-24T10:30:41.4273642Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4274838Z | PurchaseMockMining                                                                                                                                       | 4,908            | 4,937             | 19,668             | 44,215              |
+2026-09-24T10:30:41.4276030Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4277359Z | PurchaseMockNft                                                                                                                                          | 6,179            | 6,677             | 18,397             | 42,475              |
+2026-09-24T10:30:41.4278586Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4279787Z | PurchaseRejectingSeller                                                                                                                                  | 655              | 684               | 23,921             | 48,468              |
+2026-09-24T10:30:41.4280981Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4282373Z | ReenteringFundingRecipient                                                                                                                               | 558              | 696               | 24,018             | 48,456              |
+2026-09-24T10:30:41.4283583Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4284795Z | RejectingFundingRecipient                                                                                                                                | 278              | 409               | 24,298             | 48,743              |
+2026-09-24T10:30:41.4285990Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4287170Z | RewardAccounting                                                                                                                                         | 5,565            | 5,618             | 19,011             | 43,534              |
+2026-09-24T10:30:41.4288610Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4289974Z | RewardsFaultBem                                                                                                                                          | 3,407            | 3,903             | 21,169             | 45,249              |
+2026-09-24T10:30:41.4291218Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4292376Z | SafeCast                                                                                                                                                 | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4293533Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4295442Z | SafeERC20                                                                                                                                                | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4297676Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4299961Z | ShareCheckpoints                                                                                                                                         | 1,466            | 1,519             | 23,110             | 47,633              |
+2026-09-24T10:30:41.4302080Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4304138Z | ShareMarket                                                                                                                                              | 6,259            | 6,508             | 18,317             | 42,644              |
+2026-09-24T10:30:41.4306211Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4308798Z | ShareMarketIdentityStub                                                                                                                                  | 210              | 384               | 24,366             | 48,768              |
+2026-09-24T10:30:41.4310790Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4312042Z | ShareMarketPaymentActor                                                                                                                                  | 1,826            | 1,855             | 22,750             | 47,297              |
+2026-09-24T10:30:41.4313265Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4314464Z | ShareMarketV2Fixture                                                                                                                                     | 6,289            | 6,538             | 18,287             | 42,614              |
+2026-09-24T10:30:41.4315816Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4316986Z | SignedMath                                                                                                                                               | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4318433Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4319637Z | StorageSlot                                                                                                                                              | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4320826Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4321992Z | StringFinder                                                                                                                                             | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4323184Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4324488Z | Strings (../node_modules/@openzeppelin/contracts/utils/Strings.sol)                                                                                      | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4325781Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4327139Z | Strings (/home/runner/work/pinkuang/pinkuang/node_modules/@openzeppelin/contracts/utils/Strings.sol)                                                     | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4328892Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4330123Z | TimelockController                                                                                                                                       | 6,536            | 7,500             | 18,040             | 41,652              |
+2026-09-24T10:30:41.4331324Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4332774Z | TransparentUpgradeableProxy (../node_modules/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol)                                  | 1,129            | 3,664             | 23,447             | 45,488              |
+2026-09-24T10:30:41.4334205Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4335718Z | TransparentUpgradeableProxy (/home/runner/work/pinkuang/pinkuang/node_modules/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol) | 1,129            | 3,664             | 23,447             | 45,488              |
+2026-09-24T10:30:41.4337855Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4339989Z | UnsafeUpgrades                                                                                                                                           | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4342247Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4344359Z | UpgradeableBeacon                                                                                                                                        | 644              | 1,057             | 23,932             | 48,095              |
+2026-09-24T10:30:41.4346488Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4348819Z | Upgrades                                                                                                                                                 | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4350910Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4353055Z | Utils                                                                                                                                                    | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4354250Z |----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------|
+2026-09-24T10:30:41.4355722Z | Versions                                                                                                                                                 | 85               | 135               | 24,491             | 49,017              |
+2026-09-24T10:30:41.4357684Z ╰----------------------------------------------------------------------------------------------------------------------------------------------------------+------------------+-------------------+--------------------+---------------------╯
+2026-09-24T10:30:41.4358723Z 
+2026-09-24T10:30:41.4359457Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4360317Z    ╭▸ src/libraries/RewardAccounting.sol:88:35
+2026-09-24T10:30:41.4360647Z    │
+2026-09-24T10:30:41.4361266Z 88 │         if (u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY) revert ClaimTooSoon();
+2026-09-24T10:30:41.4361937Z    │                                   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4362303Z    │
+2026-09-24T10:30:41.4362783Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4363114Z 
+2026-09-24T10:30:41.4363465Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4364012Z     ╭▸ test/fork/MiningStartProbe.t.sol:148:18
+2026-09-24T10:30:41.4364344Z     │
+2026-09-24T10:30:41.4364930Z 148 │         assertEq(bytes4(reason), NOT_OWNER_ERROR);
+2026-09-24T10:30:41.4365327Z     │                  ━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4365609Z     │
+2026-09-24T10:30:41.4366021Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4366437Z     │       
+2026-09-24T10:30:41.4366809Z     │       // casting to 'bytes4' is safe because [explain why]
+2026-09-24T10:30:41.4367526Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4367992Z     │       
+2026-09-24T10:30:41.4368278Z     │       
+2026-09-24T10:30:41.4368749Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4369076Z 
+2026-09-24T10:30:41.4369413Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4370121Z     ╭▸ test/utils/PurchaseMocks.sol:122:27
+2026-09-24T10:30:41.4370425Z     │
+2026-09-24T10:30:41.4370891Z 122 │         miner.circuitId = uint64(id);
+2026-09-24T10:30:41.4371501Z     │                           ━━━━━━━━━━
+2026-09-24T10:30:41.4371941Z     │
+2026-09-24T10:30:41.4372554Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4372970Z     │       
+2026-09-24T10:30:41.4373337Z     │       // casting to 'uint64' is safe because [explain why]
+2026-09-24T10:30:41.4373822Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4374164Z     │       
+2026-09-24T10:30:41.4374392Z     │       
+2026-09-24T10:30:41.4374846Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4375187Z 
+2026-09-24T10:30:41.4375512Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4376049Z     ╭▸ test/fork/PoolRewardsFork.t.sol:309:18
+2026-09-24T10:30:41.4376361Z     │
+2026-09-24T10:30:41.4377013Z 309 │         assertEq(bytes4(protocolReason), bytes4(0x79710317), "observed protocol status rejection changed");
+2026-09-24T10:30:41.4377811Z     │                  ━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4378095Z     │
+2026-09-24T10:30:41.4378509Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4378912Z     │       
+2026-09-24T10:30:41.4379277Z     │       // casting to 'bytes4' is safe because [explain why]
+2026-09-24T10:30:41.4379762Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4380106Z     │       
+2026-09-24T10:30:41.4380336Z     │       
+2026-09-24T10:30:41.4380789Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4381344Z 
+2026-09-24T10:30:41.4382114Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4383130Z     ╭▸ test/invariant/PoolTransfersInvariant.t.sol:144:48
+2026-09-24T10:30:41.4383489Z     │
+2026-09-24T10:30:41.4384028Z 144 │         bool tooSoon = lastPaid[actor] != 0 && block.timestamp < lastPaid[actor] + 1 days;
+2026-09-24T10:30:41.4384693Z     │                                                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4385044Z     │
+2026-09-24T10:30:41.4385505Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4385824Z 
+2026-09-24T10:30:41.4386147Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4386687Z    ╭▸ test/utils/MiningPermissionMocks.sol:70:86
+2026-09-24T10:30:41.4387003Z    │
+2026-09-24T10:30:41.4387798Z 70 │         if (mineFault == 2) this.setIdentity(minerKey(circuits, id), address(0xBAD), uint64(id));
+2026-09-24T10:30:41.4388470Z    │                                                                                      ━━━━━━━━━━
+2026-09-24T10:30:41.4388848Z    │
+2026-09-24T10:30:41.4389263Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4389678Z    │       
+2026-09-24T10:30:41.4390043Z    │       // casting to 'uint64' is safe because [explain why]
+2026-09-24T10:30:41.4390692Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4391038Z    │       
+2026-09-24T10:30:41.4391254Z    │       
+2026-09-24T10:30:41.4391704Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4392023Z 
+2026-09-24T10:30:41.4392429Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4392974Z    ╭▸ src/PoolVault.sol:86:13
+2026-09-24T10:30:41.4393244Z    │
+2026-09-24T10:30:41.4393892Z 86 │         if (params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline) {
+2026-09-24T10:30:41.4394558Z    │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4394880Z    │
+2026-09-24T10:30:41.4395392Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4395711Z 
+2026-09-24T10:30:41.4396120Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4396697Z     ╭▸ src/PoolVault.sol:103:13
+2026-09-24T10:30:41.4396967Z     │
+2026-09-24T10:30:41.4397716Z 103 │         if (block.timestamp >= s.params.fundingDeadline) revert DeadlinePassed();
+2026-09-24T10:30:41.4398315Z     │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4398642Z     │
+2026-09-24T10:30:41.4399108Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4399436Z 
+2026-09-24T10:30:41.4399874Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4400509Z     ╭▸ test/invariant/PoolTransfersInvariant.t.sol:209:16
+2026-09-24T10:30:41.4400934Z     │
+2026-09-24T10:30:41.4401343Z 209 │         return block.timestamp >= (uint256(e) + 8) * 1 days;
+2026-09-24T10:30:41.4401833Z     │                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4402161Z     │
+2026-09-24T10:30:41.4402603Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4402919Z 
+2026-09-24T10:30:41.4403323Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4403931Z    ╭▸ test/invariant/PoolFundingInvariant.t.sol:28:13
+2026-09-24T10:30:41.4404270Z    │
+2026-09-24T10:30:41.4404699Z 28 │         if (block.timestamp >= pool.params().fundingDeadline) return;
+2026-09-24T10:30:41.4405236Z    │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4405551Z    │
+2026-09-24T10:30:41.4405996Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4406310Z 
+2026-09-24T10:30:41.4406872Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4407700Z     ╭▸ src/PoolVault.sol:140:17
+2026-09-24T10:30:41.4408067Z     │
+2026-09-24T10:30:41.4408811Z 140 │             if (block.timestamp < s.params.fundingDeadline) revert DeadlineNotReached();
+2026-09-24T10:30:41.4409433Z     │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4409760Z     │
+2026-09-24T10:30:41.4410228Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4410566Z 
+2026-09-24T10:30:41.4410985Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4411543Z     ╭▸ src/PoolVault.sol:142:17
+2026-09-24T10:30:41.4411827Z     │
+2026-09-24T10:30:41.4412355Z 142 │             if (block.timestamp < s.params.purchaseDeadline) revert DeadlineNotReached();
+2026-09-24T10:30:41.4412952Z     │                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4413273Z     │
+2026-09-24T10:30:41.4413713Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4414031Z 
+2026-09-24T10:30:41.4414445Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4415061Z    ╭▸ test/invariant/PoolFundingInvariant.t.sol:68:50
+2026-09-24T10:30:41.4415403Z    │
+2026-09-24T10:30:41.4415957Z 68 │         if (state == IPoolVault.State.Funding && block.timestamp < p.fundingDeadline) return;
+2026-09-24T10:30:41.4416607Z    │                                                  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4416950Z    │
+2026-09-24T10:30:41.4417596Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4417919Z 
+2026-09-24T10:30:41.4418318Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4418959Z    ╭▸ test/invariant/PoolFundingInvariant.t.sol:69:49
+2026-09-24T10:30:41.4419279Z    │
+2026-09-24T10:30:41.4419838Z 69 │         if (state == IPoolVault.State.Funded && block.timestamp < p.purchaseDeadline) return;
+2026-09-24T10:30:41.4420486Z    │                                                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4420836Z    │
+2026-09-24T10:30:41.4421273Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4421592Z 
+2026-09-24T10:30:41.4422033Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4422690Z     ╭▸ test/invariant/PoolTransfersInvariant.t.sol:112:13
+2026-09-24T10:30:41.4423035Z     │
+2026-09-24T10:30:41.4423410Z 112 │             pool.transferFrom(seller, buyer, amount);
+2026-09-24T10:30:41.4423877Z     │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4424180Z     │
+2026-09-24T10:30:41.4424839Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4425192Z 
+2026-09-24T10:30:41.4425625Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4426288Z     ╭▸ test/invariant/PoolTransfersInvariant.t.sol:115:13
+2026-09-24T10:30:41.4426619Z     │
+2026-09-24T10:30:41.4426943Z 115 │             pool.transfer(buyer, amount);
+2026-09-24T10:30:41.4427516Z     │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4427805Z     │
+2026-09-24T10:30:41.4428283Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4428629Z 
+2026-09-24T10:30:41.4428936Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4429492Z    ╭▸ test/invariant/PoolFundingInvariant.t.sol:22:33
+2026-09-24T10:30:41.4429819Z    │
+2026-09-24T10:30:41.4430209Z 22 │             actors[i] = address(uint160(0x70000 + i));
+2026-09-24T10:30:41.4430646Z    │                                 ━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4430946Z    │
+2026-09-24T10:30:41.4431356Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4431913Z    │       
+2026-09-24T10:30:41.4432278Z    │       // casting to 'uint160' is safe because [explain why]
+2026-09-24T10:30:41.4432763Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4433113Z    │       
+2026-09-24T10:30:41.4433332Z    │       
+2026-09-24T10:30:41.4433795Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4434119Z 
+2026-09-24T10:30:41.4434528Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4435100Z     ╭▸ src/PoolFactory.sol:191:13
+2026-09-24T10:30:41.4435380Z     │
+2026-09-24T10:30:41.4436046Z 191 │         if (params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline) {
+2026-09-24T10:30:41.4436699Z     │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4437029Z     │
+2026-09-24T10:30:41.4437649Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4437991Z 
+2026-09-24T10:30:41.4438399Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4439037Z    ╭▸ test/invariant/PoolRewardsInvariant.t.sol:94:50
+2026-09-24T10:30:41.4439384Z    │
+2026-09-24T10:30:41.4439939Z 94 │         bool tooSoon = lastPaidAt[actor] != 0 && block.timestamp < lastPaidAt[actor] + 1 days;
+2026-09-24T10:30:41.4440605Z    │                                                  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4440970Z    │
+2026-09-24T10:30:41.4441433Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4441752Z 
+2026-09-24T10:30:41.4442176Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4442805Z     ╭▸ test/invariant/PoolRewardsInvariant.t.sol:162:16
+2026-09-24T10:30:41.4443144Z     │
+2026-09-24T10:30:41.4443564Z 162 │         return block.timestamp >= (uint256(e) + 8) * 1 days;
+2026-09-24T10:30:41.4444058Z     │                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4444384Z     │
+2026-09-24T10:30:41.4444826Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4445148Z 
+2026-09-24T10:30:41.4445603Z warning[divide-before-multiply]: multiplication should occur before division to avoid loss of precision
+2026-09-24T10:30:41.4446204Z     ╭▸ test/unit/PoolRewards.t.sol:229:37
+2026-09-24T10:30:41.4446507Z     │
+2026-09-24T10:30:41.4446963Z 229 │             cumulativeDust += net - (net * 49 / 100) * 2 - net * 2 / 100;
+2026-09-24T10:30:41.4447693Z     │                                     ━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4448188Z     │
+2026-09-24T10:30:41.4448695Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#divide-before-multiply
+2026-09-24T10:30:41.4449062Z 
+2026-09-24T10:30:41.4449483Z warning[block-timestamp]: usage of `block.timestamp` in a comparison may be manipulated by validators
+2026-09-24T10:30:41.4450181Z     ╭▸ src/PoolVault.sol:221:13
+2026-09-24T10:30:41.4450464Z     │
+2026-09-24T10:30:41.4450962Z 221 │         if (block.timestamp >= s.params.purchaseDeadline) revert DeadlinePassed();
+2026-09-24T10:30:41.4451523Z     │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4451838Z     │
+2026-09-24T10:30:41.4452295Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#block-timestamp
+2026-09-24T10:30:41.4452618Z 
+2026-09-24T10:30:41.4452935Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4453448Z    ╭▸ test/unit/PoolRewards.t.sol:68:83
+2026-09-24T10:30:41.4453740Z    │
+2026-09-24T10:30:41.4454366Z 68 │         (uint32 e, uint256 amount, uint256 remainder) = rewards.rewardSlot(ALICE, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4455081Z    │                                                                                   ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4455459Z    │
+2026-09-24T10:30:41.4455870Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4456282Z    │       
+2026-09-24T10:30:41.4456636Z    │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4457121Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4457654Z    │       
+2026-09-24T10:30:41.4457880Z    │       
+2026-09-24T10:30:41.4458337Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4458655Z 
+2026-09-24T10:30:41.4458970Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4459452Z     ╭▸ src/PoolVault.sol:133:43
+2026-09-24T10:30:41.4459725Z     │
+2026-09-24T10:30:41.4460171Z 133 │         emit DepositWithdrawn(msg.sender, uint8(shares), amount);
+2026-09-24T10:30:41.4460663Z     │                                           ━━━━━━━━━━━━━
+2026-09-24T10:30:41.4460992Z     │
+2026-09-24T10:30:41.4461404Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4461813Z     │       
+2026-09-24T10:30:41.4462174Z     │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4462650Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4462990Z     │       
+2026-09-24T10:30:41.4463215Z     │       
+2026-09-24T10:30:41.4463676Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4463996Z 
+2026-09-24T10:30:41.4464301Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4464798Z    ╭▸ test/unit/PoolRewards.t.sol:75:59
+2026-09-24T10:30:41.4465087Z    │
+2026-09-24T10:30:41.4465592Z 75 │         (, amount, remainder) = rewards.rewardSlot(ALICE, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4466170Z    │                                                           ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4466521Z    │
+2026-09-24T10:30:41.4466928Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4467523Z    │       
+2026-09-24T10:30:41.4467881Z    │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4468371Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4468725Z    │       
+2026-09-24T10:30:41.4468949Z    │       
+2026-09-24T10:30:41.4469398Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4469713Z 
+2026-09-24T10:30:41.4470023Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4470513Z    ╭▸ test/unit/PoolRewards.t.sol:86:59
+2026-09-24T10:30:41.4470801Z    │
+2026-09-24T10:30:41.4471436Z 86 │         (, amount, remainder) = rewards.rewardSlot(ALICE, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4472017Z    │                                                           ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4472477Z    │
+2026-09-24T10:30:41.4472875Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4473277Z    │       
+2026-09-24T10:30:41.4473616Z    │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4474083Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4474419Z    │       
+2026-09-24T10:30:41.4474646Z    │       
+2026-09-24T10:30:41.4475085Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4475404Z 
+2026-09-24T10:30:41.4475718Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4476216Z     ╭▸ test/unit/PoolRewards.t.sol:118:63
+2026-09-24T10:30:41.4476519Z     │
+2026-09-24T10:30:41.4477044Z 118 │         (uint32 e, uint256 amount,) = rewards.rewardSlot(BOB, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4477831Z     │                                                               ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4478190Z     │
+2026-09-24T10:30:41.4478607Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4479018Z     │       
+2026-09-24T10:30:41.4479372Z     │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4479852Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4480198Z     │       
+2026-09-24T10:30:41.4480427Z     │       
+2026-09-24T10:30:41.4480877Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4481193Z 
+2026-09-24T10:30:41.4481508Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4482027Z    ╭▸ test/unit/PoolTransfers.t.sol:46:81
+2026-09-24T10:30:41.4482338Z    │
+2026-09-24T10:30:41.4482942Z 46 │         (, uint256 daveAmount, uint256 daveFraction) = rewards.rewardSlot(DAVE, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4483653Z    │                                                                                 ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4484032Z    │
+2026-09-24T10:30:41.4484444Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4484848Z    │       
+2026-09-24T10:30:41.4485207Z    │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4485675Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4486022Z    │       
+2026-09-24T10:30:41.4486240Z    │       
+2026-09-24T10:30:41.4486681Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4487001Z 
+2026-09-24T10:30:41.4487492Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4488162Z     ╭▸ test/unit/PoolPurchase.t.sol:279:47
+2026-09-24T10:30:41.4488469Z     │
+2026-09-24T10:30:41.4488889Z 279 │         mining.setIdentity(key, address(nft), uint64(ID + 1));
+2026-09-24T10:30:41.4489391Z     │                                               ━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4489717Z     │
+2026-09-24T10:30:41.4490143Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4490552Z     │       
+2026-09-24T10:30:41.4490925Z     │       // casting to 'uint64' is safe because [explain why]
+2026-09-24T10:30:41.4491411Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4491765Z     │       
+2026-09-24T10:30:41.4491998Z     │       
+2026-09-24T10:30:41.4492461Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4492779Z 
+2026-09-24T10:30:41.4493097Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4493607Z    ╭▸ test/unit/PoolTransfers.t.sol:55:62
+2026-09-24T10:30:41.4493913Z    │
+2026-09-24T10:30:41.4494420Z 55 │         (,, uint256 erinFraction) = rewards.rewardSlot(ERIN, uint8(firstEpoch % 8));
+2026-09-24T10:30:41.4495032Z    │                                                              ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4495512Z    │
+2026-09-24T10:30:41.4495928Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4496335Z    │       
+2026-09-24T10:30:41.4496701Z    │       // casting to 'uint8' is safe because [explain why]
+2026-09-24T10:30:41.4497179Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4497746Z    │       
+2026-09-24T10:30:41.4497974Z    │       
+2026-09-24T10:30:41.4498447Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4498767Z 
+2026-09-24T10:30:41.4499210Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4499841Z     ╭▸ test/unit/PoolTransfers.t.sol:120:9
+2026-09-24T10:30:41.4500147Z     │
+2026-09-24T10:30:41.4500499Z 120 │         pool.transferFrom(ALICE, DAVE, 4);
+2026-09-24T10:30:41.4500906Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4501210Z     │
+2026-09-24T10:30:41.4501708Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4502063Z 
+2026-09-24T10:30:41.4502484Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4503082Z     ╭▸ test/unit/PoolTransfers.t.sol:124:9
+2026-09-24T10:30:41.4503377Z     │
+2026-09-24T10:30:41.4503718Z 124 │         pool.transferFrom(ALICE, DAVE, 1);
+2026-09-24T10:30:41.4504115Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4504412Z     │
+2026-09-24T10:30:41.4504891Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4505237Z 
+2026-09-24T10:30:41.4505670Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4506251Z     ╭▸ test/unit/PoolTransfers.t.sol:152:9
+2026-09-24T10:30:41.4506548Z     │
+2026-09-24T10:30:41.4506850Z 152 │         pool.transfer(DAVE, 0);
+2026-09-24T10:30:41.4507361Z     │         ━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4507685Z     │
+2026-09-24T10:30:41.4508169Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4508510Z 
+2026-09-24T10:30:41.4508829Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4509343Z    ╭▸ test/unit/PoolMining.t.sol:70:79
+2026-09-24T10:30:41.4509671Z    │
+2026-09-24T10:30:41.4510215Z 70 │             (circuits, id, uint32(7), uint256(8000), inputs, outputs, proofs, bytes32("salt"))
+2026-09-24T10:30:41.4510849Z    │                                                                               ━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4511201Z    │
+2026-09-24T10:30:41.4511779Z    ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4512182Z    │       
+2026-09-24T10:30:41.4512554Z    │       // casting to 'bytes32' is safe because [explain why]
+2026-09-24T10:30:41.4513226Z    │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4513583Z    │       
+2026-09-24T10:30:41.4513806Z    │       
+2026-09-24T10:30:41.4514263Z    ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4514607Z 
+2026-09-24T10:30:41.4515045Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4515651Z     ╭▸ test/unit/PoolTransfers.t.sol:154:9
+2026-09-24T10:30:41.4515953Z     │
+2026-09-24T10:30:41.4516261Z 154 │         pool.transfer(DAVE, 50);
+2026-09-24T10:30:41.4516616Z     │         ━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4516894Z     │
+2026-09-24T10:30:41.4517625Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4518095Z 
+2026-09-24T10:30:41.4518530Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4519141Z     ╭▸ test/unit/PoolTransfers.t.sol:156:9
+2026-09-24T10:30:41.4519445Z     │
+2026-09-24T10:30:41.4519746Z 156 │         pool.transfer(BOB, 1);
+2026-09-24T10:30:41.4520094Z     │         ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4520371Z     │
+2026-09-24T10:30:41.4520854Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4521208Z 
+2026-09-24T10:30:41.4521527Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4522036Z     ╭▸ test/unit/PoolMining.t.sol:270:62
+2026-09-24T10:30:41.4522335Z     │
+2026-09-24T10:30:41.4522802Z 270 │         mining.setIdentity(key, Addresses.BEHEMOTH_CIRCUITS, uint64(ID));
+2026-09-24T10:30:41.4523368Z     │                                                              ━━━━━━━━━━
+2026-09-24T10:30:41.4523696Z     │
+2026-09-24T10:30:41.4524111Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4524513Z     │       
+2026-09-24T10:30:41.4524897Z     │       // casting to 'uint64' is safe because [explain why]
+2026-09-24T10:30:41.4525384Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4525738Z     │       
+2026-09-24T10:30:41.4525965Z     │       
+2026-09-24T10:30:41.4526413Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4526733Z 
+2026-09-24T10:30:41.4527174Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4527981Z     ╭▸ test/unit/PoolTransfers.t.sol:158:9
+2026-09-24T10:30:41.4528293Z     │
+2026-09-24T10:30:41.4528651Z 158 │         pool.transfer(address(shareMarket), 1);
+2026-09-24T10:30:41.4529110Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4529406Z     │
+2026-09-24T10:30:41.4529899Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4530299Z 
+2026-09-24T10:30:41.4530740Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4531343Z     ╭▸ test/unit/PoolPurchase.t.sol:594:9
+2026-09-24T10:30:41.4531647Z     │
+2026-09-24T10:30:41.4531947Z 594 │         pool.transfer(BOB, 1);
+2026-09-24T10:30:41.4532434Z     │         ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4532936Z     │
+2026-09-24T10:30:41.4537107Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4538384Z 
+2026-09-24T10:30:41.4539207Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4541113Z     ╭▸ test/unit/PoolFunding.t.sol:318:9
+2026-09-24T10:30:41.4541581Z     │
+2026-09-24T10:30:41.4542494Z 318 │         token.transfer(address(pool), 100 ether);
+2026-09-24T10:30:41.4543322Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4543866Z     │
+2026-09-24T10:30:41.4544650Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4545456Z 
+2026-09-24T10:30:41.4546201Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4547408Z     ╭▸ test/unit/PoolTransfers.t.sol:173:9
+2026-09-24T10:30:41.4547918Z     │
+2026-09-24T10:30:41.4548415Z 173 │         pool.transfer(ALICE, 49);
+2026-09-24T10:30:41.4565598Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4566111Z     │
+2026-09-24T10:30:41.4567008Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4567929Z 
+2026-09-24T10:30:41.4568743Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4569686Z     ╭▸ test/unit/PoolTransfers.t.sol:189:9
+2026-09-24T10:30:41.4570015Z     │
+2026-09-24T10:30:41.4570389Z 189 │         pool.transferFrom(ALICE, DAVE, 30);
+2026-09-24T10:30:41.4571153Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4571629Z     │
+2026-09-24T10:30:41.4572412Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4572827Z 
+2026-09-24T10:30:41.4573463Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4574310Z     ╭▸ test/unit/PoolTransfers.t.sol:194:9
+2026-09-24T10:30:41.4574626Z     │
+2026-09-24T10:30:41.4574933Z 194 │         pool.transfer(ERIN, 1);
+2026-09-24T10:30:41.4575291Z     │         ━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4575576Z     │
+2026-09-24T10:30:41.4576134Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4576678Z 
+2026-09-24T10:30:41.4577374Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4578110Z     ╭▸ test/unit/PoolFunding.t.sol:400:9
+2026-09-24T10:30:41.4578435Z     │
+2026-09-24T10:30:41.4578732Z 400 │         pool.transfer(BOB, 1);
+2026-09-24T10:30:41.4579096Z     │         ━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4579370Z     │
+2026-09-24T10:30:41.4579866Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4580239Z 
+2026-09-24T10:30:41.4580676Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4581284Z     ╭▸ test/unit/PoolFunding.t.sol:405:9
+2026-09-24T10:30:41.4581586Z     │
+2026-09-24T10:30:41.4581914Z 405 │         pool.transferFrom(ALICE, BOB, 1);
+2026-09-24T10:30:41.4582355Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4582642Z     │
+2026-09-24T10:30:41.4583422Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4583801Z 
+2026-09-24T10:30:41.4584245Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4585010Z     ╭▸ test/unit/PoolTransfers.t.sol:235:9
+2026-09-24T10:30:41.4585317Z     │
+2026-09-24T10:30:41.4585673Z 235 │         pool.transferFrom(ALICE, DAVE, 10);
+2026-09-24T10:30:41.4586094Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4586393Z     │
+2026-09-24T10:30:41.4586885Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4587510Z 
+2026-09-24T10:30:41.4588348Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4589405Z     ╭▸ test/unit/PoolTransfers.t.sol:254:9
+2026-09-24T10:30:41.4589913Z     │
+2026-09-24T10:30:41.4590489Z 254 │         pool.transferFrom(ALICE, DAVE, 1);
+2026-09-24T10:30:41.4591148Z     │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4591638Z     │
+2026-09-24T10:30:41.4592466Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4593102Z 
+2026-09-24T10:30:41.4593870Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4594891Z     ╭▸ test/unit/PoolTransfers.t.sol:270:9
+2026-09-24T10:30:41.4595386Z     │
+2026-09-24T10:30:41.4595882Z 270 │         pool.transfer(DAVE, 1);
+2026-09-24T10:30:41.4596442Z     │         ━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4596762Z     │
+2026-09-24T10:30:41.4597513Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4597882Z 
+2026-09-24T10:30:41.4598314Z warning[erc20-unchecked-transfer]: ERC20 'transfer' and 'transferFrom' calls should check the return value
+2026-09-24T10:30:41.4598935Z     ╭▸ test/unit/PoolTransfers.t.sol:277:9
+2026-09-24T10:30:41.4599237Z     │
+2026-09-24T10:30:41.4599527Z 277 │         pool.transfer(DAVE, 1);
+2026-09-24T10:30:41.4600020Z     │         ━━━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4600391Z     │
+2026-09-24T10:30:41.4601098Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#erc20-unchecked-transfer
+2026-09-24T10:30:41.4601586Z 
+2026-09-24T10:30:41.4601994Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4602513Z     ╭▸ test/unit/PoolFunding.t.sol:469:36
+2026-09-24T10:30:41.4602957Z     │
+2026-09-24T10:30:41.4603419Z 469 │             _deposit(pool, address(uint160(0x10000 + i)), 1);
+2026-09-24T10:30:41.4604127Z     │                                    ━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4604440Z     │
+2026-09-24T10:30:41.4604857Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4605269Z     │       
+2026-09-24T10:30:41.4605743Z     │       // casting to 'uint160' is safe because [explain why]
+2026-09-24T10:30:41.4606362Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4606845Z     │       
+2026-09-24T10:30:41.4607156Z     │       
+2026-09-24T10:30:41.4607848Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4608185Z 
+2026-09-24T10:30:41.4608501Z warning[unsafe-typecast]: typecasts that can truncate values should be checked
+2026-09-24T10:30:41.4609013Z     ╭▸ test/unit/PoolFunding.t.sol:480:37
+2026-09-24T10:30:41.4609310Z     │
+2026-09-24T10:30:41.4609699Z 480 │             address actor = address(uint160(0x10000 + i));
+2026-09-24T10:30:41.4610171Z     │                                     ━━━━━━━━━━━━━━━━━━━━
+2026-09-24T10:30:41.4610473Z     │
+2026-09-24T10:30:41.4610896Z     ├ note: consider disabling this lint if you're certain the cast is safe
+2026-09-24T10:30:41.4611300Z     │       
+2026-09-24T10:30:41.4611668Z     │       // casting to 'uint160' is safe because [explain why]
+2026-09-24T10:30:41.4612364Z     │       // forge-lint: disable-next-line(unsafe-typecast)
+2026-09-24T10:30:41.4612720Z     │       
+2026-09-24T10:30:41.4612943Z     │       
+2026-09-24T10:30:41.4613412Z     ╰ help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+2026-09-24T10:30:41.4613892Z 
+2026-09-24T10:30:41.4613903Z 
+2026-09-24T10:31:46.0631752Z forge-test: exit 0
+2026-09-24T10:31:46.0634047Z No files changed, compilation skipped
+2026-09-24T10:31:46.0634422Z 
+2026-09-24T10:31:46.0634823Z Ran 17 tests for test/unit/PoolMining.t.sol:PoolMiningTest
+2026-09-24T10:31:46.0635778Z [PASS] test_armAndStartRejectOtherCollectionOrToken() (gas: 1121742)
+2026-09-24T10:31:46.0636762Z [PASS] test_armForwardsExactDataFromVaultToFixedMining() (gas: 1180853)
+2026-09-24T10:31:46.0638084Z [PASS] test_externalCallCannotReenterMineEvenWhenMiningIsOperator() (gas: 1393345)
+2026-09-24T10:31:46.0639221Z [PASS] test_mineRejectsMemberOwnerAndStranger() (gas: 1055501)
+2026-09-24T10:31:46.0640453Z [PASS] test_mineRequiresActiveInFundingFundedAndRefunding() (gas: 770302)
+2026-09-24T10:31:46.0641340Z [PASS] test_minerIdentityChangeDuringMiningCallRollsBack() (gas: 1209097)
+2026-09-24T10:31:46.0641970Z [PASS] test_missingOwnershipRejectsBeforeCallingMining() (gas: 1025854)
+2026-09-24T10:31:46.0642904Z [PASS] test_operatorRotationRevokesOldAuthorityOnExistingPool() (gas: 1196191)
+2026-09-24T10:31:46.0644008Z [PASS] test_ownerLossDuringMiningCallRollsBackProtocolMutation() (gas: 1216657)
+2026-09-24T10:31:46.0645214Z [PASS] test_protocolCustomErrorBubblesWithoutChangingAssets() (gas: 1126034)
+2026-09-24T10:31:46.0646185Z [PASS] test_reclaimOnlyForCurrentProjectKey() (gas: 1174856)
+2026-09-24T10:31:46.0647056Z [PASS] test_shortPayloadAndWrongFixedLengthsRejected() (gas: 1206576)
+2026-09-24T10:31:46.0648501Z [PASS] test_startDecodesCompleteDynamicArgumentsAndPreservesReturnData() (gas: 1566472)
+2026-09-24T10:31:46.0649611Z [PASS] test_startMalformedDynamicOffsetsCannotReachMining() (gas: 1022868)
+2026-09-24T10:31:46.0650585Z [PASS] test_startRejectsNoncanonicalTrailingData() (gas: 1030171)
+2026-09-24T10:31:46.0651713Z [PASS] test_stopClaimApprovalAndArbitrarySelectorRejectedBeforeExternalCall() (gas: 1134790)
+2026-09-24T10:31:46.0652882Z [PASS] test_wrongMinerIdentityRejectsBeforeCallingMining() (gas: 1031744)
+2026-09-24T10:31:46.0653951Z Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 21.68ms (19.26ms CPU time)
+2026-09-24T10:31:46.0654479Z 
+2026-09-24T10:31:46.0654848Z Ran 29 tests for test/unit/PoolFunding.t.sol:PoolFundingTest
+2026-09-24T10:31:46.0656339Z [PASS] testFuzz_paymentMustMatchExactIntegerShares(uint8,uint96) (runs: 256, μ: 57322, ~: 57621)
+2026-09-24T10:31:46.0657121Z Logs:
+2026-09-24T10:31:46.0657626Z   Bound result 29
+2026-09-24T10:31:46.0657991Z   Bound result 1831
+2026-09-24T10:31:46.0658214Z 
+2026-09-24T10:31:46.0658684Z [PASS] test_assetOwedExposesOnlyNativeBnbLiability() (gas: 330489)
+2026-09-24T10:31:46.0659588Z [PASS] test_bnbCallbackCannotWithdrawTwice() (gas: 437567)
+2026-09-24T10:31:46.0660649Z [PASS] test_checkpointTracksMembershipAndSameTimestampFinalState() (gas: 700973)
+2026-09-24T10:31:46.0661701Z [PASS] test_cumulativeShareCapAndRepeatMembership() (gas: 345172)
+2026-09-24T10:31:46.0662623Z [PASS] test_currentAndFutureCheckpointLookupsReject() (gas: 33524)
+2026-09-24T10:31:46.0663583Z [PASS] test_depositBeforeDeadlineButRejectAtDeadlineAndAfter() (gas: 327292)
+2026-09-24T10:31:46.0664452Z [PASS] test_depositOneAndFortyNineShares() (gas: 476443)
+2026-09-24T10:31:46.0665427Z [PASS] test_erc20TransfersAndApprovalsCannotReplaceBnbSubscription() (gas: 584026)
+2026-09-24T10:31:46.0666439Z [PASS] test_failedBnbTransferRestoresPullCredit() (gas: 370428)
+2026-09-24T10:31:46.0667900Z [PASS] test_finalizeBeforeFundingDeadlineAndRepeatedFinalizeRejected() (gas: 364177)
+2026-09-24T10:31:46.0668961Z [PASS] test_fundingTimeoutCreditsActualContributionsOnly() (gas: 534712)
+2026-09-24T10:31:46.0669827Z [PASS] test_initialStateAndAssetBindings() (gas: 74157)
+2026-09-24T10:31:46.0671071Z [PASS] test_nonCanonicalUint8AbiCannotMintFractionalShares() (gas: 36390)
+2026-09-24T10:31:46.0672203Z [PASS] test_oneHundredMemberFailureHasBoundedGasAndConservesBnb() (gas: 17235760)
+2026-09-24T10:31:46.0672934Z Logs:
+2026-09-24T10:31:46.0673353Z   finalizeFailure 100 members gas: 2358959
+2026-09-24T10:31:46.0673913Z 
+2026-09-24T10:31:46.0674524Z [PASS] test_operatorReplacementRevokesOldAuthorityInExistingPool() (gas: 78212)
+2026-09-24T10:31:46.0675589Z [PASS] test_overRemainingSharesRejectedThenLastShareCompletes() (gas: 830924)
+2026-09-24T10:31:46.0676687Z [PASS] test_pauseOnlyDepositsAndDoesNotBlockWithdrawalOrFailure() (gas: 560920)
+2026-09-24T10:31:46.0678039Z [PASS] test_pauseRequiresOperatorAndResumeRestoresDeposits() (gas: 362133)
+2026-09-24T10:31:46.0678970Z [PASS] test_plainBnbTransferCannotSubscribe() (gas: 39856)
+2026-09-24T10:31:46.0679777Z [PASS] test_purchaseTimeoutAndExactDeadline() (gas: 705948)
+2026-09-24T10:31:46.0680773Z [PASS] test_redepositDoesNotOverwritePriorPullCreditOrDuplicateRefund() (gas: 493769)
+2026-09-24T10:31:46.0681823Z [PASS] test_refundHasNoBemClaimIntervalOrExpiry() (gas: 720133)
+2026-09-24T10:31:46.0682737Z [PASS] test_repeatedWithdrawAndNonMemberCannotTakeOthersBnb() (gas: 346336)
+2026-09-24T10:31:46.0683744Z [PASS] test_shareTransferAndTransferFromRejectedBeforeActive() (gas: 346874)
+2026-09-24T10:31:46.0684852Z [PASS] test_threeMembersFortyNineFortyNineTwoFundExactly() (gas: 665582)
+2026-09-24T10:31:46.0686049Z [PASS] test_withdrawDepositAfterDeadlineBeforeFinalizationRemainsAvailable() (gas: 357760)
+2026-09-24T10:31:46.0687166Z [PASS] test_withdrawDepositIsPullAndRemovesCurrentMember() (gas: 471886)
+2026-09-24T10:31:46.0688189Z [PASS] test_zeroAndFiftySharesRejected() (gas: 52664)
+2026-09-24T10:31:46.0689139Z Suite result: ok. 29 passed; 0 failed; 0 skipped; finished in 77.37ms (75.42ms CPU time)
+2026-09-24T10:31:46.0689697Z 
+2026-09-24T10:31:46.0690107Z Ran 37 tests for test/unit/PoolPurchase.t.sol:PoolPurchaseTest
+2026-09-24T10:31:46.0691373Z [PASS] testFuzz_badClaimPostconditionsRollback(uint8) (runs: 256, μ: 998164, ~: 991587)
+2026-09-24T10:31:46.0692093Z Logs:
+2026-09-24T10:31:46.0692426Z   Bound result 4
+2026-09-24T10:31:46.0692643Z 
+2026-09-24T10:31:46.0693503Z [PASS] testFuzz_badPostPurchaseOwnershipOrMiningRollsBack(uint8) (runs: 256, μ: 1160723, ~: 1180489)
+2026-09-24T10:31:46.0694347Z Logs:
+2026-09-24T10:31:46.0694665Z   Bound result 1
+2026-09-24T10:31:46.0694883Z 
+2026-09-24T10:31:46.0695835Z [PASS] testFuzz_directBadCallbackRollsBackSellerCreditAndReward(uint8) (runs: 256, μ: 1521365, ~: 1499057)
+2026-09-24T10:31:46.0696724Z Logs:
+2026-09-24T10:31:46.0697046Z   Bound result 4
+2026-09-24T10:31:46.0697420Z 
+2026-09-24T10:31:46.0698207Z [PASS] testFuzz_wrongOrDuplicateCallbackRollsBack(uint8) (runs: 256, μ: 1144215, ~: 1117919)
+2026-09-24T10:31:46.0698936Z Logs:
+2026-09-24T10:31:46.0699230Z   Bound result 4
+2026-09-24T10:31:46.0699440Z 
+2026-09-24T10:31:46.0700051Z [PASS] test_callbackCannotReenterAnotherPurchase() (gas: 1263477)
+2026-09-24T10:31:46.0701017Z [PASS] test_claimCallbackCannotReenterAnotherPurchase() (gas: 1312664)
+2026-09-24T10:31:46.0702008Z [PASS] test_claimCallbackCannotWithdrawExistingCredit() (gas: 1414676)
+2026-09-24T10:31:46.0703056Z [PASS] test_claimFailureDoesNotGetSwallowedEvenWhenPendingZero() (gas: 879133)
+2026-09-24T10:31:46.0704062Z [PASS] test_directDeadlineRejectsAtDeadline() (gas: 1226799)
+2026-09-24T10:31:46.0704981Z [PASS] test_directOnlyConfiguredSellerAndRequiresApproval() (gas: 1413403)
+2026-09-24T10:31:46.0705975Z [PASS] test_directPurchasedEventIdentifiesPathAndPrice() (gas: 1525192)
+2026-09-24T10:31:46.0706963Z [PASS] test_directRepeatPurchaseCannotCreditSellerTwice() (gas: 1530164)
+2026-09-24T10:31:46.0708267Z [PASS] test_directSellerMayBeAMemberWithoutMixingSellerPriceAndSurplus() (gas: 1553832)
+2026-09-24T10:31:46.0709410Z [PASS] test_directSellerReceivesPullCreditAndHistoricalBem() (gas: 1581548)
+2026-09-24T10:31:46.0710477Z [PASS] test_existingSellerBemCannotMaskMissingSettlementReceipt() (gas: 995549)
+2026-09-24T10:31:46.0711675Z [PASS] test_inactiveMinerCannotBePurchased() (gas: 849198)
+2026-09-24T10:31:46.0712638Z [PASS] test_marketDeadlineRejectsAtDeadlineAndLeavesRefundAvailable() (gas: 881152)
+2026-09-24T10:31:46.0713805Z [PASS] test_marketFailureRollsBackPreviouslyMintedSellerReward() (gas: 1119716)
+2026-09-24T10:31:46.0714782Z [PASS] test_marketPriceCapInclusiveAndOneWeiExcessRejected() (gas: 1296318)
+2026-09-24T10:31:46.0716063Z [PASS] test_marketPurchaseOneSecondBeforeDeadlineSucceedsDespiteDepositPause() (gas: 1187111)
+2026-09-24T10:31:46.0717582Z [PASS] test_marketPurchasePaysOnlyListedPriceAndCreditsOriginalSurplus() (gas: 1192089)
+2026-09-24T10:31:46.0718750Z [PASS] test_marketRejectsInvalidListingWrongNftAndWrongTokenId() (gas: 1015732)
+2026-09-24T10:31:46.0719787Z [PASS] test_marketRejectsSellerWhoseOwnershipChanged() (gas: 834239)
+2026-09-24T10:31:46.0720867Z [PASS] test_marketSettlementEventPrecedesNftTransferAndPurchase() (gas: 1158826)
+2026-09-24T10:31:46.0722000Z [PASS] test_minerBecomingInactiveDuringClaimRollsBackEverything() (gas: 1202119)
+2026-09-24T10:31:46.0722951Z [PASS] test_miningRecordMustMatchRequestedNft() (gas: 849388)
+2026-09-24T10:31:46.0723745Z [PASS] test_noSurplusWhenPurchaseUsesEntireRaise() (gas: 1640801)
+2026-09-24T10:31:46.0724802Z [PASS] test_previousWithdrawalCreditAndForcedBnbDoNotInflateSurplus() (gas: 1241967)
+2026-09-24T10:31:46.0725857Z [PASS] test_purchaseRequiresFundedAndCannotRepeat() (gas: 1165136)
+2026-09-24T10:31:46.0726937Z [PASS] test_rejectingDirectSellerDoesNotBlockPurchaseAndKeepsPullCredit() (gas: 1760361)
+2026-09-24T10:31:46.0728329Z [PASS] test_surplusDoesNotPermitOrdinaryTransfersBeforeT1d() (gas: 1168836)
+2026-09-24T10:31:46.0729486Z [PASS] test_surplusRemainderReservedSeparatelyAndAllMembersConserveBnb() (gas: 1359923)
+2026-09-24T10:31:46.0730739Z [PASS] test_surplusWithdrawImmediatelyAtPurchaseTimestampAndOnlyOnce() (gas: 1227008)
+2026-09-24T10:31:46.0731732Z [PASS] test_unconfiguredDirectPathRejected() (gas: 664810)
+2026-09-24T10:31:46.0732811Z [PASS] test_unsolicitedTargetNftTransferRejectedOutsidePurchaseContext() (gas: 701790)
+2026-09-24T10:31:46.0733989Z [PASS] test_zeroStoredPendingStillClaimsUnreportedRewards() (gas: 1174227)
+2026-09-24T10:31:46.0735060Z [PASS] test_zeroTotalRewardCanStillBeSettledAndPurchased() (gas: 1127465)
+2026-09-24T10:31:46.0736177Z Suite result: ok. 37 passed; 0 failed; 0 skipped; finished in 889.43ms (886.86ms CPU time)
+2026-09-24T10:31:46.0736749Z 
+2026-09-24T10:31:46.0737149Z Ran 30 tests for test/unit/PoolRewards.t.sol:PoolRewardsTest
+2026-09-24T10:31:46.0738673Z [PASS] testFuzz_failedFeeOrBurnTransferRollsBackHarvest(bool) (runs: 256, μ: 460843, ~: 473215)
+2026-09-24T10:31:46.0740481Z [PASS] testFuzz_harnessStrictHarvestRejectsFailedOrUnsettledClaimWithoutCharging(uint8) (runs: 256, μ: 252408, ~: 256095)
+2026-09-24T10:31:46.0741514Z Logs:
+2026-09-24T10:31:46.0741838Z   Bound result 1
+2026-09-24T10:31:46.0742045Z 
+2026-09-24T10:31:46.0743090Z [PASS] testFuzz_harnessTerminalStateKeepsHistoricalClaimsAndOriginalExpiry(bool) (runs: 256, μ: 893536, ~: 893548)
+2026-09-24T10:31:46.0744457Z [PASS] test_allEightLiveEpochsIncludedBeforeExactExpiry() (gas: 2295005)
+2026-09-24T10:31:46.0745452Z [PASS] test_bemTransferCannotReenterHarvest() (gas: 525479)
+2026-09-24T10:31:46.0746385Z [PASS] test_bnbSurplusWithdrawalNotBlockedByBemCooldown() (gas: 719050)
+2026-09-24T10:31:46.0747539Z [PASS] test_burnIncludesBatchDustAndCannotChargeAgain() (gas: 1312220)
+2026-09-24T10:31:46.0748570Z [PASS] test_cumulativeDustMayExceedSingleDivisionBound() (gas: 21570789)
+2026-09-24T10:31:46.0749715Z [PASS] test_directBemAndExternalMiningClaimAreRecognizedExactlyOnce() (gas: 478828)
+2026-09-24T10:31:46.0750930Z [PASS] test_directReceiptUsesAccountingEpochAfterLongIdlePeriod() (gas: 645946)
+2026-09-24T10:31:46.0752044Z [PASS] test_expiringBatchesDoNotCarryFractionAcrossEpochs() (gas: 1464971)
+2026-09-24T10:31:46.0753172Z [PASS] test_expiryCanOnlyBeConfiguredOnceDuringFactoryCreation() (gas: 1032617)
+2026-09-24T10:31:46.0754602Z [PASS] test_expiryDisabledKeepsOldRewardsAndGlobalFractionalCarry() (gas: 2444609)
+2026-09-24T10:31:46.0755791Z [PASS] test_expiryDisabledSampleStillSplitsNinetyFiveFourOne() (gas: 2243929)
+2026-09-24T10:31:46.0756898Z [PASS] test_failedExpiryBurnPreservesWholeBatchAndCanRetry() (gas: 552216)
+2026-09-24T10:31:46.0758277Z [PASS] test_failedMemberTransferPreservesDebtAndClaimTime() (gas: 912888)
+2026-09-24T10:31:46.0759437Z [PASS] test_feeRoundingIsPerHarvestNotRecomputedFromLifetimeGross() (gas: 6531424)
+2026-09-24T10:31:46.0760620Z [PASS] test_firstClaimImmediateThenExactTwentyFourHourBoundary() (gas: 1033131)
+2026-09-24T10:31:46.0761758Z [PASS] test_harnessClosedStatePreservesExistingClaimCooldown() (gas: 854775)
+2026-09-24T10:31:46.0762900Z [PASS] test_harnessClosedWithExpiryDisabledKeepsRewardsForYears() (gas: 2193551)
+2026-09-24T10:31:46.0764097Z [PASS] test_harnessStrictHarvestSuccessfullyAccountsActualReceipt() (gas: 451119)
+2026-09-24T10:31:46.0765404Z [PASS] test_longGapRecordsOnlyActualCurrentReceiptWithoutInventingPastDays() (gas: 960177)
+2026-09-24T10:31:46.0766240Z Logs:
+2026-09-24T10:31:46.0766695Z   harvest and claim after 30000 empty days: 331655
+2026-09-24T10:31:46.0767072Z 
+2026-09-24T10:31:46.0767628Z [PASS] test_miningClaimCannotReenterHarvest() (gas: 519502)
+2026-09-24T10:31:46.0768607Z [PASS] test_miningClaimChangingOwnerRollsBackEntireHarvest() (gas: 254135)
+2026-09-24T10:31:46.0769717Z [PASS] test_oneBemSpecificationExampleAndAllMembersConserve() (gas: 1085491)
+2026-09-24T10:31:46.0770924Z [PASS] test_ordinaryClaimFailureStillAccountsIndependentDirectReceipt() (gas: 669389)
+2026-09-24T10:31:46.0772223Z [PASS] test_ringOverwritePreservesExpiredGlobalLiabilityAndNewRewards() (gas: 1336193)
+2026-09-24T10:31:46.0773502Z [PASS] test_sameEpochMultipleSettlementsPreserveFractionalRemainder() (gas: 1235483)
+2026-09-24T10:31:46.0774807Z [PASS] test_twoOneBemHarvestsAccumulateWithoutChargingOldBalancesAgain() (gas: 1218581)
+2026-09-24T10:31:46.0776092Z [PASS] test_zeroClaimDoesNotStartCooldownAndOtherUsersDoNotResetIt() (gas: 1022311)
+2026-09-24T10:31:46.0777483Z Suite result: ok. 30 passed; 0 failed; 0 skipped; finished in 775.12ms (770.58ms CPU time)
+2026-09-24T10:31:46.0778050Z 
+2026-09-24T10:31:46.0778449Z Ran 22 tests for test/unit/ShareMarket.t.sol:ShareMarketTest
+2026-09-24T10:31:46.0779785Z [PASS] testFuzz_listedOrClosedCannotFillButCancelOnlyUnlocks(bool) (runs: 256, μ: 214929, ~: 215004)
+2026-09-24T10:31:46.0781072Z [PASS] test_cancelOnlySellerAndCannotRepeatOrFillCancelledOrder() (gas: 195700)
+2026-09-24T10:31:46.0782250Z [PASS] test_failedFinalMiningClaimRollsBackFillBnbCreditAndLocks() (gas: 426861)
+2026-09-24T10:31:46.0783427Z [PASS] test_feeRecipientUsesPoolSnapshotWhenFactoryTreasuryChanges() (gas: 603988)
+2026-09-24T10:31:46.0784590Z [PASS] test_feeRoundsDownPerPartialFillAndRemainderStaysWithSeller() (gas: 666808)
+2026-09-24T10:31:46.0785756Z [PASS] test_fullFillCreditsCanBeWithdrawnOnlyOnceByRecipients() (gas: 614309)
+2026-09-24T10:31:46.0786685Z [PASS] test_fundingPoolCannotListShares() (gas: 548966)
+2026-09-24T10:31:46.0787921Z [PASS] test_listingAndCancelDoNotTransferSharesOrCreateMemberCheckpoints() (gas: 216299)
+2026-09-24T10:31:46.0789094Z [PASS] test_lockedSharesCannotBeUsedToBypassBuyerMaximum() (gas: 671479)
+2026-09-24T10:31:46.0790165Z [PASS] test_marketInitializeLockedAndRejectsWrongGovernance() (gas: 2986294)
+2026-09-24T10:31:46.0791311Z [PASS] test_miningCallbackCannotReenterFillDuringLockedTransfer() (gas: 1173810)
+2026-09-24T10:31:46.0792655Z [PASS] test_multipleOrdersCannotLockMoreThanSellerOwnsAndCancelFreesOnlyRemainder() (gas: 884065)
+2026-09-24T10:31:46.0794038Z [PASS] test_partialFillsPreserveLocksAndDeductExactlyOnePercentFromSeller() (gas: 847751)
+2026-09-24T10:31:46.0795447Z [PASS] test_registrationChecksCodeFactoryAndTimelockIdentityEvenThroughQueue() (gas: 2419888)
+2026-09-24T10:31:46.0796826Z [PASS] test_registrationRequiresActual48HourQueueAndCannotInstantlyReplace() (gas: 5291380)
+2026-09-24T10:31:46.0798423Z [PASS] test_rejectingSellerCannotBlockFillAndFailedWithdrawalKeepsCredit() (gas: 1132700)
+2026-09-24T10:31:46.0799978Z [PASS] test_sellerAndTreasurySameAddressAccumulateRatherThanOverwrite() (gas: 693606)
+2026-09-24T10:31:46.0801234Z [PASS] test_unregisteredMarketAndUnknownPoolCannotCreateOrders() (gas: 1605307)
+2026-09-24T10:31:46.0802549Z [PASS] test_uupsUpgradeRequiresActual48HourQueueAndPreservesOrderAndCredit() (gas: 2274339)
+2026-09-24T10:31:46.0803998Z [PASS] test_withdrawBnbCallbackCannotReenterAndGetPaidTwice() (gas: 1205865)
+2026-09-24T10:31:46.0805048Z [PASS] test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() (gas: 296616)
+2026-09-24T10:31:46.0806148Z [PASS] test_zeroPriceOrderTransfersFreelyWithNoFeeOrBnbLiability() (gas: 724769)
+2026-09-24T10:31:46.0807448Z Suite result: ok. 22 passed; 0 failed; 0 skipped; finished in 185.08ms (179.57ms CPU time)
+2026-09-24T10:31:46.0808020Z 
+2026-09-24T10:31:46.0808598Z Ran 2 tests for test/invariant/PoolFundingInvariant.t.sol:PoolFundingInvariantTest
+2026-09-24T10:31:46.0809885Z [PASS] invariant_fundingUsesRealBnbAndRefundsRemainSolvent() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0810588Z 
+2026-09-24T10:31:46.0811186Z ╭----------------+-----------------+-------+---------+----------╮
+2026-09-24T10:31:46.0812000Z | Contract       | Selector        | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0812774Z +===============================================================+
+2026-09-24T10:31:46.0813538Z | FundingHandler | advanceTime     | 1114  | 0       | 0        |
+2026-09-24T10:31:46.0814326Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0815102Z | FundingHandler | deposit         | 1255  | 0       | 0        |
+2026-09-24T10:31:46.0815890Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0816671Z | FundingHandler | finalizeFailure | 1186  | 0       | 0        |
+2026-09-24T10:31:46.0817596Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0818362Z | FundingHandler | forceBnb        | 1110  | 0       | 0        |
+2026-09-24T10:31:46.0819119Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0819889Z | FundingHandler | setPause        | 1237  | 0       | 0        |
+2026-09-24T10:31:46.0820652Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0821430Z | FundingHandler | withdrawBnb     | 1194  | 0       | 0        |
+2026-09-24T10:31:46.0822192Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0822964Z | FundingHandler | withdrawDeposit | 1096  | 0       | 0        |
+2026-09-24T10:31:46.0823928Z ╰----------------+-----------------+-------+---------+----------╯
+2026-09-24T10:31:46.0824337Z 
+2026-09-24T10:31:46.0824482Z Logs:
+2026-09-24T10:31:46.0824807Z   Bound result 258738
+2026-09-24T10:31:46.0825192Z   Bound result 138919
+2026-09-24T10:31:46.0825552Z   Bound result 1792
+2026-09-24T10:31:46.0825916Z   Bound result 852
+2026-09-24T10:31:46.0826274Z   Bound result 20470
+2026-09-24T10:31:46.0826636Z   Bound result 4086
+2026-09-24T10:31:46.0827061Z   Bound result 633833693048654593
+2026-09-24T10:31:46.0827681Z   Bound result 345598
+2026-09-24T10:31:46.0828090Z   Bound result 6627757289340060
+2026-09-24T10:31:46.0828504Z   Bound result 247596
+2026-09-24T10:31:46.0828875Z   Bound result 104855
+2026-09-24T10:31:46.0829247Z   Bound result 1
+2026-09-24T10:31:46.0829651Z   Bound result 264337514315787821
+2026-09-24T10:31:46.0830075Z   Bound result 95795
+2026-09-24T10:31:46.0830445Z   Bound result 66608
+2026-09-24T10:31:46.0830809Z   Bound result 191616
+2026-09-24T10:31:46.0831170Z   Bound result 342
+2026-09-24T10:31:46.0831536Z   Bound result 8615
+2026-09-24T10:31:46.0831889Z   Bound result 8627
+2026-09-24T10:31:46.0832260Z   Bound result 719206527
+2026-09-24T10:31:46.0832499Z 
+2026-09-24T10:31:46.0833192Z [PASS] invariant_shareSupplyAndCurrentMemberIndexAgree() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0833852Z 
+2026-09-24T10:31:46.0834345Z ╭----------------+-----------------+-------+---------+----------╮
+2026-09-24T10:31:46.0835390Z | Contract       | Selector        | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0836153Z +===============================================================+
+2026-09-24T10:31:46.0836901Z | FundingHandler | advanceTime     | 1114  | 0       | 0        |
+2026-09-24T10:31:46.0838028Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0838797Z | FundingHandler | deposit         | 1255  | 0       | 0        |
+2026-09-24T10:31:46.0839577Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0840347Z | FundingHandler | finalizeFailure | 1186  | 0       | 0        |
+2026-09-24T10:31:46.0841112Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0841869Z | FundingHandler | forceBnb        | 1110  | 0       | 0        |
+2026-09-24T10:31:46.0842616Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0843382Z | FundingHandler | setPause        | 1237  | 0       | 0        |
+2026-09-24T10:31:46.0844146Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0844992Z | FundingHandler | withdrawBnb     | 1194  | 0       | 0        |
+2026-09-24T10:31:46.0845764Z |----------------+-----------------+-------+---------+----------|
+2026-09-24T10:31:46.0846544Z | FundingHandler | withdrawDeposit | 1096  | 0       | 0        |
+2026-09-24T10:31:46.0847595Z ╰----------------+-----------------+-------+---------+----------╯
+2026-09-24T10:31:46.0847997Z 
+2026-09-24T10:31:46.0848142Z Logs:
+2026-09-24T10:31:46.0848469Z   Bound result 258738
+2026-09-24T10:31:46.0848850Z   Bound result 138919
+2026-09-24T10:31:46.0849215Z   Bound result 1793
+2026-09-24T10:31:46.0849581Z   Bound result 976
+2026-09-24T10:31:46.0849940Z   Bound result 20470
+2026-09-24T10:31:46.0850293Z   Bound result 4087
+2026-09-24T10:31:46.0850701Z   Bound result 633833693048654593
+2026-09-24T10:31:46.0851121Z   Bound result 345598
+2026-09-24T10:31:46.0851534Z   Bound result 6627757289340060
+2026-09-24T10:31:46.0851963Z   Bound result 247596
+2026-09-24T10:31:46.0852337Z   Bound result 104855
+2026-09-24T10:31:46.0852699Z   Bound result 1
+2026-09-24T10:31:46.0853098Z   Bound result 264337514315787821
+2026-09-24T10:31:46.0853521Z   Bound result 95795
+2026-09-24T10:31:46.0853893Z   Bound result 66607
+2026-09-24T10:31:46.0854250Z   Bound result 191616
+2026-09-24T10:31:46.0854642Z   Bound result 908484986300725380
+2026-09-24T10:31:46.0855044Z   Bound result 5804
+2026-09-24T10:31:46.0855388Z   Bound result 2736
+2026-09-24T10:31:46.0855736Z   Bound result 1725540767
+2026-09-24T10:31:46.0855971Z 
+2026-09-24T10:31:46.0856517Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 24.23s (24.23s CPU time)
+2026-09-24T10:31:46.0857035Z 
+2026-09-24T10:31:46.0857630Z Ran 12 tests for test/unit/PoolGovernance.t.sol:PoolGovernanceTest
+2026-09-24T10:31:46.0858623Z [PASS] test_BeaconOwnershipCannotMigrateEvenThroughTimelock() (gas: 98941)
+2026-09-24T10:31:46.0859684Z [PASS] test_BeaconUpgradeChangesAllPoolsOnlyAfter48Hours() (gas: 6299651)
+2026-09-24T10:31:46.0860761Z [PASS] test_CreateBothWhitelistedCircuitTypesAndDirectSale() (gas: 1086307)
+2026-09-24T10:31:46.0861777Z [PASS] test_CreatePoolRegistryAndTreasurySnapshot() (gas: 1039273)
+2026-09-24T10:31:46.0862775Z [PASS] test_CreateRejectsInvalidEconomicAndTimingParameters() (gas: 215507)
+2026-09-24T10:31:46.0863782Z [PASS] test_DailyAdminDoesNotGiveOperatorOwnerPowers() (gas: 611328)
+2026-09-24T10:31:46.0864974Z [PASS] test_FactoryUpgradeRequiresRealTimelockQueueAndPreservesRegistry() (gas: 2501102)
+2026-09-24T10:31:46.0866003Z [PASS] test_GovernanceRolesAndNoDeployerAdmin() (gas: 77045)
+2026-09-24T10:31:46.0867016Z [PASS] test_InitializationRejectsMissingRolesAndUnprotectedGovernance() (gas: 2257238)
+2026-09-24T10:31:46.0868253Z [PASS] test_InitializeIsAtomicAndCannotBeRepeated() (gas: 38797)
+2026-09-24T10:31:46.0869208Z [PASS] test_TimelockDelayCannotBeReducedBelow48Hours() (gas: 63457)
+2026-09-24T10:31:46.0870225Z [PASS] test_TimelockProposeCancelAndPublicExecuteBoundaries() (gas: 58004)
+2026-09-24T10:31:46.0871563Z Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 6.28ms (4.33ms CPU time)
+2026-09-24T10:31:46.0872136Z 
+2026-09-24T10:31:46.0872681Z Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsInvariantTest
+2026-09-24T10:31:46.0874249Z [PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0875033Z 
+2026-09-24T10:31:46.0875601Z ╭----------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.0876439Z | Contract       | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0877375Z +===================================================================+
+2026-09-24T10:31:46.0878158Z | RewardsHandler | advanceTime         | 1078  | 0       | 0        |
+2026-09-24T10:31:46.0878970Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0879749Z | RewardsHandler | burn                | 1006  | 0       | 0        |
+2026-09-24T10:31:46.0880550Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0881340Z | RewardsHandler | claim               | 1047  | 0       | 0        |
+2026-09-24T10:31:46.0882122Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0882937Z | RewardsHandler | donate              | 1010  | 0       | 0        |
+2026-09-24T10:31:46.0883740Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0884590Z | RewardsHandler | externalMiningClaim | 1020  | 0       | 0        |
+2026-09-24T10:31:46.0885410Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0886218Z | RewardsHandler | harvest             | 1017  | 0       | 0        |
+2026-09-24T10:31:46.0887013Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0888068Z | RewardsHandler | queueMining         | 1003  | 0       | 0        |
+2026-09-24T10:31:46.0888880Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0889662Z | RewardsHandler | settle              | 1011  | 0       | 0        |
+2026-09-24T10:31:46.0890605Z ╰----------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.0891018Z 
+2026-09-24T10:31:46.0891154Z Logs:
+2026-09-24T10:31:46.0891487Z   Bound result 1
+2026-09-24T10:31:46.0891855Z   Bound result 557186024323
+2026-09-24T10:31:46.0892282Z   Bound result 2176137
+2026-09-24T10:31:46.0892664Z   Bound result 13925
+2026-09-24T10:31:46.0893047Z   Bound result 8710950840
+2026-09-24T10:31:46.0893448Z   Bound result 183209904895
+2026-09-24T10:31:46.0893857Z   Bound result 245262598717
+2026-09-24T10:31:46.0894255Z   Bound result 668438920902
+2026-09-24T10:31:46.0894644Z   Bound result 57354736
+2026-09-24T10:31:46.0895040Z   Bound result 700638623697
+2026-09-24T10:31:46.0895418Z   Bound result 3
+2026-09-24T10:31:46.0895778Z   Bound result 18710
+2026-09-24T10:31:46.0896149Z   Bound result 1479528
+2026-09-24T10:31:46.0896533Z   Bound result 8682
+2026-09-24T10:31:46.0896895Z   Bound result 905434077963
+2026-09-24T10:31:46.0897433Z   Bound result 1248
+2026-09-24T10:31:46.0897792Z   Bound result 120450348
+2026-09-24T10:31:46.0898178Z   Bound result 2
+2026-09-24T10:31:46.0898544Z   Bound result 431975
+2026-09-24T10:31:46.0898915Z   Bound result 1067091
+2026-09-24T10:31:46.0899290Z   Bound result 1876205
+2026-09-24T10:31:46.0899650Z   Bound result 21648
+2026-09-24T10:31:46.0900017Z   Bound result 424990779987
+2026-09-24T10:31:46.0900418Z   Bound result 2851861790
+2026-09-24T10:31:46.0900814Z   Bound result 657
+2026-09-24T10:31:46.0901174Z   Bound result 98228
+2026-09-24T10:31:46.0901536Z   Bound result 2100754
+2026-09-24T10:31:46.0901922Z   Bound result 1932746
+2026-09-24T10:31:46.0902306Z   Bound result 431029765223
+2026-09-24T10:31:46.0902568Z 
+2026-09-24T10:31:46.0903421Z [PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0904224Z 
+2026-09-24T10:31:46.0905047Z ╭----------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.0905878Z | Contract       | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0906611Z +===================================================================+
+2026-09-24T10:31:46.0907693Z | RewardsHandler | advanceTime         | 1078  | 0       | 0        |
+2026-09-24T10:31:46.0908480Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0909297Z | RewardsHandler | burn                | 1006  | 0       | 0        |
+2026-09-24T10:31:46.0910076Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0910869Z | RewardsHandler | claim               | 1047  | 0       | 0        |
+2026-09-24T10:31:46.0911644Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0912439Z | RewardsHandler | donate              | 1010  | 0       | 0        |
+2026-09-24T10:31:46.0913258Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0914080Z | RewardsHandler | externalMiningClaim | 1020  | 0       | 0        |
+2026-09-24T10:31:46.0914880Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0915717Z | RewardsHandler | harvest             | 1017  | 0       | 0        |
+2026-09-24T10:31:46.0916500Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0917446Z | RewardsHandler | queueMining         | 1003  | 0       | 0        |
+2026-09-24T10:31:46.0918257Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0919043Z | RewardsHandler | settle              | 1011  | 0       | 0        |
+2026-09-24T10:31:46.0919975Z ╰----------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.0920396Z 
+2026-09-24T10:31:46.0920530Z Logs:
+2026-09-24T10:31:46.0920855Z   Bound result 1
+2026-09-24T10:31:46.0921217Z   Bound result 557186024323
+2026-09-24T10:31:46.0921641Z   Bound result 1179222
+2026-09-24T10:31:46.0922024Z   Bound result 497299220
+2026-09-24T10:31:46.0922427Z   Bound result 8710950840
+2026-09-24T10:31:46.0922828Z   Bound result 183209904895
+2026-09-24T10:31:46.0923240Z   Bound result 245262598717
+2026-09-24T10:31:46.0923656Z   Bound result 668438920902
+2026-09-24T10:31:46.0924053Z   Bound result 57354736
+2026-09-24T10:31:46.0924443Z   Bound result 700638623697
+2026-09-24T10:31:46.0924831Z   Bound result 3
+2026-09-24T10:31:46.0925165Z   Bound result 18763
+2026-09-24T10:31:46.0925528Z   Bound result 1479528
+2026-09-24T10:31:46.0925915Z   Bound result 8692
+2026-09-24T10:31:46.0926288Z   Bound result 905434077963
+2026-09-24T10:31:46.0926684Z   Bound result 1259
+2026-09-24T10:31:46.0927039Z   Bound result 15242
+2026-09-24T10:31:46.0927636Z   Bound result 2
+2026-09-24T10:31:46.0927976Z   Bound result 431975
+2026-09-24T10:31:46.0928328Z   Bound result 1237868
+2026-09-24T10:31:46.0928699Z   Bound result 1876205
+2026-09-24T10:31:46.0929065Z   Bound result 21774
+2026-09-24T10:31:46.0929435Z   Bound result 424990779987
+2026-09-24T10:31:46.0929813Z   Bound result 768627661847
+2026-09-24T10:31:46.0930170Z   Bound result 490
+2026-09-24T10:31:46.0930504Z   Bound result 98228
+2026-09-24T10:31:46.0930844Z   Bound result 188071
+2026-09-24T10:31:46.0931219Z   Bound result 1932746
+2026-09-24T10:31:46.0931596Z   Bound result 431029765223
+2026-09-24T10:31:46.0931852Z 
+2026-09-24T10:31:46.0932372Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 24.56s (24.56s CPU time)
+2026-09-24T10:31:46.0932878Z 
+2026-09-24T10:31:46.0933475Z Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsNoExpiryInvariantTest
+2026-09-24T10:31:46.0934839Z [PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0935617Z 
+2026-09-24T10:31:46.0936180Z ╭----------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.0937543Z | Contract       | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0938371Z +===================================================================+
+2026-09-24T10:31:46.0939156Z | RewardsHandler | advanceTime         | 1078  | 0       | 0        |
+2026-09-24T10:31:46.0940169Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0940950Z | RewardsHandler | burn                | 1006  | 0       | 0        |
+2026-09-24T10:31:46.0941707Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0942480Z | RewardsHandler | claim               | 1047  | 0       | 0        |
+2026-09-24T10:31:46.0943246Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0943991Z | RewardsHandler | donate              | 1010  | 0       | 0        |
+2026-09-24T10:31:46.0944754Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0945658Z | RewardsHandler | externalMiningClaim | 1020  | 0       | 0        |
+2026-09-24T10:31:46.0946474Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0947456Z | RewardsHandler | harvest             | 1017  | 0       | 0        |
+2026-09-24T10:31:46.0948258Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0949065Z | RewardsHandler | queueMining         | 1003  | 0       | 0        |
+2026-09-24T10:31:46.0949871Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0950666Z | RewardsHandler | settle              | 1011  | 0       | 0        |
+2026-09-24T10:31:46.0951676Z ╰----------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.0952104Z 
+2026-09-24T10:31:46.0952233Z Logs:
+2026-09-24T10:31:46.0952566Z   Bound result 1
+2026-09-24T10:31:46.0952943Z   Bound result 557186024323
+2026-09-24T10:31:46.0953361Z   Bound result 1679584
+2026-09-24T10:31:46.0953723Z   Bound result 14356
+2026-09-24T10:31:46.0954075Z   Bound result 8710950840
+2026-09-24T10:31:46.0954470Z   Bound result 183209904895
+2026-09-24T10:31:46.0954851Z   Bound result 245262598717
+2026-09-24T10:31:46.0955220Z   Bound result 668438920902
+2026-09-24T10:31:46.0955618Z   Bound result 57354736
+2026-09-24T10:31:46.0956008Z   Bound result 700638623697
+2026-09-24T10:31:46.0956399Z   Bound result 3
+2026-09-24T10:31:46.0956743Z   Bound result 18822
+2026-09-24T10:31:46.0957075Z   Bound result 1479528
+2026-09-24T10:31:46.0957628Z   Bound result 8690
+2026-09-24T10:31:46.0957993Z   Bound result 905434077963
+2026-09-24T10:31:46.0958377Z   Bound result 1257
+2026-09-24T10:31:46.0958745Z   Bound result 120450350
+2026-09-24T10:31:46.0959143Z   Bound result 2
+2026-09-24T10:31:46.0959508Z   Bound result 431975
+2026-09-24T10:31:46.0959892Z   Bound result 948839
+2026-09-24T10:31:46.0960272Z   Bound result 1876205
+2026-09-24T10:31:46.0960649Z   Bound result 20983
+2026-09-24T10:31:46.0961022Z   Bound result 424990779987
+2026-09-24T10:31:46.0961419Z   Bound result 2851861790
+2026-09-24T10:31:46.0961809Z   Bound result 655
+2026-09-24T10:31:46.0962170Z   Bound result 98228
+2026-09-24T10:31:46.0962537Z   Bound result 2318939
+2026-09-24T10:31:46.0962909Z   Bound result 1932746
+2026-09-24T10:31:46.0963286Z   Bound result 431029765223
+2026-09-24T10:31:46.0963539Z 
+2026-09-24T10:31:46.0964368Z [PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.0965169Z 
+2026-09-24T10:31:46.0965736Z ╭----------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.0966568Z | Contract       | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.0967519Z +===================================================================+
+2026-09-24T10:31:46.0968297Z | RewardsHandler | advanceTime         | 1078  | 0       | 0        |
+2026-09-24T10:31:46.0969114Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0969928Z | RewardsHandler | burn                | 1006  | 0       | 0        |
+2026-09-24T10:31:46.0970968Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0971783Z | RewardsHandler | claim               | 1047  | 0       | 0        |
+2026-09-24T10:31:46.0972590Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0973575Z | RewardsHandler | donate              | 1010  | 0       | 0        |
+2026-09-24T10:31:46.0974366Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0975201Z | RewardsHandler | externalMiningClaim | 1020  | 0       | 0        |
+2026-09-24T10:31:46.0976013Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0976822Z | RewardsHandler | harvest             | 1017  | 0       | 0        |
+2026-09-24T10:31:46.0977857Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0978698Z | RewardsHandler | queueMining         | 1003  | 0       | 0        |
+2026-09-24T10:31:46.0979540Z |----------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.0980373Z | RewardsHandler | settle              | 1011  | 0       | 0        |
+2026-09-24T10:31:46.0981362Z ╰----------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.0981805Z 
+2026-09-24T10:31:46.0981951Z Logs:
+2026-09-24T10:31:46.0982297Z   Bound result 1
+2026-09-24T10:31:46.0982668Z   Bound result 557186024323
+2026-09-24T10:31:46.0983089Z   Bound result 1103092
+2026-09-24T10:31:46.0983472Z   Bound result 14306
+2026-09-24T10:31:46.0983873Z   Bound result 8710950840
+2026-09-24T10:31:46.0984271Z   Bound result 183209904895
+2026-09-24T10:31:46.0984684Z   Bound result 245262598717
+2026-09-24T10:31:46.0985076Z   Bound result 668438920902
+2026-09-24T10:31:46.0985474Z   Bound result 57354736
+2026-09-24T10:31:46.0985854Z   Bound result 700638623697
+2026-09-24T10:31:46.0986236Z   Bound result 3
+2026-09-24T10:31:46.0986602Z   Bound result 18822
+2026-09-24T10:31:46.0986979Z   Bound result 1479528
+2026-09-24T10:31:46.0987595Z   Bound result 8683
+2026-09-24T10:31:46.0987975Z   Bound result 905434077963
+2026-09-24T10:31:46.0988383Z   Bound result 1250
+2026-09-24T10:31:46.0988749Z   Bound result 120450348
+2026-09-24T10:31:46.0989149Z   Bound result 2
+2026-09-24T10:31:46.0989522Z   Bound result 431975
+2026-09-24T10:31:46.0989903Z   Bound result 1991634
+2026-09-24T10:31:46.0990287Z   Bound result 1876205
+2026-09-24T10:31:46.0990662Z   Bound result 20856
+2026-09-24T10:31:46.0991045Z   Bound result 424990779987
+2026-09-24T10:31:46.0991453Z   Bound result 3234
+2026-09-24T10:31:46.0991833Z   Bound result 1944480
+2026-09-24T10:31:46.0992213Z   Bound result 98228
+2026-09-24T10:31:46.0992594Z   Bound result 801237
+2026-09-24T10:31:46.0992971Z   Bound result 1932746
+2026-09-24T10:31:46.0993348Z   Bound result 431029765223
+2026-09-24T10:31:46.0993598Z 
+2026-09-24T10:31:46.0994169Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 12.86s (12.85s CPU time)
+2026-09-24T10:31:46.0994730Z 
+2026-09-24T10:31:46.0995183Z Ran 16 tests for test/unit/PoolTransfers.t.sol:PoolTransfersTest
+2026-09-24T10:31:46.1010318Z [PASS] testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8) (runs: 256, μ: 268030, ~: 296333)
+2026-09-24T10:31:46.1011258Z Logs:
+2026-09-24T10:31:46.1011627Z   Bound result 1
+2026-09-24T10:31:46.1011843Z 
+2026-09-24T10:31:46.1012817Z [PASS] testFuzz_pendingRewardsBelongToOldSharesBeforeTransfer(uint8) (runs: 256, μ: 1585434, ~: 1585585)
+2026-09-24T10:31:46.1013718Z Logs:
+2026-09-24T10:31:46.1014050Z   Bound result 43
+2026-09-24T10:31:46.1014275Z 
+2026-09-24T10:31:46.1014986Z [PASS] test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() (gas: 2846555)
+2026-09-24T10:31:46.1016296Z [PASS] test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() (gas: 77990)
+2026-09-24T10:31:46.1017694Z [PASS] test_lockDoesNotProvideASecondFortyNineShareAllowance() (gas: 577376)
+2026-09-24T10:31:46.1018978Z [PASS] test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() (gas: 1122456)
+2026-09-24T10:31:46.1020526Z [PASS] test_memberCheckpointsRecordExitEntryAndNewMemberCount() (gas: 734898)
+2026-09-24T10:31:46.1021617Z [PASS] test_miningClaimCannotReenterApprovedTransferFrom() (gas: 1119362)
+2026-09-24T10:31:46.1022804Z [PASS] test_onlyRegisteredMarketCanChangeLocksOrTransferLockedShares() (gas: 88645)
+2026-09-24T10:31:46.1024188Z [PASS] test_purchaseTimestampTransferCannotCarryOldBnbSurplus() (gas: 574454)
+2026-09-24T10:31:46.1025271Z [PASS] test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() (gas: 1589092)
+2026-09-24T10:31:46.1026554Z [PASS] test_selfTransferRespectsUnlockedBalanceWithoutArtificiallyExceedingCap() (gas: 853452)
+2026-09-24T10:31:46.1027931Z [PASS] test_transferDoesNotRestartOldEpochExpiry() (gas: 1478131)
+2026-09-24T10:31:46.1028979Z [PASS] test_transferFromConsumesAllowanceAndMaintainsHolderCap() (gas: 482814)
+2026-09-24T10:31:46.1030070Z [PASS] test_zeroBalanceFormerMemberStillClaimsOldRewards() (gas: 1196089)
+2026-09-24T10:31:46.1031108Z [PASS] test_zeroOverCapAndMarketDestinationRejected() (gas: 375484)
+2026-09-24T10:31:46.1032179Z Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 950.03ms (944.66ms CPU time)
+2026-09-24T10:31:46.1032757Z 
+2026-09-24T10:31:46.1033385Z Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersInvariantTest
+2026-09-24T10:31:46.1034918Z [PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1035764Z 
+2026-09-24T10:31:46.1036358Z ╭----------------------+----------------+-------+---------+----------╮
+2026-09-24T10:31:46.1037416Z | Contract             | Selector       | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1038202Z +====================================================================+
+2026-09-24T10:31:46.1039018Z | ShareTransferHandler | advanceTime    | 876   | 0       | 0        |
+2026-09-24T10:31:46.1039904Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1040775Z | ShareTransferHandler | burn           | 932   | 0       | 0        |
+2026-09-24T10:31:46.1041634Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1042471Z | ShareTransferHandler | changeLock     | 895   | 0       | 0        |
+2026-09-24T10:31:46.1043337Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1044177Z | ShareTransferHandler | claim          | 916   | 0       | 0        |
+2026-09-24T10:31:46.1045100Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1045933Z | ShareTransferHandler | donate         | 896   | 0       | 0        |
+2026-09-24T10:31:46.1046784Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1047830Z | ShareTransferHandler | harvest        | 920   | 0       | 0        |
+2026-09-24T10:31:46.1048685Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1049532Z | ShareTransferHandler | queueMining    | 917   | 0       | 0        |
+2026-09-24T10:31:46.1050376Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1051251Z | ShareTransferHandler | transferLocked | 949   | 0       | 0        |
+2026-09-24T10:31:46.1052123Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1052975Z | ShareTransferHandler | transferShares | 891   | 0       | 0        |
+2026-09-24T10:31:46.1054035Z ╰----------------------+----------------+-------+---------+----------╯
+2026-09-24T10:31:46.1054484Z 
+2026-09-24T10:31:46.1054632Z Logs:
+2026-09-24T10:31:46.1054972Z   Bound result 2
+2026-09-24T10:31:46.1055334Z   Bound result 285699361073
+2026-09-24T10:31:46.1055734Z   Bound result 16935
+2026-09-24T10:31:46.1056092Z   Bound result 48
+2026-09-24T10:31:46.1056445Z   Bound result 37466814
+2026-09-24T10:31:46.1056948Z   Bound result 812228438469
+2026-09-24T10:31:46.1057564Z   Bound result 445471153422
+2026-09-24T10:31:46.1057975Z   Bound result 710456111
+2026-09-24T10:31:46.1058639Z   Bound result 158467
+2026-09-24T10:31:46.1059030Z   Bound result 12540
+2026-09-24T10:31:46.1059409Z   Bound result 2
+2026-09-24T10:31:46.1059775Z   Bound result 467263
+2026-09-24T10:31:46.1060145Z   Bound result 22
+2026-09-24T10:31:46.1060732Z   Bound result 3230
+2026-09-24T10:31:46.1061090Z   Bound result 3
+2026-09-24T10:31:46.1061453Z   Bound result 24639501477
+2026-09-24T10:31:46.1061871Z   Bound result 19226
+2026-09-24T10:31:46.1062239Z   Bound result 4177
+2026-09-24T10:31:46.1062588Z   Bound result 45
+2026-09-24T10:31:46.1062935Z   Bound result 8808
+2026-09-24T10:31:46.1063292Z   Bound result 911691
+2026-09-24T10:31:46.1063656Z   Bound result 616164
+2026-09-24T10:31:46.1064038Z   Bound result 16165
+2026-09-24T10:31:46.1064253Z 
+2026-09-24T10:31:46.1065097Z [PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1065882Z 
+2026-09-24T10:31:46.1066454Z ╭----------------------+----------------+-------+---------+----------╮
+2026-09-24T10:31:46.1067548Z | Contract             | Selector       | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1068309Z +====================================================================+
+2026-09-24T10:31:46.1069116Z | ShareTransferHandler | advanceTime    | 876   | 0       | 0        |
+2026-09-24T10:31:46.1069964Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1070788Z | ShareTransferHandler | burn           | 932   | 0       | 0        |
+2026-09-24T10:31:46.1071600Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1072431Z | ShareTransferHandler | changeLock     | 895   | 0       | 0        |
+2026-09-24T10:31:46.1073252Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1074104Z | ShareTransferHandler | claim          | 916   | 0       | 0        |
+2026-09-24T10:31:46.1074939Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1075815Z | ShareTransferHandler | donate         | 896   | 0       | 0        |
+2026-09-24T10:31:46.1076653Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1077809Z | ShareTransferHandler | harvest        | 920   | 0       | 0        |
+2026-09-24T10:31:46.1078650Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1079502Z | ShareTransferHandler | queueMining    | 917   | 0       | 0        |
+2026-09-24T10:31:46.1080346Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1081233Z | ShareTransferHandler | transferLocked | 949   | 0       | 0        |
+2026-09-24T10:31:46.1082060Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1082896Z | ShareTransferHandler | transferShares | 891   | 0       | 0        |
+2026-09-24T10:31:46.1083920Z ╰----------------------+----------------+-------+---------+----------╯
+2026-09-24T10:31:46.1084359Z 
+2026-09-24T10:31:46.1084513Z Logs:
+2026-09-24T10:31:46.1084850Z   Bound result 2
+2026-09-24T10:31:46.1085228Z   Bound result 285699361073
+2026-09-24T10:31:46.1085647Z   Bound result 16935
+2026-09-24T10:31:46.1086022Z   Bound result 48
+2026-09-24T10:31:46.1086409Z   Bound result 37466814
+2026-09-24T10:31:46.1086807Z   Bound result 812228438469
+2026-09-24T10:31:46.1087425Z   Bound result 445471153422
+2026-09-24T10:31:46.1087837Z   Bound result 310
+2026-09-24T10:31:46.1088214Z   Bound result 158467
+2026-09-24T10:31:46.1088589Z   Bound result 13242
+2026-09-24T10:31:46.1088958Z   Bound result 2
+2026-09-24T10:31:46.1089336Z   Bound result 467263
+2026-09-24T10:31:46.1089688Z   Bound result 22
+2026-09-24T10:31:46.1090039Z   Bound result 3524
+2026-09-24T10:31:46.1090405Z   Bound result 3
+2026-09-24T10:31:46.1090784Z   Bound result 24639501477
+2026-09-24T10:31:46.1091187Z   Bound result 19507
+2026-09-24T10:31:46.1091568Z   Bound result 4256
+2026-09-24T10:31:46.1091930Z   Bound result 45
+2026-09-24T10:31:46.1092286Z   Bound result 12992
+2026-09-24T10:31:46.1092912Z   Bound result 911691
+2026-09-24T10:31:46.1093275Z   Bound result 17586
+2026-09-24T10:31:46.1093649Z   Bound result 12378
+2026-09-24T10:31:46.1093863Z 
+2026-09-24T10:31:46.1094434Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 47.22s (47.20s CPU time)
+2026-09-24T10:31:46.1095211Z 
+2026-09-24T10:31:46.1095895Z Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersNoExpiryInvariantTest
+2026-09-24T10:31:46.1097657Z [PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1098490Z 
+2026-09-24T10:31:46.1099055Z ╭----------------------+----------------+-------+---------+----------╮
+2026-09-24T10:31:46.1099879Z | Contract             | Selector       | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1100601Z +====================================================================+
+2026-09-24T10:31:46.1101346Z | ShareTransferHandler | advanceTime    | 876   | 0       | 0        |
+2026-09-24T10:31:46.1102187Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1102989Z | ShareTransferHandler | burn           | 932   | 0       | 0        |
+2026-09-24T10:31:46.1103829Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1104619Z | ShareTransferHandler | changeLock     | 895   | 0       | 0        |
+2026-09-24T10:31:46.1105438Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1106259Z | ShareTransferHandler | claim          | 916   | 0       | 0        |
+2026-09-24T10:31:46.1107070Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1108081Z | ShareTransferHandler | donate         | 896   | 0       | 0        |
+2026-09-24T10:31:46.1108914Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1109744Z | ShareTransferHandler | harvest        | 920   | 0       | 0        |
+2026-09-24T10:31:46.1110611Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1111465Z | ShareTransferHandler | queueMining    | 917   | 0       | 0        |
+2026-09-24T10:31:46.1112310Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1113180Z | ShareTransferHandler | transferLocked | 949   | 0       | 0        |
+2026-09-24T10:31:46.1114036Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1114885Z | ShareTransferHandler | transferShares | 891   | 0       | 0        |
+2026-09-24T10:31:46.1115924Z ╰----------------------+----------------+-------+---------+----------╯
+2026-09-24T10:31:46.1116357Z 
+2026-09-24T10:31:46.1116502Z Logs:
+2026-09-24T10:31:46.1116846Z   Bound result 2
+2026-09-24T10:31:46.1117431Z   Bound result 285699361073
+2026-09-24T10:31:46.1117866Z   Bound result 15512
+2026-09-24T10:31:46.1118237Z   Bound result 48
+2026-09-24T10:31:46.1118613Z   Bound result 37466814
+2026-09-24T10:31:46.1119024Z   Bound result 812228438469
+2026-09-24T10:31:46.1119453Z   Bound result 445471153422
+2026-09-24T10:31:46.1119849Z   Bound result 710456111
+2026-09-24T10:31:46.1120244Z   Bound result 158467
+2026-09-24T10:31:46.1120631Z   Bound result 11724
+2026-09-24T10:31:46.1121006Z   Bound result 2
+2026-09-24T10:31:46.1121373Z   Bound result 467263
+2026-09-24T10:31:46.1121734Z   Bound result 22
+2026-09-24T10:31:46.1122099Z   Bound result 1624
+2026-09-24T10:31:46.1122458Z   Bound result 3
+2026-09-24T10:31:46.1122825Z   Bound result 24639501477
+2026-09-24T10:31:46.1123234Z   Bound result 19068
+2026-09-24T10:31:46.1123605Z   Bound result 4176
+2026-09-24T10:31:46.1123971Z   Bound result 45
+2026-09-24T10:31:46.1124343Z   Bound result 127642143
+2026-09-24T10:31:46.1124748Z   Bound result 911691
+2026-09-24T10:31:46.1125124Z   Bound result 612
+2026-09-24T10:31:46.1125498Z   Bound result 10056
+2026-09-24T10:31:46.1125719Z 
+2026-09-24T10:31:46.1126801Z [PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1127802Z 
+2026-09-24T10:31:46.1128404Z ╭----------------------+----------------+-------+---------+----------╮
+2026-09-24T10:31:46.1129277Z | Contract             | Selector       | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1130314Z +====================================================================+
+2026-09-24T10:31:46.1131120Z | ShareTransferHandler | advanceTime    | 876   | 0       | 0        |
+2026-09-24T10:31:46.1131973Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1132827Z | ShareTransferHandler | burn           | 932   | 0       | 0        |
+2026-09-24T10:31:46.1133688Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1134547Z | ShareTransferHandler | changeLock     | 895   | 0       | 0        |
+2026-09-24T10:31:46.1135393Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1136284Z | ShareTransferHandler | claim          | 916   | 0       | 0        |
+2026-09-24T10:31:46.1137135Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1138166Z | ShareTransferHandler | donate         | 896   | 0       | 0        |
+2026-09-24T10:31:46.1139013Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1139856Z | ShareTransferHandler | harvest        | 920   | 0       | 0        |
+2026-09-24T10:31:46.1140669Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1141527Z | ShareTransferHandler | queueMining    | 917   | 0       | 0        |
+2026-09-24T10:31:46.1142358Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1143217Z | ShareTransferHandler | transferLocked | 949   | 0       | 0        |
+2026-09-24T10:31:46.1144068Z |----------------------+----------------+-------+---------+----------|
+2026-09-24T10:31:46.1145001Z | ShareTransferHandler | transferShares | 891   | 0       | 0        |
+2026-09-24T10:31:46.1146058Z ╰----------------------+----------------+-------+---------+----------╯
+2026-09-24T10:31:46.1146484Z 
+2026-09-24T10:31:46.1146635Z Logs:
+2026-09-24T10:31:46.1146968Z   Bound result 2
+2026-09-24T10:31:46.1147565Z   Bound result 285699361073
+2026-09-24T10:31:46.1147974Z   Bound result 15514
+2026-09-24T10:31:46.1148343Z   Bound result 48
+2026-09-24T10:31:46.1148720Z   Bound result 37466814
+2026-09-24T10:31:46.1149123Z   Bound result 812228438469
+2026-09-24T10:31:46.1149550Z   Bound result 445471153422
+2026-09-24T10:31:46.1149958Z   Bound result 710456113
+2026-09-24T10:31:46.1150369Z   Bound result 158467
+2026-09-24T10:31:46.1150755Z   Bound result 13268
+2026-09-24T10:31:46.1151125Z   Bound result 2
+2026-09-24T10:31:46.1151467Z   Bound result 467263
+2026-09-24T10:31:46.1151820Z   Bound result 22
+2026-09-24T10:31:46.1152187Z   Bound result 1780
+2026-09-24T10:31:46.1152538Z   Bound result 3
+2026-09-24T10:31:46.1152912Z   Bound result 24639501477
+2026-09-24T10:31:46.1153328Z   Bound result 19127
+2026-09-24T10:31:46.1153748Z   Bound result 4175
+2026-09-24T10:31:46.1154121Z   Bound result 45
+2026-09-24T10:31:46.1154489Z   Bound result 913
+2026-09-24T10:31:46.1154859Z   Bound result 911691
+2026-09-24T10:31:46.1155237Z   Bound result 816779
+2026-09-24T10:31:46.1155630Z   Bound result 20702
+2026-09-24T10:31:46.1155859Z 
+2026-09-24T10:31:46.1156416Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 27.30s (30.96s CPU time)
+2026-09-24T10:31:46.1156986Z 
+2026-09-24T10:31:46.1157806Z Ran 2 tests for test/invariant/ShareMarketInvariant.t.sol:ShareMarketInvariantTest
+2026-09-24T10:31:46.1159158Z [PASS] invariant_paidBnbEqualsIndependentCreditsAndWithdrawals() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1159907Z 
+2026-09-24T10:31:46.1160529Z ╭--------------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.1161404Z | Contract           | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1162460Z +=======================================================================+
+2026-09-24T10:31:46.1163349Z | ShareMarketHandler | cancelOrder         | 1348  | 0       | 0        |
+2026-09-24T10:31:46.1164241Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1165430Z | ShareMarketHandler | fillOrder           | 1355  | 0       | 0        |
+2026-09-24T10:31:46.1166328Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1167415Z | ShareMarketHandler | listOrder           | 1351  | 0       | 0        |
+2026-09-24T10:31:46.1168298Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1169217Z | ShareMarketHandler | rejectBadPayment    | 1393  | 0       | 0        |
+2026-09-24T10:31:46.1170108Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1171003Z | ShareMarketHandler | rejectMiningFailure | 1364  | 0       | 0        |
+2026-09-24T10:31:46.1171929Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1172811Z | ShareMarketHandler | withdraw            | 1381  | 0       | 0        |
+2026-09-24T10:31:46.1173877Z ╰--------------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.1174309Z 
+2026-09-24T10:31:46.1174451Z Logs:
+2026-09-24T10:31:46.1174803Z   Bound result 12
+2026-09-24T10:31:46.1175174Z   Bound result 10001
+2026-09-24T10:31:46.1175550Z   Bound result 20
+2026-09-24T10:31:46.1175909Z   Bound result 16
+2026-09-24T10:31:46.1176247Z   Bound result 99
+2026-09-24T10:31:46.1176596Z   Bound result 2
+2026-09-24T10:31:46.1176997Z   Bound result 100000000000001
+2026-09-24T10:31:46.1177641Z   Bound result 5
+2026-09-24T10:31:46.1177990Z   Bound result 7
+2026-09-24T10:31:46.1178351Z   Bound result 7
+2026-09-24T10:31:46.1178704Z   Bound result 133
+2026-09-24T10:31:46.1179061Z   Bound result 2
+2026-09-24T10:31:46.1179414Z   Bound result 2
+2026-09-24T10:31:46.1179761Z   Bound result 1
+2026-09-24T10:31:46.1180113Z   Bound result 8
+2026-09-24T10:31:46.1180470Z   Bound result 1
+2026-09-24T10:31:46.1180820Z   Bound result 5
+2026-09-24T10:31:46.1181161Z   Bound result 2
+2026-09-24T10:31:46.1181506Z   Bound result 2
+2026-09-24T10:31:46.1181859Z   Bound result 1
+2026-09-24T10:31:46.1182222Z   Bound result 5
+2026-09-24T10:31:46.1182631Z   Bound result 999999999999998
+2026-09-24T10:31:46.1183052Z   Bound result 1
+2026-09-24T10:31:46.1183403Z   Bound result 3
+2026-09-24T10:31:46.1183745Z   Bound result 1
+2026-09-24T10:31:46.1184099Z   Bound result 6
+2026-09-24T10:31:46.1184442Z   Bound result 5
+2026-09-24T10:31:46.1184787Z   Bound result 2
+2026-09-24T10:31:46.1185149Z   Bound result 70073
+2026-09-24T10:31:46.1185532Z   Bound result 33
+2026-09-24T10:31:46.1185761Z 
+2026-09-24T10:31:46.1186587Z [PASS] invariant_realOrdersLockExactlyTheirRemainingBeneficialShares() (runs: 128, calls: 8192, reverts: 0)
+2026-09-24T10:31:46.1187586Z 
+2026-09-24T10:31:46.1188189Z ╭--------------------+---------------------+-------+---------+----------╮
+2026-09-24T10:31:46.1189077Z | Contract           | Selector            | Calls | Reverts | Discards |
+2026-09-24T10:31:46.1189830Z +=======================================================================+
+2026-09-24T10:31:46.1190661Z | ShareMarketHandler | cancelOrder         | 1348  | 0       | 0        |
+2026-09-24T10:31:46.1191535Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1192403Z | ShareMarketHandler | fillOrder           | 1355  | 0       | 0        |
+2026-09-24T10:31:46.1193248Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1194124Z | ShareMarketHandler | listOrder           | 1351  | 0       | 0        |
+2026-09-24T10:31:46.1194987Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1195887Z | ShareMarketHandler | rejectBadPayment    | 1393  | 0       | 0        |
+2026-09-24T10:31:46.1196793Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1198071Z | ShareMarketHandler | rejectMiningFailure | 1364  | 0       | 0        |
+2026-09-24T10:31:46.1198951Z |--------------------+---------------------+-------+---------+----------|
+2026-09-24T10:31:46.1199828Z | ShareMarketHandler | withdraw            | 1381  | 0       | 0        |
+2026-09-24T10:31:46.1201121Z ╰--------------------+---------------------+-------+---------+----------╯
+2026-09-24T10:31:46.1201569Z 
+2026-09-24T10:31:46.1201712Z Logs:
+2026-09-24T10:31:46.1202042Z   Bound result 12
+2026-09-24T10:31:46.1202411Z   Bound result 10001
+2026-09-24T10:31:46.1202791Z   Bound result 20
+2026-09-24T10:31:46.1203141Z   Bound result 16
+2026-09-24T10:31:46.1203493Z   Bound result 99
+2026-09-24T10:31:46.1203838Z   Bound result 2
+2026-09-24T10:31:46.1204245Z   Bound result 100000000000001
+2026-09-24T10:31:46.1204662Z   Bound result 5
+2026-09-24T10:31:46.1205018Z   Bound result 7
+2026-09-24T10:31:46.1205358Z   Bound result 7
+2026-09-24T10:31:46.1205708Z   Bound result 133
+2026-09-24T10:31:46.1206084Z   Bound result 2
+2026-09-24T10:31:46.1206434Z   Bound result 2
+2026-09-24T10:31:46.1206796Z   Bound result 1
+2026-09-24T10:31:46.1207132Z   Bound result 8
+2026-09-24T10:31:46.1207683Z   Bound result 5
+2026-09-24T10:31:46.1208017Z   Bound result 713
+2026-09-24T10:31:46.1208397Z   Bound result 2
+2026-09-24T10:31:46.1208752Z   Bound result 1
+2026-09-24T10:31:46.1209091Z   Bound result 3
+2026-09-24T10:31:46.1209443Z   Bound result 1
+2026-09-24T10:31:46.1209807Z   Bound result 142463
+2026-09-24T10:31:46.1210190Z   Bound result 2
+2026-09-24T10:31:46.1210545Z   Bound result 4
+2026-09-24T10:31:46.1210884Z   Bound result 2
+2026-09-24T10:31:46.1211222Z   Bound result 1
+2026-09-24T10:31:46.1211618Z   Bound result 999999999999998
+2026-09-24T10:31:46.1212026Z   Bound result 1
+2026-09-24T10:31:46.1212383Z   Bound result 1
+2026-09-24T10:31:46.1212751Z   Bound result 3
+2026-09-24T10:31:46.1213100Z   Bound result 6
+2026-09-24T10:31:46.1213447Z   Bound result 1
+2026-09-24T10:31:46.1213796Z   Bound result 39
+2026-09-24T10:31:46.1214239Z   Bound result 738370534674937
+2026-09-24T10:31:46.1214657Z   Bound result 33
+2026-09-24T10:31:46.1214874Z 
+2026-09-24T10:31:46.1215435Z Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 61.86s (61.85s CPU time)
+2026-09-24T10:31:46.1216019Z 
+2026-09-24T10:31:46.1216710Z Ran 13 test suites in 63.74s (200.93s CPU time): 175 tests passed, 0 failed, 0 skipped (175 total tests)
+2026-09-24T10:31:46.1217567Z 
+2026-09-24T10:31:54.3435306Z upgrade-validation: exit 0
+2026-09-24T10:31:54.3438429Z Upgrade build-info prepared: 1 file(s), 45 metadata-verified input aliases; compiler output unchanged.
+2026-09-24T10:31:54.3445381Z Preparation audit: /home/runner/work/pinkuang/pinkuang/contracts/out/upgrade-build-info-audit.json
+2026-09-24T10:31:54.3445834Z 
+2026-09-24T10:31:54.3446177Z Validation target: src/PoolFactory.sol:PoolFactory (initial implementation)
+2026-09-24T10:31:54.3446922Z  ✔  src/PoolFactory.sol:PoolFactory
+2026-09-24T10:31:54.3447130Z 
+2026-09-24T10:31:54.3447396Z SUCCESS
+2026-09-24T10:31:54.3447620Z 
+2026-09-24T10:31:54.3447933Z Validation target: src/PoolVault.sol:PoolVault (initial implementation)
+2026-09-24T10:31:54.3448439Z  ✔  src/PoolVault.sol:PoolVault
+2026-09-24T10:31:54.3448615Z 
+2026-09-24T10:31:54.3448733Z SUCCESS
+2026-09-24T10:31:54.3448848Z 
+2026-09-24T10:31:54.3449159Z Validation target: src/ShareMarket.sol:ShareMarket (initial implementation)
+2026-09-24T10:31:54.3449652Z  ✔  src/ShareMarket.sol:ShareMarket
+2026-09-24T10:31:54.3449967Z 
+2026-09-24T10:31:54.3450107Z SUCCESS
+2026-09-24T10:31:54.3450765Z PASS: PoolVault links exactly 3 reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.
+2026-09-24T10:31:54.3451513Z ShareMarket: six business fields and nonempty inherited namespaces extracted.
+2026-09-24T10:31:54.3451829Z 
+2026-09-24T10:31:54.3452185Z T1a baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+2026-09-24T10:31:54.3452538Z 
+2026-09-24T10:31:54.3453128Z T1a baseline -> current src/PoolVault.sol:PoolVault: PASS (15 -> 25 business fields)
+2026-09-24T10:31:54.3453458Z 
+2026-09-24T10:31:54.3453787Z T1b baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+2026-09-24T10:31:54.3454114Z 
+2026-09-24T10:31:54.3454588Z T1b baseline -> current src/PoolVault.sol:PoolVault: PASS (24 -> 25 business fields)
+2026-09-24T10:31:54.3454908Z 
+2026-09-24T10:31:54.3455224Z T1c baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+2026-09-24T10:31:54.3455547Z 
+2026-09-24T10:31:54.3455856Z T1c baseline -> current src/PoolVault.sol:PoolVault: PASS (24 -> 25 business fields)
+2026-09-24T10:31:54.3456169Z 
+2026-09-24T10:31:54.3456634Z Validation target: test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture against src/PoolFactory.sol:PoolFactory
+2026-09-24T10:31:54.3458035Z  ✔  test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture (upgrades from src/PoolFactory.sol:PoolFactory)
+2026-09-24T10:31:54.3458683Z 
+2026-09-24T10:31:54.3458776Z SUCCESS
+2026-09-24T10:31:54.3458899Z 
+2026-09-24T10:31:54.3459352Z Validation target: test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture against src/PoolVault.sol:PoolVault
+2026-09-24T10:31:54.3460200Z  ✔  test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture (upgrades from src/PoolVault.sol:PoolVault)
+2026-09-24T10:31:54.3460603Z 
+2026-09-24T10:31:54.3460701Z SUCCESS
+2026-09-24T10:31:54.3460816Z 
+2026-09-24T10:31:54.3461257Z Validation target: test/unit/ShareMarket.t.sol:ShareMarketV2Fixture against src/ShareMarket.sol:ShareMarket
+2026-09-24T10:31:54.3462119Z  ✔  test/unit/ShareMarket.t.sol:ShareMarketV2Fixture (upgrades from src/ShareMarket.sol:ShareMarket)
+2026-09-24T10:31:54.3462511Z 
+2026-09-24T10:31:54.3462609Z SUCCESS
+2026-09-24T10:31:54.3462717Z 
+2026-09-24T10:31:54.3463163Z Validation target: test/utils/InvalidVaultLayout.sol:InvalidVaultLayout against src/PoolVault.sol:PoolVault
+2026-09-24T10:31:54.3464006Z  ✘  test/utils/InvalidVaultLayout.sol:InvalidVaultLayout (upgrades from src/PoolVault.sol:PoolVault)
+2026-09-24T10:31:54.3464394Z 
+2026-09-24T10:31:54.3464543Z       PoolVault: Deleted `unitPriceWei`
+2026-09-24T10:31:54.3464895Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3465182Z       
+2026-09-24T10:31:54.3465531Z       test/utils/InvalidVaultLayout.sol:21: Inserted `unitPriceWei`
+2026-09-24T10:31:54.3466075Z         > New variables should be placed after all existing inherited variables
+2026-09-24T10:31:54.3466468Z       
+2026-09-24T10:31:54.3466713Z       PoolVault: Deleted `purchaseCost`
+2026-09-24T10:31:54.3467034Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3467502Z       
+2026-09-24T10:31:54.3467747Z       PoolVault: Deleted `activatedAt`
+2026-09-24T10:31:54.3468077Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3468355Z       
+2026-09-24T10:31:54.3468624Z       PoolVault: Deleted `surplusPerShareWei`
+2026-09-24T10:31:54.3468962Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3469261Z       
+2026-09-24T10:31:54.3469514Z       PoolVault: Deleted `surplusRemainder`
+2026-09-24T10:31:54.3469855Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3470126Z       
+2026-09-24T10:31:54.3470396Z       PoolVault: Deleted `surplusOutstandingWei`
+2026-09-24T10:31:54.3470759Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3471040Z       
+2026-09-24T10:31:54.3471278Z       PoolVault: Deleted `surplusSettled`
+2026-09-24T10:31:54.3471608Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3471872Z       
+2026-09-24T10:31:54.3472139Z       PoolVault: Deleted `expectedNftSeller`
+2026-09-24T10:31:54.3472479Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3472753Z       
+2026-09-24T10:31:54.3473015Z       PoolVault: Deleted `expectedNftOperator`
+2026-09-24T10:31:54.3473358Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3473628Z       
+2026-09-24T10:31:54.3473862Z       PoolVault: Deleted `nftReceived`
+2026-09-24T10:31:54.3474184Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3474449Z       
+2026-09-24T10:31:54.3474850Z       PoolVault: Deleted `lockedShares`
+2026-09-24T10:31:54.3475180Z         > Keep the variable even if unused
+2026-09-24T10:31:54.3475451Z       
+2026-09-24T10:31:54.3475824Z       PoolRewardState: Deleted namespace `erc7201:tapeout.storage.PoolRewards`
+2026-09-24T10:31:54.3476688Z         > Keep the struct with annotation '@custom:storage-location erc7201:tapeout.storage.PoolRewards' even if unused
+2026-09-24T10:31:54.3477127Z 
+2026-09-24T10:31:54.3477381Z FAILED
+2026-09-24T10:31:54.3477927Z PASS: deliberately incompatible namespace layout rejected.
+2026-09-24T10:31:54.3478754Z Initial checks, delivered T1a/T1b/T1c baselines, three compatible fixtures, and incompatible-layout rejection completed.
+2026-09-24T10:31:54.3479210Z 
+2026-09-24T10:32:01.4545389Z slither: exit 0
+2026-09-24T10:32:01.4546281Z 'forge clean' running (wd: /home/runner/work/pinkuang/pinkuang/contracts)
+2026-09-24T10:32:01.4546973Z 'forge config --json' running
+2026-09-24T10:32:01.4548213Z 'forge build --build-info --skip ./test/** ./script/** --force' running (wd: /home/runner/work/pinkuang/pinkuang/contracts)
+2026-09-24T10:32:01.4549040Z INFO:Detectors:
+2026-09-24T10:32:01.4549433Z Detector: reentrancy-events
+2026-09-24T10:32:01.4550584Z Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#36-75):
+2026-09-24T10:32:01.4551598Z 	External calls:
+2026-09-24T10:32:01.4552204Z 	- token.safeTransfer(treasury,fee) (src/libraries/RewardAccounting.sol#67)
+2026-09-24T10:32:01.4553107Z 	- token.safeTransfer(DEAD,burned) (src/libraries/RewardAccounting.sol#68)
+2026-09-24T10:32:01.4553881Z 	Event emitted after the call(s):
+2026-09-24T10:32:01.4554683Z 	- Harvested(gross,fee,burned,net) (src/libraries/RewardAccounting.sol#74)
+2026-09-24T10:32:01.4556271Z Reentrancy in RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#148-165):
+2026-09-24T10:32:01.4557664Z 	External calls:
+2026-09-24T10:32:01.4558404Z 	- IERC20(bem).safeTransfer(DEAD,amount) (src/libraries/RewardAccounting.sol#163)
+2026-09-24T10:32:01.4559206Z 	Event emitted after the call(s):
+2026-09-24T10:32:01.4560003Z 	- EpochExpiredBurned(epoch,amount) (src/libraries/RewardAccounting.sol#164)
+2026-09-24T10:32:01.4561703Z Reentrancy in RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#82-117):
+2026-09-24T10:32:01.4562860Z 	External calls:
+2026-09-24T10:32:01.4563578Z 	- IERC20(bem).safeTransfer(user,amount) (src/libraries/RewardAccounting.sol#115)
+2026-09-24T10:32:01.4564366Z 	Event emitted after the call(s):
+2026-09-24T10:32:01.4565059Z 	- BemClaimed(user,amount) (src/libraries/RewardAccounting.sol#116)
+2026-09-24T10:32:01.4566406Z Reentrancy in MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87):
+2026-09-24T10:32:01.4567473Z 	External calls:
+2026-09-24T10:32:01.4568139Z 	- ITapeoutMining(MINING).claim(key) (src/libraries/MiningOperations.sol#67-73)
+2026-09-24T10:32:01.4568922Z 	Event emitted after the call(s):
+2026-09-24T10:32:01.4569627Z 	- MiningClaimFailed(key,reason) (src/libraries/MiningOperations.sol#72)
+2026-09-24T10:32:01.4570864Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+2026-09-24T10:32:01.4571805Z INFO:Detectors:
+2026-09-24T10:32:01.4572147Z Detector: timestamp
+2026-09-24T10:32:01.4572765Z PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#184-196) uses timestamp for comparisons
+2026-09-24T10:32:01.4573316Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4573940Z 	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#191)
+2026-09-24T10:32:01.4574893Z PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#82-97) uses timestamp for comparisons
+2026-09-24T10:32:01.4575521Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4576421Z 	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#86)
+2026-09-24T10:32:01.4577555Z PoolVault.deposit(uint8) (src/PoolVault.sol#99-119) uses timestamp for comparisons
+2026-09-24T10:32:01.4578242Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4578868Z 	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#103)
+2026-09-24T10:32:01.4579505Z PoolVault.finalizeFailure() (src/PoolVault.sol#136-160) uses timestamp for comparisons
+2026-09-24T10:32:01.4579955Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4580353Z 	- block.timestamp < s.params.fundingDeadline (src/PoolVault.sol#140)
+2026-09-24T10:32:01.4580874Z 	- block.timestamp < s.params.purchaseDeadline (src/PoolVault.sol#142)
+2026-09-24T10:32:01.4581529Z PoolVault._requirePurchaseWindow() (src/PoolVault.sol#218-222) uses timestamp for comparisons
+2026-09-24T10:32:01.4582004Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4582385Z 	- block.timestamp >= s.params.purchaseDeadline (src/PoolVault.sol#221)
+2026-09-24T10:32:01.4583086Z PoolVault._update(address,address,uint256) (src/PoolVault.sol#478-514) uses timestamp for comparisons
+2026-09-24T10:32:01.4583578Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4583914Z 	- previousCount != currentCount (src/PoolVault.sol#513)
+2026-09-24T10:32:01.4584549Z PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#516-519) uses timestamp for comparisons
+2026-09-24T10:32:01.4585033Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4585342Z 	- timestamp >= clock() (src/PoolVault.sol#517)
+2026-09-24T10:32:01.4585938Z PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#521-524) uses timestamp for comparisons
+2026-09-24T10:32:01.4586426Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4586729Z 	- timestamp >= clock() (src/PoolVault.sol#522)
+2026-09-24T10:32:01.4587981Z RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#82-117) uses timestamp for comparisons
+2026-09-24T10:32:01.4588699Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4589242Z 	- u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY (src/libraries/RewardAccounting.sol#88)
+2026-09-24T10:32:01.4589839Z 	- epoch <= current (src/libraries/RewardAccounting.sol#96)
+2026-09-24T10:32:01.4590390Z 	- slot.epoch != epoch || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#100)
+2026-09-24T10:32:01.4591372Z RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#120-145) uses timestamp for comparisons
+2026-09-24T10:32:01.4592047Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4592414Z 	- epoch <= current (src/libraries/RewardAccounting.sol#131)
+2026-09-24T10:32:01.4592880Z 	- slot.epoch == epoch (src/libraries/RewardAccounting.sol#139)
+2026-09-24T10:32:01.4593778Z RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#148-165) uses timestamp for comparisons
+2026-09-24T10:32:01.4594468Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4594890Z 	- epoch >= current || current - epoch <= 7 (src/libraries/RewardAccounting.sol#155)
+2026-09-24T10:32:01.4595856Z RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#167-213) uses timestamp for comparisons
+2026-09-24T10:32:01.4596540Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4597008Z 	- epoch <= current (src/libraries/RewardAccounting.sol#181)
+2026-09-24T10:32:01.4597971Z 	- delta == 0 || shares == 0 || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#186)
+2026-09-24T10:32:01.4598875Z 	- slot.epoch != epoch (src/libraries/RewardAccounting.sol#190)
+2026-09-24T10:32:01.4600104Z RewardAccounting._firstLiveEpoch(uint256) (src/libraries/RewardAccounting.sol#215-217) uses timestamp for comparisons
+2026-09-24T10:32:01.4600964Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4601350Z 	- current > 7 (src/libraries/RewardAccounting.sol#216)
+2026-09-24T10:32:01.4602727Z RewardAccounting._epochDelta(PoolRewardState.RewardStorage,uint256,uint256) (src/libraries/RewardAccounting.sol#219-232) uses timestamp for comparisons
+2026-09-24T10:32:01.4604081Z 	Dangerous comparisons:
+2026-09-24T10:32:01.4604478Z 	- right > s.acc (src/libraries/RewardAccounting.sol#226)
+2026-09-24T10:32:01.4604922Z 	- left < debtAcc (src/libraries/RewardAccounting.sol#230)
+2026-09-24T10:32:01.4605488Z 	- epoch == 0 (src/libraries/RewardAccounting.sol#229)
+2026-09-24T10:32:01.4605898Z 	- right > left (src/libraries/RewardAccounting.sol#231)
+2026-09-24T10:32:01.4606495Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+2026-09-24T10:32:01.4606948Z INFO:Detectors:
+2026-09-24T10:32:01.4607381Z Detector: assembly
+2026-09-24T10:32:01.4607869Z PoolFactory._factoryStorage() (src/PoolFactory.sol#198-201) uses assembly
+2026-09-24T10:32:01.4608317Z 	- INLINE ASM (src/PoolFactory.sol#200)
+2026-09-24T10:32:01.4608825Z PoolRewardState._rewardStorage() (src/PoolRewardState.sol#54-58) uses assembly
+2026-09-24T10:32:01.4609294Z 	- INLINE ASM (src/PoolRewardState.sol#55-57)
+2026-09-24T10:32:01.4609777Z PoolVault._vaultStorage() (src/PoolVault.sol#78-80) uses assembly
+2026-09-24T10:32:01.4610180Z 	- INLINE ASM (src/PoolVault.sol#79)
+2026-09-24T10:32:01.4610642Z ShareMarket._marketStorage() (src/ShareMarket.sol#157-161) uses assembly
+2026-09-24T10:32:01.4611076Z 	- INLINE ASM (src/ShareMarket.sol#158-160)
+2026-09-24T10:32:01.4611719Z MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) uses assembly
+2026-09-24T10:32:01.4612308Z 	- INLINE ASM (src/libraries/MiningOperations.sol#53)
+2026-09-24T10:32:01.4612893Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+2026-09-24T10:32:01.4613336Z INFO:Detectors:
+2026-09-24T10:32:01.4613622Z Detector: cyclomatic-complexity
+2026-09-24T10:32:01.4614241Z PoolVault._update(address,address,uint256) (src/PoolVault.sol#478-514) has a high cyclomatic complexity (12).
+2026-09-24T10:32:01.4615198Z MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) has a high cyclomatic complexity (15).
+2026-09-24T10:32:01.4616238Z MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87) has a high cyclomatic complexity (13).
+2026-09-24T10:32:01.4617128Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cyclomatic-complexity
+2026-09-24T10:32:01.4617999Z INFO:Detectors:
+2026-09-24T10:32:01.4618378Z Detector: low-level-calls
+2026-09-24T10:32:01.4618863Z Low level call in PoolVault.withdrawBnb() (src/PoolVault.sol#167-177):
+2026-09-24T10:32:01.4619409Z 	- (success,None) = msg.sender.call{value: amount}() (src/PoolVault.sol#174)
+2026-09-24T10:32:01.4619997Z Low level call in ShareMarket.withdrawBnb() (src/ShareMarket.sol#97-106):
+2026-09-24T10:32:01.4620544Z 	- (success,None) = msg.sender.call{value: amount}() (src/ShareMarket.sol#103)
+2026-09-24T10:32:01.4621281Z Low level call in MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57):
+2026-09-24T10:32:01.4621969Z 	- (success,result) = MINING.call(data) (src/libraries/MiningOperations.sol#52)
+2026-09-24T10:32:01.4622641Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+2026-09-24T10:32:01.4623092Z INFO:Detectors:
+2026-09-24T10:32:01.4623355Z Detector: missing-inheritance
+2026-09-24T10:32:01.4624024Z PoolFactory (src/PoolFactory.sol#18-202) should inherit from IShareMarketFactory (src/interfaces/IShareMarket.sol#47-51)
+2026-09-24T10:32:01.4624919Z PoolVault (src/PoolVault.sol#22-642) should inherit from IShareMarketPool (src/interfaces/IShareMarket.sol#53-59)
+2026-09-24T10:32:01.4625703Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-inheritance
+2026-09-24T10:32:01.4626159Z INFO:Detectors:
+2026-09-24T10:32:01.4626413Z Detector: naming-convention
+2026-09-24T10:32:01.4626884Z Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#530-532) is not in mixedCase
+2026-09-24T10:32:01.4627858Z Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+2026-09-24T10:32:01.4628811Z INFO:Slither:. analyzed (53 contracts with 101 detectors), 32 result(s) found
+2026-09-24T10:32:01.4629116Z 
+2026-09-24T10:32:01.4629404Z Logs saved under /home/runner/work/_temp/t1d-contracts-35987549177-1
+2026-09-24T10:32:01.4692795Z ##[group]Run actions/upload-artifact@v4
+2026-09-24T10:32:01.4693104Z with:
+2026-09-24T10:32:01.4693341Z   name: t1d-contracts-evidence-35987549177-1
+2026-09-24T10:32:01.4693713Z   path: /home/runner/work/_temp/t1d-contracts-35987549177-1/
+2026-09-24T10:32:01.4694055Z   if-no-files-found: warn
+2026-09-24T10:32:01.4694300Z   compression-level: 6
+2026-09-24T10:32:01.4694534Z   overwrite: false
+2026-09-24T10:32:01.4694766Z   include-hidden-files: false
+2026-09-24T10:32:01.4695015Z env:
+2026-09-24T10:32:01.4695217Z   FOUNDRY_PROFILE: ci
+2026-09-24T10:32:01.4695440Z   VALIDATION_TASK: T1d
+2026-09-24T10:32:01.4695733Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:32:01.4696164Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib/pkgconfig
+2026-09-24T10:32:01.4696593Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:32:01.4696988Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:32:01.4697700Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.14/x64
+2026-09-24T10:32:01.4698093Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.14/x64/lib
+2026-09-24T10:32:01.4698427Z ##[endgroup]
+2026-09-24T10:32:01.6365770Z (node:2697) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-24T10:32:01.6366625Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-24T10:32:01.6461489Z With the provided path, there will be 13 files uploaded
+2026-09-24T10:32:01.6466954Z Artifact name is valid!
+2026-09-24T10:32:01.6467660Z Root directory input is valid!
+2026-09-24T10:32:01.8730192Z Beginning upload of artifact content to blob storage
+2026-09-24T10:32:01.9086960Z (node:2697) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-09-24T10:32:02.0451125Z Uploaded bytes 25214
+2026-09-24T10:32:02.0882340Z Finished uploading artifact content to blob storage!
+2026-09-24T10:32:02.0884566Z SHA256 digest of uploaded artifact zip is bdfb714c4743d30cac2627887a6f1918176f1250d626abc35e6fb079a872c19f
+2026-09-24T10:32:02.0885765Z Finalizing artifact upload
+2026-09-24T10:32:02.2871951Z Artifact t1d-contracts-evidence-35987549177-1.zip successfully finalized. Artifact ID 10802836309
+2026-09-24T10:32:02.2873388Z Artifact t1d-contracts-evidence-35987549177-1 has been successfully uploaded! Final size is 25214 bytes. Artifact ID is 10802836309
+2026-09-24T10:32:02.2879060Z Artifact download URL: https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35987549177/artifacts/10802836309
+2026-09-24T10:32:02.3049847Z Post job cleanup.
+2026-09-24T10:32:02.4284660Z (node:2709) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-24T10:32:02.4286074Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-24T10:32:02.4473890Z Post job cleanup.
+2026-09-24T10:32:02.5996061Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/pinkuang/pinkuang --files-from manifest.txt --use-compress-program zstdmt
+2026-09-24T10:32:02.8637526Z Sent 24278 of 24278 (100.0%), 0.2 MBs/sec
+2026-09-24T10:32:02.9963392Z Cache saved with the key: linux-foundry-chain-fork-contracts-d96f1e2576fd79aee60653cb8a904598781c7ea8
+2026-09-24T10:32:03.0085543Z Post job cleanup.
+2026-09-24T10:32:03.1314739Z (node:2737) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-24T10:32:03.1316166Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-24T10:32:03.1318158Z Cache hit occurred on the primary key node-cache-Linux-x64-npm-7afb701bfe877516a300825394b81f4b295c2ecbebcae6d67eed11568a9d5798, not saving cache.
+2026-09-24T10:32:03.1450241Z Post job cleanup.
+2026-09-24T10:32:03.2327858Z [command]/usr/bin/git version
+2026-09-24T10:32:03.2378707Z git version 2.55.0
+2026-09-24T10:32:03.2419984Z Temporarily overriding HOME='/home/runner/work/_temp/c4e4d857-d4c3-439e-9219-8e8e9832769e' before making global git config changes
+2026-09-24T10:32:03.2421042Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-24T10:32:03.2426424Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/pinkuang/pinkuang
+2026-09-24T10:32:03.2468489Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-24T10:32:03.2504644Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-24T10:32:03.2769004Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-24T10:32:03.2799453Z http.https://github.com/.extraheader
+2026-09-24T10:32:03.2826180Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-09-24T10:32:03.2856294Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-24T10:32:03.3133701Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-24T10:32:03.3172778Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-24T10:32:03.3598070Z Cleaning up orphan processes
+2026-09-24T10:32:03.3935599Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/setup-python@v5, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+

@@ -10,7 +10,7 @@ import prepareUpgradeBuildInfo from './prepare-upgrade-build-info.mjs';
 import auditLinkedLibraries from './audit-linked-libraries.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const task = process.env.VALIDATION_TASK ?? 'T1c';
+const task = process.env.VALIDATION_TASK ?? 'T1d';
 if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid VALIDATION_TASK');
 const logRoot = resolve(process.env.VALIDATION_EVIDENCE_ROOT ?? join(root, 'docs/logs', task, 'contracts'));
 mkdirSync(logRoot, { recursive: true });
@@ -64,14 +64,20 @@ function validateDeliveredBaselines() {
     return { info, data: validateCompilerOutput(info.output, solcInputOutputDecoder(info.input, info.output),
       info.solcVersion, info.input) };
   });
-  for (const milestone of ['T1a', 'T1b']) for (const name of ['PoolFactory', 'PoolVault']) {
+  const marketContract = 'src/ShareMarket.sol:ShareMarket';
+  const markets = compilations.filter(({ data }) => data[marketContract]);
+  assert.equal(markets.length, 1, 'Expected exactly one compiled ShareMarket layout');
+  const marketLayout = getStorageLayout(markets[0].data, getContractVersion(markets[0].data, marketContract));
+  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 6, 'Unexpected initial market field count');
+  console.log('ShareMarket: six business fields and nonempty inherited namespaces extracted.');
+  for (const milestone of ['T1a', 'T1b', 'T1c']) for (const name of ['PoolFactory', 'PoolVault']) {
     const contract = `src/${name}.sol:${name}`;
     const baselinePath = `docs/storage/${milestone}-${name}.json`;
     const baselineBytes = readFileSync(join(root, baselinePath));
     const baseline = JSON.parse(baselineBytes.toString('utf8'));
     assert.equal(baseline.schemaVersion, 1, `Unsupported baseline schema: ${baselinePath}`);
     assert.equal(baseline.contract, contract, `Wrong baseline target: ${baselinePath}`);
-    assert.equal(baseline.provenance.commit, milestone === 'T1a' ? '339c034e4bf4b504dcd4a7479d272a7f662497fc' : '6d090612c4b5ce0409b08b90a0573912aaee95f9', 'Unexpected delivered baseline commit');
+    assert.equal(baseline.provenance.commit, ({T1a:'339c034e4bf4b504dcd4a7479d272a7f662497fc', T1b:'6d090612c4b5ce0409b08b90a0573912aaee95f9', T1c:'0d676cd666fd2e5e8160e1d3c961d8a15f2caea3'})[milestone], 'Unexpected delivered baseline commit');
     assert(/^[0-9a-f]{64}$/.test(baseline.provenance.sourceSha256), 'Missing baseline source provenance');
     const matches = compilations.filter(({ data }) => data[contract]);
     assert.equal(matches.length, 1, `Expected exactly one compiled layout for ${contract}; use a clean build`);
@@ -99,13 +105,15 @@ let ok = false;
 try {
   await validate('src/PoolFactory.sol:PoolFactory');
   await validate('src/PoolVault.sol:PoolVault');
+  await validate('src/ShareMarket.sol:ShareMarket');
   auditLinkedLibraries(root, logRoot);
   validateDeliveredBaselines();
   await validate('test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture', 'src/PoolFactory.sol:PoolFactory');
   await validate('test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture', 'src/PoolVault.sol:PoolVault');
+  await validate('test/unit/ShareMarket.t.sol:ShareMarketV2Fixture', 'src/ShareMarket.sol:ShareMarket');
   await validate('test/utils/InvalidVaultLayout.sol:InvalidVaultLayout', 'src/PoolVault.sol:PoolVault', true);
   ok = true;
-  console.log('Initial checks, delivered T1a/T1b baselines, both compatible fixtures, and incompatible-layout rejection completed.');
+  console.log('Initial checks, delivered T1a/T1b/T1c baselines, three compatible fixtures, and incompatible-layout rejection completed.');
 } finally {
   copyFileSync(join(root, 'contracts/out/upgrade-build-info-audit.json'), join(logRoot, 'upgrade-build-info-audit.json'));
   writeFileSync(join(logRoot, 'upgrade-checks.json'), JSON.stringify(results, null, 2) + '\n');

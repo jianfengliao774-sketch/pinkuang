@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const task = process.env.VALIDATION_TASK ?? 'T1c';
+const task = process.env.VALIDATION_TASK ?? 'T1d';
 if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid VALIDATION_TASK');
 const pinnedBlock = '123728000';
 if (!process.env.BSC_RPC_URL || process.env.FORK_BLOCK !== pinnedBlock) {
@@ -67,7 +67,10 @@ function run(name, args) {
 run('toolchain', ['--version']);
 run('forge-fmt', ['fmt', '--check']);
 run('forge-build-sizes', ['build', '--sizes', '--force']);
-run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock, '-vv']);
+// Public archive RPCs throttle bursty storage reads. Serialize fork tests and
+// retain Foundry's provider limiter at a conservative rate; do not skip failures.
+run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock,
+  '--threads', '1', '--compute-units-per-second', '50', '-vv']);
 summary.status = 'passed';
 summary.finishedAt = new Date().toISOString();
 writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
