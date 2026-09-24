@@ -2,7 +2,7 @@
 
 本卡按开发文档 v0.4 第 5、9、13.3 节和开工计划 T1c，实现生产 PoolVault 的受限挖矿调用、1/4/95 收益分账、个人领取及自然日到期销毁。协议证据延续 [M0](M0-report.md) 和 [T1b](M1b.md) 的固定 BSC fork；测试部署和资产操作均限本地，没有主网广播。
 
-**验证状态：最终本地全树检查通过，131 项单元/不变量、37 项固定块 fork 全部通过；格式、体积、九项升级检查、两库链接检查与 Slither 均通过。远端 CI 待跑。** [contracts 汇总](logs/T1c/contracts/summary.json) 和 [fork 汇总](logs/T1c/fork/summary.json) 均为 `passed`，分别于 2026-09-24 09:59:05 UTC 和 09:58:59 UTC 完成。
+**验证状态：本地和远端全树检查通过：131 项单元/不变量、37 项固定块 fork，以及格式、体积、九项升级检查、两库链接检查和 Slither。** 对应实现提交 `0d676cd666fd2e5e8160e1d3c961d8a15f2caea3`，[push CI #35984873926](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35984873926) 与 [PR CI #35984905789](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35984905789) 均成功。远端原始日志：[contracts](logs/T1c/github-job-107585087213.log)、[fork](logs/T1c/github-job-107585487921.log)。本地详情见 [contracts 汇总](logs/T1c/contracts/summary.json) 和 [fork 汇总](logs/T1c/fork/summary.json)。
 
 ## 行为与资金归属
 
@@ -111,4 +111,4 @@ arm/start 的成功测试先在本地 `vm.prank(vault)` 调协议 stop 并推进
 4. Closed/Refunding 的历史收益保留、24 小时冷却、原到期日，以及严格交割内部函数均通过测试 harness 注入状态或暴露内部入口验证。该测试证明这些分支的局部行为，**不代表 T1e 投票、出售、NFT 过户闭环已经实现**。
 5. 当前 real reclaim 样本不满足协议状态，证据仅为真实失败透传；不为获得正例开放 stop、绕过协议条件或更改矿机状态存储。
 
-没有新增需要项目方决定的业务规则。本地最终全树验证全部完成，远端 CI 待跑；T1d 份额转让、T1e 出售、前端、keeper 和主网试运行不在本卡完成声明内。
+没有新增需要项目方决定的业务规则。本地最终全树验证与远端 CI 全部完成；T1d 份额转让、T1e 出售、前端、keeper 和主网试运行不在本卡完成声明内。
