@@ -1,8 +1,10 @@
-# T1e 进行中：出售提案与快照投票
+# T1e 投票与出售：交付索引及早期记录
+
+**完整受控出售与预算销毁实现、256/46 项验证及文件清单见 [M1e-complete](M1e-complete.md)。** 下方保留最初投票阶段的历史说明和原始证据，不代表当前实现范围。
 
 **后续优化记录：** [M1e-optimization](M1e-optimization.md) 补充了 6 项边界单测、2 项状态不变量和 CI 限流改进，本地全树增至 204 项。下方保留本阶段首次实现与验证证据。
 
-**本文件是阶段进度，不是 T1e 整卡验收。** 目前实现不依赖出售渠道选择的提案、历史快照投票与双过半查询。`executeSale`、`completeSale`、`settleSale`、撤销整机挂单、出售款分配和换币销毁尚未实现；不能据此声称完整出售闭环已通过。T1d 的份额转让与市场已交付，见 [M1d](M1d.md) 和 [PR #6](https://github.com/jianfengliao774-sketch/pinkuang/pull/6)。
+**以下是早期投票阶段记录。** 当时只实现不依赖出售渠道选择的提案、历史快照投票与双过半查询，尚不包含成交、分配和换币销毁。后续批准与完整交付见上方链接。T1d 的份额转让与市场已交付，见 [M1d](M1d.md) 和 [PR #6](https://github.com/jianfengliao774-sketch/pinkuang/pull/6)。
 
 ## 已实现行为
 
@@ -52,7 +54,7 @@ npm run test:fork
 
 项目方已于 2026-09-24 明确答复“接受，继续实现（推荐）”：平台 2% 和销毁预算 2% 均保持原文档费率，因为不经 CircuitMarket 不产生其 1%，成员按实收减去两项费用取得约 96%，整数尾差另列；代价是 tapeout.market 不显示挂单。v0.4 第 6.3 节的实际到账公式支持这一计算。渠道选择已经解决，后续直接按此实现，不再重复请求确认。
 
-本文件所记录的提交仍只包含投票阶段；下一阶段继续实现受控成交。渠道已确认不等于成交功能已经交付，不把阶段进度当作 T1e 的完整验收。
+本文件所记录的历史提交只包含投票阶段；后续受控成交已经完成，完整实现、验证结果与存储基线见 [M1e-complete](M1e-complete.md)。
 
 本地执行元数据：[contracts](logs/T1e/contracts/summary.json)、[fork](logs/T1e/fork/summary.json)；对应 [合约源码哈希](logs/T1e/contracts/source-sha256.json) 与 [验证输入哈希](logs/T1e/contracts/verification-input-sha256.json)。工作区未提交时 summary 的 sourceCommit 只是运行时 HEAD，实际被测内容以哈希为准。购机库搬移已独立对照 `5551c77` 的原检查/事件顺序复核，现有购机测试与真实协议 fork 不改断言通过。没有为通过检查新增 Slither 抑制，原已有精准注释随对应语句移动。
 
