@@ -2,6 +2,8 @@ name: Contracts
 
 on:
   push:
+    # PRs validate their merge ref; avoid a duplicate feature-branch RPC run.
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -14,7 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: contracts-${{ github.workflow }}-${{ github.ref }}
+  # A manual contracts-only run must not cancel a required push/PR fork check.
+  group: contracts-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,6 +61,13 @@ jobs:
     needs: contracts
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Serialize the public RPC across refs. Unlike the default single pending
+    # slot, queue:max retains waiting checks (up to GitHub's 100-job limit).
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idconcurrency
+    concurrency:
+      group: contracts-bsc-public-rpc
+      queue: max
+      cancel-in-progress: false
     env:
       FOUNDRY_PROFILE: ci
       VALIDATION_TASK: T1e

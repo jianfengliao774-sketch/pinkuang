@@ -9,6 +9,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const task = process.env.VALIDATION_TASK ?? 'T1e';
 if (!/^T\d+(?:[a-z]|\.\d+)?$/i.test(task)) throw new Error('Invalid VALIDATION_TASK');
 const pinnedBlock = '123728000';
+const rpcPolicy = { threads: 1, computeUnitsPerSecond: 50, retries: 10, initialBackoffMs: 2000 };
 if (!process.env.BSC_RPC_URL || process.env.FORK_BLOCK !== pinnedBlock) {
   console.error(`BSC_RPC_URL and FORK_BLOCK=${pinnedBlock} are required. A different block requires new fixtures/evidence.`);
   process.exit(1);
@@ -37,6 +38,15 @@ const manifest = Object.fromEntries(paths.map(path => {
   return [path.replaceAll('\\', '/'), createHash('sha256').update(source).digest('hex')];
 }));
 writeFileSync(join(logRoot, 'source-sha256.json'), JSON.stringify(manifest, null, 2) + '\n');
+const verificationFiles = ['package.json', 'package-lock.json',
+  ...readdirSync(join(root, 'scripts'), { recursive: true }).filter(path => path.endsWith('.mjs')).map(path => `scripts/${path}`),
+  ...readdirSync(join(root, 'docs/storage')).filter(path => path.endsWith('.json')).map(path => `docs/storage/${path}`)].sort();
+const verificationManifest = Object.fromEntries(verificationFiles.map(path => {
+  const source = readFileSync(join(root, path));
+  if (!source.equals(readFileSync(join(buildRoot, path)))) throw new Error(`Validation input differs: ${path}`);
+  return [path.replaceAll('\\', '/'), createHash('sha256').update(source).digest('hex')];
+}));
+writeFileSync(join(logRoot, 'verification-input-sha256.json'), JSON.stringify(verificationManifest, null, 2) + '\n');
 const bundledForge = join(root, '.tools/forge/package/bin/forge.exe');
 const forge = process.platform === 'win32' && existsSync(bundledForge) ? bundledForge : 'forge';
 const env = { ...process.env, FOUNDRY_PROFILE: 'ci', NO_COLOR: '1', VALIDATION_TASK: task,
@@ -45,8 +55,9 @@ const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'u
 const summary = { task, stage: 'fork', startedAt: new Date().toISOString(), status: 'running',
   sourceCommit: commit.status === 0 ? commit.stdout.trim() : null,
   ci: process.env.GITHUB_ACTIONS === 'true' ? { runId: process.env.GITHUB_RUN_ID,
-    runAttempt: process.env.GITHUB_RUN_ATTEMPT, job: process.env.GITHUB_JOB, sha: process.env.GITHUB_SHA } : null,
-  forkBlock: Number(pinnedBlock), chainId: 56, buildRoot, node: process.version, profile: 'ci', results: [] };
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT, job: process.env.GITHUB_JOB, sha: process.env.GITHUB_SHA,
+    event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF } : null,
+  forkBlock: Number(pinnedBlock), chainId: 56, rpcPolicy, buildRoot, node: process.version, profile: 'ci', results: [] };
 writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 function run(name, args) {
   console.log(`Running ${name} at BSC block ${pinnedBlock}...`);
@@ -67,10 +78,13 @@ function run(name, args) {
 run('toolchain', ['--version']);
 run('forge-fmt', ['fmt', '--check']);
 run('forge-build-sizes', ['build', '--sizes', '--force']);
-// Public archive RPCs throttle bursty storage reads. Serialize fork tests and
-// retain Foundry's provider limiter at a conservative rate; do not skip failures.
+// Foundry 1.7.1 forwards these values to Alloy 2.0.1 RetryBackoffLayer: backoff
+// is milliseconds, with provider hints/CU offsets; this is not exponential.
+// Retries apply only to retryable RPC errors. Exhaustion/test failures still fail
+// this single run; no whole-suite reruns or swallowed failures.
 run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock,
-  '--threads', '1', '--compute-units-per-second', '50', '-vv']);
+  '--threads', String(rpcPolicy.threads), '--compute-units-per-second', String(rpcPolicy.computeUnitsPerSecond),
+  '--fork-retries', String(rpcPolicy.retries), '--fork-retry-backoff', String(rpcPolicy.initialBackoffMs), '-vv']);
 summary.status = 'passed';
 summary.finishedAt = new Date().toISOString();
 writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');

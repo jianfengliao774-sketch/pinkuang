@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {ShareTransferTestBase} from "../utils/ShareTransferTestBase.sol";
+import {ShareTransferTestBase, ShareTransferVaultHarness} from "../utils/ShareTransferTestBase.sol";
 import {RewardsVaultHarness} from "../utils/RewardsTestBase.sol";
 import {IFundingVault} from "../utils/FundingTestBase.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
@@ -209,6 +209,91 @@ contract PoolVotingTest is ShareTransferTestBase {
         _assertTally(id, 1, 26, false);
     }
 
+    function test_memberReceivingMoreSharesAfterProposalOnlyVotesHistoricalWeight() public {
+        _ready();
+        uint256 id = _propose(ALICE);
+        _transfer(ALICE, BOB, 23);
+        assertEq(pool.balanceOf(BOB), 49);
+        assertEq(pool.balanceOf(ALICE), 26);
+        vm.expectEmit(true, true, false, true, address(pool));
+        emit Voted(id, BOB, true, 26);
+        _vote(BOB, id, true);
+        _assertTally(id, 1, 26, false);
+        _vote(ALICE, id, true);
+        _assertTally(id, 2, 75, true);
+        _vote(CAROL, id, true);
+        _assertTally(id, 3, 100, true);
+    }
+
+    function test_sameSecondMemberExitCannotLowerSnapshotMajorityThreshold() public {
+        _transfer(CAROL, DAVE, 1); // Four owners before the proposal's closed snapshot.
+        _ready();
+        _transfer(DAVE, BOB, 1); // Three current owners, in the proposal timestamp.
+        uint256 id = _propose(ALICE);
+        assertEq(pool.memberCount(), 3);
+        assertEq(voting.getProposal(id).snapshotMemberCount, 4);
+        _vote(ALICE, id, true);
+        _vote(BOB, id, true);
+        _assertTally(id, 2, 75, false);
+        _vote(DAVE, id, true); // The exited historical owner still supplies the third vote.
+        assertEq(pool.balanceOf(DAVE), 0);
+        _assertTally(id, 3, 76, true);
+    }
+
+    function test_replacementProposalRefreshesSnapshotAndDoesNotInheritOldVotes() public {
+        _ready();
+        uint256 oldId = _propose(ALICE);
+        _vote(ALICE, oldId, true);
+        _vote(BOB, oldId, false);
+        vm.warp(block.timestamp + 1);
+        _transfer(ALICE, DAVE, 49);
+        vm.warp(voting.getProposal(oldId).endsAt);
+        uint256 newId = _propose(BOB);
+        assertGt(voting.getProposal(newId).snapshotTs, voting.getProposal(oldId).snapshotTs);
+        assertEq(pool.getPastShares(ALICE, voting.getProposal(newId).snapshotTs), 0);
+        assertEq(pool.getPastShares(DAVE, voting.getProposal(newId).snapshotTs), 49);
+        assertFalse(voting.hasVoted(newId, BOB));
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.NotMember.selector);
+        voting.vote(newId, true);
+        _vote(DAVE, newId, true);
+        _vote(BOB, newId, true); // A previous proposal's false vote imposes no restriction here.
+        _assertTally(newId, 2, 75, true);
+        _assertTally(oldId, 1, 49, false);
+        assertTrue(voting.hasVoted(oldId, ALICE));
+        assertTrue(voting.hasVoted(oldId, BOB));
+        assertFalse(voting.hasVoted(newId, ALICE));
+    }
+
+    function test_miningCallbackCannotProposeDuringShareTransfer() public {
+        _transfer(CAROL, address(mining), 1);
+        _ready();
+        mining.setClaimReentry(address(pool), abi.encodeCall(IPoolVault.propose, (5 ether, 6 ether, 1)));
+        _transfer(ALICE, DAVE, 1);
+        _assertGovernanceReentryBlocked();
+        assertEq(voting.activeProposalId(), 0);
+        assertEq(voting.nextProposalId(), 1);
+        assertEq(voting.lastProposed(address(mining)), 0);
+        // The caller is eligible outside the callback: the rejection was the reentrancy guard.
+        uint256 id = _propose(address(mining));
+        assertEq(id, 1);
+        assertEq(voting.getProposal(id).proposer, address(mining));
+    }
+
+    function test_miningCallbackCannotVoteDuringShareTransfer() public {
+        _transfer(CAROL, address(mining), 1);
+        _ready();
+        uint256 id = _propose(ALICE);
+        mining.setClaimReentry(address(pool), abi.encodeCall(IPoolVault.vote, (id, true)));
+        _transfer(ALICE, DAVE, 1);
+        _assertGovernanceReentryBlocked();
+        assertFalse(voting.hasVoted(id, address(mining)));
+        _assertTally(id, 0, 0, false);
+        // Proves this callback sender has genuine historical voting eligibility.
+        _vote(address(mining), id, true);
+        _assertTally(id, 1, 1, false);
+    }
+
     function test_sameSecondDirectTransferCannotDuplicateSnapshotVotes() public {
         _assertSameSecondTransferVotes(0);
     }
@@ -356,6 +441,32 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(nft.ownerOf(rewardId), address(pool), "fixture has not sold the NFT");
     }
 
+    function test_listedLifecycleFixtureRejectsProposalsAndVotesWithoutChangingHistory() public {
+        _ready();
+        uint256 id = _propose(ALICE);
+        _vote(ALICE, id, true);
+        bytes32 proposalBefore = keccak256(abi.encode(voting.getProposal(id)));
+        // Lifecycle-only negative test; no listing or NFT-sale implementation is implied.
+        ShareTransferVaultHarness(payable(address(pool))).fixtureSetListed();
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        voting.propose(1, 2, 3);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        voting.vote(id, true);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        voting.vote(id, false);
+        assertEq(keccak256(abi.encode(voting.getProposal(id))), proposalBefore);
+        assertEq(voting.activeProposalId(), id);
+        assertEq(voting.nextProposalId(), id + 1);
+        assertEq(voting.lastProposed(BOB), 0);
+        assertFalse(voting.hasVoted(id, BOB));
+        assertTrue(voting.hasVoted(id, ALICE));
+        assertEq(nft.ownerOf(rewardId), address(pool));
+    }
+
     function _ready() internal {
         vm.warp(uint256(voting.activatedAt()) + 7 days);
     }
@@ -419,5 +530,11 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.WrongState.selector);
         candidate.vote(1, true);
+    }
+
+    function _assertGovernanceReentryBlocked() internal view {
+        assertTrue(mining.reentryAttempted());
+        assertFalse(mining.reentrySucceeded());
+        assertEq(mining.reentryResult(), abi.encodeWithSelector(bytes4(keccak256("ReentrancyGuardReentrantCall()"))));
     }
 }
