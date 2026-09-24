@@ -2,7 +2,7 @@
 
 本卡依据开发文档 v0.4、开工计划 T1b 和已确认的 [M0 链上事实](M0-report.md)，在生产 PoolVault 中实现市场购入、指定卖家直卖、交割前结清及购机余款。测试部署使用真实 Factory、PoolTimelock、PoolBeacon 和 Vault 实现；所有部署与资产操作均限本地测试或 BSC fork，没有主网广播。
 
-**验证状态：最终全树本地验证通过，单元/不变量 80 项、固定块 fork 31 项全部通过；格式、体积、升级布局和 Slither 均 exit 0。远端 CI 待跑。** [contracts 汇总](logs/T1b/contracts/summary.json) 与 [fork 汇总](logs/T1b/fork/summary.json) 均为 `passed`，分别于 2026-09-24 09:39:16 UTC 和 09:39:03 UTC 完成。
+**验证状态：本地及远端验证全部通过：80 项单元/不变量、31 项固定块 fork，以及格式、体积、升级布局和 Slither。** 实现提交为 `6d090612c4b5ce0409b08b90a0573912aaee95f9`，[push CI #35982654911](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35982654911) 和 [PR CI #35982671054](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/35982671054) 均成功。本地证据见 [contracts 汇总](logs/T1b/contracts/summary.json) 与 [fork 汇总](logs/T1b/fork/summary.json)。已保存同一提交成功运行的 [push contracts 原始日志](logs/T1b/github-job-107577977613.log) 和 [PR fork 原始日志](logs/T1b/github-job-107578363318.log)。
 
 ## 行为与资金归属
 
@@ -86,4 +86,4 @@ T1a 已解释的两处 Checkpoints 份额零边界抑制继续保留。时间戳
 3. ERC-721 的 `safeTransferFrom` 在未授权购机上下文会被回调拒绝；外部调用不带接收回调的 `transferFrom` 仍可能强制把 NFT 转入 Vault。本卡不声称能阻止这种外部转入，它不会触发付款、记 purchaseCost 或激活项目；超时退款路径不依赖 NFT 不在本池。
 4. 仅接收已经 Active 的目标矿机，并在购入后复核仍为 Active，落实 v0.4 的购入后保持挖矿要求。未开放暂停挖矿、救援提币或任意资产提现。
 
-没有修改费率、整数份额、投票规则、权限边界或 BNB 认购范围。上述来源冲突按 v0.4 处理，不需要另作业务选择；没有新增需要项目方决定的业务问题。本地交付检查全部完成，远端 CI 待跑。T1c 收益分账、T1d 转让、投票出售、网站与主网部署不属于本卡完成声明。
+没有修改费率、整数份额、投票规则、权限边界或 BNB 认购范围。上述来源冲突按 v0.4 处理，不需要另作业务选择；没有新增需要项目方决定的业务问题。本地交付检查与远端 CI 全部完成。T1c 收益分账、T1d 转让、投票出售、网站与主网部署不属于本卡完成声明。
