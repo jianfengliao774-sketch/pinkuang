@@ -31,6 +31,8 @@
 
 合约和 fork 两份目录中的 79 项源码/config、25 项验证输入清单均已逐一核对最终文件一致。网页功能源码/配置 58 项另存 [SHA-256 清单](../../../deploy/evidence/frontend-final2-web-source-sha256.json)。16 个部署产物的规范化摘要与网页 ABI 摘要同为 `0xe27f45c13921ae5c616573e38d46cfbba63d4831824a94dd60859c0013d7479b`。日志 sourceCommit 是运行前合入点，工作区代码由上述源码清单绑定，不能只凭日志中的 Git 提交号判断测试对象。
 
+实现与完整证据已提交本地 `730616cba1fb148ce09c0a604ee4cf95ddca154c`；随后重新生成产物只更新 `sourceCommit` 到该提交，[结构化对照](../../../deploy/evidence/frontend-provenance-check.json)确认 ABI、字节码、源码哈希和规范化摘要全部未变。
+
 专项包含 1/99/100/101/199/200 等微额手续费边界、256 次整机费率/尾差 fuzz、保持旧 2% 账目迁移、关闭所有销毁入口、零份旧持有人、错误 ABI/64 KiB 超大返回/非法 bool、只读防写、单 getter 耗尽 Gas 后后续池继续读取，以及折价 60 份和人数门槛的真实 Vault 对照。20 个独立冷状态 Funding 池的 Lens 本地执行消耗约 224 万 gas，仅作分页估算，不外推为所有 BSC/RPC 的保证。
 
 中间失败原样保留：
