@@ -8,7 +8,9 @@ const require = createRequire(import.meta.url);
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const keccak = value => `0x${Buffer.from(keccak256(value)).toString('hex')}`;
-const expectedLibraries = ['BurnOperations', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
+const expectedLibraries = ['BurnOperations', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
+const directVaultLibraries = expectedLibraries.filter(name => name !== 'PurchaseValidation');
+const nestedLibraries = { FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'] };
 const mining = '0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46';
 
 function readArtifact(root, name) {
@@ -41,7 +43,7 @@ function templateEvidence(bytecode, label) {
   };
 }
 
-function vaultLinks(bytecode, label) {
+function vaultLinks(bytecode, label, expected = directVaultLibraries) {
   const references = bytecode?.linkReferences;
   assert(references && typeof references === 'object', `Missing linkReferences: ${label}`);
   const links = [];
@@ -60,7 +62,7 @@ function vaultLinks(bytecode, label) {
       links.push({ source, name, positions, placeholder: expectedPlaceholder });
     }
   }
-  assert.deepEqual(links.map(link => link.name).sort(), expectedLibraries,
+  assert.deepEqual(links.map(link => link.name).sort(), expected,
     `${label} must link exactly the reviewed production libraries`);
   return links;
 }
@@ -88,8 +90,18 @@ function reviewLibraryAst(name, artifact) {
   assert.equal(artifact.storageLayout.storage.length, 0, `Library has ordinary storage: ${name}`);
   const state = library.nodes.filter(node => node.nodeType === 'VariableDeclaration' && node.stateVariable);
   assert(state.every(node => node.constant === true), `Library has mutable state declarations: ${name}`);
+  let additionalNamespace;
+  if (name === 'FlexiblePurchase') {
+    const namespace = 'tapeout.storage.FlexiblePurchase';
+    const namespaceSeed = (BigInt(keccak(Buffer.from(namespace))) - 1n).toString(16).padStart(64, '0');
+    const slot = `0x${(BigInt(keccak(Buffer.from(namespaceSeed, 'hex'))) & ~255n).toString(16).padStart(64, '0')}`;
+    assert.equal(state.find(node => node.name === 'SELECTION_STORAGE')?.value?.value?.toLowerCase(), slot,
+      'FlexiblePurchase namespace does not match ERC-7201 derivation.');
+    additionalNamespace = { namespace: `erc7201:${namespace}`, slot, definition: 'src/PurchaseSelectionState.sol:PurchaseSelectionState.SelectionStorage',
+      note: 'Inherited by PoolVault; fields and nested config are extracted by OpenZeppelin storage validation, not inferred from library AST.' };
+  }
   for (const part of ['bytecode', 'deployedBytecode']) {
-    assert.deepEqual(artifact[part]?.linkReferences, {}, `Unexpected nested external library: ${name}`);
+    vaultLinks(artifact[part], `${name} ${part}`, nestedLibraries[name] ?? []);
   }
   const rawCalls = [];
   for (const node of walkAst(library)) {
@@ -123,7 +135,7 @@ function reviewLibraryAst(name, artifact) {
   }
   assert.equal(rawCalls.length, ['MiningOperations', 'PoolFunds'].includes(name) ? 1 : 0, `Raw CALL surface changed: ${name}`);
   return { compilerAstChecked: true, inheritance: [], ordinaryStorageFields: 0,
-    mutableStateDeclarations: 0, explicitDelegatecallOrCallcode: false, selfdestruct: false, rawCalls,
+    mutableStateDeclarations: 0, explicitDelegatecallOrCallcode: false, selfdestruct: false, rawCalls, additionalNamespace,
     scope: 'Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests.' };
 }
 
@@ -136,6 +148,7 @@ export default function auditLinkedLibraries(root, logRoot) {
   const evidenceRoot = resolve(logRoot);
   const vault = readArtifact(projectRoot, 'PoolVault');
   const vaultSource = sourceEvidence(projectRoot, 'src/PoolVault.sol', vault.metadata);
+  const selectionSource = sourceEvidence(projectRoot, 'src/PurchaseSelectionState.sol', vault.metadata);
   const creationLinks = vaultLinks(vault.artifact.bytecode, 'PoolVault creation bytecode');
   const runtimeLinks = vaultLinks(vault.artifact.deployedBytecode, 'PoolVault runtime bytecode');
   const libraries = expectedLibraries.map(name => {
@@ -146,21 +159,23 @@ export default function auditLinkedLibraries(root, logRoot) {
     return { name, source, artifactPath: compiled.path, artifactSha256: compiled.artifactSha256,
       compilerVersion: compiled.metadata.compiler?.version,
       runtimeBytecodeTemplate: templateEvidence(compiled.artifact.deployedBytecode, name),
+      creationLinks: vaultLinks(compiled.artifact.bytecode, `${name} creation bytecode`, nestedLibraries[name] ?? []),
+      runtimeLinks: vaultLinks(compiled.artifact.deployedBytecode, `${name} runtime bytecode`, nestedLibraries[name] ?? []),
       astReview: reviewLibraryAst(name, compiled.artifact) };
   });
   const audit = { schemaVersion: 1, generatedAt: new Date().toISOString(), ok: true,
-    vault: { source: vaultSource, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
+    vault: { source: vaultSource, selectionSource, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
       runtimeBytecodeTemplate: templateEvidence(vault.artifact.deployedBytecode, 'PoolVault'),
       creationLinks, runtimeLinks }, libraries,
     context: {
       execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
-      reentrancy: 'Vault owns the nonReentrant entry points. Libraries have no independent reentrancy lock or Vault callback.',
+      reentrancy: 'Vault owns the nonReentrant purchase/payment entry points. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.',
       upgradeValidationException: 'PoolVault narrowly annotates its locking constructor, OFFICIAL_FACTORY immutable, and external-library-linking; storage validation is not skipped. Storage compatibility does not verify the immutable factory value.',
       limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(join(evidenceRoot, 'library-link-audit.json'), JSON.stringify(audit, null, 2) + '\n');
-  console.log(`PASS: PoolVault links exactly ${expectedLibraries.length} reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.`);
+  console.log(`PASS: PoolVault links ${directVaultLibraries.length} direct and ${expectedLibraries.length} total reviewed libraries; recursive links, source hashes, unlinked templates and scoped AST gates recorded.`);
   return audit;
 }

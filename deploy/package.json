@@ -1,0 +1,36 @@
+{
+  "name": "pinkuang-deploy-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "artifacts": "node scripts/build-artifacts.mjs",
+    "artifacts:check": "node scripts/build-artifacts.mjs --check",
+    "build": "tsc -b && vite build",
+    "test": "tsx --test src/*.test.ts && node --test scripts/*.test.mjs server/*.test.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "start": "node server/index.mjs"
+  },
+  "dependencies": {
+    "ethers": "6.17.0",
+    "lucide-react": "0.468.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@foundry-rs/anvil": "1.7.1",
+    "@foundry-rs/forge": "1.7.1",
+    "@types/node": "22.10.5",
+    "@types/react": "19.0.3",
+    "@types/react-dom": "19.0.2",
+    "@vitejs/plugin-react": "4.7.0",
+    "solc": "0.8.24",
+    "tsx": "4.20.6",
+    "typescript": "5.7.3",
+    "vite": "6.4.3"
+  },
+  "overrides": {
+    "tmp": "0.2.6"
+  }
+}

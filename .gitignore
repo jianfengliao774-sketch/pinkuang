@@ -15,3 +15,9 @@ coverage/
 *.lcov
 .DS_Store
 Thumbs.db
+
+# Deployment console build output and local keeper state
+deploy/dist/
+deploy/*.tsbuildinfo
+deploy/keeper-state/
+deploy/keeper-journal/

@@ -1,0 +1,38 @@
+No files changed, compilation skipped
+
+Ran 20 tests for test/unit/FlexiblePurchase.t.sol:FlexiblePurchaseTest
+[PASS] testFuzz_alternativeRejectsLowWeightUnverifiedOptimalOrInactive(uint8) (runs: 256, μ: 874065, ~: 869876)
+Logs:
+  Bound result 4
+
+[PASS] testFuzz_invalidNftCallbackRollsBackSelectionAndSellerSettlement(uint8) (runs: 256, μ: 1168257, ~: 1147921)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_marketFaultRollsBackSelectionAndFunds(uint8) (runs: 256, μ: 1108978, ~: 1084312)
+Logs:
+  Bound result 4
+
+[PASS] testFuzz_qualityChangedDuringRewardClaimRollsBack(uint8) (runs: 256, μ: 1258439, ~: 1264055)
+Logs:
+  Bound result 2
+
+[PASS] test_callbacksCannotReenterAndPurchaseCannotRepeat() (gas: 1485192)
+[PASS] test_configRejectsDirectRouteAndZeroOrFutureTerms() (gas: 1639883)
+[PASS] test_configureIsAtomicFactoryOnlyAndImmutable() (gas: 77749)
+[PASS] test_configureRejectsPostFundingEvenWhenFactoryCalls() (gas: 823530)
+[PASS] test_extraAdjustableAndTargetRoundsUpToHundredWei() (gas: 1370873)
+[PASS] test_factoryCreationRejectsUnauthorizedAndInvalidReferenceRaise() (gas: 574997)
+[PASS] test_fixedPoolCannotUseAlternativeAndKeepsOriginalName() (gas: 1289728)
+[PASS] test_flexiblePoolCannotUseDirectSellerBypass() (gas: 715308)
+[PASS] test_fullSurplusUses49_26_25AndRoundingNoDustRemains() (gas: 1344928)
+[PASS] test_originalEntryCannotBypassVerifiedQuality() (gas: 878421)
+[PASS] test_originalSoldThenQualifiedAlternativeActivatesAndSettlesSellerOldRewards() (gas: 1525404)
+[PASS] test_priceCapRejectsOneWeiExcessAndAllowsBoundary() (gas: 1357998)
+[PASS] test_purchaseRequiresFullFundingAndStopsExactlyAtDeadline() (gas: 945443)
+[PASS] test_transferAfterPurchaseKeepsRefundWithOriginalShareholders() (gas: 3065573)
+[PASS] test_withdrawnSubscriptionCreditAndDonationsExcludedFromNewSurplus() (gas: 1333715)
+[PASS] test_wrongCollectionEvenAnotherOfficialCollectionRejected() (gas: 833705)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 66.22ms (255.21ms CPU time)
+
+Ran 1 test suite in 67.53ms (66.22ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)

@@ -8,17 +8,17 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
-import {ICircuitMarket} from "./interfaces/ICircuitMarket.sol";
 import {PoolRewardState} from "./PoolRewardState.sol";
 import {PoolSaleState} from "./PoolSaleState.sol";
 import {RewardAccounting} from "./libraries/RewardAccounting.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
 import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
 import {SaleGovernance} from "./libraries/SaleGovernance.sol";
-import {PurchaseValidation} from "./libraries/PurchaseValidation.sol";
+import {FlexiblePurchase} from "./libraries/FlexiblePurchase.sol";
 import {SaleSettlement} from "./libraries/SaleSettlement.sol";
 import {BurnOperations} from "./libraries/BurnOperations.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
+import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
@@ -31,7 +31,8 @@ contract PoolVault is
     IERC721Receiver,
     PoolRewardState,
     PoolSaleState,
-    PoolVaultState
+    PoolVaultState,
+    PurchaseSelectionState
 {
     using Checkpoints for Checkpoints.Trace208;
 
@@ -135,44 +136,35 @@ contract PoolVault is
     }
 
     function buyFromMarket(uint256 listingId) external nonReentrant {
-        VaultStorage storage s = _requirePurchaseWindow();
-        (address seller, uint256 price, bytes32 key) = PurchaseValidation.prepareMarketPurchase(
-            s.params.circuits, s.params.circuitId, s.params.priceCap, listingId
-        );
-        _expectNft(s, seller, CIRCUIT_MARKET);
-        // M0 proves that the listed price is the buyer's entire payment, including the seller-borne 1% fee.
-        ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId, SafeCast.toUint96(price));
-        _finishPurchase(s, price, 0, listingId, key);
+        FlexiblePurchase.buy(_vaultStorage(), listingId, false);
+    }
+
+    function buyAlternativeFromMarket(uint256 listingId) external nonReentrant {
+        FlexiblePurchase.buy(_vaultStorage(), listingId, true);
     }
 
     function sellToPool() external nonReentrant {
-        VaultStorage storage s = _requirePurchaseWindow();
-        address seller = s.params.directSeller;
-        uint256 price = s.params.directPrice;
-        bytes32 key = PurchaseValidation.prepareDirectPurchase(
-            s.params.circuits, s.params.circuitId, seller, price, s.params.priceCap
-        );
-        _expectNft(s, seller, address(this));
-        IERC721(s.params.circuits).safeTransferFrom(seller, address(this), s.params.circuitId);
-        _finishPurchase(s, price, 1, 0, key);
-        // Seller proceeds are a liability, not an immediate outgoing call. A rejecting seller cannot block purchase.
-        _creditBnb(s, seller, price);
+        FlexiblePurchase.sell(_vaultStorage());
     }
 
-    function _requirePurchaseWindow() private view returns (VaultStorage storage s) {
-        s = _vaultStorage();
-        if (s.state != State.Funded) revert WrongState();
-        if (block.timestamp >= s.params.purchaseDeadline) revert DeadlinePassed();
+    function configureFlexiblePurchase(FlexiblePurchaseConfig calldata config) external {
+        FlexiblePurchase.configure(_vaultStorage(), config, totalSupply());
     }
 
-    function _activeMinerKey(VaultStorage storage s) private view returns (bytes32 key) {
-        return PurchaseValidation.activeMinerKey(s.params.circuits, s.params.circuitId);
+    function flexiblePurchase()
+        external
+        view
+        returns (bool enabled, uint256 referenceCircuitId, FlexiblePurchaseConfig memory config)
+    {
+        return FlexiblePurchase.configuration();
     }
 
-    function _expectNft(VaultStorage storage s, address seller, address expectedOperator) private {
-        s.expectedNftSeller = seller;
-        s.expectedNftOperator = expectedOperator;
-        s.nftReceived = false;
+    function purchaseModel() external view returns (bool initialized, uint32 taskId) {
+        return FlexiblePurchase.model();
+    }
+
+    function name() public view override returns (string memory) {
+        return FlexiblePurchase.shareName(super.name());
     }
 
     function onERC721Received(address operator, address from, uint256 id, bytes calldata) external returns (bytes4) {
@@ -185,15 +177,6 @@ contract PoolVault is
         s.nftReceived = true;
         s.expectedNftOperator = address(0); // Consume the single permitted callback.
         return IERC721Receiver.onERC721Received.selector;
-    }
-
-    function _finishPurchase(VaultStorage storage s, uint256 cost, uint8 path, uint256 listingId, bytes32 expectedKey)
-        private
-    {
-        if (!s.nftReceived) revert UnexpectedNft();
-        if (IERC721(s.params.circuits).ownerOf(s.params.circuitId) != address(this)) revert NotOwnerAfterBuy();
-        if (_activeMinerKey(s) != expectedKey) revert WrongCircuit();
-        PoolFunds.recordPurchase(s, cost, path, listingId);
     }
 
     function _pendingPurchaseSurplus(VaultStorage storage s, address member) private view returns (uint256) {

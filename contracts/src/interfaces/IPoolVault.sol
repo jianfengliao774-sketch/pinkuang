@@ -22,6 +22,17 @@ interface IPoolVault {
         uint64 purchaseDeadline;
     }
 
+    /// @notice Immutable opt-in purchase terms. Price/yield fields are disclosed references, not an oracle.
+    struct FlexiblePurchaseConfig {
+        uint128 minVerifiedWeight;
+        uint256 referencePriceWei;
+        uint256 targetDailyYieldAtomic;
+        uint16 extraBps;
+        uint64 referenceObservedAt;
+        uint64 referenceBlock;
+        bytes32 referenceDigest;
+    }
+
     error WrongState();
     error DeadlinePassed();
     error DeadlineNotReached();
@@ -65,6 +76,12 @@ interface IPoolVault {
     error NothingToBurn();
     error BurnAccountingMismatch();
     error BurnOutputMismatch();
+    error FlexiblePurchaseDisabled();
+    error FlexiblePurchaseAlreadyConfigured();
+    error MinerDoesNotMeetCriteria();
+    error PurchaseModelNotInitialized();
+    error WrongPurchaseModel();
+    error OriginalTargetAvailable();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
     event DepositWithdrawn(address indexed user, uint8 shares, uint256 amount);
@@ -102,6 +119,14 @@ interface IPoolVault {
     event SaleBudgetRecorded(uint256 indexed proposalId, uint256 amount);
     event SaleProceedsSettled(address indexed user, uint256 shares, uint256 amount);
     event BurnExecuted(uint256 bnbSpent, uint256 bemBurned);
+    event FlexiblePurchaseConfigured(
+        uint256 indexed referenceCircuitId, uint128 minVerifiedWeight, bytes32 referenceDigest
+    );
+    event AlternativeMinerSelected(
+        uint256 indexed referenceCircuitId, uint256 indexed acquiredCircuitId, uint256 listingId
+    );
+    event FlexibleSurplusAllocated(uint256 amount, address indexed roundingRecipient, uint256 roundingWei);
+    event PurchaseModelLocked(uint32 indexed taskId);
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -110,6 +135,13 @@ interface IPoolVault {
     function withdrawBnb() external;
     function setDepositPaused(bool paused) external;
     function buyFromMarket(uint256 listingId) external;
+    function buyAlternativeFromMarket(uint256 listingId) external;
+    function configureFlexiblePurchase(FlexiblePurchaseConfig calldata config) external;
+    function flexiblePurchase()
+        external
+        view
+        returns (bool enabled, uint256 referenceCircuitId, FlexiblePurchaseConfig memory config);
+    function purchaseModel() external view returns (bool initialized, uint32 taskId);
     function sellToPool() external;
     function configureExpiry(bool enabled) external;
     function mine(bytes calldata data) external returns (bytes memory);

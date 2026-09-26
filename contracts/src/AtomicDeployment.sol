@@ -21,6 +21,7 @@ interface IDeploymentMultisig {
 /// No child is created before deploy(): CREATE nonces 1/2/3 belong to timelock/beacon/factory proxy respectively.
 contract AtomicDeployment {
     struct Config {
+        // Legacy field name retained for ABI compatibility; deploySingleOwner treats it as the owner wallet.
         address ownerMultisig;
         address operator;
         address treasury;
@@ -64,6 +65,7 @@ contract AtomicDeployment {
         address market,
         bytes32 marketCodehash
     );
+    event SingleOwnerDeployment(address indexed owner, address indexed factory);
 
     constructor() {
         deployer = msg.sender;
@@ -74,9 +76,33 @@ contract AtomicDeployment {
     }
 
     function deploy(Config calldata config) external returns (Deployment memory result) {
+        _requireUndeployed();
+        _validate(config);
+        return _deploy(config);
+    }
+
+    /// @notice Explicit single-wallet bootstrap, retaining the same atomic graph and 48-hour upgrade delay.
+    /// @dev The wallet that created this coordinator must remain the owner. Operator/treasury may be that wallet.
+    /// This mode has no multisig protection: control and key recovery are the owner's responsibility.
+    function deploySingleOwner(Config calldata config) external returns (Deployment memory result) {
+        _requireUndeployed();
+        if (
+            config.ownerMultisig == address(0) || config.ownerMultisig != deployer || config.operator == address(0)
+                || config.treasury == address(0)
+        ) {
+            revert InvalidRoles();
+        }
+        _validateImplementations(config);
+        result = _deploy(config);
+        emit SingleOwnerDeployment(config.ownerMultisig, result.factory);
+    }
+
+    function _requireUndeployed() private view {
         if (msg.sender != deployer) revert Unauthorized();
         if (deployed) revert AlreadyDeployed();
-        _validate(config);
+    }
+
+    function _deploy(Config calldata config) private returns (Deployment memory result) {
         deployed = true;
 
         PoolTimelock timelock = new PoolTimelock(config.ownerMultisig);
@@ -121,6 +147,10 @@ contract AtomicDeployment {
         ) revert InvalidRoles();
         _validateMultisig(config.ownerMultisig, true);
         if (config.treasury != config.ownerMultisig) _validateMultisig(config.treasury, false);
+        _validateImplementations(config);
+    }
+
+    function _validateImplementations(Config calldata config) private view {
         if (
             config.vaultImplementation.code.length == 0 || config.factoryImplementation.code.length == 0
                 || config.marketImplementation.code.length == 0
