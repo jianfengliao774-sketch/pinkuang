@@ -366,7 +366,7 @@ export class DeploymentEngine {
   async resume(saved: DeploymentSnapshot): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
       const snapshot = await this.latestSnapshot(saved);
-      assert(snapshot.status !== 'aborted' && !snapshot.steps.some(step => step.replacementHash), '原部署 nonce 已被钱包替换，不能继续此计划；请保存旧记录并新建部署。');
+      assert(snapshot.status !== 'aborted' && !snapshot.steps.some(step => step.replacementHash), '原部署已终止，不能继续此计划；请保存旧记录并新建部署。');
       await this.restore(snapshot);
       if (isAborted(snapshot)) return snapshot;
       if (snapshot.steps.every(step => step.status === 'confirmed')) {
@@ -508,7 +508,7 @@ export class DeploymentEngine {
   async adjustLimits(saved: DeploymentSnapshot, limits: Pick<DeploymentInput, 'maxGasBudgetBnb' | 'gasPriceCapGwei'>): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
       const snapshot = await this.latestSnapshot(saved);
-      assert(snapshot.status !== 'complete' && snapshot.status !== 'aborted', '部署已完成或被钱包替换，不能提高预算继续旧计划。');
+      assert(snapshot.status !== 'complete' && snapshot.status !== 'aborted', '部署已完成或已终止，不能提高预算继续旧计划。');
       await this.restore(snapshot);
       assert(!isAborted(snapshot), '部署交易链上失败或已被钱包替换，不能提高预算继续旧计划。');
       assert(!snapshot.steps.every(step => step.status === 'confirmed'), '部署已完成，无需提高预算。');
