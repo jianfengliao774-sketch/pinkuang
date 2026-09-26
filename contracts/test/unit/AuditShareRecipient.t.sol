@@ -17,7 +17,7 @@ contract AuditShareRecipientTest is ShareTransferTestBase {
         assertEq(mining.claimCalls(), claimCalls);
         _assertUnchanged(recipient);
         _transfer(ALICE, DAVE, 1);
-        assertEq(rewards.claimable(ALICE), 4655);
+        assertEq(rewards.claimable(ALICE), 4851);
         assertEq(rewards.claimable(DAVE), 0);
     }
 

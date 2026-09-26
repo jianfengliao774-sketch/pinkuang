@@ -1,0 +1,8 @@
+Compiling 161 files with Solc 0.8.24
+Solc 0.8.24 finished in 29.41s
+Error: Compiler run failed:
+Error: Compiler error (/solidity/libsolidity/codegen/LValue.cpp:55):Stack too deep. Try compiling with `--via-ir` (cli) or the equivalent `viaIR: true` (standard JSON) while enabling the optimizer. Otherwise, try removing local variables.
+   --> test/fork/PoolRewardsFork.t.sol:191:41:
+    |
+191 |         assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase - 10000);
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^

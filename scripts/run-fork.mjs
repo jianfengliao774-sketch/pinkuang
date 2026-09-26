@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { forgeToolchain } from './foundry.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const task = process.env.VALIDATION_TASK ?? 'T1e';
@@ -47,10 +48,10 @@ const verificationManifest = Object.fromEntries(verificationFiles.map(path => {
   return [path.replaceAll('\\', '/'), createHash('sha256').update(source).digest('hex')];
 }));
 writeFileSync(join(logRoot, 'verification-input-sha256.json'), JSON.stringify(verificationManifest, null, 2) + '\n');
-const bundledForge = join(root, '.tools/forge/package/bin/forge.exe');
-const forge = process.platform === 'win32' && existsSync(bundledForge) ? bundledForge : 'forge';
-const env = { ...process.env, FOUNDRY_PROFILE: 'ci', NO_COLOR: '1', VALIDATION_TASK: task,
-  VALIDATION_EVIDENCE_ROOT: logRoot };
+const { executable: forge, env } = forgeToolchain(root, { env: {
+  ...process.env, FOUNDRY_PROFILE: 'ci', NO_COLOR: '1', VALIDATION_TASK: task,
+  VALIDATION_EVIDENCE_ROOT: logRoot,
+} });
 const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
 const summary = { task, stage: 'fork', startedAt: new Date().toISOString(), status: 'running',
   sourceCommit: commit.status === 0 ? commit.stdout.trim() : null,
@@ -66,15 +67,17 @@ function run(name, args) {
   });
   const output = (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? `${result.error.message}\n` : '');
   writeFileSync(join(logRoot, `${name}.log`), output.replaceAll(process.env.BSC_RPC_URL, '[BSC_RPC_URL]'));
-  summary.results.push({ name, args, exitCode: result.status ?? 1 });
+  summary.results.push({ name, executable: forge, args, exitCode: result.status ?? 1,
+    signal: result.signal, runnerError: result.error ? { code: result.error.code, message: result.error.message } : null });
   if (result.status !== 0) {
     summary.status = 'failed';
     summary.finishedAt = new Date().toISOString();
   }
   writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
   console.log(output.replaceAll(process.env.BSC_RPC_URL, '[BSC_RPC_URL]'));
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) throw Object.assign(new Error(`${name} failed; inspect ${logRoot}`), { exitCode: result.status ?? 1 });
 }
+try {
 run('toolchain', ['--version']);
 run('forge-fmt', ['fmt', '--check']);
 run('forge-build-sizes', ['build', '--sizes', '--force']);
@@ -89,3 +92,7 @@ summary.status = 'passed';
 summary.finishedAt = new Date().toISOString();
 writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 console.log(`Fork evidence saved in ${logRoot}`);
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = error.exitCode ?? 1;
+}

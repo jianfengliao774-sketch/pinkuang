@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "testSuites": 24,
+  "passed": 297,
+  "failed": 0,
+  "skipped": 0,
+  "profile": "ci",
+  "invariant": {
+    "runs": 128,
+    "depth": 64,
+    "failOnRevert": true
+  },
+  "fuzz": {
+    "runs": 256
+  },
+  "solidityCompiler": "0.8.24",
+  "commands": {
+    "tests": "FOUNDRY_PROFILE=ci ./deploy/node_modules/.bin/forge test --root contracts --no-match-path 'test/fork/**' -vv",
+    "format": "./deploy/node_modules/.bin/forge fmt --check contracts/src/AtomicDeployment.sol contracts/test/unit/SingleOwnerDeployment.t.sol"
+  },
+  "format": "passed",
+  "durationSeconds": 41.96,
+  "finishedAtUtc": "2026-09-26T07:03:38.826005+00:00",
+  "recordedAtUtc": "2026-09-26T07:05:27.262345+00:00",
+  "sourceSha256": {
+    "contracts/src/AtomicDeployment.sol": "77ee6bfead99ea4466ab8f74ae91b98193c06ffb7aa796e52e095eb5c7432b00",
+    "contracts/test/unit/SingleOwnerDeployment.t.sol": "2f0b27808abc55be9c8424583dba6b16f7b99e516b15dc440f0b89f66adb1447"
+  },
+  "log": {
+    "path": "deploy/evidence/contracts-ci.log",
+    "sha256": "319c7346bae638f265e96f64d62e7824b7325f545adc84708073b2c1748ab939"
+  },
+  "scope": "Local EVM unit, fuzz and invariant tests; excludes fork tests. No mainnet deployment or real-wallet transaction performed.",
+  "notes": [
+    "Earlier default-profile run (256 invariant runs x 500 depth) was interrupted and is not counted as a pass. Final completed run uses the repository CI profile."
+  ]
+}

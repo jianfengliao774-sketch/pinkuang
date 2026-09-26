@@ -1,0 +1,6 @@
+
+> pinkuang-deploy-console@0.1.0 artifacts
+> node scripts/build-artifacts.mjs
+
+Built 15 deployment artifacts from 61 sources (0.8.24+commit.e11b9ed9.Emscripten.clang).
+Runtime bytes: AtomicDeployment 17357, ERC1967Proxy 163, FlexiblePurchase 9111, MiningOperations 6040, PoolBeacon 868, PoolFactory 11210, PoolFunds 2954, PoolTimelock 6608, PoolVault 24318, PurchaseValidation 3532, RewardAccounting 4836, SaleGovernance 3855, SaleSettlement 3519, ShareCheckpoints 1466, ShareMarket 7017

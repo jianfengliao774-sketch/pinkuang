@@ -154,8 +154,10 @@ contract AuditMiningSettlementTest is SaleTestBase {
         _transfer(ALICE, DAVE, 1);
         assertEq(mining.claimCalls(), claimsBefore);
         assertEq(bem.totalSupply(), supplyBefore);
-        assertEq(rewards.bemAccounted(), 28500);
-        assertEq(rewards.claimable(ALICE), 13965);
+        assertEq(rewards.bemAccounted(), 29700);
+        assertEq(bem.balanceOf(TREASURY), 300);
+        assertEq(bem.balanceOf(DEAD), 0);
+        assertEq(rewards.claimable(ALICE), 14553);
         assertEq(rewards.claimable(DAVE), 0);
 
         vm.prank(ALICE);

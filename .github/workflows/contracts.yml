@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       run_fork:
-        description: Run protocol, purchase, rewards, shares, controlled sale and burn forks on the reviewed fixed block
+        description: Run protocol, purchase, rewards, shares, controlled sale and disabled-burn regression forks on the reviewed fixed block
         type: boolean
         default: false
 
@@ -56,6 +56,31 @@ jobs:
           path: ${{ runner.temp }}/t1e-contracts-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn
 
+  deployment-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            deploy/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: deploy
+      - name: Verify deployment artifacts against Solidity sources and pinned compiler
+        run: npm run artifacts:check
+        working-directory: deploy
+      - name: Deployment, keeper and proxy regression tests
+        run: npm test
+        working-directory: deploy
+      - name: Compile source-pinned UI and production server assets
+        run: npm run build
+        working-directory: deploy
+
   fork:
     if: github.event_name != 'workflow_dispatch' || inputs.run_fork
     needs: contracts
@@ -84,7 +109,7 @@ jobs:
         with:
           version: v1.7.1
       - run: npm ci
-      - name: Protocol, purchase, rewards, shares, controlled sale and burn forks
+      - name: Protocol, purchase, rewards, shares, controlled sale and disabled-burn regression forks
         env:
           VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}
         run: npm run test:fork

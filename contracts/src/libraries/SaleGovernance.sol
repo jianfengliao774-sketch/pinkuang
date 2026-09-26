@@ -33,6 +33,7 @@ library SaleGovernance {
     error AlreadyVoted();
     error ProposalNotPassed();
     error InvalidListing();
+    error InvalidSalePrice();
 
     event SaleProposed(
         uint256 indexed proposalId,
@@ -58,14 +59,17 @@ library SaleGovernance {
             revert DeadlineNotReached();
         }
         if (input.currentShares == 0) revert NotMember();
-        uint256 last = s.lastProposed[msg.sender];
-        if (last != 0 && block.timestamp < last + PROPOSE_INTERVAL) revert ProposeCooldown();
-
+        if (input.price == 0) revert InvalidSalePrice();
         uint256 activeId = s.activeProposalId;
         if (activeId != 0) {
             PoolSaleState.Proposal storage active = s.proposals[activeId];
             if (!active.executed && block.timestamp < active.endsAt) revert ProposalActive();
+            // Pool-wide spacing prevents rotating minority addresses from freezing share trading indefinitely.
+            // endsAt already records proposedAt + VOTE_DURATION; derive the next slot without changing storage.
+            if (block.timestamp < uint256(active.endsAt) + PROPOSE_INTERVAL - VOTE_DURATION) revert ProposeCooldown();
         }
+        uint256 last = s.lastProposed[msg.sender];
+        if (last != 0 && block.timestamp < last + PROPOSE_INTERVAL) revert ProposeCooldown();
 
         uint48 snapshotTs = SafeCast.toUint48(block.timestamp - 1);
         if (snapshotTs <= input.activatedAt) revert DeadlineNotReached();
@@ -111,17 +115,27 @@ library SaleGovernance {
     }
 
     /// @notice Reports only the vote result; execution must independently check its deadline and state.
-    function passed(PoolSaleState.SaleStorage storage s, uint256 proposalId) external view returns (bool) {
+    function passed(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost)
+        external
+        view
+        returns (bool)
+    {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
-        return _passed(p);
+        return _passed(p, purchaseCost);
+    }
+
+    /// @notice Freeze current ownership while the closed-snapshot vote is still open.
+    function tradingFrozen(PoolSaleState.SaleStorage storage s) external view returns (bool) {
+        PoolSaleState.Proposal storage p = s.proposals[s.activeProposalId];
+        return s.activeProposalId != 0 && !p.executed && block.timestamp < p.endsAt;
     }
 
     /// @notice Opens only the Vault's controlled listing; no external market receives an approval.
-    function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId) external {
+    function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost) external {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
         if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
-        if (!_passed(p)) revert ProposalNotPassed();
+        if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
         p.executed = true;
         s.listedProposalId = proposalId;
         s.listedAt = SafeCast.toUint64(block.timestamp);
@@ -142,8 +156,11 @@ library SaleGovernance {
         emit SaleExpired(proposalId);
     }
 
-    function _passed(PoolSaleState.Proposal storage p) private view returns (bool) {
-        return p.yesCount * 2 > p.snapshotMemberCount && p.yesShares * 2 > p.snapshotTotalShares;
+    function _passed(PoolSaleState.Proposal storage p, uint256 purchaseCost) private view returns (bool) {
+        if (p.price == 0 || p.snapshotTotalShares != TOTAL_SHARES) return false;
+        // Only the actual on-chain acquisition cost sets the floor. refPrice is disclosure, never authority.
+        bool sharesPassed = p.price < purchaseCost ? p.yesShares >= 60 : p.yesShares * 2 > p.snapshotTotalShares;
+        return p.yesCount * 2 > p.snapshotMemberCount && sharesPassed;
     }
 
     function _proposal(PoolSaleState.SaleStorage storage s, uint256 proposalId)

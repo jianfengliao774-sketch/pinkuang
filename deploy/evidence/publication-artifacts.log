@@ -1,0 +1,20 @@
+
+> pinkuang-deploy-console@0.1.0 artifacts
+> node scripts/build-artifacts.mjs
+
+Built 16 deployment artifacts from 61 sources (0.8.24+commit.e11b9ed9.Emscripten.clang).
+Runtime bytes: AtomicDeployment 17357, BurnOperations 3460, ERC1967Proxy 163, FlexiblePurchase 8268, MiningOperations 6040, PoolBeacon 868, PoolFactory 11210, PoolFunds 2954, PoolTimelock 6608, PoolVault 24208, PurchaseValidation 3532, RewardAccounting 5565, SaleGovernance 3564, SaleSettlement 2149, ShareCheckpoints 1466, ShareMarket 6259
+✔ browser artifacts compile the complete source graph with the reviewed compiler settings (0.856958ms)
+✔ all deployment templates fit chain code limits and every link maps to the correct Solidity placeholder (3.419416ms)
+✔ nested purchase dependencies and all nine libraries precede PoolVault in the compiler link graph (0.5805ms)
+✔ deployment ABI retains prediction, role validation, binding and post-deployment inspection methods (3.57875ms)
+✔ --check rejects source or artifact drift while permitting a later Git commit with identical source bytes (25.026959ms)
+✔ malformed link locations and oversized runtime code cannot enter a deployment bundle (3.188ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5986.814583

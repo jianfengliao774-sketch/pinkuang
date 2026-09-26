@@ -125,6 +125,15 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         return _createPool(params, expiryEnabled);
     }
 
+    /// @notice Creates an opt-in verified-capacity pool and locks all selection terms before returning.
+    function createFlexiblePool(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.FlexiblePurchaseConfig calldata config
+    ) external nonReentrant returns (address pool) {
+        pool = _createPool(params, true);
+        IPoolVault(pool).configureFlexiblePurchase(config);
+    }
+
     function _createPool(IPoolVault.PoolParams calldata params, bool expiryEnabled) private returns (address pool) {
         FactoryStorage storage $ = _factoryStorage();
         if (msg.sender != $.operator) revert Unauthorized();

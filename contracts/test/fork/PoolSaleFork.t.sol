@@ -136,10 +136,10 @@ contract PoolSaleForkTest is Test {
         assertGt(finalGross, 0, "the purchase transaction itself claims new real rewards");
         _assertSaleOrder(entries, finalGross);
         assertEq(BEM.balanceOf(TREASURY) - before.treasuryBem, finalGross / 100);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - before.deadBem, finalGross * 4 / 100);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - before.deadBem, 0);
         assertEq(BEM.balanceOf(address(vault)) - before.vaultBem, finalNet);
         assertEq(vault.bemAccounted(), before.accounted + finalNet);
-        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), before.epochNet + finalNet);
+        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), before.epochNet);
         assertEq(BEM.balanceOf(BUYER), buyerBemBefore, "NFT purchase transfers no historical BEM to buyer");
         assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase);
         assertEq(NFT.ownerOf(TOKEN_ID), BUYER);
@@ -157,8 +157,8 @@ contract PoolSaleForkTest is Test {
         _withdrawOriginalRights();
         emit log_named_uint("real final handover gross BEM (atoms)", finalGross);
         emit log_named_uint("real final handover member net BEM (atoms)", finalNet);
-        emit log_named_uint("sale member BNB (wei)", SALE_PRICE - 2 * (SALE_PRICE / 50));
-        emit log_named_uint("reserved BNB for later BEM burn (wei)", vault.burnBudget());
+        emit log_named_uint("sale member BNB (wei)", SALE_PRICE - (SALE_PRICE / 50));
+        emit log_named_uint("disabled burn budget (wei)", vault.burnBudget());
     }
 
     function test_Fork_NoApprovalLetsBuyerOrCircuitMarketBypassControlledSale() public {
@@ -284,8 +284,8 @@ contract PoolSaleForkTest is Test {
 
     function _assertBnbLiabilities() private view {
         uint256 fee = SALE_PRICE / 50;
-        uint256 memberNet = SALE_PRICE - 2 * fee;
-        assertEq(vault.burnBudget(), fee);
+        uint256 memberNet = SALE_PRICE - fee;
+        assertEq(vault.burnBudget(), 0);
         assertEq(vault.totalBurnBnbSpent(), 0);
         assertEq(vault.totalBurnBem(), 0, "BNB budget is not already-burned BEM");
         assertEq(vault.salePerShareWei(), memberNet / 100);
@@ -321,8 +321,8 @@ contract PoolSaleForkTest is Test {
     function _withdrawOriginalRights() private {
         address[3] memory members = [ALICE, BOB, CAROL];
         uint256[3] memory shares = [uint256(49), uint256(49), uint256(2)];
-        uint256 net = vault.epochNet(uint32(block.timestamp / 1 days));
-        uint256 memberBnb = SALE_PRICE - 2 * (SALE_PRICE / 50);
+        uint256 net = vault.bemAccounted();
+        uint256 memberBnb = SALE_PRICE - (SALE_PRICE / 50);
         uint256 paidBem;
         // The sold NFT's protocol claim must not be called while old members withdraw.
         vm.expectCall(Addresses.MINING, abi.encodeCall(ITapeoutMining.claim, (key)), uint64(0));
@@ -355,7 +355,7 @@ contract PoolSaleForkTest is Test {
         assertEq(vault.totalBnbOwed(), 0);
         assertEq(vault.saleOutstandingWei(), 0);
         assertEq(address(vault).balance, vault.burnBudget());
-        assertEq(vault.epochPaid(uint32(block.timestamp / 1 days)), paidBem);
+        assertEq(vault.epochPaid(uint32(block.timestamp / 1 days)), 0);
         assertEq(vault.bemAccounted(), net - paidBem);
         assertEq(BEM.balanceOf(address(vault)), net - paidBem, "only member rounding dust remains");
     }
@@ -379,7 +379,7 @@ contract PoolSaleForkTest is Test {
                     abi.decode(entry.data, (uint256, uint256, uint256, uint256));
                 assertEq(gross, finalGross);
                 assertEq(fee, finalGross / 100);
-                assertEq(burned, finalGross * 4 / 100);
+                assertEq(burned, 0);
                 assertEq(net, _net(finalGross));
             } else if (entry.emitter == address(vault) && entry.topics[0] == SETTLED_TOPIC) {
                 settlementIndex = i;
@@ -402,7 +402,7 @@ contract PoolSaleForkTest is Test {
                 assertEq(gross, SALE_PRICE);
                 assertEq(fee, SALE_PRICE / 50);
                 assertEq(burnedBem, 0);
-                assertEq(net, SALE_PRICE - 2 * fee);
+                assertEq(net, SALE_PRICE - fee);
             }
         }
         assertLt(mintIndex, harvestIndex, "real claim/mint precedes internal reward accounting");
@@ -413,6 +413,6 @@ contract PoolSaleForkTest is Test {
     }
 
     function _net(uint256 gross) private pure returns (uint256) {
-        return gross - gross / 100 - gross * 4 / 100;
+        return gross - gross / 100;
     }
 }

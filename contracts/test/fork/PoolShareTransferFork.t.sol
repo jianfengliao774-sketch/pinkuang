@@ -213,7 +213,7 @@ contract PoolShareTransferForkTest is Test {
     }
 
     function _net(uint256 gross) private pure returns (uint256) {
-        return gross - gross / 100 - gross * 4 / 100;
+        return gross - gross / 100;
     }
 
     function _assertMarketNeverMember() private view {
@@ -250,7 +250,7 @@ contract PoolShareTransferForkTest is Test {
                     abi.decode(entry.data, (uint256, uint256, uint256, uint256));
                 assertEq(recordedGross, gross);
                 assertEq(fee, gross / 100);
-                assertEq(burn, gross * 4 / 100);
+                assertEq(burn, 0);
                 assertEq(net, _net(gross));
                 harvestIndex = i;
             } else if (entry.emitter == address(vault) && entry.topics[0] == TRANSFER_TOPIC) {

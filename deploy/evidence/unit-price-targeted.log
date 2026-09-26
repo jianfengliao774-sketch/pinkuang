@@ -1,0 +1,76 @@
+Compiling 95 files with Solc 0.8.24
+Solc 0.8.24 finished in 8.17s
+Compiler run successful!
+
+Ran 44 tests for test/unit/FlexiblePurchase.t.sol:FlexiblePurchaseTest
+[PASS] testFuzz_alternativeRejectsLowWeightUnverifiedOptimalOrInactive(uint8) (runs: 256, μ: 902340, ~: 898329)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_configureRejectsInvalidOnchainReferenceAtomically(uint8) (runs: 256, μ: 600907, ~: 596756)
+Logs:
+  Bound result 0
+
+[PASS] testFuzz_invalidNftCallbackRollsBackSelectionAndSellerSettlement(uint8) (runs: 256, μ: 1231514, ~: 1203183)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_marketFaultRollsBackSelectionAndFunds(uint8) (runs: 256, μ: 1163403, ~: 1139768)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_modelChangedDuringClaimOrMarketTransferRollsBack(bool) (runs: 256, μ: 1249444, ~: 1100363)
+[PASS] testFuzz_modelIsReadFromChainIncludingTaskZero(uint32) (runs: 256, μ: 775139, ~: 775161)
+[PASS] testFuzz_originalUnavailableOrUnqualifiedAllowsReplacement(uint8) (runs: 256, μ: 1464516, ~: 1471576)
+Logs:
+  Bound result 0
+
+[PASS] testFuzz_qualityChangedDuringRewardClaimRollsBack(uint8) (runs: 256, μ: 1013508, ~: 1018484)
+Logs:
+  Bound result 2
+
+[PASS] testFuzz_rejectingBnbHolderCannotBlockPurchaseOrOtherRefunds(bool) (runs: 256, μ: 1134829, ~: 823800)
+[PASS] testFuzz_weightDropsDuringClaimOrMarketTransferRevertsEntirePurchase(bool) (runs: 256, μ: 1947268, ~: 1799423)
+[PASS] testFuzz_wrongMinerIdentityRollsBackAllFunds(bool) (runs: 256, μ: 891506, ~: 891424)
+[PASS] testFuzz_zeroPriceOrSellerOriginalIsNotPurchasable(bool) (runs: 256, μ: 1421694, ~: 1411799)
+[PASS] test_callbacksCannotReenterAndPurchaseCannotRepeat() (gas: 1539659)
+[PASS] test_configRejectsDirectRouteAndZeroOrFutureTerms() (gas: 1639785)
+[PASS] test_configureIsAtomicFactoryOnlyAndImmutable() (gas: 86599)
+[PASS] test_configureRejectsPostFundingEvenWhenFactoryCalls() (gas: 823520)
+[PASS] test_extraAdjustableAndTargetRoundsUpToHundredWei() (gas: 1453707)
+[PASS] test_extraFundraisingCannotRaiseOriginalPurchaseCap() (gas: 1437416)
+[PASS] test_factoryCreationRejectsUnauthorizedAndInvalidReferenceRaise() (gas: 575053)
+[PASS] test_failedOriginalLookupCannotBeTreatedAsUnavailable() (gas: 936370)
+[PASS] test_failureWith100HoldersStaysWithinLocalGasBudgetAndReturnsEveryWei() (gas: 21875243)
+Logs:
+  100-holder failure local execution gas (setup excluded): 3052347
+
+[PASS] test_fixedPoolCannotUseAlternativeAndKeepsOriginalName() (gas: 1312797)
+[PASS] test_flexiblePoolCannotUseDirectSellerBypass() (gas: 715376)
+[PASS] test_fullSurplusUses49_26_25AndRoundingNoDustRemains() (gas: 1399478)
+[PASS] test_higherWeightStillCannotExceedConservativeTotalCap() (gas: 1490823)
+[PASS] test_legacyFlexibleWithoutModelCannotPurchaseOrBackfillButCanRefund() (gas: 1121755)
+[PASS] test_lowerMinimumDoesNotLowerReferenceDenominatorOrAllowLowWeightTopPrice() (gas: 2182399)
+[PASS] test_missingTransferApprovalRollsBackSelectionPaymentAndSellerRewards() (gas: 1138988)
+[PASS] test_oldModelWithoutReferenceWeightCannotPurchaseButCanRefund() (gas: 1058654)
+[PASS] test_originalAffordableListingPreventsThirdPartyAlternativeFrontRun() (gas: 1542120)
+[PASS] test_originalDelistedDoesNotPermitSameWeightAlternativeAt110Percent() (gas: 1592479)
+[PASS] test_originalEntryCannotBypassVerifiedQuality() (gas: 906506)
+[PASS] test_originalSimulationFailureDoesNotAuthorizeAlternativeButDeadlineRefundWorks() (gas: 1325062)
+[PASS] test_originalSoldThenQualifiedAlternativeActivatesAndSettlesSellerOldRewards() (gas: 1600639)
+[PASS] test_priceCapRejectsOneWeiExcessAndAllowsBoundary() (gas: 2194980)
+[PASS] test_purchaseRequiresFullFundingAndStopsExactlyAtDeadline() (gas: 968213)
+[PASS] test_purchaseWith100HoldersStaysWithinLocalGasBudgetAndAllocatesEveryWei() (gas: 22895225)
+Logs:
+  100-holder purchase local execution gas (setup excluded): 5844653
+
+[PASS] test_referenceWeightDropAfterLockCannotRebaseUnitPrice() (gas: 2192582)
+[PASS] test_referenceWeightIncreaseAfterLockDoesNotChangeCandidateDenominator() (gas: 1336871)
+[PASS] test_sameWeightWrongTaskRejectedOnBothPurchaseEntries() (gas: 1064782)
+[PASS] test_transferAfterPurchaseKeepsRefundWithOriginalShareholders() (gas: 3277886)
+[PASS] test_unitPriceLimitFloorsFractionalWeiInsteadOfRoundingUp() (gas: 2191327)
+[PASS] test_withdrawnSubscriptionCreditAndDonationsExcludedFromNewSurplus() (gas: 1388242)
+[PASS] test_wrongCollectionEvenAnotherOfficialCollectionRejected() (gas: 859176)
+Suite result: ok. 44 passed; 0 failed; 0 skipped; finished in 186.69ms (1.61s CPU time)
+
+Ran 1 test suite in 195.48ms (186.69ms CPU time): 44 tests passed, 0 failed, 0 skipped (44 total tests)

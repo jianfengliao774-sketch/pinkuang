@@ -8,9 +8,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolRewardState} from "../PoolRewardState.sol";
 
-/// @notice Accounting executed in the PoolVault context through Solidity library calls.
-/// @dev Vault owns the state/permission checks and nonReentrant entry points. This
-/// library never calls back into Vault, calls Mining, or changes anyone's shares.
+/// @notice Permanent member liabilities, executed under the Vault's reentrancy lock.
+/// @dev Never calls Mining or changes shares. Existing expiry storage remains historical.
 library RewardAccounting {
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace224;
@@ -18,97 +17,61 @@ library RewardAccounting {
     uint256 private constant PRECISION = 1e36;
     uint256 private constant TOTAL_SHARES = 100;
     uint256 private constant DAY = 1 days;
-    address private constant DEAD = 0x000000000000000000000000000000000000dEaD;
+    uint256 private constant MAX_LEGACY_CHECKPOINTS = 64;
 
     error ClaimTooSoon();
     error NothingToClaim();
-    error EpochNotExpired();
-    error EpochAlreadyBurned();
-    error ExpiryDisabled();
     error AccountingDeficit();
+    error LegacyRewardMigrationRequired();
+    error BurnDisabled();
 
     event Harvested(uint256 gross, uint256 toPlatform, uint256 burned, uint256 toMembers);
     event BemClaimed(address indexed user, uint256 amount);
-    event EpochExpiredBurned(uint32 indexed epoch, uint256 amount);
-    event RewardEpochRecorded(uint32 indexed epoch, uint256 previousAcc, uint256 cumulativeAcc, uint256 net);
+    event RewardMigrationStarted(uint32 indexed cutoverEpoch, uint256 cutoverAcc);
+    event RewardUserMigrated(address indexed user, uint256 wholeAmount, uint256 fraction);
 
-    /// @notice Splits only actual BEM not already reserved for members or dust.
     function account(PoolRewardState.RewardStorage storage s, address bem, address treasury)
         external
         returns (uint256 gross, uint256 fee, uint256 burned, uint256 net)
     {
+        _ensurePermanent(s);
         IERC20 token = IERC20(bem);
         uint256 balance = token.balanceOf(address(this));
         if (balance < s.bemAccounted) revert AccountingDeficit();
         gross = balance - s.bemAccounted;
-        // Exact zero means no unaccounted token income; donations simply make gross positive.
-        // This does not require an externally manipulable balance to equal a fixed target.
+        // Zero is the exact absence of unaccounted income, not an assumed external balance.
         // slither-disable-next-line incorrect-equality
         if (gross == 0) return (0, 0, 0, 0);
         fee = Math.mulDiv(gross, 100, 10_000);
-        burned = Math.mulDiv(gross, 400, 10_000);
-        net = gross - fee - burned;
-
-        // 100 divides PRECISION exactly, so this global increment has no dust.
-        // Checked conversion protects the checkpoint value in both expiry modes.
+        burned = 0; // Deprecated return value and event field retain their ABI.
+        net = gross - fee;
         s.acc = SafeCast.toUint224(s.acc + Math.mulDiv(net, PRECISION, TOTAL_SHARES));
-        if (!s.expiryDisabled) {
-            uint32 epoch = SafeCast.toUint32(block.timestamp / DAY);
-            (uint224 previousAcc, uint224 cumulativeAcc) = s.accEndOf.push(epoch, uint224(s.acc));
-            s.epochNet[epoch] += net;
-            emit RewardEpochRecorded(epoch, previousAcc, cumulativeAcc, net);
-        }
         s.bemAccounted += net;
         s.totalGross += gross;
         s.totalPlatform += fee;
-        s.totalBaseBurned += burned;
         s.totalMemberNet += net;
-
         if (fee != 0) token.safeTransfer(treasury, fee);
-        if (burned != 0) token.safeTransfer(DEAD, burned);
-        // Every caller holds Vault's nonReentrant lock; liabilities were updated
-        // before payment. This reads a fresh balance to check remaining solvency,
-        // and never authorizes a payment using a stale pre-call balance.
+        // Vault's lock covers this payment and the fresh solvency check.
         // slither-disable-next-line reentrancy-balance
         if (token.balanceOf(address(this)) < s.bemAccounted) revert AccountingDeficit();
-        emit Harvested(gross, fee, burned, net);
+        emit Harvested(gross, fee, 0, net);
     }
 
-    /// @notice Call before changing shares, using the user's old share balance.
     function settle(PoolRewardState.RewardStorage storage s, address user, uint256 shares) external {
         _settle(s, user, shares);
     }
 
+    /// @notice Pays only booked income, independently of Mining availability or NFT ownership.
     function claim(PoolRewardState.RewardStorage storage s, address user, uint256 shares, address bem)
         external
         returns (uint256 amount)
     {
         _settle(s, user, shares);
         PoolRewardState.RewardUser storage u = s.users[user];
-        if (u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY) revert ClaimTooSoon();
-
-        if (s.expiryDisabled) {
-            amount = u.owed;
-            u.owed = 0;
-        } else {
-            uint256 current = block.timestamp / DAY;
-            uint256 first = _firstLiveEpoch(current);
-            for (uint256 epoch = first; epoch <= current; ++epoch) {
-                // Deterministic daily ring index, not a random draw.
-                // slither-disable-next-line weak-prng
-                PoolRewardState.RewardSlot storage slot = u.slots[epoch % 8];
-                if (slot.epoch != epoch || s.epochBurnedFlag[epoch]) continue;
-                uint256 paid = slot.amount;
-                if (paid == 0) continue;
-                if (paid > s.epochNet[epoch] - s.epochPaid[epoch]) revert AccountingDeficit();
-                s.epochPaid[epoch] += paid;
-                amount += paid;
-                // Keep the fraction in this same batch; payment cannot reset it.
-                slot.amount = 0;
-            }
-        }
+        amount = u.owed;
         if (amount == 0) revert NothingToClaim();
         if (amount > s.bemAccounted) revert AccountingDeficit();
+        u.owed = 0;
         u.lastClaimAt = SafeCast.toUint64(block.timestamp);
         s.bemAccounted -= amount;
         s.totalMemberPaid += amount;
@@ -116,118 +79,106 @@ library RewardAccounting {
         emit BemClaimed(user, amount);
     }
 
-    /// @notice View of already-accounted rewards; it does not estimate Mining.pending.
     function claimable(PoolRewardState.RewardStorage storage s, address user, uint256 shares)
         external
         view
         returns (uint256 amount)
     {
         PoolRewardState.RewardUser storage u = s.users[user];
-        if (s.expiryDisabled) {
-            return u.owed + (u.globalRemainder + shares * (s.acc - u.debtAcc)) / PRECISION;
+        uint256 debt = u.debtAcc;
+        uint256 scaled = u.globalRemainder;
+        if (!s.expiryDisabled) {
+            uint32 epoch = SafeCast.toUint32(block.timestamp / DAY);
+            _validateLegacy(s, epoch);
+            scaled += _legacyScaled(s, u, shares, epoch, s.acc);
+            debt = s.acc;
+        } else if (s.legacyMigrationStarted && !s.legacyUserMigrated[user]) {
+            scaled += _legacyScaled(s, u, shares, s.legacyCutoverEpoch, s.legacyCutoverAcc);
+            debt = s.legacyCutoverAcc;
         }
-        uint256 current = block.timestamp / DAY;
-        uint256 first = _firstLiveEpoch(current);
-        for (uint256 epoch = first; epoch <= current; ++epoch) {
-            if (s.epochBurnedFlag[epoch]) continue;
-            // Deterministic daily ring index, not a random draw.
-            // slither-disable-next-line weak-prng
-            PoolRewardState.RewardSlot storage slot = u.slots[epoch % 8];
-            uint256 remainder = 0;
-            // Exact identity of a stored integer batch key, not timestamp guessing.
-            // slither-disable-next-line incorrect-equality
-            if (slot.epoch == epoch) {
-                amount += slot.amount;
-                remainder = slot.remainder;
-            }
-            amount += (remainder + shares * _epochDelta(s, epoch, u.debtAcc)) / PRECISION;
-        }
+        return u.owed + (scaled + shares * (s.acc - debt)) / PRECISION;
     }
 
-    /// @notice Burns all remaining members' BEM in an expired day, including dust.
-    function burnExpired(PoolRewardState.RewardStorage storage s, uint32 epoch, address bem)
-        external
-        returns (uint256 amount)
-    {
-        if (s.expiryDisabled) revert ExpiryDisabled();
-        uint256 current = block.timestamp / DAY;
-        // Subtract only after checking the order, including for arbitrary large input.
-        if (epoch >= current || current - epoch <= 7) revert EpochNotExpired();
-        if (s.epochBurnedFlag[epoch]) revert EpochAlreadyBurned();
-        amount = s.epochNet[epoch] - s.epochPaid[epoch];
-        if (amount > s.bemAccounted) revert AccountingDeficit();
-        s.epochBurnedFlag[epoch] = true;
-        s.epochBurned[epoch] = amount;
-        s.bemAccounted -= amount;
-        s.totalExpiredBurned += amount;
-        if (amount != 0) IERC20(bem).safeTransfer(DEAD, amount);
-        emit EpochExpiredBurned(epoch, amount);
+    /// @notice Compatibility stub only; the Vault does not link a burn route.
+    function burnExpired(PoolRewardState.RewardStorage storage, uint32, address) external pure returns (uint256) {
+        revert BurnDisabled();
     }
 
     function _settle(PoolRewardState.RewardStorage storage s, address user, uint256 shares) private {
+        _ensurePermanent(s);
         PoolRewardState.RewardUser storage u = s.users[user];
-        if (u.debtAcc == s.acc) return;
-        if (s.expiryDisabled) {
-            uint256 previousRemainder = u.globalRemainder;
-            uint256 scaled = previousRemainder + shares * (s.acc - u.debtAcc);
-            u.owed += scaled / PRECISION;
-            // Deterministic fixed-point fraction; no randomness is derived here.
-            // slither-disable-next-line weak-prng
-            u.globalRemainder = scaled % PRECISION;
-            s.totalGlobalRemainderScaled = s.totalGlobalRemainderScaled - previousRemainder + u.globalRemainder;
-        } else {
-            uint256 current = block.timestamp / DAY;
-            uint256 first = _firstLiveEpoch(current);
-            for (uint256 epoch = first; epoch <= current; ++epoch) {
-                uint256 delta = _epochDelta(s, epoch, u.debtAcc);
-                // Skip exactly zero earned increments or zero integer shares.
-                // These are accounting values, not a target balance or time lottery.
-                // slither-disable-next-line incorrect-equality
-                if (delta == 0 || shares == 0 || s.epochBurnedFlag[epoch]) continue;
-                // Deterministic daily ring index, not a random draw.
-                // slither-disable-next-line weak-prng
-                PoolRewardState.RewardSlot storage slot = u.slots[epoch % 8];
-                if (slot.epoch != epoch) {
-                    // An eight-day-separated slot is expired. Its entire unpaid
-                    // liability stays in epochNet - epochPaid until burnExpired;
-                    // neither clearing this cache nor advancing debt erases it.
-                    slot.epoch = SafeCast.toUint32(epoch);
-                    slot.amount = 0;
-                    slot.remainder = 0;
-                }
-                uint256 previousRemainder = slot.remainder;
-                uint256 scaled = previousRemainder + shares * delta;
-                slot.amount += scaled / PRECISION;
-                // Deterministic fixed-point fraction; no randomness is derived here.
-                // slither-disable-next-line weak-prng
-                slot.remainder = scaled % PRECISION;
-                // Net change, not a cumulative sum of every observed remainder.
-                // Overwriting an expired slot above leaves that OLD epoch's
-                // identified-fraction history untouched, including after burn.
-                s.epochRemainderScaled[epoch] = s.epochRemainderScaled[epoch] - previousRemainder + slot.remainder;
-            }
+        uint256 previousRemainder = u.globalRemainder;
+        uint256 scaled = previousRemainder;
+        if (s.legacyMigrationStarted && !s.legacyUserMigrated[user]) {
+            uint256 legacy = _legacyScaled(s, u, shares, s.legacyCutoverEpoch, s.legacyCutoverAcc);
+            scaled += legacy;
+            u.debtAcc = s.legacyCutoverAcc;
+            s.legacyUserMigrated[user] = true;
+            emit RewardUserMigrated(user, legacy / PRECISION, legacy % PRECISION);
         }
-        // Expired entitlement is intentionally omitted from the user's live
-        // cache, but remains fully reserved in the global per-epoch ledger.
+        scaled += shares * (s.acc - u.debtAcc);
+        u.owed += scaled / PRECISION;
+        u.globalRemainder = scaled % PRECISION;
+        s.totalGlobalRemainderScaled = s.totalGlobalRemainderScaled - previousRemainder + u.globalRemainder;
         u.debtAcc = s.acc;
     }
 
-    function _firstLiveEpoch(uint256 current) private pure returns (uint256) {
-        return current > 7 ? current - 7 : 0;
+    function _ensurePermanent(PoolRewardState.RewardStorage storage s) private {
+        if (s.expiryDisabled) return;
+        uint32 epoch = SafeCast.toUint32(block.timestamp / DAY);
+        _validateLegacy(s, epoch);
+        // The cutover never moves again, including for users inactive for years.
+        s.legacyMigrationStarted = true;
+        s.legacyCutoverEpoch = epoch;
+        s.legacyCutoverAcc = s.acc;
+        s.expiryDisabled = true;
+        emit RewardMigrationStarted(epoch, s.acc);
     }
 
-    function _epochDelta(PoolRewardState.RewardStorage storage s, uint256 epoch, uint256 debtAcc)
-        private
-        view
-        returns (uint256)
-    {
-        // Missing dates inherit the last recorded accumulator; they add no income.
-        uint256 right = s.accEndOf.upperLookup(SafeCast.toUint32(epoch));
-        if (right > s.acc) right = s.acc;
-        // Epoch zero has no predecessor; the exact integer-key check prevents underflow.
-        // slither-disable-next-line incorrect-equality
-        uint256 left = epoch == 0 ? 0 : s.accEndOf.upperLookup(SafeCast.toUint32(epoch - 1));
-        if (left < debtAcc) left = debtAcc;
-        return right > left ? right - left : 0;
+    /// @dev Ring slots can be overwritten after eight days. We cannot recover those
+    /// historical per-user payments from aggregate epochPaid, so never guess them.
+    /// A bounded scan also refuses very old histories requiring a reviewed migration.
+    function _validateLegacy(PoolRewardState.RewardStorage storage s, uint32 current) private view {
+        uint256 length = s.accEndOf.length();
+        if (length > MAX_LEGACY_CHECKPOINTS) revert LegacyRewardMigrationRequired();
+        uint256 first = current > 7 ? current - 7 : 0;
+        uint256 outstanding = 0;
+        for (uint32 i = 0; i < length; ++i) {
+            uint32 epoch = s.accEndOf.at(i)._key;
+            if (s.epochPaid[epoch] > s.epochNet[epoch]) revert AccountingDeficit();
+            if (s.epochBurnedFlag[epoch]) continue;
+            uint256 unpaid = s.epochNet[epoch] - s.epochPaid[epoch];
+            if (unpaid != 0 && (epoch < first || epoch > current)) revert LegacyRewardMigrationRequired();
+            outstanding += unpaid;
+        }
+        // An unknown pre-epoch ledger must never be interpreted as zero debt.
+        if (outstanding != s.bemAccounted) revert LegacyRewardMigrationRequired();
+    }
+
+    function _legacyScaled(
+        PoolRewardState.RewardStorage storage s,
+        PoolRewardState.RewardUser storage u,
+        uint256 shares,
+        uint32 cutoverEpoch,
+        uint256 cutoverAcc
+    ) private view returns (uint256 scaled) {
+        if (u.debtAcc > cutoverAcc) revert AccountingDeficit();
+        uint256 first = cutoverEpoch > 7 ? cutoverEpoch - 7 : 0;
+        for (uint256 epoch = first; epoch <= cutoverEpoch; ++epoch) {
+            if (s.epochBurnedFlag[epoch]) continue;
+            // Deterministic ring identity; no randomness is used.
+            // slither-disable-next-line weak-prng
+            PoolRewardState.RewardSlot storage slot = u.slots[epoch % 8];
+            // Exact stored batch identity is required before reusing a ring slot.
+            // slither-disable-next-line incorrect-equality
+            if (slot.epoch == epoch) scaled += slot.amount * PRECISION + slot.remainder;
+            uint256 right = s.accEndOf.upperLookup(uint32(epoch));
+            if (right > cutoverAcc) right = cutoverAcc;
+            // Epoch zero has no predecessor; the integer-key guard prevents subtraction underflow.
+            // slither-disable-next-line incorrect-equality
+            uint256 left = epoch == 0 ? 0 : s.accEndOf.upperLookup(uint32(epoch - 1));
+            if (left < u.debtAcc) left = u.debtAcc;
+            if (right > left) scaled += shares * (right - left);
+        }
     }
 }

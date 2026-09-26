@@ -139,6 +139,14 @@ contract PurchaseMockMining {
         miners[key].status = status;
     }
 
+    function setTaskId(bytes32 key, uint32 taskId) external {
+        miners[key].taskId = taskId;
+    }
+
+    function setVerifiedWeight(bytes32 key, uint128 weight) external {
+        miners[key].verifWeight = weight;
+    }
+
     function setClaimFault(uint8 fault) external {
         claimFault = fault;
     }
@@ -191,6 +199,7 @@ contract PurchaseMockMarket {
         bool valid;
     }
     mapping(uint256 => Listing) public listings;
+    mapping(address => mapping(uint256 => uint256)) private currentListing;
     uint256 public nextId;
     uint256 public buyCalls;
     uint256 public fees;
@@ -202,6 +211,7 @@ contract PurchaseMockMarket {
     {
         id = ++nextId;
         listings[id] = Listing(seller, circuits, tokenId, price, true);
+        currentListing[circuits][tokenId] = id;
     }
 
     function setValid(uint256 id, bool valid) external {
@@ -221,6 +231,12 @@ contract PurchaseMockMarket {
         return (listing.seller, listing.circuits, listing.tokenId, listing.price, 100, listing.valid);
     }
 
+    function listingFor(address circuits, uint256 tokenId) external view returns (uint256, address, uint96, bool) {
+        uint256 id = currentListing[circuits][tokenId];
+        Listing memory listing = listings[id];
+        return (id, listing.seller, listing.price, listing.valid);
+    }
+
     function buy(uint256 id, uint96 expectedPrice) external payable {
         Listing memory listing = listings[id];
         require(listing.valid && expectedPrice == listing.price && msg.value == listing.price, "bad listing payment");
@@ -235,6 +251,14 @@ contract PurchaseMockMarket {
             mining.setStatus(mining.minerKey(listing.circuits, listing.tokenId), 3);
         }
         if (buyFault == 4) revert("injected market failure");
+        if (buyFault == 5) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setTaskId(mining.minerKey(listing.circuits, listing.tokenId), 8);
+        }
+        if (buyFault == 6) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setVerifiedWeight(mining.minerKey(listing.circuits, listing.tokenId), 150);
+        }
         uint256 fee = uint256(listing.price) / 100;
         fees += fee;
         (bool ok,) = listing.seller.call{value: uint256(listing.price) - fee}("");

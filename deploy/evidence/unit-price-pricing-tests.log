@@ -1,0 +1,20 @@
+✔ Firsto price, buyer total, bid proceeds and BEM decimals remain independent exact integers (5.899667ms)
+✔ same-name fake official collection, wrong classification and incorrect units are excluded (0.377459ms)
+✔ stale, missing or future source timestamps prevent quote use without guessing (0.787333ms)
+✔ an expired or absent ask is never replaced with listingReference (0.202ms)
+✔ reference requires positive precise data with a real asOf time and correct token units (0.123333ms)
+✔ detail must match the exact collection, token, owner, yield and actual ask amounts (0.367375ms)
+✔ funding uses capacity reference, adds 10 percent, and rounds upward to 100 integer-wei shares (0.66ms)
+✔ lowering minimum eligibility or increasing surplus funding never changes the reference pricing denominator (0.629958ms)
+✔ purchase cap keeps exact reference wei even when funding requires rounding to one hundred shares (0.303916ms)
+✔ unsafe eligibility, unverified detail, stale reference and out-of-bounds budget cannot generate a plan (0.348375ms)
+✔ fetches only bounded same-origin GET queries and cross-checks identity against detail (2.734292ms)
+✔ HTTP, invalid content and excessive query cannot silently reuse cached quotations (0.893292ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 302.24275

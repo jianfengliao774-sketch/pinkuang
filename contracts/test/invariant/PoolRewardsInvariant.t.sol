@@ -52,7 +52,8 @@ contract RewardsHandler is Test {
         tokenId = id_;
         key = mining_.minerKey(nft_, id_);
         actors = actors_;
-        expiry = expiry_;
+        expiry = false;
+        expiry_; // Both compatibility factory modes now use permanent rewards.
     }
 
     function donate(uint96 amountSeed) external {
@@ -88,22 +89,20 @@ contract RewardsHandler is Test {
     function claim(uint256 actorSeed) external {
         uint256 actorIndex = actorSeed % 3;
         address actor = actors[actorIndex];
-        uint256 incoming = unaccounted + queuedMining;
-        uint256 newNet = incoming - incoming / 100 - incoming * 4 / 100;
+        uint256 newNet = 0; // claim pays booked income only.
         uint256 expected = _claimable(actorIndex, newNet);
-        bool tooSoon = lastPaidAt[actor] != 0 && block.timestamp < lastPaidAt[actor] + 1 days;
         uint256 beforeBalance = bem.balanceOf(actor);
         vm.prank(actor);
         (bool success, bytes memory reason) = address(vault).call(abi.encodeCall(IRewardsVault.claim, ()));
-        if (tooSoon || expected == 0) {
+        if (expected == 0) {
             assertFalse(success, "a failed/empty claim must not transfer or reset time");
-            bytes4 errorSelector = tooSoon ? bytes4(keccak256("ClaimTooSoon()")) : bytes4(keccak256("NothingToClaim()"));
+            bytes4 errorSelector = bytes4(keccak256("NothingToClaim()"));
             assertEq(reason, abi.encodeWithSelector(errorSelector));
+            assertEq(vault.lastClaimAt(actor), lastPaidAt[actor]);
             assertEq(bem.balanceOf(actor), beforeBalance);
             return;
         }
         assertTrue(success, "valid reward claim failed");
-        _recordHarvest();
         if (expiry) {
             for (uint256 i; i < epochs.length; ++i) {
                 uint32 e = epochs[i];
@@ -119,23 +118,11 @@ contract RewardsHandler is Test {
         assertEq(bem.balanceOf(actor) - beforeBalance, expected);
     }
 
-    function burn(uint256 epochSeed) external {
-        if (epochs.length == 0) return;
-        uint32 e = epochs[epochSeed % epochs.length];
-        (bool success, bytes memory reason) = address(vault).call(abi.encodeCall(IRewardsVault.burnExpired, (e)));
-        if (!expiry || !_expired(e) || burnedFlag[e]) {
-            assertFalse(success);
-            bytes4 expected = !expiry
-                ? bytes4(keccak256("ExpiryDisabled()"))
-                : !_expired(e) ? bytes4(keccak256("EpochNotExpired()")) : bytes4(keccak256("EpochAlreadyBurned()"));
-            assertEq(reason, abi.encodeWithSelector(expected));
-            return;
-        }
-        assertTrue(success, "eligible expired batch failed to burn");
-        uint256 amount = netByEpoch[e] - paidByEpoch[e];
-        burnedByEpoch[e] = amount;
-        burnedFlag[e] = true;
-        expiredBurned += amount;
+    function burn(uint256 seed) external {
+        (bool success, bytes memory reason) =
+            address(vault).call(abi.encodeCall(IRewardsVault.burnExpired, (uint32(seed))));
+        assertFalse(success);
+        assertEq(reason, abi.encodeWithSelector(bytes4(keccak256("BurnDisabled()"))));
     }
 
     function _recordHarvest() private {
@@ -144,7 +131,7 @@ contract RewardsHandler is Test {
         queuedMining = 0;
         if (amount == 0) return;
         uint256 fee = amount / 100;
-        uint256 burnAmount = amount * 4 / 100;
+        uint256 burnAmount = 0;
         uint256 net = amount - fee - burnAmount;
         gross += amount;
         platform += fee;

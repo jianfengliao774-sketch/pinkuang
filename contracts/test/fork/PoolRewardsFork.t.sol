@@ -39,7 +39,7 @@ interface IRewardsForkMiningState {
     function sampleCountFor(uint32 liveGates, uint32 cycles) external view returns (uint32);
 }
 
-/// @notice Production T1c entry points against real BSC NFT, Mining and BEM at a fixed block.
+/// @notice Production permanent-reward entry points against real BSC NFT, Mining and BEM at a fixed block.
 /// @dev Native funding and owner impersonation are local-only; no protocol code/storage or BEM balance is replaced.
 contract PoolRewardsForkTest is Test {
     uint256 private constant FORK_BLOCK = 123728000;
@@ -106,7 +106,7 @@ contract PoolRewardsForkTest is Test {
         assertEq(BEM.balanceOf(address(vault)), 0);
         assertEq(NFT.ownerOf(TOKEN_ID), address(vault));
         assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
-        assertTrue(vault.expiryEnabled());
+        assertFalse(vault.expiryEnabled(), "new pools have permanently claimable rewards");
     }
 
     function _deposit(address member, uint8 shares) private {
@@ -116,7 +116,7 @@ contract PoolRewardsForkTest is Test {
         vault.deposit{value: contribution}(shares);
     }
 
-    function test_Fork_PermissionlessHarvestPaysOneFourNinetyFiveAndClaim24HourBoundary() public {
+    function test_Fork_PermissionlessHarvestAndSameSecondClaimsWithoutCooldown() public {
         uint256 sellerBemAfterPurchase = BEM.balanceOf(SELLER);
         uint256 supplyBefore = BEM.totalSupply();
         uint256 treasuryBefore = BEM.balanceOf(TREASURY);
@@ -127,14 +127,14 @@ contract PoolRewardsForkTest is Test {
         uint256 gross = BEM.totalSupply() - supplyBefore;
         assertGt(gross, 0, "real Mining.claim must mint new BEM");
         uint256 fee = gross / 100;
-        uint256 burn = gross * 4 / 100;
+        uint256 burn = 0;
         uint256 net = gross - fee - burn;
         uint32 epoch = uint32(block.timestamp / 1 days);
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, fee);
         assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, burn);
         assertEq(BEM.balanceOf(address(vault)), net);
         assertEq(vault.bemAccounted(), net);
-        assertEq(vault.epochNet(epoch), net);
+        assertEq(vault.epochNet(epoch), 0);
         assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.epochBurned(epoch), 0);
         assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase);
@@ -144,42 +144,59 @@ contract PoolRewardsForkTest is Test {
         assertEq(vault.claimable(CAROL), net * 2 / 100);
 
         uint256 firstPayment = vault.claimable(ALICE);
-        assertEq(vault.lastClaimAt(ALICE), 0, "first claim has no cooldown");
+        assertEq(vault.lastClaimAt(ALICE), 0, "no successful claim has been recorded");
         uint256 aliceBefore = BEM.balanceOf(ALICE);
         vm.prank(ALICE);
         vault.claim();
         uint256 firstAt = block.timestamp;
         assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment);
-        assertEq(vault.epochPaid(epoch), firstPayment);
+        assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.bemAccounted(), net - firstPayment);
         assertEq(vault.lastClaimAt(ALICE), firstAt);
 
-        vm.warp(firstAt + 1 days - 1);
+        _assertFurtherClaimsWithoutCooldown(aliceBefore, firstPayment, firstAt);
+        assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase - 10000);
+        emit log_named_uint("real Mining gross BEM after 3600 seconds (atoms)", gross);
+        emit log_named_uint("platform fee BEM (atoms)", fee);
+        emit log_named_uint("base burn BEM (atoms)", burn);
+        emit log_named_uint("members net BEM (atoms)", net);
+    }
+
+    function _assertFurtherClaimsWithoutCooldown(uint256 aliceBefore, uint256 firstPayment, uint256 firstAt) private {
+        // Real BEM donation is booked in this same timestamp; no fresh Mining
+        // time is needed and the member may immediately collect the new income.
+        vm.prank(SELLER);
+        assertTrue(BEM.transfer(address(vault), 10000));
         vault.harvest();
-        assertGt(vault.claimable(ALICE), 0);
-        uint256 accountedBeforeBlockedClaim = vault.bemAccounted();
+        uint256 secondPayment = vault.claimable(ALICE);
+        assertGt(secondPayment, 0);
         vm.prank(ALICE);
-        vm.expectRevert(IPoolVault.ClaimTooSoon.selector);
+        vault.claim();
+        assertEq(block.timestamp, firstAt);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment);
+        assertEq(vault.lastClaimAt(ALICE), firstAt);
+        assertEq(vault.claimable(ALICE), 0);
+
+        // New pending Mining income is not yet booked. An empty claim must not
+        // harvest it, change the last-success timestamp or alter reserved BEM.
+        vm.warp(firstAt + 60);
+        uint256 accountedBeforeEmptyClaim = vault.bemAccounted();
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.NothingToClaim.selector);
         vault.claim();
         assertEq(vault.lastClaimAt(ALICE), firstAt);
-        assertEq(vault.bemAccounted(), accountedBeforeBlockedClaim);
-        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment);
+        assertEq(vault.bemAccounted(), accountedBeforeEmptyClaim);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment);
 
-        vm.warp(firstAt + 1 days);
         vault.harvest();
         uint256 nextPayment = vault.claimable(ALICE);
         vm.prank(ALICE);
         vault.claim();
         assertGt(nextPayment, 0);
-        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + nextPayment);
-        assertEq(vault.lastClaimAt(ALICE), firstAt + 1 days);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment + nextPayment);
+        assertEq(vault.lastClaimAt(ALICE), firstAt + 60);
         assertEq(vault.claimable(ALICE), 0);
         assertEq(BEM.balanceOf(address(vault)), vault.bemAccounted());
-        assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase);
-        emit log_named_uint("real Mining gross BEM after 3600 seconds (atoms)", gross);
-        emit log_named_uint("platform fee BEM (atoms)", fee);
-        emit log_named_uint("base burn BEM (atoms)", burn);
-        emit log_named_uint("members net BEM (atoms)", net);
     }
 
     function test_Fork_DirectBemTransferAccountedExactlyOnceAndAllThreeMembersPaid() public {
@@ -192,15 +209,15 @@ contract PoolRewardsForkTest is Test {
         uint32 epoch = uint32(block.timestamp / 1 days);
         assertEq(BEM.totalSupply(), supplyBefore, "same-second donation case needs no fresh Mining issuance");
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, 100);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 400);
-        assertEq(vault.epochNet(epoch), 9500);
-        assertEq(vault.bemAccounted(), 9500);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 0);
+        assertEq(vault.epochNet(epoch), 0);
+        assertEq(vault.bemAccounted(), 9900);
         vault.harvest();
-        assertEq(vault.epochNet(epoch), 9500, "accounted BEM cannot be charged twice");
+        assertEq(vault.epochNet(epoch), 0);
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, 100);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 400);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 0);
         address[3] memory members = [ALICE, BOB, CAROL];
-        uint256[3] memory expected = [uint256(4655), uint256(4655), uint256(190)];
+        uint256[3] memory expected = [uint256(4851), uint256(4851), uint256(198)];
         for (uint256 i; i < members.length; ++i) {
             assertEq(vault.claimable(members[i]), expected[i]);
             uint256 before = BEM.balanceOf(members[i]);
@@ -208,11 +225,11 @@ contract PoolRewardsForkTest is Test {
             vault.claim();
             assertEq(BEM.balanceOf(members[i]) - before, expected[i]);
         }
-        assertEq(vault.epochPaid(epoch), 9500);
+        assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.bemAccounted(), 0);
         assertEq(BEM.balanceOf(address(vault)), 0);
         vault.harvest();
-        assertEq(vault.epochNet(epoch), 9500, "outgoing claims cannot become new negative or positive income");
+        assertEq(vault.epochNet(epoch), 0);
     }
 
     function test_Fork_AlreadyClaimedProtocolBemStillHarvestedOnce() public {
@@ -224,35 +241,27 @@ contract PoolRewardsForkTest is Test {
         assertEq(vault.bemAccounted(), 0);
         assertEq(MINING.pending(key), 0);
         vault.harvest();
-        uint256 net = alreadyReceived - alreadyReceived / 100 - alreadyReceived * 4 / 100;
+        uint256 net = alreadyReceived - alreadyReceived / 100;
         assertEq(vault.bemAccounted(), net);
-        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), net);
+        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), 0);
         vault.harvest();
         assertEq(vault.bemAccounted(), net);
     }
 
-    function test_Fork_ExpiredRealBemBurnsOnlyUnpaidEpochWithoutRepeatedBurn() public {
+    function test_Fork_RealBemRemainsClaimableAfterYearsAndBurnIsDisabled() public {
         vm.warp(block.timestamp + 1 hours);
         vault.harvest();
-        uint32 epoch = uint32(block.timestamp / 1 days);
-        uint256 net = vault.epochNet(epoch);
-        uint256 alicePaid = vault.claimable(ALICE);
-        vm.prank(ALICE);
-        vault.claim();
-        uint256 unpaid = net - alicePaid;
-        vm.warp((uint256(epoch) + 8) * 1 days);
-        assertEq(vault.claimable(BOB), 0);
-        assertEq(vault.claimable(CAROL), 0);
+        uint256 bobOwed = vault.claimable(BOB);
+        uint256 reserved = vault.bemAccounted();
         uint256 deadBefore = BEM.balanceOf(Addresses.BURN_SINK);
-        vault.burnExpired(epoch);
-        assertEq(vault.epochNet(epoch), net);
-        assertEq(vault.epochPaid(epoch), alicePaid);
-        assertEq(vault.epochBurned(epoch), unpaid);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, unpaid);
-        assertEq(vault.bemAccounted(), 0);
-        assertEq(BEM.balanceOf(address(vault)), 0);
-        vm.expectRevert(bytes4(keccak256("EpochAlreadyBurned()")));
-        vault.burnExpired(epoch);
+        vm.warp(block.timestamp + 30000 days);
+        assertEq(vault.claimable(BOB), bobOwed);
+        vm.expectRevert(IPoolVault.BurnDisabled.selector);
+        vault.burnExpired(0);
+        vm.prank(BOB);
+        vault.claim();
+        assertEq(vault.bemAccounted(), reserved - bobOwed);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK), deadBefore);
     }
 
     function test_Fork_ProductionMineArmAndStartWithRealProofsAfterExplicitLocalStopSetup() public {

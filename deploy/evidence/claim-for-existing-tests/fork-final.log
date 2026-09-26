@@ -1,0 +1,28 @@
+Compiling 87 files with Solc 0.8.24
+Solc 0.8.24 finished in 7.69s
+Compiler run successful!
+2026-09-26T09:03:12.618621Z  WARN evm::traces::external: etherscan config not found
+
+Ran 6 tests for test/fork/PoolRewardsFork.t.sol:PoolRewardsForkTest
+[PASS] test_Fork_AlreadyClaimedProtocolBemStillHarvestedOnce() (gas: 360105)
+[PASS] test_Fork_DirectBemTransferAccountedExactlyOnceAndAllThreeMembersPaid() (gas: 637565)
+[PASS] test_Fork_PermissionlessHarvestAndSameSecondClaimsWithoutCooldown() (gas: 730471)
+Logs:
+  real Mining gross BEM after 3600 seconds (atoms): 39272
+  platform fee BEM (atoms): 392
+  base burn BEM (atoms): 0
+  members net BEM (atoms): 38880
+
+[PASS] test_Fork_ProductionMineArmAndStartWithRealProofsAfterExplicitLocalStopSetup() (gas: 2084533)
+Logs:
+  real start proof sample count: 32
+  real start verified mining weight: 2
+
+[PASS] test_Fork_RealBemRemainsClaimableAfterYearsAndBurnIsDisabled() (gas: 477581)
+[PASS] test_Fork_ReclaimIneligibleActiveStateBubblesActualProtocolRevert() (gas: 200409)
+Logs:
+  real reclaim state rejection: 0x79710317
+
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 12.53ms (8.01ms CPU time)
+
+Ran 1 test suite in 687.27ms (12.53ms CPU time): 6 tests passed, 0 failed, 0 skipped (6 total tests)

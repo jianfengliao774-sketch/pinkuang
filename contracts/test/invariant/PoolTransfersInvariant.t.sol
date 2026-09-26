@@ -59,7 +59,8 @@ contract ShareTransferHandler is Test {
         nft = nft_;
         tokenId = id_;
         actors = actors_;
-        expiry = expiry_;
+        expiry = false;
+        expiry_; // Both compatibility factory modes now use permanent rewards.
         shares[actors_[0]] = 49;
         shares[actors_[1]] = 49;
         shares[actors_[2]] = 2;
@@ -138,21 +139,19 @@ contract ShareTransferHandler is Test {
 
     function claim(uint256 actorSeed) external {
         address actor = actors[actorSeed % 6];
-        uint256 incoming = unaccounted + queued;
-        uint256 newNet = incoming - incoming / 100 - incoming * 4 / 100;
+        uint256 newNet = 0; // claim pays booked income only.
         uint256 expected = _claimable(actor, newNet);
-        bool tooSoon = lastPaid[actor] != 0 && block.timestamp < lastPaid[actor] + 1 days;
         uint256 beforeBalance = bem.balanceOf(actor);
         vm.prank(actor);
         (bool success, bytes memory reason) = address(rewards).call(abi.encodeCall(IRewardsVault.claim, ()));
-        if (tooSoon || expected == 0) {
+        if (expected == 0) {
             assertFalse(success);
-            bytes4 errorSelector = tooSoon ? bytes4(keccak256("ClaimTooSoon()")) : bytes4(keccak256("NothingToClaim()"));
+            bytes4 errorSelector = bytes4(keccak256("NothingToClaim()"));
             assertEq(reason, abi.encodeWithSelector(errorSelector));
+            assertEq(rewards.lastClaimAt(actor), lastPaid[actor]);
             return;
         }
         assertTrue(success);
-        _recordHarvest();
         if (expiry) {
             for (uint256 i; i < epochs.length; ++i) {
                 uint32 e = epochs[i];
@@ -169,14 +168,10 @@ contract ShareTransferHandler is Test {
     }
 
     function burn(uint256 seed) external {
-        if (!expiry || epochs.length == 0) return;
-        uint32 e = epochs[seed % epochs.length];
-        if (!_expired(e) || wasBurned[e]) return;
-        rewards.burnExpired(e);
-        uint256 amount = netByEpoch[e] - paidByEpoch[e];
-        wasBurned[e] = true;
-        burnedByEpoch[e] = amount;
-        expiryBurned += amount;
+        (bool success, bytes memory reason) =
+            address(rewards).call(abi.encodeCall(IRewardsVault.burnExpired, (uint32(seed))));
+        assertFalse(success);
+        assertEq(reason, abi.encodeWithSelector(bytes4(keccak256("BurnDisabled()"))));
     }
 
     function _recordHarvest() private {
@@ -185,7 +180,7 @@ contract ShareTransferHandler is Test {
         queued = 0;
         if (amount == 0) return;
         uint256 fee = amount / 100;
-        uint256 burnAmount = amount * 4 / 100;
+        uint256 burnAmount = 0;
         uint256 net = amount - fee - burnAmount;
         gross += amount;
         fees += fee;
