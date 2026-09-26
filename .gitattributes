@@ -3,3 +3,4 @@
 docs/logs/** -whitespace
 # Preserve raw compiler/test output, including diagnostic alignment spaces.
 deploy/evidence/*.log -whitespace
+deploy/evidence/**/*.log -whitespace

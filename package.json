@@ -5,9 +5,9 @@
   "description": "TapeOut 合伙拼矿机 — T0.1 engineering bootstrap",
   "engines": { "node": ">=24 <25" },
   "scripts": {
-    "fmt:check": "forge fmt --root contracts --check",
-    "build": "forge build --root contracts --sizes",
-    "test": "forge test --root contracts --no-match-path test/fork/** -vv",
+    "fmt:check": "node scripts/run-forge.mjs fmt --root contracts --check",
+    "build": "node scripts/run-forge.mjs build --root contracts --sizes",
+    "test": "node scripts/run-forge.mjs test --root contracts --no-match-path test/fork/** -vv",
     "test:fork": "node scripts/run-fork.mjs",
     "validate:upgrades": "node scripts/validate-upgrades.mjs"
   },

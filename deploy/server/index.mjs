@@ -6,11 +6,13 @@ import { proxyFirsto } from './firsto-proxy.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
-createServer(async (req, res) => {
+export function createDeploymentServer() { return createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https:; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
-  const pathname = new URL(req.url, 'http://localhost').pathname;
+  let pathname;
+  try { pathname = new URL(req.url, 'http://localhost').pathname; }
+  catch { res.statusCode = 400; res.end('Invalid request URL'); return; }
   if (pathname.startsWith('/firsto-api/')) return proxyFirsto(req, res);
   if (!['GET','HEAD'].includes(req.method)) {res.statusCode=405;res.end();return;}
   try {
@@ -21,6 +23,18 @@ createServer(async (req, res) => {
     res.setHeader('Cache-Control',pathname.startsWith('/assets/')?'public, max-age=31536000, immutable':'no-store');
     res.end(req.method==='HEAD'?undefined:body);
   } catch {res.statusCode=404;res.end('Not found');}
-}).listen(Number(process.env.PORT || 4173), process.env.HOST || '127.0.0.1', () => {
-  console.log(`拼矿部署台：http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 4173}`);
-});
+}); }
+
+export function serverConfiguration(env = process.env) {
+  const host = env.HOST || '127.0.0.1';
+  const port = Number(env.PORT || 4173);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
+  return { host, port };
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { host, port } = serverConfiguration();
+  createDeploymentServer().listen(port, host, () => {
+    console.log(`拼矿部署台：http://${host}:${port}`);
+  });
+}

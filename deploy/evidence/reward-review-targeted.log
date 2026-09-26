@@ -1,0 +1,61 @@
+Compiling 101 files with Solc 0.8.24
+Solc 0.8.24 finished in 29.53s
+Compiler run successful!
+
+Ran 6 tests for test/unit/RewardMigration.t.sol:RewardMigrationTest
+[PASS] test_burnedHistoricalEpochCannotBeRecreatedAsNewDebt() (gas: 1117083)
+[PASS] test_expiredUnpaidEpochFailsClosedWithoutMovingOrForfeitingFunds() (gas: 717121)
+[PASS] test_fixedCutoverPreservesFormerHolderAndInactiveRecipientForYears() (gas: 1409360)
+[PASS] test_moreThanSixtyFourCheckpointsRequiresReviewedMigration() (gas: 8335730)
+[PASS] test_paidOldSlotsMixedFractionsAndNewIncomeAreNotClaimedTwice() (gas: 1462808)
+[PASS] test_sixtyFourCheckpointBoundaryAndAllLiveRightsReconstruct() (gas: 9053540)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 20.65ms (33.35ms CPU time)
+
+Ran 16 tests for test/unit/PoolRewards.t.sol:PoolRewardsTest
+[PASS] testFuzz_harnessStrictHarvestRejectsFailedOrUnsettledClaimWithoutCharging(uint8) (runs: 256, μ: 253219, ~: 257129)
+Logs:
+  Bound result 3
+
+[PASS] test_bemTransferCannotReenterHarvest() (gas: 408887)
+[PASS] test_claimDoesNotHarvestEvenWhenPendingMiningExists() (gas: 498661)
+[PASS] test_failedMemberTransferPreservesDebtAndClaimTime() (gas: 541943)
+[PASS] test_feeFailureRollsBackAndDeadRejectionHasNoEffect() (gas: 571205)
+[PASS] test_firstClaimImmediateThenExactTwentyFourHourBoundary() (gas: 508881)
+[PASS] test_harnessClosedStatePreservesExistingClaimCooldown() (gas: 574734)
+[PASS] test_harnessClosedWithExpiryDisabledKeepsRewardsForYears() (gas: 2186918)
+[PASS] test_harnessStrictHarvestSuccessfullyAccountsActualReceipt() (gas: 336867)
+[PASS] test_legacyExpiryParameterCannotEnableForfeitureInNewPool() (gas: 534707)
+[PASS] test_miningClaimCannotReenterHarvest() (gas: 403035)
+[PASS] test_miningClaimChangingOwnerRollsBackEntireHarvest() (gas: 254648)
+[PASS] test_onePercentFeeAndNinetyNinePercentMembersWithNoBurn() (gas: 593084)
+[PASS] test_ordinaryClaimFailureStillAccountsIndependentDirectReceipt() (gas: 441056)
+[PASS] test_permanentRewardsAndFractionsSurviveThirtyThousandDays() (gas: 750257)
+[PASS] test_unbookedRewardIsNotPayableUntilExplicitHarvest() (gas: 457704)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 109.18ms (120.34ms CPU time)
+
+Ran 16 tests for test/unit/PoolTransfers.t.sol:PoolTransfersTest
+[PASS] testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8) (runs: 256, μ: 274784, ~: 302631)
+Logs:
+  Bound result 2
+
+[PASS] testFuzz_pendingRewardsBelongToOldSharesBeforeTransfer(uint8) (runs: 256, μ: 1001102, ~: 1001297)
+Logs:
+  Bound result 28
+
+[PASS] test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() (gas: 2761299)
+[PASS] test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() (gas: 82409)
+[PASS] test_lockDoesNotProvideASecondFortyNineShareAllowance() (gas: 662800)
+[PASS] test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() (gas: 948346)
+[PASS] test_memberCheckpointsRecordExitEntryAndNewMemberCount() (gas: 776930)
+[PASS] test_miningClaimCannotReenterApprovedTransferFrom() (gas: 904421)
+[PASS] test_onlyRegisteredMarketCanChangeLocksOrTransferLockedShares() (gas: 88580)
+[PASS] test_purchaseTimestampTransferCannotCarryOldBnbSurplus() (gas: 640135)
+[PASS] test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() (gas: 1089880)
+[PASS] test_selfTransferRespectsUnlockedBalanceWithoutArtificiallyExceedingCap() (gas: 680519)
+[PASS] test_transferFromConsumesAllowanceAndMaintainsHolderCap() (gas: 518138)
+[PASS] test_transferPreservesPermanentFormerHolderIncome() (gas: 1041648)
+[PASS] test_zeroBalanceFormerMemberStillClaimsOldRewards() (gas: 829367)
+[PASS] test_zeroOverCapAndMarketDestinationRejected() (gas: 419995)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 183.29ms (320.94ms CPU time)
+
+Ran 3 test suites in 185.08ms (313.12ms CPU time): 38 tests passed, 0 failed, 0 skipped (38 total tests)

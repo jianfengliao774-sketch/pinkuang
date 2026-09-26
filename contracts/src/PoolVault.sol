@@ -16,7 +16,6 @@ import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
 import {SaleGovernance} from "./libraries/SaleGovernance.sol";
 import {FlexiblePurchase} from "./libraries/FlexiblePurchase.sol";
 import {SaleSettlement} from "./libraries/SaleSettlement.sol";
-import {BurnOperations} from "./libraries/BurnOperations.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
 import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
@@ -41,9 +40,9 @@ contract PoolVault is
     uint16 public constant maxShares = 49;
     uint8 public constant minMembers = 3;
     uint16 public constant platformBps = 100;
-    uint16 public constant burnBps = 400;
+    uint16 public constant burnBps = 0;
     uint16 public constant saleFeeBps = 200;
-    uint16 public constant saleBurnBps = 200;
+    uint16 public constant saleBurnBps = 0;
     uint32 public constant claimInterval = 86400;
     uint32 public constant voteDuration = 86400;
     address public constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
@@ -80,6 +79,7 @@ contract PoolVault is
         s.params = params_;
         s.unitPriceWei = params_.targetRaise / TOTAL_SHARES;
         s.state = State.Funding;
+        _rewardStorage().expiryDisabled = true;
     }
 
     function deposit(uint8 shares) external payable nonReentrant {
@@ -156,11 +156,19 @@ contract PoolVault is
         view
         returns (bool enabled, uint256 referenceCircuitId, FlexiblePurchaseConfig memory config)
     {
-        return FlexiblePurchase.configuration();
+        (enabled, referenceCircuitId, config) = FlexiblePurchase.configuration();
     }
 
     function purchaseModel() external view returns (bool initialized, uint32 taskId) {
-        return FlexiblePurchase.model();
+        (initialized, taskId) = FlexiblePurchase.model();
+    }
+
+    function purchaseReferenceWeight() external view returns (uint128) {
+        return FlexiblePurchase.referenceWeight();
+    }
+
+    function shareTradingAllowed() external view returns (bool) {
+        return _vaultStorage().state == State.Active && !SaleGovernance.tradingFrozen(_saleStorage());
     }
 
     function name() public view override returns (string memory) {
@@ -195,14 +203,14 @@ contract PoolVault is
     }
 
     /// @notice Called only by Factory as part of creation, before the pool is published.
-    function configureExpiry(bool enabled) external {
+    function configureExpiry(bool) external {
         VaultStorage storage s = _vaultStorage();
         RewardStorage storage r = _rewardStorage();
         if (msg.sender != s.factory) revert Unauthorized();
         if (r.expiryConfigured || s.state != State.Funding || totalSupply() != 0) revert InvalidParameters();
         r.expiryConfigured = true;
-        r.expiryDisabled = !enabled;
-        emit ExpiryConfigured(enabled);
+        r.expiryDisabled = true;
+        emit ExpiryConfigured(false);
     }
 
     function mine(bytes calldata data) external nonReentrant returns (bytes memory result) {
@@ -227,13 +235,12 @@ contract PoolVault is
     }
 
     function claim() external nonReentrant returns (uint256 amount) {
-        State current = _vaultStorage().state;
-        if (current == State.Active || current == State.Listed) _harvest(false);
         return RewardAccounting.claim(_rewardStorage(), msg.sender, balanceOf(msg.sender), BEM);
     }
 
-    function burnExpired(uint32 epoch) external nonReentrant returns (uint256 amount) {
-        return RewardAccounting.burnExpired(_rewardStorage(), epoch, BEM);
+    /// @notice Deprecated ABI retained for old clients; reward forfeiture is disabled.
+    function burnExpired(uint32) external pure returns (uint256) {
+        revert BurnDisabled();
     }
 
     function _settleRewards(address member) internal {
@@ -268,7 +275,7 @@ contract PoolVault is
     function _executeSale(uint256 proposalId) private {
         VaultStorage storage s = _vaultStorage();
         if (s.state != State.Active) revert WrongState();
-        SaleGovernance.execute(_saleStorage(), proposalId);
+        SaleGovernance.execute(_saleStorage(), proposalId, s.purchaseCost);
         s.state = State.Listed;
     }
 
@@ -288,10 +295,7 @@ contract PoolVault is
         // The guarded internal path proves receipt, zero pending and unchanged
         // NFT/miner identity, then accounts all old-owner income before transfer.
         (uint256 settledBem,,,) = _harvest(true);
-        uint256 fee = SaleSettlement.prepare(sale, msg.sender, msg.value, s.params.circuits, s.params.circuitId);
-        s.state = State.Closed;
-        _creditBnb(s, s.treasury, fee);
-        SaleSettlement.handover(sale, s.params.circuits, s.params.circuitId, settledBem);
+        SaleSettlement.complete(s, sale, settledBem);
     }
 
     /// @notice Reserved for a future verified adapter. Controlled sales settle atomically above.
@@ -299,24 +303,20 @@ contract PoolVault is
         revert UnverifiedSaleRoute();
     }
 
-    function executeBurn(uint256 minOut, uint256 maxIn) external nonReentrant returns (uint256 spent, uint256 burned) {
-        VaultStorage storage s = _vaultStorage();
-        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
-        if (s.state != State.Closed) revert WrongState();
-        (spent, burned) = BurnOperations.execute(_saleStorage(), minOut, maxIn);
+    /// @notice Deprecated ABI retained; this implementation has no swap or burn route.
+    function executeBurn(uint256, uint256) external pure returns (uint256, uint256) {
+        revert BurnDisabled();
     }
 
     function _materializeSaleProceeds(VaultStorage storage s, address member) private {
-        SaleStorage storage sale = _saleStorage();
-        if (sale.saleBuyer == address(0) || sale.saleSettled[member]) return;
-        uint256 shares = balanceOf(member);
-        uint256 amount = SaleSettlement.materialize(sale, member, shares);
-        _creditBnb(s, member, amount);
-        emit SaleProceedsSettled(member, shares, amount);
+        // The library already credits bnbOwed and totalBnbOwed atomically; its
+        // informational amount must not be credited again by the caller.
+        // slither-disable-next-line unused-return
+        SaleSettlement.materialize(_saleStorage(), s, member, balanceOf(member));
     }
 
     function pendingSaleProceeds(address member) public view returns (uint256) {
-        return SaleSettlement.pending(_saleStorage(), member, balanceOf(member));
+        return SaleSettlement.pending(_saleStorage(), _vaultStorage(), member, balanceOf(member));
     }
 
     function listedProposalId() external view returns (uint256) {
@@ -404,7 +404,7 @@ contract PoolVault is
 
     /// @notice Reports the two vote thresholds; execution must separately check state and expiry.
     function proposalPassed(uint256 proposalId) external view returns (bool) {
-        return SaleGovernance.passed(_saleStorage(), proposalId);
+        return SaleGovernance.passed(_saleStorage(), proposalId, _vaultStorage().purchaseCost);
     }
 
     function transfer(address to, uint256 amount) public override nonReentrant returns (bool) {
@@ -428,6 +428,7 @@ contract PoolVault is
         VaultStorage storage s = _vaultStorage();
         _onlyShareMarket(s);
         if (s.state != State.Active) revert WrongState();
+        if (SaleGovernance.tradingFrozen(_saleStorage())) revert ProposalActive();
         _requireShareQuantity(amount);
         uint256 previous = s.lockedShares[member];
         if (amount > balanceOf(member) - previous) revert InsufficientUnlockedShares();
@@ -528,6 +529,7 @@ contract PoolVault is
         if (to == address(this) || to == s.factory) revert InvalidShareRecipient();
         if (from != address(0) && to != address(0)) {
             if (s.state != State.Active) revert WrongState();
+            if (SaleGovernance.tradingFrozen(_saleStorage())) revert ProposalActive();
             address market = IPoolFactoryRoles(s.factory).shareMarket();
             // Register before enabling transfers, so the market can never become a voting member.
             if (market == address(0)) revert WrongState();
@@ -633,7 +635,7 @@ contract PoolVault is
 
     function totalBnbOwed() external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.totalBnbOwed + s.surplusOutstandingWei + _saleStorage().saleOutstandingWei;
+        return s.totalBnbOwed + s.surplusOutstandingWei + SaleSettlement.outstanding(_saleStorage());
     }
 
     function refundsRecorded() external view returns (bool) {
@@ -684,11 +686,7 @@ contract PoolVault is
         return _pendingPurchaseSurplus(_vaultStorage(), member);
     }
 
-    // WBNB.withdraw uses a 2300-gas transfer. The outer guarded burn pre-warms and
-    // sets this exact expected refund; receive must not write storage or take a lock.
     receive() external payable {
-        if (msg.sender != WBNB || msg.value == 0 || msg.value != _saleStorage().expectedWbnbRefund) {
-            revert UnsupportedSubscriptionAsset();
-        }
+        revert UnsupportedSubscriptionAsset();
     }
 }

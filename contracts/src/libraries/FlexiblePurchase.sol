@@ -30,6 +30,7 @@ library FlexiblePurchase {
     event FlexibleSurplusAllocated(uint256 amount, address indexed roundingRecipient, uint256 roundingWei);
     event PurchaseSurplusSettled(address indexed user, uint256 shares, uint256 amount);
     event PurchaseModelLocked(uint32 indexed taskId);
+    event PurchaseReferenceWeightLocked(uint128 verifiedWeight);
 
     function configure(
         PoolVaultState.VaultStorage storage s,
@@ -51,16 +52,22 @@ library FlexiblePurchase {
         uint256 rawTarget =
             Math.mulDiv(config.referencePriceWei, uint256(10_000) + config.extraBps, 10_000, Math.Rounding.Ceil);
         uint256 target = Math.ceilDiv(rawTarget, 100) * 100;
-        if (s.params.targetRaise != target) revert IPoolVault.InvalidParameters();
+        // Extra funding never authorizes paying more per unit of verified weight or more for the original machine.
+        if (s.params.targetRaise != target || s.params.priceCap > config.referencePriceWei) {
+            revert IPoolVault.InvalidParameters();
+        }
         // The model comes from the official on-chain reference miner, never from a price feed or administrator.
-        uint32 taskId = _requireQuality(s.params.circuits, s.params.circuitId, config.minVerifiedWeight);
+        ITapeoutMining.Miner memory referenceMiner =
+            _requireQuality(s.params.circuits, s.params.circuitId, config.minVerifiedWeight);
         selection.enabled = true;
         selection.referenceCircuitId = s.params.circuitId;
         selection.config = config;
         selection.modelInitialized = true;
-        selection.taskId = taskId;
+        selection.taskId = referenceMiner.taskId;
+        selection.referenceVerifiedWeight = referenceMiner.verifWeight;
         emit FlexiblePurchaseConfigured(s.params.circuitId, config.minVerifiedWeight, config.referenceDigest);
-        emit PurchaseModelLocked(taskId);
+        emit PurchaseModelLocked(referenceMiner.taskId);
+        emit PurchaseReferenceWeightLocked(referenceMiner.verifWeight);
     }
 
     function configuration()
@@ -77,6 +84,10 @@ library FlexiblePurchase {
         return (selection.modelInitialized, selection.taskId);
     }
 
+    function referenceWeight() external view returns (uint128) {
+        return _selection().referenceVerifiedWeight;
+    }
+
     function shareName(string memory fixedName) external view returns (string memory) {
         return _selection().enabled ? "Verified Capacity Pool Share" : fixedName;
     }
@@ -85,22 +96,32 @@ library FlexiblePurchase {
         _requireWindow(s);
         PurchaseSelectionState.SelectionStorage storage selection = _selection();
         if (selection.enabled && !selection.modelInitialized) revert IPoolVault.PurchaseModelNotInitialized();
+        if (selection.enabled && selection.referenceVerifiedWeight == 0) {
+            revert IPoolVault.PurchasePricingNotInitialized();
+        }
         uint256 circuitId = s.params.circuitId;
         if (allowAlternative) {
             if (!selection.enabled) revert IPoolVault.FlexiblePurchaseDisabled();
+            // Seller and price are validated by prepareMarketPurchase; feeBps is seller-borne.
+            // slither-disable-next-line unused-return
             (, address circuits, uint256 listedId,,, bool valid) = ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
             if (!valid) revert IPoolVault.InvalidListing();
             if (circuits != s.params.circuits) revert IPoolVault.WrongCircuit();
             circuitId = listedId;
         }
         if (selection.enabled) {
-            _requireModel(selection, s.params.circuits, circuitId);
+            // All listing identity/validity fields are checked by prepareMarketPurchase before payment.
+            // slither-disable-next-line unused-return
+            (,,, uint96 listedPrice,,) = ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
+            _requirePricedModel(selection, s.params.circuits, circuitId, listedPrice);
             if (circuitId != selection.referenceCircuitId && _originalAvailable(s, selection)) {
                 revert IPoolVault.OriginalTargetAvailable();
             }
         }
         (address seller, uint256 price, bytes32 key) =
             PurchaseValidation.prepareMarketPurchase(s.params.circuits, circuitId, s.params.priceCap, listingId);
+        // Claim may alter miner state. Recheck the actual returned price and chain weight before any purchase payment.
+        if (selection.enabled) _requirePricedModel(selection, s.params.circuits, circuitId, price);
         // A failed transfer, changed miner, or wrong callback reverts this temporary selection together with all funds.
         s.params.circuitId = circuitId;
         _expectNft(s, seller, CIRCUIT_MARKET);
@@ -109,7 +130,7 @@ library FlexiblePurchase {
         _finish(s, price, 0, listingId, key);
         if (selection.enabled) {
             // Repeat after claim/market callbacks so eligibility cannot be changed during execution.
-            _requireModel(selection, s.params.circuits, circuitId);
+            _requirePricedModel(selection, s.params.circuits, circuitId, price);
             _allocateEntireSurplus(s, s.totalRaised - price);
             emit AlternativeMinerSelected(selection.referenceCircuitId, circuitId, listingId);
         }
@@ -136,26 +157,42 @@ library FlexiblePurchase {
         if (block.timestamp >= s.params.purchaseDeadline) revert IPoolVault.DeadlinePassed();
     }
 
-    function _requireQuality(address circuits, uint256 circuitId, uint128 minWeight) private view returns (uint32) {
+    function _requireQuality(address circuits, uint256 circuitId, uint128 minWeight)
+        private
+        view
+        returns (ITapeoutMining.Miner memory miner)
+    {
         bytes32 key = ITapeoutMining(MINING).minerKey(circuits, circuitId);
-        ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);
+        miner = ITapeoutMining(MINING).getMiner(key);
         if (miner.circuits != circuits || miner.circuitId != circuitId) revert IPoolVault.WrongCircuit();
         if (miner.status != 1) revert IPoolVault.MinerNotActive();
         // "99% verified" names a reward pool; it does not mean 99% of a miner's weight may be verified.
         if (!_meetsQuality(miner, minWeight)) {
             revert IPoolVault.MinerDoesNotMeetCriteria();
         }
-        return miner.taskId;
     }
 
-    function _requireModel(
+    function _requirePricedModel(
         PurchaseSelectionState.SelectionStorage storage selection,
         address circuits,
-        uint256 circuitId
+        uint256 circuitId,
+        uint256 price
     ) private view {
-        if (_requireQuality(circuits, circuitId, selection.config.minVerifiedWeight) != selection.taskId) {
+        ITapeoutMining.Miner memory miner = _requireQuality(circuits, circuitId, selection.config.minVerifiedWeight);
+        if (miner.taskId != selection.taskId) {
             revert IPoolVault.WrongPurchaseModel();
         }
+        if (price > _referencePriceLimit(selection, miner.verifWeight)) revert IPoolVault.OverReferenceUnitPrice();
+    }
+
+    function _referencePriceLimit(PurchaseSelectionState.SelectionStorage storage selection, uint128 weight)
+        private
+        view
+        returns (uint256)
+    {
+        // Global cap is no larger than referencePrice, so avoid multiplication overflow when weight increased.
+        if (weight >= selection.referenceVerifiedWeight) return selection.config.referencePriceWei;
+        return Math.mulDiv(selection.config.referencePriceWei, weight, selection.referenceVerifiedWeight);
     }
 
     function _meetsQuality(ITapeoutMining.Miner memory miner, uint128 minWeight) private pure returns (bool) {
@@ -173,6 +210,8 @@ library FlexiblePurchase {
         (uint256 listingId, address seller, uint96 price, bool valid) =
             ICircuitMarket(CIRCUIT_MARKET).listingFor(circuits, id);
         if (!valid || seller == address(0) || price == 0 || price > s.params.priceCap) return false;
+        // Buyer pays the listing price; the omitted fee is deducted from the seller proceeds.
+        // slither-disable-next-line unused-return
         (address listedSeller, address listedCircuits, uint256 listedId, uint96 listedPrice,, bool listingValid) =
             ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
         if (
@@ -185,7 +224,8 @@ library FlexiblePurchase {
         ITapeoutMining.Miner memory miner =
             ITapeoutMining(MINING).getMiner(ITapeoutMining(MINING).minerKey(circuits, id));
         return miner.circuits == circuits && miner.circuitId == id && miner.status == 1
-            && miner.taskId == selection.taskId && _meetsQuality(miner, selection.config.minVerifiedWeight);
+            && miner.taskId == selection.taskId && _meetsQuality(miner, selection.config.minVerifiedWeight)
+            && price <= _referencePriceLimit(selection, miner.verifWeight);
     }
 
     function _expectNft(PoolVaultState.VaultStorage storage s, address seller, address expectedOperator) private {
@@ -211,10 +251,10 @@ library FlexiblePurchase {
     /// Each gets floor(surplus * shares / 100); the last member receives the remaining integer-division dust.
     function _allocateEntireSurplus(PoolVaultState.VaultStorage storage s, uint256 surplus) private {
         uint256 count = s.activeMembers.length;
-        uint256 allocated;
-        uint256 totalShares;
-        uint256 rounding;
-        address lastMember;
+        uint256 allocated = 0;
+        uint256 totalShares = 0;
+        uint256 rounding = 0;
+        address lastMember = address(0);
         for (uint256 i; i < count; ++i) {
             address member = s.activeMembers[i];
             uint256 shares = IERC20(address(this)).balanceOf(member);

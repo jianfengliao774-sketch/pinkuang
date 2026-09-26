@@ -17,7 +17,7 @@ npm run dev
 
 ## 已实现
 
-- 单钱包部署：9 个链接库、协调器与三个实现、最后原子初始化，共 14 笔钱包确认。Factory/Market 使用 UUPS，Vault 使用共享 Beacon，升级经至少 48 小时时间锁。
+- 单钱包部署：8 个链接库、协调器与三个实现、最后原子初始化，共 13 笔钱包确认。Factory/Market 使用 UUPS，Vault 使用共享 Beacon，升级经至少 48 小时时间锁。
 - 部署预检、Gas 总预算和单价上限、逐笔记录、广播不明时停止自动发送、跨标签页锁、只读恢复和部署结果核验。浏览器持久化失败时不请求签名。
 - 份额市场：真实链上读取、挂单、部分购买、撤单、领取卖款；现有份额交易费为成交价 1%，与本轮讨论的矿机采购服务费是两项业务。
 - 矿机报价：只允许官方 collection，区分挂牌价与 Firsto 买方总额，核对报价/详情/来源时效；按参考日产能价生成默认预留 10% 的筹款计划，可导出 JSON。
@@ -48,3 +48,7 @@ npm run artifacts:check
 `src/deployment.test.ts` 使用本机 Anvil；没有真实钱包或主网签名。`scripts/artifacts.test.mjs` 检查编译产物与链接关系。Solidity 与升级检查见仓库根目录脚本和 `evidence/`。
 
 采购调查和未完成的验证边界见 [采购费用对照](../docs/procurement-fees-2026-09-26.md)。最新型号约束与原目标优先版本，以 `evidence/model-validation-summary.json`、`model-ci-regression.log` 和 `model-upgrades/` 为准；旧 `contracts-ci.log`、`flexible-ci-regression.log` 只对应前期版本。前端与部署/市场/报价 28 项回归见 `evidence/purchase-ui-and-recovery-tests.log` 首组；最新 keeper/产物/恢复集成/代理共 60 项见 `evidence/purchase-final-scripts-tests.log`。
+
+## 最新业务与验证覆盖
+
+以 [2026-09-26 整改报告](../docs/audits/2026-09-26/remediation.md) 为准：取消业务销毁；收益 1% 平台费后归成员、整机出售 2% 平台费后归成员；份额表决期间冻结交易，订单 7 天到期。旧测试日志保留作历史，最新整合证据见该报告。Vite 启动/构建独立重编源码，产物未同步时拒绝构建，需先运行 `npm run artifacts`。

@@ -1,0 +1,8 @@
+Compiler run failed:
+Error (9582): Member "NothingToBurn" not found or not visible after argument-dependent lookup in type(library BurnOperations).
+  --> test/unit/PoolBurn.t.sol:77:25:
+   |
+77 |         vm.expectRevert(BurnOperations.NothingToBurn.selector);
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error: Compilation failed

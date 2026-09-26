@@ -11,6 +11,7 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
 import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
 
 /// @dev Compatible UUPS fixture: no new storage or initializer, only a pure version getter.
 /// @custom:oz-upgrades-unsafe-allow missing-initializer
@@ -135,6 +136,69 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(address(shareMarket)), 0);
         assertEq(pool.memberCount(), 5);
         assertEq(pool.totalSupply(), 100);
+    }
+
+    function test_orderExpiryRejectsLateFillButAnyoneCanUnlockOnlyToOriginalSeller() public {
+        uint256 id = _list(ALICE, 20, UNIT_BNB);
+        uint64 expiry = shareMarket.orderExpiresAt(id);
+        assertEq(expiry, block.timestamp + 7 days);
+        vm.expectRevert(IShareMarket.OrderNotExpired.selector);
+        shareMarket.expire(id);
+        vm.warp(uint256(expiry) - 1);
+        _fill(DAVE, id, 1, UNIT_BNB);
+        assertEq(_shareVault().lockedShares(ALICE), 19);
+        vm.warp(expiry);
+        vm.deal(DAVE, UNIT_BNB);
+        vm.prank(DAVE);
+        vm.expectRevert(IShareMarket.OrderExpired.selector);
+        shareMarket.fill{value: UNIT_BNB}(id, 1);
+        uint256 sellerBalance = pool.balanceOf(ALICE);
+        vm.prank(ERIN);
+        shareMarket.expire(id);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        assertEq(pool.balanceOf(ALICE), sellerBalance);
+        assertEq(pool.balanceOf(ERIN), 0);
+        assertEq(shareMarket.bnbOwed(ALICE), UNIT_BNB - UNIT_BNB / 100);
+        vm.expectRevert(IShareMarket.InactiveOrder.selector);
+        shareMarket.expire(id);
+    }
+
+    function test_votingBlocksOldOrderFillAndNewOrdersButPreservesCancellation() public {
+        PoolVault vault = PoolVault(payable(address(pool)));
+        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        uint256 id = _list(ALICE, 20, 1);
+        vm.prank(BOB);
+        uint256 proposal = vault.propose(5 ether, 0, 0);
+        assertFalse(vault.shareTradingAllowed());
+        vm.deal(DAVE, 20);
+        vm.prank(DAVE);
+        vm.expectRevert(IShareMarket.WrongState.selector);
+        shareMarket.fill{value: 20}(id, 20);
+        vm.prank(CAROL);
+        vm.expectRevert(IShareMarket.WrongState.selector);
+        shareMarket.list(address(pool), 1, 1);
+        assertEq(shareMarket.bnbOwed(ALICE), 0);
+        vm.prank(ALICE);
+        shareMarket.cancel(id);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        vm.warp(vault.getProposal(proposal).endsAt);
+        assertTrue(vault.shareTradingAllowed());
+        _list(ALICE, 20, UNIT_BNB);
+    }
+
+    function test_legacyOrderWithoutExpiryCanOnlyBeCancelledOrExpired() public {
+        uint256 id = _list(ALICE, 5, UNIT_BNB);
+        bytes32 namespace = 0xdc32f7bcb40b3d9a2ce544bcf40b4e14e3c57b64d5c4c2258289bd394f08cf00;
+        bytes32 expirySlot = keccak256(abi.encode(id, uint256(namespace) + 6));
+        vm.store(address(shareMarket), expirySlot, bytes32(0));
+        assertEq(shareMarket.orderExpiresAt(id), 0);
+        vm.deal(DAVE, UNIT_BNB);
+        vm.prank(DAVE);
+        vm.expectRevert(IShareMarket.OrderExpired.selector);
+        shareMarket.fill{value: UNIT_BNB}(id, 1);
+        shareMarket.expire(id);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        assertEq(pool.balanceOf(ALICE), 49);
     }
 
     function test_fullFillCreditsCanBeWithdrawnOnlyOnceByRecipients() public {

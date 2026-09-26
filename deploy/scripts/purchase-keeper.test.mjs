@@ -88,10 +88,11 @@ test('journal persists intent durably with protected permissions and rejects wro
   assert(!readFileSync(path, 'utf8').includes('PRIVATE_KEY'));
 });
 test('exclusive lock prevents another process from using the same journal and releases cleanly', t => {
-  const path = temporary(t), release = acquireKeeperLock(path);
-  assert.throws(() => acquireKeeperLock(path), /already exists/);
+  const path = temporary(t), root = join(path, '..', 'process-locks'), release = acquireKeeperLock(path, root);
+  assert.throws(() => acquireKeeperLock(path, root), /already exists/);
   release(); release();
-  const next = acquireKeeperLock(path); next();
+  assert.equal(statSync(root).mode & 0o777, 0o700);
+  const next = acquireKeeperLock(path, root); next();
 });
 test('unknown broadcast blocks all chain reads and all resends until a matching receipt is provided', async t => {
   const path = temporary(t); writeJournal(path, pending());
@@ -161,6 +162,7 @@ function simulatedChain() {
       else if (name === 'factory' || name === 'OFFICIAL_FACTORY') result = [factory];
       else if (name === 'state') result = [chain.state];
       else if (name === 'params') result = [[OFFICIAL_COLLECTIONS[0], 1n, 1_000_000n, 1_000_000n, ZeroAddress, 0n, 1500n, 2000n]];
+      else if (name === 'purchaseReferenceWeight') result = [chain.referenceWeight ?? 200n];
       else if (name === 'purchaseModel') result = [chain.modelInitialized !== false, 42n];
       else if (name === 'flexiblePurchase') result = [true, 1n, [100n, 1000n, 100n, 1000n, 900n, 40n, `0x${'ab'.repeat(32)}`]];
       else if (name === 'listingFor') {
@@ -649,4 +651,31 @@ test('pre-aborted discovery sends no request and abort also bounds a fetcher sta
   await assert.rejects(fetchCandidates({ pages: 1, sort: 'price', signal: active.signal }, constraints, async () => {
     setImmediate(() => active.abort()); return new Promise(() => {});
   }), /aborted/);
+});
+
+
+test('sending requires HTTPS RPC except explicit loopback test URLs', () => {
+  const base = ['--factory', factory, '--pool', pool, '--send', '--once', '--journal', '/private/journal.json'];
+  for (const rpc of ['http://bsc.example', 'http://192.168.1.10:8545', 'http://localhost.evil.example', 'http://8.8.8.8']) {
+    assert.throws(() => parseArguments([...base, '--rpc', rpc]), /requires HTTPS RPC/);
+  }
+  for (const rpc of ['https://bsc.example', 'http://127.0.0.1:8545', 'http://localhost:8545', 'http://[::1]:8545']) {
+    assert.equal(parseArguments([...base, '--rpc', rpc]).rpc, rpc);
+  }
+  assert.equal(parseArguments(['--factory', factory, '--pool', pool, '--rpc', 'http://read-only.example']).send, false);
+});
+
+
+test('legacy flexible pools with zero locked reference weight stop before candidate simulation', async t => {
+  const path = temporary(t), { chain, provider, signer } = simulatedChain(); chain.state = 1n; chain.referenceWeight = 0n;
+  await assert.rejects(runKeeperCycle(provider, { ...options(path), send: true }, signer), /no immutable reference weight/);
+  assert.equal(chain.sends.length, 0); assert.equal(chain.estimates.length, 0);
+});
+
+
+test('resuming the same missing journal cannot overwrite persistent wallet ownership with an empty ledger', t => {
+  const path = temporary(t), root = join(path, '..', 'wallets'); writeJournal(path, pending());
+  const release = acquireWalletLock(from, path, root); release();
+  rmSync(path);
+  assert.throws(() => acquireWalletLock(from, path, root), /unavailable previous journal/);
 });

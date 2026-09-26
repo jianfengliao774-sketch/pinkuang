@@ -4,24 +4,26 @@ import {
   type Eip1193Provider, type InterfaceAbi, type TransactionReceipt, type TransactionRequest,
 } from 'ethers';
 
+// Vite injects this literal after independently compiling and checking the local Solidity sources.
+// There is deliberately no digest fetched from the artifact server or accepted from the bundle.
+declare const __DEPLOYMENT_ARTIFACT_DIGEST__: string;
+
 export type { Eip1193Provider } from 'ethers';
 export const BSC_CHAIN_ID = 56;
 export const UPGRADE_DELAY_SECONDS = 48 * 60 * 60;
 export const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 export const LIBRARY_NAMES = [
-  'BurnOperations', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation',
+  'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation',
   'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints',
 ] as const;
 
-/** Current execution dependencies only; existence does not certify the protocols or swap liquidity. */
+/** Current execution dependencies only; existence does not certify the protocols. */
 export const PROTOCOL_ADDRESSES: Record<string, string> = {
   TAPEOUT_CIRCUITS: '0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C',
   BEHEMOTH_CIRCUITS: '0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C',
   MINING: '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',
   CIRCUIT_MARKET: '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f',
   BEM: '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a',
-  PANCAKE_ROUTER: '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',
-  WBNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
 };
 
 export type ByteRange = { start: number; length: number };
@@ -149,8 +151,23 @@ export function normalizeInput(input: DeploymentInput, requireReview = true): De
   return normalized;
 }
 
+function canonicalContent(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalContent);
+  if (value && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(object).sort().map(key => [key, canonicalContent(object[key])]));
+  }
+  return value;
+}
+
 export function artifactDigest(bundle: ArtifactBundle): string {
-  return keccak256(toUtf8Bytes(JSON.stringify(bundle)));
+  const { sourceCommit: _commit, ...content } = bundle;
+  return keccak256(toUtf8Bytes(JSON.stringify(canonicalContent(content))));
+}
+
+export function verifyArtifactIntegrity(bundle: ArtifactBundle): void {
+  assert(typeof __DEPLOYMENT_ARTIFACT_DIGEST__ === 'string' && /^0x[0-9a-f]{64}$/.test(__DEPLOYMENT_ARTIFACT_DIGEST__), '页面缺少源码编译摘要；请重新构建部署页面。');
+  assert(artifactDigest(bundle) === __DEPLOYMENT_ARTIFACT_DIGEST__, '部署产物与页面独立编译的源码摘要不一致；已禁止签名，请核对源码并重新构建。');
 }
 
 export function libraryDeploymentOrder(bundle: ArtifactBundle): string[] {
@@ -178,6 +195,7 @@ export function libraryDeploymentOrder(bundle: ArtifactBundle): string[] {
 }
 
 export function validateArtifacts(bundle: ArtifactBundle): void {
+  verifyArtifactIntegrity(bundle);
   assert(bundle?.schemaVersion === 1, '部署构建格式不支持。');
   assert(bundle.compilerVersion.startsWith('0.8.24'), '编译器版本应为 Solidity 0.8.24。');
   for (const name of REQUIRED_ARTIFACTS) {
@@ -288,6 +306,8 @@ export class DeploymentEngine {
   private readonly provider: BrowserProvider;
   private busy = false;
   constructor(private readonly wallet: Eip1193Provider, private readonly bundle: ArtifactBundle, private readonly callbacks: DeploymentCallbacks) {
+    validateArtifacts(bundle);
+    this.bundle = clone(bundle);
     this.provider = new BrowserProvider(wallet, 'any', { cacheTimeout: -1, pollingInterval: 1500 });
   }
 
@@ -475,6 +495,7 @@ export class DeploymentEngine {
   }
 
   private async sendStep(snapshot: DeploymentSnapshot, step: StepRecord): Promise<void> {
+    verifyArtifactIntegrity(this.bundle);
     await walletAccount(this.wallet, snapshot.account);
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
@@ -501,6 +522,7 @@ export class DeploymentEngine {
     try {
       await walletAccount(this.wallet, snapshot.account);
       const signer = await this.provider.getSigner(snapshot.account);
+      verifyArtifactIntegrity(this.bundle);
       attemptedBroadcast = true;
       const hash = await signer.sendUncheckedTransaction(transaction);
       step.txHash = hash; step.status = 'submitted';

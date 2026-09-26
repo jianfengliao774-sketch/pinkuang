@@ -3,7 +3,7 @@ import { ArrowDownToLine, ArrowRight, ArrowUpRight, Blocks, Check, CheckCheck, C
 import MarketPage from './MarketPage';
 import PricingPanel from './PricingPanel';
 import { formatEther } from 'ethers';
-import { DeploymentEngine, LIBRARY_NAMES, preflight, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
+import { DeploymentEngine, LIBRARY_NAMES, preflight, validateArtifacts, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 
 const STORAGE_KEY = 'pinkuang.deployment.v1';
@@ -70,6 +70,7 @@ export default function App() {
       if (!response.ok) throw new Error('编译产物未加载，请运行 npm run artifacts 后重试。');
       const value = await response.json();
       if (value.schemaVersion !== 1 || !value.artifacts?.AtomicDeployment?.abi?.some((item: { name?: string }) => item.name === 'deploySingleOwner')) throw new Error('编译产物不支持单钱包部署，请重新生成。');
+      validateArtifacts(value);
       setBundle(value);
     }).catch(err => { if (err.name !== 'AbortError') setLoadError(messageOf(err)); });
     return () => abort.abort();

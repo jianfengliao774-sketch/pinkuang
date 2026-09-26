@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {LegacyRewardAccounting} from "./LegacyRewardAccounting.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {FundingTestBase, IFundingVault} from "./FundingTestBase.sol";
 import {PurchaseMockBem, PurchaseMockNft, PurchaseMockMining, PurchaseMockMarket} from "./PurchaseMocks.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
@@ -36,6 +38,37 @@ interface IRewardsFactory {
 /// It does not write synthetic balances, reward slots or epoch records.
 contract RewardsVaultHarness is PoolVault {
     constructor(address officialFactory_) PoolVault(officialFactory_) {}
+
+    function fixtureLegacyStart() external {
+        require(_rewardStorage().acc == 0, "empty fixture required");
+        _rewardStorage().expiryDisabled = false;
+    }
+
+    function fixtureLegacyAccount() external {
+        LegacyRewardAccounting.account(_rewardStorage(), BEM, _vaultStorage().treasury);
+    }
+
+    function fixtureLegacyClaim() external {
+        LegacyRewardAccounting.claim(_rewardStorage(), msg.sender, balanceOf(msg.sender), BEM);
+    }
+
+    function fixtureLegacySettle(address user) external {
+        LegacyRewardAccounting.settle(_rewardStorage(), user, balanceOf(user));
+    }
+
+    function fixtureLegacyBurn(uint32 epoch) external {
+        LegacyRewardAccounting.burnExpired(_rewardStorage(), epoch, BEM);
+    }
+
+    function fixtureLegacyTransfer(address from, address to, uint256 shares) external {
+        LegacyRewardAccounting.settle(_rewardStorage(), from, balanceOf(from));
+        LegacyRewardAccounting.settle(_rewardStorage(), to, balanceOf(to));
+        ERC20Upgradeable._update(from, to, shares);
+    }
+
+    function globalRewardRemainder(address user) external view returns (uint256) {
+        return _rewardStorage().users[user].globalRemainder;
+    }
 
     function settleUser(address user) external {
         _settleRewards(user);

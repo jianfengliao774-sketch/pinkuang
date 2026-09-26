@@ -1,0 +1,73 @@
+Compiling 101 files with Solc 0.8.24
+Solc 0.8.24 finished in 25.73s
+Compiler run successful!
+
+Ran 25 tests for test/unit/ShareMarket.t.sol:ShareMarketTest
+[PASS] testFuzz_listedOrClosedCannotFillButCancelOnlyUnlocks(bool) (runs: 256, μ: 240546, ~: 240648)
+[PASS] test_cancelOnlySellerAndCannotRepeatOrFillCancelledOrder() (gas: 221191)
+[PASS] test_failedFinalMiningClaimRollsBackFillBnbCreditAndLocks() (gas: 463167)
+[PASS] test_feeRecipientUsesPoolSnapshotWhenFactoryTreasuryChanges() (gas: 661982)
+[PASS] test_feeRoundsDownPerPartialFillAndRemainderStaysWithSeller() (gas: 735266)
+[PASS] test_fullFillCreditsCanBeWithdrawnOnlyOnceByRecipients() (gas: 672323)
+[PASS] test_fundingPoolCannotListShares() (gas: 554843)
+[PASS] test_legacyOrderWithoutExpiryCanOnlyBeCancelledOrExpired() (gas: 216058)
+[PASS] test_listingAndCancelDoNotTransferSharesOrCreateMemberCheckpoints() (gas: 243084)
+[PASS] test_lockedSharesCannotBeUsedToBypassBuyerMaximum() (gas: 756859)
+[PASS] test_marketInitializeLockedAndRejectsWrongGovernance() (gas: 3138177)
+[PASS] test_miningCallbackCannotReenterFillDuringLockedTransfer() (gas: 1040472)
+[PASS] test_multipleOrdersCannotLockMoreThanSellerOwnsAndCancelFreesOnlyRemainder() (gas: 995314)
+[PASS] test_orderExpiryRejectsLateFillButAnyoneCanUnlockOnlyToOriginalSeller() (gas: 739251)
+[PASS] test_partialFillsPreserveLocksAndDeductExactlyOnePercentFromSeller() (gas: 919787)
+[PASS] test_registrationChecksCodeFactoryAndTimelockIdentityEvenThroughQueue() (gas: 2859091)
+[PASS] test_registrationRequiresActual48HourQueueAndCannotInstantlyReplace() (gas: 6034496)
+[PASS] test_rejectingSellerCannotBlockFillAndFailedWithdrawalKeepsCredit() (gas: 1201779)
+[PASS] test_sellerAndTreasurySameAddressAccumulateRatherThanOverwrite() (gas: 762575)
+[PASS] test_unregisteredMarketAndUnknownPoolCannotCreateOrders() (gas: 1757014)
+[PASS] test_uupsUpgradeRequiresActual48HourQueueAndPreservesOrderAndCredit() (gas: 2498744)
+[PASS] test_votingBlocksOldOrderFillAndNewOrdersButPreservesCancellation() (gas: 619514)
+[PASS] test_withdrawBnbCallbackCannotReenterAndGetPaidTwice() (gas: 1274945)
+[PASS] test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() (gas: 335015)
+[PASS] test_zeroPriceOrderTransfersFreelyWithNoFeeOrBnbLiability() (gas: 796870)
+Suite result: ok. 25 passed; 0 failed; 0 skipped; finished in 158.41ms (186.88ms CPU time)
+
+Ran 31 tests for test/unit/PoolVoting.t.sol:PoolVotingTest
+[PASS] testFuzz_discountWithFiftyOneThroughFiftyNineSharesCannotExecute(uint8) (runs: 256, μ: 563571, ~: 563729)
+Logs:
+  Bound result 51
+
+[PASS] testFuzz_referenceAndPriceAreRecordedWithoutOracleValidation(uint256,uint256,uint64) (runs: 256, μ: 265661, ~: 265800)
+Logs:
+  Bound result 4262
+
+[PASS] test_acquisitionSevenDayBoundaryAndProposalSnapshot() (gas: 304822)
+[PASS] test_closedLifecycleFixtureCannotVoteOrProposeButRetainsHistory() (gas: 405023)
+[PASS] test_currentNewMemberCanProposeButHasNoSameSecondHistoricalVote() (gas: 763079)
+[PASS] test_discountBelowActualCostNeedsAtLeastSixtyShares() (gas: 634936)
+[PASS] test_exactlyHalfMembersFailEvenWithShareMajority() (gas: 735252)
+[PASS] test_exactlyHalfSharesFailEvenWithMemberMajority() (gas: 964643)
+[PASS] test_falseVoteConsumesVoteAndCannotBeChanged() (gas: 329583)
+[PASS] test_fortyNineSharesAloneDoNotPass() (gas: 336307)
+[PASS] test_fundingFundedAndRefundingPoolsCannotProposeOrVote() (gas: 1220508)
+[PASS] test_listedLifecycleFixtureRejectsProposalsAndVotesWithoutChangingHistory() (gas: 391082)
+[PASS] test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() (gas: 527962)
+[PASS] test_miningCallbackCannotProposeDuringShareTransfer() (gas: 1084282)
+[PASS] test_miningCallbackCannotVoteDuringHarvest() (gas: 857046)
+[PASS] test_nonMembersHaveNoPrivilegedProposalOrVoteAccess() (gas: 387005)
+[PASS] test_onlyOneLiveProposalAndRejectedAttemptsDoNotSetCooldown() (gas: 289469)
+[PASS] test_openVotePreventsAcquiringAdditionalVotingShares() (gas: 401234)
+[PASS] test_openVotePreventsExitingAndKeepsSnapshotVotingRights() (gas: 372334)
+[PASS] test_replacementProposalRefreshesSnapshotAndDoesNotInheritOldVotes() (gas: 1108043)
+[PASS] test_saleAtActualCostRetainsSimpleShareMajorityThreshold() (gas: 472968)
+[PASS] test_sameProposerSevenDayBoundarySurvivesExitAndReentry() (gas: 853280)
+[PASS] test_sameSecondDirectTransferCannotDuplicateSnapshotVotes() (gas: 416145)
+[PASS] test_sameSecondMarketFillCannotDuplicateSnapshotVotes() (gas: 609866)
+[PASS] test_sameSecondMemberExitCannotLowerSnapshotMajorityThreshold() (gas: 826995)
+[PASS] test_sameSecondTransferFromCannotDuplicateSnapshotVotes() (gas: 446679)
+[PASS] test_sevenMinorityAddressesCannotRotateProposalsToKeepTradingFrozen() (gas: 3323685)
+[PASS] test_twentyFourHourVotingBoundaryAndExpiredProposalReplacement() (gas: 680549)
+[PASS] test_twoOfThreeMembersWithFiftyOneSharesPass() (gas: 376000)
+[PASS] test_unknownProposalViewsAndVotesRejectWithoutWritingVotes() (gas: 311053)
+[PASS] test_zeroSalePriceRejectedWithoutConsumingProposalOrCooldown() (gas: 45253)
+Suite result: ok. 31 passed; 0 failed; 0 skipped; finished in 167.53ms (320.01ms CPU time)
+
+Ran 2 test suites in 169.33ms (325.94ms CPU time): 56 tests passed, 0 failed, 0 skipped (56 total tests)

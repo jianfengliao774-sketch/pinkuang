@@ -51,6 +51,10 @@ contract FlexibleMiningMock {
         miners[key].taskId = taskId;
     }
 
+    function setVerifiedWeight(bytes32 key, uint128 weight) external {
+        miners[key].verifWeight = weight;
+    }
+
     function setIdentity(bytes32 key, address circuits, uint64 circuitId) external {
         miners[key].circuits = circuits;
         miners[key].circuitId = circuitId;
@@ -82,6 +86,7 @@ contract FlexibleMiningMock {
         if (claimFault == 3) miner.verifWeight = 1;
         if (claimFault == 4) miner.optimal = true;
         if (claimFault == 5) miner.taskId += 1;
+        if (claimFault == 6) miner.verifWeight = 150;
         if (reentryTarget != address(0)) {
             reentryAttempted = true;
             (reentrySucceeded,) = reentryTarget.call(reentryData);
@@ -130,7 +135,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
             referenceDigest: keccak256("example disclosed Firsto snapshot, not oracle")
         });
         defaultParams.targetRaise = 6.6 ether;
-        defaultParams.priceCap = defaultParams.targetRaise;
+        defaultParams.priceCap = config.referencePriceWei;
         _mintMiner(REFERENCE_ID);
         _mintMiner(ALTERNATIVE_ID);
         pool = _flexible(defaultParams, config);
@@ -182,6 +187,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
         (bool initialized, uint32 taskId) = pool.purchaseModel();
         assertTrue(initialized);
         assertEq(taskId, 7);
+        assertEq(pool.purchaseReferenceWeight(), MIN_WEIGHT);
         assertEq(IERC20Metadata(address(pool)).name(), "Verified Capacity Pool Share");
         vm.expectRevert(IPoolVault.Unauthorized.selector);
         pool.configureFlexiblePurchase(config);
@@ -393,7 +399,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
         for (uint256 i; i < 100; ++i) {
             _deposit(pool, address(uint160(0x10000 + i)), 1);
         }
-        uint256 listing = _list(ALTERNATIVE_ID, 6 ether + 1);
+        uint256 listing = _list(ALTERNATIVE_ID, 5 ether + 1);
         // Clear warm slots from funding; this remains a local mock measurement, not a live-chain gas guarantee.
         vm.cool(address(pool));
         vm.cool(address(beacon));
@@ -411,7 +417,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
         for (uint256 i; i < 100; ++i) {
             credited += pool.bnbOwed(address(uint160(0x10000 + i)));
         }
-        assertEq(credited, defaultParams.targetRaise - 6 ether - 1);
+        assertEq(credited, defaultParams.targetRaise - 5 ether - 1);
         assertEq(credited, pool.totalBnbOwed());
         assertEq(nft.ownerOf(ALTERNATIVE_ID), address(pool));
     }
@@ -476,6 +482,147 @@ contract FlexiblePurchaseTest is FundingTestBase {
         assertEq(poolFactory.poolCount(), count);
     }
 
+    function test_extraFundraisingCannotRaiseOriginalPurchaseCap() public {
+        IPoolVault.PoolParams memory invalid = defaultParams;
+        invalid.priceCap = invalid.targetRaise;
+        vm.prank(OPERATOR);
+        vm.expectRevert(IPoolVault.InvalidParameters.selector);
+        poolFactory.createFlexiblePool(invalid, config);
+        _fund();
+        uint256 listing = _list(REFERENCE_ID, uint96(defaultParams.targetRaise));
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyFromMarket(listing);
+        _assertUntouched();
+    }
+
+    function test_originalDelistedDoesNotPermitSameWeightAlternativeAt110Percent() public {
+        _fund();
+        uint256 original = _list(REFERENCE_ID, 5 ether);
+        market.setValid(original, false);
+        uint256 listing = _list(ALTERNATIVE_ID, uint96(defaultParams.targetRaise));
+        vm.prank(SELLER);
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 6 ether));
+        assertEq(pool.totalBnbOwed(), 0.6 ether);
+    }
+
+    function test_lowerMinimumDoesNotLowerReferenceDenominatorOrAllowLowWeightTopPrice() public {
+        config.minVerifiedWeight = 100;
+        pool = _flexible(defaultParams, config);
+        assertEq(pool.purchaseReferenceWeight(), 200);
+        mining.setVerifiedWeight(mining.minerKey(address(nft), ALTERNATIVE_ID), 100);
+        _fund();
+        uint256 listing = _list(ALTERNATIVE_ID, 6 ether);
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 3 ether));
+        assertEq(pool.totalBnbOwed(), 3.6 ether);
+    }
+
+    function test_referenceWeightDropAfterLockCannotRebaseUnitPrice() public {
+        config.minVerifiedWeight = 100;
+        pool = _flexible(defaultParams, config);
+        mining.setVerifiedWeight(mining.minerKey(address(nft), REFERENCE_ID), 100);
+        _fund();
+        assertEq(pool.purchaseReferenceWeight(), 200);
+        uint256 original = _list(REFERENCE_ID, 6 ether);
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyFromMarket(original);
+        _assertUntouched();
+        // The overpriced original is not eligible for original-target priority either.
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 6 ether));
+        assertEq(nft.ownerOf(ALTERNATIVE_ID), address(pool));
+    }
+
+    function test_referenceWeightIncreaseAfterLockDoesNotChangeCandidateDenominator() public {
+        mining.setVerifiedWeight(mining.minerKey(address(nft), REFERENCE_ID), 400);
+        _fund();
+        assertEq(pool.purchaseReferenceWeight(), 200);
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 6 ether));
+        assertEq(pool.totalBnbOwed(), 0.6 ether);
+    }
+
+    function test_higherWeightStillCannotExceedConservativeTotalCap() public {
+        mining.setVerifiedWeight(mining.minerKey(address(nft), ALTERNATIVE_ID), 300);
+        _fund();
+        uint256 listing = _list(ALTERNATIVE_ID, uint96(defaultParams.targetRaise));
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 6 ether));
+        assertEq(pool.totalBnbOwed(), 0.6 ether);
+    }
+
+    function testFuzz_weightDropsDuringClaimOrMarketTransferRevertsEntirePurchase(bool duringClaim) public {
+        config.minVerifiedWeight = 100;
+        pool = _flexible(defaultParams, config);
+        _fund();
+        if (duringClaim) mining.setClaimFault(6);
+        else market.setBuyFault(6);
+        bytes32 key = mining.minerKey(address(nft), ALTERNATIVE_ID);
+        mining.setPending(key, 999);
+        uint256 listing = _list(ALTERNATIVE_ID, 6 ether);
+        uint256 sellerBefore = SELLER.balance;
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        assertEq(mining.getMiner(key).verifWeight, 200);
+        assertEq(mining.pending(key), 999);
+        assertEq(bem.balanceOf(SELLER), 0);
+        assertEq(SELLER.balance, sellerBefore);
+    }
+
+    function test_unitPriceLimitFloorsFractionalWeiInsteadOfRoundingUp() public {
+        config.referencePriceWei = 1001;
+        config.minVerifiedWeight = 1;
+        config.extraBps = 0;
+        defaultParams.priceCap = 1001;
+        defaultParams.targetRaise = 1100;
+        pool = _flexible(defaultParams, config);
+        mining.setVerifiedWeight(mining.minerKey(address(nft), ALTERNATIVE_ID), 199);
+        _fund();
+        uint256 limit = uint256(1001) * 199 / 200;
+        uint256 listing = _list(ALTERNATIVE_ID, uint96(limit + 1));
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, uint96(limit)));
+        assertEq(pool.totalBnbOwed(), 1100 - limit);
+    }
+
+    function test_oldModelWithoutReferenceWeightCannotPurchaseButCanRefund() public {
+        // The uint128 reference weight is appended at byte 5 of relative slot 7; preserve bool/taskId.
+        bytes32 modelSlot = bytes32(uint256(0xabb161195ab2dca5bb4a3b74cf71ac027f503287a65da4d00c8f2426b582f100) + 7);
+        vm.store(
+            address(pool), modelSlot, bytes32(uint256(vm.load(address(pool), modelSlot)) & ((uint256(1) << 40) - 1))
+        );
+        (bool initialized, uint32 taskId) = pool.purchaseModel();
+        assertTrue(initialized);
+        assertEq(taskId, 7);
+        assertEq(pool.purchaseReferenceWeight(), 0);
+        _fund();
+        uint256 original = _list(REFERENCE_ID, 6 ether);
+        uint256 alternative = _list(ALTERNATIVE_ID, 6 ether);
+        vm.expectRevert(IPoolVault.PurchasePricingNotInitialized.selector);
+        pool.buyFromMarket(original);
+        vm.expectRevert(IPoolVault.PurchasePricingNotInitialized.selector);
+        pool.buyAlternativeFromMarket(alternative);
+        _assertUntouched();
+        vm.warp(defaultParams.purchaseDeadline);
+        pool.finalizeFailure();
+        assertEq(pool.totalBnbOwed(), defaultParams.targetRaise);
+        vm.prank(ALICE);
+        pool.withdrawBnb();
+        vm.prank(BOB);
+        pool.withdrawBnb();
+        vm.prank(CAROL);
+        pool.withdrawBnb();
+        assertEq(address(pool).balance, 0);
+    }
+
     function test_configRejectsDirectRouteAndZeroOrFutureTerms() public {
         IPoolVault.PoolParams memory params = defaultParams;
         params.directSeller = SELLER;
@@ -498,12 +645,12 @@ contract FlexiblePurchaseTest is FundingTestBase {
         config.referencePriceWei = 1001;
         config.extraBps = 0;
         defaultParams.targetRaise = 1100;
-        defaultParams.priceCap = 1100;
+        defaultParams.priceCap = config.referencePriceWei;
         IFundingVault rounded = _flexible(defaultParams, config);
         assertEq(rounded.unitPriceWei(), 11);
         config.extraBps = 2500;
         defaultParams.targetRaise = 1300;
-        defaultParams.priceCap = 1300;
+        defaultParams.priceCap = config.referencePriceWei;
         rounded = _flexible(defaultParams, config);
         assertEq(rounded.unitPriceWei(), 13);
     }
@@ -534,7 +681,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
 
     function test_fullSurplusUses49_26_25AndRoundingNoDustRemains() public {
         _fund();
-        uint256 price = 6 ether + 1;
+        uint256 price = 5 ether + 1;
         pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, uint96(price)));
         uint256 surplus = defaultParams.targetRaise - price;
         uint256 alice = surplus * 49 / 100;
@@ -586,14 +733,16 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function test_priceCapRejectsOneWeiExcessAndAllowsBoundary() public {
+        defaultParams.priceCap = 5 ether;
+        pool = _flexible(defaultParams, config);
         _fund();
         uint256 listing = _list(ALTERNATIVE_ID, uint96(defaultParams.priceCap + 1));
         vm.expectRevert(IPoolVault.OverPriceCap.selector);
         pool.buyAlternativeFromMarket(listing);
         _assertUntouched();
         pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, uint96(defaultParams.priceCap)));
-        assertEq(address(pool).balance, 0);
-        assertEq(pool.totalBnbOwed(), 0);
+        assertEq(address(pool).balance, defaultParams.targetRaise - defaultParams.priceCap);
+        assertEq(pool.totalBnbOwed(), defaultParams.targetRaise - defaultParams.priceCap);
     }
 
     function test_wrongCollectionEvenAnotherOfficialCollectionRejected() public {
@@ -722,7 +871,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
         vm.warp(block.timestamp + 48 hours);
         timelock.execute(address(poolFactory), 0, data, bytes32(0), salt);
         _fund();
-        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 6 ether + 1));
+        pool.buyAlternativeFromMarket(_list(ALTERNATIVE_ID, 5 ether + 1));
         uint256 entitlement = pool.bnbOwed(ALICE);
         vm.prank(ALICE);
         pool.transfer(DAVE, 49);

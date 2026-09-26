@@ -37,7 +37,7 @@ export interface QuotePlan {
   reference: CapacityReference;
   flexiblePurchase: { minVerifiedWeight: string; referencePriceWei: string; targetDailyYieldAtomic: string; extraBps: number; referenceObservedAt: number; referenceBlock: string; referenceDigest: string };
   funding: { targetRaiseWei: string; priceCapWei: string; totalShares: 100; pricePerShareWei: string; extraBps: number };
-  eligibility: { collection: string; expectedTaskId: string; modelSource: 'reference-nft-onchain'; originalTargetFirst: true; miningStatus: 'verified'; minVerifiedWeight: string; unverifiedWeight: '0'; excludeOptimal: true };
+  eligibility: { collection: string; expectedTaskId: string; expectedReferenceVerifiedWeight: string; modelSource: 'reference-nft-onchain'; originalTargetFirst: true; miningStatus: 'verified'; minVerifiedWeight: string; unverifiedWeight: '0'; excludeOptimal: true };
   notes: string[];
 }
 
@@ -173,6 +173,8 @@ export function createQuotePlan(quote: MineQuote, reference: CapacityReference, 
   requireValue(!referenceIssue(reference, now), referenceIssue(reference, now) ?? '参考价无效');
   requireValue(quote.status === 'verified' && quote.unverifiedWeight === '0' && quote.verifiedWeight && BigInt(quote.verifiedWeight) > 0n, '只支持纯验证池、非最优、无未验证权重的官方矿机');
   const expectedTaskId = uint(quote.taskId, '任务型号'); requireValue(BigInt(expectedTaskId) < (1n << 32n), '任务型号超出链上 uint32 范围');
+  const expectedReferenceVerifiedWeight = uint(quote.verifiedWeight, '参考矿机验证权重');
+  requireValue(BigInt(expectedReferenceVerifiedWeight) < (1n << 128n), '参考矿机验证权重超出链上 uint128 范围');
   const minimum = uint(minVerifiedWeight, '最低验证权重'); requireValue(BigInt(minimum) > 0n && BigInt(minimum) <= BigInt(quote.verifiedWeight) && BigInt(minimum) < (1n << 128n), '最低验证权重必须为正且不高于目标矿机');
   requireValue(quote.estimated24hAtomic && BigInt(quote.estimated24hAtomic) > 0n, '目标矿机缺少有效日产能');
   requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间，最多两位小数');
@@ -180,5 +182,22 @@ export function createQuotePlan(quote: MineQuote, reference: CapacityReference, 
   const targetRaiseWei = ((referencePriceWei * BigInt(10_000 + extraBps) + 999_999n) / 1_000_000n) * 100n;
   requireValue(targetRaiseWei > 0n && targetRaiseWei <= UINT256, '筹款目标超出合约金额范围');
   const sourceDigest = keccak256(toUtf8Bytes(JSON.stringify({ quote, reference })));
-  return { schemaVersion: 1, chainId: 56, createdAt: new Date(now).toISOString(), sourceDigest, target: { collection: quote.collection, tokenId: quote.tokenId, series: quote.series, askId: quote.ask!.id, askPriceWei: quote.ask!.priceWei, firstoBuyerCostWei: quote.ask!.buyerCostWei }, reference, flexiblePurchase: { minVerifiedWeight: minimum, referencePriceWei: referencePriceWei.toString(), targetDailyYieldAtomic: quote.estimated24hAtomic, extraBps, referenceObservedAt: Math.floor(reference.observedAt / 1000), referenceBlock: reference.sourceBlock, referenceDigest: sourceDigest }, funding: { targetRaiseWei: targetRaiseWei.toString(), priceCapWei: targetRaiseWei.toString(), totalShares: 100, pricePerShareWei: (targetRaiseWei / 100n).toString(), extraBps }, eligibility: { collection: quote.collection, expectedTaskId, modelSource: 'reference-nft-onchain', originalTargetFirst: true, miningStatus: 'verified', minVerifiedWeight: minimum, unverifiedWeight: '0', excludeOptimal: true }, notes: ['金额采用 Firsto 日产能参考价乘以目标日产能，再加额外预算；不是直接照抄挂单价。', '参考价为官方两系列纯验证池非最优矿机中，最低五个不同卖家有效挂单的日产能价中位数。', '任务型号在建池时由参考 NFT 的链上挖矿数据锁定；本计划的 expectedTaskId 是来源报价，提交建池前必须与链上值核对。替代品必须同官方合约、同任务型号，且原目标无符合条件的官网挂单。', '实际购买必须重新检查链上挂单、所有权、挖矿条件和最高总价。Firsto signed/batch 挂单不在现有 PoolVault.buyFromMarket 支持范围。', '自动替换矿机必须启用支持 flexiblePurchase 的新池；本计划只保存公开配置，不签名、不购买、不接收资产。', '额外预算未实际用于购机的部分，按购机时的份额比例计入可领取余额，由持有人领取；筹款总额向上取整为100份，每份为整数wei。'] };
+  return {
+    schemaVersion: 1, chainId: 56, createdAt: new Date(now).toISOString(), sourceDigest,
+    target: { collection: quote.collection, tokenId: quote.tokenId, series: quote.series, askId: quote.ask!.id, askPriceWei: quote.ask!.priceWei, firstoBuyerCostWei: quote.ask!.buyerCostWei },
+    reference,
+    flexiblePurchase: { minVerifiedWeight: minimum, referencePriceWei: referencePriceWei.toString(), targetDailyYieldAtomic: quote.estimated24hAtomic, extraBps, referenceObservedAt: Math.floor(reference.observedAt / 1000), referenceBlock: reference.sourceBlock, referenceDigest: sourceDigest },
+    funding: { targetRaiseWei: targetRaiseWei.toString(), priceCapWei: referencePriceWei.toString(), totalShares: 100, pricePerShareWei: (targetRaiseWei / 100n).toString(), extraBps },
+    eligibility: { collection: quote.collection, expectedTaskId, expectedReferenceVerifiedWeight, modelSource: 'reference-nft-onchain', originalTargetFirst: true, miningStatus: 'verified', minVerifiedWeight: minimum, unverifiedWeight: '0', excludeOptimal: true },
+    notes: [
+      '筹款采用 Firsto 日产能参考价乘以目标日产能，再加额外预算；参考价不是链上价格预言机，也不保证最低成交价。',
+      '购机总价上限固定为整台矿机参考价，不含额外筹款。原目标和替代矿机还同时受单位验证权重限价：参考价 × 候选链上验证权重 ÷ 建池时参考矿机链上验证权重，向下取整到 wei。',
+      '任务型号和参考验证权重均在建池时由参考 NFT 的链上挖矿数据锁定，不随最低权重设置或后续参考矿机变化而改变。expectedTaskId 与 expectedReferenceVerifiedWeight 只是报价来源的预期值，建池前必须核对链上数据。',
+      '更低权重的合格替代品必须相应降价；更高权重也不能突破本计划的购机总价上限。额外筹款不会授权以更高单位权重价格买入。',
+      '替代品必须同官方合约、同任务型号，且原目标无同时满足质量、总价和单位权重限价的官网挂单。',
+      '实际购买须复核链上挂单、所有权、挖矿条件和双重限价。Firsto signed/batch 挂单不在现有 PoolVault.buyFromMarket 支持范围。',
+      '自动替换须新建已锁定参考验证权重的 flexiblePurchase 池；旧池缺少定价基数将拒绝采购，保留退款路径。本计划只保存公开配置，不签名、不购买、不接收资产。',
+      '购机余款按购机时的份额比例计入可领取余额，由持有人领取；筹款总额向上取整为100份，每份为整数wei。',
+    ],
+  };
 }

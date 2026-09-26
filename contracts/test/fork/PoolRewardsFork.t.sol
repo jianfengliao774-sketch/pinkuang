@@ -116,7 +116,7 @@ contract PoolRewardsForkTest is Test {
         vault.deposit{value: contribution}(shares);
     }
 
-    function test_Fork_PermissionlessHarvestPaysOneFourNinetyFiveAndClaim24HourBoundary() public {
+    function test_Fork_PermissionlessHarvestPaysOnePercentAndNoBurnAndClaim24HourBoundary() public {
         uint256 sellerBemAfterPurchase = BEM.balanceOf(SELLER);
         uint256 supplyBefore = BEM.totalSupply();
         uint256 treasuryBefore = BEM.balanceOf(TREASURY);
@@ -127,14 +127,14 @@ contract PoolRewardsForkTest is Test {
         uint256 gross = BEM.totalSupply() - supplyBefore;
         assertGt(gross, 0, "real Mining.claim must mint new BEM");
         uint256 fee = gross / 100;
-        uint256 burn = gross * 4 / 100;
+        uint256 burn = 0;
         uint256 net = gross - fee - burn;
         uint32 epoch = uint32(block.timestamp / 1 days);
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, fee);
         assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, burn);
         assertEq(BEM.balanceOf(address(vault)), net);
         assertEq(vault.bemAccounted(), net);
-        assertEq(vault.epochNet(epoch), net);
+        assertEq(vault.epochNet(epoch), 0);
         assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.epochBurned(epoch), 0);
         assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase);
@@ -150,7 +150,7 @@ contract PoolRewardsForkTest is Test {
         vault.claim();
         uint256 firstAt = block.timestamp;
         assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment);
-        assertEq(vault.epochPaid(epoch), firstPayment);
+        assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.bemAccounted(), net - firstPayment);
         assertEq(vault.lastClaimAt(ALICE), firstAt);
 
@@ -192,15 +192,15 @@ contract PoolRewardsForkTest is Test {
         uint32 epoch = uint32(block.timestamp / 1 days);
         assertEq(BEM.totalSupply(), supplyBefore, "same-second donation case needs no fresh Mining issuance");
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, 100);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 400);
-        assertEq(vault.epochNet(epoch), 9500);
-        assertEq(vault.bemAccounted(), 9500);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 0);
+        assertEq(vault.epochNet(epoch), 0);
+        assertEq(vault.bemAccounted(), 9900);
         vault.harvest();
-        assertEq(vault.epochNet(epoch), 9500, "accounted BEM cannot be charged twice");
+        assertEq(vault.epochNet(epoch), 0);
         assertEq(BEM.balanceOf(TREASURY) - treasuryBefore, 100);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 400);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, 0);
         address[3] memory members = [ALICE, BOB, CAROL];
-        uint256[3] memory expected = [uint256(4655), uint256(4655), uint256(190)];
+        uint256[3] memory expected = [uint256(4851), uint256(4851), uint256(198)];
         for (uint256 i; i < members.length; ++i) {
             assertEq(vault.claimable(members[i]), expected[i]);
             uint256 before = BEM.balanceOf(members[i]);
@@ -208,11 +208,11 @@ contract PoolRewardsForkTest is Test {
             vault.claim();
             assertEq(BEM.balanceOf(members[i]) - before, expected[i]);
         }
-        assertEq(vault.epochPaid(epoch), 9500);
+        assertEq(vault.epochPaid(epoch), 0);
         assertEq(vault.bemAccounted(), 0);
         assertEq(BEM.balanceOf(address(vault)), 0);
         vault.harvest();
-        assertEq(vault.epochNet(epoch), 9500, "outgoing claims cannot become new negative or positive income");
+        assertEq(vault.epochNet(epoch), 0);
     }
 
     function test_Fork_AlreadyClaimedProtocolBemStillHarvestedOnce() public {
@@ -224,35 +224,27 @@ contract PoolRewardsForkTest is Test {
         assertEq(vault.bemAccounted(), 0);
         assertEq(MINING.pending(key), 0);
         vault.harvest();
-        uint256 net = alreadyReceived - alreadyReceived / 100 - alreadyReceived * 4 / 100;
+        uint256 net = alreadyReceived - alreadyReceived / 100;
         assertEq(vault.bemAccounted(), net);
-        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), net);
+        assertEq(vault.epochNet(uint32(block.timestamp / 1 days)), 0);
         vault.harvest();
         assertEq(vault.bemAccounted(), net);
     }
 
-    function test_Fork_ExpiredRealBemBurnsOnlyUnpaidEpochWithoutRepeatedBurn() public {
+    function test_Fork_RealBemRemainsClaimableAfterYearsAndBurnIsDisabled() public {
         vm.warp(block.timestamp + 1 hours);
         vault.harvest();
-        uint32 epoch = uint32(block.timestamp / 1 days);
-        uint256 net = vault.epochNet(epoch);
-        uint256 alicePaid = vault.claimable(ALICE);
-        vm.prank(ALICE);
-        vault.claim();
-        uint256 unpaid = net - alicePaid;
-        vm.warp((uint256(epoch) + 8) * 1 days);
-        assertEq(vault.claimable(BOB), 0);
-        assertEq(vault.claimable(CAROL), 0);
+        uint256 bobOwed = vault.claimable(BOB);
+        uint256 reserved = vault.bemAccounted();
         uint256 deadBefore = BEM.balanceOf(Addresses.BURN_SINK);
-        vault.burnExpired(epoch);
-        assertEq(vault.epochNet(epoch), net);
-        assertEq(vault.epochPaid(epoch), alicePaid);
-        assertEq(vault.epochBurned(epoch), unpaid);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, unpaid);
-        assertEq(vault.bemAccounted(), 0);
-        assertEq(BEM.balanceOf(address(vault)), 0);
-        vm.expectRevert(bytes4(keccak256("EpochAlreadyBurned()")));
-        vault.burnExpired(epoch);
+        vm.warp(block.timestamp + 30000 days);
+        assertEq(vault.claimable(BOB), bobOwed);
+        vm.expectRevert(IPoolVault.BurnDisabled.selector);
+        vault.burnExpired(0);
+        vm.prank(BOB);
+        vault.claim();
+        assertEq(vault.bemAccounted(), reserved - bobOwed);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK), deadBefore);
     }
 
     function test_Fork_ProductionMineArmAndStartWithRealProofsAfterExplicitLocalStopSetup() public {

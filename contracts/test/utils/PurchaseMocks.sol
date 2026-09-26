@@ -143,6 +143,10 @@ contract PurchaseMockMining {
         miners[key].taskId = taskId;
     }
 
+    function setVerifiedWeight(bytes32 key, uint128 weight) external {
+        miners[key].verifWeight = weight;
+    }
+
     function setClaimFault(uint8 fault) external {
         claimFault = fault;
     }
@@ -250,6 +254,10 @@ contract PurchaseMockMarket {
         if (buyFault == 5) {
             PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
             mining.setTaskId(mining.minerKey(listing.circuits, listing.tokenId), 8);
+        }
+        if (buyFault == 6) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setVerifiedWeight(mining.minerKey(listing.circuits, listing.tokenId), 150);
         }
         uint256 fee = uint256(listing.price) / 100;
         fees += fee;

@@ -15,7 +15,7 @@ const pool = '0x3333333333333333333333333333333333333333';
 const factory = '0x4444444444444444444444444444444444444444';
 const market = '0x5555555555555555555555555555555555555555';
 const timelock = '0x6666666666666666666666666666666666666666';
-const order: MarketOrder = { id: 1n, seller, pool, remaining: 17n, pricePerUnit: 101n, active: true };
+const order: MarketOrder = { id: 1n, seller, pool, remaining: 17n, pricePerUnit: 101n, active: true, expiresAt: 2n ** 63n };
 
 test('shares are whole units 1–49, never ether-denominated or fractional', () => {
   for (const [input, expected] of [['1', 1n], ['49', 49n]] as const) assert.equal(shareAmount(input), expected);
@@ -39,17 +39,17 @@ test('partial fill exact gross, 1% fee rounding and seller proceeds conserve eve
   assert.throws(() => tradeAmounts(49n, 2n ** 256n));
 });
 test('listing requires Active and unlocked shares while buying checks remaining and total holdings', () => {
-  assert.doesNotThrow(() => requireList({ state: 2, available: 4n }, 4n));
-  assert.throws(() => requireList({ state: 2, available: 4n }, 5n), /可用份额不足/);
+  assert.doesNotThrow(() => requireList({ state: 2, tradingAllowed: true, available: 4n }, 4n));
+  assert.throws(() => requireList({ state: 2, tradingAllowed: true, available: 4n }, 5n), /可用份额不足/);
   for (const state of [0, 1, 3, 4, 5]) {
-    assert.throws(() => requireList({ state, available: 49n }, 1n), /Active/);
-    assert.throws(() => requireFill(order, { state, balance: 0n }, buyer, 1n), /暂停/);
+    assert.throws(() => requireList({ state, tradingAllowed: true, available: 49n }, 1n), /Active/);
+    assert.throws(() => requireFill(order, { state, tradingAllowed: true, balance: 0n }, buyer, 1n), /暂停/);
   }
-  assert.doesNotThrow(() => requireFill(order, { state: 2, balance: 32n }, buyer, 17n));
-  assert.throws(() => requireFill(order, { state: 2, balance: 33n }, buyer, 17n), /最多持有 49/);
-  assert.throws(() => requireFill(order, { state: 2, balance: 0n }, buyer, 18n), /剩余/);
-  assert.throws(() => requireFill(order, { state: 2, balance: 17n }, seller, 1n), /你的挂单/);
-  assert.throws(() => requireFill({ ...order, active: false }, { state: 2, balance: 0n }, buyer, 1n), /已成交或撤销/);
+  assert.doesNotThrow(() => requireFill(order, { state: 2, tradingAllowed: true, balance: 32n }, buyer, 17n));
+  assert.throws(() => requireFill(order, { state: 2, tradingAllowed: true, balance: 33n }, buyer, 17n), /最多持有 49/);
+  assert.throws(() => requireFill(order, { state: 2, tradingAllowed: true, balance: 0n }, buyer, 18n), /剩余/);
+  assert.throws(() => requireFill(order, { state: 2, tradingAllowed: true, balance: 17n }, seller, 1n), /你的挂单/);
+  assert.throws(() => requireFill({ ...order, active: false }, { state: 2, tradingAllowed: true, balance: 0n }, buyer, 1n), /已成交或撤销/);
 });
 test('orders paginate latest-first and never enumerate more than 20 ids per request', () => {
   assert.deepEqual(pageIds(1n), []);
@@ -127,4 +127,13 @@ test('a persisted unknown intent blocks a subsequent tab before any wallet reque
   const storage = { getItem: () => JSON.stringify(pending), setItem: () => { writes += 1; }, removeItem: () => { writes += 1; } } as unknown as Storage;
   await assert.rejects(sendMarketAction(wallet, {} as MarketQuote, storage, () => { writes += 1; }), /待确认/);
   assert.equal(requests, 0); assert.equal(writes, 0);
+});
+
+test('open sale votes block new orders and fills, and expiry rejects its exact boundary and legacy orders', () => {
+  assert.throws(() => requireList({ state: 2, tradingAllowed: false, available: 49n }, 1n), /表决/);
+  assert.throws(() => requireFill(order, { state: 2, tradingAllowed: false, balance: 0n }, buyer, 1n), /暂停/);
+  const position = { state: 2, tradingAllowed: true, balance: 0n };
+  assert.doesNotThrow(() => requireFill({ ...order, expiresAt: 100n }, position, buyer, 1n, 99n));
+  assert.throws(() => requireFill({ ...order, expiresAt: 100n }, position, buyer, 1n, 100n), /到期/);
+  assert.throws(() => requireFill({ ...order, expiresAt: 0n }, position, buyer, 1n, 1n), /到期/);
 });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {RewardsVaultHarness} from "../utils/RewardsTestBase.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     ShareTransferTestBase,
@@ -14,15 +15,15 @@ contract PoolTransfersTest is ShareTransferTestBase {
         uint256 moved = bound(sharesSeed, 1, 49);
         _queueReward(10000);
         _transfer(ALICE, DAVE, moved);
-        assertEq(rewards.claimable(ALICE), 4655);
+        assertEq(rewards.claimable(ALICE), 4851);
         assertEq(rewards.claimable(DAVE), 0);
         assertEq(pool.balanceOf(ALICE), 49 - moved);
         assertEq(pool.balanceOf(DAVE), moved);
         _harvestReward(10000);
-        assertEq(_claim(ALICE), (98 - moved) * 95);
-        assertEq(_claim(DAVE), moved * 95);
-        assertEq(_claim(BOB), 9310);
-        assertEq(_claim(CAROL), 380);
+        assertEq(_claim(ALICE), (98 - moved) * 99);
+        assertEq(_claim(DAVE), moved * 99);
+        assertEq(_claim(BOB), 9702);
+        assertEq(_claim(CAROL), 396);
         assertEq(rewards.bemAccounted(), 0);
         assertEq(pool.totalSupply(), 100);
     }
@@ -32,10 +33,10 @@ contract PoolTransfersTest is ShareTransferTestBase {
         _transfer(ALICE, DAVE, 49);
         assertEq(pool.balanceOf(ALICE), 0);
         assertEq(pool.memberCount(), 3);
-        assertEq(_claim(ALICE), 4655);
+        assertEq(_claim(ALICE), 4851);
         _harvestReward(10000);
         assertEq(rewards.claimable(ALICE), 0);
-        assertEq(_claim(DAVE), 4655);
+        assertEq(_claim(DAVE), 4851);
     }
 
     function test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() public {
@@ -43,35 +44,35 @@ contract PoolTransfersTest is ShareTransferTestBase {
         _transfer(ALICE, DAVE, 1);
         _harvestReward(100);
         _transfer(DAVE, ERIN, 1);
-        (, uint256 daveAmount, uint256 daveFraction) = rewards.rewardSlot(DAVE, uint8(firstEpoch % 8));
+        uint256 daveAmount = rewards.bemOwed(DAVE);
+        uint256 daveFraction = RewardsVaultHarness(payable(address(pool))).globalRewardRemainder(DAVE);
         assertEq(daveAmount, 0);
-        assertEq(daveFraction, 95 * P / 100);
+        assertEq(daveFraction, 99 * P / 100);
         _harvestReward(100);
         _settle(ALICE);
         _settle(ERIN);
-        assertEq(rewards.claimable(ALICE), 137); // 46.55 + 45.60 + 45.60
+        assertEq(rewards.claimable(ALICE), 143); // 48.51 + 47.52 + 47.52
         assertEq(rewards.claimable(DAVE), 0);
-        assertEq(rewards.claimable(ERIN), 0, "buyer cannot inherit seller's 0.95 fraction");
-        (,, uint256 erinFraction) = rewards.rewardSlot(ERIN, uint8(firstEpoch % 8));
-        assertEq(erinFraction, 95 * P / 100);
-        assertEq(rewards.claimable(BOB), 139);
+        assertEq(rewards.claimable(ERIN), 0, "buyer cannot inherit seller's 0.99 fraction");
+        uint256 erinFraction = RewardsVaultHarness(payable(address(pool))).globalRewardRemainder(ERIN);
+        assertEq(erinFraction, 99 * P / 100);
+        assertEq(rewards.claimable(BOB), 145);
         assertEq(rewards.claimable(CAROL), 5);
     }
 
-    function test_transferDoesNotRestartOldEpochExpiry() public {
+    function test_transferPreservesPermanentFormerHolderIncome() public {
         _harvestReward(10000);
         _atEpoch(firstEpoch + 6);
         _transfer(ALICE, DAVE, 49);
         _harvestReward(10000);
-        assertEq(rewards.claimable(ALICE), 4655);
-        assertEq(rewards.claimable(DAVE), 4655);
-        _atEpoch(firstEpoch + 8);
-        assertEq(rewards.claimable(ALICE), 0);
-        assertEq(rewards.claimable(DAVE), 4655);
+        _atEpoch(firstEpoch + 30000);
+        assertEq(_claim(ALICE), 4851);
+        assertEq(_claim(DAVE), 4851);
+        assertEq(_claim(BOB), 9702);
+        assertEq(_claim(CAROL), 396);
+        assertEq(rewards.bemAccounted(), 0);
+        vm.expectRevert(IPoolVault.BurnDisabled.selector);
         rewards.burnExpired(firstEpoch);
-        assertEq(rewards.epochBurned(firstEpoch), 9500);
-        assertEq(_claim(DAVE), 4655);
-        assertEq(rewards.bemAccounted(), 4845);
     }
 
     function test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() public {
@@ -84,8 +85,8 @@ contract PoolTransfersTest is ShareTransferTestBase {
         _atEpoch(firstEpoch + 2);
         _harvestReward(100);
         _atEpoch(firstEpoch + 30000);
-        assertEq(_claim(ALICE), 138); // 46.55 + 45.60 + 46.55
-        assertEq(_claim(BOB), 139);
+        assertEq(_claim(ALICE), 144); // 48.51 + 47.52 + 48.51
+        assertEq(_claim(BOB), 145);
         assertEq(_claim(CAROL), 5);
         assertEq(rewards.claimable(DAVE), 0);
         assertEq(rewards.bemAccounted(), 3);
@@ -165,7 +166,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         _transfer(ALICE, ALICE, 49);
         assertEq(pool.balanceOf(ALICE), 49);
         assertEq(pool.memberCount(), 3);
-        assertEq(rewards.claimable(ALICE), 4655);
+        assertEq(rewards.claimable(ALICE), 4851);
         vm.prank(ALICE);
         shareMarket.list(address(pool), 1, 0);
         vm.prank(ALICE);
@@ -181,7 +182,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(address(shareMarket)), 0);
         assertEq(pool.memberCount(), 3);
         _harvestReward(10000);
-        assertEq(rewards.claimable(ALICE), 4655);
+        assertEq(rewards.claimable(ALICE), 4851);
         vm.prank(ALICE);
         pool.approve(FRANK, 49);
         vm.prank(FRANK);
@@ -259,7 +260,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(ALICE), 48);
         assertEq(pool.balanceOf(DAVE), 1);
         assertEq(pool.balanceOf(ERIN), 0);
-        assertEq(rewards.claimable(ALICE), 4655);
+        assertEq(rewards.claimable(ALICE), 4851);
     }
 
     function test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() public {

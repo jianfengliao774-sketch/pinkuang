@@ -5,12 +5,18 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { BrowserProvider, Contract, Interface, ZeroAddress, getAddress, keccak256 } from 'ethers';
+import { BrowserProvider, Contract, Interface, ZeroAddress, getAddress } from 'ethers';
 import {
   DeploymentEngine, LIBRARY_NAMES, PROTOCOL_ADDRESSES, artifactDigest, libraryDeploymentOrder, linkBytecode,
-  normalizeInput, preflight, runtimeMatches, validateArtifacts,
+  normalizeInput, preflight, runtimeMatches, validateArtifacts, verifyArtifactIntegrity,
   type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type Eip1193Provider,
 } from './deployment';
+
+// @ts-expect-error Independently compile the reviewed source for the Node test build constant.
+import { artifactContentDigest, compileDeploymentArtifacts } from '../scripts/build-artifacts.mjs';
+
+const compiledDigest = artifactContentDigest(compileDeploymentArtifacts());
+(globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = compiledDigest;
 
 // All signing below uses Anvil's disposable unlocked account on a loopback-only chain.
 // It never reads a wallet secret, contacts BSC, or sends a real-chain transaction.
@@ -74,7 +80,7 @@ test('build is deployable and every linked library resolves; corrupt code is rej
   const runtime = linkBytecode(artifact.deployedBytecode, artifact.deployedLinkReferences, libraries);
   assert.equal(runtimeMatches(artifact, runtime, libraries, account), true);
   assert.equal(runtimeMatches(artifact, `0xff${runtime.slice(4)}`, libraries, account), false);
-  assert.equal(artifactDigest(bundle), keccak256(new TextEncoder().encode(JSON.stringify(bundle))));
+  assert.equal(artifactDigest(bundle), compiledDigest);
 });
 
 test('read-only preflight permits unchecked review, but signing requires review', async () => {
@@ -197,4 +203,23 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   await assert.rejects(engine().reconcile(tampered), /交易内容/);
   assert.equal(sends, count);
   await rpc('evm_revert', [baseline]);
+});
+
+
+test('a fetched bundle cannot authorize itself by changing bytecode, ABI, source hashes or its own claimed digest', async () => {
+  const before = sends;
+  for (const mutate of [
+    (item: ArtifactBundle) => { item.artifacts.PoolFactory.bytecode += '00'; },
+    (item: ArtifactBundle) => { item.artifacts.PoolVault.abi = []; },
+    (item: ArtifactBundle) => { item.sourceHashes['src/PoolVault.sol'] = 'a'.repeat(64); },
+  ]) {
+    const changed = structuredClone(bundle); mutate(changed);
+    (changed as ArtifactBundle & { claimedDigest: string }).claimedDigest = artifactDigest(changed);
+    assert.throws(() => verifyArtifactIntegrity(changed), /独立编译/);
+    await assert.rejects(preflight(wallet, changed, input), /独立编译/);
+    assert.throws(() => new DeploymentEngine(wallet, changed, { persist() {} }), /独立编译/);
+  }
+  assert.equal(sends, before);
+  const laterCommit = structuredClone(bundle); laterCommit.sourceCommit = 'f'.repeat(40);
+  assert.doesNotThrow(() => verifyArtifactIntegrity(laterCommit));
 });

@@ -1,0 +1,96 @@
+Compiling 12 files with Solc 0.8.24
+Solc 0.8.24 finished in 34.30s
+Compiler run successful!
+
+Ran 2 tests for test/unit/PoolBurn.t.sol:PoolBurnTest
+[PASS] test_allBurnEntrypointsDisabledForOperatorAndMemberBeforeAndAfterSale() (gas: 1360689)
+[PASS] test_plainBnbAndWbnbRefundAreRejected() (gas: 45294)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 11.83ms (975.96µs CPU time)
+
+Ran 2 tests for test/unit/SaleBudgetMigration.t.sol:SaleBudgetMigrationTest
+[PASS] test_oldPaidHolderReceivesOnlyIndependentBonusAndNoDoublePayment() (gas: 648708)
+[PASS] test_onlyRemainingBudgetReleasedAlreadySpentValueNeverRecreated() (gas: 630602)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 14.65ms (621.42µs CPU time)
+
+Ran 3 tests for test/unit/SaleBudgetMigration.t.sol:LegacyListedSaleMigrationTest
+[PASS] test_discountRequiresBothSixtySharesAndAddressMajority() (gas: 487275)
+[PASS] test_legacyDiscountListingWithFiftyOneSharesCannotComplete() (gas: 173270)
+[PASS] test_legacyZeroPriceListingCannotCompleteAndCanExpire() (gas: 160774)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 20.45ms (4.05ms CPU time)
+
+Ran 16 tests for test/unit/PoolTransfers.t.sol:PoolTransfersTest
+[PASS] testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8) (runs: 256, μ: 277166, ~: 302631)
+[PASS] testFuzz_pendingRewardsBelongToOldSharesBeforeTransfer(uint8) (runs: 256, μ: 1001075, ~: 1001017)
+[PASS] test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() (gas: 2761299)
+[PASS] test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() (gas: 82409)
+[PASS] test_lockDoesNotProvideASecondFortyNineShareAllowance() (gas: 662800)
+[PASS] test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() (gas: 948346)
+[PASS] test_memberCheckpointsRecordExitEntryAndNewMemberCount() (gas: 776930)
+[PASS] test_miningClaimCannotReenterApprovedTransferFrom() (gas: 904421)
+[PASS] test_onlyRegisteredMarketCanChangeLocksOrTransferLockedShares() (gas: 88580)
+[PASS] test_purchaseTimestampTransferCannotCarryOldBnbSurplus() (gas: 640135)
+[PASS] test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() (gas: 1089880)
+[PASS] test_selfTransferRespectsUnlockedBalanceWithoutArtificiallyExceedingCap() (gas: 680519)
+[PASS] test_transferFromConsumesAllowanceAndMaintainsHolderCap() (gas: 518138)
+[PASS] test_transferPreservesPermanentFormerHolderIncome() (gas: 1041648)
+[PASS] test_zeroBalanceFormerMemberStillClaimsOldRewards() (gas: 829367)
+[PASS] test_zeroOverCapAndMarketDestinationRejected() (gas: 419995)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 287.90ms (505.45ms CPU time)
+
+Ran 6 tests for test/unit/RewardMigration.t.sol:RewardMigrationTest
+[PASS] test_burnedHistoricalEpochCannotBeRecreatedAsNewDebt() (gas: 1117083)
+[PASS] test_expiredUnpaidEpochFailsClosedWithoutMovingOrForfeitingFunds() (gas: 717121)
+[PASS] test_fixedCutoverPreservesFormerHolderAndInactiveRecipientForYears() (gas: 1409360)
+[PASS] test_moreThanSixtyFourCheckpointsRequiresReviewedMigration() (gas: 8335730)
+[PASS] test_paidOldSlotsMixedFractionsAndNewIncomeAreNotClaimedTwice() (gas: 1462808)
+[PASS] test_sixtyFourCheckpointBoundaryAndAllLiveRightsReconstruct() (gas: 9053540)
+Suite result: ok. 6 passed; 0 failed; 0 skipped; finished in 299.84ms (51.38ms CPU time)
+
+Ran 16 tests for test/unit/PoolRewards.t.sol:PoolRewardsTest
+[PASS] testFuzz_harnessStrictHarvestRejectsFailedOrUnsettledClaimWithoutCharging(uint8) (runs: 256, μ: 254183, ~: 257129)
+[PASS] test_bemTransferCannotReenterHarvest() (gas: 408887)
+[PASS] test_claimDoesNotHarvestEvenWhenPendingMiningExists() (gas: 498661)
+[PASS] test_failedMemberTransferPreservesDebtAndClaimTime() (gas: 541943)
+[PASS] test_feeFailureRollsBackAndDeadRejectionHasNoEffect() (gas: 571205)
+[PASS] test_firstClaimImmediateThenExactTwentyFourHourBoundary() (gas: 508881)
+[PASS] test_harnessClosedStatePreservesExistingClaimCooldown() (gas: 574734)
+[PASS] test_harnessClosedWithExpiryDisabledKeepsRewardsForYears() (gas: 2186918)
+[PASS] test_harnessStrictHarvestSuccessfullyAccountsActualReceipt() (gas: 336867)
+[PASS] test_legacyExpiryParameterCannotEnableForfeitureInNewPool() (gas: 534707)
+[PASS] test_miningClaimCannotReenterHarvest() (gas: 403035)
+[PASS] test_miningClaimChangingOwnerRollsBackEntireHarvest() (gas: 254648)
+[PASS] test_onePercentFeeAndNinetyNinePercentMembersWithNoBurn() (gas: 593084)
+[PASS] test_ordinaryClaimFailureStillAccountsIndependentDirectReceipt() (gas: 441056)
+[PASS] test_permanentRewardsAndFractionsSurviveThirtyThousandDays() (gas: 750257)
+[PASS] test_unbookedRewardIsNotPayableUntilExplicitHarvest() (gas: 457704)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 299.05ms (160.55ms CPU time)
+
+Ran 25 tests for test/unit/PoolSale.t.sol:PoolSaleTest
+[PASS] testFuzz_buyerRejectingNftOrMovingItAwayRollsBackWholeSale(uint8) (runs: 256, μ: 2000926, ~: 1991151)
+[PASS] testFuzz_finalClaimFaultsRollbackAllAssetsAndLiabilities(uint8) (runs: 256, μ: 809954, ~: 827289)
+[PASS] test_buyerBubblingReentryFailureRollsBackFinalClaimAndSale() (gas: 2051805)
+[PASS] test_buyerCallbackSeesClosedStateAndCannotCompleteAgainOrWithdraw() (gas: 2056334)
+[PASS] test_changedNftOwnerBeforeSaleRejectsWithoutTouchingFunds() (gas: 627330)
+[PASS] test_closedClaimsRemainPermanentAndNeverClaimSoldNftAgain() (gas: 1365647)
+[PASS] test_closedClaimsWithExpiryDisabledRemainClaimableAfterLongDelay() (gas: 2776772)
+[PASS] test_closedRejectsReplayAndPermanentlyFreezesShares() (gas: 920437)
+[PASS] test_completeLastSecondBeforeListingExpirySucceeds() (gas: 867840)
+[PASS] test_executeAtVoteDeadlineRejectsEvenPassingProposal() (gas: 451040)
+[PASS] test_executeLastSecondBeforeVoteDeadlineSucceeds() (gas: 531534)
+[PASS] test_executeRequiresCurrentPassingProposalAndRecordsSevenDayListing() (gas: 517497)
+[PASS] test_expiryBoundaryClearsListingAndRequiresNewApprovedProposalForRelist() (gas: 888027)
+[PASS] test_failedBnbWithdrawalRestoresLazySaleEntitlementForRetry() (gas: 2068571)
+[PASS] test_listedFreezesTransfersAndFillsButOrderCanBeCancelled() (gas: 736500)
+[PASS] test_memberBuyerRetainsHistoricShareRightsAndOwnsFutureNftRewards() (gas: 1070996)
+[PASS] test_miningClaimCallbackCannotReenterCompletion() (gas: 961146)
+[PASS] test_saleAddsToOldRefundDirectSellerAndPurchaseSurplusCredits() (gas: 2811823)
+[PASS] test_saleRemainderAssignedToLastHolderWhileHistoricalPurchaseTailRemains() (gas: 2849071)
+[PASS] test_saleStrictlySettlesRewardsBeforeNftTransferWithoutBurn() (gas: 1107089)
+[PASS] test_sameSecondListingAndCompletionLazilyDistributeActualFrozenHoldings() (gas: 1685116)
+[PASS] test_settleSaleNeverAcceptsAnUnverifiedExternalSaleRoute() (gas: 881507)
+[PASS] test_treasuryMemberReceivesFeeAndOwnSharesWithoutLosingFormerMemberSurplus() (gas: 1270167)
+[PASS] test_wrongPaymentRollsBackWithoutHarvestingOrCrediting() (gas: 753541)
+[PASS] test_zeroPriceProposalRejectedBeforeAnySale() (gas: 42568)
+Suite result: ok. 25 passed; 0 failed; 0 skipped; finished in 300.22ms (648.00ms CPU time)
+
+Ran 7 test suites in 307.64ms (1.23s CPU time): 70 tests passed, 0 failed, 0 skipped (70 total tests)

@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "./interfaces/IPoolVault.sol";
 import {IShareMarket, IShareMarketFactory, IShareMarketPool} from "./interfaces/IShareMarket.sol";
 
@@ -12,6 +13,7 @@ import {IShareMarket, IShareMarketFactory, IShareMarketPool} from "./interfaces/
 contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarket {
     uint16 public constant feeBps = 100;
     uint256 public constant MINIMUM_UPGRADE_DELAY = 48 hours;
+    uint256 public constant ORDER_DURATION = 7 days;
 
     /// @custom:storage-location erc7201:tapeout.storage.ShareMarket
     struct MarketStorage {
@@ -21,6 +23,8 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         mapping(uint256 => Order) orders;
         mapping(address => uint256) bnbOwed;
         uint256 totalBnbOwed;
+        // Zero-expiry legacy orders can be cancelled but cannot be filled after upgrade.
+        mapping(uint256 => uint64) orderExpiries;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.ShareMarket")) - 1)) & ~bytes32(uint256(0xff))
@@ -52,16 +56,20 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         _requireTradablePool(s, pool);
         orderId = s.nextOrderId++;
         s.orders[orderId] = Order(msg.sender, pool, amount, pricePerUnit, true);
+        uint64 expiresAt = SafeCast.toUint64(block.timestamp + ORDER_DURATION);
+        s.orderExpiries[orderId] = expiresAt;
         // Vault validates the seller's currently unlocked balance. Listing does
         // not transfer tokens, establish allowances, or change beneficial ownership.
         IShareMarketPool(pool).lock(msg.sender, amount);
         emit OrderListed(orderId, msg.sender, pool, amount, pricePerUnit);
+        emit OrderExpirySet(orderId, expiresAt);
     }
 
     function fill(uint256 orderId, uint256 amount) external payable nonReentrant {
         _requireAmount(amount);
         MarketStorage storage s = _marketStorage();
         Order storage order = _activeOrder(s, orderId);
+        if (s.orderExpiries[orderId] == 0 || block.timestamp >= s.orderExpiries[orderId]) revert OrderExpired();
         if (amount > order.remaining) revert InvalidAmount();
         _requireTradablePool(s, order.pool);
         uint256 gross = amount * order.pricePerUnit;
@@ -85,6 +93,18 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         MarketStorage storage s = _marketStorage();
         Order storage order = _activeOrder(s, orderId);
         if (msg.sender != order.seller) revert Unauthorized();
+        _cancel(orderId, order);
+    }
+
+    /// @notice Anyone may unlock an expired order; all shares remain with its original seller.
+    function expire(uint256 orderId) external nonReentrant {
+        MarketStorage storage s = _marketStorage();
+        Order storage order = _activeOrder(s, orderId);
+        if (s.orderExpiries[orderId] != 0 && block.timestamp < s.orderExpiries[orderId]) revert OrderNotExpired();
+        _cancel(orderId, order);
+    }
+
+    function _cancel(uint256 orderId, Order storage order) private {
         uint256 remaining = order.remaining;
         order.remaining = 0;
         order.active = false;
@@ -121,6 +141,10 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         return _marketStorage().orders[orderId];
     }
 
+    function orderExpiresAt(uint256 orderId) external view returns (uint64) {
+        return _marketStorage().orderExpiries[orderId];
+    }
+
     function bnbOwed(address user) external view returns (uint256) {
         return _marketStorage().bnbOwed[user];
     }
@@ -138,6 +162,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (registry.shareMarket() != address(this)) revert MarketNotRegistered();
         if (!registry.isPool(pool) || pool.code.length == 0) revert InvalidPool();
         if (IShareMarketPool(pool).state() != IPoolVault.State.Active) revert WrongState();
+        if (!IShareMarketPool(pool).shareTradingAllowed()) revert WrongState();
     }
 
     function _activeOrder(MarketStorage storage s, uint256 orderId) private view returns (Order storage order) {

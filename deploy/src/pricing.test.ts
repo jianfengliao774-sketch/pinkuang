@@ -93,14 +93,38 @@ test('funding uses capacity reference, adds 10 percent, and rounds upward to 100
   const expectedRaise = ((expectedBase * 11000n + 999999n) / 1000000n) * 100n;
   assert.equal(plan.flexiblePurchase.referencePriceWei, expectedBase.toString());
   assert.equal(plan.funding.targetRaiseWei, expectedRaise.toString());
+  assert.equal(plan.funding.priceCapWei, expectedBase.toString(), 'additional funding must not raise the purchase cap');
   assert.equal(BigInt(plan.funding.pricePerShareWei) * 100n, expectedRaise);
   assert.notEqual(plan.funding.targetRaiseWei, quote().ask!.buyerCostWei);
   assert.equal(plan.flexiblePurchase.referenceObservedAt, Math.floor(reference().observedAt / 1000));
   assert.match(plan.sourceDigest, /^0x[0-9a-f]{64}$/);
   assert.equal(plan.flexiblePurchase.referenceDigest, plan.sourceDigest);
   assert.equal(plan.eligibility.expectedTaskId, '220');
+  assert.equal(plan.eligibility.expectedReferenceVerifiedWeight, '61');
   assert.equal(plan.eligibility.modelSource, 'reference-nft-onchain');
   assert.equal(plan.eligibility.originalTargetFirst, true);
+});
+
+test('lowering minimum eligibility or increasing surplus funding never changes the reference pricing denominator', () => {
+  const strict = createQuotePlan(quote(), reference(), 1000, '61', now);
+  const relaxed = createQuotePlan(quote(), reference(), 10_000, '1', now);
+  assert.equal(relaxed.flexiblePurchase.minVerifiedWeight, '1');
+  assert.equal(relaxed.eligibility.expectedReferenceVerifiedWeight, '61');
+  assert.equal(relaxed.eligibility.expectedReferenceVerifiedWeight, strict.eligibility.expectedReferenceVerifiedWeight);
+  assert.equal(relaxed.funding.priceCapWei, strict.funding.priceCapWei);
+  assert.ok(BigInt(relaxed.funding.targetRaiseWei) > BigInt(strict.funding.targetRaiseWei));
+  assert.match(relaxed.notes.join(' '), /更低权重.*降价/);
+  assert.match(relaxed.notes.join(' '), /链上.*锁定/);
+});
+
+test('purchase cap keeps exact reference wei even when funding requires rounding to one hundred shares', () => {
+  const target = { ...quote(), estimated24hAtomic: '100000000' };
+  const smallReference = { ...reference(), dailyCapacityPriceWei: '1001' };
+  const plan = createQuotePlan(target, smallReference, 0, '61', now);
+  assert.equal(plan.flexiblePurchase.referencePriceWei, '1001');
+  assert.equal(plan.funding.targetRaiseWei, '1100');
+  assert.equal(plan.funding.priceCapWei, '1001', 'rounding dust is not additional procurement authorization');
+  assert.equal(plan.funding.pricePerShareWei, '11');
 });
 
 test('unsafe eligibility, unverified detail, stale reference and out-of-bounds budget cannot generate a plan', () => {
@@ -110,6 +134,7 @@ test('unsafe eligibility, unverified detail, stale reference and out-of-bounds b
   assert.throws(() => createQuotePlan({ ...original, unverifiedWeight: '1' }, reference(), 1000, '61', now), /未验证权重/);
   assert.throws(() => createQuotePlan({ ...original, taskId: null }, reference(), 1000, '61', now), /任务型号/);
   assert.throws(() => createQuotePlan({ ...original, taskId: '4294967296' }, reference(), 1000, '61', now), /uint32/);
+  assert.throws(() => createQuotePlan({ ...original, verifiedWeight: (1n << 128n).toString() }, reference(), 1000, '1', now), /uint128/);
   assert.throws(() => createQuotePlan(original, reference(), 1000, '62', now), /最低验证权重/);
   assert.throws(() => createQuotePlan(original, reference(), 10001, '61', now), /额外预算/);
   assert.throws(() => createQuotePlan(original, { ...reference(), observedAt: now - MAX_QUOTE_AGE_MS - 1 }, 1000, '61', now), /超过/);

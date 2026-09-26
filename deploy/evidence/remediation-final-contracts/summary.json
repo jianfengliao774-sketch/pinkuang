@@ -1,0 +1,101 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-26T08:41:05.620Z",
+  "status": "passed",
+  "sourceCommit": "8ce9535c288702b66eb34910c41485aa98dc3ca7",
+  "ci": null,
+  "buildRoot": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/",
+  "node": "v25.9.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:41:05.621Z",
+      "finishedAt": "2026-09-26T08:41:05.629Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/toolchain.log"
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:41:05.629Z",
+      "finishedAt": "2026-09-26T08:41:05.657Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/forge-fmt.log"
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:41:05.657Z",
+      "finishedAt": "2026-09-26T08:41:51.666Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/forge-build-sizes.log"
+    },
+    {
+      "name": "forge-test",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:41:51.667Z",
+      "finishedAt": "2026-09-26T08:42:41.068Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/forge-test.log"
+    },
+    {
+      "name": "upgrade-validation",
+      "executable": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node",
+      "args": [
+        "scripts/validate-upgrades.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:42:41.068Z",
+      "finishedAt": "2026-09-26T08:42:53.098Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/upgrade-validation.log"
+    },
+    {
+      "name": "slither",
+      "executable": "slither",
+      "args": [
+        ".",
+        "--filter-paths",
+        "../node_modules/|test/|script/",
+        "--fail-medium"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:42:53.099Z",
+      "finishedAt": "2026-09-26T08:43:01.441Z",
+      "logPath": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/remediation-final-contracts/slither.log"
+    }
+  ],
+  "finishedAt": "2026-09-26T08:43:01.441Z"
+}

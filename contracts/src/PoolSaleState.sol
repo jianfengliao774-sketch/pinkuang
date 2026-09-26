@@ -42,6 +42,14 @@ abstract contract PoolSaleState {
         uint256 totalBurnBem;
         uint256 expectedWbnbRefund;
         bytes32 saleTradeId;
+        // Append-only no-burn accounting; existing burn counters remain historical.
+        address saleRoundingRecipient;
+        bool legacyBurnBudgetReleased;
+        uint256 legacyBonusPerShareWei;
+        uint256 legacyBonusRemainder;
+        uint256 legacyBonusOutstandingWei;
+        address legacyRoundingRecipient;
+        mapping(address => bool) legacyBonusSettled;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolSales")) - 1)) & ~bytes32(uint256(0xff))

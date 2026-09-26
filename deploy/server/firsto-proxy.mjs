@@ -22,8 +22,32 @@ export function upstreamUrl(requestPath) {
   return url;
 }
 
+/** Bounded fixed-window per-peer limiter; only the TCP peer is authoritative. */
+export function createQuoteRateLimiter({ limit = 30, windowMs = 60_000, maxClients = 512, now = Date.now } = {}) {
+  const clients = new Map();
+  return {
+    consume(request) {
+      const timestamp = now();
+      for (const [key, client] of clients) if (client.expiresAt <= timestamp) clients.delete(key);
+      // X-Forwarded-For is deliberately ignored; a reverse proxy shares its own quota.
+      const peer = String(request.socket?.remoteAddress ?? 'unknown').toLowerCase().replace(/^::ffff:/, '');
+      let client = clients.get(peer);
+      if (!client) {
+        if (clients.size >= maxClients) return { allowed: false, retryAfter: Math.ceil(windowMs / 1000) };
+        client = { count: 0, expiresAt: timestamp + windowMs }; clients.set(peer, client);
+      }
+      client.count += 1;
+      return { allowed: client.count <= limit, retryAfter: Math.max(1, Math.ceil((client.expiresAt - timestamp) / 1000)) };
+    },
+    get size() { return clients.size; },
+  };
+}
+const defaultLimiter = createQuoteRateLimiter();
+let activeRequests = 0;
+const MAX_ACTIVE_REQUESTS = 8;
+
 /** Read-only, fixed-origin proxy. Never forwards cookies, credentials, signatures or client headers. */
-export async function proxyFirsto(req, res) {
+export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher = fetch } = {}) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -31,8 +55,14 @@ export async function proxyFirsto(req, res) {
   let url;
   try { url = upstreamUrl(req.url); }
   catch { res.statusCode = 400; res.end(JSON.stringify({error: '不支持的报价查询。'})); return; }
+  const quota = limiter.consume(req);
+  if (!quota.allowed || activeRequests >= MAX_ACTIVE_REQUESTS) {
+    res.statusCode = 429; res.setHeader('Retry-After', String(quota.allowed ? 2 : quota.retryAfter));
+    res.end(JSON.stringify({ error: '报价查询过于频繁，请稍后重试。' })); return;
+  }
+  activeRequests += 1;
   try {
-    const upstream = await fetch(url, { method: 'GET', headers: {Accept: 'application/json'}, redirect: 'error', signal: AbortSignal.timeout(12_000) });
+    const upstream = await fetcher(url, { method: 'GET', headers: {Accept: 'application/json'}, redirect: 'error', signal: AbortSignal.timeout(12_000) });
     if (!upstream.ok) { res.statusCode = 502; res.end(JSON.stringify({error: `Firsto 报价暂不可用（${upstream.status}）。`})); return; }
     if (!upstream.headers.get('content-type')?.includes('application/json')) throw new Error('Invalid content type');
     const reader = upstream.body.getReader();
@@ -44,4 +74,5 @@ export async function proxyFirsto(req, res) {
     if (upstream.headers.get('date')) res.setHeader('X-Firsto-Response-Date', upstream.headers.get('date'));
     res.statusCode = 200; res.end(body);
   } catch { res.statusCode = 502; res.end(JSON.stringify({error: '无法获取 Firsto 实时报价，请稍后重试或打开来源页面。'})); }
+  finally { activeRequests -= 1; }
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { keccak256, toUtf8Bytes, Interface } from 'ethers';
 import {
-  assertCurrentArtifacts, compileDeploymentArtifacts, libraryNames,
+  assertCurrentArtifacts, artifactContentDigest, compileDeploymentArtifacts, libraryNames,
   linkedDeploymentOrder, requiredContracts, validateArtifacts,
 } from './build-artifacts.mjs';
 
@@ -38,7 +38,7 @@ test('all deployment templates fit chain code limits and every link maps to the 
   }
 });
 
-test('nested purchase dependencies and all nine libraries precede PoolVault in the compiler link graph', () => {
+test('nested purchase dependencies and all reviewed libraries precede PoolVault in the compiler link graph', () => {
   const order = linkedDeploymentOrder(document.artifacts);
   for (const name of libraryNames) {
     assert(order.indexOf(name) < order.indexOf('PoolVault'));
@@ -90,4 +90,21 @@ test('malformed link locations and oversized runtime code cannot enter a deploym
   const oversized = structuredClone(document.artifacts);
   oversized.PoolFactory.deployedBytecode = `0x${'00'.repeat(24_577)}`;
   assert.throws(() => validateArtifacts(oversized), /EIP-170/);
+});
+
+
+test('source-pinned digest binds ABI, creation/runtime code and compiler sources, excluding only commit provenance', () => {
+  const digest = artifactContentDigest(document), laterCommit = structuredClone(document);
+  laterCommit.sourceCommit = 'b'.repeat(40);
+  assert.equal(artifactContentDigest(laterCommit), digest);
+  for (const mutate of [
+    item => { item.artifacts.PoolFactory.bytecode += '00'; },
+    item => { item.artifacts.PoolVault.abi.push({ type: 'function', name: 'unreviewed', inputs: [], outputs: [], stateMutability: 'view' }); },
+    item => { item.sourceHashes['src/PoolVault.sol'] = 'a'.repeat(64); },
+  ]) {
+    const tampered = structuredClone(document); mutate(tampered);
+    assert.notEqual(artifactContentDigest(tampered), digest);
+    tampered.claimedDigest = artifactContentDigest(tampered);
+    assert.throws(() => assertCurrentArtifacts(tampered, document), /stale or modified/);
+  }
 });

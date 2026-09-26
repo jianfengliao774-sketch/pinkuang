@@ -68,8 +68,8 @@ function validateDeliveredBaselines() {
   const markets = compilations.filter(({ data }) => data[marketContract]);
   assert.equal(markets.length, 1, 'Expected exactly one compiled ShareMarket layout');
   const marketLayout = getStorageLayout(markets[0].data, getContractVersion(markets[0].data, marketContract));
-  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 6, 'Unexpected initial market field count');
-  console.log('ShareMarket: six business fields and nonempty inherited namespaces extracted.');
+  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 7, 'Unexpected initial market field count');
+  console.log('ShareMarket: seven business fields and nonempty inherited namespaces extracted.');
   for (const milestone of ['T1a', 'T1b', 'T1c', 'T1d', 'T1eVoting', 'T1e']) for (const name of (milestone === 'T1eVoting' ? ['PoolVault'] : ['T1d', 'T1e'].includes(milestone) ? ['PoolFactory', 'PoolVault', 'ShareMarket'] : ['PoolFactory', 'PoolVault'])) {
     const contract = `src/${name}.sol:${name}`;
     const baselinePath = `docs/storage/${milestone}-${name}.json`;
@@ -85,11 +85,12 @@ function validateDeliveredBaselines() {
     const current = getStorageLayout(data, getContractVersion(data, contract));
     if (name === 'PoolVault') {
       const selection = current.namespaces?.['erc7201:tapeout.storage.FlexiblePurchase'];
-      assert.equal(selection?.length, 5, 'Missing actual extracted flexible purchase namespace');
-      assert.deepEqual(selection.map(field => field.label), ['enabled', 'referenceCircuitId', 'config', 'modelInitialized', 'taskId'],
+      assert.equal(selection?.length, 6, 'Missing actual extracted flexible purchase namespace');
+      assert.deepEqual(selection.map(field => field.label), ['enabled', 'referenceCircuitId', 'config', 'modelInitialized', 'taskId', 'referenceVerifiedWeight'],
         'Unexpected flexible purchase storage fields');
       assert.equal(selection[3].type, 't_bool', 'Wrong model initialization flag type');
       assert.equal(selection[4].type, 't_uint32', 'Wrong protocol task id type');
+      assert.equal(selection[5].type, 't_uint128', 'Wrong reference verified weight type');
       const configType = current.types[selection[2].type];
       assert(configType?.members?.length === 7, 'Missing extracted nested flexible purchase config layout');
       assert.deepEqual(configType.members.map(field => field.label), ['minVerifiedWeight', 'referencePriceWei',
@@ -106,13 +107,25 @@ function validateDeliveredBaselines() {
         assert.equal(previous.layout.namespaces['erc7201:tapeout.storage.FlexiblePurchase'].length, 3);
         const modelReport = getStorageUpgradeReport(previous.layout, current, {});
         results.push({ kind: 'unreleased-flexible-v1-baseline', contract, baselinePath: flexibleBaselinePath,
-          baselineFileSha256: sha256(previousBytes), previousFieldCount: 3, currentFieldCount: 5,
+          baselineFileSha256: sha256(previousBytes), previousFieldCount: 3, currentFieldCount: 6,
           storageLayoutOk: modelReport.ok, ok: modelReport.ok });
         if (!modelReport.ok) throw new Error(`Task model fields changed existing flexible storage: ${modelReport.explain(false)}`);
         console.log('Unreleased flexible v1 -> current: PASS (actual extracted namespace, append-only model fields).');
+        const pricedBaselinePath = 'docs/storage/FlexiblePurchase-v2-PoolVault.json';
+        const pricedBytes = readFileSync(join(root, pricedBaselinePath));
+        const pricedBaseline = JSON.parse(pricedBytes.toString('utf8'));
+        assert.equal(pricedBaseline.contract, contract);
+        assert.equal(pricedBaseline.provenance.commit, '8ce9535c288702b66eb34910c41485aa98dc3ca7');
+        assert.equal(pricedBaseline.layout.namespaces['erc7201:tapeout.storage.FlexiblePurchase'].length, 5);
+        const pricingReport = getStorageUpgradeReport(pricedBaseline.layout, current, {});
+        results.push({ kind: 'unreleased-flexible-v2-baseline', contract, baselinePath: pricedBaselinePath,
+          baselineFileSha256: sha256(pricedBytes), previousFieldCount: 5, currentFieldCount: 6,
+          storageLayoutOk: pricingReport.ok, ok: pricingReport.ok });
+        if (!pricingReport.ok) throw new Error(`Reference weight changed existing flexible storage: ${pricingReport.explain(false)}`);
+        console.log('Unreleased flexible v2 -> current: PASS (append-only reference weight and no-burn state).');
       }
       assert(current.namespaces?.['erc7201:tapeout.storage.PoolRewards']?.length >= 10, 'Missing nonempty extracted reward namespace');
-      assert.equal(current.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 21, 'Unexpected sale namespace field count');
+      assert.equal(current.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 28, 'Unexpected sale namespace field count');
       if (milestone === 'T1eVoting') {
         assert.equal(baseline.layout.namespaces?.['erc7201:tapeout.storage.PoolSales']?.length, 5, 'Missing delivered voting namespace');
       }

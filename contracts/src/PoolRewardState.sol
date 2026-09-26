@@ -22,7 +22,7 @@ abstract contract PoolRewardState {
 
     /// @custom:storage-location erc7201:tapeout.storage.PoolRewards
     struct RewardStorage {
-        // The zero-initialized value preserves the default for pre-T1c proxies.
+        // Historical expiry flag; new pools always disable expiry.
         bool expiryDisabled;
         bool expiryConfigured;
         uint256 acc;
@@ -45,6 +45,11 @@ abstract contract PoolRewardState {
         mapping(uint256 => uint256) epochRemainderScaled;
         // The same identified-fraction sum for the non-expiring path only.
         uint256 totalGlobalRemainderScaled;
+        // Append-only cutover: the old daily ring is preserved as historical evidence.
+        bool legacyMigrationStarted;
+        uint32 legacyCutoverEpoch;
+        uint256 legacyCutoverAcc;
+        mapping(address => bool) legacyUserMigrated;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolRewards")) - 1)) & ~bytes32(uint256(0xff))

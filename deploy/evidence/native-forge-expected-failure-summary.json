@@ -1,0 +1,72 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-26T08:40:29.177Z",
+  "status": "failed",
+  "sourceCommit": null,
+  "ci": null,
+  "buildRoot": "/private/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/",
+  "node": "v25.9.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "/private/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:40:29.177Z",
+      "finishedAt": "2026-09-26T08:40:29.183Z",
+      "logPath": "/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/evidence/toolchain.log"
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "/private/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:40:29.184Z",
+      "finishedAt": "2026-09-26T08:40:29.191Z",
+      "logPath": "/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/evidence/forge-fmt.log"
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "/private/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:40:29.191Z",
+      "finishedAt": "2026-09-26T08:40:29.245Z",
+      "logPath": "/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/evidence/forge-build-sizes.log"
+    },
+    {
+      "name": "forge-test",
+      "executable": "/private/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T08:40:29.245Z",
+      "finishedAt": "2026-09-26T08:40:29.298Z",
+      "logPath": "/var/folders/mq/m38nclt50d37ftnz_9bxthnm0000gn/T/pinkuang-forge-real-failure-zI1KZy/evidence/forge-test.log"
+    }
+  ],
+  "finishedAt": "2026-09-26T08:40:29.298Z"
+}

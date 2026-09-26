@@ -10,13 +10,14 @@ export const MARKET_ABI = [
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
   'function bnbOwed(address) view returns(uint256)', 'function list(address,uint256,uint256) returns(uint256)',
   'function fill(uint256,uint256) payable', 'function cancel(uint256)', 'function withdrawBnb()',
-  'error WrongState()', 'error InvalidAmount()', 'error InactiveOrder()', 'error PaymentMismatch()',
+  'function orderExpiresAt(uint256) view returns(uint64)', 'function expire(uint256)',
+  'error OrderExpired()', 'error OrderNotExpired()', 'error WrongState()', 'error InvalidAmount()', 'error InactiveOrder()', 'error PaymentMismatch()',
   'error NothingToClaim()', 'error InvalidPool()', 'error MarketNotRegistered()', 'error Unauthorized()',
 ];
 export const FACTORY_ABI = ['function shareMarket() view returns(address)', 'function timelock() view returns(address)', 'function isPool(address) view returns(bool)'];
 export const POOL_ABI = [
   'function factory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
-  'function state() view returns(uint8)', 'function balanceOf(address) view returns(uint256)',
+  'function shareTradingAllowed() view returns(bool)', 'function state() view returns(uint8)', 'function balanceOf(address) view returns(uint256)',
   'function lockedShares(address) view returns(uint256)', 'function availableShares(address) view returns(uint256)',
   'function treasury() view returns(address)', 'function name() view returns(string)', 'function decimals() view returns(uint8)',
 ];
@@ -24,8 +25,8 @@ export const POOL_STATES = ['认购中', '待购机', '运行中', '整机出售
 export const BSC_EXPLORER = 'https://bscscan.com';
 
 export type MarketIdentity = { factory: string; market: string; timelock: string; blockNumber: number };
-export type PoolPosition = { address: string; name: string; state: number; balance: bigint; locked: bigint; available: bigint; treasury: string };
-export type MarketOrder = { id: bigint; seller: string; pool: string; remaining: bigint; pricePerUnit: bigint; active: boolean; state?: number; verificationError?: string };
+export type PoolPosition = { address: string; name: string; state: number; tradingAllowed: boolean; balance: bigint; locked: bigint; available: bigint; treasury: string };
+export type MarketOrder = { id: bigint; seller: string; pool: string; remaining: bigint; pricePerUnit: bigint; active: boolean; expiresAt: bigint; state?: number; tradingAllowed?: boolean; verificationError?: string };
 export type OrderPage = { orders: MarketOrder[]; nextCursor: bigint | null; scanned: number; lastOrderId: bigint };
 export type MarketAction = { kind: 'list'; pool: string; amount: string; price: string } | { kind: 'fill'; orderId: string; amount: string; expectedPrice: string } | { kind: 'cancel'; orderId: string } | { kind: 'withdraw' };
 export type MarketQuote = {
@@ -64,13 +65,15 @@ export function tradeAmounts(amount: bigint, price: bigint) {
   const fee = gross / 100n;
   return { gross, fee, sellerProceeds: gross - fee };
 }
-export function requireList(position: Pick<PoolPosition, 'state' | 'available'>, amount: bigint) {
+export function requireList(position: Pick<PoolPosition, 'state' | 'tradingAllowed' | 'available'>, amount: bigint) {
   if (position.state !== 2) throw new Error('仅运行中（Active）的资金池可挂单。');
+  if (!position.tradingAllowed) throw new Error('整机出售表决期间暂停挂单，待表决结束后再试。');
   if (amount < 1n || amount > 49n || amount > position.available) throw new Error('可用份额不足，已挂单锁定的份额不能重复出售。');
 }
-export function requireFill(order: MarketOrder, position: Pick<PoolPosition, 'state' | 'balance'>, account: string, amount: bigint) {
+export function requireFill(order: MarketOrder, position: Pick<PoolPosition, 'state' | 'tradingAllowed' | 'balance'>, account: string, amount: bigint, now = BigInt(Math.floor(Date.now() / 1000))) {
   if (!order.active || order.remaining === 0n) throw new Error('订单已成交或撤销，请刷新。');
-  if (position.state !== 2) throw new Error('资金池当前暂停份额交易；卖家仍可撤单。');
+  if (order.expiresAt <= now) throw new Error('订单已到期，请卖家撤单后重新挂单。');
+  if (position.state !== 2 || !position.tradingAllowed) throw new Error('资金池当前暂停份额交易；卖家仍可撤单。');
   if (sameAddress(order.seller, account)) throw new Error('这是你的挂单，请使用撤单操作解锁份额。');
   if (amount < 1n || amount > 49n || amount > order.remaining) throw new Error('购买数量超过订单剩余份额。');
   if (position.balance + amount > 49n) throw new Error(`每个钱包最多持有 49 份；当前最多还可购买 ${49n - position.balance} 份。`);
@@ -121,8 +124,8 @@ export async function readPoolPosition(provider: Provider, identity: MarketIdent
   const registry = new Contract(identity.factory, FACTORY_ABI, provider);
   if (!(await registry.isPool(pool, opts)) || await provider.getCode(pool, identity.blockNumber) === '0x') throw new Error('该资金池未在当前 Factory 登记。');
   const contract = new Contract(pool, POOL_ABI, provider);
-  const [factory, officialFactory, state, treasury, name, decimals] = await Promise.all([
-    contract.factory(opts), contract.OFFICIAL_FACTORY(opts), contract.state(opts), contract.treasury(opts), contract.name(opts), contract.decimals(opts),
+  const [factory, officialFactory, state, treasury, name, decimals, tradingAllowed] = await Promise.all([
+    contract.factory(opts), contract.OFFICIAL_FACTORY(opts), contract.state(opts), contract.treasury(opts), contract.name(opts), contract.decimals(opts), contract.shareTradingAllowed(opts),
   ]);
   if (!sameAddress(factory, identity.factory) || !sameAddress(officialFactory, identity.factory)) throw new Error('资金池与 Factory 的绑定不匹配。');
   if (decimals !== 0n || state < 0n || state > 5n) throw new Error('资金池份额精度或状态不受支持。');
@@ -130,13 +133,15 @@ export async function readPoolPosition(provider: Provider, identity: MarketIdent
     contract.balanceOf(account, opts), contract.lockedShares(account, opts), contract.availableShares(account, opts),
   ]) : [0n, 0n, 0n];
   if (locked > balance || available !== balance - locked) throw new Error('资金池份额账目不一致，暂不可交易。');
-  return { address: pool, name, state: Number(state), treasury: address(treasury), balance, locked, available };
+  return { address: pool, name, state: Number(state), tradingAllowed, treasury: address(treasury), balance, locked, available };
 }
 
 export async function readOrder(provider: Provider, identity: MarketIdentity, id: bigint): Promise<MarketOrder> {
   if (id < 1n) throw new Error('订单编号无效。');
-  const result = await new Contract(identity.market, MARKET_ABI, provider).orders(id, { blockTag: identity.blockNumber });
-  return { id, seller: result.seller, pool: result.pool, remaining: result.remaining, pricePerUnit: result.pricePerUnit, active: result.active };
+  const market = new Contract(identity.market, MARKET_ABI, provider);
+  const opts = { blockTag: identity.blockNumber };
+  const [result, expiresAt] = await Promise.all([market.orders(id, opts), market.orderExpiresAt(id, opts)]);
+  return { id, seller: result.seller, pool: result.pool, remaining: result.remaining, pricePerUnit: result.pricePerUnit, active: result.active, expiresAt };
 }
 
 export async function readOrderPage(provider: Provider, identity: MarketIdentity, cursor: bigint | null = null): Promise<OrderPage> {
@@ -147,11 +152,14 @@ export async function readOrderPage(provider: Provider, identity: MarketIdentity
   for (let offset = 0; offset < ids.length; offset += 4) {
     orders.push(...await Promise.all(ids.slice(offset, offset + 4).map(id => readOrder(provider, identity, id))));
   }
-  const states = new Map<string, { state?: number; verificationError?: string }>();
+  const states = new Map<string, { state?: number; tradingAllowed?: boolean; verificationError?: string }>();
   for (const order of orders.filter(order => order.active)) {
     const key = order.pool.toLowerCase();
     if (!states.has(key)) {
-      try { states.set(key, { state: (await readPoolPosition(provider, identity, order.pool, null)).state }); }
+      try {
+        const { state, tradingAllowed } = await readPoolPosition(provider, identity, order.pool, null);
+        states.set(key, { state, tradingAllowed });
+      }
       catch (error) { states.set(key, { verificationError: marketError(error) }); }
     }
     Object.assign(order, states.get(key));
@@ -279,6 +287,6 @@ export async function recoverMarketReceipt(provider: Provider, pending: PendingM
 export function marketError(error: unknown): string {
   const item = error as { code?: number | string; shortMessage?: string; message?: string; revert?: { name?: string } };
   if (item.code === 4001 || item.code === 'ACTION_REJECTED') return '你已取消钱包请求，未确认发送交易。';
-  const known: Record<string, string> = { WrongState: '资金池状态已变化，目前不可成交。', InactiveOrder: '订单已成交或撤销，请刷新。', InsufficientUnlockedShares: '可用份额不足。', ShareOutOfRange: '购买后持仓不能超过 49 份。', NothingToClaim: '目前没有可领取的 BNB。' };
+  const known: Record<string, string> = { OrderExpired: '订单已到期，请撤单后重新挂单。', WrongState: '资金池状态已变化，目前不可成交。', InactiveOrder: '订单已成交或撤销，请刷新。', InsufficientUnlockedShares: '可用份额不足。', ShareOutOfRange: '购买后持仓不能超过 49 份。', NothingToClaim: '目前没有可领取的 BNB。' };
   return known[item.revert?.name ?? ''] || (item.shortMessage || item.message || '读取失败，请检查网络后重试。').slice(0, 400);
 }

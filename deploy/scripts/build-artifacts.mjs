@@ -5,11 +5,12 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import solc from 'solc';
+import { keccak256, toUtf8Bytes } from 'ethers';
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const outputPath = join(repositoryRoot, 'deploy/public/deployment-artifacts.json');
 export const libraryNames = Object.freeze([
-  'BurnOperations', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation',
+  'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation',
   'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints',
 ]);
 export const requiredContracts = Object.freeze([
@@ -201,6 +202,26 @@ export function assertCurrentArtifacts(saved, current) {
   const { sourceCommit: savedCommit, ...savedContent } = saved;
   const { sourceCommit: currentCommit, ...currentContent } = current;
   assert.deepEqual(savedContent, currentContent, 'Deployment artifacts are stale or modified. Run npm run artifacts in deploy/.');
+}
+
+function canonicalContent(value) {
+  if (Array.isArray(value)) return value.map(canonicalContent);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalContent(value[key])]));
+  return value;
+}
+
+/** Git provenance is informational; all compiler inputs and ABI/code bytes are bound. */
+export function artifactContentDigest(document) {
+  const { sourceCommit: _commit, ...content } = document;
+  return keccak256(toUtf8Bytes(JSON.stringify(canonicalContent(content))));
+}
+
+/** Called by Vite in Node, never by a browser or from a downloaded hash document. */
+export function verifiedBuildDigest() {
+  const compiled = compileDeploymentArtifacts();
+  const saved = JSON.parse(readFileSync(outputPath, 'utf8'));
+  assertCurrentArtifacts(saved, compiled);
+  return artifactContentDigest(compiled);
 }
 
 function main() {

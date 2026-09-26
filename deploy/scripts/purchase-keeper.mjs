@@ -1,8 +1,10 @@
 import { openSync, closeSync, existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, fsyncSync, statSync, chmodSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { tmpdir, homedir } from 'node:os';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress, formatEther, getAddress, parseEther, parseUnits, Transaction, keccak256 } from 'ethers';
+
+export const KEEPER_STATE_ROOT = resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
 
 export const OFFICIAL_MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 export const OFFICIAL_COLLECTIONS = ['0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', '0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C'];
@@ -15,6 +17,7 @@ export const KEEPER_POOL_ABI = [
   'function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,tuple(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)',
   'function buyAlternativeFromMarket(uint256 listingId)',
   'function purchaseModel() view returns(bool initialized,uint32 taskId)',
+  'function purchaseReferenceWeight() view returns(uint128)',
 ];
 const FACTORY_ABI = ['function isPool(address) view returns(bool)'];
 export const LISTING_ABI = [
@@ -47,7 +50,10 @@ export function parseArguments(args) {
   const sort = values.sort ?? 'capacity';
   if (!['capacity', 'price'].includes(sort)) throw new Error('--sort must be capacity or price.');
   const rpc = values.rpc ?? 'https://bsc-dataseed.bnbchain.org';
-  if (!/^https?:$/.test(new URL(rpc).protocol)) throw new Error('RPC must be an HTTP(S) URL.');
+  const rpcUrl = new URL(rpc);
+  if (!/^https?:$/.test(rpcUrl.protocol)) throw new Error('RPC must be an HTTP(S) URL.');
+  const loopback = rpcUrl.hostname === 'localhost' || rpcUrl.hostname === '[::1]' || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(rpcUrl.hostname);
+  if (values.send && rpcUrl.protocol !== 'https:' && !loopback) throw new Error('--send requires HTTPS RPC; HTTP is permitted only on loopback for local tests.');
   if (values.send && !values.journal) throw new Error('--send requires an explicit --journal path for durable recovery.');
   const maxGasWei = parseEther(values['max-gas-bnb'] ?? '0.01'), maxGasPrice = parseUnits(values['max-gas-price-gwei'] ?? '1', 'gwei');
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
@@ -176,18 +182,19 @@ export async function readKeeperPool(provider, options) {
   if (!block) throw new Error('Cannot read latest block.');
   const opts = { blockTag: block.number };
   const registry = new Contract(options.factory, FACTORY_ABI, provider), pool = new Contract(options.pool, KEEPER_POOL_ABI, provider);
-  const [registered, boundFactory, officialFactory, state, params, policy, model, factoryCode, poolCode] = await Promise.all([
-    registry.isPool(options.pool, opts), pool.factory(opts), pool.OFFICIAL_FACTORY(opts), pool.state(opts), pool.params(opts), pool.flexiblePurchase(opts), pool.purchaseModel(opts),
+  const [registered, boundFactory, officialFactory, state, params, policy, model, referenceWeight, factoryCode, poolCode] = await Promise.all([
+    registry.isPool(options.pool, opts), pool.factory(opts), pool.OFFICIAL_FACTORY(opts), pool.state(opts), pool.params(opts), pool.flexiblePurchase(opts), pool.purchaseModel(opts), pool.purchaseReferenceWeight(opts),
     provider.getCode(options.factory, block.number), provider.getCode(options.pool, block.number),
   ]);
   if (factoryCode === '0x' || poolCode === '0x') throw new Error('Factory or pool has no deployed code.');
   if (!registered || !same(boundFactory, options.factory) || !same(officialFactory, options.factory)) throw new Error('Factory membership or immutable factory binding does not match.');
   if (!OFFICIAL_COLLECTIONS.some(item => same(item, params.circuits))) throw new Error('Pool collection is not an official TapeOut/Behemoth collection.');
   if (policy.enabled && !model.initialized) throw new Error('Flexible pool has no immutable on-chain purchase model; create a new configured pool.');
+  if (policy.enabled && referenceWeight === 0n) throw new Error('Flexible pool has no immutable reference weight; legacy pricing cannot purchase. Create a new configured pool.');
   const check = inspectPoolState(state, policy.enabled, params.purchaseDeadline, BigInt(block.timestamp));
   if (policy.enabled && (policy.config.minVerifiedWeight === 0n || params.priceCap === 0n)) throw new Error('Invalid flexible-purchase constraints.');
   return { ...check, blockNumber: block.number, blockGasLimit: block.gasLimit, enabled: policy.enabled, state, circuits: params.circuits, priceCap: params.priceCap,
-    purchaseDeadline: params.purchaseDeadline, taskId: model.taskId, minVerifiedWeight: policy.config.minVerifiedWeight,
+    purchaseDeadline: params.purchaseDeadline, taskId: model.taskId, referenceVerifiedWeight: referenceWeight, minVerifiedWeight: policy.config.minVerifiedWeight,
     referencePriceWei: policy.config.referencePriceWei, referenceCircuitId: policy.referenceCircuitId };
 }
 
@@ -200,7 +207,7 @@ export async function verifyCandidate(provider, candidate, constraints) {
     || !same(listing.circuits, constraints.circuits) || listing.tokenId !== candidate.tokenId
     || !same(listing.seller, current.seller) || listing.price !== current.price) return null;
   // The Vault's mandatory estimateGas EVM simulation checks current mining status, non-optimal/verified
-  // capacity, price cap, deadline and NFT ownership together with purchase settlement.
+  // capacity, total-price and unit-weight caps, deadline and NFT ownership together with purchase settlement.
   // Repeating minerKey/getMiner here would add RPCs without strengthening that atomic check.
   return { ...candidate, listingId: current.id, priceWei: listing.price,
     officialListingSource: 'CircuitMarket.listingFor', officialObservedBlock: constraints.blockNumber };
@@ -337,31 +344,32 @@ export function writeJournal(path, journal) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-export function acquireKeeperLock(journalPath) {
-  mkdirSync(dirname(journalPath), { recursive: true });
-  const lock = `${journalPath}.lock`;
+export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT, 'locks')) {
+  mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
+  const identity = keccak256(new TextEncoder().encode(resolve(resourcePath))).slice(2);
+  const lock = resolve(root, `${identity}.lock`);
   let fd;
   try { fd = openSync(lock, 'wx', 0o600); }
   catch (error) { if (error.code === 'EEXIST') throw new Error(`Keeper lock already exists: ${lock}. Check its PID before manually removing a stale lock.`); throw error; }
-  writeFileSync(fd, `${serial({ pid: process.pid, createdAt: new Date().toISOString() })}\n`); closeSync(fd);
+  writeFileSync(fd, `${serial({ pid: process.pid, resource: resolve(resourcePath), createdAt: new Date().toISOString() })}\n`); closeSync(fd);
   let released = false;
   return () => { if (!released) { released = true; unlinkSync(lock); } };
 }
 
 /** The persistent wallet pointer also blocks a different pool after --once exits or a process crashes. */
-export function acquireWalletLock(address, journalPath, root = resolve(homedir(), '.local/state/pinkuang/purchase-keeper/wallets')) {
+export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_STATE_ROOT, 'wallets')) {
   mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
   const path = resolve(root, `56-${normalizeAddress(address).toLowerCase()}.json`);
-  const release = acquireKeeperLock(path);
+  const release = acquireKeeperLock(path, resolve(root, 'locks'));
   try {
     if (existsSync(path)) {
       const owner = readPrivateJson(path);
-      if (owner.journal !== resolve(journalPath)) {
-        if (!existsSync(owner.journal)) throw new Error('Wallet has an unavailable previous journal; reconcile it before using another pool.');
-        const previous = readPrivateJson(owner.journal);
-        readJournal(owner.journal, { factory: previous.factory, pool: previous.pool });
-        if (previous.transaction && !finalizedRecord(previous.transaction)) throw new Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
-      }
+      // Check even when resuming the same path. Never silently replace a lost
+      // pending ledger with a fresh empty file before reserving another nonce.
+      if (!existsSync(owner.journal)) throw new Error('Wallet has an unavailable previous journal; preserve the pointer and recover that journal before sending.');
+      const previous = readPrivateJson(owner.journal);
+      readJournal(owner.journal, { factory: previous.factory, pool: previous.pool });
+      if (owner.journal !== resolve(journalPath) && previous.transaction && !finalizedRecord(previous.transaction)) throw new Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
     }
     writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
     return release;
@@ -568,7 +576,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
     let gasLimit;
     try {
       // estimateGas executes the complete atomic purchase path once: this is the
-      // authoritative fresh capacity/status/ownership/price/deadline simulation.
+      // authoritative fresh capacity/status/ownership/total-price/unit-weight/deadline simulation. API weights only order discovery hints.
       gasLimit = ((await pool.buyAlternativeFromMarket.estimateGas(candidate.listingId, overrides)) * 120n + 99n) / 100n;
     } catch { skipped.push({ listingId: candidate.listingId, reason: 'purchase-simulation-reverted-or-listing-changed' }); continue; }
     const details = { listingId: candidate.listingId, tokenId: candidate.tokenId, collection: candidate.collection,
@@ -606,7 +614,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
 }
 
 function help() {
-  console.log(`Purchase keeper — BSC flexible pools only\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target then the prepared queue immediately; --once performs one cycle.\nThe original target is seeded from the pool and never waits for Firsto API discovery.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --journal /private/path/pool.json --send\n\n--send reads KEEPER_PRIVATE_KEY only from this process environment. Never put a key in command arguments.\nOptions: --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nDiscovery uses official NFTs from Firsto; CircuitMarket.listingFor resolves the executable official listing, regardless of Firsto bestAsk venue.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nWallet journal pointers persist under ~/.local/state/pinkuang/purchase-keeper/wallets (0700/0600).\nPreviously signed attempts remain executable: lowering a later budget cannot revoke their gas exposure.\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
+  console.log(`Purchase keeper — BSC flexible pools only\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target then the prepared queue immediately; --once performs one cycle.\nThe original target is seeded from the pool and never waits for Firsto API discovery.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --journal /private/path/pool.json --send\n\n--send reads KEEPER_PRIVATE_KEY only from this process environment. Never put a key in command arguments.\nOptions: --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nDiscovery uses official NFTs from Firsto; CircuitMarket.listingFor resolves the executable official listing, regardless of Firsto bestAsk venue.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nWallet journal pointers persist under ~/.local/state/pinkuang/purchase-keeper/wallets (0700/0600).\nPreviously signed attempts remain executable: lowering a later budget cannot revoke their gas exposure.\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -614,7 +622,7 @@ export async function main(args = process.argv.slice(2)) {
   if (options.help) { help(); return; }
   const releaseJournal = acquireKeeperLock(options.journal);
   let releasePool;
-  try { releasePool = acquireKeeperLock(resolve(tmpdir(), 'pinkuang-purchase-keeper-locks', `56-${options.pool.toLowerCase()}`)); }
+  try { releasePool = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'pools', `56-${options.pool.toLowerCase()}`)); }
   catch (error) { releaseJournal(); throw error; }
   const release = () => { releasePool(); releaseJournal(); };
   let stopping = false;
@@ -632,8 +640,8 @@ export async function main(args = process.argv.slice(2)) {
       const key = process.env.KEEPER_PRIVATE_KEY;
       if (!/^0x[0-9a-f]{64}$/i.test(key ?? '')) throw new Error('Set a valid KEEPER_PRIVATE_KEY in the local process environment before --send.');
       try { signer = new Wallet(key, provider); } catch { throw new Error('The supplied keeper key is invalid.'); }
-      if (!existsSync(options.journal)) writeJournal(options.journal, readJournal(options.journal, options));
       releaseWallet = acquireWalletLock(await signer.getAddress(), options.journal);
+      if (!existsSync(options.journal)) writeJournal(options.journal, readJournal(options.journal, options));
     }
     do {
       try {

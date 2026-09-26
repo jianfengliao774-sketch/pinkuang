@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const { keccak256 } = require('ethereum-cryptography/keccak');
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const keccak = value => `0x${Buffer.from(keccak256(value)).toString('hex')}`;
-const expectedLibraries = ['BurnOperations', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
+const expectedLibraries = ['FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
 const directVaultLibraries = expectedLibraries.filter(name => name !== 'PurchaseValidation');
 const nestedLibraries = { FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'] };
 const mining = '0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46';

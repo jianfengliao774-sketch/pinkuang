@@ -2,7 +2,6 @@
 pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -14,14 +13,7 @@ import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {IWbnb} from "../../src/interfaces/IPancakeBurnRouter.sol";
 import {Addresses} from "../../script/Addresses.sol";
 
-interface IBurnForkPoolState {
-    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint32, bool);
-    function fee() external view returns (uint24);
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-}
-
-/// @notice Real Router, WBNB, BEM and BeaconProxy refund path at the reviewed BSC block.
+/// @notice Disabled burn ABI against real BEM/WBNB balances at the reviewed BSC block.
 /// @dev Only local native funding/impersonation is used. No protocol code, storage or ERC20 balance is replaced.
 contract PoolBurnForkTest is Test {
     uint256 private constant FORK_BLOCK = 123728000;
@@ -44,15 +36,11 @@ contract PoolBurnForkTest is Test {
     IERC20 private constant BEM = IERC20(Addresses.BEM);
     IERC721 private constant NFT = IERC721(Addresses.TAPEOUT_CIRCUITS);
     IERC20 private constant WRAPPED = IERC20(WBNB);
-    IBurnForkPoolState private constant SWAP_POOL = IBurnForkPoolState(Addresses.PANCAKE_V3_BEM_WBNB_POOL);
     PoolVault private vault;
 
     function setUp() public {
         require(block.chainid == 56 && block.number == FORK_BLOCK, "requires pinned BSC fork");
         assertEq(NFT.ownerOf(TOKEN_ID), SELLER);
-        assertEq(SWAP_POOL.token0(), Addresses.BEM);
-        assertEq(SWAP_POOL.token1(), WBNB);
-        assertEq(SWAP_POOL.fee(), 10_000);
         PoolTimelock timelock = new PoolTimelock(OWNER);
         address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         PoolBeacon beacon = new PoolBeacon(address(new PoolVault(predictedFactory)), address(timelock));
@@ -98,85 +86,26 @@ contract PoolBurnForkTest is Test {
         vault.completeSale{value: SALE_PRICE}();
         assertEq(uint256(vault.state()), uint256(IPoolVault.State.Closed));
         assertEq(NFT.ownerOf(TOKEN_ID), BUYER);
-        assertEq(vault.burnBudget(), SALE_PRICE / 50);
+        assertEq(vault.burnBudget(), 0);
         assertGt(BEM.balanceOf(address(vault)), 0, "sale must leave real final mining rewards for old holders");
         _donations();
     }
 
-    function test_Fork_ActualSwapBurnOnlyNewBemAndPreserveAllMemberAssets() public {
-        bytes32 protectedBefore = _protectedDigest();
-        uint256 bnbBefore = address(vault).balance;
-        uint256 bemBefore = BEM.balanceOf(address(vault));
-        uint256 deadBefore = BEM.balanceOf(Addresses.BURN_SINK);
-        uint256 supplyBefore = BEM.totalSupply();
-        uint256 expectedSpent = ROUTER.balance >= INPUT ? 0 : INPUT;
-        uint256 minimum = _minimumOut(INPUT);
+    function test_Fork_BurnEntrypointsRejectAndPreserveAllReserves() public {
+        uint256 reserved = vault.totalBnbOwed();
+        uint256 bnb = address(vault).balance;
+        uint256 bem = BEM.balanceOf(address(vault));
+        uint256 dead = BEM.balanceOf(Addresses.BURN_SINK);
         vm.prank(OPERATOR);
-        (uint256 spent, uint256 burned) = vault.executeBurn(minimum, INPUT);
-        assertEq(spent, expectedSpent);
-        assertGt(burned, 0);
-        assertGe(burned, minimum);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, burned);
-        assertEq(BEM.balanceOf(address(vault)), bemBefore);
-        assertEq(BEM.totalSupply(), supplyBefore, "DEX burn does not mint or harvest any new mining BEM");
-        assertEq(address(vault).balance, bnbBefore - spent);
-        assertEq(WRAPPED.balanceOf(address(vault)), OLD_WBNB);
+        vm.expectRevert(IPoolVault.BurnDisabled.selector);
+        vault.executeBurn(0, type(uint256).max);
+        vm.expectRevert(IPoolVault.BurnDisabled.selector);
+        vault.burnExpired(0);
+        assertEq(vault.totalBnbOwed(), reserved);
+        assertEq(address(vault).balance, bnb);
+        assertEq(BEM.balanceOf(address(vault)), bem);
+        assertEq(BEM.balanceOf(Addresses.BURN_SINK), dead);
         assertEq(WRAPPED.allowance(address(vault), ROUTER), 0);
-        assertEq(vault.burnBudget(), SALE_PRICE / 50 - spent);
-        assertEq(vault.totalBurnBnbSpent(), spent);
-        assertEq(vault.totalBurnBem(), burned);
-        assertEq(_protectedDigest(), protectedBefore);
-        emit log_named_uint("actual budget BNB spent (wei)", spent);
-        emit log_named_uint("minimum BEM output (8-decimal atoms)", minimum);
-        emit log_named_uint("actual newly bought and burned BEM (atoms)", burned);
-    }
-
-    function test_Fork_PrefundedRouterRefundsWrappedInputThroughActualBeaconProxy2300GasReceive() public {
-        vm.deal(ROUTER, ROUTER.balance + 3 * INPUT);
-        uint256 routerBefore = ROUTER.balance;
-        uint256 bnbBefore = address(vault).balance;
-        uint256 bemBefore = BEM.balanceOf(address(vault));
-        uint256 deadBefore = BEM.balanceOf(Addresses.BURN_SINK);
-        bytes32 protectedBefore = _protectedDigest();
-        uint256 minimum = _minimumOut(INPUT);
-        vm.prank(OPERATOR);
-        (uint256 spent, uint256 burned) = vault.executeBurn(minimum, INPUT);
-        assertEq(spent, 0, "SmartRouter pays from its pre-existing native balance before pulling WBNB");
-        assertGt(burned, 0);
-        assertEq(ROUTER.balance, routerBefore - INPUT, "unused Router native funds must not be swept");
-        assertEq(address(vault).balance, bnbBefore, "real WBNB.transfer refund must reach the real BeaconProxy");
-        assertEq(WRAPPED.balanceOf(address(vault)), OLD_WBNB);
-        assertEq(WRAPPED.allowance(address(vault), ROUTER), 0);
-        assertEq(BEM.balanceOf(address(vault)), bemBefore);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK) - deadBefore, burned);
-        assertEq(vault.burnBudget(), SALE_PRICE / 50);
-        assertEq(vault.totalBurnBnbSpent(), 0);
-        assertEq(vault.totalBurnBem(), burned);
-        assertEq(_protectedDigest(), protectedBefore);
-        emit log_named_uint("prefunded Router BNB retained (wei)", ROUTER.balance);
-        emit log_named_uint("full WBNB input refunded into BeaconProxy (wei)", INPUT);
-        emit log_named_uint("actual BEM burned with zero Vault budget spend (atoms)", burned);
-    }
-
-    function test_Fork_ExcessiveMinimumRollsBackRouterAndVaultAssetAccounting() public {
-        bytes32 protectedBefore = _protectedDigest();
-        uint256 bnbBefore = address(vault).balance;
-        uint256 routerBefore = ROUTER.balance;
-        uint256 bemBefore = BEM.balanceOf(address(vault));
-        uint256 deadBefore = BEM.balanceOf(Addresses.BURN_SINK);
-        vm.prank(OPERATOR);
-        vm.expectRevert();
-        vault.executeBurn(type(uint256).max, INPUT);
-        assertEq(address(vault).balance, bnbBefore);
-        assertEq(ROUTER.balance, routerBefore);
-        assertEq(BEM.balanceOf(address(vault)), bemBefore);
-        assertEq(BEM.balanceOf(Addresses.BURN_SINK), deadBefore);
-        assertEq(WRAPPED.balanceOf(address(vault)), OLD_WBNB);
-        assertEq(WRAPPED.allowance(address(vault), ROUTER), 0);
-        assertEq(vault.burnBudget(), SALE_PRICE / 50);
-        assertEq(vault.totalBurnBnbSpent(), 0);
-        assertEq(vault.totalBurnBem(), 0);
-        assertEq(_protectedDigest(), protectedBefore);
     }
 
     function _deposit(address member, uint8 shares) private {
@@ -193,43 +122,5 @@ contract PoolBurnForkTest is Test {
         assertTrue(WRAPPED.transfer(address(vault), OLD_WBNB));
         vm.prank(SELLER);
         assertTrue(BEM.transfer(address(vault), 17));
-    }
-
-    function _minimumOut(uint256 bnbAmount) private view returns (uint256) {
-        (uint160 sqrtPriceX96,,,,,,) = SWAP_POOL.slot0();
-        uint256 ratioX128 = Math.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), 1 << 64);
-        uint256 spot = Math.mulDiv(bnbAmount, 1 << 128, ratioX128);
-        // 1% fee then 1% additional headroom against instantaneous spot; not a slippage measurement.
-        return Math.mulDiv(Math.mulDiv(spot, 99, 100), 99, 100);
-    }
-
-    function _protectedDigest() private view returns (bytes32) {
-        bytes32 members = keccak256(
-            abi.encode(
-                vault.totalBnbOwed(),
-                vault.bnbOwed(ALICE),
-                vault.bnbOwed(BOB),
-                vault.bnbOwed(CAROL),
-                vault.bnbOwed(TREASURY),
-                vault.saleOutstandingWei(),
-                vault.saleRemainder(),
-                vault.surplusRemainder()
-            )
-        );
-        uint32 epoch = uint32(block.timestamp / 1 days);
-        return keccak256(
-            abi.encode(
-                members,
-                vault.bemAccounted(),
-                vault.accBemPerShare(),
-                vault.epochNet(epoch),
-                vault.epochPaid(epoch),
-                vault.epochBurned(epoch),
-                vault.claimable(ALICE),
-                vault.claimable(BOB),
-                vault.claimable(CAROL),
-                NFT.ownerOf(TOKEN_ID)
-            )
-        );
     }
 }

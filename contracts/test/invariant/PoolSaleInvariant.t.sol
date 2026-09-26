@@ -9,7 +9,7 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Independent BNB oracle starts from raw subscription/refund/purchase amounts.
 /// It never obtains liabilities or distribution rates from production accounting getters.
-/// Budget burning is covered by the separate router tests; this model retains that reserve.
+/// No BNB is reserved for burns; all sale net proceeds, including dust, are assigned.
 contract PoolSaleHandler is Test {
     PoolVault public immutable vault;
     ISaleVault public immutable sale;
@@ -80,7 +80,7 @@ contract PoolSaleHandler is Test {
         vm.warp(block.timestamp + 1);
         uint256 proposer;
         while (shares[proposer] == 0) ++proposer;
-        price = bound(priceSeed, 0, 20 ether);
+        price = bound(priceSeed, 1, 20 ether);
         vm.prank(actors[proposer]);
         uint256 id = vault.propose(price, 0, 0);
         for (uint256 i; i < 6; ++i) {
@@ -113,14 +113,17 @@ contract PoolSaleHandler is Test {
         vm.prank(actors[4]);
         sale.completeSale{value: price}();
         uint256 fee = price / 50;
-        uint256 memberNet = price - fee * 2;
+        uint256 memberNet = price - fee;
         uint256 perShare = memberNet / 100;
         grossReceived = price;
-        reservedBurn = fee;
+        reservedBurn = 0;
         saleTail = memberNet % 100;
         owed[5] += fee; // The treasury is also eligible to own shares in this model.
+        address[] memory members = vault.activeMembers();
+        address roundingRecipient = members[members.length - 1];
         for (uint256 i; i < 6; ++i) {
             saleEntitlement[i] = shares[i] * perShare;
+            if (actors[i] == roundingRecipient) saleEntitlement[i] += saleTail;
             owed[i] += saleEntitlement[i];
         }
         phase = IPoolVault.State.Closed;
@@ -170,7 +173,7 @@ contract PoolSaleHandler is Test {
         assertEq(sale.saleRemainder(), saleTail);
         assertEq(vault.surplusRemainder(), purchaseTail);
         assertEq(sale.saleProceeds(), grossReceived);
-        assertEq(address(vault).balance, liabilities + purchaseTail + saleTail + reservedBurn + forcedBnb);
+        assertEq(address(vault).balance, liabilities + purchaseTail + reservedBurn + forcedBnb);
         assertEq(address(vault).balance + totalPaid, initialBnb + grossReceived + forcedBnb);
     }
 

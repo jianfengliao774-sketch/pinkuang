@@ -13,5 +13,7 @@ abstract contract PurchaseSelectionState {
         // Append-only. Pre-model flexible pools remain uninitialized and cannot purchase.
         bool modelInitialized;
         uint32 taskId;
+        // Immutable denominator from the chain at pool creation, independent of the configurable minimum.
+        uint128 referenceVerifiedWeight;
     }
 }

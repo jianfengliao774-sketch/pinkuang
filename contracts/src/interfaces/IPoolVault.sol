@@ -81,6 +81,11 @@ interface IPoolVault {
     error MinerDoesNotMeetCriteria();
     error PurchaseModelNotInitialized();
     error WrongPurchaseModel();
+    error PurchasePricingNotInitialized();
+    error OverReferenceUnitPrice();
+    error InvalidSalePrice();
+    error BurnDisabled();
+    error LegacyRewardMigrationRequired();
     error OriginalTargetAvailable();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
@@ -127,6 +132,7 @@ interface IPoolVault {
     );
     event FlexibleSurplusAllocated(uint256 amount, address indexed roundingRecipient, uint256 roundingWei);
     event PurchaseModelLocked(uint32 indexed taskId);
+    event PurchaseReferenceWeightLocked(uint128 verifiedWeight);
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -142,6 +148,8 @@ interface IPoolVault {
         view
         returns (bool enabled, uint256 referenceCircuitId, FlexiblePurchaseConfig memory config);
     function purchaseModel() external view returns (bool initialized, uint32 taskId);
+    function purchaseReferenceWeight() external view returns (uint128);
+    function shareTradingAllowed() external view returns (bool);
     function sellToPool() external;
     function configureExpiry(bool enabled) external;
     function mine(bytes calldata data) external returns (bytes memory);
