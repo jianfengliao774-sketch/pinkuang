@@ -1,0 +1,10 @@
+✔ AUDIT: page-two exact NFT lookup is rejected by the real proxy before its upstream fetch (4.659583ms)
+✔ AUDIT: SIGTERM during simulation still allows a fresh signature and broadcast afterward (237.082917ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 519.725334
