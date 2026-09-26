@@ -1,0 +1,1389 @@
+{
+  "baseline": {
+    "release": "20260925-purpose-v5",
+    "date": "2026-09-26",
+    "platformSha256": "47fdc35e11d4d077bfb153f4fc6e1debae5011d6168aea8f960279c5634aecee"
+  },
+  "scenarios": [
+    {
+      "id": "A01",
+      "title": "贝矿总览 · 完整首页",
+      "group": "01 · 主页面",
+      "entry": "首页 / #home",
+      "state": {
+        "route": "home"
+      },
+      "note": "包括首屏、初衷愿景、平台统计、项目入口、权益说明和底部宣传语。"
+    },
+    {
+      "id": "A02",
+      "title": "资产总览 · 未连接钱包",
+      "group": "01 · 主页面",
+      "entry": "未连接时直接访问 #overview",
+      "state": {
+        "route": "overview"
+      },
+      "note": ""
+    },
+    {
+      "id": "A03",
+      "title": "资产总览 · 已连接 · 近7天",
+      "group": "01 · 主页面",
+      "entry": "连接钱包 → 使用演示账户",
+      "state": {
+        "route": "overview",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "A04",
+      "title": "资产总览 · 近30天",
+      "group": "01 · 主页面",
+      "entry": "资产总览 → 近30天",
+      "state": {
+        "route": "overview",
+        "connected": true,
+        "range": "30D"
+      },
+      "note": ""
+    },
+    {
+      "id": "A05",
+      "title": "交易市场 · 份额交易",
+      "group": "01 · 主页面",
+      "entry": "交易市场 → 份额交易",
+      "state": {
+        "route": "market",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "A06",
+      "title": "交易市场 · 整机出售",
+      "group": "01 · 主页面",
+      "entry": "交易市场 → 整机出售",
+      "state": {
+        "route": "market",
+        "marketTab": "整机出售",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "A07",
+      "title": "收益中心 · 待领取",
+      "group": "01 · 主页面",
+      "entry": "收益中心 / #rewards",
+      "state": {
+        "route": "rewards",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "A08",
+      "title": "共同决策 · 待投票",
+      "group": "01 · 主页面",
+      "entry": "共同决策 / #governance",
+      "state": {
+        "route": "governance",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "A09",
+      "title": "公开记录 · 全部记录",
+      "group": "01 · 主页面",
+      "entry": "公开记录 → 全部记录",
+      "state": {
+        "route": "records",
+        "recordFilter": "全部记录"
+      },
+      "note": ""
+    },
+    {
+      "id": "A10",
+      "title": "公开记录 · 收益分配",
+      "group": "01 · 主页面",
+      "entry": "公开记录 → 收益分配",
+      "state": {
+        "route": "records",
+        "recordFilter": "收益分配"
+      },
+      "note": ""
+    },
+    {
+      "id": "A11",
+      "title": "公开记录 · 收益领取",
+      "group": "01 · 主页面",
+      "entry": "公开记录 → 收益领取",
+      "state": {
+        "route": "records",
+        "recordFilter": "收益领取"
+      },
+      "note": ""
+    },
+    {
+      "id": "A12",
+      "title": "公开记录 · BEM 销毁",
+      "group": "01 · 主页面",
+      "entry": "公开记录 → BEM 销毁",
+      "state": {
+        "route": "records",
+        "recordFilter": "BEM 销毁"
+      },
+      "note": ""
+    },
+    {
+      "id": "B01",
+      "title": "参与拼矿 · 项目总览",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "参与拼矿 → 项目总览",
+      "state": {
+        "route": "pools",
+        "filter": "项目总览"
+      },
+      "note": ""
+    },
+    {
+      "id": "B02",
+      "title": "参与拼矿 · 募集中",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "参与拼矿 → 募集中",
+      "state": {
+        "route": "pools",
+        "filter": "募集中"
+      },
+      "note": ""
+    },
+    {
+      "id": "B03",
+      "title": "参与拼矿 · 挖矿中",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "参与拼矿 → 挖矿中",
+      "state": {
+        "route": "pools",
+        "filter": "挖矿中"
+      },
+      "note": ""
+    },
+    {
+      "id": "B04",
+      "title": "参与拼矿 · 整机出售中",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "参与拼矿 → 整机出售中",
+      "state": {
+        "route": "pools",
+        "filter": "整机出售中"
+      },
+      "note": ""
+    },
+    {
+      "id": "B05",
+      "title": "筛选面板 · 全部条件",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "参与拼矿 → 筛选",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "filterOpen": true
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "B06",
+      "title": "搜索与筛选 · 已筛选结果",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "搜索8204；系列选Behemoth，来源选Firsto",
+      "state": {
+        "route": "pools",
+        "filter": "挖矿中",
+        "catalog": {
+          "filterOpen": true,
+          "query": "8204",
+          "filters": {
+            "series": "BEHEMOTH",
+            "source": "firsto"
+          }
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "B07",
+      "title": "无结果 · 单分类",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 搜索999999",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "query": "999999"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "B08",
+      "title": "无结果 · 项目总览三组",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "项目总览 → 搜索999999",
+      "state": {
+        "route": "pools",
+        "catalog": {
+          "query": "999999"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "B09",
+      "title": "筛选校验 · 最低值大于最高值",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "筛选 → 最低日产2，最高日产1",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "filterOpen": true,
+          "filters": {
+            "dailyMin": "2",
+            "dailyMax": "1"
+          }
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "B10",
+      "title": "排序 · 编号从低到高",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 编号从低到高",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "id-asc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "B11",
+      "title": "排序 · 整机价格从低到高",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 整机价格从低到高",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "price-asc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "B12",
+      "title": "排序 · 整机价格从高到低",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 整机价格从高到低",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "price-desc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "B13",
+      "title": "排序 · 目前募集份额最多",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 目前募集份额最多",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "funded-desc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "B14",
+      "title": "排序 · 全机日产出从高到低",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 全机日产出从高到低",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "daily-desc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "B15",
+      "title": "排序 · 日产能价从低到高",
+      "group": "02 · 拼矿列表与筛选",
+      "entry": "募集中 → 排序 → 日产能价从低到高",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "catalog": {
+          "sort": "unit-asc"
+        }
+      },
+      "note": "同一列表的排序结果；六个排序选项均列入审查。"
+    },
+    {
+      "id": "C01",
+      "title": "TapeOut #16210 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16210 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "16210",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C02",
+      "title": "TapeOut #16210 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16210 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "16210",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C03",
+      "title": "TapeOut #16210 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16210 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "16210",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C04",
+      "title": "TapeOut #16210 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16210 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "16210",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C05",
+      "title": "Behemoth #8204 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8204 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "8204",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C06",
+      "title": "Behemoth #8204 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8204 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "8204",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C07",
+      "title": "Behemoth #8204 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8204 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "8204",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C08",
+      "title": "Behemoth #8204 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8204 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "8204",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C09",
+      "title": "TapeOut #15832 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/15832 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "15832",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C10",
+      "title": "TapeOut #15832 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/15832 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "15832",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C11",
+      "title": "TapeOut #15832 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/15832 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "15832",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C12",
+      "title": "TapeOut #15832 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/15832 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "15832",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C13",
+      "title": "TapeOut #16928 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16928 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C14",
+      "title": "TapeOut #16928 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16928 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C15",
+      "title": "TapeOut #16928 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16928 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C16",
+      "title": "TapeOut #16928 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/16928 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C17",
+      "title": "Behemoth #8316 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8316 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "8316",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C18",
+      "title": "Behemoth #8316 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8316 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "8316",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C19",
+      "title": "Behemoth #8316 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8316 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "8316",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C20",
+      "title": "Behemoth #8316 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/8316 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "8316",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C21",
+      "title": "TapeOut #17006 · 资产详情",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/17006 → 资产详情",
+      "state": {
+        "route": "detail",
+        "poolId": "17006",
+        "detailTab": "资产详情",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "C22",
+      "title": "TapeOut #17006 · 收益记录",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/17006 → 收益记录",
+      "state": {
+        "route": "detail",
+        "poolId": "17006",
+        "detailTab": "收益记录",
+        "connected": true
+      },
+      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+    },
+    {
+      "id": "C23",
+      "title": "TapeOut #17006 · 共同决策",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/17006 → 共同决策",
+      "state": {
+        "route": "detail",
+        "poolId": "17006",
+        "detailTab": "共同决策",
+        "connected": true
+      },
+      "note": "当前按钮统一跳转 #8204 的演示提案。"
+    },
+    {
+      "id": "C24",
+      "title": "TapeOut #17006 · 参与者",
+      "group": "03 · 六台矿机详情",
+      "entry": "#detail/17006 → 参与者",
+      "state": {
+        "route": "detail",
+        "poolId": "17006",
+        "detailTab": "参与者",
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "D01",
+      "title": "连接钱包 · 未连接",
+      "group": "04 · 弹窗",
+      "entry": "顶栏 → 连接钱包",
+      "state": {
+        "route": "home",
+        "modal": {
+          "type": "wallet"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D02",
+      "title": "账户管理 · 已连接",
+      "group": "04 · 弹窗",
+      "entry": "顶栏 → 账户地址",
+      "state": {
+        "route": "overview",
+        "connected": true,
+        "modal": {
+          "type": "wallet"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D03",
+      "title": "认购确认",
+      "group": "04 · 弹窗",
+      "entry": "募集中详情 → 确认认购",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "qty": 5,
+        "connected": true,
+        "modal": {
+          "type": "subscribe"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D04",
+      "title": "领取BEM收益",
+      "group": "04 · 弹窗",
+      "entry": "收益中心 → 领取收益",
+      "state": {
+        "route": "rewards",
+        "connected": true,
+        "modal": {
+          "type": "claim"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D05",
+      "title": "领取BNB款项",
+      "group": "04 · 弹窗",
+      "entry": "收益中心 → 查看款项",
+      "state": {
+        "route": "rewards",
+        "connected": true,
+        "modal": {
+          "type": "bnb"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D06",
+      "title": "投票 · 确认赞成",
+      "group": "04 · 弹窗",
+      "entry": "共同决策 → 赞成出售",
+      "state": {
+        "route": "governance",
+        "connected": true,
+        "modal": {
+          "type": "vote",
+          "choice": "yes"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D07",
+      "title": "投票 · 确认反对",
+      "group": "04 · 弹窗",
+      "entry": "共同决策 → 反对",
+      "state": {
+        "route": "governance",
+        "connected": true,
+        "modal": {
+          "type": "vote",
+          "choice": "no"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D08",
+      "title": "买入矿机份额",
+      "group": "04 · 弹窗",
+      "entry": "交易市场 → #8204买入",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "qty": 1,
+        "modal": {
+          "type": "buy",
+          "order": {
+            "id": 2,
+            "pool": "8204",
+            "shares": 12,
+            "price": 0.086,
+            "seller": "0xF719…E124"
+          }
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D09",
+      "title": "出售我的份额",
+      "group": "04 · 弹窗",
+      "entry": "交易市场 → 出售我的份额",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "modal": {
+          "type": "sell"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D10",
+      "title": "购买整台矿机",
+      "group": "04 · 弹窗",
+      "entry": "交易市场 → 整机出售 → 购买整台矿机",
+      "state": {
+        "route": "market",
+        "marketTab": "整机出售",
+        "connected": true,
+        "modal": {
+          "type": "whole"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D11",
+      "title": "执行矿机挂牌",
+      "group": "04 · 弹窗",
+      "entry": "赞成投票达标后 → 执行挂牌",
+      "state": {
+        "route": "governance",
+        "voted": "yes",
+        "connected": true,
+        "modal": {
+          "type": "execute"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D12",
+      "title": "发起出售提案 · 已有提案提示",
+      "group": "04 · 弹窗",
+      "entry": "共同决策 → 发起出售提案",
+      "state": {
+        "route": "governance",
+        "connected": true,
+        "modal": {
+          "type": "proposal"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D13",
+      "title": "最优质保 · 筹备说明",
+      "group": "04 · 弹窗",
+      "entry": "侧栏 → 最优质保",
+      "state": {
+        "route": "home",
+        "modal": {
+          "type": "quality"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D14",
+      "title": "矿机质押 · 未开放说明",
+      "group": "04 · 弹窗",
+      "entry": "侧栏 → 矿机质押",
+      "state": {
+        "route": "home",
+        "modal": {
+          "type": "finance"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D15",
+      "title": "合约与矿机身份",
+      "group": "04 · 弹窗",
+      "entry": "矿机详情 → 矿机身份 / 公开记录 → 查看合约信息",
+      "state": {
+        "route": "detail",
+        "poolId": "16210",
+        "modal": {
+          "type": "identity"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D16",
+      "title": "公开记录详情",
+      "group": "04 · 弹窗",
+      "entry": "公开记录 → 记录编号",
+      "state": {
+        "route": "records",
+        "modal": {
+          "type": "record",
+          "record": [
+            "09.25 09:42",
+            "收益分配",
+            "TapeOut #16210",
+            "+0.2886",
+            "BEM",
+            "0x89b7…6e24"
+          ]
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "D17",
+      "title": "参与规则 · 完整内容",
+      "group": "04 · 弹窗",
+      "entry": "参与指南 / 平台规则",
+      "state": {
+        "route": "home",
+        "modal": {
+          "type": "rules"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "E01",
+      "title": "认购完成 · 待购机详情",
+      "group": "05 · 完成、空态与校验",
+      "entry": "#17006 → 认购最大9份 → 确认",
+      "state": {
+        "route": "detail",
+        "poolId": "17006",
+        "connected": true,
+        "pools": [
+          {
+            "id": "16210",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Active",
+            "price": 6.5,
+            "daily": 0.95,
+            "funded": 100,
+            "members": 24,
+            "shares": 49,
+            "cost": 3.185,
+            "color": "blue",
+            "gates": 128,
+            "age": 18
+          },
+          {
+            "id": "8204",
+            "name": "Behemoth",
+            "series": "BEHEMOTH",
+            "status": "Active",
+            "price": 8.4,
+            "daily": 1.22,
+            "funded": 100,
+            "members": 18,
+            "shares": 20,
+            "cost": 1.68,
+            "color": "violet",
+            "gates": 256,
+            "age": 12
+          },
+          {
+            "id": "15832",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Listed",
+            "price": 5.5,
+            "daily": 0.8,
+            "funded": 100,
+            "members": 16,
+            "shares": 23,
+            "cost": 1.265,
+            "color": "teal",
+            "gates": 96,
+            "age": 26
+          },
+          {
+            "id": "16928",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Funding",
+            "price": 6.8,
+            "daily": 1.02,
+            "funded": 68,
+            "members": 12,
+            "shares": 0,
+            "cost": 0,
+            "color": "blue",
+            "gates": 144,
+            "age": 0
+          },
+          {
+            "id": "8316",
+            "name": "Behemoth",
+            "series": "BEHEMOTH",
+            "status": "Funding",
+            "price": 9.2,
+            "daily": 1.36,
+            "funded": 42,
+            "members": 9,
+            "shares": 0,
+            "cost": 0,
+            "color": "violet",
+            "gates": 272,
+            "age": 0
+          },
+          {
+            "id": "17006",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Funded",
+            "price": 4.8,
+            "daily": 0.69,
+            "funded": 100,
+            "members": 22,
+            "shares": 9,
+            "cost": 0.432,
+            "color": "teal",
+            "gates": 112,
+            "age": 0
+          }
+        ],
+        "toast": "演示认购成功：{count} 份",
+        "toastParams": {
+          "count": 9
+        }
+      },
+      "note": "这是现有流程可到达的状态。当前时间线误显示全部完成、已运行0天，保留原样供审查。"
+    },
+    {
+      "id": "E02",
+      "title": "满募后 · 列表待购机",
+      "group": "05 · 完成、空态与校验",
+      "entry": "完成E01后 → 参与拼矿 → 募集中",
+      "state": {
+        "route": "pools",
+        "filter": "募集中",
+        "pools": [
+          {
+            "id": "16210",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Active",
+            "price": 6.5,
+            "daily": 0.95,
+            "funded": 100,
+            "members": 24,
+            "shares": 49,
+            "cost": 3.185,
+            "color": "blue",
+            "gates": 128,
+            "age": 18
+          },
+          {
+            "id": "8204",
+            "name": "Behemoth",
+            "series": "BEHEMOTH",
+            "status": "Active",
+            "price": 8.4,
+            "daily": 1.22,
+            "funded": 100,
+            "members": 18,
+            "shares": 20,
+            "cost": 1.68,
+            "color": "violet",
+            "gates": 256,
+            "age": 12
+          },
+          {
+            "id": "15832",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Listed",
+            "price": 5.5,
+            "daily": 0.8,
+            "funded": 100,
+            "members": 16,
+            "shares": 23,
+            "cost": 1.265,
+            "color": "teal",
+            "gates": 96,
+            "age": 26
+          },
+          {
+            "id": "16928",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Funding",
+            "price": 6.8,
+            "daily": 1.02,
+            "funded": 68,
+            "members": 12,
+            "shares": 0,
+            "cost": 0,
+            "color": "blue",
+            "gates": 144,
+            "age": 0
+          },
+          {
+            "id": "8316",
+            "name": "Behemoth",
+            "series": "BEHEMOTH",
+            "status": "Funding",
+            "price": 9.2,
+            "daily": 1.36,
+            "funded": 42,
+            "members": 9,
+            "shares": 0,
+            "cost": 0,
+            "color": "violet",
+            "gates": 272,
+            "age": 0
+          },
+          {
+            "id": "17006",
+            "name": "TapeOut",
+            "series": "TAPEOUT",
+            "status": "Funded",
+            "price": 4.8,
+            "daily": 0.69,
+            "funded": 100,
+            "members": 22,
+            "shares": 9,
+            "cost": 0.432,
+            "color": "teal",
+            "gates": 112,
+            "age": 0
+          }
+        ],
+        "connected": true
+      },
+      "note": ""
+    },
+    {
+      "id": "E03",
+      "title": "认购份数 · 非法数量",
+      "group": "05 · 完成、空态与校验",
+      "entry": "#16928 → 份数填0",
+      "state": {
+        "route": "detail",
+        "poolId": "16928",
+        "qty": 0,
+        "connected": true
+      },
+      "note": "0、空白、小数和超过最大值共用此行内错误与禁用按钮。"
+    },
+    {
+      "id": "E04",
+      "title": "收益中心 · 已领取",
+      "group": "05 · 完成、空态与校验",
+      "entry": "领取收益 → 演示领取全部收益",
+      "state": {
+        "route": "rewards",
+        "claimed": true,
+        "connected": true,
+        "toast": "演示领取完成：0.6842 BEM"
+      },
+      "note": ""
+    },
+    {
+      "id": "E05",
+      "title": "资产总览 · 领取后联动",
+      "group": "05 · 完成、空态与校验",
+      "entry": "完成领取 → 资产总览",
+      "state": {
+        "route": "overview",
+        "claimed": true,
+        "connected": true
+      },
+      "note": "可领取归零，即将到期待办消失。"
+    },
+    {
+      "id": "E06",
+      "title": "共同决策 · 已赞成并达标",
+      "group": "05 · 完成、空态与校验",
+      "entry": "赞成出售 → 确认演示投票",
+      "state": {
+        "route": "governance",
+        "voted": "yes",
+        "connected": true,
+        "toast": "演示投票已记录"
+      },
+      "note": ""
+    },
+    {
+      "id": "E07",
+      "title": "共同决策 · 已反对",
+      "group": "05 · 完成、空态与校验",
+      "entry": "反对 → 确认演示投票",
+      "state": {
+        "route": "governance",
+        "voted": "no",
+        "connected": true,
+        "toast": "演示投票已记录"
+      },
+      "note": ""
+    },
+    {
+      "id": "E08",
+      "title": "交易市场 · 我的挂单有数据",
+      "group": "05 · 完成、空态与校验",
+      "entry": "出售我的份额 → 创建演示挂单",
+      "state": {
+        "route": "market",
+        "listed": true,
+        "connected": true,
+        "toast": "演示挂单已创建"
+      },
+      "note": ""
+    },
+    {
+      "id": "E09",
+      "title": "交易市场 · 撤销后空态",
+      "group": "05 · 完成、空态与校验",
+      "entry": "我的挂单 → 撤销挂单",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "toast": "演示挂单已撤销，5 份已解锁"
+      },
+      "note": ""
+    },
+    {
+      "id": "E10",
+      "title": "买入校验 · 数量无效",
+      "group": "05 · 完成、空态与校验",
+      "entry": "份额买入 → 数量填0",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "qty": 0,
+        "modal": {
+          "type": "buy",
+          "order": {
+            "id": 2,
+            "pool": "8204",
+            "shares": 12,
+            "price": 0.086,
+            "seller": "0xF719…E124"
+          }
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "E11",
+      "title": "买入校验 · 超过49份上限",
+      "group": "05 · 完成、空态与校验",
+      "entry": "买入#16210 → 确认演示买入",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "qty": 1,
+        "modal": {
+          "type": "buy",
+          "order": {
+            "id": 1,
+            "pool": "16210",
+            "shares": 8,
+            "price": 0.068,
+            "seller": "0x82a6…90C4"
+          }
+        },
+        "toast": "超过单个地址 49 份的持仓上限"
+      },
+      "note": ""
+    },
+    {
+      "id": "E12",
+      "title": "买入成功提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "买入#8204 → 确认演示买入",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "toast": "已完成份额买入流程演示"
+      },
+      "note": "现有演示只显示提示，未更新持仓。"
+    },
+    {
+      "id": "E13",
+      "title": "整机购买完成提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "整机出售 → 确认演示购买",
+      "state": {
+        "route": "market",
+        "marketTab": "整机出售",
+        "connected": true,
+        "toast": "已完成整机购买流程演示，不发生实际过户"
+      },
+      "note": ""
+    },
+    {
+      "id": "E14",
+      "title": "执行挂牌完成提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "投票达标 → 执行挂牌 → 确认",
+      "state": {
+        "route": "governance",
+        "voted": "yes",
+        "connected": true,
+        "toast": "已完成挂牌执行流程演示"
+      },
+      "note": "现有演示仅显示提示，提案卡仍保留执行按钮。"
+    },
+    {
+      "id": "E15",
+      "title": "BNB领取流程完成提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "查看款项 → 体验领取流程",
+      "state": {
+        "route": "rewards",
+        "connected": true,
+        "toast": "已完成 BNB 领取流程演示"
+      },
+      "note": "现有演示未将待领取BNB金额归零。"
+    },
+    {
+      "id": "E16",
+      "title": "公开记录 · 导出提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "公开记录 → 导出CSV",
+      "state": {
+        "route": "records",
+        "toast": "演示记录已导出"
+      },
+      "note": ""
+    },
+    {
+      "id": "E17",
+      "title": "收益中心 · 刷新提示",
+      "group": "05 · 完成、空态与校验",
+      "entry": "收益中心 → 刷新记录",
+      "state": {
+        "route": "rewards",
+        "connected": true,
+        "toast": "演示记录已刷新"
+      },
+      "note": ""
+    },
+    {
+      "id": "E18",
+      "title": "退出演示账户",
+      "group": "05 · 完成、空态与校验",
+      "entry": "顶栏账户 → 退出演示账户",
+      "state": {
+        "route": "home",
+        "toast": "已退出演示账户"
+      },
+      "note": ""
+    },
+    {
+      "id": "E19",
+      "title": "手机导航 · 展开",
+      "group": "05 · 完成、空态与校验",
+      "entry": "手机顶部 → 打开导航",
+      "state": {
+        "route": "market",
+        "menu": true
+      },
+      "note": "请切换手机尺寸查看侧栏抽屉和遮罩。电脑尺寸下显示常规侧栏。"
+    }
+  ],
+  "gaps": [
+    {
+      "title": "矿机质押、最优质保",
+      "detail": "目前只有说明弹窗，没有出资、借款、回赎、申请质保等业务页面。见D13、D14。"
+    },
+    {
+      "title": "退款、已结束项目",
+      "detail": "代码仅定义状态名称，尚无用户可到达的退款或项目结束流程；审查册不补画不存在的页面。"
+    },
+    {
+      "title": "真实钱包与交易状态",
+      "detail": "尚无真实钱包连接、签名、交易等待、拒签、网络错误或链上失败页面；现有按钮均为演示。"
+    },
+    {
+      "title": "待购机时间线",
+      "detail": "满募后可进入待购机状态，但详情仍显示三步全部完成、已运行0天。见E01。"
+    },
+    {
+      "title": "矿机专属记录与投票",
+      "detail": "详情收益表共用全站演示流水；共同决策统一跳转同一个#8204提案。见C组。"
+    },
+    {
+      "title": "部分操作仅有完成提示",
+      "detail": "份额买入、整机购买、BNB领取、执行挂牌尚未更新完整的后续资产状态。见E12—E15。"
+    },
+    {
+      "title": "演示日期与数据",
+      "detail": "金额、人数及截止时间是固定演示值，不能当作实时业务数据；各页请同时审查文字与口径。"
+    },
+    {
+      "title": "品牌设计备选页",
+      "detail": "旧版 /design 是历史品牌方案页，不属于当前7个业务导航页面；作为附录单独提供入口。"
+    }
+  ]
+}
