@@ -66,11 +66,9 @@ test('deployment ABI retains prediction, role validation, binding and post-deplo
   assert.equal(vault.deploy.inputs.length, 1);
   assert.equal(vault.deploy.inputs[0].type, 'address');
   assert(vault.getFunction('OFFICIAL_FACTORY()'));
-  const claimFor = vault.getFunction('claimFor(address)');
-  assert(claimFor);
-  assert.deepEqual(claimFor.inputs.map(input => input.type), ['address']);
-  assert.deepEqual(claimFor.outputs.map(output => output.type), ['uint256']);
-  assert.equal(claimFor.stateMutability, 'nonpayable');
+  assert(vault.getFunction('claim()'));
+  assert(vault.getFunction('harvest()'));
+  assert.equal(vault.getFunction('claimFor(address)'), null);
   assert(Object.keys(document.artifacts.PoolVault.immutableReferences).length > 0);
   assert(new Interface(document.artifacts.PoolBeacon.abi).getFunction('implementation()'));
   assert(new Interface(document.artifacts.PoolTimelock.abi).getFunction('getMinDelay()'));

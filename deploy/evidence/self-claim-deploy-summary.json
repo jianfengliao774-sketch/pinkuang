@@ -1,0 +1,33 @@
+{
+  "verifiedAt": "2026-09-26T09:08:37.895Z",
+  "sourceCommit": "69e56afb27e4a163cfec7e329c8c7ae7c81a960b",
+  "artifactDigest": "0xa23f666f3cdd9d953c73a89182e24d7fc30545f024a2308f43bc44b238b6ef26",
+  "allSourceHashesStillMatch": true,
+  "sourceCount": 61,
+  "artifacts": 15,
+  "abi": {
+    "claim": true,
+    "harvest": true,
+    "claimFor": false
+  },
+  "artifactTests": {
+    "passed": 7,
+    "failed": 0
+  },
+  "deploymentTests": {
+    "passed": 7,
+    "failed": 0,
+    "chain": "loopback Anvil 56 only"
+  },
+  "artifactsCheckExitCode": 0,
+  "buildExitCode": 0,
+  "vaultRuntimeBytes": 24171,
+  "vaultRuntimeHeadroom": 405,
+  "logs": [
+    "self-claim-artifacts-generate.log",
+    "self-claim-artifacts-check.log",
+    "self-claim-artifacts-tests.log",
+    "self-claim-deployment-tests.log",
+    "self-claim-build.log"
+  ]
+}

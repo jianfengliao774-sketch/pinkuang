@@ -234,15 +234,9 @@ contract PoolVault is
         (gross, fee, burned, net) = RewardAccounting.account(_rewardStorage(), BEM, s.treasury);
     }
 
+    /// @notice Pays the caller's booked BEM directly to the caller, with no cooldown.
     function claim() external nonReentrant returns (uint256 amount) {
         return RewardAccounting.claim(_rewardStorage(), msg.sender, balanceOf(msg.sender), BEM);
-    }
-
-    /// @notice Anyone may pay gas to release a beneficiary's entire booked reward to that beneficiary.
-    /// @dev Shares and payment destination belong to the beneficiary. Claims have no cooldown.
-    function claimFor(address beneficiary) external nonReentrant returns (uint256 amount) {
-        if (beneficiary == address(0)) revert InvalidParameters();
-        return RewardAccounting.claim(_rewardStorage(), beneficiary, balanceOf(beneficiary), BEM);
     }
 
     /// @notice Deprecated ABI retained for old clients; reward forfeiture is disabled.
