@@ -1,0 +1,17 @@
+{
+  "name": "pinkuang-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3108",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3108",
+    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node scripts/reward-policy-check.mjs"
+  },
+  "dependencies": {
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "lucide-react": "0.577.0"
+  }
+}

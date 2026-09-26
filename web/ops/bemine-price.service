@@ -1,0 +1,21 @@
+[Unit]
+Description=BEMine public reference price cache
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/bemine-price
+ExecStart=/usr/bin/node /opt/bemine-price/scripts/update-bem-price.mjs --output /var/www/bemine-preview/data/bem-price.json
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/bemine-preview/data
+
+[Install]
+WantedBy=multi-user.target

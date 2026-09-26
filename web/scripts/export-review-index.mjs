@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+let source=readFileSync(new URL('../lib/mobile-review-v8-scenarios.js',import.meta.url),'utf8');
+for(const name of ['demo-data','catalog'])source=source.replace(`'./${name}'`,JSON.stringify(new URL(`../lib/${name}.js`,import.meta.url).href));
+const {reviewScenarios,reviewGaps}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+if(reviewScenarios.length!==90||new Set(reviewScenarios.map(x=>x.id)).size!==90||reviewScenarios.some(x=>x.id==='A12'))throw Error('Review identity mismatch');
+const baseline=JSON.parse(readFileSync(new URL('../lib/mobile-review-v8-baseline.json',import.meta.url)));
+writeFileSync(new URL('../lib/review-baseline.json',import.meta.url),JSON.stringify(baseline,null,2)+'\n');
+writeFileSync(new URL('../public/review-files/bemine-review-index.json',import.meta.url),JSON.stringify({baseline,scenarios:reviewScenarios,gaps:reviewGaps},null,2)+'\n');
+const md=['# 拼矿 BEMine · 页面审查清单 v8','',`基准：${baseline.release}，共 ${reviewScenarios.length} 项。保留原场景编号，已撤下的编号不重复使用。`,'',...reviewScenarios.flatMap(x=>[`## ${x.id} · ${x.title}`,'',`入口：${x.entry}`,x.note?`说明：${x.note}`:'','- [ ] 已审查','','修改意见：','',''])].join('\n');
+writeFileSync(new URL('../public/review-files/bemine-review-checklist.md',import.meta.url),md.trimEnd()+'\n');
+console.log('Current review index and compatibility checklist exported.');
