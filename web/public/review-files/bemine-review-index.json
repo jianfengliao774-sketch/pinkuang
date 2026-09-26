@@ -1,13 +1,13 @@
 {
   "baseline": {
-    "release": "20260925-purpose-v5",
+    "release": "20260926-rewards-v8",
     "date": "2026-09-26",
-    "platformSha256": "47fdc35e11d4d077bfb153f4fc6e1debae5011d6168aea8f960279c5634aecee"
+    "platformSha256": "fdd1ecd788db43015077fb798e4265cf7c15f921053c397c877e2a514796811e"
   },
   "scenarios": [
     {
       "id": "A01",
-      "title": "贝矿总览 · 完整首页",
+      "title": "拼矿总览 · 完整首页",
       "group": "01 · 主页面",
       "entry": "首页 / #home",
       "state": {
@@ -50,9 +50,9 @@
     },
     {
       "id": "A05",
-      "title": "交易市场 · 份额交易",
+      "title": "矿机转让 · 份额交易",
       "group": "01 · 主页面",
-      "entry": "交易市场 → 份额交易",
+      "entry": "矿机转让 → 份额交易",
       "state": {
         "route": "market",
         "connected": true
@@ -61,9 +61,9 @@
     },
     {
       "id": "A06",
-      "title": "交易市场 · 整机出售",
+      "title": "矿机转让 · 整机出售",
       "group": "01 · 主页面",
-      "entry": "交易市场 → 整机出售",
+      "entry": "矿机转让 → 整机出售",
       "state": {
         "route": "market",
         "marketTab": "整机出售",
@@ -123,17 +123,6 @@
       "state": {
         "route": "records",
         "recordFilter": "收益领取"
-      },
-      "note": ""
-    },
-    {
-      "id": "A12",
-      "title": "公开记录 · BEM 销毁",
-      "group": "01 · 主页面",
-      "entry": "公开记录 → BEM 销毁",
-      "state": {
-        "route": "records",
-        "recordFilter": "BEM 销毁"
       },
       "note": ""
     },
@@ -367,7 +356,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C03",
@@ -380,7 +369,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C04",
@@ -419,7 +408,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C07",
@@ -432,7 +421,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C08",
@@ -471,7 +460,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C11",
@@ -484,7 +473,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C12",
@@ -523,7 +512,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C15",
@@ -536,7 +525,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C16",
@@ -575,7 +564,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C19",
@@ -588,7 +577,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C20",
@@ -627,7 +616,7 @@
         "detailTab": "收益记录",
         "connected": true
       },
-      "note": "当前所有矿机共用同一份演示流水，并非按矿机过滤。"
+      "note": "按当前矿机筛选收益记录；无记录时显示空态。"
     },
     {
       "id": "C23",
@@ -640,7 +629,7 @@
         "detailTab": "共同决策",
         "connected": true
       },
-      "note": "当前按钮统一跳转 #8204 的演示提案。"
+      "note": "仅 #8204 有进行中的演示提案，其余显示暂无提案。"
     },
     {
       "id": "C24",
@@ -760,7 +749,7 @@
       "id": "D08",
       "title": "买入矿机份额",
       "group": "04 · 弹窗",
-      "entry": "交易市场 → #8204买入",
+      "entry": "矿机转让 → #8204买入",
       "state": {
         "route": "market",
         "connected": true,
@@ -782,7 +771,7 @@
       "id": "D09",
       "title": "出售我的份额",
       "group": "04 · 弹窗",
-      "entry": "交易市场 → 出售我的份额",
+      "entry": "矿机转让 → 出售我的份额",
       "state": {
         "route": "market",
         "connected": true,
@@ -796,7 +785,7 @@
       "id": "D10",
       "title": "购买整台矿机",
       "group": "04 · 弹窗",
-      "entry": "交易市场 → 整机出售 → 购买整台矿机",
+      "entry": "矿机转让 → 整机出售 → 购买整台矿机",
       "state": {
         "route": "market",
         "marketTab": "整机出售",
@@ -886,7 +875,7 @@
         "modal": {
           "type": "record",
           "record": [
-            "09.25 09:42",
+            "2026.09.25 09:42",
             "收益分配",
             "TapeOut #16210",
             "+0.2886",
@@ -930,7 +919,7 @@
             "funded": 100,
             "members": 24,
             "shares": 49,
-            "cost": 3.185,
+            "cost": 3.21685,
             "color": "blue",
             "gates": 128,
             "age": 18
@@ -945,7 +934,7 @@
             "funded": 100,
             "members": 18,
             "shares": 20,
-            "cost": 1.68,
+            "cost": 1.6968,
             "color": "violet",
             "gates": 256,
             "age": 12
@@ -960,7 +949,7 @@
             "funded": 100,
             "members": 16,
             "shares": 23,
-            "cost": 1.265,
+            "cost": 1.27765,
             "color": "teal",
             "gates": 96,
             "age": 26
@@ -1005,7 +994,7 @@
             "funded": 100,
             "members": 22,
             "shares": 9,
-            "cost": 0.432,
+            "cost": 0.43632,
             "color": "teal",
             "gates": 112,
             "age": 0
@@ -1016,7 +1005,7 @@
           "count": 9
         }
       },
-      "note": "这是现有流程可到达的状态。当前时间线误显示全部完成、已运行0天，保留原样供审查。"
+      "note": "满募后等待购机，时间线停留在完成购机步骤。"
     },
     {
       "id": "E02",
@@ -1037,7 +1026,7 @@
             "funded": 100,
             "members": 24,
             "shares": 49,
-            "cost": 3.185,
+            "cost": 3.21685,
             "color": "blue",
             "gates": 128,
             "age": 18
@@ -1052,7 +1041,7 @@
             "funded": 100,
             "members": 18,
             "shares": 20,
-            "cost": 1.68,
+            "cost": 1.6968,
             "color": "violet",
             "gates": 256,
             "age": 12
@@ -1067,7 +1056,7 @@
             "funded": 100,
             "members": 16,
             "shares": 23,
-            "cost": 1.265,
+            "cost": 1.27765,
             "color": "teal",
             "gates": 96,
             "age": 26
@@ -1112,7 +1101,7 @@
             "funded": 100,
             "members": 22,
             "shares": 9,
-            "cost": 0.432,
+            "cost": 0.43632,
             "color": "teal",
             "gates": 112,
             "age": 0
@@ -1158,7 +1147,7 @@
         "claimed": true,
         "connected": true
       },
-      "note": "可领取归零，即将到期待办消失。"
+      "note": "可领取归零，待领取提示消失。"
     },
     {
       "id": "E06",
@@ -1188,12 +1177,16 @@
     },
     {
       "id": "E08",
-      "title": "交易市场 · 我的挂单有数据",
+      "title": "矿机转让 · 我的挂单有数据",
       "group": "05 · 完成、空态与校验",
       "entry": "出售我的份额 → 创建演示挂单",
       "state": {
         "route": "market",
-        "listed": true,
+        "listed": {
+          "pool": "16210",
+          "shares": 5,
+          "price": 0.068
+        },
         "connected": true,
         "toast": "演示挂单已创建"
       },
@@ -1201,13 +1194,13 @@
     },
     {
       "id": "E09",
-      "title": "交易市场 · 撤销后空态",
+      "title": "矿机转让 · 撤销后空态",
       "group": "05 · 完成、空态与校验",
       "entry": "我的挂单 → 撤销挂单",
       "state": {
         "route": "market",
         "connected": true,
-        "toast": "演示挂单已撤销，5 份已解锁"
+        "toast": "演示挂单已撤销，份额已解锁"
       },
       "note": ""
     },
@@ -1349,7 +1342,63 @@
         "route": "market",
         "menu": true
       },
-      "note": "请切换手机尺寸查看侧栏抽屉和遮罩。电脑尺寸下显示常规侧栏。"
+      "note": "手机侧栏抽屉与遮罩；打开单页可测试关闭和导航。"
+    },
+    {
+      "id": "F01",
+      "title": "从参与者转让 · 指定 #8204",
+      "group": "06 · 手机补充场景",
+      "entry": "#8204 → 参与者 → 转让份额",
+      "state": {
+        "route": "detail",
+        "poolId": "8204",
+        "detailTab": "参与者",
+        "connected": true,
+        "modal": {
+          "type": "sell",
+          "sellPoolId": "8204"
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "F02",
+      "title": "份额挂单 · #8204",
+      "group": "06 · 手机补充场景",
+      "entry": "选择 #8204 → 创建挂单",
+      "state": {
+        "route": "market",
+        "connected": true,
+        "listed": {
+          "pool": "8204",
+          "shares": 5,
+          "price": 0.086
+        }
+      },
+      "note": ""
+    },
+    {
+      "id": "F03",
+      "title": "矿机详情 · 未连接钱包",
+      "group": "06 · 手机补充场景",
+      "entry": "直接打开 #16928",
+      "state": {
+        "route": "detail",
+        "poolId": "16928"
+      },
+      "note": ""
+    },
+    {
+      "id": "F04",
+      "title": "手机导航 · 已连接账户",
+      "group": "06 · 手机补充场景",
+      "entry": "连接钱包后 → 打开导航",
+      "state": {
+        "route": "overview",
+        "connected": true,
+        "menu": true
+      },
+      "note": ""
     }
   ],
   "gaps": [
@@ -1366,20 +1415,12 @@
       "detail": "尚无真实钱包连接、签名、交易等待、拒签、网络错误或链上失败页面；现有按钮均为演示。"
     },
     {
-      "title": "待购机时间线",
-      "detail": "满募后可进入待购机状态，但详情仍显示三步全部完成、已运行0天。见E01。"
-    },
-    {
-      "title": "矿机专属记录与投票",
-      "detail": "详情收益表共用全站演示流水；共同决策统一跳转同一个#8204提案。见C组。"
-    },
-    {
       "title": "部分操作仅有完成提示",
       "detail": "份额买入、整机购买、BNB领取、执行挂牌尚未更新完整的后续资产状态。见E12—E15。"
     },
     {
       "title": "演示日期与数据",
-      "detail": "金额、人数及截止时间是固定演示值，不能当作实时业务数据；各页请同时审查文字与口径。"
+      "detail": "项目金额、人数及截止时间为演示值；首页币价读取实时参考价缓存，可能因网络显示暂不可用。"
     },
     {
       "title": "品牌设计备选页",

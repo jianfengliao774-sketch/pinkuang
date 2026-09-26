@@ -14,7 +14,7 @@
 .app-shell .allocation-bar i:first-child{width:99%;background:var(--blue)}
 .app-shell .allocation-bar i:nth-child(2){width:1%;min-width:5px;background:var(--gold,#cbb47e)}
 .allocation-labels{justify-content:flex-start;gap:32px}
-.record-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.record-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 .member-you{margin-left:8px;color:var(--blue);font-size:12px}
 .member-row.my-member{background:color-mix(in srgb,var(--blue) 5%,transparent)}
 .member-row .text-button{margin-left:12px}
@@ -23,3 +23,5 @@
 @media(max-width:1100px){.detail-layout{grid-template-columns:minmax(0,1fr) 300px}.detail-stats{gap:14px}.detail-stats strong{font-size:24px}.record-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:800px){.detail-layout{grid-template-columns:1fr}.miner-information{grid-template-columns:1fr}.detail-layout>.purchase-panel{position:static}.member-row{flex-wrap:wrap}.member-row .text-button{margin-left:0}.detail-layout>.detail-summary{padding:22px}.detail-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.detail-stats strong{font-size:21px}}
 @media(max-width:480px){.record-stats{gap:12px}.record-stats .panel{padding:18px}.record-stats strong{font-size:23px}.sale-fields{grid-template-columns:1fr}.detail-stats{gap:10px}.detail-stats strong{font-size:18px}.detail-stats span{font-size:12px}}
+
+@media(max-width:600px){.record-stats{grid-template-columns:1fr}}

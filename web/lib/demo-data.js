@@ -9,6 +9,6 @@ export const pools = [
 ];
 export const labels={Funding:'募集中',Funded:'待购机',Active:'挖矿中',Listed:'整机出售中',Closed:'已结束',Refunding:'可退款'};
 export const navItems=[['home','拼矿总览'],['overview','资产总览'],['pools','参与拼矿'],['market','矿机转让'],['rewards','收益中心'],['governance','共同决策'],['records','公开记录']];
-export const rewards=[{id:'r1',pool:'16210',day:'09.24',amount:0.2886,expiry:'10 月 02 日 08:00',soon:false},{id:'r2',pool:'8204',day:'09.23',amount:0.2318,expiry:'10 月 01 日 08:00',soon:false},{id:'r3',pool:'15832',day:'09.18',amount:0.1638,expiry:'09 月 26 日 08:00',soon:true}];
+export const rewards=[{id:'r1',pool:'16210',day:'09.24',amount:0.2886},{id:'r2',pool:'8204',day:'09.23',amount:0.2318},{id:'r3',pool:'15832',day:'09.18',amount:0.1638}];
 export const orders=[{id:1,pool:'16210',shares:8,price:.068,seller:'0x82a6…90C4'},{id:2,pool:'8204',shares:12,price:.086,seller:'0xF719…E124'},{id:3,pool:'16928',shares:0,price:0,seller:''},{id:4,pool:'16210',shares:5,price:.067,seller:'0x3De8…104B'}].filter(x=>x.shares);
-export const ledger=[['2026.09.25 09:42','收益分配','TapeOut #16210','+0.2886','BEM','0x89b7…6e24'],['2026.09.24 16:18','份额认购','Behemoth #8204','−1.6968','BNB','0x3c1d…098a'],['2026.09.24 14:05','收益领取','TapeOut #16210','+0.4521','BEM','0x16f4…86c1'],['2026.09.24 12:30','BEM 销毁','TapeOut #15832','0.0320','BEM','0x65d2…99a3'],['2026.09.23 18:06','收益分配','Behemoth #8204','+0.2318','BEM','0x827a…673e']];
+export const ledger=[['2026.09.25 09:42','收益分配','TapeOut #16210','+0.2886','BEM','0x89b7…6e24'],['2026.09.24 16:18','份额认购','Behemoth #8204','−1.6968','BNB','0x3c1d…098a'],['2026.09.24 14:05','收益领取','TapeOut #16210','+0.4521','BEM','0x16f4…86c1'],['2026.09.23 18:06','收益分配','Behemoth #8204','+0.2318','BEM','0x827a…673e']];

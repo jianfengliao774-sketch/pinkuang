@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 127.0.0.1 --port 3108",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3108",
-    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs"
+    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node scripts/reward-policy-check.mjs"
   },
   "dependencies": {
     "next": "16.2.1",

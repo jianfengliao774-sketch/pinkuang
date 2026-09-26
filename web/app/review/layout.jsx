@@ -1,2 +1,2 @@
-export const metadata={title:'贝矿 BEMine · 全页面审查册',robots:{index:false,follow:false}};
-export default function ReviewLayout({children}){return children;}
+export const metadata={title:'拼矿 BEMine · 页面审查册 v8',robots:{index:false,follow:false}};
+export default function Layout({children}){return children;}
