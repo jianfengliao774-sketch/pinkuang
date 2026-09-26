@@ -8,13 +8,18 @@ import { fileURLToPath } from 'node:url';
 import { tsImport } from 'tsx/esm/api';
 import { proxyFirsto, createQuoteRateLimiter } from '../server/firsto-proxy.mjs';
 
-// Audit observations against ee8c809: the first case is a confirmed lookup defect;
-// the second records a conditional shutdown boundary, not a funds-loss finding.
+// Regression coverage for the ee8c809 pagination finding and shutdown boundary.
 // All responses are local mocks; no production key/RPC is used.
 const { fetchMineQuote, OFFICIAL_COLLECTIONS } = await tsImport('../src/pricing.ts', import.meta.url);
 
-test('AUDIT: page-two exact NFT lookup is rejected by the real proxy before its upstream fetch', async () => {
+async function paginatedQuoteFixture(changedSnapshot = false) {
   const now = Date.now(), visited = [], upstream = [];
+  const viewId = `v91508-p163561:${'a'.repeat(64)}`;
+  const collection = OFFICIAL_COLLECTIONS.TapeOut, owner = '0x1111111111111111111111111111111111111111';
+  const market = '0x6feebbebc07bcb90bd1ac8b0cf9baa4f0ff2b46f';
+  const target = { collection, tokenId: '1', owner, category: 'official_mining', classification: 'official_mining',
+    mining: { status: 'verified', taskId: '42', verifiedWeight: '100', unverifiedWeight: '0', estimated24hAtomic: '100', tokenSymbol: 'BEM', tokenDecimals: 8 },
+    bestAsk: { id: `official:${market}:42`, account: owner, venue: 'official', status: 'open', priceWei: '1000', buyerCostWei: '1010' } };
   const limiter = createQuoteRateLimiter();
   const fetcher = async (input, init) => {
     const url = String(input); visited.push(url);
@@ -23,20 +28,38 @@ test('AUDIT: page-two exact NFT lookup is rejected by the real proxy before its 
       limiter,
       fetcher: async target => {
         upstream.push(String(target));
-        return Response.json({ rows: [], page: 1, totalPages: 2, total: 51, sourceBlock: '100', viewId: 'pinned-view',
-          sourceFreshness: { 'circuit_collections:test': now, 'official_circuit_mining:test': now,
-            'blockfeed:bsc-tapeout-markets-shadow-v1:circuit-orders': now } });
+        return responseFor(target);
       },
     });
     return new Response(res.body, { status: res.statusCode, headers: res.headers });
   };
-  await assert.rejects(fetchMineQuote(OFFICIAL_COLLECTIONS.TapeOut, '1', { baseUrl: '/firsto-api', fetcher }), /HTTP 400/);
-  assert.equal(visited.length, 2);
-  assert.equal(new URL(visited[1], 'http://localhost').searchParams.get('viewId'), 'pinned-view');
-  assert.equal(upstream.length, 1, 'the second request never reaches Firsto');
+  function responseFor(url) {
+    if (url.pathname.startsWith('/v1/circuit/')) return Response.json({ asset: target, orders: { signedAsks: [],
+      asksAndOnchainBids: [{ venue: 'official', exchange: market, orderKey: '42', side: 'ask', status: 'open', maker: owner, priceWei: '1000', buyerCostWei: '1010' }] } });
+    const page = Number(url.searchParams.get('page'));
+    assert.equal(url.searchParams.get('viewId'), page === 1 ? null : viewId);
+    const rows = page === 1 ? Array.from({ length: 50 }, (_, i) => ({ ...target, tokenId: String(100 + i), bestAsk: null })) : [target];
+    return Response.json({ rows, page, totalPages: 2, total: 51, sourceBlock: '100', viewId: changedSnapshot && page === 2 ? 'different-view' : viewId,
+      sourceFreshness: { 'circuit_collections:test': now, 'official_circuit_mining:test': now,
+        'blockfeed:bsc-tapeout-markets-shadow-v1:circuit-orders': now } });
+  }
+  const result = fetchMineQuote(collection, '1', { baseUrl: '/firsto-api', fetcher });
+  if (changedSnapshot) await assert.rejects(result, /来源快照已变化/);
+  else { const quote = await result; assert.equal(quote.detailChecked, true); assert.equal(quote.tokenId, '1'); assert.equal(quote.source.viewId, viewId); }
+  assert.equal(visited.length, changedSnapshot ? 2 : 3);
+  assert.equal(new URL(visited[1], 'http://localhost').searchParams.get('viewId'), viewId);
+  assert.equal(upstream.length, changedSnapshot ? 2 : 3);
+}
+
+test('exact NFT lookup reaches page two through the real proxy and verifies its detail', async () => {
+  await paginatedQuoteFixture();
 });
 
-test('AUDIT: SIGTERM during simulation still allows a fresh signature and broadcast afterward', { timeout: 15_000 }, async t => {
+test('page-two snapshot changes fail before detail lookup even when the target matches', async () => {
+  await paginatedQuoteFixture(true);
+});
+
+test('SIGTERM during simulation prevents a fresh signature and broadcast afterward', { timeout: 15_000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pinkuang-audit-stop-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const keeperUrl = new URL('./purchase-keeper.mjs', import.meta.url).href;
@@ -101,5 +124,5 @@ test('AUDIT: SIGTERM during simulation still allows a fresh signature and broadc
   assert.equal(exitCode, 0, stderr);
   const line = stdout.split('\n').find(value => value.startsWith('AUDIT_RESULT '));
   assert(line, 'missing result');
-  assert.deepEqual(JSON.parse(line.slice('AUDIT_RESULT '.length)), { stopRequested: true, signsAfterStop: 1, broadcastsAfterStop: 1 });
+  assert.deepEqual(JSON.parse(line.slice('AUDIT_RESULT '.length)), { stopRequested: true, signsAfterStop: 0, broadcastsAfterStop: 0 });
 });

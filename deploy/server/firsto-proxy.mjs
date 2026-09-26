@@ -12,9 +12,12 @@ export function upstreamUrl(requestPath) {
     return url;
   }
   if (!['/v1/circuits', '/v1/circuit-holders'].includes(url.pathname)) throw new Error('Unsupported quote endpoint');
-  const allowed = url.pathname === '/v1/circuits' ? ['category', 'sort', 'page', 'pageSize', 'query', 'processorName', 'miningStatus'] : ['page'];
+  const allowed = url.pathname === '/v1/circuits' ? ['category', 'sort', 'page', 'pageSize', 'query', 'processorName', 'miningStatus', 'viewId'] : ['page'];
   for (const [key, value] of url.searchParams) {
     if (!allowed.includes(key) || value.length > 120) throw new Error('Unsupported quote parameter');
+    // Forward only one bounded opaque snapshot token; it cannot alter the fixed
+    // upstream origin/path. The client also verifies the returned page identity.
+    if (key === 'viewId' && (!/^[A-Za-z0-9._:-]{1,120}$/.test(value) || url.searchParams.getAll(key).length !== 1)) throw new Error('Invalid quote snapshot');
     if (['page', 'pageSize'].includes(key) && (!/^[1-9][0-9]*$/.test(value) || Number(value) > (key === 'pageSize' ? 50 : 10000))) throw new Error('Invalid pagination');
     if (key === 'category' && value !== 'official_mining') throw new Error('Only official circuit quotes are supported');
   }
