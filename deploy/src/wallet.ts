@@ -1,4 +1,4 @@
-import { BrowserProvider, formatEther, type Eip1193Provider } from 'ethers';
+import { formatEther, type Eip1193Provider } from 'ethers';
 
 export type WalletProvider = Eip1193Provider & {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -29,9 +29,11 @@ export function discoverWallets(onChange: (options: WalletOption[]) => void) {
 export async function readWallet(wallet: WalletProvider): Promise<WalletState | null> {
   const accounts = await wallet.request({ method: 'eth_accounts' }) as string[];
   if (!accounts.length) return null;
-  const chainId = Number(await wallet.request({ method: 'eth_chainId' }));
-  const provider = new BrowserProvider(wallet, 'any');
-  return { address: accounts[0], chainId, balance: formatEther(await provider.getBalance(accounts[0])) };
+  const [chainId, balance] = await Promise.all([
+    wallet.request({ method: 'eth_chainId' }),
+    wallet.request({ method: 'eth_getBalance', params: [accounts[0], 'latest'] }),
+  ]);
+  return { address: accounts[0], chainId: Number(chainId), balance: formatEther(BigInt(balance as string)) };
 }
 
 export async function switchToBsc(wallet: WalletProvider) {

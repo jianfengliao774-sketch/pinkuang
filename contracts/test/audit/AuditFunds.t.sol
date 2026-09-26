@@ -26,8 +26,8 @@ contract AuditFundsRewardsTest is ShareTransferTestBase {
             _queueReward(gross);
             uint256 from = (seed >> 16) % actors.length;
             uint256 to = (seed >> 32) % actors.length;
-            if (from != to && holdings[from] > 0 && holdings[to] < 49) {
-                uint256 available = holdings[from] < 49 - holdings[to] ? holdings[from] : 49 - holdings[to];
+            if (from != to && holdings[from] > 0 && holdings[to] < 100) {
+                uint256 available = holdings[from] < 100 - holdings[to] ? holdings[from] : 100 - holdings[to];
                 uint256 amount = 1 + (seed >> 48) % available;
                 _transfer(actors[from], actors[to], amount); // Includes strict harvest before ownership changes.
                 holdings[from] -= amount;

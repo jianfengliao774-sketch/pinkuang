@@ -103,7 +103,7 @@ contract ShareTransferHandler is Test {
         address buyer = actors[toSeed % 6];
         if (seller == buyer) return;
         uint256 available = shares[seller] - locked[seller];
-        uint256 capacity = 49 - shares[buyer];
+        uint256 capacity = 100 - shares[buyer];
         if (available == 0 || capacity == 0) return;
         if (available > capacity) available = capacity;
         uint256 amount = bound(amountSeed, 1, available);
@@ -125,7 +125,7 @@ contract ShareTransferHandler is Test {
         address buyer = actors[toSeed % 6];
         if (seller == buyer) return;
         uint256 available = locked[seller];
-        uint256 capacity = 49 - shares[buyer];
+        uint256 capacity = 100 - shares[buyer];
         if (available == 0 || capacity == 0) return;
         if (available > capacity) available = capacity;
         uint256 amount = bound(amountSeed, 1, available);
@@ -284,7 +284,7 @@ abstract contract TransfersInvariantBase is ShareTransferTestBase {
             assertEq(pool.shareOf(actor), balance);
             assertEq(_shareVault().lockedShares(actor), handler.locked(actor));
             assertLe(handler.locked(actor), balance);
-            assertLe(balance, 49);
+            assertLe(balance, 100);
             supply += balance;
             if (balance != 0) ++members;
             uint256 originalSurplus = i < 2 ? 0.735 ether : i == 2 ? 0.03 ether : 0;

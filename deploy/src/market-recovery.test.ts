@@ -5,8 +5,8 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JsonRpcProvider, getAddress, type Provider } from 'ethers';
-import { PENDING_MARKET_KEY, reconcileMarketPending, recoverMarketReceipt, restoreMarketPending, sendMarketAction,
-  type PendingMarketTransaction, type MarketQuote } from './market';
+import { PENDING_MARKET_KEY, reconcileMarketPending, recoverMarketReceipt, loadMarketPending, sendMarketAction,
+  type PendingMarketTransaction, type MarketQuote, type MarketJournalStorage } from './market';
 
 const account = '0x1111111111111111111111111111111111111111';
 const market = '0x2222222222222222222222222222222222222222';
@@ -15,10 +15,10 @@ const txHash = `0x${'aa'.repeat(32)}`, otherHash = `0x${'bb'.repeat(32)}`;
 const blockHash = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const intent = (): PendingMarketTransaction => ({ version: 1, chainId: 56, account, factory, market, nonce: 7,
   action: { kind: 'withdraw' }, data: '0x1234', value: '0', hash: txHash, submittedAt: '2026-09-26T00:00:00Z' });
-function memoryStorage(pending = intent()): Storage {
+function memoryStorage(pending = intent()): MarketJournalStorage {
   const values = new Map([[PENDING_MARKET_KEY, JSON.stringify(pending)]]);
-  return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key) } as unknown as Storage;
+  return { getItem: async (key: string) => values.get(key) ?? null, setItem: async (key: string, value: string) => { values.set(key, value); },
+    removeItem: async (key: string, hash: string) => { assert.match(hash, /^0x[0-9a-f]{64}$/i); values.delete(key); } };
 }
 function fake(options: { finalized?: number; latest?: number; canonical?: boolean; unsupported?: boolean; nonce?: number; receiptFrom?: string; cancel?: boolean; receiptStatus?: number } = {}): Provider {
   const hash = options.cancel ? otherHash : txHash, to = options.cancel ? account : market;
@@ -41,7 +41,7 @@ test('one receipt and two confirmations without finalized both keep the UI journ
     const saved = intent(), storage = memoryStorage(saved);
     const result = await reconcileMarketPending(fake({ finalized: 9, latest }), saved, storage);
     assert.equal(result.receipt?.status, 1); assert.equal(result.resolution, null);
-    assert(restoreMarketPending(storage), 'the same helper used by MarketPage must retain pending intent');
+    assert(await loadMarketPending(storage), 'the same helper used by MarketPage must retain pending intent');
     let walletCalls = 0;
     await assert.rejects(sendMarketAction({ request: async () => { walletCalls++; throw new Error('must not send'); } }, {} as MarketQuote, storage, () => {}), /待确认/);
     assert.equal(walletCalls, 0);
@@ -52,7 +52,7 @@ test('unsupported finality, orphaned receipts and an unconsumed finalized nonce 
   for (const options of [{ unsupported: true }, { canonical: false }, { nonce: 7 }]) {
     const saved = intent(), storage = memoryStorage(saved);
     const result = await reconcileMarketPending(fake(options), saved, storage);
-    assert.equal(result.resolution, null); assert(restoreMarketPending(storage));
+    assert.equal(result.resolution, null); assert(await loadMarketPending(storage));
   }
   await assert.rejects(recoverMarketReceipt(fake({ receiptFrom: market }), intent()), /身份不一致/);
 });
@@ -67,7 +67,7 @@ test('a canonical anchor changing during finality checks does not resolve the jo
   };
   const saved = intent(), storage = memoryStorage(saved);
   assert.equal((await reconcileMarketPending(provider, saved, storage)).resolution, null);
-  assert(restoreMarketPending(storage));
+  assert(await loadMarketPending(storage));
 });
 
 test('finalized original success/revert or cancellation resolves exactly the matching journal', async () => {
@@ -76,17 +76,27 @@ test('finalized original success/revert or cancellation resolves exactly the mat
   ] as const) {
     const saved = intent(), storage = memoryStorage(saved);
     const result = await reconcileMarketPending(fake(options), saved, storage, hash);
-    assert.equal(result.resolution, resolution); assert.equal(restoreMarketPending(storage), null);
+    assert.equal(result.resolution, resolution); assert.equal(await loadMarketPending(storage), null);
   }
   const newer = { ...intent(), nonce: 8 }, storage = memoryStorage(newer);
   await assert.rejects(reconcileMarketPending(fake(), intent(), storage), /其他页面更新/);
-  assert.deepEqual(restoreMarketPending(storage), newer, 'stale tab cannot erase a newer transaction');
+  assert.deepEqual(await loadMarketPending(storage), newer, 'stale tab cannot erase a newer transaction');
+});
+
+test('server save failure cannot clear even a finalized market intent', async () => {
+  const saved = intent(), storage = memoryStorage(saved);
+  let deletes = 0;
+  storage.setItem = async () => { throw new Error('Durable write failed.'); };
+  storage.removeItem = async () => { deletes += 1; };
+  await assert.rejects(reconcileMarketPending(fake(), saved, storage), /Durable write failed/);
+  assert.equal(deletes, 0);
+  assert.deepEqual(await loadMarketPending(storage), saved);
 });
 
 test('a replacement hash is retained across reload before finality and foreign hashes are rejected', async () => {
   const saved = intent(), storage = memoryStorage(saved);
   await reconcileMarketPending(fake({ cancel: true, finalized: 9 }), saved, storage, otherHash);
-  const restored = restoreMarketPending(storage)!;
+  const restored = (await loadMarketPending(storage))!;
   assert.equal(restored.hash, txHash); assert.deepEqual(restored.recoveryHashes, [otherHash]);
   assert.equal((await reconcileMarketPending(fake({ cancel: true }), restored, storage)).resolution, 'cancelled');
   const wrong = fake(); wrong.getTransaction = async () => ({ hash: otherHash, from: account, nonce: 8, chainId: 56n }) as Awaited<ReturnType<Provider['getTransaction']>>;
@@ -97,7 +107,7 @@ test('an original transaction that wins the nonce is recognized even after a can
   const saved = { ...intent(), recoveryHashes: [otherHash] }, storage = memoryStorage(saved);
   const result = await reconcileMarketPending(fake(), saved, storage);
   assert.equal(result.resolution, 'confirmed'); assert.equal(result.receipt!.hash, txHash);
-  assert.equal(restoreMarketPending(storage), null);
+  assert.equal(await loadMarketPending(storage), null);
 });
 
 test('a finalized consumed nonce without any known canonical receipt remains blocked for explicit hash recovery', async () => {
@@ -105,7 +115,7 @@ test('a finalized consumed nonce without any known canonical receipt remains blo
   const saved = intent(), storage = memoryStorage(saved);
   const result = await reconcileMarketPending(provider, saved, storage);
   assert.equal(result.resolution, null); assert.match(result.message, /nonce 已在最终区块中使用/);
-  assert(restoreMarketPending(storage));
+  assert(await loadMarketPending(storage));
 });
 
 // Loopback-only Anvil, disposable unlocked accounts, no secrets and no external RPC.
@@ -138,12 +148,12 @@ test('Anvil: finalized same-nonce wallet cancellation unlocks the market without
   const cancellation = await provider.send('eth_sendTransaction', [{ ...original, to: pending.account, data: '0x', gas: '0x5208', gasPrice: '0x77359400' }]);
   await mine(2);
   assert.equal((await reconcileMarketPending(provider, pending, storage, cancellation)).resolution, null);
-  const restored = restoreMarketPending(storage)!;
+  const restored = (await loadMarketPending(storage))!;
   await mine(66);
   assert.equal(await provider.getTransactionReceipt(pending.hash!), null);
   const result = await reconcileMarketPending(provider, restored, storage);
   assert.equal(result.resolution, 'cancelled'); assert.equal(result.receipt!.hash, cancellation);
-  assert.equal(restoreMarketPending(storage), null);
+  assert.equal(await loadMarketPending(storage), null);
   assert.equal(await provider.getTransactionCount(pending.account, 'latest'), pending.nonce + 1);
 });
 
@@ -154,7 +164,7 @@ test('Anvil: exact-payload acceleration succeeds, different-payload replacement 
     await mine(66);
     const result = await reconcileMarketPending(provider, pending, storage, replacement);
     assert.equal(result.resolution, expected); assert.equal(result.receipt!.hash, replacement);
-    assert.equal(restoreMarketPending(storage), null);
+    assert.equal(await loadMarketPending(storage), null);
   }
 });
 
@@ -166,7 +176,7 @@ test('Anvil: a one-block receipt disappearing after reorg preserves the original
   assert.equal(first.receipt!.status, 1); assert.equal(first.resolution, null);
   await provider.send('evm_revert', [checkpoint]);
   assert.equal(await provider.getTransactionReceipt(pending.hash!), null);
-  const afterReorg = await reconcileMarketPending(provider, restoreMarketPending(storage)!, storage);
-  assert.equal(afterReorg.resolution, null); assert(restoreMarketPending(storage));
+  const afterReorg = await reconcileMarketPending(provider, (await loadMarketPending(storage))!, storage);
+  assert.equal(afterReorg.resolution, null); assert(await loadMarketPending(storage));
   assert.equal(await provider.getTransactionCount(pending.account, 'latest'), pending.nonce);
 });

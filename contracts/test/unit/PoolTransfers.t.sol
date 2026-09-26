@@ -108,7 +108,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(ALICE), 0);
     }
 
-    function test_transferFromConsumesAllowanceAndMaintainsHolderCap() public {
+    function test_transferFromConsumesAllowanceAndPreservesBalances() public {
         vm.prank(ALICE);
         pool.approve(FRANK, 10);
         vm.prank(FRANK);
@@ -147,21 +147,32 @@ contract PoolTransfersTest is ShareTransferTestBase {
         }
     }
 
-    function test_zeroOverCapAndMarketDestinationRejected() public {
+    function test_zeroOversizedAndMarketDestinationRejected() public {
         vm.startPrank(ALICE);
         vm.expectRevert(IPoolVault.InvalidShareCount.selector);
         pool.transfer(DAVE, 0);
         vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
+        pool.transfer(DAVE, 101);
+        vm.expectRevert(IPoolVault.InsufficientUnlockedShares.selector);
         pool.transfer(DAVE, 50);
-        vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
-        pool.transfer(BOB, 1);
         _expectError("MarketCannotHoldShares()");
         pool.transfer(address(shareMarket), 1);
         vm.stopPrank();
         assertEq(pool.totalSupply(), 100);
     }
 
-    function test_selfTransferRespectsUnlockedBalanceWithoutArtificiallyExceedingCap() public {
+    function test_allSharesCanConcentrateInOneWalletAndTransferAgain() public {
+        _transfer(ALICE, BOB, 49);
+        _transfer(CAROL, BOB, 2);
+        assertEq(pool.balanceOf(BOB), 100);
+        assertEq(pool.memberCount(), 1);
+        _transfer(BOB, DAVE, 100);
+        assertEq(pool.balanceOf(DAVE), 100);
+        assertEq(pool.memberCount(), 1);
+        assertEq(pool.totalSupply(), 100);
+    }
+
+    function test_selfTransferRespectsUnlockedBalance() public {
         _queueReward(10000);
         _transfer(ALICE, ALICE, 49);
         assertEq(pool.balanceOf(ALICE), 49);
@@ -194,7 +205,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         _expectError("InsufficientUnlockedShares()");
         pool.transfer(ERIN, 1);
         vm.prank(DAVE);
-        shareMarket.fill(order, 20); // Buyer's final real holding is 49, including all former locks.
+        shareMarket.fill(order, 20);
         assertEq(pool.balanceOf(DAVE), 49);
         assertEq(pool.balanceOf(ALICE), 0);
         assertEq(_shareVault().lockedShares(ALICE), 0);
@@ -212,17 +223,20 @@ contract PoolTransfersTest is ShareTransferTestBase {
         vm.stopPrank();
     }
 
-    function test_lockDoesNotProvideASecondFortyNineShareAllowance() public {
+    function test_lockedOwnerCanReceiveAndHoldAllOneHundredShares() public {
         vm.prank(BOB);
         shareMarket.list(address(pool), 49, 0);
         vm.prank(ALICE);
         uint256 aliceOrder = shareMarket.list(address(pool), 1, 0);
         vm.prank(BOB);
-        vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
         shareMarket.fill(aliceOrder, 1);
-        assertEq(pool.balanceOf(BOB), 49);
+        _transfer(ALICE, BOB, 48);
+        _transfer(CAROL, BOB, 2);
+        assertEq(pool.balanceOf(BOB), 100);
         assertEq(_shareVault().lockedShares(BOB), 49);
-        assertEq(_shareVault().lockedShares(ALICE), 1);
+        assertEq(pool.balanceOf(BOB) - _shareVault().lockedShares(BOB), 51);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        assertEq(pool.memberCount(), 1);
     }
 
     function testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8 faultSeed) public {

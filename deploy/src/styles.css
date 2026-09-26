@@ -9,3 +9,4 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
 .budget-recovery{padding:0 25px 20px}.budget-recovery p{font-size:12px;line-height:1.8;color:#8c989d;margin-top:8px}.field-label,.budget-row label,.toggle-row b,.advanced>summary{font-size:14px}.field-help,.toggle-row small,.risk-note p,.signer-note{font-size:12px}.journey b,.deployment-summary dl>div,.deployment-summary dd{font-size:13px}.architecture-card>p,.architecture-card>button{font-size:12px}
+.record-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}

@@ -105,10 +105,37 @@ test('subscription uses exact wallet/amount and blocks unavailable state or quan
   assert.equal(tx.value, '0x150e'); assert.equal(tx.from, account); assert.equal(tx.to, pool);
   assert.equal(abi.PoolVault.parseTransaction(tx).args[0], 49n);
   assert.throws(() => personalPoolAction(snap, pool, addr(99), 'deposit', 1n), /another wallet/);
-  assert.throws(() => personalPoolAction(snap, pool, account, 'deposit', 50n), /quantity/);
-  assert.throws(() => personalPoolAction(localSnapshot(rawRow({ shares: 49n })), pool, account, 'deposit', 1n), /quantity/);
+  assert.equal(abi.PoolVault.parseTransaction(personalPoolAction(snap, pool, account, 'deposit', 51n)).args[0], 51n);
+  assert.throws(() => personalPoolAction(snap, pool, account, 'deposit', 52n), /quantity/);
+  assert.equal(abi.PoolVault.parseTransaction(personalPoolAction(localSnapshot(rawRow({ shares: 49n })), pool, account, 'deposit', 1n)).args[0], 1n);
   assert.throws(() => personalPoolAction(localSnapshot(rawRow({ state: 1n })), pool, account, 'deposit', 1n), /not open/);
   assert.throws(() => personalPoolAction(localSnapshot(rawRow({ depositPaused: true })), pool, account, 'deposit', 1n), /not open/);
+});
+
+test('one wallet can subscribe in separate transactions until the pool reaches 100 shares', async () => {
+  const first = await readPoolSnapshot(provider({ rows: [rawRow({ totalSupply: 0n, totalRaised: 0n, memberCount: 0n })] }), { factory, account });
+  const firstTx = personalPoolAction(first, pool, account, 'deposit', 20n);
+  assert.equal(abi.PoolVault.parseTransaction(firstTx).args[0], 20n);
+  assert.equal(BigInt(firstTx.value), 20n * 110n);
+
+  // The next read reflects the confirmed first deposit; only one member is counted.
+  const second = await readPoolSnapshot(provider({ rows: [rawRow({ shares: 20n, totalSupply: 20n,
+    totalRaised: 2200n, memberCount: 1n, initialContributedWei: 2200n })] }), { factory, account });
+  assert.equal(second.pools[0].shares, 20n);
+  assert.equal(second.pools[0].memberCount, 1n);
+  const secondTx = personalPoolAction(second, pool, account, 'deposit', 80n);
+  assert.equal(abi.PoolVault.parseTransaction(secondTx).args[0], 80n);
+  assert.equal(BigInt(secondTx.value), 80n * 110n);
+  assert.throws(() => personalPoolAction(second, pool, account, 'deposit', 81n), /quantity/);
+
+  const full = await readPoolSnapshot(provider({ rows: [rawRow({ shares: 100n, totalSupply: 100n,
+    totalRaised: 11000n, memberCount: 1n, initialContributedWei: 11000n, state: 1n })] }), { factory, account });
+  assert.equal(full.pools[0].shares, 100n);
+  assert.equal(full.pools[0].initialContributedWei, 11000n);
+  assert.throws(() => personalPoolAction(full, pool, account, 'deposit', 1n), /not open/);
+  const sole = await readPoolSnapshot(provider({ rows: [rawRow({ totalSupply: 0n, totalRaised: 0n,
+    memberCount: 0n })] }), { factory, account });
+  assert.equal(abi.PoolVault.parseTransaction(personalPoolAction(sole, pool, account, 'deposit', 100n)).args[0], 100n);
 });
 
 test('harvest and self claim stay separate, including former holders; no claimFor/router', () => {

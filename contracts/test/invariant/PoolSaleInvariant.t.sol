@@ -64,8 +64,8 @@ contract PoolSaleHandler is Test {
         if (phase != IPoolVault.State.Active) return;
         uint256 from = fromSeed % 6;
         uint256 to = toSeed % 6;
-        if (from == to || shares[from] == 0 || shares[to] == 49) return;
-        uint256 maximum = shares[from] < 49 - shares[to] ? shares[from] : 49 - shares[to];
+        if (from == to || shares[from] == 0 || shares[to] == 100) return;
+        uint256 maximum = shares[from] < 100 - shares[to] ? shares[from] : 100 - shares[to];
         uint256 amount = bound(amountSeed, 1, maximum);
         vm.prank(actors[from]);
         assertTrue(vault.transfer(actors[to], amount));
