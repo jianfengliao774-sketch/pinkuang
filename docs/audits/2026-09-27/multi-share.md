@@ -6,12 +6,12 @@
 
 - `PoolVault` 仍限制池总量为 100 个整数份额、精确 `msg.value = unitPriceWei × 本次份额`。同一地址可一次认购 100 份或多次认购至 100 份；完成募集只需一个持份地址。`withdrawDeposit` 以 `uint8` 发事件，100 仍在其精确范围内。退款债权按累计出资核算，同一地址只作为一个活动成员。
 - `ShareMarket` 单笔最多 100 份；实际挂牌还受可用份额约束，成交受订单剩余和 Vault 持仓约束。锁单不转移所有权，买方分多笔成交不会生成额外投票人头、重复获得旧收益或继承卖方购机余款。超过 100 份的成交整笔回滚。
-- 收益在转移前按旧持仓结算，新收入按转移后持仓计入。整机出售快照使用实际钱包数和份额，单钱包持有 100 份时快照为 1 人、100 份。订单结算、购机余款与整机售款各自保留原有债权归属。
+- 收益在转移前按旧持仓结算，新收入按转移后持仓计入。整机出售快照使用实际钱包数和份额，单钱包持有 100 份时快照为 1 人、100 份。专项测试还从单地址募满开始，完成购机、余款记账、两轮收益领取、单人表决与整机出售结清。订单结算、购机余款与整机售款各自保留原有债权归属。
 - 部署台、网页交易适配器和演示页已取消 49 份个人上限；仍根据链上池剩余、订单剩余及可用份额限量。服务器索引测试覆盖同一地址分次认购和分次买入后的去重持仓。页面演示不是主网交易入口，正式接入要读取链上最新状态。
 
 ## 验证
 
-最终源码执行 `FOUNDRY_PROFILE=ci npm test`：[383/383，36 suites](multi-share-evidence/forge-test.log)，零失败、零跳过；募资、转让、投票、出售、市场及收益不变量均在内。`npm run fmt:check`、`npm run build` 通过，Vault 运行代码 24,230 B，未超过 EVM 24,576 B 上限。清理旧编译缓存后，OpenZeppelin [22 项升级兼容检查](multi-share-evidence/upgrade-validation.log)通过，包含故意破坏布局的负例正确拒绝；结构化证据见[升级检查](multi-share-evidence/upgrade-checks.json)。
+最终源码执行 `FOUNDRY_PROFILE=ci npm test`：[384/384，36 suites](multi-share-evidence/forge-test.log)，零失败、零跳过；募资、转让、投票、出售、市场及收益不变量均在内。`npm run fmt:check`、`npm run build` 通过，Vault 运行代码 24,230 B，未超过 EVM 24,576 B 上限。清理旧编译缓存后，OpenZeppelin [22 项升级兼容检查](multi-share-evidence/upgrade-validation.log)通过，包含故意破坏布局的负例正确拒绝；结构化证据见[升级检查](multi-share-evidence/upgrade-checks.json)。
 
 `deploy` 的测试、构建、`artifacts:check` 均通过；`web` 的 `check`、构建及独立 ABI 来源核对通过。部署 JSON 和网页 ABI 已根据本次合约源码重生。原先升级检查因旧编译缓存有两个同名 `PoolFactory` 而停止；执行 `forge clean` 后重新编译、再次校验通过，未修改合约以绕过该错误。
 

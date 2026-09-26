@@ -10,6 +10,45 @@ import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 contract PoolMultiShareLifecycleTest is SaleTestBase {
     uint256 private constant MARKET_UNIT_PRICE = 0.1 ether;
 
+    function test_soleSubscriberCanPurchaseClaimRewardsAndCompleteWholeSale() public {
+        _useFreshPool();
+        nft.mint(REWARD_SELLER, rewardId);
+        mining.configure(address(nft), rewardId, 0, 0);
+        key = mining.minerKey(address(nft), rewardId);
+        _deposit(pool, ALICE, 100);
+        _stateIs(IPoolVault.State.Funded);
+        assertEq(pool.memberCount(), 1);
+        assertEq(pool.totalRaised(), defaultParams.targetRaise);
+
+        vm.prank(REWARD_SELLER);
+        nft.approve(address(market), rewardId);
+        uint256 listing = market.createListing(REWARD_SELLER, address(nft), rewardId, REWARD_PRICE);
+        pool.buyFromMarket(listing);
+        _stateIs(IPoolVault.State.Active);
+        assertEq(pool.balanceOf(ALICE), 100);
+        assertEq(pool.bnbOwed(ALICE), 1.5 ether);
+        assertEq(pool.totalBnbOwed(), 1.5 ether);
+
+        _harvestReward(10_000);
+        assertEq(rewards.claimable(ALICE), 9_900);
+        assertEq(_claim(ALICE), 9_900);
+        _queueReward(10_000);
+        _listSale(SALE_PRICE);
+        _complete(NFT_BUYER, SALE_PRICE);
+        _stateIs(IPoolVault.State.Closed);
+        assertEq(rewards.claimable(ALICE), 9_900);
+        assertEq(_claim(ALICE), 9_900);
+        assertEq(bem.balanceOf(TREASURY), 200);
+        assertEq(rewards.bemAccounted(), 0);
+        assertEq(sale.pendingSaleProceeds(ALICE), 9.9 ether);
+        assertEq(pool.bnbOwed(ALICE), 11.4 ether);
+        assertEq(pool.bnbOwed(TREASURY), 0.1 ether);
+        assertEq(_withdraw(ALICE), 11.4 ether);
+        assertEq(_withdraw(TREASURY), 0.1 ether);
+        assertEq(pool.totalBnbOwed(), 0);
+        assertEq(address(pool).balance, 0);
+    }
+
     function test_splitSubscriptionRefundsExactlyOncePerWallet() public {
         _useFreshPool();
         _deposit(pool, ALICE, 12);
