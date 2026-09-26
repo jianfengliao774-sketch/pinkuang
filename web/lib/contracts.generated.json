@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0x8b93ed778bbe03124052c923f0e45eda7a0676015e80d44bb4a3d0714ed80918",
+  "artifactDigest": "0x06e8d37cdccef0f7993c9f29649bb713f126b1572eb4fe16a528848ff77603bc",
   "abis": {
     "PoolFactory": [
       {
