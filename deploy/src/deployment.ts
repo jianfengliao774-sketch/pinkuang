@@ -1,7 +1,7 @@
 import {
   BrowserProvider, Contract, ContractFactory, Interface, ZeroAddress,
   formatEther, getAddress, getCreateAddress, keccak256, parseEther, parseUnits, toUtf8Bytes,
-  type Eip1193Provider, type InterfaceAbi, type TransactionReceipt, type TransactionRequest,
+  type Eip1193Provider, type InterfaceAbi, type TransactionReceipt, type TransactionRequest, type TransactionResponse,
 } from 'ethers';
 
 // Vite injects this literal after independently compiling and checking the local Solidity sources.
@@ -72,12 +72,15 @@ export interface PreflightReport {
   warnings: string[];
   checkedAt: string;
 }
-export type StepStatus = 'waiting' | 'signing' | 'submitted' | 'confirmed' | 'rejected' | 'failed' | 'uncertain';
+export type StepStatus = 'waiting' | 'signing' | 'submitted' | 'confirmed' | 'rejected' | 'failed' | 'uncertain' | 'cancelled' | 'replaced';
 export interface StepRecord {
   id: string;
   label: string;
   status: StepStatus;
   txHash?: string;
+  previousTxHashes?: string[];
+  replacementHash?: string;
+  finalizedRecovery?: boolean;
   address?: string;
   nonce?: number;
   gasEstimate?: string;
@@ -106,7 +109,7 @@ export interface DeploymentSnapshot {
   artifactDigest: string;
   sourceCommit: string;
   input: DeploymentInput;
-  status: 'ready' | 'running' | 'paused' | 'failed' | 'complete';
+  status: 'ready' | 'running' | 'paused' | 'failed' | 'aborted' | 'complete';
   steps: StepRecord[];
   addresses: Record<string, string>;
   spentWei: string;
@@ -125,6 +128,11 @@ export interface DeploymentCallbacks {
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
 const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const isAborted = (snapshot: DeploymentSnapshot): boolean => snapshot.status === 'aborted';
+const receiptRecord = (receipt: TransactionReceipt): NonNullable<StepRecord['receipt']> => ({
+  blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, status: receipt.status ?? 0,
+  gasUsed: receipt.gasUsed.toString(), gasPrice: receipt.gasPrice.toString(), feeWei: receipt.fee.toString(),
+});
 export const errorMessage = (error: unknown): string => {
   const details = error as { shortMessage?: string; reason?: string; message?: string } | null;
   return (details?.reason || details?.shortMessage || details?.message || String(error)).slice(0, 1000);
@@ -358,7 +366,9 @@ export class DeploymentEngine {
   async resume(saved: DeploymentSnapshot): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
       const snapshot = await this.latestSnapshot(saved);
+      assert(snapshot.status !== 'aborted' && !snapshot.steps.some(step => step.replacementHash), '原部署 nonce 已被钱包替换，不能继续此计划；请保存旧记录并新建部署。');
       await this.restore(snapshot);
+      if (isAborted(snapshot)) return snapshot;
       if (snapshot.steps.every(step => step.status === 'confirmed')) {
         snapshot.verification = await this.verifyGraph(snapshot);
         snapshot.status = 'complete'; delete snapshot.error;
@@ -386,6 +396,10 @@ export class DeploymentEngine {
     return this.exclusive(async () => {
       const snapshot = await this.latestSnapshot(saved);
       await this.restore(snapshot);
+      if (snapshot.status === 'aborted') {
+        await this.save(snapshot);
+        return snapshot;
+      }
       if (snapshot.steps.every(step => step.status === 'confirmed')) {
         snapshot.verification = await this.verifyGraph(snapshot);
         snapshot.status = 'complete'; delete snapshot.error;
@@ -401,10 +415,14 @@ export class DeploymentEngine {
       const hash = candidateHash.trim();
       assert(/^0x[0-9a-fA-F]{64}$/.test(hash), '请输入完整的 0x 开头交易哈希。');
       const snapshot = await this.latestSnapshot(saved);
-      assert(snapshot.steps.some(item => !item.txHash && (item.status === 'signing' || item.status === 'uncertain')),
+      assert(snapshot.status !== 'aborted' && snapshot.steps.some(item =>
+        (!item.txHash && (item.status === 'signing' || item.status === 'uncertain')) ||
+        (item.txHash && item.status === 'submitted')),
         '当前没有可通过交易哈希恢复的部署步骤。');
       await this.restore(snapshot);
-      const step = snapshot.steps.find(item => item.status === 'uncertain' && !item.txHash);
+      if (isAborted(snapshot)) return snapshot;
+      const step = snapshot.steps.find(item => (item.status === 'uncertain' && !item.txHash) ||
+        (item.status === 'submitted' && !!item.txHash));
       assert(step, '当前没有可通过交易哈希恢复的部署步骤。');
       assert(snapshot.steps.slice(0, snapshot.steps.indexOf(step)).every(item => item.status === 'confirmed'), '前置部署交易尚未全部核验。');
       const [tx, receipt] = await Promise.all([
@@ -419,28 +437,56 @@ export class DeploymentEngine {
       assert(sameAddress(receipt.from, tx.from) &&
         ((receipt.to === null && tx.to === null) ||
           (receipt.to !== null && tx.to !== null && sameAddress(receipt.to, tx.to))) &&
-        receipt.gasPrice === tx.gasPrice && receipt.gasUsed <= tx.gasLimit &&
+        receipt.gasUsed <= tx.gasLimit &&
         receipt.fee === receipt.gasUsed * receipt.gasPrice, '交易回执与交易内容或 Gas 费用不一致。');
-      assert(tx.nonce === step.nonce && tx.type === 0, '交易 nonce 或类型与签名前保存的计划不一致。');
+      assert(tx.nonce === step.nonce, '交易 nonce 与签名前保存的计划不一致。');
       const expected = await this.transaction(snapshot, step);
       const expectedDataHash = keccak256(expected.data as string);
-      assert(step.dataHash === expectedDataHash && keccak256(tx.data) === expectedDataHash, '交易内容与签名前保存的部署计划不一致。');
-      assert(tx.value === 0n && ((expected.to == null && tx.to === null) ||
-        (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to))), '交易目标地址或转账金额与计划不一致。');
-      assert(step.gasLimit && tx.gasLimit <= BigInt(step.gasLimit) &&
-        tx.gasPrice <= parseUnits(snapshot.input.gasPriceCapGwei, 'gwei'), '交易 Gas 设置超出签名前保存的限制。');
+      assert(step.dataHash === expectedDataHash, '签名前保存的部署计划内容与当前构建不一致。');
+      assert(step.gasLimit && step.gasPriceWei && step.maxFeeWei &&
+        BigInt(step.maxFeeWei) === BigInt(step.gasLimit) * BigInt(step.gasPriceWei),
+        '签名前保存的 Gas 设置自相矛盾。');
+      const samePayload = keccak256(tx.data) === expectedDataHash && tx.value === 0n &&
+        ((expected.to == null && tx.to === null) ||
+          (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)));
+      const feeOverride = tx.type !== 0 || tx.gasLimit > BigInt(step.gasLimit) ||
+        tx.gasPrice > parseUnits(snapshot.input.gasPriceCapGwei, 'gwei') ||
+        receipt.gasPrice > parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
+      const isReplacement = !!step.txHash && step.txHash.toLowerCase() !== tx.hash.toLowerCase();
+      const budgetExceeded = BigInt(snapshot.spentWei) + receipt.fee > parseEther(snapshot.input.maxGasBudgetBnb);
+      if (isReplacement || !samePayload || feeOverride || budgetExceeded || receipt.status !== 1)
+        await this.finalizedReplacement(snapshot, step, tx.hash);
 
       // Validate on a copy. An unrelated hash must never be saved into the deployment journal.
       const recovered = clone(snapshot);
       const recoveredStep = recovered.steps[snapshot.steps.indexOf(step)];
+      if (!samePayload || receipt.status !== 1) {
+        recoveredStep.replacementHash = tx.hash;
+        recoveredStep.status = receipt.status !== 1 ? 'failed'
+          : tx.to !== null && sameAddress(tx.to, snapshot.account) && tx.data === '0x' && tx.value === 0n
+          ? 'cancelled' : 'replaced';
+        recoveredStep.receipt = receiptRecord(receipt);
+        recovered.spentWei = recovered.steps.reduce((sum, item) => sum + BigInt(item.receipt?.feeWei ?? '0'), 0n).toString();
+        recovered.status = 'aborted';
+        recovered.error = receipt.status !== 1
+          ? '部署交易链上执行失败；旧计划不可继续。已记录实际 Gas，请保存旧记录后新建部署。'
+          : '钱包已用同一 nonce 取消或替换部署交易；旧计划不可继续。已记录实际 Gas，请保存旧记录后新建部署。';
+        await this.save(recovered);
+        return recovered;
+      }
+      if (isReplacement) recoveredStep.previousTxHashes = [...(recoveredStep.previousTxHashes ?? []), step.txHash!];
+      recoveredStep.finalizedRecovery = isReplacement || feeOverride || budgetExceeded;
       recoveredStep.txHash = tx.hash;
-      await this.acceptReceipt(recovered, recoveredStep, receipt);
+      await this.acceptReceipt(recovered, recoveredStep, receipt, !!recoveredStep.finalizedRecovery);
       assert(recoveredStep.status === 'confirmed', '交易仍待确认，请稍后重试。');
       const currentReceipt = await this.provider.getTransactionReceipt(tx.hash);
       const currentBlock = currentReceipt && await this.provider.getBlock(currentReceipt.blockNumber);
       assert(currentReceipt?.blockHash === receipt.blockHash && currentBlock?.hash === receipt.blockHash &&
         await currentReceipt.confirmations() >= 2, '交易回执已从当前主链移除，请重新核对。');
-      recovered.status = 'paused'; delete recovered.error;
+      recovered.status = 'paused';
+      if (BigInt(recovered.spentWei) >= parseEther(recovered.input.maxGasBudgetBnb)) {
+        recovered.error = '钱包加速后的实际 Gas 已达到或超过总预算；先提高预算，再继续部署。';
+      } else delete recovered.error;
       // The receipt and Gas cost are durable even if the final deployment-graph audit fails.
       await this.save(recovered);
       if (recovered.steps.every(item => item.status === 'confirmed')) {
@@ -462,8 +508,9 @@ export class DeploymentEngine {
   async adjustLimits(saved: DeploymentSnapshot, limits: Pick<DeploymentInput, 'maxGasBudgetBnb' | 'gasPriceCapGwei'>): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
       const snapshot = await this.latestSnapshot(saved);
-      assert(snapshot.status !== 'complete', '部署已完成，无需提高预算。');
+      assert(snapshot.status !== 'complete' && snapshot.status !== 'aborted', '部署已完成或被钱包替换，不能提高预算继续旧计划。');
       await this.restore(snapshot);
+      assert(!isAborted(snapshot), '部署交易链上失败或已被钱包替换，不能提高预算继续旧计划。');
       assert(!snapshot.steps.every(step => step.status === 'confirmed'), '部署已完成，无需提高预算。');
       assert(!snapshot.steps.some(step => ['submitted', 'signing', 'uncertain', 'failed'].includes(step.status)), '存在待确认、结果不明或链上失败交易，先核对回执；不能通过增加预算重发。');
       assert(parseEther(limits.maxGasBudgetBnb) >= parseEther(snapshot.input.maxGasBudgetBnb), '总 Gas 预算只能提高或保持不变。');
@@ -489,6 +536,33 @@ export class DeploymentEngine {
     return clone(latest);
   }
 
+  private async finalizedReplacement(snapshot: DeploymentSnapshot, step: StepRecord, hash: string): Promise<{ tx: TransactionResponse; receipt: TransactionReceipt }> {
+    const [tx, receipt] = await Promise.all([this.provider.getTransaction(hash), this.provider.getTransactionReceipt(hash)]);
+    assert(tx && receipt, '替换交易尚无完整链上交易与回执，原部署仍暂停。');
+    assert(tx.hash.toLowerCase() === hash.toLowerCase() && receipt.hash.toLowerCase() === hash.toLowerCase(), '替换交易与回执哈希不一致。');
+    assert((await this.provider.getNetwork()).chainId === 56n && tx.chainId === 56n && sameAddress(tx.from, snapshot.account)
+      && tx.nonce === step.nonce, '替换交易的链、账户或 nonce 与原部署不匹配。');
+    assert(sameAddress(receipt.from, tx.from) &&
+      ((receipt.to === null && tx.to === null) || (receipt.to !== null && tx.to !== null && sameAddress(receipt.to, tx.to))) &&
+      receipt.gasUsed <= tx.gasLimit && receipt.fee === receipt.gasUsed * receipt.gasPrice &&
+      (receipt.status === 0 || receipt.status === 1), '替换交易回执身份或费用不一致。');
+    const [canonical, finalized, latest] = await Promise.all([
+      this.provider.getBlock(receipt.blockNumber), this.provider.getBlock('finalized'), this.provider.getBlock('latest'),
+    ]);
+    assert(canonical?.hash === receipt.blockHash && tx.blockHash === receipt.blockHash,
+      '替换交易回执不在当前规范链上，原部署仍暂停。');
+    assert(finalized?.hash && latest && finalized.number >= receipt.blockNumber && latest.number - receipt.blockNumber + 1 >= 2,
+      '替换交易尚未达到 BSC 最终性和 2 次确认，原部署仍暂停。');
+    assert(await this.provider.getTransactionCount(snapshot.account, finalized.number) > step.nonce,
+      '最终区块中原 nonce 尚未消耗，原部署仍暂停。');
+    const [currentReceipt, currentBlock, finalizedBlock] = await Promise.all([
+      this.provider.getTransactionReceipt(hash), this.provider.getBlock(receipt.blockNumber), this.provider.getBlock(finalized.number),
+    ]);
+    assert(currentReceipt?.blockHash === receipt.blockHash && currentBlock?.hash === receipt.blockHash &&
+      finalizedBlock?.hash === finalized.hash, '替换交易核验期间规范链发生变化，原部署仍暂停。');
+    return { tx, receipt };
+  }
+
   private async restore(snapshot: DeploymentSnapshot): Promise<void> {
     validateArtifacts(this.bundle);
     assert(snapshot.schemaVersion === 1 && snapshot.chainId === 56, '部署记录格式或网络错误。');
@@ -497,16 +571,40 @@ export class DeploymentEngine {
     await walletAccount(this.wallet, snapshot.account);
     if (snapshot.input.governanceMode === 'single') assert(sameAddress(snapshot.input.ownerMultisig, snapshot.account), '记录中的单钱包管理地址不匹配部署账户。');
     assert(JSON.stringify(snapshot.steps.map(step => step.id)) === JSON.stringify(this.stepIds()), '部署步骤与当前构建不匹配。');
-    snapshot.status = 'paused';
+    let aborted = snapshot.status === 'aborted' || snapshot.steps.some(step => !!step.replacementHash);
+    snapshot.status = aborted ? 'aborted' : 'paused';
     delete snapshot.verification;
     await this.save(snapshot);
     snapshot.addresses = {};
     let seenUnconfirmed = false;
     for (const step of snapshot.steps) {
+      if (step.replacementHash) {
+        assert(!seenUnconfirmed, '被替换步骤之前仍有未核验的部署交易。');
+        const { tx, receipt } = await this.finalizedReplacement(snapshot, step, step.replacementHash);
+        const expected = await this.transaction(snapshot, step);
+        const expectedHash = keccak256(expected.data as string);
+        assert(step.dataHash === expectedHash, '旧部署交易计划已改变，不能核对替换结果。');
+        const samePayload = tx.value === 0n && keccak256(tx.data) === expectedHash &&
+          ((expected.to == null && tx.to === null) || (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)));
+        assert(!samePayload || receipt.status === 0, '替换记录与原计划内容相同，不能将有效部署标记为终止。');
+        step.status = receipt.status === 0 ? 'failed'
+          : tx.to !== null && sameAddress(tx.to, snapshot.account) && tx.data === '0x' && tx.value === 0n
+          ? 'cancelled' : 'replaced';
+        step.receipt = receiptRecord(receipt);
+        seenUnconfirmed = true;
+        continue;
+      }
       if (step.txHash) {
         assert(!seenUnconfirmed, '后续交易依赖一个尚未验证的步骤。');
-        const receipt = await this.provider.getTransactionReceipt(step.txHash);
-        if (receipt) { await this.acceptReceipt(snapshot, step, receipt); if (step.status !== 'confirmed') seenUnconfirmed = true; }
+        const receipt = step.finalizedRecovery
+          ? (await this.finalizedReplacement(snapshot, step, step.txHash)).receipt
+          : await this.provider.getTransactionReceipt(step.txHash);
+        if (receipt?.status === 0) {
+          await this.finalizedReplacement(snapshot, step, step.txHash);
+          step.replacementHash = step.txHash;
+          step.status = 'failed'; step.receipt = receiptRecord(receipt);
+          snapshot.status = 'aborted'; aborted = true; seenUnconfirmed = true;
+        } else if (receipt) { await this.acceptReceipt(snapshot, step, receipt, !!step.finalizedRecovery); if (step.status !== 'confirmed') seenUnconfirmed = true; }
         else { step.status = 'submitted'; seenUnconfirmed = true; }
       } else {
         assert(step.status !== 'confirmed' && step.status !== 'submitted', '已发送的部署步骤缺少交易哈希。');
@@ -515,6 +613,9 @@ export class DeploymentEngine {
       }
     }
     snapshot.spentWei = snapshot.steps.reduce((sum, step) => sum + BigInt(step.receipt?.feeWei ?? '0'), 0n).toString();
+    if (aborted) snapshot.error = snapshot.steps.some(step => step.status === 'failed')
+      ? '部署交易链上执行失败；旧计划不可继续。已记录实际 Gas，请保存旧记录后新建部署。'
+      : '钱包已用同一 nonce 取消或替换部署交易；旧计划不可继续。已记录实际 Gas，请保存旧记录后新建部署。';
     await this.save(snapshot);
   }
 
@@ -607,8 +708,8 @@ export class DeploymentEngine {
     await this.save(snapshot);
   }
 
-  private async acceptReceipt(snapshot: DeploymentSnapshot, step: StepRecord, receipt: TransactionReceipt): Promise<void> {
-    step.receipt = { blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, status: receipt.status ?? 0, gasUsed: receipt.gasUsed.toString(), gasPrice: receipt.gasPrice.toString(), feeWei: receipt.fee.toString() };
+  private async acceptReceipt(snapshot: DeploymentSnapshot, step: StepRecord, receipt: TransactionReceipt, finalizedRecovery = false): Promise<void> {
+    step.receipt = receiptRecord(receipt);
     snapshot.spentWei = snapshot.steps.reduce((sum, item) => sum + BigInt(item.receipt?.feeWei ?? '0'), 0n).toString();
     if (receipt.status !== 1) { step.status = 'failed'; await this.save(snapshot); throw new Error(`${step.label} 链上执行失败，费用已计入；不会自动重发。`); }
     if (await receipt.confirmations() < 2) { step.status = 'submitted'; await this.save(snapshot); return; }
@@ -618,8 +719,10 @@ export class DeploymentEngine {
     assert(tx.value === 0n && keccak256(tx.data) === keccak256(expected.data as string), '钱包实际发送的交易内容与编译部署计划不一致。');
     assert((expected.to == null && tx.to === null) || (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)), '交易目标地址与计划不一致。');
     assert(step.nonce === tx.nonce, '交易 nonce 与记录不一致。');
-    assert(tx.gasLimit <= BigInt(step.gasLimit ?? '0') && tx.gasPrice <= parseUnits(snapshot.input.gasPriceCapGwei, 'gwei'), '钱包修改了 Gas 设置并超出页面限制；已停止后续交易。');
-    assert(BigInt(snapshot.spentWei) <= parseEther(snapshot.input.maxGasBudgetBnb), '累计真实 Gas 费用超过预算。');
+    if (!finalizedRecovery) {
+      assert(tx.gasLimit <= BigInt(step.gasLimit ?? '0') && tx.gasPrice <= parseUnits(snapshot.input.gasPriceCapGwei, 'gwei'), '钱包修改了 Gas 设置并超出页面限制；已停止后续交易。');
+      assert(BigInt(snapshot.spentWei) <= parseEther(snapshot.input.maxGasBudgetBnb), '累计真实 Gas 费用超过预算。');
+    }
     if (step.id !== 'initialize') {
       const address = getCreateAddress({ from: snapshot.account, nonce: tx.nonce });
       assert(receipt.contractAddress && sameAddress(receipt.contractAddress, address), '部署地址与交易回执不一致。');

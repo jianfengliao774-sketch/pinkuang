@@ -153,7 +153,13 @@ test('mined deployment with a lost RPC hash is recovered only from the exact on-
   await assert.rejects(engine().recoverMinedTransaction(tamperedGasLimit, minedHash), /Gas 设置/);
   const tooSmallBudget = structuredClone(stalled);
   tooSmallBudget.input.maxGasBudgetBnb = '0.000000000000000001';
-  await assert.rejects(engine().recoverMinedTransaction(tooSmallBudget, minedHash), /真实 Gas 费用超过预算/);
+  await rpc('anvil_mine', ['0x44']);
+  const isolated = new DeploymentEngine(wallet, bundle, { persist: () => {} });
+  const accounted = await isolated.recoverMinedTransaction(tooSmallBudget, minedHash);
+  assert.equal(accounted.spentWei, receipt.fee.toString(), 'mined Gas is recorded even when the saved budget is exceeded');
+  assert.equal(accounted.steps[0].status, 'confirmed');
+  assert.match(accounted.error || '', /实际 Gas 已达到或超过总预算/);
+  await assert.rejects(isolated.resume(accounted), /总 Gas 预算已耗尽/);
   const originalCode = await rpc('eth_getCode', [receipt.contractAddress, 'latest']) as string;
   await rpc('anvil_setCode', [receipt.contractAddress, '0x00']);
   try {
