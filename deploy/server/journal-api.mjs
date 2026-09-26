@@ -220,6 +220,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const token = cookies.find(item => item.startsWith(`${TOKEN_COOKIE}=`))?.slice(TOKEN_COOKIE.length + 1);
       const account = token && /^[A-Za-z0-9_-]{43}$/.test(token) ? store.session(hashed(token)) : null;
       if (!account) fail(401, 'Wallet session is required.');
+      const expectedAccount = req.headers['x-pinkuang-account'];
+      if (expectedAccount !== undefined && identity(expectedAccount) !== account)
+        fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
       if (method === 'GET' && path === '/api/journal/session') return send(200, { account });
       if (method === 'GET' && path === '/api/journal/deployment') return send(200, store.deployment(account));
       if (method === 'PUT' && path === '/api/journal/deployment') {

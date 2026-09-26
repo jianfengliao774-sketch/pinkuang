@@ -103,9 +103,11 @@ export function marketProvider(wallet: WalletProvider | null): Provider {
   return wallet ? new BrowserProvider(wallet, 'any') : new JsonRpcProvider('https://bsc-dataseed.bnbchain.org', 56, { staticNetwork: true });
 }
 export async function requireWallet(wallet: WalletProvider, expectedAccount: string): Promise<BrowserProvider> {
-  const chain = Number(await wallet.request({ method: 'eth_chainId' }));
+  const [rawChain, accounts] = await Promise.all([
+    wallet.request({ method: 'eth_chainId' }), wallet.request({ method: 'eth_accounts' }),
+  ]) as [string, string[]];
+  const chain = Number(rawChain);
   if (chain !== MARKET_CHAIN_ID) throw new Error('请将钱包切换到 BSC 主网（Chain ID 56）。');
-  const accounts = await wallet.request({ method: 'eth_accounts' }) as string[];
   if (!accounts[0] || !sameAddress(accounts[0], expectedAccount)) throw new Error('钱包账户已变化，请重新连接并检查交易。');
   return new BrowserProvider(wallet, 'any');
 }
@@ -183,6 +185,11 @@ export async function readMarketCredit(provider: Provider, identity: MarketIdent
   return account ? new Contract(identity.market, MARKET_ABI, provider).bnbOwed(account, { blockTag: identity.blockNumber }) : 0n;
 }
 
+/** One display-only read before the buyer chooses an amount; preview rechecks the full pool. */
+export async function readBuyerBalance(provider: Provider, pool: string, account: string): Promise<bigint> {
+  return new Contract(address(pool), POOL_ABI, provider).balanceOf(account);
+}
+
 export async function prepareMarketAction(wallet: WalletProvider, account: string, factory: string, action: MarketAction): Promise<MarketQuote> {
   const provider = await requireWallet(wallet, account);
   const identity = await readMarketIdentity(provider, factory);
@@ -212,15 +219,46 @@ export async function prepareMarketAction(wallet: WalletProvider, account: strin
     method = 'withdrawBnb'; title = '确认领取 BNB';
   }
   const fn = market.getFunction(method), overrides = { value: gross };
-  await fn.staticCall(...args, overrides);
+  // estimateGas executes the same call and reports reverts; a separate staticCall duplicates it.
   const estimate: bigint = await fn.estimateGas(...args, overrides);
   const gasLimit = (estimate * 120n + 99n) / 100n;
   const gasPrice = (await provider.getFeeData()).gasPrice;
   if (!gasPrice || gasPrice <= 0n) throw new Error('无法读取当前 BSC Gas 价格。');
   const gasCost = gasLimit * gasPrice, total = gross + gasCost;
   if (await provider.getBalance(account) < total) throw new Error(`BNB 余额不足，成交金额与 Gas 上限合计 ${bnb(total)} BNB。`);
-  await requireWallet(wallet, account);
   return { action, account, identity, title, pool, amount, gross, fee, sellerProceeds, withdrawal, gasLimit, gasPrice, gasCost, total, data: market.interface.encodeFunctionData(method, args) };
+}
+
+/** Final, narrow check: the exact destination, amount and action must still execute. */
+export async function verifyMarketQuoteForSend(provider: Provider, quote: MarketQuote): Promise<void> {
+  const [network, blockNumber] = await Promise.all([provider.getNetwork(), provider.getBlockNumber()]);
+  if (Number(network.chainId) !== MARKET_CHAIN_ID) throw new Error('请将钱包切换到 BSC 主网（Chain ID 56）。');
+  const opts = { blockTag: blockNumber };
+  const factory = new Contract(quote.identity.factory, FACTORY_ABI, provider);
+  const market = new Contract(quote.identity.market, MARKET_ABI, provider);
+  const checks: Promise<unknown>[] = [
+    factory.shareMarket(opts).then((current: string) => {
+      if (!sameAddress(current, quote.identity.market)) throw new Error('市场地址已变化，请重新预览交易。');
+    }),
+    market.feeBps(opts).then((current: bigint) => {
+      if (current !== 100n) throw new Error('市场手续费已变化，请重新预览交易。');
+    }),
+    provider.call({ to: quote.identity.market, from: quote.account, data: quote.data, value: quote.gross, gasLimit: quote.gasLimit, blockTag: blockNumber }),
+  ];
+  if (quote.action.kind === 'fill') {
+    const fill = quote.action;
+    checks.push(readOrder(provider, { ...quote.identity, blockNumber }, BigInt(fill.orderId)).then(order => {
+      if (!order.active || order.expiresAt <= BigInt(Math.floor(Date.now() / 1000))
+        || order.pricePerUnit.toString() !== fill.expectedPrice || !quote.pool || !sameAddress(order.pool, quote.pool)
+        || quote.amount === undefined || order.remaining < quote.amount || sameAddress(order.seller, quote.account)) {
+        throw new Error('订单、价格或可购买份额已变化，请重新预览交易。');
+      }
+      if (tradeAmounts(quote.amount, order.pricePerUnit).gross !== quote.gross) {
+        throw new Error('成交金额已变化，请重新预览交易。');
+      }
+    }));
+  }
+  await Promise.all(checks);
 }
 
 export function parseMarketPending(raw: string | null): PendingMarketTransaction | null {
@@ -323,31 +361,24 @@ export async function recordMarketBroadcast(
 
 async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote, storage: MarketJournalStorage, onPending: (pending: PendingMarketTransaction | null) => void): Promise<PendingMarketTransaction> {
   if (await loadMarketPending(storage)) throw new Error('已有待确认的市场交易，请先核对回执。');
-  // Re-simulate and revalidate identity immediately before requesting a signature.
-  const fresh = await prepareMarketAction(wallet, quote.account, quote.identity.factory, quote.action);
-  if (!sameAddress(fresh.identity.market, quote.identity.market) || !sameAddress(fresh.identity.timelock, quote.identity.timelock)
-    || fresh.data !== quote.data || fresh.gross !== quote.gross || fresh.amount !== quote.amount || fresh.pool !== quote.pool
-    || fresh.withdrawal !== quote.withdrawal || fresh.gasCost > quote.gasCost || fresh.gasLimit > quote.gasLimit) throw new Error('交易状态或 Gas 费用已变化，请重新预览并确认。');
-  const provider = await requireWallet(wallet, quote.account);
-  const signer = await provider.getSigner(quote.account);
+  const provider = new BrowserProvider(wallet, 'any');
+  await verifyMarketQuoteForSend(provider, quote);
   const nonce = await provider.getTransactionCount(quote.account, 'pending');
   await requireWallet(wallet, quote.account);
   const pending: PendingMarketTransaction = {
     version: 1, chainId: 56, account: quote.account, factory: quote.identity.factory, market: quote.identity.market,
     nonce, action: quote.action, data: quote.data, value: quote.gross.toString(), submittedAt: new Date().toISOString(),
   };
-  if (await loadMarketPending(storage)) throw new Error('另一个页面已记录市场交易，请先核对回执。');
-  // The server must durably accept this intent before the wallet can broadcast.
+  // The server's CAS write durably accepts this intent before the wallet can broadcast.
   await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending));
-  const saved = await loadMarketPending(storage);
-  if (!saved || saved.submittedAt !== pending.submittedAt || saved.nonce !== pending.nonce
-    || !sameAddress(saved.account, pending.account) || saved.data !== pending.data || saved.value !== pending.value) {
-    throw new Error('服务器未确认本次交易记录，已停止钱包发送。');
-  }
-  onPending(saved);
+  onPending({ ...pending });
   try {
-    const tx = await signer.sendTransaction({ to: pending.market, data: pending.data, value: quote.gross, gasLimit: quote.gasLimit, gasPrice: quote.gasPrice, nonce, chainId: 56 });
-    await recordMarketBroadcast(storage, pending, tx.hash, onPending);
+    const transaction = provider.getRpcTransaction({
+      from: quote.account, to: pending.market, data: pending.data, value: quote.gross,
+      gasLimit: quote.gasLimit, gasPrice: quote.gasPrice, nonce, chainId: 56, type: 0,
+    });
+    const hash = await wallet.request({ method: 'eth_sendTransaction', params: [transaction] }) as string;
+    await recordMarketBroadcast(storage, pending, hash, onPending);
     return pending;
   } catch (error) {
     const code = (error as { code?: unknown }).code;

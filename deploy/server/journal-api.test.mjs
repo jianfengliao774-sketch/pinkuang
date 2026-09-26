@@ -46,10 +46,10 @@ async function fixture(provider = chainProof()) {
   const server = createServer((req, res) => service.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const request = async (path, method = 'GET', body, cookie, requestOrigin = origin) => {
+  const request = async (path, method = 'GET', body, cookie, requestOrigin = origin, extraHeaders = {}) => {
     const response = await fetch(`${base}${path}`, { method,
       headers: { ...(method === 'GET' ? {} : { Origin: requestOrigin, 'Content-Type': 'application/json' }),
-        ...(cookie ? { Cookie: cookie } : {}) },
+        ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json(), cookie: response.headers.get('set-cookie') };
   };
@@ -82,6 +82,11 @@ test('wallet challenge is one-use, origin-bound and sessions are wallet-isolated
     assert.equal((await f.request('/api/journal/deployment', 'PUT',
       { record: deployment(account), expectedRevision: 0 }, a.cookie)).body.revision, 1);
     assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, b.cookie)).body.record, null);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, b.cookie, origin,
+      { 'X-Pinkuang-Account': account })).status, 409);
+    assert.equal((await f.request('/api/journal/quote', 'POST', { record: { marker: 'wrong-wallet' } }, b.cookie, origin,
+      { 'X-Pinkuang-Account': account })).status, 409);
+    assert.deepEqual((await f.request('/api/journal/quotes', 'GET', undefined, b.cookie)).body.items, []);
   } finally { await f.close(); }
 });
 

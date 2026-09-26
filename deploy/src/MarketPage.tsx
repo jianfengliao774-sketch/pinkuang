@@ -3,7 +3,7 @@ import { ArrowDownToLine, ArrowRight, ArrowUpRight, CheckCircle2, CircleAlert, C
 import type { WalletProvider } from './wallet';
 import {
   BSC_EXPLORER, POOL_STATES, bnb, marketError, marketProvider,
-  prepareMarketAction, readMarketCredit, readMarketIdentity, readOrderPage, readPoolPosition,
+  prepareMarketAction, readBuyerBalance, readMarketCredit, readMarketIdentity, readOrderPage, readPoolPosition,
   loadMarketPending, migrateLegacyMarketPending, reconcileMarketPending, requireFill, sameAddress, sendMarketAction, shareAmount, tradeAmounts, unitPrice, withObservedMarketHash,
   type MarketAction, type MarketIdentity, type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction, type PoolPosition,
 } from './market';
@@ -30,7 +30,7 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
   const [price, setPrice] = useState('');
   const [freeConfirmed, setFreeConfirmed] = useState(false);
   const [buyOrder, setBuyOrder] = useState<MarketOrder | null>(null);
-  const [buyPosition, setBuyPosition] = useState<PoolPosition | null>(null);
+  const [buyBalance, setBuyBalance] = useState<bigint | null>(null);
   const [buyAmount, setBuyAmount] = useState('1');
   const [quote, setQuote] = useState<MarketQuote | null>(null);
   const [busy, setBusy] = useState('');
@@ -67,10 +67,10 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
   }, [journal, account, journalLoad]);
   useEffect(() => { if (factoryAddress) { version.current += 1; setFactory(factoryAddress); setIdentity(null); setOrders([]); setCredit(null); } }, [factoryAddress]);
   useEffect(() => {
-    version.current += 1; setQuote(null); setPosition(null); setBuyOrder(null); setBuyPosition(null); setCredit(null); setIdentity(null); setOrders([]);
+    version.current += 1; setQuote(null); setPosition(null); setBuyOrder(null); setBuyBalance(null); setCredit(null); setIdentity(null); setOrders([]);
     if (!wallet) return;
     const invalidate = () => {
-      version.current += 1; setQuote(null); setPosition(null); setBuyOrder(null); setBuyPosition(null); setIdentity(null); setOrders([]); setCredit(null);
+      version.current += 1; setQuote(null); setPosition(null); setBuyOrder(null); setBuyBalance(null); setIdentity(null); setOrders([]); setCredit(null);
       setNotice('钱包账户或网络已变化，请重新验证市场。');
     };
     wallet.on?.('accountsChanged', invalidate); wallet.on?.('chainChanged', invalidate); wallet.on?.('disconnect', invalidate);
@@ -101,7 +101,7 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
     if (!identity) return;
     await run('读取资金池持仓', async () => {
       const current = version.current, provider = marketProvider(wallet);
-      const fresh = await readMarketIdentity(provider, identity.factory);
+      const fresh = { ...identity, blockNumber: await provider.getBlockNumber() };
       const result = await readPoolPosition(provider, fresh, poolInput, account);
       if (current === version.current) setPosition(result);
     });
@@ -125,10 +125,9 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
     if (!identity || !journalReady) return;
     await run('读取可购买份额', async () => {
       const current = version.current, provider = marketProvider(wallet);
-      const fresh = await readMarketIdentity(provider, identity.factory);
-      const result = await readPoolPosition(provider, fresh, order.pool, account);
-      requireFill(order, result, account, 1n);
-      if (current === version.current) { setBuyAmount('1'); setBuyPosition(result); setBuyOrder(order); }
+      const balance = await readBuyerBalance(provider, order.pool, account);
+      requireFill(order, { state: order.state ?? -1, tradingAllowed: !!order.tradingAllowed, balance }, account, 1n);
+      if (current === version.current) { setBuyAmount('1'); setBuyBalance(balance); setBuyOrder(order); }
     });
   }
   async function submit() {
@@ -174,8 +173,8 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
   let freePrice = false;
   try { freePrice = price !== '' && unitPrice(price) === 0n; } catch { /* Input errors are shown at preview. */ }
   let buySummary: ReturnType<typeof tradeAmounts> | null = null, buyError = '';
-  if (buyOrder && buyPosition && account) {
-    try { const quantity = shareAmount(buyAmount); requireFill(buyOrder, buyPosition, account, quantity); buySummary = tradeAmounts(quantity, buyOrder.pricePerUnit); }
+  if (buyOrder && buyBalance !== null && account) {
+    try { const quantity = shareAmount(buyAmount); requireFill(buyOrder, { state: buyOrder.state ?? -1, tradingAllowed: !!buyOrder.tradingAllowed, balance: buyBalance }, account, quantity); buySummary = tradeAmounts(quantity, buyOrder.pricePerUnit); }
     catch (err) { buyError = marketError(err); }
   }
 
@@ -212,8 +211,8 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
     </div>
     {busy && <div className="mk-progress" role="status"><LoaderCircle size={17} className="mk-spin"/>{busy}…</div>}
 
-    {buyOrder && buyPosition && <div className="mk-modal-backdrop" onClick={() => { if (!busy) setBuyOrder(null); }}><section className="mk-modal" role="dialog" aria-modal="true" aria-labelledby="mk-buy-title" onClick={event => event.stopPropagation()}><button className="mk-modal-close" aria-label="关闭购买窗口" disabled={!!busy} onClick={() => setBuyOrder(null)}><X size={20}/></button><div className="mk-modal-icon"><ShoppingBag size={24}/></div><h2 id="mk-buy-title">购买份额</h2><p>订单 #{buyOrder.id.toString()} · <Addr value={buyOrder.pool}/></p><div className="mk-summary"><div><span>当前持有</span><strong>{buyPosition.balance.toString()} / 49 份</strong></div><div><span>订单剩余</span><strong>{buyOrder.remaining.toString()} 份</strong></div><div><span>每份单价</span><strong>{bnb(buyOrder.pricePerUnit)} BNB</strong></div></div><label htmlFor="mk-buy-amount">本次购买份额</label><input id="mk-buy-amount" autoFocus inputMode="numeric" value={buyAmount} onChange={event => setBuyAmount(event.target.value)}/>{buyError && <p className="mk-inline-error">{buyError}</p>}{buySummary && <div className="mk-summary"><div><span>支付给合约</span><strong>{bnb(buySummary.gross)} BNB</strong></div><div><span>卖家实收</span><strong>{bnb(buySummary.sellerProceeds)} BNB</strong></div><div><span>含 1% 手续费</span><strong>{bnb(buySummary.fee)} BNB</strong></div></div>}<p className="mk-hint">手续费由卖家承担；你的支付金额之外仅另付网络 Gas。下一步将检查最新链上状态。</p><button className="mk-button mk-gold mk-wide" disabled={frozen || !!buyError} onClick={() => void preview({ kind: 'fill', orderId: buyOrder.id.toString(), amount: buyAmount, expectedPrice: buyOrder.pricePerUnit.toString() })}>模拟并预览交易<ArrowRight size={16}/></button></section></div>}
+    {buyOrder && buyBalance !== null && <div className="mk-modal-backdrop" onClick={() => { if (!busy) setBuyOrder(null); }}><section className="mk-modal" role="dialog" aria-modal="true" aria-labelledby="mk-buy-title" onClick={event => event.stopPropagation()}><button className="mk-modal-close" aria-label="关闭购买窗口" disabled={!!busy} onClick={() => setBuyOrder(null)}><X size={20}/></button><div className="mk-modal-icon"><ShoppingBag size={24}/></div><h2 id="mk-buy-title">购买份额</h2><p>订单 #{buyOrder.id.toString()} · <Addr value={buyOrder.pool}/></p><div className="mk-summary"><div><span>当前持有</span><strong>{buyBalance.toString()} / 49 份</strong></div><div><span>订单剩余</span><strong>{buyOrder.remaining.toString()} 份</strong></div><div><span>每份单价</span><strong>{bnb(buyOrder.pricePerUnit)} BNB</strong></div></div><label htmlFor="mk-buy-amount">本次购买份额</label><input id="mk-buy-amount" autoFocus inputMode="numeric" value={buyAmount} onChange={event => setBuyAmount(event.target.value)}/>{buyError && <p className="mk-inline-error">{buyError}</p>}{buySummary && <div className="mk-summary"><div><span>支付给合约</span><strong>{bnb(buySummary.gross)} BNB</strong></div><div><span>卖家实收</span><strong>{bnb(buySummary.sellerProceeds)} BNB</strong></div><div><span>含 1% 手续费</span><strong>{bnb(buySummary.fee)} BNB</strong></div></div>}<p className="mk-hint">手续费由卖家承担；你的支付金额之外仅另付网络 Gas。下一步将检查最新链上状态。</p><button className="mk-button mk-gold mk-wide" disabled={frozen || !!buyError} onClick={() => void preview({ kind: 'fill', orderId: buyOrder.id.toString(), amount: buyAmount, expectedPrice: buyOrder.pricePerUnit.toString() })}>模拟并预览交易<ArrowRight size={16}/></button></section></div>}
 
-    {quote && <div className="mk-modal-backdrop" onClick={() => { if (!busy) setQuote(null); }}><section className="mk-modal" role="dialog" aria-modal="true" aria-labelledby="mk-confirm-title" onClick={event => event.stopPropagation()}><button className="mk-modal-close" aria-label="关闭确认窗口" disabled={!!busy} onClick={() => setQuote(null)}><X size={20}/></button><div className="mk-modal-icon"><Wallet size={24}/></div><h2 id="mk-confirm-title">{quote.title}</h2><p>模拟通过 · BSC 主网真实交易</p><div className="mk-summary"><div><span>发送账户</span><Addr value={quote.account}/></div><div><span>市场合约</span><Addr value={quote.identity.market}/></div>{quote.pool && <div><span>资金池</span><Addr value={quote.pool}/></div>}{quote.amount !== undefined && <div><span>{quote.action.kind === 'cancel' ? '解锁份额' : '交易份额'}</span><strong>{quote.amount.toString()} 份</strong></div>}{quote.action.kind === 'list' && <div><span>每份单价</span><strong>{quote.action.price} BNB{unitPrice(quote.action.price) === 0n ? ' · 免费转出' : ''}</strong></div>}{quote.action.kind === 'fill' && <><div><span>成交金额（含手续费）</span><strong>{bnb(quote.gross)} BNB</strong></div><div><span>卖家实收 / 手续费</span><strong>{bnb(quote.sellerProceeds)} / {bnb(quote.fee)} BNB</strong></div></>}{quote.action.kind === 'withdraw' && <div><span>领取金额</span><strong>{bnb(quote.withdrawal)} BNB</strong></div>}<div><span>网络 Gas 上限</span><strong>{bnb(quote.gasCost)} BNB</strong></div><div className="mk-total"><span>最多从钱包支出</span><strong>{bnb(quote.total)} BNB</strong></div></div><p className="mk-hint">包含 20% Gas 用量余量，实际费用以回执为准。钱包确认前会再次核对账户、网络及合约状态。</p><button className="mk-button mk-gold mk-wide" autoFocus disabled={frozen} onClick={() => void submit()}><Wallet size={16}/>在钱包中确认</button><button className="mk-cancel" disabled={!!busy} onClick={() => setQuote(null)}>返回检查</button></section></div>}
+    {quote && <div className="mk-modal-backdrop" onClick={() => { if (!busy) setQuote(null); }}><section className="mk-modal" role="dialog" aria-modal="true" aria-labelledby="mk-confirm-title" onClick={event => event.stopPropagation()}><button className="mk-modal-close" aria-label="关闭确认窗口" disabled={!!busy} onClick={() => setQuote(null)}><X size={20}/></button><div className="mk-modal-icon"><Wallet size={24}/></div><h2 id="mk-confirm-title">{quote.title}</h2><p>模拟通过 · BSC 主网真实交易</p><div className="mk-summary"><div><span>发送账户</span><Addr value={quote.account}/></div><div><span>市场合约</span><Addr value={quote.identity.market}/></div>{quote.pool && <div><span>资金池</span><Addr value={quote.pool}/></div>}{quote.amount !== undefined && <div><span>{quote.action.kind === 'cancel' ? '解锁份额' : '交易份额'}</span><strong>{quote.amount.toString()} 份</strong></div>}{quote.action.kind === 'list' && <div><span>每份单价</span><strong>{quote.action.price} BNB{unitPrice(quote.action.price) === 0n ? ' · 免费转出' : ''}</strong></div>}{quote.action.kind === 'fill' && <><div><span>成交金额（含手续费）</span><strong>{bnb(quote.gross)} BNB</strong></div><div><span>卖家实收 / 手续费</span><strong>{bnb(quote.sellerProceeds)} / {bnb(quote.fee)} BNB</strong></div></>}{quote.action.kind === 'withdraw' && <div><span>领取金额</span><strong>{bnb(quote.withdrawal)} BNB</strong></div>}<div><span>网络 Gas 上限</span><strong>{bnb(quote.gasCost)} BNB</strong></div><div className="mk-total"><span>最多从钱包支出</span><strong>{bnb(quote.total)} BNB</strong></div></div><p className="mk-hint">包含 20% Gas 用量余量，实际费用以回执为准。钱包确认前会快速核对账户、网络、市场地址、手续费和交易是否仍可执行。</p><button className="mk-button mk-gold mk-wide" autoFocus disabled={frozen} onClick={() => void submit()}><Wallet size={16}/>在钱包中确认</button><button className="mk-cancel" disabled={!!busy} onClick={() => setQuote(null)}>返回检查</button></section></div>}
   </div>;
 }

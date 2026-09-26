@@ -99,6 +99,29 @@ test('read-only preflight permits unchecked review, but signing requires review'
   await assert.rejects(preflight(wrongChain, bundle, input), /Chain ID 56/);
 });
 
+test('recent reviewed configuration skips duplicate code reads but refreshes wallet, nonce, fee and balance', async () => {
+  const calls: string[] = [];
+  const rejecting: Eip1193Provider = { request: request => {
+    calls.push(request.method);
+    if (request.method === 'eth_sendTransaction') return Promise.reject(Object.assign(new Error('user rejected'), { code: 4001 }));
+    return wallet.request(request);
+  } };
+  const reviewed = await preflight(rejecting, bundle, { ...input, governanceReviewed: false, protocolReviewed: false });
+  assert(calls.includes('eth_getCode'));
+  calls.length = 0;
+  await assert.rejects(engine(rejecting).start(input, reviewed), /user rejected/);
+  assert(!calls.includes('eth_getCode'), 'a recent static inspection should not be repeated');
+  for (const method of ['eth_chainId', 'eth_accounts', 'eth_getBalance', 'eth_getTransactionCount', 'eth_sendTransaction']) {
+    assert(calls.includes(method), `${method} must still run before the wallet request`);
+  }
+  calls.length = 0;
+  await assert.rejects(engine(rejecting).start({ ...input, gasPriceCapGwei: '11' }, reviewed), /user rejected/);
+  assert(calls.includes('eth_getCode'), 'changing a reviewed setting must run a full preflight');
+  calls.length = 0;
+  await assert.rejects(engine(rejecting).start(input, structuredClone(reviewed)), /user rejected/);
+  assert(calls.includes('eth_getCode'), 'a copied or forged report must not bypass the static inspection');
+});
+
 test('low gas budget pauses before any signature; rejection is persisted and uncertain broadcasts are never retried', async () => {
   const count = sends;
   await assert.rejects(engine().start({ ...input, maxGasBudgetBnb: '0.00000001' }), /总 Gas 预算/);
@@ -190,6 +213,49 @@ test('failure to durably write intent prevents any wallet signature', async () =
   } });
   await assert.rejects(failingStorage.start(input), /无法保存部署进度/);
   assert.equal(sends, count);
+});
+
+test('prepared transaction goes straight to the wallet after durable intent and final identity check', async () => {
+  const calls: string[] = [];
+  let submitted: Record<string, string> | undefined;
+  let statusAtSend: string | undefined;
+  const rejecting: Eip1193Provider = { request: async request => {
+    calls.push(request.method);
+    if (request.method === 'eth_sendTransaction') {
+      statusAtSend = snapshot?.steps[0].status;
+      submitted = (request.params as Record<string, string>[])[0];
+      throw Object.assign(new Error('user rejected'), { code: 4001 });
+    }
+    return wallet.request(request);
+  } };
+  await assert.rejects(engine(rejecting).start(input), /user rejected/);
+  assert.equal(statusAtSend, 'signing', 'the journal intent must be saved before opening the wallet');
+  assert.deepEqual(calls.slice(-3), ['eth_chainId', 'eth_accounts', 'eth_sendTransaction']);
+  assert.equal(calls.filter(method => method === 'eth_accounts').length, 4, 'no extra signer account query');
+  assert.equal(submitted?.from.toLowerCase(), account.toLowerCase());
+  assert.equal(submitted?.chainId, '0x38');
+  assert.equal(submitted?.value, '0x0');
+  assert.equal(BigInt(submitted?.nonce ?? '-1'), BigInt(snapshot?.steps[0].nonce ?? -1));
+  assert.match(submitted?.data ?? '', /^0x[0-9a-f]+$/i);
+  assert.match(submitted?.gas ?? '', /^0x[0-9a-f]+$/i);
+  assert.match(submitted?.gasPrice ?? '', /^0x[0-9a-f]+$/i);
+  assert.equal(submitted?.to, undefined, 'first step is contract creation');
+  assert.equal(snapshot?.steps[0].status, 'rejected');
+});
+
+test('wallet account change after broadcast still verifies that receipt and blocks the next signature', { timeout: 30_000 }, async () => {
+  const other = getAddress((await rpc('eth_accounts') as string[])[1]);
+  let sent = false;
+  let sendsFromThisWallet = 0;
+  const switching: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_accounts' && sent) return Promise.resolve([other]);
+    if (request.method === 'eth_sendTransaction') { sent = true; sendsFromThisWallet++; }
+    return wallet.request(request);
+  } };
+  await assert.rejects(engine(switching).start(input), /钱包账户已改变/);
+  assert.equal(snapshot?.steps[0].status, 'confirmed');
+  assert.equal(snapshot?.steps[1].status, 'waiting');
+  assert.equal(sendsFromThisWallet, 1, 'the changed wallet must never sign a second step');
 });
 
 test('resuming after rejection verifies and skips the already confirmed library', { timeout: 30_000 }, async () => {

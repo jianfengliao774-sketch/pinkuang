@@ -140,7 +140,7 @@ export default function App() {
   async function deploy() {
     if (running.current) return;
     running.current = true; setConfirmation(false); setError(''); setBusy('部署进行中');
-    try { await createEngine().start(activeInput); }
+    try { await createEngine().start(activeInput, report ?? undefined); }
     catch (err) { setError(messageOf(err)); }
     finally { running.current = false; setBusy(''); await refreshWallet(); }
   }

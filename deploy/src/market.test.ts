@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Interface, parseEther, type Provider } from 'ethers';
 import {
-  MARKET_ABI, MARKET_PAGE_SIZE, address, pageIds, readMarketIdentity,
+  FACTORY_ABI, MARKET_ABI, MARKET_PAGE_SIZE, address, pageIds, readMarketIdentity,
   requireFill, requireList, requireWallet, parseMarketPending, migrateLegacyMarketPending, recordMarketBroadcast,
   sameMarketIntent, shareAmount, tradeAmounts, unitPrice, withObservedMarketHash, recoverMarketReceipt, sendMarketAction,
-  type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
+  verifyMarketQuoteForSend, type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
   withMarketTransactionLock,
 } from './market';
 import type { WalletProvider } from './wallet';
@@ -143,6 +143,109 @@ test('receipt recovery verifies original from/to/nonce/calldata/value and never 
 test('manual factory verification requires a coded address on BSC, not only a valid hex string', async () => {
   const provider = { getNetwork: async () => ({ chainId: 56n }), getBlockNumber: async () => 123, getCode: async () => '0x' } as unknown as Provider;
   await assert.rejects(readMarketIdentity(provider, factory), /没有 Factory 合约代码/);
+});
+
+test('final market check uses only routing, fee, exact order and execution reads', async () => {
+  const marketAbi = new Interface(MARKET_ABI), factoryAbi = new Interface(FACTORY_ABI);
+  const quote: MarketQuote = {
+    action: { kind: 'fill', orderId: '1', amount: '2', expectedPrice: '101' }, account: buyer,
+    identity: { factory, market, timelock, blockNumber: 100 }, title: '购买', pool, amount: 2n,
+    gross: 202n, fee: 2n, sellerProceeds: 200n, withdrawal: 0n,
+    gasLimit: 200000n, gasPrice: 1000000000n, gasCost: 200000000000000n,
+    total: 200000000000202n, data: marketAbi.encodeFunctionData('fill', [1n, 2n]),
+  };
+  let routed = market, fee = 100n, price = 101n, expires = 2n ** 63n, simulated = true;
+  const calls: string[] = [];
+  const provider = {
+    getNetwork: async () => ({ chainId: 56n }),
+    getBlockNumber: async () => 101,
+    call: async ({ to, data, blockTag, value, gasLimit }: { to: string; data: string; blockTag?: number; value?: bigint; gasLimit?: bigint }) => {
+      assert.equal(blockTag, 101, 'final checks use one chain snapshot');
+      calls.push(data.slice(0, 10));
+      if (to.toLowerCase() === factory.toLowerCase()) return factoryAbi.encodeFunctionResult('shareMarket', [routed]);
+      if (data.startsWith(marketAbi.getFunction('feeBps')!.selector)) return marketAbi.encodeFunctionResult('feeBps', [fee]);
+      if (data.startsWith(marketAbi.getFunction('orders')!.selector)) return marketAbi.encodeFunctionResult('orders', [[seller, pool, 17n, price, true]]);
+      if (data.startsWith(marketAbi.getFunction('orderExpiresAt')!.selector)) return marketAbi.encodeFunctionResult('orderExpiresAt', [expires]);
+      assert.equal(to.toLowerCase(), market.toLowerCase());
+      assert.equal(data, quote.data); assert.equal(value, quote.gross);
+      assert.equal(gasLimit, quote.gasLimit, 'final execution uses the approved gas ceiling');
+      if (!simulated) throw new Error('execution reverted');
+      return '0x';
+    },
+  } as unknown as Provider;
+  await assert.doesNotReject(verifyMarketQuoteForSend(provider, quote));
+  assert.equal(calls.length, 5, 'no duplicate identity, pool, gas, balance, or simulation preflight');
+  routed = seller;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /市场地址已变化/);
+  routed = market; fee = 200n;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /手续费已变化/);
+  fee = 100n; price = 102n;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /价格或可购买份额已变化/);
+  price = 101n; expires = 1n;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /价格或可购买份额已变化/);
+  expires = 2n ** 63n; simulated = false;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /execution reverted/);
+});
+
+test('fast market send still stops before wallet submission when the server intent write fails', async () => {
+  const marketAbi = new Interface(MARKET_ABI), factoryAbi = new Interface(FACTORY_ABI);
+  const quote: MarketQuote = {
+    action: { kind: 'withdraw' }, account: buyer, identity: { factory, market, timelock, blockNumber: 100 },
+    title: '领取', gross: 0n, fee: 0n, sellerProceeds: 0n, withdrawal: 123n,
+    gasLimit: 100000n, gasPrice: 1000000000n, gasCost: 100000000000000n,
+    total: 100000000000000n, data: marketAbi.encodeFunctionData('withdrawBnb'),
+  };
+  const methods: string[] = [];
+  let submittedTx: Record<string, string> | null = null;
+  const hash = `0x${'ac'.repeat(32)}`;
+  const wallet: WalletProvider = { request: async ({ method, params }) => {
+    methods.push(method);
+    if (method === 'eth_chainId') return '0x38';
+    if (method === 'eth_accounts') return [buyer];
+    if (method === 'eth_blockNumber') return '0x65';
+    if (method === 'eth_getTransactionCount') return '0x7';
+    if (method === 'eth_sendTransaction') {
+      submittedTx = (params as [Record<string, string>])[0];
+      return hash;
+    }
+    if (method === 'eth_call') {
+      const tx = (params as [{ to: string; data: string }])[0];
+      if (tx.to.toLowerCase() === factory.toLowerCase()) return factoryAbi.encodeFunctionResult('shareMarket', [market]);
+      if (tx.data.startsWith(marketAbi.getFunction('feeBps')!.selector)) return marketAbi.encodeFunctionResult('feeBps', [100n]);
+      return '0x';
+    }
+    throw new Error(`unexpected wallet request: ${method}`);
+  } };
+  const storage: MarketJournalStorage = {
+    getItem: async () => null,
+    setItem: async () => { throw new Error('server disk unavailable'); },
+    removeItem: async () => { throw new Error('unexpected delete'); },
+  };
+  await assert.rejects(sendMarketAction(wallet, quote, storage, () => {}), /server disk unavailable/);
+  assert(!methods.includes('eth_sendTransaction'));
+  assert(!methods.includes('eth_estimateGas'), 'preview gas estimate is not repeated at submission');
+  assert.equal(methods.filter(method => method === 'eth_call').length, 3);
+  methods.length = 0;
+  let serverRecord: string | null = null, writes = 0;
+  const successful: MarketJournalStorage = {
+    getItem: async () => serverRecord,
+    setItem: async (_key, value) => { writes += 1; serverRecord = value; },
+    removeItem: async () => { throw new Error('unexpected delete'); },
+  };
+  const result = await sendMarketAction(wallet, quote, successful, () => {});
+  assert.equal(result.hash, hash);
+  assert.equal(writes, 2, 'server intent ACK precedes send, then returned hash is saved');
+  assert.equal(methods.filter(method => method === 'eth_sendTransaction').length, 1);
+  assert(!methods.includes('eth_estimateGas'));
+  const sent = submittedTx as Record<string, string> | null;
+  assert(sent);
+  assert.equal(sent.from.toLowerCase(), buyer.toLowerCase());
+  assert.equal(sent.to.toLowerCase(), market.toLowerCase());
+  assert.equal(sent.data, quote.data);
+  assert.equal(sent.value, '0x0');
+  assert.equal(sent.nonce, '0x7');
+  assert.equal(sent.chainId, '0x38');
+  assert.equal(sent.gas, '0x186a0');
 });
 
 test('cross-tab lock rejects concurrent market submission and releases after the first request', async () => {

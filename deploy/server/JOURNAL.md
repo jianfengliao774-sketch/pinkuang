@@ -14,7 +14,7 @@ npm start
 
 数据库**直接父目录**须仅本服务账号可访问（权限 `0700`）；启动会拒绝共享目录和数据库符号链接。数据库及 SQLite WAL/SHM 文件都应留在受保护目录内，备份时复制主数据库和 WAL，或使用 SQLite 在线备份机制。主文件设为 `0600`、WAL 模式与 `synchronous=FULL`。数据库、会话 cookie、RPC URL 不要提交仓库。开发默认 `http://127.0.0.1:4173` 和 `deploy/.local/journal.sqlite`，需要把 `deploy/.local/` 加入 Git 忽略；开发时未配置 RPC 则市场日志删除返回 503。
 
-浏览器先 `POST /api/journal/challenge` 提交 `{account}`，再用当前钱包签响应中的原始 `message`，`POST /api/journal/session` 提交 `{account,nonce,signature}`。挑战 5 分钟有效且只能使用一次；同钱包在有效期内重复请求会得到同一挑战，不会使先前消息失效或耗尽登录名额。登录设置 12 小时 `HttpOnly; SameSite=Strict` cookie；生产 cookie 还带 `Secure`。写请求必须携带与配置完全相同的 `Origin`，不开放 CORS。会话绑定规范化账户，切换钱包时页面必须重新核对 `/api/journal/session` 返回的账户并登录新钱包，不能仅凭浏览器当前选择访问旧账户的记录。公网流量应由反向代理按真实客户端 IP 限流。
+浏览器先 `POST /api/journal/challenge` 提交 `{account}`，再用当前钱包签响应中的原始 `message`，`POST /api/journal/session` 提交 `{account,nonce,signature}`。挑战 5 分钟有效且只能使用一次；同钱包在有效期内重复请求会得到同一挑战，不会使先前消息失效或耗尽登录名额。登录设置 12 小时 `HttpOnly; SameSite=Strict` cookie；生产 cookie 还带 `Secure`。写请求必须携带与配置完全相同的 `Origin`，不开放 CORS。会话绑定规范化账户；部署台在每次业务请求中附带 `X-Pinkuang-Account`，服务端在同一次请求里核对所选钱包和会话，避免重复请求 `/session`，也防止其他标签页切换钱包后读写错账户。公网流量应由反向代理按真实客户端 IP 限流。
 
 | 接口 | 请求与结果 |
 | --- | --- |

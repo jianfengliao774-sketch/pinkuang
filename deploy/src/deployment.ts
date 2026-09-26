@@ -253,11 +253,12 @@ export function runtimeMatches(artifact: DeploymentArtifact, actual: string, add
 }
 
 async function walletAccount(wallet: Eip1193Provider, expected?: string): Promise<string> {
-  const chain = await wallet.request({ method: 'eth_chainId' });
+  const [chain, accounts] = await Promise.all([
+    wallet.request({ method: 'eth_chainId' }), wallet.request({ method: 'eth_accounts' }),
+  ]);
   assert(BigInt(String(chain)) === 56n, '请切换至 BSC 主网（Chain ID 56）；已暂停，未发送下一笔交易。');
-  const accounts = await wallet.request({ method: 'eth_accounts' }) as string[];
   assert(Array.isArray(accounts) && accounts.length > 0, '请先连接钱包。');
-  const account = getAddress(accounts[0]);
+  const account = getAddress(accounts[0] as string);
   if (expected) assert(sameAddress(account, expected), '钱包账户已改变；请切回原部署账户。');
   return account;
 }
@@ -280,26 +281,43 @@ async function inspectMultisig(provider: BrowserProvider, address: string, twoOf
   return { ...code, threshold, owners };
 }
 
+const PREFLIGHT_REUSE_MS = 60_000;
+const reviewedPreflights = new WeakMap<PreflightReport, { wallet: Eip1193Provider; key: string; checkedAt: number; report: PreflightReport }>();
+
+function preflightKey(input: DeploymentInput, digest: string): string {
+  return JSON.stringify([
+    digest, input.governanceMode, input.ownerMultisig, input.operator, input.treasury,
+    input.maxGasBudgetBnb, input.gasPriceCapGwei,
+  ]);
+}
+
+async function currentWalletConditions(provider: BrowserProvider, account: string, input: DeploymentInput): Promise<Pick<PreflightReport, 'balanceWei' | 'gasPriceWei'>> {
+  const [balance, feeData, latestNonce, pendingNonce] = await Promise.all([
+    provider.getBalance(account), provider.getFeeData(),
+    provider.getTransactionCount(account, 'latest'), provider.getTransactionCount(account, 'pending'),
+  ]);
+  assert(latestNonce === pendingNonce, '部署账户还有待确认交易；请先处理，避免 nonce 冲突。');
+  assert(feeData.gasPrice !== null && feeData.gasPrice <= parseUnits(input.gasPriceCapGwei, 'gwei'), '当前 Gas 单价高于设定上限，或 RPC 未返回费用。');
+  assert(balance >= parseEther(input.maxGasBudgetBnb), '钱包 BNB 余额不足以覆盖设置的总 Gas 预算。');
+  return { balanceWei: balance.toString(), gasPriceWei: feeData.gasPrice.toString() };
+}
+
 export async function preflight(wallet: Eip1193Provider, bundle: ArtifactBundle, rawInput: DeploymentInput): Promise<PreflightReport> {
   validateArtifacts(bundle);
   const input = normalizeInput(rawInput, false);
   const account = await walletAccount(wallet);
   if (input.governanceMode === 'single') assert(sameAddress(input.ownerMultisig, account), '单钱包管理地址必须是本次连接并部署的钱包。');
   const provider = new BrowserProvider(wallet, 'any', { cacheTimeout: -1 });
-  const [balance, feeData, owner, treasury, protocolEntries, latestNonce, pendingNonce] = await Promise.all([
-    provider.getBalance(account), provider.getFeeData(),
+  const [current, owner, treasury, protocolEntries] = await Promise.all([
+    currentWalletConditions(provider, account, input),
     input.governanceMode === 'multisig' ? inspectMultisig(provider, input.ownerMultisig, true) : codeRecord(provider, input.ownerMultisig, false),
     input.governanceMode === 'multisig' ? inspectMultisig(provider, input.treasury, false) : codeRecord(provider, input.treasury, false),
     Promise.all(Object.entries(PROTOCOL_ADDRESSES).map(async ([name, address]) => [name, await codeRecord(provider, address)] as const)),
-    provider.getTransactionCount(account, 'latest'), provider.getTransactionCount(account, 'pending'),
   ]);
-  assert(latestNonce === pendingNonce, '部署账户还有待确认交易；请先处理，避免 nonce 冲突。');
-  assert(feeData.gasPrice !== null && feeData.gasPrice <= parseUnits(input.gasPriceCapGwei, 'gwei'), '当前 Gas 单价高于设定上限，或 RPC 未返回费用。');
-  assert(balance >= parseEther(input.maxGasBudgetBnb), '钱包 BNB 余额不足以覆盖设置的总 Gas 预算。');
   await walletAccount(wallet, account);
   const libraryOrder = libraryDeploymentOrder(bundle);
-  return {
-    chainId: 56, account, balanceWei: balance.toString(), gasPriceWei: feeData.gasPrice.toString(), artifactDigest: artifactDigest(bundle),
+  const report: PreflightReport = {
+    chainId: 56, account, ...current, artifactDigest: artifactDigest(bundle),
     owner, treasury, protocols: Object.fromEntries(protocolEntries), libraryOrder, transactionCount: libraryOrder.length + 5,
     warnings: [
       input.governanceMode === 'single' ? '单钱包控制管理和升级提案：密钥丢失或泄露会影响全部合约；48 小时延迟不能保证阻止恶意升级。' : 'getOwners / getThreshold 只验证接口配置，不能认证多签实现、模块或实际控制权。',
@@ -308,6 +326,24 @@ export async function preflight(wallet: Eip1193Provider, bundle: ArtifactBundle,
       '总 Gas 预算逐笔执行前检查；若后续成本超预算会保留进度并停止。钱包修改交易费用可突破页面预算。',
     ], checkedAt: new Date().toISOString(),
   };
+  reviewedPreflights.set(report, { wallet, key: preflightKey(input, report.artifactDigest), checkedAt: Date.now(), report: clone(report) });
+  return report;
+}
+
+async function freshPreflight(wallet: Eip1193Provider, bundle: ArtifactBundle, input: DeploymentInput, reviewed?: PreflightReport): Promise<PreflightReport> {
+  const previous = reviewed && reviewedPreflights.get(reviewed);
+  const now = Date.now();
+  if (!previous || previous.wallet !== wallet || now < previous.checkedAt || now - previous.checkedAt > PREFLIGHT_REUSE_MS ||
+      previous.key !== preflightKey(input, artifactDigest(bundle))) return preflight(wallet, bundle, input);
+
+  // The page already checked static roles and official code moments ago. Recheck the
+  // mutable wallet, nonce, fee and balance before creating any signed intent.
+  const account = await walletAccount(wallet, previous.report.account);
+  if (input.governanceMode === 'single') assert(sameAddress(input.ownerMultisig, account), '单钱包管理地址必须是本次连接并部署的钱包。');
+  const provider = new BrowserProvider(wallet, 'any', { cacheTimeout: -1 });
+  const current = await currentWalletConditions(provider, account, input);
+  await walletAccount(wallet, account);
+  return { ...clone(previous.report), ...current, checkedAt: new Date().toISOString() };
 }
 
 export class DeploymentEngine {
@@ -346,11 +382,11 @@ export class DeploymentEngine {
     } finally { this.busy = false; }
   }
 
-  async start(rawInput: DeploymentInput): Promise<DeploymentSnapshot> {
+  async start(rawInput: DeploymentInput, reviewed?: PreflightReport): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
       if (this.callbacks.readLatest) assert(await this.callbacks.readLatest() === null, '已有部署记录；请先恢复或导出并归档现有记录。');
       const input = normalizeInput(rawInput);
-      const report = await preflight(this.wallet, this.bundle, input);
+      const report = await freshPreflight(this.wallet, this.bundle, input, reviewed);
       const now = new Date().toISOString();
       const snapshot: DeploymentSnapshot = {
         schemaVersion: 1, id: `${Date.now()}-${report.account}`, chainId: 56, account: report.account,
@@ -685,10 +721,12 @@ export class DeploymentEngine {
     let attemptedBroadcast = false;
     try {
       await walletAccount(this.wallet, snapshot.account);
-      const signer = await this.provider.getSigner(snapshot.account);
       verifyArtifactIntegrity(this.bundle);
       attemptedBroadcast = true;
-      const hash = await signer.sendUncheckedTransaction(transaction);
+      // The full transaction is already prepared and the wallet identity was just checked.
+      // Avoid getSigner()'s extra wallet account lookup before showing the same RPC request.
+      const hash = await this.wallet.request({ method: 'eth_sendTransaction', params: [this.provider.getRpcTransaction(transaction)] }) as string;
+      assert(/^0x[0-9a-fA-F]{64}$/.test(hash), '钱包未返回有效交易哈希；请先核对链上结果。');
       step.txHash = hash; step.status = 'submitted';
       await this.save(snapshot);
     } catch (error) {
@@ -702,7 +740,8 @@ export class DeploymentEngine {
     }
     const receipt = await this.provider.waitForTransaction(step.txHash!, 2, 120_000);
     assert(receipt, '交易仍在确认中；请稍后只读核对回执，不要重复部署。');
-    await walletAccount(this.wallet, snapshot.account);
+    // Receipt verification checks the mined chain and sender; the next step
+    // checks the live wallet again before requesting another signature.
     await this.acceptReceipt(snapshot, step, receipt);
     assert(['confirmed'].includes(step.status), '交易确认数不足，请稍后核对回执。');
     await this.save(snapshot);
