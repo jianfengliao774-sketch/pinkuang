@@ -363,6 +363,8 @@ contract PoolLens {
 
     function _governanceDerived(address pool, address account, Governance memory g) private view {
         // The old timestamp-1 format is not executable after the Vault upgrade.
+        // Exact equality distinguishes it from a proposal made at the current checkpoint.
+        // slither-disable-next-line incorrect-equality
         bool validSnapshot = uint256(g.proposal.snapshotTs) + 1 days == g.proposal.endsAt;
         if (_valid(g.status, 1 << uint256(GovernanceField.PurchaseCost))) {
             g.discounted = g.proposal.price < g.purchaseCost;
@@ -386,6 +388,7 @@ contract PoolLens {
             // At proposal creation getPastShares rejects the current timestamp.
             // All transfer paths are frozen immediately, so balanceOf is that
             // timestamp's final checkpoint until the vote closes.
+            // slither-disable-next-line incorrect-equality
             bytes memory sharesCall = g.proposal.snapshotTs == block.timestamp
                 ? abi.encodeWithSignature("balanceOf(address)", account)
                 : abi.encodeWithSignature("getPastShares(address,uint48)", account, g.proposal.snapshotTs);
