@@ -11,6 +11,7 @@ import {
   normalizeInput, preflight, runtimeMatches, validateArtifacts, verifyArtifactIntegrity,
   type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type Eip1193Provider,
 } from './deployment';
+import { deploymentManifest } from './manifest';
 
 // @ts-expect-error Independently compile the reviewed source for the Node test build constant.
 import { artifactContentDigest, compileDeploymentArtifacts } from '../scripts/build-artifacts.mjs';
@@ -230,6 +231,10 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 9);
   assert.equal(complete.verification!.checks.find(check => check.label === 'Lens.factory')?.actual.toLowerCase(), complete.addresses.factory.toLowerCase());
   assert.ok(complete.verification!.checks.find(check => check.label === 'lens 运行代码匹配')?.passed);
+  const publicManifest = deploymentManifest(complete, bundle);
+  assert.equal(publicManifest.factory, complete.addresses.factory);
+  assert.equal(publicManifest.lens, complete.addresses.lens);
+  assert.equal(publicManifest.deployment.txHash, complete.steps.at(-1)!.txHash);
   const initialize = complete.steps.at(-1)!;
   const tx = await rpc('eth_getTransactionByHash', [initialize.txHash]) as { input: string; value: string };
   assert.equal(tx.input.slice(0, 10), new Interface(bundle.artifacts.AtomicDeployment.abi).getFunction('deploySingleOwner')!.selector);
