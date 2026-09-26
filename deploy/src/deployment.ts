@@ -445,6 +445,46 @@ export class DeploymentEngine {
     });
   }
 
+  /** Recheck a completed deployment for manifest export without changing its journal or requesting signatures. */
+  async inspectGraphForManifest(saved: DeploymentSnapshot): Promise<DeploymentSnapshot> {
+    const snapshot = clone(saved);
+    assert(snapshot.schemaVersion === 1 && snapshot.chainId === 56, '部署记录格式或网络错误。');
+    assert(snapshot.artifactDigest === artifactDigest(this.bundle), '构建产物已改变，不能导出旧部署清单。');
+    assert(snapshot.status === 'complete' && snapshot.steps.every(step => step.status === 'confirmed'), '仅已完成的部署可导出清单。');
+    assert(JSON.stringify(snapshot.steps.map(step => step.id)) === JSON.stringify(this.stepIds()), '部署步骤与当前构建不匹配。');
+    snapshot.input = normalizeInput(snapshot.input);
+    if (snapshot.input.governanceMode === 'single') assert(sameAddress(snapshot.input.ownerMultisig, snapshot.account), '记录中的单钱包管理地址不匹配部署账户。');
+    await walletAccount(this.wallet, snapshot.account);
+    await this.verifyInitializeForManifest(snapshot);
+    const recordedAddresses = clone(snapshot.addresses);
+    snapshot.verification = await this.verifyGraph(snapshot);
+    for (const [name, address] of Object.entries(recordedAddresses)) {
+      assert(snapshot.addresses[name] && sameAddress(address, snapshot.addresses[name]), `部署记录中的 ${name} 地址与链上不一致。`);
+    }
+    return snapshot;
+  }
+
+  private async verifyInitializeForManifest(snapshot: DeploymentSnapshot): Promise<void> {
+    const step = snapshot.steps.at(-1);
+    assert(step?.id === 'initialize' && step.txHash && /^0x[0-9a-fA-F]{64}$/.test(step.txHash) && step.receipt,
+      '缺少可核对的原子初始化交易与回执。');
+    // Reuse the same canonical/finalized proof as recovery; this path only reads.
+    const { tx, receipt } = await this.finalizedReplacement(snapshot, step, step.txHash);
+    assert(tx.chainId === 56n && sameAddress(tx.from, snapshot.account) && tx.nonce === step.nonce &&
+      tx.to !== null && sameAddress(tx.to, snapshot.addresses.AtomicDeployment) && tx.value === 0n,
+      '原子初始化交易的链、账户、nonce、目标或金额与记录不一致。');
+    const expected = await this.transaction(snapshot, step);
+    assert(step.dataHash === keccak256(expected.data as string) && keccak256(tx.data) === step.dataHash,
+      '原子初始化交易内容与保存的部署计划不一致。');
+    assert(receipt.status === 1 && sameAddress(receipt.from, tx.from) && receipt.to !== null && sameAddress(receipt.to, tx.to) &&
+      receipt.gasUsed <= tx.gasLimit && receipt.fee === receipt.gasUsed * receipt.gasPrice && tx.blockHash === receipt.blockHash,
+      '原子初始化链上回执与交易不一致或执行失败。');
+    const recorded = step.receipt;
+    assert(recorded.status === 1 && recorded.blockNumber === receipt.blockNumber && recorded.blockHash === receipt.blockHash &&
+      recorded.gasUsed === receipt.gasUsed.toString() && recorded.gasPrice === receipt.gasPrice.toString() &&
+      recorded.feeWei === receipt.fee.toString(), '保存的原子初始化回执与链上不一致。');
+  }
+
   /** Attach a mined transaction to a write-ahead intent after its RPC response was lost. Never signs or broadcasts. */
   async recoverMinedTransaction(saved: DeploymentSnapshot, candidateHash: string): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {
@@ -696,7 +736,6 @@ export class DeploymentEngine {
 
   private async sendStep(snapshot: DeploymentSnapshot, step: StepRecord): Promise<void> {
     verifyArtifactIntegrity(this.bundle);
-    await walletAccount(this.wallet, snapshot.account);
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
     const [estimated, fee, balance, nonce, pendingNonce, block] = await Promise.all([
@@ -781,12 +820,16 @@ export class DeploymentEngine {
 
   private async verifyGraph(snapshot: DeploymentSnapshot, requireInitialEmpty = false): Promise<DeploymentVerification> {
     await walletAccount(this.wallet, snapshot.account);
+    const block = await this.provider.getBlock('latest');
+    assert(block?.hash, '无法取得 BSC 最新区块，部署图校验已停止。');
+    const blockTag = block.number;
+    const atBlock = { blockTag };
     const coordinator = new Contract(snapshot.addresses.AtomicDeployment, this.bundle.artifacts.AtomicDeployment.abi, this.provider);
-    const result = await coordinator.deployment();
+    const result = await coordinator.deployment(atBlock);
     const addresses = { timelock: getAddress(result.timelock), beacon: getAddress(result.beacon), factory: getAddress(result.factory), shareMarket: getAddress(result.shareMarket) };
     Object.assign(snapshot.addresses, addresses);
     const factory = new Contract(addresses.factory, this.bundle.artifacts.PoolFactory.abi, this.provider);
-    const lensAddress = getAddress(await factory.lens());
+    const lensAddress = getAddress(await factory.lens(atBlock));
     assert(lensAddress !== ZeroAddress, 'Factory 尚未创建 Lens。');
     snapshot.addresses.lens = lensAddress;
     const lens = new Contract(lensAddress, this.bundle.artifacts.PoolLens.abi, this.provider);
@@ -798,41 +841,60 @@ export class DeploymentEngine {
       const passed = String(actual).toLowerCase() === String(expected).toLowerCase();
       checks.push({ label, passed, actual: String(actual), expected: String(expected) });
     };
-    check('协调器初始化完成', await coordinator.deployed(), true);
-    check('Factory CREATE 绑定', addresses.factory, await coordinator.predictedFactory());
-    check('Factory.lens', await factory.lens(), lensAddress);
-    check('Lens.factory', await lens.factory(), addresses.factory);
-    for (const [getter, expected] of Object.entries({ owner: snapshot.input.ownerMultisig, operator: snapshot.input.operator, treasury: snapshot.input.treasury, timelock: addresses.timelock, beacon: addresses.beacon, shareMarket: addresses.shareMarket })) {
-      check(`Factory.${getter}`, await factory[getter](), expected);
-    }
-    check('Beacon.owner', await beacon.owner(), addresses.timelock);
-    check('Beacon.implementation', await beacon.implementation(), snapshot.addresses.PoolVault);
-    check('Beacon.OFFICIAL_FACTORY', await beacon.OFFICIAL_FACTORY(), addresses.factory);
-    check('Market.factory', await market.factory(), addresses.factory);
-    check('Market.timelock', await market.timelock(), addresses.timelock);
-    check('升级最小延迟', await timelock.getMinDelay(), UPGRADE_DELAY_SECONDS);
-    check('延迟硬下限', await timelock.MINIMUM_DELAY(), UPGRADE_DELAY_SECONDS);
-    const proposer = await timelock.PROPOSER_ROLE(); const canceller = await timelock.CANCELLER_ROLE();
-    const executor = await timelock.EXECUTOR_ROLE(); const admin = await timelock.DEFAULT_ADMIN_ROLE();
-    check('管理地址提案权', await timelock.hasRole(proposer, snapshot.input.ownerMultisig), true);
-    check('管理地址取消权', await timelock.hasRole(canceller, snapshot.input.ownerMultisig), true);
-    check('到期公开执行', await timelock.hasRole(executor, ZeroAddress), true);
-    check('Timelock 自管理', await timelock.hasRole(admin, addresses.timelock), true);
-    check('部署者没有 Timelock admin', await timelock.hasRole(admin, snapshot.account), false);
-    check('协调器没有 Timelock admin', await timelock.hasRole(admin, snapshot.addresses.AtomicDeployment), false);
-    const slotAddress = async (address: string) => getAddress(`0x${(await this.provider.getStorage(address, IMPLEMENTATION_SLOT)).slice(-40)}`);
-    check('Factory UUPS 实现槽', await slotAddress(addresses.factory), snapshot.addresses.PoolFactory);
-    check('Market UUPS 实现槽', await slotAddress(addresses.shareMarket), snapshot.addresses.ShareMarket);
-    const poolCount: bigint = await factory.poolCount();
+    const factoryExpected = { owner: snapshot.input.ownerMultisig, operator: snapshot.input.operator, treasury: snapshot.input.treasury,
+      timelock: addresses.timelock, beacon: addresses.beacon, shareMarket: addresses.shareMarket };
+    const roles = (async () => {
+      const [proposer, canceller, executor, admin] = await Promise.all([
+        timelock.PROPOSER_ROLE(atBlock), timelock.CANCELLER_ROLE(atBlock), timelock.EXECUTOR_ROLE(atBlock), timelock.DEFAULT_ADMIN_ROLE(atBlock),
+      ]);
+      return Promise.all([
+        timelock.hasRole(proposer, snapshot.input.ownerMultisig, atBlock), timelock.hasRole(canceller, snapshot.input.ownerMultisig, atBlock),
+        timelock.hasRole(executor, ZeroAddress, atBlock), timelock.hasRole(admin, addresses.timelock, atBlock),
+        timelock.hasRole(admin, snapshot.account, atBlock), timelock.hasRole(admin, snapshot.addresses.AtomicDeployment, atBlock),
+      ]);
+    })();
+    // These reads are independent. Run them together and reuse each runtime bytecode
+    // for both its codehash and the compiled-runtime comparison.
+    const [deployed, predictedFactory, factoryLens, lensFactory, factoryBindings, beaconBindings, marketBindings,
+      delays, roleChecks, slots, poolCount, observedCodes] = await Promise.all([
+      coordinator.deployed(atBlock), coordinator.predictedFactory(atBlock), factory.lens(atBlock), lens.factory(atBlock),
+      Promise.all(Object.keys(factoryExpected).map(getter => factory[getter](atBlock))),
+      Promise.all([beacon.owner(atBlock), beacon.implementation(atBlock), beacon.OFFICIAL_FACTORY(atBlock)]),
+      Promise.all([market.factory(atBlock), market.timelock(atBlock)]),
+      Promise.all([timelock.getMinDelay(atBlock), timelock.MINIMUM_DELAY(atBlock)]), roles,
+      Promise.all([this.provider.getStorage(addresses.factory, IMPLEMENTATION_SLOT, blockTag), this.provider.getStorage(addresses.shareMarket, IMPLEMENTATION_SLOT, blockTag)]),
+      factory.poolCount(atBlock),
+      Promise.all(Object.entries(snapshot.addresses).map(async ([name, address]) => [name, address, await this.provider.getCode(address, blockTag)] as const)),
+    ]);
+    check('协调器初始化完成', deployed, true);
+    check('Factory CREATE 绑定', addresses.factory, predictedFactory);
+    check('Factory.lens', factoryLens, lensAddress);
+    check('Lens.factory', lensFactory, addresses.factory);
+    Object.entries(factoryExpected).forEach(([getter, expected], index) => check(`Factory.${getter}`, factoryBindings[index], expected));
+    check('Beacon.owner', beaconBindings[0], addresses.timelock);
+    check('Beacon.implementation', beaconBindings[1], snapshot.addresses.PoolVault);
+    check('Beacon.OFFICIAL_FACTORY', beaconBindings[2], addresses.factory);
+    check('Market.factory', marketBindings[0], addresses.factory);
+    check('Market.timelock', marketBindings[1], addresses.timelock);
+    check('升级最小延迟', delays[0], UPGRADE_DELAY_SECONDS);
+    check('延迟硬下限', delays[1], UPGRADE_DELAY_SECONDS);
+    const roleLabels = ['管理地址提案权', '管理地址取消权', '到期公开执行', 'Timelock 自管理', '部署者没有 Timelock admin', '协调器没有 Timelock admin'];
+    roleChecks.forEach((actual, index) => check(roleLabels[index], actual, index < 4));
+    const slotAddress = (slot: string) => getAddress(`0x${slot.slice(-40)}`);
+    check('Factory UUPS 实现槽', slotAddress(slots[0]), snapshot.addresses.PoolFactory);
+    check('Market UUPS 实现槽', slotAddress(slots[1]), snapshot.addresses.ShareMarket);
     if (requireInitialEmpty) check('初始池子数量', poolCount, 0);
     else checks.push({ label: '当前池子数量', passed: true, actual: poolCount.toString(), expected: '部署完成后允许创建资金池' });
     const code: Record<string, CodeRecord> = {};
-    for (const [name, address] of Object.entries(snapshot.addresses)) {
-      code[name] = await codeRecord(this.provider, address);
+    for (const [name, address, runtime] of observedCodes) {
+      assert(runtime !== '0x', `${address} 没有合约代码。`);
+      code[name] = { address: getAddress(address), codehash: keccak256(runtime), codeBytes: (runtime.length - 2) / 2 };
       const artifactName = ({ factory: 'ERC1967Proxy', shareMarket: 'ERC1967Proxy', timelock: 'PoolTimelock', beacon: 'PoolBeacon', lens: 'PoolLens' } as Record<string, string>)[name] ?? name;
-      check(`${name} 运行代码匹配`, runtimeMatches(this.bundle.artifacts[artifactName], await this.provider.getCode(address), snapshot.addresses, address), true);
+      check(`${name} 运行代码匹配`, runtimeMatches(this.bundle.artifacts[artifactName], runtime, snapshot.addresses, address), true);
     }
-    const verification = { checkedAt: new Date().toISOString(), blockNumber: await this.provider.getBlockNumber(), checks, code };
+    const [currentBlock] = await Promise.all([this.provider.getBlock(blockTag), walletAccount(this.wallet, snapshot.account)]);
+    assert(currentBlock?.hash === block.hash, '部署图校验期间区块发生重组，请重新核对。');
+    const verification = { checkedAt: new Date().toISOString(), blockNumber: blockTag, checks, code };
     snapshot.verification = verification;
     assert(checks.every(item => item.passed), `部署后校验失败：${checks.filter(item => !item.passed).map(item => item.label).join('、')}`);
     return verification;

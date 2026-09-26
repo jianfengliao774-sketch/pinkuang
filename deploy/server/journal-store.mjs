@@ -69,9 +69,23 @@ export class JournalStore {
 
   deployment(account) {
     const current = this.db.prepare('SELECT revision,record FROM deployment WHERE account=?').get(account);
-    const archives = this.db.prepare('SELECT record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT 100')
-      .all(account).map(row => read(row.record));
-    return { record: read(current?.record ?? null), revision: current?.revision ?? 0, archives };
+    const archivePage = this.archives(account, null, 100);
+    const completed = this.db.prepare(`SELECT record FROM deployment_archives
+      WHERE account=? AND json_extract(record, '$.status')='complete' ORDER BY rowid DESC LIMIT 1`).get(account);
+    return { record: read(current?.record ?? null), revision: current?.revision ?? 0,
+      archives: archivePage.items, archiveNextCursor: archivePage.nextCursor,
+      latestCompleted: read(completed?.record ?? null) };
+  }
+  archives(account, cursor, limit) {
+    const sql = cursor === null
+      ? 'SELECT CAST(rowid AS TEXT) AS cursor,record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT ?'
+      : 'SELECT CAST(rowid AS TEXT) AS cursor,record FROM deployment_archives WHERE account=? AND rowid < CAST(? AS INTEGER) ORDER BY rowid DESC LIMIT ?';
+    const rows = cursor === null
+      ? this.db.prepare(sql).all(account, limit + 1)
+      : this.db.prepare(sql).all(account, cursor, limit + 1);
+    const page = rows.slice(0, limit);
+    return { items: page.map(row => read(row.record)),
+      nextCursor: rows.length > limit ? page.at(-1).cursor : null };
   }
   putDeployment(account, record, expectedRevision) {
     return this.transaction(() => {
@@ -95,11 +109,13 @@ export class JournalStore {
       const current = this.db.prepare('SELECT revision,record FROM deployment WHERE account=?').get(account);
       if (!current || current.revision !== expectedRevision) throw new JournalConflict('Deployment revision changed.');
       const record = read(current.record);
-      if (!record || record.id !== id || record.status !== 'aborted') throw new JournalConflict('Only the matching aborted deployment can be archived.');
+      if (!record || record.id !== id || !['aborted','complete'].includes(record.status))
+        throw new JournalConflict('Only the matching completed or aborted deployment can be archived.');
       this.db.prepare('INSERT INTO deployment_archives(account,id,record) VALUES(?,?,?)').run(account, id, canonical(record));
       this.db.prepare('UPDATE deployment SET revision=?,record=NULL WHERE account=?').run(current.revision + 1, account);
-      return { revision: current.revision + 1, archives: this.db.prepare('SELECT record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT 100')
-        .all(account).map(row => read(row.record)) };
+      const state = this.deployment(account);
+      return { revision: state.revision, archives: state.archives,
+        archiveNextCursor: state.archiveNextCursor, latestCompleted: state.latestCompleted };
     });
   }
   importArchive(account, record) {

@@ -65,7 +65,12 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
     });
     return () => { cancelled = true; };
   }, [journal, account, journalLoad]);
-  useEffect(() => { if (factoryAddress) { version.current += 1; setFactory(factoryAddress); setIdentity(null); setOrders([]); setCredit(null); } }, [factoryAddress]);
+  useEffect(() => {
+    version.current += 1;
+    setFactory(factoryAddress || '');
+    setIdentity(null); setOrders([]); setCredit(null); setCursor(null); setScanned(0); setTotalOrders(0n);
+    setQuote(null); setBuyOrder(null); setBuyBalance(null); setPosition(null);
+  }, [factoryAddress, account]);
   useEffect(() => {
     version.current += 1; setQuote(null); setPosition(null); setBuyOrder(null); setBuyBalance(null); setCredit(null); setIdentity(null); setOrders([]);
     if (!wallet) return;
@@ -181,7 +186,7 @@ export default function MarketPage({ wallet, account, factoryAddress, journal, o
   return <div className="market-page">
     <div className="mk-heading"><div><div className="mk-eyebrow">SHARE MARKET <span>BSC MAINNET</span></div><h1>让份额自由流转<span>。</span></h1><p>按份挂单，按需买入。持仓与成交以链上记录为准。</p></div><div className="mk-heading-symbol"><ShoppingBag size={31}/></div></div>
     <div className="mk-top-grid">
-      <section className="mk-card mk-connect"><div className="mk-section-title"><h2>连接你的份额市场</h2><span className="mk-tag">BNB · Chain 56</span></div><label htmlFor="mk-factory">Factory 合约地址</label><div className="mk-input-action"><input id="mk-factory" value={factory} placeholder="0x… 输入本次部署的 Factory 地址" disabled={!!busy} onChange={event => { version.current += 1; setFactory(event.target.value); setIdentity(null); setOrders([]); setPosition(null); setCredit(null); setQuote(null); }}/><button className="mk-button mk-dark" disabled={!!busy || !factory.trim()} onClick={() => void refresh()}>{busy === '验证并读取市场' ? <LoaderCircle className="mk-spin" size={16}/> : <ArrowRight size={16}/>}验证市场</button></div><p className="mk-hint">{factoryAddress && sameAddress(factory, factoryAddress) ? '已填入本页面部署的 Factory。' : '手动地址请与项目部署记录核对。'}双向校验确认配置一致，不代表对任意合约的安全认证。</p>{identity && <div className="mk-identity"><span><CheckCircle2 size={14}/>绑定一致</span><span>市场 <Addr value={identity.market}/></span><span>时间锁 <Addr value={identity.timelock}/></span><span>区块 {identity.blockNumber.toLocaleString()}</span></div>}</section>
+      <section className="mk-card mk-connect"><div className="mk-section-title"><h2>连接你的份额市场</h2><span className="mk-tag">BNB · Chain 56</span></div><label htmlFor="mk-factory">Factory 合约地址</label><div className="mk-input-action"><input id="mk-factory" value={factory} placeholder="0x… 输入本次部署的 Factory 地址" disabled={!!busy} onChange={event => { version.current += 1; setFactory(event.target.value); setIdentity(null); setOrders([]); setCursor(null); setScanned(0); setTotalOrders(0n); setPosition(null); setCredit(null); setQuote(null); setBuyOrder(null); setBuyBalance(null); }}/><button className="mk-button mk-dark" disabled={!!busy || !factory.trim()} onClick={() => void refresh()}>{busy === '验证并读取市场' ? <LoaderCircle className="mk-spin" size={16}/> : <ArrowRight size={16}/>}验证市场</button></div><p className="mk-hint">{factoryAddress && sameAddress(factory, factoryAddress) ? '已填入本页面部署的 Factory。' : '手动地址请与项目部署记录核对。'}双向校验确认配置一致，不代表对任意合约的安全认证。</p>{identity && <div className="mk-identity"><span><CheckCircle2 size={14}/>绑定一致</span><span>市场 <Addr value={identity.market}/></span><span>时间锁 <Addr value={identity.timelock}/></span><span>区块 {identity.blockNumber.toLocaleString()}</span></div>}</section>
       <section className="mk-card mk-credit"><div className="mk-section-title"><span>可领取的市场收入</span><Coins size={18}/></div><div className="mk-credit-number">{credit === null ? '—' : bnb(credit)} <small>BNB</small></div><p>成交款与手续费收入单独记账，领取后进入你的钱包。</p><button className="mk-button mk-gold" disabled={!identity || (!!account && (frozen || credit === null || credit === 0n))} onClick={() => account ? void preview({ kind: 'withdraw' }) : onConnect()}><ArrowDownToLine size={16}/>{account ? '领取 BNB' : '连接钱包查看'}</button></section>
     </div>
 

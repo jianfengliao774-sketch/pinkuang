@@ -44,6 +44,8 @@ export default function App() {
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [snapshot, setSnapshot] = useState<DeploymentSnapshot | null>(null);
   const [archives, setArchives] = useState<DeploymentSnapshot[]>([]);
+  const [archiveCursor, setArchiveCursor] = useState<string | null>(null);
+  const [latestArchivedComplete, setLatestArchivedComplete] = useState<DeploymentSnapshot | null>(null);
   const [confirmation, setConfirmation] = useState(false);
   const [governanceReviewed, setGovernanceReviewed] = useState(false);
   const [protocolReviewed, setProtocolReviewed] = useState(false);
@@ -68,6 +70,7 @@ export default function App() {
       const current = await readWallet(selected.provider);
       if (!current || (journal && current.address.toLowerCase() !== journal.account.toLowerCase())) {
         setSelected(null); setWallet(null); setJournal(null); setSnapshot(null); setArchives([]);
+        setArchiveCursor(null); setLatestArchivedComplete(null);
         setError('钱包账户已变化，请重新连接以读取对应钱包的服务器记录。');
       } else setWallet(current);
     }
@@ -93,6 +96,7 @@ export default function App() {
   const total = snapshot?.steps.length || LIBRARY_NAMES.length + 5;
   const complete = snapshot?.status === 'complete';
   const aborted = snapshot?.status === 'aborted';
+  const latestCompleted = complete ? snapshot : latestArchivedComplete;
   const recoveryStep = snapshot?.steps.find(step =>
     ((step.status === 'uncertain' || step.status === 'signing') && !step.txHash) || (step.status === 'submitted' && !!step.txHash));
   const onBsc = wallet?.chainId === 56;
@@ -111,6 +115,7 @@ export default function App() {
       const state = await serverJournal.loadDeployment();
       setSelected(option); setWallet(connected); setJournal(serverJournal);
       setSnapshot(state.record); setArchives(state.archives);
+      setArchiveCursor(state.archiveNextCursor); setLatestArchivedComplete(state.latestCompleted);
       if (state.record) {
         const saved = state.record;
         setBudget(saved.input.maxGasBudgetBnb); setGasCap(saved.input.gasPriceCapGwei);
@@ -160,17 +165,34 @@ export default function App() {
     } catch (err) { setError(messageOf(err)); }
     finally { running.current = false; setBusy(''); await refreshWallet(); }
   }
-  async function archiveAborted() {
+  function showArchivedDeployment(state: Awaited<ReturnType<ServerJournal['loadDeployment']>>) {
+    setArchives(state.archives); setArchiveCursor(state.archiveNextCursor); setLatestArchivedComplete(state.latestCompleted);
+    setSnapshot(null); setRecoveryHash(''); setReport(null);
+    setGovernanceReviewed(false); setProtocolReviewed(false);
+  }
+  async function archiveCurrent() {
     if (!snapshot || !journal || running.current) return;
     running.current = true; setError(''); setBusy('核对并保存旧部署');
     try {
-      const checked = await createEngine().reconcile(snapshot);
-      if (checked.status !== 'aborted') throw new Error('旧部署尚未核实终止，不能新建部署。');
+      if (snapshot.status !== 'complete' && snapshot.status !== 'aborted') throw new Error('部署尚未完成或终止，不能归档。');
+      const checked = snapshot.status === 'aborted' ? await createEngine().reconcile(snapshot) : snapshot;
+      if (checked.status !== 'complete' && checked.status !== 'aborted') throw new Error('旧部署状态未核实，不能新建部署。');
       const current = await journal.readLatestDeployment();
-      if (!current || current.id !== checked.id || current.status !== 'aborted') throw new Error('部署记录已被其他页面更新，请刷新后重试。');
+      if (!current || current.id !== checked.id || current.status !== checked.status) throw new Error('部署记录已被其他页面更新，请刷新后重试。');
       const state = await journal.archiveDeployment(checked.id);
-      setArchives(state.archives); setSnapshot(null); setRecoveryHash(''); setReport(null);
-    } catch (err) { setError(messageOf(err)); }
+      showArchivedDeployment(state);
+    } catch (err) {
+      try {
+        const state = await journal.loadDeployment();
+        if (state.record === null && state.archives.some(item => item.id === snapshot.id)) {
+          showArchivedDeployment(state);
+          return;
+        }
+        setSnapshot(state.record); setArchives(state.archives);
+        setArchiveCursor(state.archiveNextCursor); setLatestArchivedComplete(state.latestCompleted);
+      } catch { /* Keep the original archive failure when server readback also fails. */ }
+      setError(messageOf(err));
+    }
     finally { running.current = false; setBusy(''); }
   }
   async function adjustBudget() {
@@ -182,10 +204,27 @@ export default function App() {
   }
   async function changeNetwork() { if (!selected) return; setBusy('切换网络'); setError(''); try { await switchToBsc(selected.provider); await refreshWallet(); } catch (err) { setError(messageOf(err)); } finally { setBusy(''); } }
   function exportRecord() { if (snapshot) download(`pinkuang-bsc-${snapshot.id}.json`, snapshot); }
-  function exportManifest() {
-    if (!snapshot || !bundle) return;
-    try { download(`pinkuang-bsc-public-contracts-${snapshot.id}.json`, deploymentManifest(snapshot, bundle)); }
-    catch (err) { setError(messageOf(err)); }
+  async function exportManifest(record = snapshot) {
+    if (!record || !bundle || !selected || !journal || busy) return;
+    setError(''); setBusy('核对当前链上合约');
+    try {
+      const inspected = await createEngine().inspectGraphForManifest(record);
+      download(`pinkuang-bsc-public-contracts-${record.id}.json`, deploymentManifest(inspected, bundle));
+    } catch (err) { setError(messageOf(err)); }
+    finally { setBusy(''); }
+  }
+  async function loadMoreArchives() {
+    if (!archiveCursor || !journal || busy) return;
+    setError(''); setBusy('读取更早部署');
+    try {
+      const page = await journal.loadArchivedDeployments(archiveCursor);
+      setArchives(previous => {
+        const ids = new Set(previous.map(item => item.id));
+        return [...previous, ...page.items.filter(item => !ids.has(item.id))];
+      });
+      setArchiveCursor(page.nextCursor);
+    } catch (err) { setError(messageOf(err)); }
+    finally { setBusy(''); }
   }
 
   return <div className="app-shell">
@@ -226,17 +265,26 @@ export default function App() {
             <section className="architecture-card"><div className="architecture-top"><span className="gold-icon"><GitBranch size={19}/></span><span>为后续升级做好准备</span></div><h2>代码可升级。<br/><span>权限有边界。</span></h2><div className="governance-flow"><div><Wallet size={17}/><span>你的管理钱包</span><small>发起提案</small></div><i/><div><LockKeyhole size={17}/><span>时间锁</span><strong>48h</strong></div><i/><div className="flow-contracts"><span>Factory<small>UUPS</small></span><span>Market<small>UUPS</small></span><span>Vault<small>Beacon</small></span></div></div><p>资金池通过共享 Beacon 升级，<br/>一次升级会影响所有关联池。</p><button onClick={() => setTab('governance')}>查看升级与权限<ArrowUpRight size={16}/></button></section>
             <section className="card deployment-summary"><h2>本次部署</h2><dl><div><dt>目标网络</dt><dd>BSC 主网</dd></div><div><dt>治理方式</dt><dd>单钱包 + 时间锁</dd></div><div><dt>钱包确认</dt><dd>{total} 笔交易</dd></div><div><dt>业务资金转入</dt><dd>0 BNB</dd></div><div><dt>Gas 总预算</dt><dd>{snapshot?.input.maxGasBudgetBnb || budget || '—'} BNB</dd></div>{snapshot && <div><dt>实际已花费</dt><dd>{Number(formatEther(snapshot.spentWei || '0')).toFixed(6)} BNB</dd></div>}</dl>
               {report && !snapshot && <div className="preflight-passed"><ShieldCheck size={17}/><span>链上配置检查通过</span></div>}
-              {!wallet ? <button className="primary-button" onClick={requestConnection} disabled={!!busy}><Wallet size={18}/>连接钱包开始<ArrowRight size={18}/></button> : !onBsc ? <button className="primary-button" onClick={changeNetwork} disabled={!!busy}>切换至 BSC 主网<ArrowRight size={18}/></button> : snapshot ? aborted ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void archiveAborted()}><FileClock size={18}/>保存旧记录并新建部署</button><button className="text-button" disabled={!!busy} onClick={exportRecord}><ArrowDownToLine size={14}/>导出旧记录 JSON</button></> : <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => complete ? exportRecord() : void resume()}>{busy ? <LoaderCircle className="spin" size={18}/> : complete ? <ArrowDownToLine size={18}/> : <Play size={17}/>} {busy || (complete ? '导出部署记录' : '核对并继续部署')}</button>{!complete && <button className="text-button" onClick={() => void resume(true)} disabled={!!busy}><RefreshCw size={14}/>只核对链上回执</button>}</> : <button className="primary-button" disabled={!canStart} onClick={() => report ? setConfirmation(true) : void checkConfig()}>{busy ? <LoaderCircle className="spin" size={18}/> : report ? <Rocket size={18}/> : <ShieldCheck size={18}/>} {busy || (report ? '开始一键部署' : '检查部署配置')}<ArrowRight size={18}/></button>}
+              {!wallet ? <button className="primary-button" onClick={requestConnection} disabled={!!busy}><Wallet size={18}/>连接钱包开始<ArrowRight size={18}/></button> : !onBsc ? <button className="primary-button" onClick={changeNetwork} disabled={!!busy}>切换至 BSC 主网<ArrowRight size={18}/></button> : snapshot ? aborted ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void archiveCurrent()}><FileClock size={18}/>保存旧记录并新建部署</button><button className="text-button" disabled={!!busy} onClick={exportRecord}><ArrowDownToLine size={14}/>导出旧记录 JSON</button></> : <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => complete ? exportRecord() : void resume()}>{busy ? <LoaderCircle className="spin" size={18}/> : complete ? <ArrowDownToLine size={18}/> : <Play size={17}/>} {busy || (complete ? '导出部署记录' : '核对并继续部署')}</button>{!complete && <button className="text-button" onClick={() => void resume(true)} disabled={!!busy}><RefreshCw size={14}/>只核对链上回执</button>}</> : <button className="primary-button" disabled={!canStart} onClick={() => report ? setConfirmation(true) : void checkConfig()}>{busy ? <LoaderCircle className="spin" size={18}/> : report ? <Rocket size={18}/> : <ShieldCheck size={18}/>} {busy || (report ? '开始一键部署' : '检查部署配置')}<ArrowRight size={18}/></button>}
+              {complete && <button className="text-button" disabled={!!busy || !journal || !onBsc} onClick={() => void archiveCurrent()}><FileClock size={14}/>归档本次部署并新建</button>}
               <p className="signer-note"><LockKeyhole size={12}/>签名始终在你的钱包中完成</p></section>
             <div className="risk-note"><OctagonAlert size={17}/><p>这是主网操作，会消耗真实 BNB。单钱包私钥持有人拥有升级权，请先用小额资产验证完整业务流程。</p></div>
           </aside></div>
         </>}
 
         {tab === 'pricing' && <PricingPanel onSavePlan={journal ? record => journal.saveQuote(record) : undefined}/>}
-        {tab === 'market' && <MarketPage wallet={selected?.provider || null} account={wallet?.address || null} journal={journal?.marketStorage() ?? null} factoryAddress={complete ? snapshot?.addresses.factory : undefined} onConnect={() => void requestConnection()}/>}
-        {tab === 'records' && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>部署记录</h2></div>{snapshot && <div className="record-actions"><button className="small-button" onClick={exportRecord}><ArrowDownToLine size={16}/>导出完整记录</button>{complete && <button className="small-button" disabled={!bundle} onClick={exportManifest}><ArrowDownToLine size={16}/>导出前端合约清单</button>}</div>}</div>{!snapshot ? <div className="large-empty"><FileClock size={36}/><h2>{archives.length ? '当前没有进行中的部署' : '还没有部署记录'}</h2><p>{wallet ? archives.length ? '历史终止记录见下方。' : '开始部署后，交易记录会保存在服务器。' : '连接钱包后读取该钱包在服务器保存的记录。'}</p><button className="small-button" onClick={() => setTab('deploy')}>前往合约部署<ArrowRight size={16}/></button></div> : <div className="records-body"><div className="record-meta"><span className={complete ? 'status-success' : 'status-pending'}>{complete ? '已完成核验' : '部署未完成'}</span><span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span><span>Chain ID 56</span><Address value={snapshot.account}/></div><div className="address-table">{Object.entries(snapshot.addresses).map(([name, value]) => <div key={name}><b>{name}</b><Address value={value}/></div>)}</div>{!Object.keys(snapshot.addresses).length && <p>暂未确认合约地址。请回到部署页核对交易回执。</p>}<details className="record-json"><summary>完整部署记录与核验结果<ChevronDown size={16}/></summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details><p className="field-help">完整记录保存在服务器，并按钱包隔离。建议另行导出备份，以便核对交易及后续升级。</p></div>}</section>}
+        {tab === 'market' && <MarketPage wallet={selected?.provider || null} account={wallet?.address || null} journal={journal?.marketStorage() ?? null} factoryAddress={latestCompleted?.addresses.factory} onConnect={() => void requestConnection()}/>}
+        {tab === 'records' && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>部署记录</h2></div>{snapshot && <div className="record-actions"><button className="small-button" onClick={exportRecord}><ArrowDownToLine size={16}/>导出完整记录</button>{complete && <button className="small-button" disabled={!bundle || !!busy || !onBsc} onClick={() => void exportManifest()}><ArrowDownToLine size={16}/>核验并导出合约清单</button>}</div>}</div>{!snapshot ? <div className="large-empty"><FileClock size={36}/><h2>{archives.length ? '当前没有进行中的部署' : '还没有部署记录'}</h2><p>{wallet ? archives.length ? '历史部署记录见下方。' : '开始部署后，交易记录会保存在服务器。' : '连接钱包后读取该钱包在服务器保存的记录。'}</p><button className="small-button" onClick={() => setTab('deploy')}>前往合约部署<ArrowRight size={16}/></button></div> : <div className="records-body"><div className="record-meta"><span className={complete ? 'status-success' : 'status-pending'}>{complete ? '已完成核验' : '部署未完成'}</span><span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span><span>Chain ID 56</span><Address value={snapshot.account}/></div><div className="address-table">{Object.entries(snapshot.addresses).map(([name, value]) => <div key={name}><b>{name}</b><Address value={value}/></div>)}</div>{!Object.keys(snapshot.addresses).length && <p>暂未确认合约地址。请回到部署页核对交易回执。</p>}<details className="record-json"><summary>完整部署记录与核验结果<ChevronDown size={16}/></summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details><p className="field-help">完整记录保存在服务器，并按钱包隔离。建议另行导出备份，以便核对交易及后续升级。</p></div>}</section>}
 
-        {tab === 'records' && archives.length > 0 && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>已保存的终止部署</h2></div></div><div className="records-body"><div className="address-table">{archives.map(item => <div key={item.id}><b>{new Date(item.createdAt).toLocaleString('zh-CN')}</b><Address value={item.account}/><span>已花费 {Number(formatEther(item.spentWei)).toFixed(6)} BNB</span><button className="small-button" onClick={() => download(`pinkuang-bsc-aborted-${item.id}.json`, item)}><ArrowDownToLine size={14}/>导出</button></div>)}</div><p className="field-help">旧部署的交易哈希、合约地址和实际 Gas 已留存。新部署不会复用旧合约。</p></div></section>}
+        {tab === 'records' && archives.length > 0 && <section className="card records-card">
+          <div className="card-heading"><div><FileClock size={21}/><h2>历史部署</h2></div></div>
+          <div className="records-body"><div className="address-table">{archives.map(item => <div key={item.id}>
+            <b>{new Date(item.createdAt).toLocaleString('zh-CN')} · {item.status === 'complete' ? '已完成' : '已终止'}</b>
+            <Address value={item.account}/><span>已花费 {Number(formatEther(item.spentWei)).toFixed(6)} BNB</span>
+            <button className="small-button" onClick={() => download(`pinkuang-bsc-${item.status}-${item.id}.json`, item)}><ArrowDownToLine size={14}/>导出记录</button>
+            {item.status === 'complete' && <button className="small-button" disabled={!bundle || !!busy || !onBsc} onClick={() => void exportManifest(item)}><ArrowDownToLine size={14}/>核验并导出合约清单</button>}
+          </div>)}</div>{archiveCursor && <button className="small-button" disabled={!!busy} onClick={() => void loadMoreArchives()}>{busy || '读取更早部署'}<ArrowRight size={14}/></button>}<p className="field-help">每次部署的交易哈希、合约地址和实际 Gas 均留在服务器。清单导出前会重新核对当前链上合约；前端接入时仍须按链复核。</p></div>
+        </section>}
         {tab === 'governance' && <div className="governance-page"><section className="card"><div className="card-heading"><div><ShieldCheck size={22}/><h2>谁可以升级合约</h2></div><span className="subtle-tag">单钱包管理</span></div><div className="governance-content"><div className="governance-banner"><KeyRound size={28}/><div><b>你的管理钱包发起升级</b><p>提案需要经过至少 48 小时等待。管理钱包可以在执行前取消；等待结束后，任何账户都可执行已批准的操作。</p></div></div><table><thead><tr><th>合约</th><th>升级方式</th><th>授权执行者</th></tr></thead><tbody><tr><td>PoolFactory</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>ShareMarket</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>所有 PoolVault</td><td>共享 Beacon</td><td>时间锁持有 Beacon</td></tr></tbody></table><div className="governance-points"><div><LockKeyhole size={19}/><b>48 小时等待下限</b><p>当前时间锁不允许将调度等待降到 48 小时以下。</p></div><div><Blocks size={19}/><b>原子初始化</b><p>代理创建与初始化在同一笔交易完成，避免未初始化代理暴露。</p></div><div><GitBranch size={19}/><b>保持资金池绑定</b><p>Beacon 新实现必须保持同一个官方 Factory 地址。</p></div></div><div className="alert alert-warning"><OctagonAlert size={21}/><div><strong>升级能力不等于安全保证</strong><p>有权限的钱包仍可提议恶意实现。时间锁提供反应时间；每次升级仍需审查代码、验证存储布局，并执行完整业务回归测试。</p></div></div><p className="governance-disclaimer">部署台核验的是部署图与权限配置，不能替代对业务逻辑、外部协议和未来实现的独立审计。修改实现时须继续保留当前的时间锁授权限制。</p></div></section></div>}
         <footer className="page-footer"><span><span className="tiny-brand">◆</span>拼矿协议<span className="footer-divider">/</span>部署工作台</span><a href="https://github.com/jianfengliao774-sketch/pinkuang/blob/codex/t1e-voting-sale/docs/deployment.md" target="_blank" rel="noreferrer">合约部署说明<ExternalLink size={13}/></a></footer>
       </main>

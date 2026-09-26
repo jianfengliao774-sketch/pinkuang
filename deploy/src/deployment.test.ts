@@ -231,7 +231,7 @@ test('prepared transaction goes straight to the wallet after durable intent and 
   await assert.rejects(engine(rejecting).start(input), /user rejected/);
   assert.equal(statusAtSend, 'signing', 'the journal intent must be saved before opening the wallet');
   assert.deepEqual(calls.slice(-3), ['eth_chainId', 'eth_accounts', 'eth_sendTransaction']);
-  assert.equal(calls.filter(method => method === 'eth_accounts').length, 4, 'no extra signer account query');
+  assert.equal(calls.filter(method => method === 'eth_accounts').length, 3, 'only preflight and the final pre-sign identity check query the account');
   assert.equal(submitted?.from.toLowerCase(), account.toLowerCase());
   assert.equal(submitted?.chainId, '0x38');
   assert.equal(submitted?.value, '0x0');
@@ -241,6 +241,24 @@ test('prepared transaction goes straight to the wallet after durable intent and 
   assert.match(submitted?.gasPrice ?? '', /^0x[0-9a-f]+$/i);
   assert.equal(submitted?.to, undefined, 'first step is contract creation');
   assert.equal(snapshot?.steps[0].status, 'rejected');
+});
+
+test('wallet change after the saved intent still blocks the signature', async () => {
+  const other = getAddress((await rpc('eth_accounts') as string[])[1]);
+  let switched = false;
+  let broadcasts = 0;
+  const switching: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_accounts' && switched) return Promise.resolve([other]);
+    if (request.method === 'eth_sendTransaction') broadcasts++;
+    return wallet.request(request);
+  } };
+  const guarded = new DeploymentEngine(switching, bundle, { persist: state => {
+    snapshot = structuredClone(state);
+    if (state.steps[0].status === 'signing') switched = true;
+  } });
+  await assert.rejects(guarded.start(input), /钱包账户已改变/);
+  assert.equal(broadcasts, 0);
+  assert.equal(snapshot?.steps[0].status, 'waiting');
 });
 
 test('wallet account change after broadcast still verifies that receipt and blocks the next signature', { timeout: 30_000 }, async () => {
@@ -287,7 +305,26 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.equal(adjusted.input.treasury, lowBudget.input.treasury);
   assert.equal(sends, beforeBudgetCheck, 'adjusting limits must never request signatures');
   await assert.rejects(engine().adjustLimits(adjusted, { maxGasBudgetBnb: '0.00000001', gasPriceCapGwei: input.gasPriceCapGwei }), /只能提高/);
-  const complete = await engine().resume(adjusted);
+  let graphPhase = false;
+  let activeCodeReads = 0;
+  let maxConcurrentCodeReads = 0;
+  const graphCodeReads = new Map<string, number>();
+  const countedWallet: Eip1193Provider = { request: async request => {
+    if (graphPhase && request.method === 'eth_getCode') {
+      const address = String((request.params as string[])[0]).toLowerCase();
+      graphCodeReads.set(address, (graphCodeReads.get(address) ?? 0) + 1);
+      activeCodeReads++;
+      maxConcurrentCodeReads = Math.max(maxConcurrentCodeReads, activeCodeReads);
+      try { await delay(5); return await wallet.request(request); }
+      finally { activeCodeReads--; }
+    }
+    return wallet.request(request);
+  } };
+  const countedEngine = new DeploymentEngine(countedWallet, bundle, { persist: state => {
+    snapshot = structuredClone(state);
+    if (state.steps.every(step => step.status === 'confirmed')) graphPhase = true;
+  } });
+  const complete = await countedEngine.resume(adjusted);
   assert.equal(complete.status, 'complete');
   assert.equal(complete.steps.length, LIBRARY_NAMES.length + 5);
   assert.ok(complete.steps.every(step => step.status === 'confirmed' && step.receipt?.status === 1));
@@ -295,8 +332,45 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.equal(complete.verification!.checks.find(check => check.label === '升级最小延迟')?.actual, '172800');
   assert.ok(BigInt(complete.spentWei) > 0n);
   assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 9);
+  assert.equal(graphCodeReads.size, Object.keys(complete.addresses).length);
+  assert([...graphCodeReads.values()].every(count => count === 1), 'graph audit reads each runtime only once');
+  assert(maxConcurrentCodeReads > 1, 'independent code reads should run concurrently');
   assert.equal(complete.verification!.checks.find(check => check.label === 'Lens.factory')?.actual.toLowerCase(), complete.addresses.factory.toLowerCase());
   assert.ok(complete.verification!.checks.find(check => check.label === 'lens 运行代码匹配')?.passed);
+  await rpc('anvil_mine', ['0x44']); // Advance Anvil's finalized tag past the initialize receipt.
+  const originalComplete = structuredClone(complete);
+  const taggedReads: Array<{ method: string; tag: unknown }> = [];
+  let manifestWrites = 0;
+  let manifestBroadcasts = 0;
+  const inspectingWallet: Eip1193Provider = { request: request => {
+    const params = request.params as unknown[] | undefined;
+    if (request.method === 'eth_call' || request.method === 'eth_getCode') taggedReads.push({ method: request.method, tag: params?.[1] });
+    if (request.method === 'eth_getStorageAt') taggedReads.push({ method: request.method, tag: params?.[2] });
+    if (request.method === 'eth_sendTransaction') manifestBroadcasts++;
+    return wallet.request(request);
+  } };
+  const inspector = new DeploymentEngine(inspectingWallet, bundle, { persist: () => { manifestWrites++; throw new Error('manifest inspection must be read-only'); } });
+  const inspected = await inspector.inspectGraphForManifest(complete);
+  assert(inspected.verification?.checks.every(check => check.passed));
+  assert.deepEqual(complete, originalComplete, 'manifest inspection must not mutate the saved record');
+  assert.equal(manifestWrites, 0);
+  assert.equal(manifestBroadcasts, 0);
+  assert.deepEqual(new Set(taggedReads.map(read => read.method)), new Set(['eth_call', 'eth_getCode', 'eth_getStorageAt']));
+  assert(taggedReads.every(read => read.tag !== undefined && BigInt(String(read.tag)) === BigInt(inspected.verification!.blockNumber)),
+    'every graph state read must use the recorded block number');
+  const wrongHash = structuredClone(complete);
+  wrongHash.steps.at(-1)!.txHash = complete.steps[0].txHash;
+  await assert.rejects(inspector.inspectGraphForManifest(wrongHash), /nonce/);
+  const forgedReceipt = structuredClone(complete);
+  forgedReceipt.steps.at(-1)!.receipt!.blockHash = `0x${'0'.repeat(64)}`;
+  await assert.rejects(inspector.inspectGraphForManifest(forgedReceipt), /保存的原子初始化回执与链上不一致/);
+  await assert.rejects(inspector.inspectGraphForManifest({ ...complete, artifactDigest: `0x${'0'.repeat(64)}` }), /构建产物已改变/);
+  const otherAccount = getAddress((await rpc('eth_accounts') as string[])[1]);
+  await assert.rejects(inspector.inspectGraphForManifest({ ...complete, account: otherAccount }), /管理地址不匹配/);
+  const wrongWallet: Eip1193Provider = { request: request => request.method === 'eth_accounts' ? Promise.resolve([otherAccount]) : wallet.request(request) };
+  await assert.rejects(new DeploymentEngine(wrongWallet, bundle, { persist: () => { manifestWrites++; } }).inspectGraphForManifest(complete), /钱包账户已改变/);
+  assert.equal(manifestWrites, 0);
+  assert.equal(manifestBroadcasts, 0);
   const publicManifest = deploymentManifest(complete, bundle);
   assert.equal(publicManifest.factory, complete.addresses.factory);
   assert.equal(publicManifest.lens, complete.addresses.lens);

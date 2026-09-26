@@ -10,7 +10,7 @@ class JournalHttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-async function request<T>(path: string, method = 'GET', body?: unknown, account?: string): Promise<T> {
+async function request<T>(path: string, method = 'GET', body?: unknown, account?: string, timeoutMs = 15_000): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (account) headers['X-Pinkuang-Account'] = account;
@@ -18,7 +18,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown, account?
     method, credentials: 'same-origin', cache: 'no-store',
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const result = await response.json().catch(() => ({})) as T & { error?: string };
   if (!response.ok) throw new JournalHttpError(response.status, result.error || `服务器记录服务不可用（HTTP ${response.status}）。`);
@@ -26,7 +26,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, account?
 }
 
 type Versioned<T> = { record: T | null; revision: number };
-type DeploymentView = Versioned<DeploymentSnapshot> & { archives: DeploymentSnapshot[] };
+type DeploymentView = Versioned<DeploymentSnapshot> & {
+  archives: DeploymentSnapshot[];
+  archiveNextCursor: string | null;
+  latestCompleted: DeploymentSnapshot | null;
+};
+type ArchivePage = { items: DeploymentSnapshot[]; nextCursor: string | null };
 type MarketView = Versioned<unknown>;
 
 /** The server is the only durable journal. This class keeps revisions in memory solely for CAS. */
@@ -60,14 +65,18 @@ export class ServerJournal {
 
   marketStorage(): MarketJournalStorage { return this.marketAdapter; }
 
-  private request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-    return request<T>(path, method, body, this.account);
+  private request<T>(path: string, method = 'GET', body?: unknown, timeoutMs?: number): Promise<T> {
+    return request<T>(path, method, body, this.account, timeoutMs);
   }
 
   async loadDeployment(): Promise<DeploymentView> {
     const view = await this.request<DeploymentView>('deployment');
-    if (!Number.isSafeInteger(view.revision) || view.revision < 0 || !Array.isArray(view.archives)) throw new Error('服务器部署记录格式异常。');
+    if (!Number.isSafeInteger(view.revision) || view.revision < 0 || !Array.isArray(view.archives)
+      || (view.archiveNextCursor !== null && typeof view.archiveNextCursor !== 'string')
+      || (view.latestCompleted !== null && typeof view.latestCompleted !== 'object')) throw new Error('服务器部署记录格式异常。');
     if (view.record && (view.record.chainId !== 56 || view.record.account.toLowerCase() !== this.account.toLowerCase())) throw new Error('服务器部署记录与当前钱包不匹配。');
+    if (view.latestCompleted && (view.latestCompleted.chainId !== 56 || view.latestCompleted.status !== 'complete'
+      || view.latestCompleted.account.toLowerCase() !== this.account.toLowerCase())) throw new Error('服务器已完成部署与当前钱包不匹配。');
     this.deploymentRevision = view.revision;
     return view;
   }
@@ -83,9 +92,32 @@ export class ServerJournal {
   }
 
   async archiveDeployment(id: string): Promise<DeploymentView> {
-    const result = await this.request<DeploymentView>('deployment/archive', 'POST', { id, expectedRevision: this.deploymentRevision });
-    this.deploymentRevision = result.revision;
-    return result;
+    try {
+      // Finality checks can require multiple RPC calls. A lost HTTP response may
+      // arrive after the server has committed the archive; reconcile by ID.
+      const result = await this.request<Omit<DeploymentView, 'record'>>('deployment/archive', 'POST',
+        { id, expectedRevision: this.deploymentRevision }, 90_000);
+      this.deploymentRevision = result.revision;
+      return { ...result, record: null };
+    } catch (error) {
+      try {
+        const current = await this.loadDeployment();
+        if (current.record === null && current.archives.some(item => item.id === id)) return current;
+      } catch { /* Preserve the original failure when readback is unavailable. */ }
+      throw error;
+    }
+  }
+
+  async loadArchivedDeployments(cursor: string, limit = 20): Promise<ArchivePage> {
+    if (!/^[1-9]\d{0,18}$/.test(cursor) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error('历史记录分页参数无效。');
+    }
+    const page = await this.request<ArchivePage>(`deployment/archives?cursor=${cursor}&limit=${limit}`);
+    if (!Array.isArray(page.items) || (page.nextCursor !== null && typeof page.nextCursor !== 'string')
+      || page.items.some(item => item.chainId !== 56 || item.account.toLowerCase() !== this.account.toLowerCase())) {
+      throw new Error('服务器历史部署格式异常。');
+    }
+    return page;
   }
 
   async importAbortedArchive(record: DeploymentSnapshot): Promise<void> {

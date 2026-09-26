@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { JsonRpcProvider, getAddress, keccak256, verifyMessage } from 'ethers';
+import { JsonRpcProvider, getAddress, getCreateAddress, keccak256, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
 
@@ -13,6 +13,9 @@ const DECIMAL = /^(0|[1-9]\d*)$/;
 const CHALLENGE = /^[A-Za-z0-9_-]{32}$/;
 const STATUSES = new Set(['ready','running','paused','failed','aborted','complete']);
 const STEP_STATUSES = new Set(['waiting','signing','submitted','confirmed','rejected','failed','uncertain','cancelled','replaced']);
+const LIBRARY_STEPS = new Set(['FlexiblePurchase','MiningOperations','PoolFunds','PurchaseValidation',
+  'RewardAccounting','SaleGovernance','SaleSettlement','ShareCheckpoints']);
+const FINAL_STEPS = ['AtomicDeployment','PoolVault','PoolFactory','ShareMarket','initialize'];
 
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -28,6 +31,8 @@ const exactRevision = value => {
 };
 const hashed = value => createHash('sha256').update(value).digest('hex');
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const recordedAddressMatches = (value, expected) => typeof value === 'string'
+  && /^0x[\da-f]{40}$/i.test(value) && value.toLowerCase() === expected;
 
 async function readJson(req) {
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) fail(415, 'JSON content type is required.');
@@ -163,6 +168,119 @@ export async function verifyAbortedDeployment(provider, record) {
   if (!terminalSeen) fail(409, 'Aborted deployment has no finalized terminal transaction.');
 }
 
+async function mapInBatches(items, size, action) {
+  const results = [];
+  for (let start = 0; start < items.length; start += size) {
+    const settled = await Promise.allSettled(items.slice(start, start + size).map((item, offset) => action(item, start + offset)));
+    const failure = settled.find(result => result.status === 'rejected');
+    if (failure) throw failure.reason;
+    results.push(...settled.map(result => result.value));
+  }
+  return results;
+}
+
+/** Verify all original nonces against one stable finalized BSC anchor. */
+async function finalizedCompletedSteps(provider, account, steps) {
+  if (!provider) fail(503, 'BSC receipt verifier is unavailable.');
+  try {
+    const chainId = await provider.send('eth_chainId', []);
+    if (typeof chainId !== 'string' || !/^0x[\da-f]+$/i.test(chainId) || BigInt(chainId) !== 56n)
+      fail(503, 'Receipt RPC is not BSC mainnet.');
+    const [latest, finalized] = await Promise.all([provider.getBlock('latest'), provider.getBlock('finalized')]);
+    if (!latest || !finalized?.hash) fail(409, 'Transaction is not finalized.');
+    if (await provider.getTransactionCount(account, finalized.number) <= steps.at(-1).nonce)
+      fail(409, 'Deployment nonces are not finalized.');
+    const proofs = await mapInBatches(steps, 4, async step => {
+      const [tx, receipt] = await Promise.all([
+        provider.getTransaction(step.txHash), provider.getTransactionReceipt(step.txHash),
+      ]);
+      if (!tx || !receipt) fail(409, 'Transaction is not finalized.');
+      if (tx.hash.toLowerCase() !== step.txHash.toLowerCase()
+        || receipt.hash.toLowerCase() !== step.txHash.toLowerCase()
+        || tx.chainId !== 56n || identity(tx.from) !== account.toLowerCase()
+        || identity(receipt.from) !== account.toLowerCase()
+        || tx.nonce !== step.nonce || tx.blockNumber !== receipt.blockNumber
+        || tx.blockHash !== receipt.blockHash
+        || (tx.to ?? '').toLowerCase() !== (receipt.to ?? '').toLowerCase()
+        || receipt.status !== 0 && receipt.status !== 1) fail(409, 'Transaction does not match the recorded wallet nonce.');
+      const canonical = await provider.getBlock(receipt.blockNumber);
+      if (canonical?.hash !== receipt.blockHash || latest.number - receipt.blockNumber + 1 < 2
+        || finalized.number < receipt.blockNumber) fail(409, 'Transaction is not finalized on the canonical chain.');
+      return { tx, receipt };
+    });
+    // Recheck every observed block before accepting the shared anchor; a reorg
+    // or inconsistent RPC response during any batch keeps the journal locked.
+    const observedBlocks = new Map();
+    for (const { receipt } of proofs) {
+      const prior = observedBlocks.get(receipt.blockNumber);
+      if (prior && prior !== receipt.blockHash) fail(409, 'Chain changed during receipt verification.');
+      observedBlocks.set(receipt.blockNumber, receipt.blockHash);
+    }
+    const observed = [...observedBlocks.entries()];
+    await mapInBatches(observed, 4, async ([number, hash]) => {
+      if ((await provider.getBlock(number))?.hash !== hash) fail(409, 'Chain changed during receipt verification.');
+    });
+    const [finalizedAgain, chainAgain] = await Promise.all([
+      provider.getBlock(finalized.number), provider.send('eth_chainId', []),
+    ]);
+    if (finalizedAgain?.hash !== finalized.hash || BigInt(chainAgain) !== 56n)
+      fail(409, 'Chain changed during receipt verification.');
+    return proofs;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    fail(503, 'Receipt RPC could not be verified.');
+  }
+}
+
+/** A completed deployment may be retired only after proving its original transactions. */
+export async function verifyCompletedDeployment(provider, record) {
+  if (record?.status !== 'complete') fail(409, 'Only a completed deployment can be archived.');
+  const librarySteps = record.steps.slice(0, LIBRARY_STEPS.size);
+  if (record.steps.length !== LIBRARY_STEPS.size + FINAL_STEPS.length
+    || librarySteps.some(step => !LIBRARY_STEPS.has(step.id))
+    || new Set(librarySteps.map(step => step.id)).size !== LIBRARY_STEPS.size
+    || FINAL_STEPS.some((id, index) => record.steps[LIBRARY_STEPS.size + index].id !== id))
+    fail(409, 'Completed deployment has missing or reordered steps.');
+  const verification = record.verification;
+  if (!verification || !Array.isArray(verification.checks) || verification.checks.length === 0
+    || verification.checks.some(check => check?.passed !== true)
+    || !isRecord(verification.code)) fail(409, 'Completed deployment lacks a passed graph verification.');
+  let previousNonce = -1;
+  for (const step of record.steps) {
+    if (step.status !== 'confirmed' || step.replacementHash
+      || step.previousTxHashes?.length || !Number.isSafeInteger(step.nonce)
+      || step.nonce <= previousNonce || !HASH.test(step.txHash)
+      || !HASH.test(step.dataHash) || !isRecord(step.receipt))
+      fail(409, 'Completed deployment contains an unknown or replaced transaction.');
+    previousNonce = step.nonce;
+  }
+  const proofs = await finalizedCompletedSteps(provider, record.account, record.steps);
+  let actualSpent = 0n;
+  for (const [index, step] of record.steps.entries()) {
+    const { tx, receipt } = proofs[index];
+    if (receipt.status !== 1 || tx.value !== 0n || keccak256(tx.data) !== step.dataHash
+      || (step.id === 'initialize'
+        ? !recordedAddressMatches(record.addresses.AtomicDeployment, tx.to?.toLowerCase())
+        : tx.to !== null)
+      || step.receipt.blockNumber !== receipt.blockNumber || step.receipt.blockHash !== receipt.blockHash
+      || step.receipt.status !== receipt.status
+      || step.receipt.gasUsed !== receipt.gasUsed.toString()
+      || step.receipt.gasPrice !== receipt.gasPrice.toString()
+      || step.receipt.feeWei !== receipt.fee.toString())
+      fail(409, 'Completed deployment transaction or receipt differs from the finalized chain.');
+    actualSpent += receipt.fee;
+    if (step.id === 'initialize') continue;
+    const deployed = getCreateAddress({ from: record.account, nonce: step.nonce }).toLowerCase();
+    const recordedCode = verification.code[step.id];
+    if (receipt.contractAddress?.toLowerCase() !== deployed
+      || !recordedAddressMatches(step.address, deployed) || !recordedAddressMatches(record.addresses[step.id], deployed)
+      || !isRecord(recordedCode) || !recordedAddressMatches(recordedCode.address, deployed)
+      || !HASH.test(step.codehash) || step.codehash.toLowerCase() !== recordedCode.codehash?.toLowerCase())
+      fail(409, 'Completed deployment contract address or recorded code identity differs.');
+  }
+  if (record.spentWei !== actualSpent.toString()) fail(409, 'Completed deployment total Gas fee differs from finalized receipts.');
+}
+
 function sessionCookie(token, secure) {
   return `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/api/journal; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`;
 }
@@ -225,6 +343,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
       if (method === 'GET' && path === '/api/journal/session') return send(200, { account });
       if (method === 'GET' && path === '/api/journal/deployment') return send(200, store.deployment(account));
+      if (method === 'GET' && path === '/api/journal/deployment/archives') {
+        const url = new URL(req.url, origin);
+        if (url.searchParams.getAll('cursor').length > 1 || url.searchParams.getAll('limit').length > 1)
+          fail(400, 'Invalid archive page.');
+        const cursor = url.searchParams.get('cursor');
+        const rawLimit = url.searchParams.get('limit') ?? '20';
+        const limit = Number(rawLimit);
+        if (cursor !== null && (!/^[1-9]\d{0,18}$/.test(cursor) || BigInt(cursor) > 9223372036854775807n)
+          || !DECIMAL.test(rawLimit) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+          fail(400, 'Invalid archive page.');
+        return send(200, store.archives(account, cursor, limit));
+      }
       if (method === 'PUT' && path === '/api/journal/deployment') {
         const body = await readJson(req);
         return send(200, { revision: store.putDeployment(account, validateDeployment(body.record, account), exactRevision(body.expectedRevision)) });
@@ -235,7 +365,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const current = store.deployment(account);
         if (!current.record || current.revision !== exactRevision(body.expectedRevision) || current.record.id !== body.id)
           fail(409, 'Deployment revision changed.');
-        await verifyAbortedDeployment(provider, current.record);
+        if (current.record.status === 'aborted') await verifyAbortedDeployment(provider, current.record);
+        else if (current.record.status === 'complete') await verifyCompletedDeployment(provider, current.record);
+        else fail(409, 'Only a completed or aborted deployment can be archived.');
         return send(200, store.archiveDeployment(account, body.id, exactRevision(body.expectedRevision)));
       }
       if (method === 'POST' && path === '/api/journal/deployment/import-archive') {

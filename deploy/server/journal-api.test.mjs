@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { Wallet, keccak256 } from 'ethers';
+import { Wallet, getCreateAddress, keccak256 } from 'ethers';
 import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { createDeploymentServer } from './index.mjs';
 
@@ -37,6 +37,50 @@ function chainProof(owner = account, original = intent(owner), hash = hex(77)) {
       : id === 'finalized' || id === 101 ? { number: 101, hash: finalHash }
         : id === 100 ? { number: 100, hash: blockHash } : null,
     getTransactionCount: async () => 8 };
+}
+
+function completedProof(owner = account, id = 'completed') {
+  const ids = ['FlexiblePurchase','MiningOperations','PoolFunds','PurchaseValidation',
+    'RewardAccounting','SaleGovernance','SaleSettlement','ShareCheckpoints',
+    'AtomicDeployment','PoolVault','PoolFactory','ShareMarket','initialize'];
+  const record = deployment(owner, id);
+  const transactions = new Map(), receipts = new Map(), blockHashes = new Map();
+  const fee = 21_000n * 1_000_000_000n;
+  const code = {};
+  record.status = 'complete'; record.steps = []; record.addresses = {};
+  for (const [index, stepId] of ids.entries()) {
+    const nonce = 10 + index, blockNumber = 100 + index;
+    const hash = hex(1000 + index), blockHash = hex(2000 + index);
+    const data = `0x60${(index + 1).toString(16).padStart(2, '0')}`;
+    const contractAddress = stepId === 'initialize' ? null : getCreateAddress({ from: owner, nonce });
+    const to = stepId === 'initialize' ? record.addresses.AtomicDeployment : null;
+    const receipt = { hash, from: owner, to, blockNumber, blockHash, status: 1,
+      contractAddress, gasUsed: 21_000n, gasPrice: 1_000_000_000n, fee };
+    transactions.set(hash, { hash, chainId: 56n, from: owner, nonce, blockNumber, blockHash,
+      to, data, value: 0n });
+    receipts.set(hash, receipt);
+    blockHashes.set(blockNumber, blockHash);
+    record.steps.push({ id: stepId, status: 'confirmed', nonce, txHash: hash,
+      dataHash: keccak256(data), receipt: { blockNumber, blockHash, status: 1,
+        gasUsed: receipt.gasUsed.toString(), gasPrice: receipt.gasPrice.toString(), feeWei: fee.toString() },
+      ...(contractAddress ? { address: contractAddress, codehash: hex(3000 + index) } : {}) });
+    if (contractAddress) {
+      record.addresses[stepId] = contractAddress;
+      code[stepId] = { address: contractAddress, codehash: hex(3000 + index) };
+    }
+  }
+  record.spentWei = (fee * BigInt(ids.length)).toString();
+  record.verification = { checks: [{ label: 'graph', passed: true }], code };
+  const provider = {
+    send: async () => '0x38',
+    getTransaction: async hash => transactions.get(hash) ?? null,
+    getTransactionReceipt: async hash => receipts.get(hash) ?? null,
+    getBlock: async tag => tag === 'latest' ? { number: 121, hash: hex(2121) }
+      : tag === 'finalized' || tag === 120 ? { number: 120, hash: hex(2120) }
+        : blockHashes.has(tag) ? { number: tag, hash: blockHashes.get(tag) } : null,
+    getTransactionCount: async () => 23,
+  };
+  return { record, provider, transactions, receipts, blockHashes };
 }
 
 async function fixture(provider = chainProof()) {
@@ -243,6 +287,180 @@ test('archive verifies every prior deployment nonce and rejects a forged confirm
       assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record === null, !forged);
     } finally { await f.close(); }
   }
+});
+
+test('a fully finalized deployment archives with its complete record and frees the wallet for another deployment', async () => {
+  const proof = completedProof();
+  let chainReads = 0, latestReads = 0, finalizedReads = 0, nonceReads = 0, activeReceipts = 0, peakReceipts = 0;
+  const send = proof.provider.send, getBlock = proof.provider.getBlock;
+  const getTransactionCount = proof.provider.getTransactionCount, getTransactionReceipt = proof.provider.getTransactionReceipt;
+  proof.provider.send = async (...args) => { chainReads++; return send(...args); };
+  proof.provider.getBlock = async tag => {
+    if (tag === 'latest') latestReads++;
+    if (tag === 'finalized') finalizedReads++;
+    return getBlock(tag);
+  };
+  proof.provider.getTransactionCount = async (...args) => { nonceReads++; return getTransactionCount(...args); };
+  proof.provider.getTransactionReceipt = async hash => {
+    activeReceipts++; peakReceipts = Math.max(peakReceipts, activeReceipts);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1));
+      return getTransactionReceipt(hash);
+    } finally { activeReceipts--; }
+  };
+  const f = await fixture(proof.provider);
+  try {
+    const { cookie } = await f.login(wallet);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: proof.record, expectedRevision: 0 }, cookie)).body.revision, 1);
+    assert.equal((await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 0 }, cookie)).status, 409);
+    const result = await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 1 }, cookie);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.revision, 2);
+    assert.deepEqual(result.body.archives[0], proof.record);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record, null);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: deployment(account, 'next-deployment'), expectedRevision: 2 }, cookie)).body.revision, 3);
+    assert.equal(chainReads, 2);
+    assert.equal(latestReads, 1);
+    assert.equal(finalizedReads, 1);
+    assert.equal(nonceReads, 1);
+    assert.ok(peakReceipts > 1 && peakReceipts <= 4);
+  } finally { await f.close(); }
+});
+
+test('completed archive rejects partial, unknown, replaced, tampered and unfinalized steps without clearing the record', async () => {
+  const variants = [
+    ['missing step', proof => { proof.record.steps.pop(); }],
+    ['unknown step', proof => { proof.record.steps[5].status = 'uncertain'; }],
+    ['replaced step', proof => { proof.record.steps[5].replacementHash = hex(9001); }],
+    ['replacement history', proof => { proof.record.steps[5].previousTxHashes = [hex(9002)]; }],
+    ['forged calldata', proof => { proof.record.steps[5].dataHash = hex(9003); }],
+    ['forged receipt', proof => { proof.record.steps[5].receipt.blockHash = hex(9004); }],
+    ['forged address', proof => { proof.record.steps[5].address = Wallet.createRandom().address; }],
+    ['missing address', proof => { delete proof.record.addresses.PoolVault; }],
+    ['forged fee', proof => { proof.record.spentWei = '0'; }],
+    ['unverified graph', proof => { proof.record.verification.checks[0].passed = false; }],
+    ['missing chain transaction', proof => { proof.transactions.delete(proof.record.steps[5].txHash); }],
+    ['finalized anchor changed', proof => {
+      const original = proof.provider.getBlock;
+      proof.provider.getBlock = async tag => tag === 120 ? { number: 120, hash: hex(9990) } : original(tag);
+    }],
+    ['chain changed', proof => {
+      let reads = 0;
+      proof.provider.send = async () => ++reads === 1 ? '0x38' : '0x1';
+    }],
+    ['canonical block changed', proof => {
+      const original = proof.provider.getBlock;
+      let reads = 0;
+      proof.provider.getBlock = async tag => tag === 105 && ++reads > 1
+        ? { number: 105, hash: hex(9991) } : original(tag);
+    }],
+    ['unfinalized chain', proof => {
+      const original = proof.provider.getBlock;
+      proof.provider.getBlock = async tag => tag === 'finalized' || tag === 120
+        ? { number: 105, hash: hex(2105) } : original(tag);
+    }],
+  ];
+  for (const [label, mutate] of variants) {
+    const proof = completedProof(account, label.replaceAll(' ', '-'));
+    mutate(proof);
+    const f = await fixture(proof.provider);
+    try {
+      const { cookie } = await f.login(wallet);
+      assert.equal((await f.request('/api/journal/deployment', 'PUT',
+        { record: proof.record, expectedRevision: 0 }, cookie)).status, 200, label);
+      const result = await f.request('/api/journal/deployment/archive', 'POST',
+        { id: proof.record.id, expectedRevision: 1 }, cookie);
+      assert.equal(result.status, 409, label);
+      const saved = await f.request('/api/journal/deployment', 'GET', undefined, cookie);
+      assert.equal(saved.body.record.id, proof.record.id, label);
+      assert.equal(saved.body.revision, 1, label);
+    } finally { await f.close(); }
+  }
+});
+
+test('completed archive keeps the record on an RPC failure midway through batched proof', async () => {
+  const proof = completedProof();
+  const original = proof.provider.getTransactionReceipt;
+  proof.provider.getTransactionReceipt = async hash => {
+    if (hash === proof.record.steps[5].txHash) throw new Error('RPC interrupted');
+    return original(hash);
+  };
+  const f = await fixture(proof.provider);
+  try {
+    const { cookie } = await f.login(wallet);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: proof.record, expectedRevision: 0 }, cookie)).status, 200);
+    assert.equal((await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 1 }, cookie)).status, 503);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.id, proof.record.id);
+  } finally { await f.close(); }
+});
+
+test('archive keyset pagination reaches records older than 100 and retains latest completed deployment', async () => {
+  const proof = completedProof();
+  const f = await fixture(proof.provider);
+  try {
+    const owner = await f.login(wallet), stranger = await f.login(other);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: proof.record, expectedRevision: 0 }, owner.cookie)).status, 200);
+    const archived = await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 1 }, owner.cookie);
+    assert.equal(archived.status, 200);
+    assert.equal(archived.body.latestCompleted.id, proof.record.id);
+    for (let index = 0; index < 110; index++) {
+      const record = deployment(account, `old-${index.toString().padStart(3, '0')}`);
+      record.status = 'aborted';
+      assert.equal((await f.request('/api/journal/deployment/import-archive', 'POST',
+        { record }, owner.cookie)).status, 200);
+    }
+    const state = await f.request('/api/journal/deployment', 'GET', undefined, owner.cookie);
+    assert.equal(state.body.archives.length, 100);
+    assert.equal(state.body.archives.some(item => item.id === proof.record.id), false);
+    assert.equal(state.body.latestCompleted.id, proof.record.id);
+    assert.match(state.body.archiveNextCursor, /^[1-9]\d*$/);
+    const seen = [];
+    let cursor = null;
+    do {
+      const path = `/api/journal/deployment/archives?limit=37${cursor ? `&cursor=${cursor}` : ''}`;
+      const page = await f.request(path, 'GET', undefined, owner.cookie);
+      assert.equal(page.status, 200);
+      seen.push(...page.body.items.map(item => item.id));
+      if (cursor === null) {
+        assert.equal(page.body.items[0].id, 'old-109');
+        const added = deployment(account, 'later-import'); added.status = 'aborted';
+        assert.equal((await f.request('/api/journal/deployment/import-archive', 'POST',
+          { record: added }, owner.cookie)).status, 200);
+      }
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    assert.equal(seen.length, 111);
+    assert.equal(new Set(seen).size, 111);
+    assert.equal(seen.at(-1), proof.record.id);
+    assert.equal(seen.includes('later-import'), false);
+    const isolated = await f.request('/api/journal/deployment/archives', 'GET', undefined, stranger.cookie);
+    assert.deepEqual(isolated.body, { items: [], nextCursor: null });
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, stranger.cookie)).body.latestCompleted, null);
+    for (const query of ['cursor=0', 'cursor=9223372036854775808', 'limit=0', 'limit=101', 'cursor=2&cursor=3']) {
+      assert.equal((await f.request(`/api/journal/deployment/archives?${query}`, 'GET', undefined, owner.cookie)).status, 400);
+    }
+  } finally { await f.close(); }
+});
+
+test('completed archive stays locked while the fixed BSC verifier is unavailable', async () => {
+  const proof = completedProof();
+  const f = await fixture(null);
+  try {
+    const { cookie } = await f.login(wallet);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: proof.record, expectedRevision: 0 }, cookie)).status, 200);
+    assert.equal((await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 1 }, cookie)).status, 503);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.id, proof.record.id);
+  } finally { await f.close(); }
 });
 
 test('production configuration requires explicit private store, exact HTTPS origin and HTTPS RPC', () => {
