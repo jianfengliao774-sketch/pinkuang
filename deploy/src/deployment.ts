@@ -395,6 +395,69 @@ export class DeploymentEngine {
     });
   }
 
+  /** Attach a mined transaction to a write-ahead intent after its RPC response was lost. Never signs or broadcasts. */
+  async recoverMinedTransaction(saved: DeploymentSnapshot, candidateHash: string): Promise<DeploymentSnapshot> {
+    return this.exclusive(async () => {
+      const hash = candidateHash.trim();
+      assert(/^0x[0-9a-fA-F]{64}$/.test(hash), '请输入完整的 0x 开头交易哈希。');
+      const snapshot = await this.latestSnapshot(saved);
+      assert(snapshot.steps.some(item => !item.txHash && (item.status === 'signing' || item.status === 'uncertain')),
+        '当前没有可通过交易哈希恢复的部署步骤。');
+      await this.restore(snapshot);
+      const step = snapshot.steps.find(item => item.status === 'uncertain' && !item.txHash);
+      assert(step, '当前没有可通过交易哈希恢复的部署步骤。');
+      assert(snapshot.steps.slice(0, snapshot.steps.indexOf(step)).every(item => item.status === 'confirmed'), '前置部署交易尚未全部核验。');
+      const [tx, receipt] = await Promise.all([
+        this.provider.getTransaction(hash), this.provider.getTransactionReceipt(hash),
+      ]);
+      assert(tx && receipt, '链上暂未同时查到交易和回执；请等待交易确认，并检查哈希与 RPC。');
+      assert(tx.hash.toLowerCase() === hash.toLowerCase() && receipt.hash.toLowerCase() === hash.toLowerCase(), '交易与回执哈希不一致。');
+      assert(await receipt.confirmations() >= 2, '交易尚未达到 2 次确认，请稍后重试。');
+      const block = await this.provider.getBlock(receipt.blockNumber);
+      assert(block?.hash === receipt.blockHash && tx.blockHash === receipt.blockHash, '交易回执不在当前主链上。');
+      assert(tx.chainId === 56n && sameAddress(tx.from, snapshot.account), '交易网络或发送者与本次部署不符。');
+      assert(sameAddress(receipt.from, tx.from) &&
+        ((receipt.to === null && tx.to === null) ||
+          (receipt.to !== null && tx.to !== null && sameAddress(receipt.to, tx.to))) &&
+        receipt.gasPrice === tx.gasPrice && receipt.gasUsed <= tx.gasLimit &&
+        receipt.fee === receipt.gasUsed * receipt.gasPrice, '交易回执与交易内容或 Gas 费用不一致。');
+      assert(tx.nonce === step.nonce && tx.type === 0, '交易 nonce 或类型与签名前保存的计划不一致。');
+      const expected = await this.transaction(snapshot, step);
+      const expectedDataHash = keccak256(expected.data as string);
+      assert(step.dataHash === expectedDataHash && keccak256(tx.data) === expectedDataHash, '交易内容与签名前保存的部署计划不一致。');
+      assert(tx.value === 0n && ((expected.to == null && tx.to === null) ||
+        (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to))), '交易目标地址或转账金额与计划不一致。');
+      assert(step.gasLimit && tx.gasLimit <= BigInt(step.gasLimit) &&
+        tx.gasPrice <= parseUnits(snapshot.input.gasPriceCapGwei, 'gwei'), '交易 Gas 设置超出签名前保存的限制。');
+
+      // Validate on a copy. An unrelated hash must never be saved into the deployment journal.
+      const recovered = clone(snapshot);
+      const recoveredStep = recovered.steps[snapshot.steps.indexOf(step)];
+      recoveredStep.txHash = tx.hash;
+      await this.acceptReceipt(recovered, recoveredStep, receipt);
+      assert(recoveredStep.status === 'confirmed', '交易仍待确认，请稍后重试。');
+      const currentReceipt = await this.provider.getTransactionReceipt(tx.hash);
+      const currentBlock = currentReceipt && await this.provider.getBlock(currentReceipt.blockNumber);
+      assert(currentReceipt?.blockHash === receipt.blockHash && currentBlock?.hash === receipt.blockHash &&
+        await currentReceipt.confirmations() >= 2, '交易回执已从当前主链移除，请重新核对。');
+      recovered.status = 'paused'; delete recovered.error;
+      // The receipt and Gas cost are durable even if the final deployment-graph audit fails.
+      await this.save(recovered);
+      if (recovered.steps.every(item => item.status === 'confirmed')) {
+        try {
+          recovered.verification = await this.verifyGraph(recovered);
+          recovered.status = 'complete';
+        } catch (error) {
+          recovered.error = errorMessage(error);
+          await this.save(recovered);
+          throw error;
+        }
+        await this.save(recovered);
+      }
+      return recovered;
+    });
+  }
+
   /** Increase only fee limits on the existing deployment. No signing, role changes or replacement transactions. */
   async adjustLimits(saved: DeploymentSnapshot, limits: Pick<DeploymentInput, 'maxGasBudgetBnb' | 'gasPriceCapGwei'>): Promise<DeploymentSnapshot> {
     return this.exclusive(async () => {

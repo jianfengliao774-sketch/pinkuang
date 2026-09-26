@@ -117,6 +117,65 @@ test('low gas budget pauses before any signature; rejection is persisted and unc
   assert.equal(attempts, 1);
 });
 
+test('mined deployment with a lost RPC hash is recovered only from the exact on-chain transaction', { timeout: 60_000 }, async () => {
+  let minedHash = '';
+  const lostResponse: Eip1193Provider = { request: async request => {
+    if (request.method !== 'eth_sendTransaction') return wallet.request(request);
+    minedHash = await wallet.request(request) as string;
+    await rpc('evm_mine'); await rpc('evm_mine');
+    throw new Error('local RPC response lost after broadcast');
+  } };
+  const before = sends;
+  await assert.rejects(engine(lostResponse).start(input), /response lost/);
+  const stalled = structuredClone(snapshot!);
+  const receipt = await new BrowserProvider(wallet).getTransactionReceipt(minedHash);
+  assert(receipt?.contractAddress && receipt.status === 1);
+  assert.equal(stalled.steps[0].status, 'uncertain');
+  assert.equal(stalled.steps[0].txHash, undefined);
+  assert.equal(stalled.spentWei, '0');
+  assert.equal(sends, before + 1);
+
+  await assert.rejects(engine().recoverMinedTransaction(stalled, 'not-a-hash'), /完整的 0x/);
+  await assert.rejects(engine().recoverMinedTransaction(stalled, `0x${'f'.repeat(64)}`), /暂未同时查到/);
+  const otherAccount = getAddress((await rpc('eth_accounts') as string[])[1]);
+  const unrelatedHash = await rpc('eth_sendTransaction', [{ from: otherAccount, to: account, value: '0x0' }]) as string;
+  await rpc('evm_mine'); await rpc('evm_mine');
+  await assert.rejects(engine().recoverMinedTransaction(stalled, unrelatedHash), /发送者/);
+
+  const tamperedIntent = structuredClone(stalled);
+  tamperedIntent.steps[0].dataHash = `0x${'0'.repeat(64)}`;
+  await assert.rejects(engine().recoverMinedTransaction(tamperedIntent, minedHash), /签名前保存的部署计划/);
+  const tamperedNonce = structuredClone(stalled);
+  tamperedNonce.steps[0].nonce = stalled.steps[0].nonce! + 1;
+  await assert.rejects(engine().recoverMinedTransaction(tamperedNonce, minedHash), /nonce/);
+  const tamperedGasLimit = structuredClone(stalled);
+  tamperedGasLimit.steps[0].gasLimit = '1';
+  await assert.rejects(engine().recoverMinedTransaction(tamperedGasLimit, minedHash), /Gas 设置/);
+  const tooSmallBudget = structuredClone(stalled);
+  tooSmallBudget.input.maxGasBudgetBnb = '0.000000000000000001';
+  await assert.rejects(engine().recoverMinedTransaction(tooSmallBudget, minedHash), /真实 Gas 费用超过预算/);
+  const originalCode = await rpc('eth_getCode', [receipt.contractAddress, 'latest']) as string;
+  await rpc('anvil_setCode', [receipt.contractAddress, '0x00']);
+  try {
+    await assert.rejects(engine().recoverMinedTransaction(stalled, minedHash), /链上运行代码/);
+  } finally {
+    await rpc('anvil_setCode', [receipt.contractAddress, originalCode]);
+  }
+  assert.equal(snapshot?.steps[0].txHash, undefined, 'an invalid candidate cannot be saved into the journal');
+  assert.equal(sends, before + 1, 'recovery must never broadcast');
+
+  const recovered = await engine().recoverMinedTransaction(stalled, minedHash);
+  assert.equal(recovered.steps[0].status, 'confirmed');
+  assert.equal(recovered.steps[0].txHash, minedHash);
+  assert.equal(recovered.steps[0].address?.toLowerCase(), receipt.contractAddress.toLowerCase());
+  assert.equal(recovered.spentWei, receipt.fee.toString());
+  assert.equal(sends, before + 1);
+  const checked = await engine().reconcile(recovered);
+  assert.equal(checked.steps[0].status, 'confirmed');
+  assert.equal(checked.spentWei, receipt.fee.toString());
+  assert.equal(sends, before + 1);
+});
+
 test('failure to durably write intent prevents any wallet signature', async () => {
   const count = sends;
   const failingStorage = new DeploymentEngine(wallet, bundle, { persist: state => {

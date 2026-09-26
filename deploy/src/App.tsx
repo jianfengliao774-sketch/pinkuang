@@ -45,6 +45,7 @@ export default function App() {
   const [treasury, setTreasury] = useState(initialSnapshot?.input.treasury || '');
   const [budget, setBudget] = useState(initialSnapshot?.input.maxGasBudgetBnb || '0.05');
   const [gasCap, setGasCap] = useState(initialSnapshot?.input.gasPriceCapGwei || '1');
+  const [recoveryHash, setRecoveryHash] = useState('');
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [snapshot, setSnapshot] = useState<DeploymentSnapshot | null>(initialSnapshot);
   const [confirmation, setConfirmation] = useState(false);
@@ -99,6 +100,7 @@ export default function App() {
   const confirmed = snapshot?.steps.filter(step => step.status === 'confirmed').length || 0;
   const total = snapshot?.steps.length || LIBRARY_NAMES.length + 5;
   const complete = snapshot?.status === 'complete';
+  const uncertainStep = snapshot?.steps.find(step => (step.status === 'uncertain' || step.status === 'signing') && !step.txHash);
   const onBsc = wallet?.chainId === 56;
   const canStart = !!wallet && onBsc && !!bundle && !busy && !snapshot;
 
@@ -146,6 +148,15 @@ export default function App() {
     catch (err) { setError(messageOf(err)); }
     finally { running.current = false; setBusy(''); await refreshWallet(); }
   }
+  async function recoverMinedTransaction() {
+    if (!snapshot || running.current) return;
+    running.current = true; setError(''); setBusy('核对交易哈希');
+    try {
+      await createEngine().recoverMinedTransaction(snapshot, recoveryHash);
+      setRecoveryHash('');
+    } catch (err) { setError(messageOf(err)); }
+    finally { running.current = false; setBusy(''); await refreshWallet(); }
+  }
   async function adjustBudget() {
     if (!snapshot || running.current) return;
     running.current = true; setError(''); setBusy('核对预算');
@@ -188,7 +199,7 @@ export default function App() {
             </section>
 
             <section className="card progress-card"><div className="card-heading"><div><span className="section-icon"><PackageCheck size={19}/></span><h2>部署进度</h2></div><span className="progress-count">{confirmed}<span> / {total} 笔</span></span></div><div className="progress-track"><div style={{ width: `${confirmed / total * 100}%` }}/></div>
-              {!snapshot ? <div className="progress-empty"><div className="step-grid"><span>01 — {LIBRARY_NAMES.length.toString().padStart(2, '0')}<b>部署基础库</b></span><span>{LIBRARY_NAMES.length + 1} — {LIBRARY_NAMES.length + 4}<b>部署协调器与实现</b></span><span>{LIBRARY_NAMES.length + 5}<b>原子初始化</b></span></div><p><CircleHelp size={15}/>一键开始后，按顺序在钱包中确认每笔交易。</p></div> : <><ol className="transaction-list">{snapshot.steps.map((step, index) => <li key={index} className={`tx-${step.status}`}><span className="tx-icon">{step.status === 'confirmed' ? <Check size={15}/> : ['submitted', 'signing'].includes(step.status) ? <LoaderCircle className="spin" size={15}/> : index + 1}</span><div><b>{step.label}</b><small>{step.status === 'confirmed' ? '已确认' : step.status === 'submitted' ? '已广播，等待确认' : step.status === 'signing' ? '等待钱包签名' : step.status === 'failed' ? '链上失败，禁止自动重发' : step.status === 'rejected' ? '签名已取消，可继续' : step.status === 'uncertain' ? '发送结果不明，禁止重发' : '待处理'}</small></div>{step.txHash && <a href={`${EXPLORER}/tx/${step.txHash}`} target="_blank" rel="noreferrer" title={step.txHash}><span>{short(step.txHash)}</span><ArrowUpRight size={14}/></a>}</li>)}</ol>{complete && <div className="success-inline"><CheckCheck size={20}/><span>部署及权限核验完成，地址已保存。</span></div>}</>}
+              {!snapshot ? <div className="progress-empty"><div className="step-grid"><span>01 — {LIBRARY_NAMES.length.toString().padStart(2, '0')}<b>部署基础库</b></span><span>{LIBRARY_NAMES.length + 1} — {LIBRARY_NAMES.length + 4}<b>部署协调器与实现</b></span><span>{LIBRARY_NAMES.length + 5}<b>原子初始化</b></span></div><p><CircleHelp size={15}/>一键开始后，按顺序在钱包中确认每笔交易。</p></div> : <><ol className="transaction-list">{snapshot.steps.map((step, index) => <li key={index} className={`tx-${step.status}`}><span className="tx-icon">{step.status === 'confirmed' ? <Check size={15}/> : ['submitted', 'signing'].includes(step.status) ? <LoaderCircle className="spin" size={15}/> : index + 1}</span><div><b>{step.label}</b><small>{step.status === 'confirmed' ? '已确认' : step.status === 'submitted' ? '已广播，等待确认' : step.status === 'signing' ? '等待钱包签名' : step.status === 'failed' ? '链上失败，禁止自动重发' : step.status === 'rejected' ? '签名已取消，可继续' : step.status === 'uncertain' ? '发送结果不明，禁止重发' : '待处理'}</small></div>{step.txHash && <a href={`${EXPLORER}/tx/${step.txHash}`} target="_blank" rel="noreferrer" title={step.txHash}><span>{short(step.txHash)}</span><ArrowUpRight size={14}/></a>}</li>)}</ol>{uncertainStep && <div className="budget-recovery"><label htmlFor="recovery-hash" className="field-label">恢复 {uncertainStep.label} 的交易</label><input id="recovery-hash" className="text-input mono" value={recoveryHash} placeholder="粘贴 BscScan 上的完整交易哈希" spellCheck={false} autoComplete="off" disabled={!!busy} onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy || !onBsc || !bundle || !/^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim())} onClick={() => void recoverMinedTransaction()}><ShieldCheck size={14}/>只读核验并恢复</button><p>仅接受与原部署账户、nonce、字节码和费用计划一致且已有链上回执的交易。恢复不会请求签名；验证通过后再手动继续部署。</p></div>}{complete && <div className="success-inline"><CheckCheck size={20}/><span>部署及权限核验完成，地址已保存。</span></div>}</>}
             </section>
           </div><aside className="right-column">
             <section className="architecture-card"><div className="architecture-top"><span className="gold-icon"><GitBranch size={19}/></span><span>为后续升级做好准备</span></div><h2>代码可升级。<br/><span>权限有边界。</span></h2><div className="governance-flow"><div><Wallet size={17}/><span>你的管理钱包</span><small>发起提案</small></div><i/><div><LockKeyhole size={17}/><span>时间锁</span><strong>48h</strong></div><i/><div className="flow-contracts"><span>Factory<small>UUPS</small></span><span>Market<small>UUPS</small></span><span>Vault<small>Beacon</small></span></div></div><p>资金池通过共享 Beacon 升级，<br/>一次升级会影响所有关联池。</p><button onClick={() => setTab('governance')}>查看升级与权限<ArrowUpRight size={16}/></button></section>
