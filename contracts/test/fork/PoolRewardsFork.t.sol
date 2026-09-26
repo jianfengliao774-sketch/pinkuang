@@ -39,7 +39,7 @@ interface IRewardsForkMiningState {
     function sampleCountFor(uint32 liveGates, uint32 cycles) external view returns (uint32);
 }
 
-/// @notice Production T1c entry points against real BSC NFT, Mining and BEM at a fixed block.
+/// @notice Production permanent-reward entry points against real BSC NFT, Mining and BEM at a fixed block.
 /// @dev Native funding and owner impersonation are local-only; no protocol code/storage or BEM balance is replaced.
 contract PoolRewardsForkTest is Test {
     uint256 private constant FORK_BLOCK = 123728000;
@@ -106,7 +106,7 @@ contract PoolRewardsForkTest is Test {
         assertEq(BEM.balanceOf(address(vault)), 0);
         assertEq(NFT.ownerOf(TOKEN_ID), address(vault));
         assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
-        assertTrue(vault.expiryEnabled());
+        assertFalse(vault.expiryEnabled(), "new pools have permanently claimable rewards");
     }
 
     function _deposit(address member, uint8 shares) private {

@@ -1,6 +1,6 @@
 # 2026-09-26 审计整改与业务规则更新
 
-本轮实现提交为 `5c286ad4beaf3a0c002a0724d7ea5d994db63f7a`，后续提交只归档验证结果或更新产物来源信息。
+本轮实现提交为 `5c286ad4beaf3a0c002a0724d7ea5d994db63f7a`，后续提交包含旧测试预期修正、验证记录与产物来源信息。
 
 本报告覆盖 PR #8（`codex/deploy-console`）对外部审阅意见的整改。所有验证均为本地测试、隔离 Anvil 或 CI；没有使用真实私钥或部署主网。测试通过不是资产安全保证。此前报告的代码行号、哈希和通过数量只适用于其当时版本。
 
@@ -44,7 +44,7 @@
 
 ## 验证记录
 
-整合检查已通过（本地未提交工作区；用下列源码与验证输入清单绑定，原日志 sourceCommit 是检查开始时的旧 HEAD，不能当作这些未提交修改的源码版本）：
+整合检查已通过。检查在本地提交前执行，用下列源码与验证输入清单绑定；原日志 sourceCommit 是检查开始时的 HEAD，不能单独当作被测工作区的源码版本：
 
 | 检查 | 结果与证据 |
 | --- | --- |
@@ -55,9 +55,14 @@
 | 页面/部署/市场/报价 | [32/32](../../../deploy/evidence/remediation-final-deploy-tests.log)，包括完整隔离 Anvil 单钱包部署、恢复、摘要篡改阻断 |
 | 其他脚本 | 同日志第二组 [71/71](../../../deploy/evidence/remediation-final-deploy-tests.log)，含 keeper 52、代理 6、产物 7、真实 Anvil 恢复 3、原生 Forge 启动器 3 |
 | 产物与页面构建 | [artifacts:check](../../../deploy/evidence/remediation-artifacts-check.log) 与 [build](../../../deploy/evidence/remediation-final-build.log) 均通过 |
+| BSC 固定区块分叉 | 区块 123728000，[52/52，11 suites](../../../deploy/evidence/remediation-release-fork/forge-test.log)，零失败、零跳过；[运行参数与 exit 0](../../../deploy/evidence/remediation-release-fork/summary.json) |
 | 清单 | [合约/config SHA-256](../../../deploy/evidence/remediation-final-contracts/source-sha256.json)、[验证脚本/布局/依赖 SHA-256](../../../deploy/evidence/remediation-final-contracts/verification-input-sha256.json) |
 
-固定块 fork 及远端最新 CI 结果在运行完成后追加；不能以旧版 fork 结果替代本轮。针对性采购测试 44/44、报价测试 12/12、市场页面逻辑测试 13/13、表决与市场专项 56/56、收益与迁移独立复核 38/38 已通过；这些局部结果不替代最终整合检查。
+固定块 fork 首轮 46 通过、1 个 suite 的 setUp 失败，原因是旧 expiryEnabled=true 断言；失败证据保留在 `deploy/evidence/remediation-final-fork/`。修正该测试预期后，收益分叉专项 6/6 和完整分叉 52/52 均通过，包括 24 小时领取边界、长期未领取收益以及真实 Mining 兼容性。
+
+最终[分叉源码清单](../../../deploy/evidence/remediation-release-fork/source-sha256.json)的 75 项、[验证输入清单](../../../deploy/evidence/remediation-release-fork/verification-input-sha256.json)的 25 项均与当前文件一致。与 324 项本地整合测试的清单相比，仅 `test/fork/PoolRewardsFork.t.sol` 修正了上述断言与说明；业务合约、其他测试和验证输入全部相同。部署产物补记来源提交时只改动 sourceCommit，没有更换 ABI、字节码或内容摘要。
+
+发布状态：GitHub 拒绝含 `.github/workflows/contracts.yml` 的推送，原因是当前 OAuth App 缺少 `workflow` scope。当前远端仍为旧提交 `8ce9535`，本轮源码与报告已在本地提交，等待用户补充授权；未冒称最新远端 CI 已通过。针对性采购测试 44/44、报价测试 12/12、市场页面逻辑测试 13/13、表决与市场专项 56/56、收益与迁移独立复核 38/38 已通过；这些局部结果不替代最终整合检查。
 
 第一轮整合发现 3 个收益测试仍按旧 95% 计算，1 个投票不变量在已冻结窗口执行转份额；测试已按新规则修正后重跑。同时发现本地 NPM 的 Foundry 包装器不传播子进程失败退出码；验证入口改用真实平台二进制，CI 保持原生 forge。第一轮失败日志保留，不把包装器返回 0 当成测试通过。新增的 Slither 中风险提示涉及固定每份整数取整、旧环形槽身份相等判断、零新增收益，以及忽略已内部记账的返回值；逐行注明原因并精确抑制误报，不关闭整个检测器。
 

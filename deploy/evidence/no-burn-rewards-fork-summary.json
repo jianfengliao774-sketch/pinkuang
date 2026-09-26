@@ -1,0 +1,16 @@
+{
+  "recordedAt": "2026-09-26T08:46:46.578945+00:00",
+  "passed": 6,
+  "failed": 0,
+  "forkBlock": 123728000,
+  "chainId": 56,
+  "nativeForge": "deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+  "exitCode": 0,
+  "command": "FOUNDRY_PROFILE=ci ./deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge test --root contracts --out /tmp/pinkuang-rewards-fork-out --cache-path /tmp/pinkuang-rewards-fork-cache --match-path test/fork/PoolRewardsFork.t.sol --fork-url https://bsc-mainnet.public.blastapi.io --fork-block-number 123728000 --threads 1 --compute-units-per-second 50 --fork-retries 10 --fork-retry-backoff 2000 -vv",
+  "testSourceSha256": "0420470a774c928a3cb06779cf6ec496731ebd0fe1b533408caf964a7622e7cf",
+  "notes": [
+    "Only the stale setUp expiry-enabled expectation was changed to false; production Solidity was unchanged.",
+    "All six actual BSC-fork tests passed, including 24-hour claim cooldown, explicit harvest before later claim, direct receipts, permanent claims after 30000 days, real arm/start and reclaim rejection.",
+    "No mainnet transaction was signed or broadcast. The pinned fork tests use only local funding, time/block progression and impersonation."
+  ]
+}
