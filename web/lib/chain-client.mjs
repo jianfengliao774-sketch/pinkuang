@@ -100,8 +100,8 @@ export function personalPoolAction(snapshot, pool, from, action, quantity) {
   if (action === 'deposit') {
     const qty = uint(quantity, 8);
     requireCondition(row.state === 0n && row.depositPaused === false && row.params !== null && snapshot.timestamp < row.params.fundingDeadline, 'Pool is not open for funding.');
-    requireCondition(qty > 0n && qty <= 49n && row.shares !== null && row.totalSupply !== null
-      && row.unitPriceWei !== null && row.shares + qty <= 49n && row.totalSupply + qty <= 100n, 'Share quantity unavailable.');
+    requireCondition(qty > 0n && qty <= 100n && row.totalSupply !== null
+      && row.unitPriceWei !== null && row.totalSupply + qty <= 100n, 'Share quantity unavailable.');
     return transaction(owner, target, abi.PoolVault, 'deposit', [qty], uint(row.unitPriceWei * qty));
   }
   requireCondition(['harvest', 'claim', 'withdrawBnb'].includes(action), 'Unsupported personal pool action.');

@@ -86,7 +86,7 @@ contract ShareMarketHandler is Test {
         if (id == 0) return;
         GhostOrder storage order = orders[id];
         uint256 buyer = buyerSeed % 7;
-        uint256 capacity = buyer == order.sellerIndex ? order.remaining : 49 - shares[order.poolIndex][buyer];
+        uint256 capacity = buyer == order.sellerIndex ? order.remaining : 100 - shares[order.poolIndex][buyer];
         if (capacity == 0) return;
         if (capacity > order.remaining) capacity = order.remaining;
         uint256 amount = bound(amountSeed, 1, capacity);
@@ -221,7 +221,7 @@ contract ShareMarketHandler is Test {
                 uint256 balance = vault.balanceOf(actors[a]);
                 assertEq(balance, shares[p][a]);
                 assertEq(vault.shareOf(actors[a]), balance);
-                assertLe(balance, 49);
+                assertLe(balance, 100);
                 assertEq(IShareTransferVault(address(vault)).lockedShares(actors[a]), orderLocks[p][a]);
                 assertEq(orderLocks[p][a], locked[p][a]);
                 assertLe(locked[p][a], balance);

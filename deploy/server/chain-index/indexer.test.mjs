@@ -121,6 +121,36 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('one wallet subscribes 20+80 then another buys 40+60 without duplicate positions or people', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-repeat-'));
+  const chain = new MockChain();
+  chain.event('factory', 'PoolCreated', [pool, collection, 16210n, 1100n, 1000n, alice], 1);
+  chain.event('pool', 'Deposited', [alice, 20, 220n, 220n], 2);
+  chain.event('pool', 'Transfer', [ZeroAddress, alice, 20n], 2);
+  chain.event('pool', 'Deposited', [alice, 80, 880n, 1100n], 2);
+  chain.event('pool', 'Transfer', [ZeroAddress, alice, 80n], 2);
+  chain.event('pool', 'Purchased', [500n, 0, 123n], 3);
+  chain.event('market', 'OrderListed', [1n, alice, pool, 100n, 10n], 4);
+  chain.event('market', 'OrderExpirySet', [1n, 1_800_000_000], 4);
+  chain.event('market', 'OrderFilled', [1n, bob, 40n, 400n, 4n], 5);
+  chain.event('pool', 'Transfer', [alice, bob, 40n], 5);
+  chain.event('market', 'OrderFilled', [1n, bob, 60n, 600n, 6n], 6);
+  chain.event('pool', 'Transfer', [alice, bob, 60n], 6);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
+    startBlock: 1, confirmations: 2 });
+  try {
+    await index.sync();
+    assert.equal(index.stats().everParticipantAddressCount, '2');
+    assert.deepEqual(index.accountPools(alice).items, [pool]);
+    assert.deepEqual(index.accountPools(bob).items, [pool]);
+    assert.equal(index.activity({ pool, account: alice }).items.filter(row => row.event === 'Deposited').length, 2);
+    assert.equal(index.activity({ pool, account: bob }).items.filter(row => row.event === 'OrderFilled').length, 2);
+    assert.equal(index.orders({ active: true }).items.length, 0);
+    assert.equal(index.orders({ active: false }).items[0].remaining, '0');
+    assert.equal(index.stats().shareMarketFilledGrossWei, '1000');
+  } finally { index.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('wrong chain/binding or mismatched logs fail closed without advancing durable cursor', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-bad-'));
   const dbPath = join(directory, 'index.sqlite');

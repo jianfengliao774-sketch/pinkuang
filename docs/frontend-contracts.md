@@ -24,7 +24,7 @@ Factory 初始化时自动创建 `PoolLens`，绑定该 Factory，没有持币�
 | --- | --- |
 | 拼矿目录 | `PoolLens.poolPage(offset, limit, account)`，每页最多 20 池；按 Factory 注册池分页，不按 NFT 去重 |
 | 我的资产/收益 | `positions(poolAddresses, account)`；保留当前份额为零但有收益、退款或售款的旧持有人 |
-| 认购 | `params.targetRaise`、`unitPriceWei`、`totalSupply`、`depositPaused`、`fundingDeadline`；每钱包最多 49 份 |
+| 认购 | `params.targetRaise`、`unitPriceWei`、`totalSupply`、`depositPaused`、`fundingDeadline`；同一钱包可反复认购，最多持有整池 100 份，整池总量不超过 100 份 |
 | 份额可售数 | `availableShares`；不能用 `balanceOf` 代替，也不能把已经锁定的份额再次出售 |
 | 收益余额 | `claimableBEM` 是已经入账的可领 BEM，不包含尚未 `harvest()` 的外部实时产出 |
 | BNB 余额 | `bnbOwed` 已包含懒结算的余款/整机售款，不能再加一次；份额市场售款另从 `ShareMarket.bnbOwed(account)` 读取并单独提取 |
@@ -61,4 +61,4 @@ pnpm build
 
 `contracts:sync` 先按锁定 Solidity/OZ/编译设置独立重编，验证部署 JSON，再导出四个 ABI 和规范化摘要。`contracts:check` 仅核对、不覆盖文件。`pnpm build` 的 prebuild 与 CI 均强制检查，源代码、部署产物或网页 ABI 漂移会失败。`pnpm dev` 是设计预览；其模拟值不得进入真实交易编码。
 
-验证结果及遗留边界见[本轮审计记录](audits/2026-09-26/frontend-contracts.md)。
+验证结果及遗留边界见[页面合约审计记录](audits/2026-09-26/frontend-contracts.md)与[单钱包 100 份专项审计](audits/2026-09-27/multi-share.md)。

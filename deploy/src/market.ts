@@ -58,19 +58,19 @@ export function address(value: string): string {
 }
 export const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export function shareAmount(value: string): bigint {
-  if (!/^[1-9]\d*$/.test(value)) throw new Error('份额必须是 1 至 49 的整数。');
+  if (!/^[1-9]\d*$/.test(value)) throw new Error('份额必须是 1 至 100 的整数。');
   const amount = BigInt(value);
-  if (amount > 49n) throw new Error('每次交易最多 49 份。');
+  if (amount > 100n) throw new Error('每次交易最多 100 份。');
   return amount;
 }
 export function unitPrice(value: string): bigint {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) throw new Error('单价应为非负 BNB 金额，最多 18 位小数。');
   const price = parseEther(value);
-  if (price > (2n ** 256n - 1n) / 49n) throw new Error('单价超出合约范围。');
+  if (price > (2n ** 256n - 1n) / 100n) throw new Error('单价超出合约范围。');
   return price;
 }
 export function tradeAmounts(amount: bigint, price: bigint) {
-  if (amount < 1n || amount > 49n || price < 0n) throw new Error('份额或单价无效。');
+  if (amount < 1n || amount > 100n || price < 0n) throw new Error('份额或单价无效。');
   const gross = amount * price;
   if (gross >= 2n ** 256n) throw new Error('成交金额超出合约范围。');
   const fee = gross / 100n;
@@ -79,15 +79,14 @@ export function tradeAmounts(amount: bigint, price: bigint) {
 export function requireList(position: Pick<PoolPosition, 'state' | 'tradingAllowed' | 'available'>, amount: bigint) {
   if (position.state !== 2) throw new Error('仅运行中（Active）的资金池可挂单。');
   if (!position.tradingAllowed) throw new Error('整机出售表决期间暂停挂单，待表决结束后再试。');
-  if (amount < 1n || amount > 49n || amount > position.available) throw new Error('可用份额不足，已挂单锁定的份额不能重复出售。');
+  if (amount < 1n || amount > 100n || amount > position.available) throw new Error('可用份额不足，已挂单锁定的份额不能重复出售。');
 }
-export function requireFill(order: MarketOrder, position: Pick<PoolPosition, 'state' | 'tradingAllowed' | 'balance'>, account: string, amount: bigint, now = BigInt(Math.floor(Date.now() / 1000))) {
+export function requireFill(order: MarketOrder, position: Pick<PoolPosition, 'state' | 'tradingAllowed'>, account: string, amount: bigint, now = BigInt(Math.floor(Date.now() / 1000))) {
   if (!order.active || order.remaining === 0n) throw new Error('订单已成交或撤销，请刷新。');
   if (order.expiresAt <= now) throw new Error('订单已到期，请卖家撤单后重新挂单。');
   if (position.state !== 2 || !position.tradingAllowed) throw new Error('资金池当前暂停份额交易；卖家仍可撤单。');
   if (sameAddress(order.seller, account)) throw new Error('这是你的挂单，请使用撤单操作解锁份额。');
-  if (amount < 1n || amount > 49n || amount > order.remaining) throw new Error('购买数量超过订单剩余份额。');
-  if (position.balance + amount > 49n) throw new Error(`每个钱包最多持有 49 份；当前最多还可购买 ${49n - position.balance} 份。`);
+  if (amount < 1n || amount > 100n || amount > order.remaining) throw new Error('购买数量超过订单剩余份额。');
 }
 export function pageIds(nextOrderId: bigint, cursor: bigint | null = null): bigint[] {
   if (nextOrderId < 1n) throw new Error('市场尚未正确初始化。');
@@ -203,7 +202,7 @@ export async function prepareMarketAction(wallet: WalletProvider, account: strin
     requireList(position, amount); pool = position.address; method = 'list'; args = [pool, amount, price]; title = '确认挂单';
   } else if (action.kind === 'fill') {
     const order = await readOrder(provider, identity, BigInt(action.orderId));
-    const position = await readPoolPosition(provider, identity, order.pool, account);
+    const position = await readPoolPosition(provider, identity, order.pool, null);
     amount = shareAmount(action.amount); requireFill(order, position, account, amount);
     if (order.pricePerUnit.toString() !== action.expectedPrice) throw new Error('订单价格与预览不一致，请刷新。');
     ({ gross, fee, sellerProceeds } = tradeAmounts(amount, order.pricePerUnit));
@@ -471,6 +470,6 @@ export async function reconcileMarketPending(provider: Provider, pending: Pendin
 export function marketError(error: unknown): string {
   const item = error as { code?: number | string; shortMessage?: string; message?: string; revert?: { name?: string } };
   if (item.code === 4001 || item.code === 'ACTION_REJECTED') return '你已取消钱包请求，未确认发送交易。';
-  const known: Record<string, string> = { OrderExpired: '订单已到期，请撤单后重新挂单。', WrongState: '资金池状态已变化，目前不可成交。', InactiveOrder: '订单已成交或撤销，请刷新。', InsufficientUnlockedShares: '可用份额不足。', ShareOutOfRange: '购买后持仓不能超过 49 份。', NothingToClaim: '目前没有可领取的 BNB。' };
+  const known: Record<string, string> = { OrderExpired: '订单已到期，请撤单后重新挂单。', WrongState: '资金池状态已变化，目前不可成交。', InactiveOrder: '订单已成交或撤销，请刷新。', InsufficientUnlockedShares: '可用份额不足。', ShareOutOfRange: '链上份额范围校验未通过，请核对资金池合约版本。', NothingToClaim: '目前没有可领取的 BNB。' };
   return known[item.revert?.name ?? ''] || (item.shortMessage || item.message || '读取失败，请检查网络后重试。').slice(0, 400);
 }
