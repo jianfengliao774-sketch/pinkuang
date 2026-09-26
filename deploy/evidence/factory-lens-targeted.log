@@ -1,0 +1,85 @@
+Compiling 105 files with Solc 0.8.24
+Solc 0.8.24 finished in 11.39s
+Compiler run successful!
+
+Ran 12 tests for test/unit/PoolGovernance.t.sol:PoolGovernanceTest
+[PASS] test_BeaconOwnershipCannotMigrateEvenThroughTimelock() (gas: 99036)
+[PASS] test_BeaconUpgradeChangesAllPoolsOnlyAfter48Hours() (gas: 6782990)
+[PASS] test_CreateBothWhitelistedCircuitTypesAndDirectSale() (gas: 1095417)
+[PASS] test_CreatePoolRegistryAndTreasurySnapshot() (gas: 1048578)
+[PASS] test_CreateRejectsInvalidEconomicAndTimingParameters() (gas: 216044)
+[PASS] test_DailyAdminDoesNotGiveOperatorOwnerPowers() (gas: 617152)
+[PASS] test_FactoryUpgradeRequiresRealTimelockQueueAndPreservesRegistry() (gas: 4938444)
+[PASS] test_GovernanceRolesAndNoDeployerAdmin() (gas: 77194)
+[PASS] test_InitializationRejectsMissingRolesAndUnprotectedGovernance() (gas: 2258639)
+[PASS] test_InitializeIsAtomicAndCannotBeRepeated() (gas: 38801)
+[PASS] test_TimelockDelayCannotBeReducedBelow48Hours() (gas: 63457)
+[PASS] test_TimelockProposeCancelAndPublicExecuteBoundaries() (gas: 58022)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 8.11ms (1.99ms CPU time)
+
+Ran 8 tests for test/unit/SingleOwnerDeployment.t.sol:SingleOwnerDeploymentTest
+[PASS] test_AllThreeUpgradePathsRequire48HoursAndPreserveFundedPool() (gas: 15809162)
+[PASS] test_DeploymentAndInitializersCannotBeReplayedOrTakenOver() (gas: 4279618)
+[PASS] test_FailedGraphLeavesNoUninitializedProxyAndCanRetrySamePrediction() (gas: 8262629)
+[PASS] test_ForeignCallerCannotDeployAndOwnerCannotBeRedirected() (gas: 40290)
+[PASS] test_OwnerCannotReduceSchedulingFloorEvenThroughTimelock() (gas: 4283419)
+[PASS] test_RejectsEmptyImplementationsAndForeignVaultBinding() (gas: 4956877)
+[PASS] test_RejectsZeroRolesAndPreservesLegacyMultisigRequirements() (gas: 46151)
+[PASS] test_SingleEOAWalletReceivesDailyRolesButNotDirectUpgradeAuthority() (gas: 4802888)
+Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 8.20ms (3.13ms CPU time)
+
+Ran 15 tests for test/unit/AtomicDeployment.t.sol:AtomicDeploymentTest
+[PASS] test_AtomicGraphIsInitializedWithCorrectRolesAndNoDeployerAuthority() (gas: 5099362)
+[PASS] test_AtomicMarketUpgradeStillRequiresFull48HourTimelock() (gas: 5786428)
+[PASS] test_BeaconAcceptsBoundUpgradeOnlyAfter48Hours() (gas: 9722609)
+[PASS] test_BeaconRejectsWrongFactoryOrMissingBindingEvenAfterTimelock() (gas: 9242066)
+[PASS] test_BootstrapMarketCannotBeReplacedByOwnerOperatorOrLaterTimelock() (gas: 4310667)
+[PASS] test_DeploymentAndBothInitializersCannotBeReplayedOrTakenOver() (gas: 4282193)
+[PASS] test_ImplementationsCannotBeInitializedBeforeDeployment() (gas: 28767)
+[PASS] test_NoPublicProxySurvivesFailedBootstrapAndSamePredictionCanRetry() (gas: 8297286)
+[PASS] test_OnlyBoundOfficialFactoryCanInitializeOfficialBeaconPool() (gas: 5085715)
+[PASS] test_ProductionCoordinatorAndImplementationsFitProtocolCodeLimits() (gas: 48715)
+[PASS] test_RejectsForeignFactoryBindingAndEmptyImplementation() (gas: 5030324)
+[PASS] test_RejectsInvalidOwnerMultisigConfiguration() (gas: 928850)
+[PASS] test_RejectsInvalidTreasuryMultisigThreshold() (gas: 483163)
+[PASS] test_RejectsUnseparatedOrMissingProductionRoles() (gas: 76226)
+[PASS] test_SeparateTreasuryMultisigCanUseDifferentValidThreshold() (gas: 4536373)
+Suite result: ok. 15 passed; 0 failed; 0 skipped; finished in 8.20ms (6.01ms CPU time)
+
+Ran 10 tests for test/unit/FactoryLensCreation.t.sol:FactoryLensCreationTest
+[PASS] test_changedTaskRevertsEntireCreationAndRegistry() (gas: 783733)
+[PASS] test_changedWeightRevertsEvenWhenMinimumStillMet() (gas: 786335)
+[PASS] test_checkedCreateRegistersMatchingReferenceAndEmitsRealPool() (gas: 777491)
+[PASS] test_checkedCreateRetainsOperatorAndCreationPauseRequirements() (gas: 90431)
+[PASS] test_failedFlexibleConfigurationAlsoRollsBackRegistration() (gas: 596445)
+[PASS] test_initializationCreatesBoundLensAndPermissionlessEnsureIsIdempotent() (gas: 37183)
+[PASS] test_legacyFlexibleEntryRemainsOperatorOnlyAndCompatible() (gas: 778969)
+[PASS] test_legacyZeroLensCreatesOnceWithoutChangingPoolsOrRolesEvenWhenPaused() (gas: 2001987)
+[PASS] test_uninitializedProxyAndImplementationCannotCreateLens() (gas: 4448920)
+[PASS] test_zeroExpectedWeightCannotDisableReferenceCheck() (gas: 776671)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 8.45ms (3.23ms CPU time)
+
+Ran 2 tests for test/unit/DeploymentScript.t.sol:DeploymentScriptTest
+[PASS] test_scriptRejectsWrongChainBeforeDeployment() (gas: 14920851)
+[PASS] test_scriptSimulatesAtomicDeploymentWithoutPrivateKey() (gas: 33619884)
+Logs:
+  chainId 56
+  coordinator 0xa8Aad1e3ba125Dd2Ac2749B0f059823e4E8C15CE
+  deployer 0x000000000000000000000000000000000000D310
+  ownerMultisig 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  operator 0x0000000000000000000000000000000000000123
+  treasury 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  timelock 0x10f79912D89Eb45A9Df871917507f2494df6EC99
+  beacon 0x04DF9CeE8dCbf3FA682284AdB7CC7e5d76CE9b29
+  factory 0xF396E8E0c79F3a226De10b272D88f5dab805B526
+  shareMarket 0x25c61d2f10c2F032C14baE88b99b9D49b9cd8c3E
+  vaultImplementation 0x074d190812BBdEeF161Ac61E12F0856F39093a5a
+  0x4c7b225d7919a325881588fb8596221fa1c5983fe67b444fe675e1e16f051169
+  factoryImplementation 0x744B4E42FF9b6A72bE4B54414F79e972766A1a56
+  0xd9f592ef5cd0c4e5315f1937dad442f04462359a2dbc1581423ae054c07ee25c
+  marketImplementation 0xBe54712881c6957580f8e2C4575a8511cc7ffAC8
+  0xa7cbb97b6b60c6f33aed335a05fd5ae0a783ce716951a11515ce2c26f8d879f7
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 8.54ms (6.36ms CPU time)
+
+Ran 5 test suites in 14.78ms (41.51ms CPU time): 47 tests passed, 0 failed, 0 skipped (47 total tests)

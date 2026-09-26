@@ -1,0 +1,10 @@
+{
+  "contract": "PoolLens",
+  "beforeSourceSha256": "8e7ae63d05a01a3c64ccb37417b8f2072e83ad49e49ae06a52929745b464289e",
+  "afterSourceSha256": "f3f00506210023c5ec64992618fe1340933798f9e653b8fcdb2368da2add9b83",
+  "runtimeBytes": 8929,
+  "metadataExcludedBytes": 8876,
+  "metadataExcludedSha256": "762e8f755cd05d66aa3ebba3fab6b3ac5d0fd92f69a847b106c90623419b1449",
+  "identicalRuntimeExcludingCompilerMetadata": true,
+  "reason": "11 reviewed node-local Slither annotations; behavior unchanged; complete bytecode regenerated from sources."
+}

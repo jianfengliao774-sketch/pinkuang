@@ -86,14 +86,15 @@ test('unknown send intents survive reload and malformed stored records block ano
 test('receipt recovery verifies original from/to/nonce/calldata/value and never broadcasts', async () => {
   const hash = `0x${'ab'.repeat(32)}`;
   const pending: PendingMarketTransaction = { version: 1, chainId: 56, account: buyer, factory, market, nonce: 7, action: { kind: 'withdraw' }, data: '0x1234', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };
-  const transaction = { from: buyer, to: market, nonce: 7, data: '0x1234', value: 0n, chainId: 56n };
+  const transaction = { hash, from: buyer, to: market, nonce: 7, data: '0x1234', value: 0n, chainId: 56n };
   const provider = (tx = transaction, chain = 56n) => ({
     getNetwork: async () => ({ chainId: chain }), getTransaction: async () => tx, getTransactionReceipt: async () => null,
+    getBlock: async () => ({ number: 1, hash: `0x${'12'.repeat(32)}` }), getTransactionCount: async () => 7,
   }) as unknown as Provider;
   const result = await recoverMarketReceipt(provider(), pending, hash);
   assert.equal(result.pending.hash, hash); assert.equal(result.receipt, null);
   await assert.rejects(recoverMarketReceipt(provider({ ...transaction, from: seller }), pending, hash), /不匹配/);
-  await assert.rejects(recoverMarketReceipt(provider({ ...transaction, value: 1n }), pending, hash), /不匹配/);
+  await assert.rejects(recoverMarketReceipt(provider({ ...transaction, value: 1n }), { ...pending, hash }, hash), /不匹配/);
   await assert.rejects(recoverMarketReceipt(provider(transaction, 1n), pending, hash), /BSC 主网/);
 });
 test('manual factory verification requires a coded address on BSC, not only a valid hex string', async () => {

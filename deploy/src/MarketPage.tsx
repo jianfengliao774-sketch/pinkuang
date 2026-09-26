@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, ArrowUpRight, CheckCircle2, CircleAlert, Clock3, Coins, LoaderCircle, LockKeyhole, RefreshCw, Search, ShoppingBag, SlidersHorizontal, Wallet, X } from 'lucide-react';
 import type { WalletProvider } from './wallet';
 import {
-  BSC_EXPLORER, PENDING_MARKET_KEY, POOL_STATES, bnb, marketError, marketProvider,
+  BSC_EXPLORER, POOL_STATES, bnb, marketError, marketProvider,
   prepareMarketAction, readMarketCredit, readMarketIdentity, readOrderPage, readPoolPosition,
-  recoverMarketReceipt, requireFill, restoreMarketPending, sameAddress, sendMarketAction, shareAmount, tradeAmounts, unitPrice,
+  reconcileMarketPending, requireFill, restoreMarketPending, sameAddress, sendMarketAction, shareAmount, tradeAmounts, unitPrice,
   type MarketAction, type MarketIdentity, type MarketOrder, type MarketQuote, type PendingMarketTransaction, type PoolPosition,
 } from './market';
 import './market.css';
@@ -39,7 +39,7 @@ export default function MarketPage({ wallet, account, factoryAddress, onConnect 
   const [notice, setNotice] = useState('');
   const [pending, setPending] = useState<PendingMarketTransaction | null>(null);
   const [recoveryHash, setRecoveryHash] = useState('');
-  const [receipt, setReceipt] = useState<{ hash: string; success: boolean; block: number; fee: bigint } | null>(null);
+  const [receipt, setReceipt] = useState<{ hash: string; label: string; success: boolean; block: number; fee: bigint } | null>(null);
   const running = useRef(false), version = useRef(0);
 
   useEffect(() => {
@@ -119,16 +119,15 @@ export default function MarketPage({ wallet, account, factoryAddress, onConnect 
       await checkPending(transaction);
     });
   }
-  async function checkPending(item = pending) {
+  async function checkPending(item = pending, hash?: string) {
     if (!item) return;
-    const recovered = await recoverMarketReceipt(marketProvider(null), item, item.hash || recoveryHash.trim());
-    localStorage.setItem(PENDING_MARKET_KEY, JSON.stringify(recovered.pending)); setPending(recovered.pending);
-    if (!recovered.receipt) { setNotice('交易尚未确认，记录已保留。稍后点击核对回执。'); return; }
+    const recovered = await reconcileMarketPending(marketProvider(null), item, localStorage, hash);
+    setNotice(recovered.message);
+    if (!recovered.resolution || !recovered.receipt) { setPending(recovered.pending); return; }
     const result = recovered.receipt;
-    if (result.status !== 0 && result.status !== 1) throw new Error('节点返回的交易状态尚不明确，保留记录等待再次核对。');
-    setReceipt({ hash: result.hash, success: result.status === 1, block: result.blockNumber, fee: result.fee });
-    localStorage.removeItem(PENDING_MARKET_KEY); setPending(null); setPosition(null); setQuote(null); setOrders([]); setIdentity(null); setCredit(null);
-    setNotice(result.status === 1 ? '交易已确认。请刷新市场，读取最新订单与余额。' : '交易已回滚，Gas 已消耗。请重新读取链上状态后再操作。');
+    const labels = { confirmed: '市场交易成功', reverted: '市场交易回滚', cancelled: '钱包取消已生效', replaced: '原交易已被替换' };
+    setReceipt({ hash: result.hash, label: labels[recovered.resolution], success: result.status === 1, block: result.blockNumber, fee: result.fee });
+    setPending(null); setRecoveryHash(''); setPosition(null); setQuote(null); setOrders([]); setIdentity(null); setCredit(null);
   }
 
   const frozen = !!busy || !!pending || !!storageError;
@@ -152,8 +151,8 @@ export default function MarketPage({ wallet, account, factoryAddress, onConnect 
     {error && <div className="mk-banner mk-error" role="alert"><CircleAlert size={18}/><span>{error}</span><button aria-label="关闭错误" onClick={() => setError('')}><X size={16}/></button></div>}
     {storageError && <div className="mk-banner mk-error" role="alert"><LockKeyhole size={18}/><span>{storageError}</span></div>}
     {notice && <div className="mk-banner" role="status"><CheckCircle2 size={17}/><span>{notice}</span></div>}
-    {receipt && <div className={`mk-banner ${receipt.success ? '' : 'mk-error'}`}><CheckCircle2 size={17}/><span>{receipt.success ? '交易成功' : '交易回滚'} · 区块 {receipt.block.toLocaleString()} · 实际 Gas {bnb(receipt.fee)} BNB</span><Tx hash={receipt.hash}/></div>}
-    {pending && <section className="mk-card mk-pending"><div className="mk-section-title"><h2><Clock3 size={18}/> 交易待核对</h2>{pending.hash && <Tx hash={pending.hash}/>}</div><p>账户 <Addr value={pending.account}/> 已有一笔市场交易记录。结果明确前暂停发送新交易，刷新或更换页面也会保留记录。</p>{!pending.hash && <><p className="mk-hint">钱包未返回哈希，发送结果未知。请从钱包交易历史找到这次交易的哈希；这里只查询回执，不会重新发送。</p><input aria-label="待确认交易哈希" value={recoveryHash} onChange={event => setRecoveryHash(event.target.value)} placeholder="0x… 交易哈希"/></>}<button className="mk-button mk-dark" disabled={!!busy || (!pending.hash && !recoveryHash)} onClick={() => void run('核对交易回执', () => checkPending())}><RefreshCw size={15}/>核对回执</button></section>}
+    {receipt && <div className={`mk-banner ${receipt.success ? '' : 'mk-error'}`}><CheckCircle2 size={17}/><span>{receipt.label} · 已最终确认 · 区块 {receipt.block.toLocaleString()} · 实际 Gas {bnb(receipt.fee)} BNB</span><Tx hash={receipt.hash}/></div>}
+    {pending && <section className="mk-card mk-pending"><div className="mk-section-title"><h2><Clock3 size={18}/> 交易待核对</h2>{pending.hash && <Tx hash={pending.hash}/>}</div><p>账户 <Addr value={pending.account}/> 已有一笔市场交易记录。达到至少 2 次确认且链上 finalized 后才解除暂停，刷新或更换页面也会保留记录。</p><p className="mk-hint">如在钱包中加速、取消或替换了交易，请补录对应哈希；钱包未返回原哈希时也可在此补录。这里只核对同一账户与 nonce 的最终结果，不会重新发送。</p><input aria-label="原交易或钱包替换交易哈希" value={recoveryHash} onChange={event => setRecoveryHash(event.target.value)} placeholder="0x… 可选：原交易、加速或取消哈希"/><button className="mk-button mk-dark" disabled={!!busy || (!pending.hash && !pending.recoveryHashes?.length && !recoveryHash.trim())} onClick={() => void run('核对交易回执', () => checkPending(pending, recoveryHash.trim() || undefined))}><RefreshCw size={15}/>核对回执并解除已结束记录</button></section>}
 
     <div className="mk-content-grid">
       <section className="mk-card mk-orders"><div className="mk-section-title"><div><h2>在售份额 <span className="mk-count">{displayed.length}</span></h2><p>最新挂单优先 · 每次读取 20 条链上订单</p></div><button className="mk-icon-button" aria-label="刷新市场订单" disabled={!!busy || !factory} onClick={() => void refresh()}><RefreshCw size={18} className={busy ? 'mk-spin' : ''}/></button></div><div className="mk-filters"><label className="mk-search"><Search size={16}/><input aria-label="按资金池地址筛选" value={filterPool} onChange={event => setFilterPool(event.target.value)} placeholder="输入完整资金池地址筛选"/></label><button className={`mk-filter-button ${mine ? 'selected' : ''}`} aria-pressed={mine} disabled={!account} onClick={() => setMine(!mine)}><SlidersHorizontal size={14}/>我的挂单</button></div>

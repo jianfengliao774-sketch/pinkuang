@@ -1,0 +1,22 @@
+{
+  "name": "pinkuang-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3108",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3108",
+    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node --test scripts/chain-client.test.mjs",
+    "contracts:sync": "node scripts/sync-contracts.mjs",
+    "contracts:check": "node scripts/sync-contracts.mjs --check",
+    "prebuild": "pnpm contracts:check"
+  },
+  "dependencies": {
+    "ethers": "6.17.0",
+    "lucide-react": "0.577.0",
+    "next": "16.2.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "packageManager": "pnpm@11.5.2"
+}

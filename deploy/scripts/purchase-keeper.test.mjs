@@ -445,6 +445,83 @@ test('broadcast boundary rejects chain or nonce races even after local signing',
   }
 });
 
+test('a stopped runtime starts no cycle and performs no chain or signing calls', async t => {
+  const path = temporary(t), runtime = createKeeperRuntime(); runtime.stopped = true;
+  const forbidden = new Proxy({}, { get() { throw new Error('Stopped cycle must not access a provider or signer'); } });
+  const result = await runKeeperCycle(forbidden, { ...options(path), send: true }, forbidden, feed(), runtime);
+  assert.equal(result.status, 'stopped-before-cycle'); assert.equal(result.terminal, true);
+});
+
+test('stop during initial signing preserves signed identity and requires explicit later rebroadcast', async t => {
+  const path = temporary(t), runtime = createKeeperRuntime(), { chain, provider, signer } = simulatedChain(); chain.state = 1n;
+  signer.signTransaction = async transaction => {
+    const raw = await testWallet.signTransaction(transaction);
+    runtime.stopped = true; runtime.abortController.abort();
+    return raw;
+  };
+  const config = { ...options(path), send: true };
+  const result = await runKeeperCycle(provider, config, signer, feed(), runtime);
+  assert.equal(result.status, 'stopped-before-broadcast'); assert.equal(result.terminal, true); assert.equal(chain.sends.length, 0);
+  const saved = readJournal(path, config), attempt = saved.transaction.attempts[0];
+  assert.equal(saved.transaction.phase, 'signed'); assert.equal(attempt.hash, result.hash);
+  assert.equal(Transaction.from(attempt.raw).hash, result.hash); assert.equal(attempt.broadcastCount, 0);
+  signer.signTransaction = () => { throw new Error('Recovery must not sign again'); };
+  assert.equal((await runKeeperCycle(provider, config, signer)).status, 'pending-not-indexed');
+  assert.equal(chain.sends.length, 0, 'a stop did not discard the unresolved nonce or authorize automatic retry');
+  assert.equal((await runKeeperCycle(provider, { ...config, once: true, rebroadcast: true }, signer)).status, 'broadcast');
+  assert.equal(chain.sends.length, 1); assert.equal(chain.sends[0].hash, result.hash);
+});
+
+test('stop while final nonce checks are in flight prevents initial broadcast without discarding the signature', async t => {
+  const path = temporary(t), runtime = createKeeperRuntime(), { chain, provider, signer } = simulatedChain(); chain.state = 1n;
+  let signed = false;
+  signer.signTransaction = async transaction => { const raw = await testWallet.signTransaction(transaction); signed = true; return raw; };
+  const originalCount = provider.getTransactionCount;
+  provider.getTransactionCount = async (...args) => { if (signed) runtime.stopped = true; return originalCount(...args); };
+  const config = { ...options(path), send: true };
+  const result = await runKeeperCycle(provider, config, signer, feed(), runtime);
+  assert.equal(result.status, 'stopped-before-broadcast'); assert.equal(chain.sends.length, 0);
+  assert.equal(readJournal(path, config).transaction.attempts[0].broadcastCount, 0);
+});
+
+test('stop during speed-up or cancel simulation prevents a replacement signature and preserves the old attempt', async t => {
+  for (const mode of ['speedUp', 'cancelPending']) {
+    const item = await signedPurchase(t), runtime = createKeeperRuntime();
+    const originalEstimate = item.provider.estimateGas;
+    item.provider.estimateGas = async transaction => { runtime.stopped = true; return originalEstimate(transaction); };
+    item.signer.signTransaction = () => { throw new Error('No new signature is allowed after stop'); };
+    const result = await runKeeperCycle(item.provider, { ...item.config, once: true, [mode]: true, maxGasWei: 1000000n }, item.signer, feed(), runtime);
+    assert.equal(result.status, 'stopped-before-signing'); assert.equal(item.chain.sends.length, 1);
+    const saved = readJournal(item.path, item.config);
+    assert.equal(saved.transaction.attempts.length, 1); assert.equal(saved.transaction.speedUps, 0);
+    assert.equal(saved.transaction.phase, 'broadcast'); assert.equal(saved.transaction.hash, item.result.hash);
+  }
+});
+
+test('stop during replacement signing keeps both same-nonce attempts and blocks replacement broadcast', async t => {
+  for (const mode of ['speedUp', 'cancelPending']) {
+    const item = await signedPurchase(t), runtime = createKeeperRuntime();
+    item.signer.signTransaction = async transaction => { const raw = await testWallet.signTransaction(transaction); runtime.stopped = true; return raw; };
+    const result = await runKeeperCycle(item.provider, { ...item.config, once: true, [mode]: true, maxGasWei: 1000000n }, item.signer, feed(), runtime);
+    assert.equal(result.status, 'stopped-before-broadcast'); assert.equal(item.chain.sends.length, 1);
+    const saved = readJournal(item.path, item.config), [original, replacement] = saved.transaction.attempts;
+    assert.equal(saved.transaction.phase, 'signed'); assert.equal(saved.transaction.speedUps, 1);
+    assert.equal(original.hash, item.result.hash); assert.equal(replacement.hash, result.hash); assert.equal(replacement.broadcastCount, 0);
+    assert.equal(Transaction.from(original.raw).nonce, Transaction.from(replacement.raw).nonce);
+    assert.equal(replacement.kind, mode === 'cancelPending' ? 'cancel' : 'purchase');
+  }
+});
+
+test('stop during explicit rebroadcast preparation neither signs nor resends the existing attempt', async t => {
+  const item = await signedPurchase(t), runtime = createKeeperRuntime();
+  item.provider.getBalance = async () => { runtime.stopped = true; return 1000000n; };
+  item.signer.signTransaction = () => { throw new Error('Rebroadcast must not sign'); };
+  const result = await runKeeperCycle(item.provider, { ...item.config, once: true, rebroadcast: true }, item.signer, feed(), runtime);
+  assert.equal(result.status, 'stopped-before-broadcast'); assert.equal(item.chain.sends.length, 1);
+  const saved = readJournal(item.path, item.config);
+  assert.equal(saved.transaction.attempts.length, 1); assert.equal(saved.transaction.attempts[0].broadcastCount, 1);
+});
+
 test('journal recovery rejects changed signer and tampered signed identity', async t => {
   const item = await signedPurchase(t);
   await assert.rejects(runKeeperCycle(item.provider, item.config, { ...item.signer, getAddress: async () => factory }), /different keeper wallet/);

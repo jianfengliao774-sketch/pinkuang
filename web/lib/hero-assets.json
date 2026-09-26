@@ -1,0 +1,44 @@
+{
+  "background": {
+    "mobile": {
+      "file": "bemine-background-mobile.caf5a94df624.webp",
+      "bytes": 27712,
+      "width": 960,
+      "height": 640
+    },
+    "desktop": {
+      "file": "bemine-background-desktop.19bb0410dbdf.webp",
+      "bytes": 48798,
+      "width": 1440,
+      "height": 960
+    }
+  },
+  "chip": {
+    "mobile": {
+      "file": "bemine-chip-mobile.b88a578dc8ca.webp",
+      "bytes": 101570,
+      "width": 640,
+      "height": 640
+    },
+    "desktop": {
+      "file": "bemine-chip-desktop.3ab0743c9821.webp",
+      "bytes": 188892,
+      "width": 960,
+      "height": 960
+    }
+  },
+  "coin": {
+    "mobile": {
+      "file": "bemine-coin-mobile.745ab5e56d8a.webp",
+      "bytes": 12928,
+      "width": 240,
+      "height": 240
+    },
+    "desktop": {
+      "file": "bemine-coin-desktop.d33763351d18.webp",
+      "bytes": 27998,
+      "width": 400,
+      "height": 400
+    }
+  }
+}

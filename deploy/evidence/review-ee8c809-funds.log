@@ -1,0 +1,23 @@
+Compiling 101 files with Solc 0.8.24
+Solc 0.8.24 finished in 10.75s
+Compiler run successful!
+
+Ran 1 test for test/audit/AuditFunds.t.sol:AuditFundsSaleTest
+[PASS] testFuzz_legacyBudgetReleasePreservesAllPriorPaymentsAndPrincipal(uint96,uint8,uint96) (runs: 128, μ: 6640504, ~: 6655641)
+Logs:
+  Bound result 47
+  Bound result 0
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 90.25ms (82.00ms CPU time)
+
+Ran 2 tests for test/audit/AuditFunds.t.sol:AuditFundsRewardsTest
+[PASS] testFuzz_legacyPaidClaimsAndFormerOwnersMigrateExactlyOnce(uint256,uint256,uint256) (runs: 128, μ: 1855070, ~: 1864670)
+Logs:
+  Bound result 7211823
+  Bound result 6309
+  Bound result 448696871744
+
+[PASS] testFuzz_rewardsFollowOldOwnersAcrossMixedHarvestTransferAndClaims(uint256) (runs: 128, μ: 3920994, ~: 3926434)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 286.76ms (380.00ms CPU time)
+
+Ran 2 test suites in 293.69ms (377.01ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)

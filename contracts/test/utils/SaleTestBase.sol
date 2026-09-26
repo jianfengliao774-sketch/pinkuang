@@ -119,7 +119,9 @@ abstract contract SaleTestBase is ShareTransferTestBase {
         address[8] memory voters = [ALICE, BOB, CAROL, DAVE, ERIN, FRANK, TREASURY, REWARD_SELLER];
         uint48 snapshot = saleVault.getProposal(id).snapshotTs;
         for (uint256 i; i < voters.length; ++i) {
-            if (pool.getPastShares(voters[i], snapshot) == 0) continue;
+            uint256 weight =
+                snapshot == saleVault.clock() ? pool.balanceOf(voters[i]) : pool.getPastShares(voters[i], snapshot);
+            if (weight == 0) continue;
             vm.prank(voters[i]);
             saleVault.vote(id, true);
         }

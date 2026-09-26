@@ -45,7 +45,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.expectEmit(true, true, false, true, address(pool));
         emit SaleProposed(1, ALICE, 5 ether, 6 ether, 1, uint64(block.timestamp + 1 days));
         vm.expectEmit(true, false, false, true, address(pool));
-        emit SaleSnapshotRecorded(1, uint48(block.timestamp - 1), 3, 100);
+        emit SaleSnapshotRecorded(1, uint48(block.timestamp), 3, 100);
         uint256 id = _propose(ALICE);
         PoolSaleState.Proposal memory p = voting.getProposal(id);
         assertEq(id, 1);
@@ -53,7 +53,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(voting.activeProposalId(), id);
         assertEq(voting.lastProposed(ALICE), block.timestamp);
         assertEq(p.proposer, ALICE);
-        assertEq(p.snapshotTs, block.timestamp - 1);
+        assertEq(p.snapshotTs, block.timestamp);
         assertGt(p.snapshotTs, acquired);
         assertEq(p.endsAt, block.timestamp + 1 days);
         assertEq(p.snapshotMemberCount, 3);
@@ -224,19 +224,20 @@ contract PoolVotingTest is ShareTransferTestBase {
         _assertTally(id, 2, 75, true);
     }
 
-    function test_sameSecondMemberExitCannotLowerSnapshotMajorityThreshold() public {
-        _transfer(CAROL, DAVE, 1); // Four owners before the proposal's closed snapshot.
+    function test_sameSecondMemberExitUpdatesSnapshotMajorityThreshold() public {
+        _transfer(CAROL, DAVE, 1); // Four owners before the same-second exit.
         _ready();
         _transfer(DAVE, BOB, 1); // Three current owners, in the proposal timestamp.
         uint256 id = _propose(ALICE);
         assertEq(pool.memberCount(), 3);
-        assertEq(voting.getProposal(id).snapshotMemberCount, 4);
+        assertEq(voting.getProposal(id).snapshotMemberCount, 3);
         _vote(ALICE, id, true);
         _vote(BOB, id, true);
-        _assertTally(id, 2, 75, false);
-        _vote(DAVE, id, true); // The exited historical owner still supplies the third vote.
+        _assertTally(id, 2, 76, true);
         assertEq(pool.balanceOf(DAVE), 0);
-        _assertTally(id, 3, 76, true);
+        vm.prank(DAVE);
+        vm.expectRevert(IPoolVault.NotMember.selector);
+        voting.vote(id, true);
     }
 
     function test_replacementProposalRefreshesSnapshotAndDoesNotInheritOldVotes() public {
@@ -249,6 +250,9 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.warp(uint256(voting.getProposal(oldId).endsAt) + 6 days);
         uint256 newId = _propose(BOB);
         assertGt(voting.getProposal(newId).snapshotTs, voting.getProposal(oldId).snapshotTs);
+        assertEq(pool.balanceOf(ALICE), 0);
+        assertEq(pool.balanceOf(DAVE), 49);
+        vm.warp(block.timestamp + 1); // Public historical getters require a completed timestamp.
         assertEq(pool.getPastShares(ALICE, voting.getProposal(newId).snapshotTs), 0);
         assertEq(pool.getPastShares(DAVE, voting.getProposal(newId).snapshotTs), 49);
         assertFalse(voting.hasVoted(newId, BOB));
@@ -305,7 +309,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _assertSameSecondTransferVotes(2);
     }
 
-    function test_currentNewMemberCanProposeButHasNoSameSecondHistoricalVote() public {
+    function test_currentNewMemberCanProposeAndVoteAfterSameSecondTransfer() public {
         _ready();
         uint256 timestamp = block.timestamp;
         _transfer(ALICE, DAVE, 10);
@@ -313,15 +317,13 @@ contract PoolVotingTest is ShareTransferTestBase {
         PoolSaleState.Proposal memory p = voting.getProposal(id);
         assertEq(block.timestamp, timestamp);
         assertEq(p.proposer, DAVE);
-        assertEq(p.snapshotMemberCount, 3);
+        assertEq(p.snapshotMemberCount, 4);
         assertEq(pool.memberCount(), 4);
         assertEq(pool.balanceOf(DAVE), 10);
-        vm.prank(DAVE);
-        vm.expectRevert(IPoolVault.NotMember.selector);
-        voting.vote(id, true);
+        _vote(DAVE, id, true);
         _vote(ALICE, id, true);
         assertEq(pool.balanceOf(ALICE), 39);
-        _assertTally(id, 1, 49, false);
+        _assertTally(id, 2, 49, false);
     }
 
     function test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() public {
@@ -598,7 +600,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(block.timestamp, timestamp);
         assertEq(pool.balanceOf(ALICE), 49);
         assertEq(pool.balanceOf(DAVE), 0);
-        assertEq(voting.getProposal(id).snapshotTs, timestamp - 1);
+        assertEq(voting.getProposal(id).snapshotTs, timestamp);
         _vote(ALICE, id, true);
         vm.prank(DAVE);
         vm.expectRevert(IPoolVault.NotMember.selector);

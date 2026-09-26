@@ -15,6 +15,21 @@ test('quote proxy rejects POST before any network call', async()=>{
   assert.match(response.body,/只读/);
 });
 
+test('snapshot identity is a single bounded token supported only on the circuit list', () => {
+  const viewId = `v91508-p163561:${'a'.repeat(64)}`;
+  const valid = upstreamUrl(`/firsto-api/v1/circuits?page=2&viewId=${encodeURIComponent(viewId)}`);
+  assert.equal(valid.searchParams.get('viewId'), viewId);
+  assert.equal(valid.origin, 'https://api-tapeout.firsto.ai');
+  assert.equal(valid.pathname, '/v1/circuits');
+  assert.equal(upstreamUrl(`/firsto-api/v1/circuits?viewId=${'a'.repeat(120)}`).searchParams.get('viewId').length, 120);
+  for (const value of ['', 'a'.repeat(121), 'two tokens', 'line\nbreak', '../other', 'https://evil.example', 'a&category=other', '%2fother']) {
+    assert.throws(() => upstreamUrl(`/firsto-api/v1/circuits?viewId=${encodeURIComponent(value)}`));
+  }
+  assert.throws(() => upstreamUrl('/firsto-api/v1/circuits?viewId=first&viewId=second'));
+  assert.throws(() => upstreamUrl('/firsto-api/v1/circuit-holders?page=1&viewId=first'));
+  assert.throws(() => upstreamUrl('/firsto-api/v1/circuit/0xb1024b89886b9a34aa4ff5f31c411d708b20a14c/1?viewId=first'));
+});
+
 
 test('production server defaults to loopback and requires an explicit host to expose its listener', () => {
   assert.deepEqual(serverConfiguration({}), { host: '127.0.0.1', port: 4173 });

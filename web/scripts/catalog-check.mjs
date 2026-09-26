@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { pools, rewards, ledger } from '../lib/demo-data.js';
+import { purchaseTotal, subscriptionPrice, demoAvailableShares, demoShareTradingAllowed } from '../lib/economics.js';
+import { selectProjects, dailyUnitPrice, projectPrice, DEFAULT_FILTERS, summarizeProjects, marketplaceAssetKey } from '../lib/catalog.js';
+assert.deepEqual(selectProjects(pools).map(p => p.id), ['8204', '15832', '16210', '17006', '16928', '8316']);
+assert.deepEqual(selectProjects(pools, { sort: 'id-asc' }).map(p => p.id), ['8204', '8316', '15832', '16210', '16928', '17006']);
+assert.equal(projectPrice(pools.find(p => p.id === '15832')), 5.8);
+assert.equal(dailyUnitPrice(pools.find(p => p.id === '15832')), 5.8 / .8);
+assert.equal(selectProjects(pools, { status: 'Funding', sort: 'funded-desc' })[0].id, '17006');
+assert.equal(selectProjects(pools, { sort: 'price-desc' })[0].id, '8316');
+assert.equal(selectProjects(pools, { sort: 'price-asc' })[0].id, '17006');
+assert.equal(selectProjects(pools, { sort: 'unit-asc' })[0].id, '16210');
+assert.equal(selectProjects(pools, { query: '#16928' }).length, 1);
+assert.strictEqual(selectProjects(pools, { query: '#16928' })[0], pools.find(p => p.id === '16928'));
+const waiting = { ...pools[3], status: 'Funded', funded: 100 };
+assert.strictEqual(selectProjects([waiting], { status: 'Funding' })[0], waiting);
+assert.equal(summarizeProjects([waiting])[0].count, 1);
+assert.deepEqual(pools.map(p => p.id), ['16210', '8204', '15832', '16928', '8316', '17006']);
+assert.equal(selectProjects(pools, { query: ' behemoth ' }).length, 2);
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, source: 'official' } }).length, 4);
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, source: 'firsto' } }).length, 5);
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, source: 'official', series: 'BEHEMOTH' } }).length, 0);
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, dailyMin: '1', priceMax: '7.5' } })[0].id, '16928');
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, dailyMin: '1', priceMax: '7' } }).length, 0);
+assert.equal(selectProjects(pools, { filters: { ...DEFAULT_FILTERS, priceMin: '8', priceMax: '1' } }).length, 0);
+const edge = [ { ...pools[0], id: '1', daily: 0 }, { ...pools[0], id: '2', daily: null }, { ...pools[0], id: '3', price: null } ];
+for (const p of edge) assert.equal(dailyUnitPrice(p), null);
+assert.deepEqual(selectProjects([...edge, ...pools], { sort: 'unit-asc' }).slice(-3).map(p => p.id), ['1', '2', '3']);
+assert.equal(selectProjects(edge, { filters: { ...DEFAULT_FILTERS, dailyMin: '0.5' } }).length, 1);
+assert.deepEqual(summarizeProjects(pools).map(s => s.count), [3, 2, 1]);
+assert.equal(marketplaceAssetKey({ chainId: 56, contract: `0x${'A'.repeat(40)}`, tokenId: '001' }), `56:0x${'a'.repeat(40)}:1`);
+assert.equal(marketplaceAssetKey({ tokenId: '1' }), null);
+assert.notEqual(marketplaceAssetKey({ chainId: 56, contract: `0x${'a'.repeat(40)}`, tokenId: '1' }), marketplaceAssetKey({ chainId: 56, contract: `0x${'b'.repeat(40)}`, tokenId: '1' }));
+assert.notEqual(marketplaceAssetKey({ chainId: 56, contract: `0x${'a'.repeat(40)}`, tokenId: '1' }), marketplaceAssetKey({ chainId: 1, contract: `0x${'a'.repeat(40)}`, tokenId: '1' }));
+for (const p of pools) {
+  assert.ok(Math.abs(purchaseTotal(p) - p.price * 1.1) < 1e-12);
+  assert.ok(Math.abs(subscriptionPrice(p) * 100 - purchaseTotal(p)) < 1e-12);
+  assert.ok(Math.abs(p.cost - p.shares * subscriptionPrice(p)) < 1e-12);
+  if (p.status === 'Funding') assert.equal(projectPrice(p), purchaseTotal(p));
+  if (p.status === 'Active') assert.equal(projectPrice(p), p.purchaseCost);
+}
+assert.ok(Math.abs(pools.filter(p => ['Active', 'Listed'].includes(p.status)).reduce((sum, p) => sum + (purchaseTotal(p) - p.purchaseCost) * p.shares / 100, 0) - .613) < 1e-12);
+for (const p of pools.filter(p => p.status === 'Funding')) {
+  assert.ok(p.funded < 100);
+  assert.ok(Math.abs(subscriptionPrice(p) * p.funded - purchaseTotal(p) * p.funded / 100) < 1e-12);
+}
+const active = pools[0], voting = pools[1];
+assert.equal(demoShareTradingAllowed(active), true);
+assert.equal(demoShareTradingAllowed(voting), false);
+assert.equal(demoShareTradingAllowed({ ...active, shareTradingAllowed: undefined }), false);
+assert.equal(demoShareTradingAllowed({ ...active, status: 'Listed' }), false);
+assert.equal(demoAvailableShares({ ...active, lockedShares: 10 }), 39);
+assert.equal(demoAvailableShares({ ...active, availableShares: 12, lockedShares: 10 }), 12);
+assert.equal(demoAvailableShares({ ...active, lockedShares: 49 }), 0);
+assert.ok(rewards.every(r => !('expiry' in r) && !('soon' in r)));
+assert.ok(ledger.every(r => !r[1].includes('销毁')));
+console.log('Catalog checks passed: funding reserve, acquisition/sale pricing, filters, locks, voting freeze, permanent rewards and marketplace identity.');

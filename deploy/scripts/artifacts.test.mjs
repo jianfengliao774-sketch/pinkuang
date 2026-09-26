@@ -72,6 +72,16 @@ test('deployment ABI retains prediction, role validation, binding and post-deplo
   assert(Object.keys(document.artifacts.PoolVault.immutableReferences).length > 0);
   assert(new Interface(document.artifacts.PoolBeacon.abi).getFunction('implementation()'));
   assert(new Interface(document.artifacts.PoolTimelock.abi).getFunction('getMinDelay()'));
+  const factory = new Interface(document.artifacts.PoolFactory.abi);
+  assert(factory.getFunction('lens()'));
+  assert(factory.getFunction('ensureLens()'));
+  const checked = factory.getFunction('createFlexiblePoolChecked');
+  assert(checked);
+  assert.deepEqual(checked.inputs.map(input => input.type), ['tuple', 'tuple', 'uint32', 'uint128']);
+  const lens = new Interface(document.artifacts.PoolLens.abi);
+  assert.deepEqual(lens.deploy.inputs.map(input => input.type), ['address']);
+  assert(lens.getFunction('factory()'));
+  assert(Object.keys(document.artifacts.PoolLens.immutableReferences).length > 0);
 });
 
 test('--check rejects source or artifact drift while permitting a later Git commit with identical source bytes', () => {

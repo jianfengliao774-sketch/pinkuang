@@ -7,6 +7,7 @@ import { DeploymentEngine, LIBRARY_NAMES, preflight, validateArtifacts, PROTOCOL
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 
 const STORAGE_KEY = 'pinkuang.deployment.v1';
+const ARCHIVE_PREFIX = 'pinkuang.deployment.archive.v1.';
 const EXPLORER = 'https://bscscan.com';
 const short = (value: string) => value.length > 17 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 const protocols = Object.entries(PROTOCOL_ADDRESSES);
@@ -16,6 +17,19 @@ function restore(): DeploymentSnapshot | null {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     return value?.chainId === 56 && Array.isArray(value.steps) && value.input && value.account ? value : null;
   } catch { return null; }
+}
+
+function archivedRecords(): DeploymentSnapshot[] {
+  const records: DeploymentSnapshot[] = [];
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(ARCHIVE_PREFIX)) continue;
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || 'null') as DeploymentSnapshot;
+      if (value?.chainId === 56 && value.status === 'aborted' && value.id) records.push(value);
+    } catch { /* A damaged archive never authorizes a new transaction. */ }
+  }
+  return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function download(name: string, value: unknown) {
@@ -45,8 +59,10 @@ export default function App() {
   const [treasury, setTreasury] = useState(initialSnapshot?.input.treasury || '');
   const [budget, setBudget] = useState(initialSnapshot?.input.maxGasBudgetBnb || '0.05');
   const [gasCap, setGasCap] = useState(initialSnapshot?.input.gasPriceCapGwei || '1');
+  const [recoveryHash, setRecoveryHash] = useState('');
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [snapshot, setSnapshot] = useState<DeploymentSnapshot | null>(initialSnapshot);
+  const [archives, setArchives] = useState<DeploymentSnapshot[]>(archivedRecords);
   const [confirmation, setConfirmation] = useState(false);
   const [governanceReviewed, setGovernanceReviewed] = useState(false);
   const [protocolReviewed, setProtocolReviewed] = useState(false);
@@ -99,6 +115,9 @@ export default function App() {
   const confirmed = snapshot?.steps.filter(step => step.status === 'confirmed').length || 0;
   const total = snapshot?.steps.length || LIBRARY_NAMES.length + 5;
   const complete = snapshot?.status === 'complete';
+  const aborted = snapshot?.status === 'aborted';
+  const recoveryStep = snapshot?.steps.find(step =>
+    ((step.status === 'uncertain' || step.status === 'signing') && !step.txHash) || (step.status === 'submitted' && !!step.txHash));
   const onBsc = wallet?.chainId === 56;
   const canStart = !!wallet && onBsc && !!bundle && !busy && !snapshot;
 
@@ -146,6 +165,29 @@ export default function App() {
     catch (err) { setError(messageOf(err)); }
     finally { running.current = false; setBusy(''); await refreshWallet(); }
   }
+  async function recoverMinedTransaction() {
+    if (!snapshot || running.current) return;
+    running.current = true; setError(''); setBusy('核对交易哈希');
+    try {
+      await createEngine().recoverMinedTransaction(snapshot, recoveryHash);
+      setRecoveryHash('');
+    } catch (err) { setError(messageOf(err)); }
+    finally { running.current = false; setBusy(''); await refreshWallet(); }
+  }
+  async function archiveAborted() {
+    if (!snapshot || running.current) return;
+    running.current = true; setError(''); setBusy('核对并保存旧部署');
+    try {
+      const checked = await createEngine().reconcile(snapshot);
+      if (checked.status !== 'aborted') throw new Error('旧部署尚未核实终止，不能新建部署。');
+      const current = restore();
+      if (!current || current.id !== checked.id || current.status !== 'aborted') throw new Error('部署记录已被其他页面更新，请刷新后重试。');
+      localStorage.setItem(`${ARCHIVE_PREFIX}${checked.id}`, JSON.stringify(checked));
+      localStorage.removeItem(STORAGE_KEY);
+      setArchives(archivedRecords()); setSnapshot(null); setRecoveryHash(''); setReport(null);
+    } catch (err) { setError(messageOf(err)); }
+    finally { running.current = false; setBusy(''); }
+  }
   async function adjustBudget() {
     if (!snapshot || running.current) return;
     running.current = true; setError(''); setBusy('核对预算');
@@ -181,20 +223,20 @@ export default function App() {
               <p className="field-help">升级由此钱包发起，等待至少 48 小时后执行。</p>
               <label className="toggle-row"><input type="checkbox" checked={!customRoles} disabled={!!snapshot || !!busy} onChange={event => { setCustomRoles(!event.target.checked); setOperator(wallet?.address || ''); setTreasury(wallet?.address || ''); }}/><span><b>运营和金库使用同一个钱包</b><small>适合当前单钱包小额测试。</small></span><span className="toggle-track"/></label>
               {customRoles && <div className="custom-roles"><label>运营地址<input aria-label="运营地址" className="text-input mono" value={operator} onChange={e => setOperator(e.target.value.trim())} placeholder="0x…" disabled={!!busy || !!snapshot}/></label><label>金库地址<input aria-label="金库地址" className="text-input mono" value={treasury} onChange={e => setTreasury(e.target.value.trim())} placeholder="0x…" disabled={!!busy || !!snapshot}/></label></div>}
-              <div className="budget-row"><div><label htmlFor="budget">部署 Gas 总预算</label><div className="unit-input"><input id="budget" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy || !!complete}/><span>BNB</span></div></div><div className="balance"><span>钱包可用余额</span><b>{wallet ? Number(wallet.balance).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—'} <small>BNB</small></b></div></div>
-              <details className="advanced"><summary>高级配置与协议地址<ChevronDown size={15}/></summary><div className="advanced-body"><label htmlFor="gas-price">Gas 单价上限（Gwei）</label><input id="gas-price" className="text-input" value={gasCap} inputMode="decimal" disabled={!!complete || !!busy} onChange={e => setGasCap(e.target.value)}/><p>每笔广播前实时估算 Gas；累计已花费与下一笔估算上限超过预算时暂停。钱包手动加价可能超出页面预算。</p><div className="protocol-list">{protocols.map(([name, address]) => <div key={name}><span>{name}</span><Address value={address}/></div>)}</div><p>链上有代码不代表已证明协议安全，请核对上述协议的来源与代码。</p></div></details>
-              {snapshot && !complete && <div className="budget-recovery"><button className="small-button" disabled={!!busy || !wallet || !onBsc} onClick={() => void adjustBudget()}><RefreshCw size={14}/>保存提高后的预算并检查</button><p>仅提高费用上限；保留角色、已确认交易和合约代码。保存后再点击继续部署。</p></div>}
+              <div className="budget-row"><div><label htmlFor="budget">部署 Gas 总预算</label><div className="unit-input"><input id="budget" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy || !!complete || !!aborted}/><span>BNB</span></div></div><div className="balance"><span>钱包可用余额</span><b>{wallet ? Number(wallet.balance).toLocaleString('en-US', { maximumFractionDigits: 6 }) : '—'} <small>BNB</small></b></div></div>
+              <details className="advanced"><summary>高级配置与协议地址<ChevronDown size={15}/></summary><div className="advanced-body"><label htmlFor="gas-price">Gas 单价上限（Gwei）</label><input id="gas-price" className="text-input" value={gasCap} inputMode="decimal" disabled={!!complete || !!aborted || !!busy} onChange={e => setGasCap(e.target.value)}/><p>每笔广播前实时估算 Gas；累计已花费与下一笔估算上限超过预算时暂停。钱包手动加价可能超出页面预算。</p><div className="protocol-list">{protocols.map(([name, address]) => <div key={name}><span>{name}</span><Address value={address}/></div>)}</div><p>链上有代码不代表已证明协议安全，请核对上述协议的来源与代码。</p></div></details>
+              {snapshot && !complete && !aborted && <div className="budget-recovery"><button className="small-button" disabled={!!busy || !wallet || !onBsc} onClick={() => void adjustBudget()}><RefreshCw size={14}/>保存提高后的预算并检查</button><p>仅提高费用上限；保留角色、已确认交易和合约代码。保存后再点击继续部署。</p></div>}
               <div className="config-footer"><Fingerprint size={15}/><span>Solidity 0.8.24</span><span>·</span><span>本地编译产物{bundle ? '已就绪' : '加载中'}</span></div>
             </section>
 
             <section className="card progress-card"><div className="card-heading"><div><span className="section-icon"><PackageCheck size={19}/></span><h2>部署进度</h2></div><span className="progress-count">{confirmed}<span> / {total} 笔</span></span></div><div className="progress-track"><div style={{ width: `${confirmed / total * 100}%` }}/></div>
-              {!snapshot ? <div className="progress-empty"><div className="step-grid"><span>01 — {LIBRARY_NAMES.length.toString().padStart(2, '0')}<b>部署基础库</b></span><span>{LIBRARY_NAMES.length + 1} — {LIBRARY_NAMES.length + 4}<b>部署协调器与实现</b></span><span>{LIBRARY_NAMES.length + 5}<b>原子初始化</b></span></div><p><CircleHelp size={15}/>一键开始后，按顺序在钱包中确认每笔交易。</p></div> : <><ol className="transaction-list">{snapshot.steps.map((step, index) => <li key={index} className={`tx-${step.status}`}><span className="tx-icon">{step.status === 'confirmed' ? <Check size={15}/> : ['submitted', 'signing'].includes(step.status) ? <LoaderCircle className="spin" size={15}/> : index + 1}</span><div><b>{step.label}</b><small>{step.status === 'confirmed' ? '已确认' : step.status === 'submitted' ? '已广播，等待确认' : step.status === 'signing' ? '等待钱包签名' : step.status === 'failed' ? '链上失败，禁止自动重发' : step.status === 'rejected' ? '签名已取消，可继续' : step.status === 'uncertain' ? '发送结果不明，禁止重发' : '待处理'}</small></div>{step.txHash && <a href={`${EXPLORER}/tx/${step.txHash}`} target="_blank" rel="noreferrer" title={step.txHash}><span>{short(step.txHash)}</span><ArrowUpRight size={14}/></a>}</li>)}</ol>{complete && <div className="success-inline"><CheckCheck size={20}/><span>部署及权限核验完成，地址已保存。</span></div>}</>}
+              {!snapshot ? <div className="progress-empty"><div className="step-grid"><span>01 — {LIBRARY_NAMES.length.toString().padStart(2, '0')}<b>部署基础库</b></span><span>{LIBRARY_NAMES.length + 1} — {LIBRARY_NAMES.length + 4}<b>部署协调器与实现</b></span><span>{LIBRARY_NAMES.length + 5}<b>原子初始化</b></span></div><p><CircleHelp size={15}/>一键开始后，按顺序在钱包中确认每笔交易。</p></div> : <><ol className="transaction-list">{snapshot.steps.map((step, index) => <li key={index} className={`tx-${step.status}`}><span className="tx-icon">{step.status === 'confirmed' ? <Check size={15}/> : ['submitted', 'signing'].includes(step.status) ? <LoaderCircle className="spin" size={15}/> : index + 1}</span><div><b>{step.label}</b><small>{step.status === 'confirmed' ? '已确认' : step.status === 'submitted' ? '已广播，等待确认' : step.status === 'signing' ? '等待钱包签名' : step.status === 'cancelled' ? '钱包取消已最终确认，旧部署终止' : step.status === 'replaced' ? '钱包替换已最终确认，旧部署终止' : step.status === 'failed' ? '链上失败，禁止自动重发' : step.status === 'rejected' ? '签名已取消，可继续' : step.status === 'uncertain' ? '发送结果不明，禁止重发' : '待处理'}</small></div>{step.txHash && <a href={`${EXPLORER}/tx/${step.txHash}`} target="_blank" rel="noreferrer" title={step.txHash}><span>{short(step.txHash)}</span><ArrowUpRight size={14}/></a>}{step.replacementHash && step.replacementHash !== step.txHash && <a href={`${EXPLORER}/tx/${step.replacementHash}`} target="_blank" rel="noreferrer" title={step.replacementHash}>替换交易<ArrowUpRight size={14}/></a>}</li>)}</ol>{recoveryStep && <div className="budget-recovery"><label htmlFor="recovery-hash" className="field-label">核对 {recoveryStep.label} 的交易（nonce {recoveryStep.nonce}）</label><input id="recovery-hash" className="text-input mono" value={recoveryHash} placeholder="原交易、加速或取消交易的完整哈希" spellCheck={false} autoComplete="off" disabled={!!busy} onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy || !onBsc || !bundle || !/^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim())} onClick={() => void recoverMinedTransaction()}><ShieldCheck size={14}/>只读核验并恢复</button><p>原交易与同 nonce 加速、取消或替换均只读核验。同内容且执行成功可继续；取消、其他内容或链上失败最终确认后，旧部署终止并保存实际 Gas。不会自动重发。</p></div>}{aborted && <div className="budget-recovery"><p>此部署已终止。先前部署的合约地址和实际 Gas 保留在记录中；新部署需要重新支付后续 Gas。</p></div>}{complete && <div className="success-inline"><CheckCheck size={20}/><span>部署及权限核验完成，地址已保存。</span></div>}</>}
             </section>
           </div><aside className="right-column">
             <section className="architecture-card"><div className="architecture-top"><span className="gold-icon"><GitBranch size={19}/></span><span>为后续升级做好准备</span></div><h2>代码可升级。<br/><span>权限有边界。</span></h2><div className="governance-flow"><div><Wallet size={17}/><span>你的管理钱包</span><small>发起提案</small></div><i/><div><LockKeyhole size={17}/><span>时间锁</span><strong>48h</strong></div><i/><div className="flow-contracts"><span>Factory<small>UUPS</small></span><span>Market<small>UUPS</small></span><span>Vault<small>Beacon</small></span></div></div><p>资金池通过共享 Beacon 升级，<br/>一次升级会影响所有关联池。</p><button onClick={() => setTab('governance')}>查看升级与权限<ArrowUpRight size={16}/></button></section>
             <section className="card deployment-summary"><h2>本次部署</h2><dl><div><dt>目标网络</dt><dd>BSC 主网</dd></div><div><dt>治理方式</dt><dd>单钱包 + 时间锁</dd></div><div><dt>钱包确认</dt><dd>{total} 笔交易</dd></div><div><dt>业务资金转入</dt><dd>0 BNB</dd></div><div><dt>Gas 总预算</dt><dd>{snapshot?.input.maxGasBudgetBnb || budget || '—'} BNB</dd></div>{snapshot && <div><dt>实际已花费</dt><dd>{Number(formatEther(snapshot.spentWei || '0')).toFixed(6)} BNB</dd></div>}</dl>
               {report && !snapshot && <div className="preflight-passed"><ShieldCheck size={17}/><span>链上配置检查通过</span></div>}
-              {!wallet ? <button className="primary-button" onClick={requestConnection} disabled={!!busy}><Wallet size={18}/>连接钱包开始<ArrowRight size={18}/></button> : !onBsc ? <button className="primary-button" onClick={changeNetwork} disabled={!!busy}>切换至 BSC 主网<ArrowRight size={18}/></button> : snapshot ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => complete ? exportRecord() : void resume()}>{busy ? <LoaderCircle className="spin" size={18}/> : complete ? <ArrowDownToLine size={18}/> : <Play size={17}/>} {busy || (complete ? '导出部署记录' : '核对并继续部署')}</button>{!complete && <button className="text-button" onClick={() => void resume(true)} disabled={!!busy}><RefreshCw size={14}/>只核对链上回执</button>}</> : <button className="primary-button" disabled={!canStart} onClick={() => report ? setConfirmation(true) : void checkConfig()}>{busy ? <LoaderCircle className="spin" size={18}/> : report ? <Rocket size={18}/> : <ShieldCheck size={18}/>} {busy || (report ? '开始一键部署' : '检查部署配置')}<ArrowRight size={18}/></button>}
+              {!wallet ? <button className="primary-button" onClick={requestConnection} disabled={!!busy}><Wallet size={18}/>连接钱包开始<ArrowRight size={18}/></button> : !onBsc ? <button className="primary-button" onClick={changeNetwork} disabled={!!busy}>切换至 BSC 主网<ArrowRight size={18}/></button> : snapshot ? aborted ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void archiveAborted()}><FileClock size={18}/>保存旧记录并新建部署</button><button className="text-button" disabled={!!busy} onClick={exportRecord}><ArrowDownToLine size={14}/>导出旧记录 JSON</button></> : <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => complete ? exportRecord() : void resume()}>{busy ? <LoaderCircle className="spin" size={18}/> : complete ? <ArrowDownToLine size={18}/> : <Play size={17}/>} {busy || (complete ? '导出部署记录' : '核对并继续部署')}</button>{!complete && <button className="text-button" onClick={() => void resume(true)} disabled={!!busy}><RefreshCw size={14}/>只核对链上回执</button>}</> : <button className="primary-button" disabled={!canStart} onClick={() => report ? setConfirmation(true) : void checkConfig()}>{busy ? <LoaderCircle className="spin" size={18}/> : report ? <Rocket size={18}/> : <ShieldCheck size={18}/>} {busy || (report ? '开始一键部署' : '检查部署配置')}<ArrowRight size={18}/></button>}
               <p className="signer-note"><LockKeyhole size={12}/>签名始终在你的钱包中完成</p></section>
             <div className="risk-note"><OctagonAlert size={17}/><p>这是主网操作，会消耗真实 BNB。单钱包私钥持有人拥有升级权，请先用小额资产验证完整业务流程。</p></div>
           </aside></div>
@@ -202,8 +244,9 @@ export default function App() {
 
         {tab === 'pricing' && <PricingPanel/>}
         {tab === 'market' && <MarketPage wallet={selected?.provider || null} account={wallet?.address || null} factoryAddress={complete ? snapshot?.addresses.factory : undefined} onConnect={() => void requestConnection()}/>}
-        {tab === 'records' && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>部署记录</h2></div>{snapshot && <button className="small-button" onClick={exportRecord}><ArrowDownToLine size={16}/>导出 JSON</button>}</div>{!snapshot ? <div className="large-empty"><FileClock size={36}/><h2>还没有部署记录</h2><p>开始部署后，交易哈希和合约地址会实时保存在这个浏览器。</p><button className="small-button" onClick={() => setTab('deploy')}>前往合约部署<ArrowRight size={16}/></button></div> : <div className="records-body"><div className="record-meta"><span className={complete ? 'status-success' : 'status-pending'}>{complete ? '已完成核验' : '部署未完成'}</span><span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span><span>Chain ID 56</span><Address value={snapshot.account}/></div><div className="address-table">{Object.entries(snapshot.addresses).map(([name, value]) => <div key={name}><b>{name}</b><Address value={value}/></div>)}</div>{!Object.keys(snapshot.addresses).length && <p>暂未确认合约地址。请回到部署页核对交易回执。</p>}<details className="record-json"><summary>完整部署记录与核验结果<ChevronDown size={16}/></summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details><p className="field-help">记录只保存在本浏览器。请导出备份，以便核对交易及后续升级。</p></div>}</section>}
+        {tab === 'records' && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>部署记录</h2></div>{snapshot && <button className="small-button" onClick={exportRecord}><ArrowDownToLine size={16}/>导出 JSON</button>}</div>{!snapshot ? <div className="large-empty"><FileClock size={36}/><h2>{archives.length ? '当前没有进行中的部署' : '还没有部署记录'}</h2><p>{archives.length ? '历史终止记录见下方。' : '开始部署后，交易哈希和合约地址会实时保存在这个浏览器。'}</p><button className="small-button" onClick={() => setTab('deploy')}>前往合约部署<ArrowRight size={16}/></button></div> : <div className="records-body"><div className="record-meta"><span className={complete ? 'status-success' : 'status-pending'}>{complete ? '已完成核验' : '部署未完成'}</span><span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span><span>Chain ID 56</span><Address value={snapshot.account}/></div><div className="address-table">{Object.entries(snapshot.addresses).map(([name, value]) => <div key={name}><b>{name}</b><Address value={value}/></div>)}</div>{!Object.keys(snapshot.addresses).length && <p>暂未确认合约地址。请回到部署页核对交易回执。</p>}<details className="record-json"><summary>完整部署记录与核验结果<ChevronDown size={16}/></summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details><p className="field-help">记录只保存在本浏览器。请导出备份，以便核对交易及后续升级。</p></div>}</section>}
 
+        {tab === 'records' && archives.length > 0 && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>已保存的终止部署</h2></div></div><div className="records-body"><div className="address-table">{archives.map(item => <div key={item.id}><b>{new Date(item.createdAt).toLocaleString('zh-CN')}</b><Address value={item.account}/><span>已花费 {Number(formatEther(item.spentWei)).toFixed(6)} BNB</span><button className="small-button" onClick={() => download(`pinkuang-bsc-aborted-${item.id}.json`, item)}><ArrowDownToLine size={14}/>导出</button></div>)}</div><p className="field-help">旧部署的交易哈希、合约地址和实际 Gas 已留存。新部署不会复用旧合约。</p></div></section>}
         {tab === 'governance' && <div className="governance-page"><section className="card"><div className="card-heading"><div><ShieldCheck size={22}/><h2>谁可以升级合约</h2></div><span className="subtle-tag">单钱包管理</span></div><div className="governance-content"><div className="governance-banner"><KeyRound size={28}/><div><b>你的管理钱包发起升级</b><p>提案需要经过至少 48 小时等待。管理钱包可以在执行前取消；等待结束后，任何账户都可执行已批准的操作。</p></div></div><table><thead><tr><th>合约</th><th>升级方式</th><th>授权执行者</th></tr></thead><tbody><tr><td>PoolFactory</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>ShareMarket</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>所有 PoolVault</td><td>共享 Beacon</td><td>时间锁持有 Beacon</td></tr></tbody></table><div className="governance-points"><div><LockKeyhole size={19}/><b>48 小时等待下限</b><p>当前时间锁不允许将调度等待降到 48 小时以下。</p></div><div><Blocks size={19}/><b>原子初始化</b><p>代理创建与初始化在同一笔交易完成，避免未初始化代理暴露。</p></div><div><GitBranch size={19}/><b>保持资金池绑定</b><p>Beacon 新实现必须保持同一个官方 Factory 地址。</p></div></div><div className="alert alert-warning"><OctagonAlert size={21}/><div><strong>升级能力不等于安全保证</strong><p>有权限的钱包仍可提议恶意实现。时间锁提供反应时间；每次升级仍需审查代码、验证存储布局，并执行完整业务回归测试。</p></div></div><p className="governance-disclaimer">部署台核验的是部署图与权限配置，不能替代对业务逻辑、外部协议和未来实现的独立审计。修改实现时须继续保留当前的时间锁授权限制。</p></div></section></div>}
         <footer className="page-footer"><span><span className="tiny-brand">◆</span>拼矿协议<span className="footer-divider">/</span>部署工作台</span><a href="https://github.com/jianfengliao774-sketch/pinkuang/blob/codex/t1e-voting-sale/docs/deployment.md" target="_blank" rel="noreferrer">合约部署说明<ExternalLink size={13}/></a></footer>
       </main>

@@ -71,7 +71,9 @@ library SaleGovernance {
         uint256 last = s.lastProposed[msg.sender];
         if (last != 0 && block.timestamp < last + PROPOSE_INTERVAL) revert ProposeCooldown();
 
-        uint48 snapshotTs = SafeCast.toUint48(block.timestamp - 1);
+        // This call freezes transfers below, so the latest checkpoint in this
+        // timestamp is the ownership that actually receives the vote.
+        uint48 snapshotTs = SafeCast.toUint48(block.timestamp);
         if (snapshotTs <= input.activatedAt) revert DeadlineNotReached();
         proposalId = s.nextProposalId;
         if (proposalId == 0) proposalId = 1;
@@ -101,9 +103,10 @@ library SaleGovernance {
     ) external {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
         if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
+        if (!_currentSnapshot(p)) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (s.hasVoted[proposalId][msg.sender]) revert AlreadyVoted();
-        // Current holdings are deliberately irrelevant: only the closed snapshot votes.
+        // Subsequent holdings are irrelevant: only the frozen proposal snapshot votes.
         uint256 weight = shares[msg.sender].upperLookupRecent(p.snapshotTs);
         if (weight == 0) revert NotMember();
         s.hasVoted[proposalId][msg.sender] = true;
@@ -124,7 +127,7 @@ library SaleGovernance {
         return _passed(p, purchaseCost);
     }
 
-    /// @notice Freeze current ownership while the closed-snapshot vote is still open.
+    /// @notice Freeze ownership from proposal creation until voting closes.
     function tradingFrozen(PoolSaleState.SaleStorage storage s) external view returns (bool) {
         PoolSaleState.Proposal storage p = s.proposals[s.activeProposalId];
         return s.activeProposalId != 0 && !p.executed && block.timestamp < p.endsAt;
@@ -134,6 +137,7 @@ library SaleGovernance {
     function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost) external {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
         if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
+        if (!_currentSnapshot(p)) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
         p.executed = true;
@@ -157,10 +161,16 @@ library SaleGovernance {
     }
 
     function _passed(PoolSaleState.Proposal storage p, uint256 purchaseCost) private view returns (bool) {
-        if (p.price == 0 || p.snapshotTotalShares != TOTAL_SHARES) return false;
+        if (!_currentSnapshot(p) || p.price == 0 || p.snapshotTotalShares != TOTAL_SHARES) return false;
         // Only the actual on-chain acquisition cost sets the floor. refPrice is disclosure, never authority.
         bool sharesPassed = p.price < purchaseCost ? p.yesShares >= 60 : p.yesShares * 2 > p.snapshotTotalShares;
         return p.yesCount * 2 > p.snapshotMemberCount && sharesPassed;
+    }
+
+    /// @dev Refuse proposals created by the former timestamp-1 implementation after an upgrade.
+    /// Those proposals may have lost their original owners before the vote freeze began.
+    function _currentSnapshot(PoolSaleState.Proposal storage p) private view returns (bool) {
+        return uint256(p.snapshotTs) + VOTE_DURATION == p.endsAt;
     }
 
     function _proposal(PoolSaleState.SaleStorage storage s, uint256 proposalId)

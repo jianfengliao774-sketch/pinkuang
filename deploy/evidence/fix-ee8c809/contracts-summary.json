@@ -1,0 +1,101 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-26T13:06:16.496Z",
+  "status": "passed",
+  "sourceCommit": "8d1c362bc7f68155e80e1ec7cc30b28f5f2ab87e",
+  "ci": null,
+  "buildRoot": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/",
+  "node": "v25.9.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:06:16.497Z",
+      "finishedAt": "2026-09-26T13:06:16.523Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/toolchain.log"
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:06:16.523Z",
+      "finishedAt": "2026-09-26T13:06:16.578Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/forge-fmt.log"
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:06:16.579Z",
+      "finishedAt": "2026-09-26T13:06:52.637Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/forge-build-sizes.log"
+    },
+    {
+      "name": "forge-test",
+      "executable": "/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:06:52.637Z",
+      "finishedAt": "2026-09-26T13:07:28.540Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/forge-test.log"
+    },
+    {
+      "name": "upgrade-validation",
+      "executable": "/opt/homebrew/Cellar/node/25.9.0_3/bin/node",
+      "args": [
+        "scripts/validate-upgrades.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:07:28.540Z",
+      "finishedAt": "2026-09-26T13:07:36.244Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/upgrade-validation.log"
+    },
+    {
+      "name": "slither",
+      "executable": "slither",
+      "args": [
+        ".",
+        "--filter-paths",
+        "../node_modules/|test/|script/",
+        "--fail-medium"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null,
+      "startedAt": "2026-09-26T13:07:36.245Z",
+      "finishedAt": "2026-09-26T13:07:42.921Z",
+      "logPath": "/tmp/pinkuang-fix-contracts-final/slither.log"
+    }
+  ],
+  "finishedAt": "2026-09-26T13:07:42.921Z"
+}

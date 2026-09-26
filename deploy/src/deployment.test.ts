@@ -117,6 +117,71 @@ test('low gas budget pauses before any signature; rejection is persisted and unc
   assert.equal(attempts, 1);
 });
 
+test('mined deployment with a lost RPC hash is recovered only from the exact on-chain transaction', { timeout: 60_000 }, async () => {
+  let minedHash = '';
+  const lostResponse: Eip1193Provider = { request: async request => {
+    if (request.method !== 'eth_sendTransaction') return wallet.request(request);
+    minedHash = await wallet.request(request) as string;
+    await rpc('evm_mine'); await rpc('evm_mine');
+    throw new Error('local RPC response lost after broadcast');
+  } };
+  const before = sends;
+  await assert.rejects(engine(lostResponse).start(input), /response lost/);
+  const stalled = structuredClone(snapshot!);
+  const receipt = await new BrowserProvider(wallet).getTransactionReceipt(minedHash);
+  assert(receipt?.contractAddress && receipt.status === 1);
+  assert.equal(stalled.steps[0].status, 'uncertain');
+  assert.equal(stalled.steps[0].txHash, undefined);
+  assert.equal(stalled.spentWei, '0');
+  assert.equal(sends, before + 1);
+
+  await assert.rejects(engine().recoverMinedTransaction(stalled, 'not-a-hash'), /完整的 0x/);
+  await assert.rejects(engine().recoverMinedTransaction(stalled, `0x${'f'.repeat(64)}`), /暂未同时查到/);
+  const otherAccount = getAddress((await rpc('eth_accounts') as string[])[1]);
+  const unrelatedHash = await rpc('eth_sendTransaction', [{ from: otherAccount, to: account, value: '0x0' }]) as string;
+  await rpc('evm_mine'); await rpc('evm_mine');
+  await assert.rejects(engine().recoverMinedTransaction(stalled, unrelatedHash), /发送者/);
+
+  const tamperedIntent = structuredClone(stalled);
+  tamperedIntent.steps[0].dataHash = `0x${'0'.repeat(64)}`;
+  await assert.rejects(engine().recoverMinedTransaction(tamperedIntent, minedHash), /签名前保存的部署计划/);
+  const tamperedNonce = structuredClone(stalled);
+  tamperedNonce.steps[0].nonce = stalled.steps[0].nonce! + 1;
+  await assert.rejects(engine().recoverMinedTransaction(tamperedNonce, minedHash), /nonce/);
+  const tamperedGasLimit = structuredClone(stalled);
+  tamperedGasLimit.steps[0].gasLimit = '1';
+  await assert.rejects(engine().recoverMinedTransaction(tamperedGasLimit, minedHash), /Gas 设置/);
+  const tooSmallBudget = structuredClone(stalled);
+  tooSmallBudget.input.maxGasBudgetBnb = '0.000000000000000001';
+  await rpc('anvil_mine', ['0x44']);
+  const isolated = new DeploymentEngine(wallet, bundle, { persist: () => {} });
+  const accounted = await isolated.recoverMinedTransaction(tooSmallBudget, minedHash);
+  assert.equal(accounted.spentWei, receipt.fee.toString(), 'mined Gas is recorded even when the saved budget is exceeded');
+  assert.equal(accounted.steps[0].status, 'confirmed');
+  assert.match(accounted.error || '', /实际 Gas 已达到或超过总预算/);
+  await assert.rejects(isolated.resume(accounted), /总 Gas 预算已耗尽/);
+  const originalCode = await rpc('eth_getCode', [receipt.contractAddress, 'latest']) as string;
+  await rpc('anvil_setCode', [receipt.contractAddress, '0x00']);
+  try {
+    await assert.rejects(engine().recoverMinedTransaction(stalled, minedHash), /链上运行代码/);
+  } finally {
+    await rpc('anvil_setCode', [receipt.contractAddress, originalCode]);
+  }
+  assert.equal(snapshot?.steps[0].txHash, undefined, 'an invalid candidate cannot be saved into the journal');
+  assert.equal(sends, before + 1, 'recovery must never broadcast');
+
+  const recovered = await engine().recoverMinedTransaction(stalled, minedHash);
+  assert.equal(recovered.steps[0].status, 'confirmed');
+  assert.equal(recovered.steps[0].txHash, minedHash);
+  assert.equal(recovered.steps[0].address?.toLowerCase(), receipt.contractAddress.toLowerCase());
+  assert.equal(recovered.spentWei, receipt.fee.toString());
+  assert.equal(sends, before + 1);
+  const checked = await engine().reconcile(recovered);
+  assert.equal(checked.steps[0].status, 'confirmed');
+  assert.equal(checked.spentWei, receipt.fee.toString());
+  assert.equal(sends, before + 1);
+});
+
 test('failure to durably write intent prevents any wallet signature', async () => {
   const count = sends;
   const failingStorage = new DeploymentEngine(wallet, bundle, { persist: state => {
@@ -162,7 +227,9 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.ok(complete.verification!.checks.every(check => check.passed));
   assert.equal(complete.verification!.checks.find(check => check.label === '升级最小延迟')?.actual, '172800');
   assert.ok(BigInt(complete.spentWei) > 0n);
-  assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 8);
+  assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 9);
+  assert.equal(complete.verification!.checks.find(check => check.label === 'Lens.factory')?.actual.toLowerCase(), complete.addresses.factory.toLowerCase());
+  assert.ok(complete.verification!.checks.find(check => check.label === 'lens 运行代码匹配')?.passed);
   const initialize = complete.steps.at(-1)!;
   const tx = await rpc('eth_getTransactionByHash', [initialize.txHash]) as { input: string; value: string };
   assert.equal(tx.input.slice(0, 10), new Interface(bundle.artifacts.AtomicDeployment.abi).getFunction('deploySingleOwner')!.selector);
@@ -172,6 +239,7 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   // must accept legitimate business activity rather than insist the factory stays empty.
   const provider = new BrowserProvider(wallet);
   const deployedFactory = new Contract(complete.addresses.factory, bundle.artifacts.PoolFactory.abi, await provider.getSigner(account));
+  assert.equal((await deployedFactory.lens()).toLowerCase(), complete.addresses.lens.toLowerCase());
   const latest = await provider.getBlock('latest');
   assert(latest);
   await (await deployedFactory.createPool({ circuits: PROTOCOL_ADDRESSES.TAPEOUT_CIRCUITS, circuitId: 1n,
@@ -202,6 +270,12 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   tampered.input.operator = getAddress('0x0000000000000000000000000000000000000001');
   await assert.rejects(engine().reconcile(tampered), /交易内容/);
   assert.equal(sends, count);
+  // A registered address alone is insufficient: recoveries also check the Lens
+  // factory immutable and exact compiled runtime before accepting the graph.
+  await rpc('anvil_setCode', [complete.addresses.lens, '0x600060005260206000f3']);
+  await rpc('evm_mine');
+  await assert.rejects(engine().reconcile(complete), /部署后校验失败/);
+  assert.equal(sends, count, 'invalid Lens identity must never trigger a replacement deployment');
   await rpc('evm_revert', [baseline]);
 });
 

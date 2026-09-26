@@ -1,0 +1,245 @@
+Compiling 103 files with Solc 0.8.24
+Solc 0.8.24 finished in 12.24s
+Compiler run successful!
+
+Ran 2 tests for test/unit/SaleBudgetMigration.t.sol:SaleBudgetMigrationTest
+[PASS] test_oldPaidHolderReceivesOnlyIndependentBonusAndNoDoublePayment() (gas: 651822)
+[PASS] test_onlyRemainingBudgetReleasedAlreadySpentValueNeverRecreated() (gas: 633716)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 14.28ms (1.43ms CPU time)
+
+Ran 3 tests for test/unit/SaleBudgetMigration.t.sol:LegacyListedSaleMigrationTest
+[PASS] test_discountRequiresBothSixtySharesAndAddressMajority() (gas: 487275)
+[PASS] test_legacyDiscountListingWithFiftyOneSharesCannotComplete() (gas: 173270)
+[PASS] test_legacyZeroPriceListingCannotCompleteAndCanExpire() (gas: 160774)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 14.50ms (1.32ms CPU time)
+
+Ran 27 tests for test/unit/PoolSale.t.sol:PoolSaleTest
+[PASS] testFuzz_buyerRejectingNftOrMovingItAwayRollsBackWholeSale(uint8) (runs: 256, μ: 2001148, ~: 1991262)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_finalClaimFaultsRollbackAllAssetsAndLiabilities(uint8) (runs: 256, μ: 805490, ~: 827290)
+Logs:
+  Bound result 3
+
+[PASS] testFuzz_onePercentFeeConservesEveryWeiRegardlessOfWithdrawalOrder(uint256,bool) (runs: 256, μ: 1359572, ~: 1375001)
+Logs:
+  Bound result 3
+
+[PASS] test_buyerBubblingReentryFailureRollsBackFinalClaimAndSale() (gas: 2051806)
+[PASS] test_buyerCallbackSeesClosedStateAndCannotCompleteAgainOrWithdraw() (gas: 2056515)
+[PASS] test_changedNftOwnerBeforeSaleRejectsWithoutTouchingFunds() (gas: 627331)
+[PASS] test_closedClaimsRemainPermanentAndNeverClaimSoldNftAgain() (gas: 1365177)
+[PASS] test_closedClaimsWithExpiryDisabledRemainClaimableAfterLongDelay() (gas: 2776737)
+[PASS] test_closedRejectsReplayAndPermanentlyFreezesShares() (gas: 920454)
+[PASS] test_completeLastSecondBeforeListingExpirySucceeds() (gas: 867841)
+[PASS] test_executeAtVoteDeadlineRejectsEvenPassingProposal() (gas: 451099)
+[PASS] test_executeLastSecondBeforeVoteDeadlineSucceeds() (gas: 531675)
+[PASS] test_executeRequiresCurrentPassingProposalAndRecordsSevenDayListing() (gas: 517588)
+[PASS] test_expiryBoundaryClearsListingAndRequiresNewApprovedProposalForRelist() (gas: 888273)
+[PASS] test_failedBnbWithdrawalRestoresLazySaleEntitlementForRetry() (gas: 2068681)
+[PASS] test_listedFreezesTransfersAndFillsButOrderCanBeCancelled() (gas: 737067)
+[PASS] test_memberBuyerRetainsHistoricShareRightsAndOwnsFutureNftRewards() (gas: 1071019)
+[PASS] test_miningClaimCallbackCannotReenterCompletion() (gas: 961135)
+[PASS] test_onePercentFeeAndExactNetAtSmallPriceBoundaries() (gas: 9279780)
+[PASS] test_saleAddsToOldRefundDirectSellerAndPurchaseSurplusCredits() (gas: 2811863)
+[PASS] test_saleRemainderAssignedToLastHolderWhileHistoricalPurchaseTailRemains() (gas: 2849111)
+[PASS] test_saleStrictlySettlesRewardsBeforeNftTransferWithoutBurn() (gas: 1107119)
+[PASS] test_sameSecondListingAndCompletionLazilyDistributeActualFrozenHoldings() (gas: 1685226)
+[PASS] test_settleSaleNeverAcceptsAnUnverifiedExternalSaleRoute() (gas: 881530)
+[PASS] test_treasuryMemberReceivesFeeAndOwnSharesWithoutLosingFormerMemberSurplus() (gas: 1270261)
+[PASS] test_wrongPaymentRollsBackWithoutHarvestingOrCrediting() (gas: 753564)
+[PASS] test_zeroPriceProposalRejectedBeforeAnySale() (gas: 42568)
+Suite result: ok. 27 passed; 0 failed; 0 skipped; finished in 2.21s (513.95ms CPU time)
+
+Ran 2 tests for test/invariant/PoolSaleInvariant.t.sol:PoolSaleClosedInvariantTest
+[PASS] invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds() (runs: 128, calls: 8192, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 1235  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 1196  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 1102  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 1160  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 1171  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 1217  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 1111  | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 460451
+  Bound result 0
+  Bound result 59015
+  Bound result 205373818688679596
+  Bound result 673272253302049447
+  Bound result 215744410646192433
+  Bound result 406155522433716429
+  Bound result 12835
+  Bound result 372320887219600845
+  Bound result 50255
+  Bound result 1443685492
+  Bound result 304366706632759620
+  Bound result 485991
+  Bound result 33665554371689
+  Bound result 4644062422
+  Bound result 589656364183472999
+  Bound result 4851
+
+[PASS] invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale() (runs: 128, calls: 8192, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 1235  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 1196  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 1102  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 1160  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 1171  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 1217  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 1111  | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 460451
+  Bound result 0
+  Bound result 59015
+  Bound result 205373818583156545
+  Bound result 673272253302049447
+  Bound result 215744410646192433
+  Bound result 406155514387984116
+  Bound result 12676
+  Bound result 107795014362301633
+  Bound result 430738
+  Bound result 1443685492
+  Bound result 304366706632759620
+  Bound result 485991
+  Bound result 33665554371689
+  Bound result 4644062422
+  Bound result 910935858238206533
+  Bound result 4791
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 4.24s (5.91s CPU time)
+
+Ran 2 tests for test/invariant/PoolSaleInvariant.t.sol:PoolSaleLifecycleInvariantTest
+[PASS] invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds() (runs: 128, calls: 8192, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 1235  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 1196  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 1102  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 1160  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 1171  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 1217  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 1111  | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 17
+  Bound result 0
+  Bound result 59015
+  Bound result 54
+  Bound result 673272253302049447
+  Bound result 215744410646192433
+  Bound result 335862748029171337
+  Bound result 12836
+  Bound result 578307552106470946
+  Bound result 665898
+  Bound result 1443685492
+  Bound result 304366706632759620
+  Bound result 485991
+  Bound result 33665554371689
+  Bound result 4644062422
+  Bound result 249458533978561892
+  Bound result 4851
+
+[PASS] invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale() (runs: 128, calls: 8192, reverts: 0)
+
+╭-----------------+-------------+-------+---------+----------╮
+| Contract        | Selector    | Calls | Reverts | Discards |
++============================================================+
+| PoolSaleHandler | advanceTime | 1235  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | cancel      | 1196  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | complete    | 1102  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | forceBnb    | 1160  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | listSale    | 1171  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | moveShares  | 1217  | 0       | 0        |
+|-----------------+-------------+-------+---------+----------|
+| PoolSaleHandler | withdraw    | 1111  | 0       | 0        |
+╰-----------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 10003
+  Bound result 604800
+  Bound result 20007
+  Bound result 17
+  Bound result 17
+  Bound result 0
+  Bound result 59015
+  Bound result 753727717862192571
+  Bound result 673272253302049447
+  Bound result 215744410646192433
+  Bound result 622367290363086556
+  Bound result 16076
+  Bound result 857498363827840336
+  Bound result 150955
+  Bound result 1443685492
+  Bound result 304366706632759620
+  Bound result 485991
+  Bound result 33665554371689
+  Bound result 4644062422
+  Bound result 74531045956193396
+  Bound result 4789
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 4.32s (6.49s CPU time)
+
+Ran 5 test suites in 4.33s (10.80s CPU time): 36 tests passed, 0 failed, 0 skipped (36 total tests)

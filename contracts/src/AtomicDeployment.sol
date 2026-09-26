@@ -6,6 +6,7 @@ import {PoolTimelock} from "./PoolTimelock.sol";
 import {PoolBeacon} from "./PoolBeacon.sol";
 import {PoolFactory} from "./PoolFactory.sol";
 import {IShareMarket} from "./interfaces/IShareMarket.sol";
+import {PoolLens} from "./PoolLens.sol";
 
 interface IFactoryBoundVault {
     function OFFICIAL_FACTORY() external view returns (address);
@@ -177,6 +178,8 @@ contract AtomicDeployment {
 
     function _verify(Config calldata config, Deployment memory result) private view {
         PoolFactory factory = PoolFactory(result.factory);
+        address lens = factory.lens();
+        if (lens.code.length == 0 || PoolLens(lens).factory() != result.factory) revert InvalidBinding();
         PoolTimelock timelock = PoolTimelock(payable(result.timelock));
         PoolBeacon beacon = PoolBeacon(result.beacon);
         IShareMarket market = IShareMarket(result.shareMarket);

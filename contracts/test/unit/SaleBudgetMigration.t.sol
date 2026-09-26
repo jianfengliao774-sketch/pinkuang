@@ -20,7 +20,13 @@ contract LegacySaleVaultFixture is PoolVault {
     function fixtureLegacyClosedSale(uint256 alreadySpent) external {
         SaleStorage storage s = _saleStorage();
         require(_vaultStorage().state == State.Closed, "closed fixture");
+        // Rebuild the historical 2% treasury credit as well as the old 2% burn
+        // budget; setUp's modern sale has credited only the current 1% fee.
         uint256 fee = s.saleProceeds / 50;
+        VaultStorage storage v = _vaultStorage();
+        uint256 historicalFeeDifference = fee - s.saleProceeds / 100;
+        v.bnbOwed[v.treasury] += historicalFeeDifference;
+        v.totalBnbOwed += historicalFeeDifference;
         require(alreadySpent <= fee, "fixture budget");
         uint256 oldNet = s.saleProceeds - fee * 2;
         s.salePerShareWei = oldNet / 100;

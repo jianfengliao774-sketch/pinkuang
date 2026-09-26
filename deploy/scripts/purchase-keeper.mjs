@@ -411,9 +411,22 @@ async function finalBroadcastBoundary(provider, pending, replacement = false) {
   return null;
 }
 
-async function broadcastSigned(provider, options, journal, attempt, replacement = false) {
+function stoppedResult(runtime, stage, hash) {
+  return runtime?.stopped || runtime?.abortController.signal.aborted
+    ? { status: `stopped-before-${stage}`, terminal: true, ...(hash ? { hash } : {}),
+      message: 'No new signature or broadcast will start. Any already signed attempt remains in its journal for explicit recovery.' }
+    : null;
+}
+
+async function broadcastSigned(provider, options, journal, attempt, replacement = false, runtime) {
+  const beforeBoundary = stoppedResult(runtime, 'broadcast', attempt.hash);
+  if (beforeBoundary) return beforeBoundary;
   const blocked = await finalBroadcastBoundary(provider, journal.transaction, replacement);
   if (blocked) return { status: blocked, terminal: true, hash: attempt.hash };
+  // A stop during the RPC boundary must not start a new send. Keep signed bytes
+  // and nonce ownership durable; stopping does not cancel an earlier broadcast.
+  const beforeBroadcast = stoppedResult(runtime, 'broadcast', attempt.hash);
+  if (beforeBroadcast) return beforeBroadcast;
   // The exact raw bytes and their deterministic hash are already fsynced. A timeout
   // therefore leaves a queryable transaction; recovery can only rebroadcast these bytes.
   attempt.broadcastCount += 1; attempt.lastBroadcastAt = new Date().toISOString();
@@ -500,14 +513,16 @@ export async function reconcilePending(provider, options, journal) {
   return { status: indexed ? 'pending-receipt' : 'pending-not-indexed', terminal: false, ...info, recoveryAllowed: !!pending.attempts };
 }
 
-export async function recoverPending(provider, options, signer, journal, diagnostic) {
+export async function recoverPending(provider, options, signer, journal, diagnostic, runtime) {
+  const stopped = stoppedResult(runtime, 'recovery', journal.transaction?.hash);
+  if (stopped) return stopped;
   if (!options.send || (!options.speedUp && !options.rebroadcast && !options.cancelPending) || !diagnostic.recoveryAllowed || diagnostic.terminal) return diagnostic;
   if (!signer || !same(await signer.getAddress(), journal.transaction.from)) throw new Error('Pending transaction belongs to another keeper wallet.');
   const pending = journal.transaction, previous = pending.attempts.at(-1);
   if (options.rebroadcast) {
     const budget = gasBudget(journal, BigInt(previous.gasLimit), BigInt(previous.gasPrice), options.maxGasWei);
     if (BigInt(previous.gasPrice) > options.maxGasPrice || !budget.allowed || await provider.getBalance(pending.from) < budget.reservedFee) return { status: 'recovery-gas-budget-exceeded', terminal: false, hash: previous.hash };
-    return broadcastSigned(provider, options, journal, previous, true);
+    return broadcastSigned(provider, options, journal, previous, true, runtime);
   }
   if (pending.speedUps >= Math.min(options.maxSpeedUps ?? 3, 5)) return { status: 'speed-up-limit-reached', terminal: false, hash: pending.hash };
   if (options.speedUp && pending.attempts.some(attempt => attempt.kind === 'cancel')) return { status: 'cancellation-already-signed-use-cancel-pending-or-rebroadcast', terminal: false, hash: pending.hash };
@@ -524,20 +539,24 @@ export async function recoverPending(provider, options, signer, journal, diagnos
   if (kind === (previous.kind ?? 'purchase') && gasLimit < BigInt(previous.gasLimit)) gasLimit = BigInt(previous.gasLimit);
   const budget = gasBudget(journal, gasLimit, gasPrice, options.maxGasWei);
   if (gasPrice > options.maxGasPrice || !budget.allowed || balance < budget.reservedFee) return { status: 'recovery-gas-budget-exceeded', terminal: false, hash: pending.hash };
+  const beforeSigning = stoppedResult(runtime, 'signing', pending.hash);
+  if (beforeSigning) return beforeSigning;
   const attempt = await signAttempt(signer, pending, options, gasLimit, gasPrice, kind);
   pending.attempts.push(attempt); pending.speedUps += 1; pending.hash = attempt.hash; pending.phase = 'signed';
   writeJournal(options.journal, journal);
-  return broadcastSigned(provider, options, journal, attempt, true);
+  return broadcastSigned(provider, options, journal, attempt, true, runtime);
 }
 
 export async function runKeeperCycle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
+  const stopped = stoppedResult(runtime, 'cycle');
+  if (stopped) return stopped;
   const binding = `56:${options.factory.toLowerCase()}:${options.pool.toLowerCase()}`;
   if (runtime.binding && runtime.binding !== binding) throw new Error('In-memory keeper state belongs to another pool.');
   runtime.binding = binding;
   const journal = readJournal(options.journal, options);
   if (options.send && journal.transaction && (!signer || !same(await signer.getAddress(), journal.transaction.from))) throw new Error('Journal belongs to a different keeper wallet; use its original signer.');
   const pendingResult = await reconcilePending(provider, options, journal);
-  if (pendingResult) return recoverPending(provider, options, signer, journal, pendingResult); // Recovery can only act on this reserved nonce; never enter candidate selection.
+  if (pendingResult) return recoverPending(provider, options, signer, journal, pendingResult, runtime); // Recovery can only act on this reserved nonce; never enter candidate selection.
   if (['cancelled', 'cancel-reverted'].includes(journal.transaction?.phase)) return { status: journal.transaction.phase === 'cancelled' ? 'purchase-nonce-cancelled' : 'cancellation-flow-reverted', terminal: true, hash: journal.transaction.hash, message: 'This cancellation flow has ended and this journal has stopped; no automatic next purchase.' };
   if (journal.transaction?.phase === 'confirmed') return { status: 'purchase-transaction-already-confirmed', terminal: true, hash: journal.transaction.hash };
   if (options.speedUp || options.rebroadcast || options.cancelPending) return { status: 'no-unresolved-purchase-to-recover', terminal: true };
@@ -565,6 +584,8 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
   const skipped = [], preparedQueue = [...runtime.queue];
   const runner = signer ?? provider, pool = new Contract(options.pool, KEEPER_POOL_ABI, runner);
   for (const prepared of preparedQueue) {
+    const beforeCandidate = stoppedResult(runtime, 'candidate');
+    if (beforeCandidate) return beforeCandidate;
     let candidate;
     try { candidate = await verifyCandidate(provider, prepared, constraints); }
     catch { skipped.push({ tokenId: prepared.tokenId, reason: 'live-official-listing-read-failed' }); continue; }
@@ -601,12 +622,14 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
     const data = new Interface(KEEPER_POOL_ABI).encodeFunctionData('buyAlternativeFromMarket', [candidate.listingId]);
     const pending = { phase: 'signed', from, nonce, to: options.pool, data, value: '0', listingId: candidate.listingId.toString(),
       createdAt: new Date().toISOString(), speedUps: 0 };
+    const beforeSigning = stoppedResult(runtime, 'signing');
+    if (beforeSigning) return beforeSigning;
     const attempt = await signAttempt(signer, pending, options, gasLimit, gasPrice);
     pending.attempts = [attempt]; pending.hash = attempt.hash;
     if (journal.transaction) journal.previousTransaction = journal.transaction;
     journal.transaction = pending;
     writeJournal(options.journal, journal); // Exact signed bytes and deterministic hash are durable before any RPC broadcast.
-    return { ...await broadcastSigned(provider, options, journal, attempt), ...details };
+    return { ...await broadcastSigned(provider, options, journal, attempt, false, runtime), ...details };
   }
   if (refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
   return { status: 'no-executable-official-candidate-in-prepared-queue', terminal: false, ...queueInfo(), skipped,
@@ -625,13 +648,13 @@ export async function main(args = process.argv.slice(2)) {
   try { releasePool = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'pools', `56-${options.pool.toLowerCase()}`)); }
   catch (error) { releaseJournal(); throw error; }
   const release = () => { releasePool(); releaseJournal(); };
+  const runtime = createKeeperRuntime();
   let stopping = false;
-  const stop = () => { stopping = true; };
+  const stop = () => { stopping = true; runtime.stopped = true; runtime.abortController.abort(); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   const rpcRequest = new FetchRequest(options.rpc);
   rpcRequest.timeout = 15_000;
   const provider = new JsonRpcProvider(rpcRequest);
-  const runtime = createKeeperRuntime();
   let releaseWallet;
   try {
     let signer = null;

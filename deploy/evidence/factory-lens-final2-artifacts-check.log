@@ -1,0 +1,5 @@
+
+> pinkuang-deploy-console@0.1.0 artifacts:check
+> node scripts/build-artifacts.mjs --check
+
+Deployment artifacts match all local sources, dependencies and compiler settings.

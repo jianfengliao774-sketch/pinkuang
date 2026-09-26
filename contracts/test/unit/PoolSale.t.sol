@@ -135,24 +135,24 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(block.timestamp, timestamp);
         assertEq(sale.completedAt(), sale.listedAt());
         assertEq(sale.pendingSaleProceeds(ALICE), 0);
-        assertEq(sale.pendingSaleProceeds(DAVE), 4.802 ether);
+        assertEq(sale.pendingSaleProceeds(DAVE), 4.851 ether);
         assertEq(pool.bnbOwed(ALICE), 0.735 ether, "original purchase surplus remains Alice's");
-        assertEq(pool.bnbOwed(DAVE), 4.802 ether);
-        assertEq(pool.bnbOwed(BOB), 5.537 ether);
-        assertEq(pool.bnbOwed(CAROL), 0.226 ether);
-        assertEq(pool.bnbOwed(TREASURY), 0.2 ether);
-        assertEq(sale.saleOutstandingWei(), 9.8 ether);
+        assertEq(pool.bnbOwed(DAVE), 4.851 ether);
+        assertEq(pool.bnbOwed(BOB), 5.586 ether);
+        assertEq(pool.bnbOwed(CAROL), 0.228 ether);
+        assertEq(pool.bnbOwed(TREASURY), 0.1 ether);
+        assertEq(sale.saleOutstandingWei(), 9.9 ether);
         assertEq(pool.totalBnbOwed(), 11.5 ether);
         assertEq(address(pool).balance, 11.5 ether);
         assertEq(sale.burnBudget(), 0);
-        assertEq(_withdraw(DAVE), 4.802 ether);
+        assertEq(_withdraw(DAVE), 4.851 ether);
         assertTrue(sale.saleSettled(DAVE));
         assertEq(sale.pendingSaleProceeds(DAVE), 0);
-        assertEq(sale.saleOutstandingWei(), 4.998 ether);
+        assertEq(sale.saleOutstandingWei(), 5.049 ether);
         assertEq(_withdraw(ALICE), 0.735 ether);
-        assertEq(_withdraw(BOB), 5.537 ether);
-        assertEq(_withdraw(CAROL), 0.226 ether);
-        assertEq(_withdraw(TREASURY), 0.2 ether);
+        assertEq(_withdraw(BOB), 5.586 ether);
+        assertEq(_withdraw(CAROL), 0.228 ether);
+        assertEq(_withdraw(TREASURY), 0.1 ether);
         assertEq(sale.saleOutstandingWei(), 0);
         assertEq(pool.totalBnbOwed(), 0);
         assertEq(address(pool).balance, sale.burnBudget());
@@ -167,10 +167,10 @@ contract PoolSaleTest is SaleTestBase {
         uint256 beforeBalance = TREASURY.balance;
         _complete(NFT_BUYER, SALE_PRICE);
         assertEq(TREASURY.balance, beforeBalance, "sale records pull credits");
-        assertEq(pool.bnbOwed(TREASURY), 0.396 ether);
+        assertEq(pool.bnbOwed(TREASURY), 0.298 ether);
         assertEq(pool.bnbOwed(CAROL), 0.03 ether);
         assertEq(sale.pendingSaleProceeds(CAROL), 0);
-        assertEq(_withdraw(TREASURY), 0.396 ether);
+        assertEq(_withdraw(TREASURY), 0.298 ether);
         assertEq(_withdraw(CAROL), 0.03 ether);
     }
 
@@ -179,8 +179,8 @@ contract PoolSaleTest is SaleTestBase {
         _complete(ALICE, SALE_PRICE);
         assertEq(nft.ownerOf(rewardId), ALICE);
         assertEq(pool.balanceOf(ALICE), 49);
-        assertEq(sale.pendingSaleProceeds(ALICE), 4.802 ether);
-        assertEq(_withdraw(ALICE), 5.537 ether);
+        assertEq(sale.pendingSaleProceeds(ALICE), 4.851 ether);
+        assertEq(_withdraw(ALICE), 5.586 ether);
         mining.configure(address(nft), rewardId, 0, 10000);
         mining.claim(key);
         assertEq(bem.balanceOf(ALICE), 10000);
@@ -194,12 +194,12 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(address(pool).balance, 6.63 ether);
         _listSale(SALE_PRICE);
         _complete(NFT_BUYER, SALE_PRICE);
-        assertEq(pool.bnbOwed(ALICE), 10.667 ether);
+        assertEq(pool.bnbOwed(ALICE), 10.716 ether);
         assertEq(pool.totalBnbOwed(), 16.63 ether);
-        assertEq(_withdraw(ALICE), 10.667 ether);
-        assertEq(_withdraw(BOB), 5.537 ether);
-        assertEq(_withdraw(CAROL), 0.226 ether);
-        assertEq(_withdraw(TREASURY), 0.2 ether);
+        assertEq(_withdraw(ALICE), 10.716 ether);
+        assertEq(_withdraw(BOB), 5.586 ether);
+        assertEq(_withdraw(CAROL), 0.228 ether);
+        assertEq(_withdraw(TREASURY), 0.1 ether);
         assertEq(pool.totalBnbOwed(), 0);
         assertEq(address(pool).balance, 0);
     }
@@ -209,9 +209,9 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(saleVault.surplusRemainder(), 83);
         _listSale(10003);
         _complete(NFT_BUYER, 10003);
-        assertEq(sale.salePerShareWei(), 98);
+        assertEq(sale.salePerShareWei(), 99);
         assertEq(sale.saleRemainder(), 3);
-        assertEq(sale.saleOutstandingWei(), 9803);
+        assertEq(sale.saleOutstandingWei(), 9903);
         assertEq(sale.burnBudget(), 0);
         assertEq(saleVault.surplusRemainder(), 83);
         _withdraw(ALICE);
@@ -221,6 +221,57 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(pool.totalBnbOwed(), 0);
         assertEq(sale.saleOutstandingWei(), 0);
         assertEq(address(pool).balance, 83, "only the existing purchase tail remains; all sale proceeds were assigned");
+    }
+
+    function test_onePercentFeeAndExactNetAtSmallPriceBoundaries() public {
+        uint256[7] memory prices = [uint256(1), 99, 100, 101, 199, 200, 10003];
+        for (uint256 i; i < prices.length; ++i) {
+            uint256 snapshot = vm.snapshotState();
+            _assertOnePercentSaleConserved(prices[i], i % 2 == 0);
+            assertTrue(vm.revertToStateAndDelete(snapshot));
+        }
+    }
+
+    function testFuzz_onePercentFeeConservesEveryWeiRegardlessOfWithdrawalOrder(uint256 seed, bool roundingFirst)
+        public
+    {
+        _assertOnePercentSaleConserved(bound(seed, 1, 20 ether), roundingFirst);
+    }
+
+    function _assertOnePercentSaleConserved(uint256 price, bool roundingFirst) private {
+        uint256 fee = price / 100;
+        uint256 net = price - fee;
+        uint256 perShare = net / 100;
+        uint256 tail = net % 100;
+        assertEq(saleVault.saleFeeBps(), 100);
+        _listSale(price);
+        vm.expectEmit(false, false, false, true, address(pool));
+        emit SaleCompleted(price, fee, 0, net);
+        _complete(NFT_BUYER, price);
+
+        assertEq(pool.bnbOwed(TREASURY), fee);
+        assertEq(sale.salePerShareWei(), perShare);
+        assertEq(sale.saleRemainder(), tail);
+        assertEq(sale.saleOutstandingWei(), net);
+        assertEq(sale.pendingSaleProceeds(ALICE), 49 * perShare);
+        assertEq(sale.pendingSaleProceeds(BOB), 49 * perShare);
+        assertEq(sale.pendingSaleProceeds(CAROL), 2 * perShare + tail);
+        assertEq(
+            fee + sale.pendingSaleProceeds(ALICE) + sale.pendingSaleProceeds(BOB) + sale.pendingSaleProceeds(CAROL),
+            price
+        );
+        assertEq(sale.burnBudget(), 0);
+        assertEq(pool.totalBnbOwed(), 1.5 ether + price);
+
+        // Tail belongs to the fixed last holder, including if she withdraws first.
+        if (roundingFirst) assertEq(_withdraw(CAROL), 0.03 ether + 2 * perShare + tail);
+        assertEq(_withdraw(ALICE), 0.735 ether + 49 * perShare);
+        assertEq(_withdraw(BOB), 0.735 ether + 49 * perShare);
+        if (!roundingFirst) assertEq(_withdraw(CAROL), 0.03 ether + 2 * perShare + tail);
+        if (fee != 0) assertEq(_withdraw(TREASURY), fee);
+        assertEq(sale.saleOutstandingWei(), 0);
+        assertEq(pool.totalBnbOwed(), 0);
+        assertEq(address(pool).balance, 0);
     }
 
     function test_zeroPriceProposalRejectedBeforeAnySale() public {
@@ -295,15 +346,15 @@ contract PoolSaleTest is SaleTestBase {
         buyer.buy{value: SALE_PRICE}(address(pool));
         assertEq(uint256(buyer.observedState()), uint256(IPoolVault.State.Closed));
         assertEq(buyer.observedOwner(), address(buyer));
-        assertEq(buyer.observedOwed(), 0.196 ether);
+        assertEq(buyer.observedOwed(), 0.198 ether);
         assertTrue(buyer.attempted());
         assertFalse(buyer.succeeded());
         assertEq(buyer.result(), abi.encodeWithSelector(bytes4(keccak256("ReentrancyGuardReentrantCall()"))));
         assertEq(sale.saleProceeds(), SALE_PRICE);
-        assertEq(pool.bnbOwed(address(buyer)), 0.196 ether);
+        assertEq(pool.bnbOwed(address(buyer)), 0.198 ether);
         assertFalse(sale.saleSettled(address(buyer)));
         buyer.withdraw();
-        assertEq(address(buyer).balance, 0.196 ether);
+        assertEq(address(buyer).balance, 0.198 ether);
         assertTrue(sale.saleSettled(address(buyer)));
     }
 
@@ -329,7 +380,7 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(mining.reentryResult(), abi.encodeWithSelector(bytes4(keccak256("ReentrancyGuardReentrantCall()"))));
         assertEq(mining.claimCalls(), beforeCalls + 1);
         assertEq(sale.saleProceeds(), SALE_PRICE);
-        assertEq(sale.saleOutstandingWei(), 9.8 ether);
+        assertEq(sale.saleOutstandingWei(), 9.9 ether);
     }
 
     function test_failedBnbWithdrawalRestoresLazySaleEntitlementForRetry() public {
@@ -344,13 +395,13 @@ contract PoolSaleTest is SaleTestBase {
         vm.expectRevert(IPoolVault.TransferFailed.selector);
         buyer.withdraw();
         assertFalse(sale.saleSettled(address(buyer)));
-        assertEq(sale.pendingSaleProceeds(address(buyer)), 0.196 ether);
+        assertEq(sale.pendingSaleProceeds(address(buyer)), 0.198 ether);
         assertEq(sale.saleOutstandingWei(), outstanding);
         assertEq(pool.totalBnbOwed(), total);
         buyer.setRejectBnb(false);
         buyer.withdraw();
-        assertEq(address(buyer).balance, 0.196 ether);
-        assertEq(sale.saleOutstandingWei(), outstanding - 0.196 ether);
+        assertEq(address(buyer).balance, 0.198 ether);
+        assertEq(sale.saleOutstandingWei(), outstanding - 0.198 ether);
     }
 
     function test_saleStrictlySettlesRewardsBeforeNftTransferWithoutBurn() public {
@@ -383,9 +434,9 @@ contract PoolSaleTest is SaleTestBase {
                 (uint256 gross, uint256 fee, uint256 burnedBem, uint256 net) =
                     abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
                 assertEq(gross, SALE_PRICE);
-                assertEq(fee, 0.2 ether);
+                assertEq(fee, 0.1 ether);
                 assertEq(burnedBem, 0);
-                assertEq(net, 9.8 ether);
+                assertEq(net, 9.9 ether);
             }
         }
         assertLt(settled, transferred);

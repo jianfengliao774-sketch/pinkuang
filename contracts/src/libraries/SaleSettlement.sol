@@ -54,8 +54,8 @@ library SaleSettlement {
         if (gross != s.salePrice) revert IPoolVault.PaymentMismatch();
         if (buyer == address(0) || roundingRecipient == address(0)) revert IPoolVault.InvalidParameters();
 
-        // Only the existing 2% platform fee is deducted. All remaining wei are owed to holders.
-        fee = gross / 50;
+        // Only the 1% platform fee is deducted. All remaining wei are owed to holders.
+        fee = gross / 100;
         uint256 memberNet = gross - fee;
         s.saleBuyer = buyer;
         s.completedAt = SafeCast.toUint64(block.timestamp);
@@ -80,7 +80,7 @@ library SaleSettlement {
         emit RewardSettledBeforeTransfer(circuits, circuitId, address(this), settledBem, s.saleTradeId);
         nft.safeTransferFrom(address(this), buyer, circuitId);
         if (nft.ownerOf(circuitId) != buyer) revert IPoolVault.TransferFailed();
-        uint256 fee = s.saleProceeds / 50;
+        uint256 fee = s.saleProceeds / 100;
         emit SaleCompleted(s.saleProceeds, fee, 0, s.saleProceeds - fee);
     }
 
