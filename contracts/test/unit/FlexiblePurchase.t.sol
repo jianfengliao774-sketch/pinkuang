@@ -288,6 +288,33 @@ contract FlexiblePurchaseTest is FundingTestBase {
         assertEq(pool.totalBnbOwed(), 1.6 ether);
     }
 
+    function testFuzz_twoFundedPoolsCannotBuyTheSameAlternativeListing(bool secondPoolFirst) public {
+        _fund();
+        IFundingVault other = _flexible(defaultParams, config);
+        _deposit(other, DAVE, 100);
+        uint256 listing = _list(ALTERNATIVE_ID, 6 ether);
+        IFundingVault winner = secondPoolFirst ? other : pool;
+        IFundingVault loser = secondPoolFirst ? pool : other;
+        uint256 sellerBalance = SELLER.balance;
+
+        winner.buyAlternativeFromMarket(listing);
+        vm.expectRevert(IPoolVault.InvalidListing.selector);
+        loser.buyAlternativeFromMarket(listing);
+
+        assertEq(market.buyCalls(), 1);
+        assertEq(market.fees(), 0.06 ether);
+        assertEq(SELLER.balance - sellerBalance, 5.94 ether);
+        assertEq(nft.ownerOf(ALTERNATIVE_ID), address(winner));
+        assertEq(uint256(winner.state()), uint256(IPoolVault.State.Active));
+        assertEq(winner.params().circuitId, ALTERNATIVE_ID);
+        assertEq(winner.totalBnbOwed(), 0.6 ether);
+        assertEq(address(winner).balance, 0.6 ether);
+        assertEq(uint256(loser.state()), uint256(IPoolVault.State.Funded));
+        assertEq(loser.params().circuitId, REFERENCE_ID);
+        assertEq(loser.totalBnbOwed(), 0);
+        assertEq(address(loser).balance, defaultParams.targetRaise);
+    }
+
     function testFuzz_originalUnavailableOrUnqualifiedAllowsReplacement(uint8 fault) public {
         fault = uint8(bound(fault, 0, 7));
         _fund();

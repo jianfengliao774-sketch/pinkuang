@@ -37,8 +37,8 @@ contract PoolVault is
 
     uint256 public constant TOTAL_SHARES = 100;
     uint16 public constant minShares = 1;
-    uint16 public constant maxShares = 49;
-    uint8 public constant minMembers = 3;
+    uint16 public constant maxShares = 100;
+    uint8 public constant minMembers = 1;
     uint16 public constant platformBps = 100;
     uint16 public constant burnBps = 0;
     uint16 public constant saleFeeBps = 100;
@@ -115,7 +115,7 @@ contract PoolVault is
         s.totalRaised -= amount;
         _burn(msg.sender, shares);
         _creditBnb(s, msg.sender, amount);
-        // Minting is bounded to 49 integer shares per member, so this cast is exact.
+        // The entire pool contains 100 integer shares, so this uint8 cast is exact.
         emit DepositWithdrawn(msg.sender, uint8(shares), amount);
     }
 

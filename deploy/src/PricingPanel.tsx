@@ -3,7 +3,7 @@ import { ArrowDownToLine, ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle
 import { createQuotePlan, fetchCapacityReference, fetchMineQuote, fetchQuotePage, FIRSTO_SOURCE, formatExact, OFFICIAL_COLLECTIONS, quoteIssue, referenceIssue, type CapacityReference, type MineQuote, type MineQuotePage, type PriceSort, type QuotePlan } from './pricing';
 import './pricing.css';
 
-type PricingPanelProps = { onPlan?: (plan: QuotePlan) => void };
+type PricingPanelProps = { onPlan?: (plan: QuotePlan) => void; onSavePlan?: (record: unknown) => Promise<void> };
 const stamp = (value: number) => value > 0 ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '未知';
 const short = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 const statusLabels: Record<string, string> = { verified: '纯验证池', unverified: '未验证', optimal: '最优', not_started: '未启动', failed: '失败', checking: '检查中' };
@@ -14,7 +14,7 @@ function exportJson(filename: string, data: unknown) {
 }
 function bps(value: string) { if (!/^\d+(?:\.\d{1,2})?$/.test(value)) throw new Error('额外预算需填写百分比，最多两位小数'); const [whole, decimal = ''] = value.split('.'); return Number(whole) * 100 + Number(decimal.padEnd(2, '0')); }
 
-export default function PricingPanel({ onPlan }: PricingPanelProps = {}) {
+export default function PricingPanel({ onPlan, onSavePlan }: PricingPanelProps = {}) {
   const [page, setPage] = useState<MineQuotePage | null>(null);
   const [reference, setReference] = useState<CapacityReference | null>(null);
   const [query, setQuery] = useState(''); const [series, setSeries] = useState<'' | 'TapeOut' | 'Behemoth'>('');
@@ -22,8 +22,8 @@ export default function PricingPanel({ onPlan }: PricingPanelProps = {}) {
   const [error, setError] = useState(''); const [referenceError, setReferenceError] = useState('');
   const [collection, setCollection] = useState<string>(OFFICIAL_COLLECTIONS.TapeOut); const [tokenId, setTokenId] = useState('');
   const [selected, setSelected] = useState<MineQuote | null>(null); const [detailBusy, setDetailBusy] = useState(false); const [detailError, setDetailError] = useState('');
-  const [extra, setExtra] = useState('10'); const [minimum, setMinimum] = useState(''); const [acknowledged, setAcknowledged] = useState(false); const [saved, setSaved] = useState('');
-  const [now, setNow] = useState(Date.now()); const listAbort = useRef<AbortController | null>(null); const detailAbort = useRef<AbortController | null>(null);
+  const [extra, setExtra] = useState('10'); const [minimum, setMinimum] = useState(''); const [acknowledged, setAcknowledged] = useState(false); const [saved, setSaved] = useState(''); const [saving, setSaving] = useState(false);
+  const [now, setNow] = useState(Date.now()); const listAbort = useRef<AbortController | null>(null); const detailAbort = useRef<AbortController | null>(null); const saveLock = useRef(false);
 
   async function load(pageNumber = 1) {
     listAbort.current?.abort(); const abort = new AbortController(); listAbort.current = abort;
@@ -51,15 +51,20 @@ export default function PricingPanel({ onPlan }: PricingPanelProps = {}) {
     catch (cause) { return { plan: null, error: msg(cause) }; }
   }, [selected, reference, extra, minimum, now]);
 
-  function savePlan() {
+  async function savePlan() {
+    if (saveLock.current) return;
     try {
+      if (!onSavePlan) throw new Error('请先连接钱包并启用服务器记录，才能保存筹款计划。');
       if (!acknowledged || !selected || !reference) throw new Error('请核对并确认引用的报价与筹款配置');
+      saveLock.current = true;
+      setSaving(true); setDetailError('');
       const plan = createQuotePlan(selected, reference, bps(extra), minimum, Date.now());
-      const record = { plan, quote: selected, confirmedAt: new Date().toISOString(), confirmation: 'User confirmed public quote reference locally. No blockchain signature or order.' };
-      localStorage.setItem('pinkuang.quote-plan.v1', JSON.stringify(record));
+      const record = { plan, quote: selected, confirmedAt: new Date().toISOString(), confirmation: 'User confirmed public quote reference; server journal saved. No blockchain signature or order.' };
+      await onSavePlan(record);
       exportJson(`pinkuang-quote-${selected.series}-${selected.tokenId}.json`, record);
-      setSaved('已保存并导出本次报价与筹款计划。'); onPlan?.(plan);
+      setSaved('已保存到服务器并导出本次报价与筹款计划。'); onPlan?.(plan);
     } catch (cause) { setDetailError(msg(cause)); }
+    finally { saveLock.current = false; setSaving(false); }
   }
 
   return <div className="pricing-page">
@@ -78,6 +83,6 @@ export default function PricingPanel({ onPlan }: PricingPanelProps = {}) {
       {selected && <div className="pricing-selection"><div className="pricing-selected-title"><h3>{selected.series} #{selected.tokenId}</h3><span><Check size={15}/>合约、编号、报价和详情一致</span></div><dl><div><dt>合约地址</dt><dd className="pricing-address">{selected.collection}</dd></div><div><dt>持有人 / 卖家</dt><dd className="pricing-address">{selected.owner} / {selected.ask?.seller ?? '无'}</dd></div><div><dt>卖家挂单价</dt><dd>{formatExact(selected.ask?.priceWei)} BNB</dd></div><div><dt>Firsto 买入总额</dt><dd>{formatExact(selected.ask?.buyerCostWei)} BNB</dd></div><div><dt>报价源更新</dt><dd>{stamp(selected.source.observedAt)} · 区块 {selected.source.sourceBlock}</dd></div><div><dt>任务型号（报价来源）</dt><dd>T{selected.taskId ?? '未知'} · 建池时由链上数据锁定</dd></div><div><dt>详情状态 / 预计日产能</dt><dd>{statusLabels[selected.status] || selected.status} · {formatExact(selected.estimated24hAtomic, 8)} BEM / 日</dd></div><div><dt>同类矿机参考价</dt><dd>{formatExact(selected.listingReference?.priceWei)} BNB <small>仅作同类参考，非本机可成交价</small></dd></div></dl><p className="pricing-route-note">{selected.ask?.legacyListingId ? `官网旧市场挂单 ID ${selected.ask.legacyListingId}。实际购机仍须复核链上价格、持有人与状态。` : '这是 Firsto 签名/批量挂单或未识别市场报价。现有 PoolVault.buyFromMarket 不支持直接执行这些订单。'} 列表报价可能随时撤销、成交或变化。</p></div>}
     </section>
 
-    <section className="card pricing-plan"><div className="card-heading"><div><ArrowDownToLine size={20}/><h2>按参考产能价筹款</h2></div><span className="subtle-tag">100 份 · 整数 wei</span></div><div className="pricing-plan-body"><div className="pricing-plan-inputs"><label>额外预算（%）<input inputMode="decimal" value={extra} onChange={event => setExtra(event.target.value)} placeholder="10"/><small>默认 10%，可在 0%–100% 内调整；不会提高购机单价或总价上限。</small></label><label>替代矿机最低验证权重 H<input inputMode="numeric" value={minimum} onChange={event => setMinimum(event.target.value)} placeholder="先核对目标矿机"/><small>默认使用目标矿机的当前验证权重；调低门槛不会调低定价基数。</small></label></div>{planResult.plan ? <><div className="pricing-formula"><span>参考产能价 × 目标日产能</span><b>{formatExact(planResult.plan.flexiblePurchase.referencePriceWei)} BNB</b><span>增加 {extra}% 预算，并向上取整为 100 份</span><strong>{formatExact(planResult.plan.funding.targetRaiseWei)} BNB</strong><small>每份 {formatExact(planResult.plan.funding.pricePerShareWei)} BNB · 精确值 {planResult.plan.funding.targetRaiseWei} wei</small><span>购机总价上限（不含额外筹款）</span><b>{formatExact(planResult.plan.funding.priceCapWei)} BNB</b><small>还须满足：参考价 × 候选链上验证权重 ÷ 建池时参考验证权重，向下取整到 wei。</small></div><p className="pricing-plan-rule">合格替代品限定为同一官方合约、同任务型号 T{planResult.plan.eligibility.expectedTaskId}、纯验证池且非最优，验证权重至少 {minimum} H。建池时由链上锁定型号及参考验证权重（报价预期 {planResult.plan.eligibility.expectedReferenceVerifiedWeight} H，以链上为准）；降低最低权重不会改变定价基数。原目标仍有满足双重限价的合格官网挂单时，禁止购买替代品。更低权重必须相应降价，更高权重也不能超过上述总价上限。余款按购机时的份额比例计入可领取余额。此计划仅导出配置，尚不创建资金池。</p><div className="pricing-digest">参考快照 Keccak-256 摘要 <code>{planResult.plan.sourceDigest}</code></div><label className="acknowledgment"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)}/><span>我已核对 Firsto 来源、目标矿机、参考价、参考验证权重与双重限价，理解额外筹款不授权提价。</span></label><button className="primary-button" disabled={!acknowledged || detailBusy || busy} onClick={savePlan}><ArrowDownToLine size={17}/>确认参考并导出筹款计划</button></> : <p className="pricing-plan-unavailable">{planResult.error}</p>}{saved && <div className="success-inline"><Check size={18}/>{saved}</div>}</div></section>
+    <section className="card pricing-plan"><div className="card-heading"><div><ArrowDownToLine size={20}/><h2>按参考产能价筹款</h2></div><span className="subtle-tag">100 份 · 整数 wei</span></div><div className="pricing-plan-body"><div className="pricing-plan-inputs"><label>额外预算（%）<input inputMode="decimal" value={extra} onChange={event => setExtra(event.target.value)} placeholder="10"/><small>默认 10%，可在 0%–100% 内调整；不会提高购机单价或总价上限。</small></label><label>替代矿机最低验证权重 H<input inputMode="numeric" value={minimum} onChange={event => setMinimum(event.target.value)} placeholder="先核对目标矿机"/><small>默认使用目标矿机的当前验证权重；调低门槛不会调低定价基数。</small></label></div>{planResult.plan ? <><div className="pricing-formula"><span>参考产能价 × 目标日产能</span><b>{formatExact(planResult.plan.flexiblePurchase.referencePriceWei)} BNB</b><span>增加 {extra}% 预算，并向上取整为 100 份</span><strong>{formatExact(planResult.plan.funding.targetRaiseWei)} BNB</strong><small>每份 {formatExact(planResult.plan.funding.pricePerShareWei)} BNB · 精确值 {planResult.plan.funding.targetRaiseWei} wei</small><span>购机总价上限（不含额外筹款）</span><b>{formatExact(planResult.plan.funding.priceCapWei)} BNB</b><small>还须满足：参考价 × 候选链上验证权重 ÷ 建池时参考验证权重，向下取整到 wei。</small></div><p className="pricing-plan-rule">合格替代品限定为同一官方合约、同任务型号 T{planResult.plan.eligibility.expectedTaskId}、纯验证池且非最优，验证权重至少 {minimum} H。建池时由链上锁定型号及参考验证权重（报价预期 {planResult.plan.eligibility.expectedReferenceVerifiedWeight} H，以链上为准）；降低最低权重不会改变定价基数。原目标仍有满足双重限价的合格官网挂单时，禁止购买替代品。更低权重必须相应降价，更高权重也不能超过上述总价上限。余款按购机时的份额比例计入可领取余额。此计划仅导出配置，尚不创建资金池。</p><div className="pricing-digest">参考快照 Keccak-256 摘要 <code>{planResult.plan.sourceDigest}</code></div><label className="acknowledgment"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)}/><span>我已核对 Firsto 来源、目标矿机、参考价、参考验证权重与双重限价，理解额外筹款不授权提价。</span></label><button className="primary-button" disabled={!acknowledged || detailBusy || busy || saving || !onSavePlan} onClick={() => void savePlan()}>{saving ? <LoaderCircle className="spin" size={17}/> : <ArrowDownToLine size={17}/>}保存到服务器并导出筹款计划</button>{!onSavePlan && <p className="pricing-plan-unavailable">连接钱包并启用服务器记录后才能保存；当前计划仅供预览。</p>}</> : <p className="pricing-plan-unavailable">{planResult.error}</p>}{saved && <div className="success-inline"><Check size={18}/>{saved}</div>}</div></section>
   </div>;
 }

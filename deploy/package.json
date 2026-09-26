@@ -8,9 +8,10 @@
     "artifacts": "node scripts/build-artifacts.mjs",
     "artifacts:check": "node scripts/build-artifacts.mjs --check",
     "build": "tsc -b && vite build",
-    "test": "tsx --test src/*.test.ts && node --test scripts/*.test.mjs server/*.test.mjs",
+    "test": "tsx --test src/*.test.ts && node --test scripts/*.test.mjs server/*.test.mjs server/chain-index/*.test.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
-    "start": "node server/index.mjs"
+    "start": "node server/index.mjs",
+    "start:chain-index": "node server/chain-index/server.mjs"
   },
   "dependencies": {
     "ethers": "6.17.0",

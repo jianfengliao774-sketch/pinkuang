@@ -83,25 +83,57 @@ contract PoolFundingTest is FundingTestBase {
         assertEq(pool.memberCount(), 2);
     }
 
-    function test_zeroAndFiftySharesRejected() public {
+    function test_zeroAndOneHundredOneSharesRejected() public {
         vm.expectRevert(IPoolVault.InvalidShareCount.selector);
         pool.deposit(0);
-        vm.deal(ALICE, 50 * UNIT_PRICE);
+        vm.deal(ALICE, 101 * UNIT_PRICE);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
-        pool.deposit{value: 50 * UNIT_PRICE}(50);
+        pool.deposit{value: 101 * UNIT_PRICE}(101);
     }
 
-    function test_cumulativeShareCapAndRepeatMembership() public {
+    function test_singleWalletMayFundAllHundredSharesAtOnce() public {
+        _deposit(pool, ALICE, 100);
+        _stateIs(IPoolVault.State.Funded);
+        assertEq(pool.balanceOf(ALICE), 100);
+        assertEq(pool.totalSupply(), 100);
+        assertEq(pool.memberCount(), 1);
+        assertEq(pool.activeMembers().length, 1);
+        assertEq(pool.contributedWei(ALICE), defaultParams.targetRaise);
+        assertEq(pool.totalRaised(), defaultParams.targetRaise);
+        vm.deal(BOB, UNIT_PRICE);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        pool.deposit{value: UNIT_PRICE}(1);
+        assertEq(pool.totalSupply(), 100);
+    }
+
+    function test_secondWalletCannotExceedRemainingPoolSupply() public {
+        _deposit(pool, ALICE, 99);
+        vm.deal(BOB, 2 * UNIT_PRICE);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.ExceedsTarget.selector);
+        pool.deposit{value: 2 * UNIT_PRICE}(2);
+        assertEq(pool.totalSupply(), 99);
+        _deposit(pool, ALICE, 1);
+        _stateIs(IPoolVault.State.Funded);
+        assertEq(pool.memberCount(), 1);
+    }
+
+    function test_cumulativeOneHundredSharesCountAsOneMember() public {
         _deposit(pool, ALICE, 20);
         _deposit(pool, ALICE, 29);
         assertEq(pool.memberCount(), 1);
         assertEq(pool.activeMembers().length, 1);
-        vm.deal(ALICE, UNIT_PRICE);
+        vm.deal(ALICE, ALICE.balance + 52 * UNIT_PRICE);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
-        pool.deposit{value: UNIT_PRICE}(1);
-        assertEq(pool.shareOf(ALICE), 49);
+        pool.deposit{value: 52 * UNIT_PRICE}(52);
+        _deposit(pool, ALICE, 51);
+        _stateIs(IPoolVault.State.Funded);
+        assertEq(pool.shareOf(ALICE), 100);
+        assertEq(pool.contributedWei(ALICE), defaultParams.targetRaise);
+        assertEq(pool.memberCount(), 1);
     }
 
     function testFuzz_paymentMustMatchExactIntegerShares(uint8 shares, uint96 mismatch) public {

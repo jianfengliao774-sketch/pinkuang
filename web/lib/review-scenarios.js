@@ -11,7 +11,7 @@ add('A05','交易市场 · 份额交易',main,'交易市场 → 份额交易',{r
 add('A06','交易市场 · 整机出售',main,'交易市场 → 整机出售',{route:'market',marketTab:'整机出售',connected:true});
 add('A07','收益中心 · 待领取',main,'收益中心 / #rewards',{route:'rewards',connected:true});
 add('A08','共同决策 · 待投票',main,'共同决策 / #governance',{route:'governance',connected:true});
-for(const [i,tab] of ['全部记录','收益分配','收益领取','BEM 销毁'].entries())add(`A${String(9+i).padStart(2,'0')}`,`公开记录 · ${tab}`,main,`公开记录 → ${tab}`,{route:'records',recordFilter:tab});
+for(const [i,tab] of ['全部记录','收益分配','收益领取','份额认购'].entries())add(`A${String(9+i).padStart(2,'0')}`,`公开记录 · ${tab}`,main,`公开记录 → ${tab}`,{route:'records',recordFilter:tab});
 const catalog='02 · 拼矿列表与筛选';
 for(const [i,tab] of ['项目总览','募集中','挖矿中','整机出售中'].entries())add(`B0${i+1}`,`参与拼矿 · ${tab}`,catalog,`参与拼矿 → ${tab}`,{route:'pools',filter:tab});
 add('B05','筛选面板 · 全部条件',catalog,'参与拼矿 → 筛选',{route:'pools',filter:'募集中',catalog:{filterOpen:true}});
@@ -50,13 +50,13 @@ add('E01','认购完成 · 待购机详情',states,'#17006 → 认购最大9份 
 add('E02','满募后 · 列表待购机',states,'完成E01后 → 参与拼矿 → 募集中',{route:'pools',filter:'募集中',pools:funded,connected:true});
 add('E03','认购份数 · 非法数量',states,'#16928 → 份数填0',{route:'detail',poolId:'16928',qty:0,connected:true},'0、空白、小数和超过最大值共用此行内错误与禁用按钮。');
 add('E04','收益中心 · 已领取',states,'领取收益 → 演示领取全部收益',{route:'rewards',claimed:true,connected:true,toast:'演示领取完成：0.6842 BEM'});
-add('E05','资产总览 · 领取后联动',states,'完成领取 → 资产总览',{route:'overview',claimed:true,connected:true},'可领取归零，即将到期待办消失。');
+add('E05','资产总览 · 领取后联动',states,'完成领取 → 资产总览',{route:'overview',claimed:true,connected:true},'可领取归零，待领取提示消失。');
 add('E06','共同决策 · 已赞成并达标',states,'赞成出售 → 确认演示投票',{route:'governance',voted:'yes',connected:true,toast:'演示投票已记录'});
 add('E07','共同决策 · 已反对',states,'反对 → 确认演示投票',{route:'governance',voted:'no',connected:true,toast:'演示投票已记录'});
 add('E08','交易市场 · 我的挂单有数据',states,'出售我的份额 → 创建演示挂单',{route:'market',listed:true,connected:true,toast:'演示挂单已创建'});
 add('E09','交易市场 · 撤销后空态',states,'我的挂单 → 撤销挂单',{route:'market',connected:true,toast:'演示挂单已撤销，5 份已解锁'});
 add('E10','买入校验 · 数量无效',states,'份额买入 → 数量填0',{route:'market',connected:true,qty:0,modal:modal('buy',{order:orders[1]})});
-add('E11','买入校验 · 超过49份上限',states,'买入#16210 → 确认演示买入',{route:'market',connected:true,qty:1,modal:modal('buy',{order:orders[0]}),toast:'超过单个地址 49 份的持仓上限'});
+add('E11','买入校验 · 超过订单剩余',states,'买入#16210 → 数量填9',{route:'market',connected:true,qty:9,modal:modal('buy',{order:orders[0]})},'订单只剩 8 份，应禁用确认；现有持仓不构成额外购买限制。');
 add('E12','买入成功提示',states,'买入#8204 → 确认演示买入',{route:'market',connected:true,toast:'已完成份额买入流程演示'},'现有演示只显示提示，未更新持仓。');
 add('E13','整机购买完成提示',states,'整机出售 → 确认演示购买',{route:'market',marketTab:'整机出售',connected:true,toast:'已完成整机购买流程演示，不发生实际过户'});
 add('E14','执行挂牌完成提示',states,'投票达标 → 执行挂牌 → 确认',{route:'governance',voted:'yes',connected:true,toast:'已完成挂牌执行流程演示'},'现有演示仅显示提示，提案卡仍保留执行按钮。');

@@ -304,18 +304,20 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(ALICE), 44);
     }
 
-    function test_lockedSharesCannotBeUsedToBypassBuyerMaximum() public {
+    function test_lockedSharesRemainOwnedWhileBuyerAccumulatesPastFortyNine() public {
         uint256 aliceOrder = _list(ALICE, 20, UNIT_BNB);
         uint256 bobOrder = _list(BOB, 49, 0);
-        vm.deal(BOB, UNIT_BNB);
-        vm.prank(BOB);
-        vm.expectRevert(IPoolVault.ShareOutOfRange.selector);
-        shareMarket.fill{value: UNIT_BNB}(aliceOrder, 1);
-        assertEq(pool.balanceOf(BOB), 49);
+        _fill(BOB, aliceOrder, 20, 20 * UNIT_BNB);
+        assertEq(pool.balanceOf(BOB), 69);
         assertEq(_shareVault().lockedShares(BOB), 49);
         assertEq(shareMarket.orders(bobOrder).remaining, 49);
-        assertEq(shareMarket.orders(aliceOrder).remaining, 20);
-        assertEq(shareMarket.totalBnbOwed(), 0);
+        assertEq(shareMarket.orders(aliceOrder).remaining, 0);
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.InsufficientUnlockedShares.selector);
+        shareMarket.list(address(pool), 21, UNIT_BNB);
+        _list(BOB, 20, UNIT_BNB);
+        assertEq(_shareVault().lockedShares(BOB), 69);
+        assertEq(shareMarket.totalBnbOwed(), 2 ether);
     }
 
     function test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() public {
@@ -324,7 +326,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         shareMarket.list(address(pool), 0, UNIT_BNB);
         vm.prank(ALICE);
         vm.expectRevert(IShareMarket.InvalidAmount.selector);
-        shareMarket.list(address(pool), 50, UNIT_BNB);
+        shareMarket.list(address(pool), 101, UNIT_BNB);
         uint256 id = _list(ALICE, 10, UNIT_BNB);
         vm.deal(DAVE, 3 ether);
         vm.startPrank(DAVE);

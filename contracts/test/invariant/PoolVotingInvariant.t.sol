@@ -74,8 +74,8 @@ contract PoolVotingHandler is Test {
     function moveShares(uint256 fromSeed, uint256 toSeed, uint256 amountSeed, uint256 routeSeed) public {
         uint256 from = fromSeed % 6;
         uint256 to = toSeed % 6;
-        if (from == to || balances[from] == 0 || balances[to] == 49) return;
-        uint256 maximum = balances[from] < 49 - balances[to] ? balances[from] : 49 - balances[to];
+        if (from == to || balances[from] == 0 || balances[to] == 100) return;
+        uint256 maximum = balances[from] < 100 - balances[to] ? balances[from] : 100 - balances[to];
         uint256 amount = bound(amountSeed, 1, maximum);
         uint256 route = routeSeed % 3;
         bool frozen = _tradingFrozen();
@@ -176,7 +176,7 @@ contract PoolVotingHandler is Test {
         for (uint256 a; a < 6; ++a) {
             assertEq(vault.balanceOf(actors[a]), balances[a]);
             assertEq(vault.lastProposed(actors[a]), lastProposed[a]);
-            assertLe(balances[a], 49);
+            assertLe(balances[a], 100);
             total += balances[a];
             if (balances[a] != 0) ++currentMembers;
         }

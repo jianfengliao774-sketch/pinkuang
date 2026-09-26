@@ -21,3 +21,4 @@ deploy/dist/
 deploy/*.tsbuildinfo
 deploy/keeper-state/
 deploy/keeper-journal/
+deploy/.local/

@@ -128,12 +128,12 @@
     },
     {
       "id": "A12",
-      "title": "公开记录 · BEM 销毁",
+      "title": "公开记录 · 份额认购",
       "group": "01 · 主页面",
-      "entry": "公开记录 → BEM 销毁",
+      "entry": "公开记录 → 份额认购",
       "state": {
         "route": "records",
-        "recordFilter": "BEM 销毁"
+        "recordFilter": "份额认购"
       },
       "note": ""
     },
@@ -1158,7 +1158,7 @@
         "claimed": true,
         "connected": true
       },
-      "note": "可领取归零，即将到期待办消失。"
+      "note": "可领取归零，待领取提示消失。"
     },
     {
       "id": "E06",
@@ -1235,13 +1235,13 @@
     },
     {
       "id": "E11",
-      "title": "买入校验 · 超过49份上限",
+      "title": "买入校验 · 超过订单剩余",
       "group": "05 · 完成、空态与校验",
-      "entry": "买入#16210 → 确认演示买入",
+      "entry": "买入#16210 → 数量填9",
       "state": {
         "route": "market",
         "connected": true,
-        "qty": 1,
+        "qty": 9,
         "modal": {
           "type": "buy",
           "order": {
@@ -1251,10 +1251,9 @@
             "price": 0.068,
             "seller": "0x82a6…90C4"
           }
-        },
-        "toast": "超过单个地址 49 份的持仓上限"
+        }
       },
-      "note": ""
+      "note": "订单只剩 8 份，应禁用确认；现有持仓不构成额外购买限制。"
     },
     {
       "id": "E12",

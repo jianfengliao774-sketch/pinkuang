@@ -154,7 +154,9 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     }
 
     function _requireAmount(uint256 amount) private pure {
-        if (amount == 0 || amount > 49) revert InvalidAmount();
+        // The pool has exactly 100 integer shares. Available balance and order
+        // remainder checks determine how many of them can actually be traded.
+        if (amount == 0 || amount > 100) revert InvalidAmount();
     }
 
     function _requireTradablePool(MarketStorage storage s, address pool) private view {
