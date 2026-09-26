@@ -6,6 +6,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {AtomicDeployment} from "../../src/AtomicDeployment.sol";
 import {PoolFactory} from "../../src/PoolFactory.sol";
+import {PoolLens} from "../../src/PoolLens.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
@@ -81,6 +82,8 @@ contract AtomicDeploymentTest is Test {
         assertEq(factory.beacon(), d.beacon);
         assertEq(factory.timelock(), d.timelock);
         assertEq(factory.shareMarket(), d.shareMarket);
+        assertGt(factory.lens().code.length, 0);
+        assertEq(PoolLens(factory.lens()).factory(), d.factory);
         assertEq(PoolBeacon(d.beacon).implementation(), config.vaultImplementation);
         assertEq(PoolBeacon(d.beacon).owner(), d.timelock);
         assertEq(ShareMarket(d.shareMarket).factory(), d.factory);

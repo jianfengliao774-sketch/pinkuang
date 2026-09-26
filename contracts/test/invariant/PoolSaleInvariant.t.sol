@@ -112,7 +112,7 @@ contract PoolSaleHandler is Test {
         vm.deal(actors[4], actors[4].balance + price);
         vm.prank(actors[4]);
         sale.completeSale{value: price}();
-        uint256 fee = price / 50;
+        uint256 fee = price / 100;
         uint256 memberNet = price - fee;
         uint256 perShare = memberNet / 100;
         grossReceived = price;

@@ -123,7 +123,7 @@ export interface DeploymentCallbacks {
 }
 
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
-const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy'];
+const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export const errorMessage = (error: unknown): string => {
   const details = error as { shortMessage?: string; reason?: string; message?: string } | null;
@@ -581,6 +581,10 @@ export class DeploymentEngine {
     const addresses = { timelock: getAddress(result.timelock), beacon: getAddress(result.beacon), factory: getAddress(result.factory), shareMarket: getAddress(result.shareMarket) };
     Object.assign(snapshot.addresses, addresses);
     const factory = new Contract(addresses.factory, this.bundle.artifacts.PoolFactory.abi, this.provider);
+    const lensAddress = getAddress(await factory.lens());
+    assert(lensAddress !== ZeroAddress, 'Factory 尚未创建 Lens。');
+    snapshot.addresses.lens = lensAddress;
+    const lens = new Contract(lensAddress, this.bundle.artifacts.PoolLens.abi, this.provider);
     const market = new Contract(addresses.shareMarket, this.bundle.artifacts.ShareMarket.abi, this.provider);
     const timelock = new Contract(addresses.timelock, this.bundle.artifacts.PoolTimelock.abi, this.provider);
     const beacon = new Contract(addresses.beacon, this.bundle.artifacts.PoolBeacon.abi, this.provider);
@@ -591,6 +595,8 @@ export class DeploymentEngine {
     };
     check('协调器初始化完成', await coordinator.deployed(), true);
     check('Factory CREATE 绑定', addresses.factory, await coordinator.predictedFactory());
+    check('Factory.lens', await factory.lens(), lensAddress);
+    check('Lens.factory', await lens.factory(), addresses.factory);
     for (const [getter, expected] of Object.entries({ owner: snapshot.input.ownerMultisig, operator: snapshot.input.operator, treasury: snapshot.input.treasury, timelock: addresses.timelock, beacon: addresses.beacon, shareMarket: addresses.shareMarket })) {
       check(`Factory.${getter}`, await factory[getter](), expected);
     }
@@ -618,7 +624,7 @@ export class DeploymentEngine {
     const code: Record<string, CodeRecord> = {};
     for (const [name, address] of Object.entries(snapshot.addresses)) {
       code[name] = await codeRecord(this.provider, address);
-      const artifactName = ({ factory: 'ERC1967Proxy', shareMarket: 'ERC1967Proxy', timelock: 'PoolTimelock', beacon: 'PoolBeacon' } as Record<string, string>)[name] ?? name;
+      const artifactName = ({ factory: 'ERC1967Proxy', shareMarket: 'ERC1967Proxy', timelock: 'PoolTimelock', beacon: 'PoolBeacon', lens: 'PoolLens' } as Record<string, string>)[name] ?? name;
       check(`${name} 运行代码匹配`, runtimeMatches(this.bundle.artifacts[artifactName], await this.provider.getCode(address), snapshot.addresses, address), true);
     }
     const verification = { checkedAt: new Date().toISOString(), blockNumber: await this.provider.getBlockNumber(), checks, code };

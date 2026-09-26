@@ -162,7 +162,9 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.ok(complete.verification!.checks.every(check => check.passed));
   assert.equal(complete.verification!.checks.find(check => check.label === '升级最小延迟')?.actual, '172800');
   assert.ok(BigInt(complete.spentWei) > 0n);
-  assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 8);
+  assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 9);
+  assert.equal(complete.verification!.checks.find(check => check.label === 'Lens.factory')?.actual.toLowerCase(), complete.addresses.factory.toLowerCase());
+  assert.ok(complete.verification!.checks.find(check => check.label === 'lens 运行代码匹配')?.passed);
   const initialize = complete.steps.at(-1)!;
   const tx = await rpc('eth_getTransactionByHash', [initialize.txHash]) as { input: string; value: string };
   assert.equal(tx.input.slice(0, 10), new Interface(bundle.artifacts.AtomicDeployment.abi).getFunction('deploySingleOwner')!.selector);
@@ -172,6 +174,7 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   // must accept legitimate business activity rather than insist the factory stays empty.
   const provider = new BrowserProvider(wallet);
   const deployedFactory = new Contract(complete.addresses.factory, bundle.artifacts.PoolFactory.abi, await provider.getSigner(account));
+  assert.equal((await deployedFactory.lens()).toLowerCase(), complete.addresses.lens.toLowerCase());
   const latest = await provider.getBlock('latest');
   assert(latest);
   await (await deployedFactory.createPool({ circuits: PROTOCOL_ADDRESSES.TAPEOUT_CIRCUITS, circuitId: 1n,
@@ -202,6 +205,12 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   tampered.input.operator = getAddress('0x0000000000000000000000000000000000000001');
   await assert.rejects(engine().reconcile(tampered), /交易内容/);
   assert.equal(sends, count);
+  // A registered address alone is insufficient: recoveries also check the Lens
+  // factory immutable and exact compiled runtime before accepting the graph.
+  await rpc('anvil_setCode', [complete.addresses.lens, '0x600060005260206000f3']);
+  await rpc('evm_mine');
+  await assert.rejects(engine().reconcile(complete), /部署后校验失败/);
+  assert.equal(sends, count, 'invalid Lens identity must never trigger a replacement deployment');
   await rpc('evm_revert', [baseline]);
 });
 

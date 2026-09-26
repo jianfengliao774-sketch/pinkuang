@@ -20,7 +20,8 @@ export function marketplaceAssetKey({ chainId, contract, tokenId }) {
 export function projectPrice(pool) {
   const raw = pool.status === 'Listed' ? (pool.askingPrice ?? (pool.id === '15832' ? 5.8 : pool.price)) : pool.price;
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null;
-  return pool.status === 'Active' ? purchaseTotal(pool) : raw;
+  if (pool.status === 'Active') return pool.purchaseCost ?? raw;
+  return projectGroup(pool) === 'Funding' ? purchaseTotal(pool) : raw;
 }
 export function dailyUnitPrice(pool) {
   const price = projectPrice(pool);

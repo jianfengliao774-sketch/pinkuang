@@ -1,0 +1,23 @@
+$ node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node --test scripts/chain-client.test.mjs
+(node:98843) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/liaojianfeng/Documents/ChatGPT/%E8%AE%A1%E7%AE%97/pinkuang/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/web/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Catalog checks passed: funding reserve, acquisition/sale pricing, filters, locks, voting freeze, permanent rewards and marketplace identity.
+BEM price checks passed: decimal scaling, nonpositive/malformed price, token/currency identity, stale/future timestamps.
+✔ funding uses exact ceil twice, 10% reserve and independent procurement cap (0.9365ms)
+✔ identity includes Factory/pool or collection/token, without Number conversion (0.273208ms)
+✔ failed and unattempted reads stay unknown; zero-share claims stay in holdings (0.481708ms)
+✔ read adapter binds Lens, pins all calls, preserves large IDs and masks (6.149708ms)
+✔ wrong chain, swapped Lens, inconsistent block and reorg fail closed (4.19575ms)
+✔ subscription uses exact wallet/amount and blocks unavailable state or quantity (0.929667ms)
+✔ harvest and self claim stay separate, including former holders; no claimFor/router (2.181ms)
+✔ checked creation encodes reviewed task/weight and rejects reserve-as-price-cap (0.865709ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 220.389125

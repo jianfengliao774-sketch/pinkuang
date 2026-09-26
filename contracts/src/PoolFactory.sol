@@ -10,6 +10,7 @@ import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/Upgradeabl
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 import {IShareMarket} from "./interfaces/IShareMarket.sol";
+import {PoolLens} from "./PoolLens.sol";
 
 interface IRegisteredShareMarket {
     function factory() external view returns (address);
@@ -33,6 +34,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         mapping(address => bool) isPool;
         address[] allPools;
         address shareMarket;
+        address lens;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.PoolFactory")) - 1)) & ~bytes32(uint256(0xff))
@@ -43,6 +45,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     error Unauthorized();
     error CreationPaused();
     error ShareMarketAlreadyRegistered();
+    error ReferenceMinerChanged();
 
     event PoolCreated(
         address indexed pool,
@@ -56,6 +59,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
     event TreasuryChanged(address indexed previousTreasury, address indexed newTreasury);
     event CreationPauseChanged(bool paused);
     event ShareMarketRegistered(address indexed market);
+    event LensCreated(address indexed lens);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -111,6 +115,7 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         $.treasury = treasury_;
         $.timelock = timelock_;
         $.beacon = beacon_;
+        _ensureLens($);
     }
 
     function createPool(IPoolVault.PoolParams calldata params) external nonReentrant returns (address pool) {
@@ -130,8 +135,49 @@ contract PoolFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgr
         IPoolVault.PoolParams calldata params,
         IPoolVault.FlexiblePurchaseConfig calldata config
     ) external nonReentrant returns (address pool) {
+        return _createFlexiblePool(params, config);
+    }
+
+    /// @notice Reject a reference miner that changed after the operator reviewed its quoted identity and weight.
+    function createFlexiblePoolChecked(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.FlexiblePurchaseConfig calldata config,
+        uint32 expectedTaskId,
+        uint128 expectedReferenceWeight
+    ) external nonReentrant returns (address pool) {
+        pool = _createFlexiblePool(params, config);
+        (bool initialized, uint32 taskId) = IPoolVault(pool).purchaseModel();
+        if (
+            !initialized || taskId != expectedTaskId || expectedReferenceWeight == 0
+                || IPoolVault(pool).purchaseReferenceWeight() != expectedReferenceWeight
+        ) revert ReferenceMinerChanged();
+    }
+
+    function _createFlexiblePool(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.FlexiblePurchaseConfig calldata config
+    ) private returns (address pool) {
         pool = _createPool(params, true);
         IPoolVault(pool).configureFlexiblePurchase(config);
+    }
+
+    /// @notice Permissionless, one-time creation for initialized factories upgraded from a pre-Lens implementation.
+    function ensureLens() external nonReentrant returns (address) {
+        FactoryStorage storage s = _factoryStorage();
+        if (s.beacon == address(0) || s.timelock == address(0)) revert InvalidGovernance();
+        return _ensureLens(s);
+    }
+
+    function _ensureLens(FactoryStorage storage s) private returns (address) {
+        if (s.lens == address(0)) {
+            s.lens = address(new PoolLens(address(this)));
+            emit LensCreated(s.lens);
+        }
+        return s.lens;
+    }
+
+    function lens() external view returns (address) {
+        return _factoryStorage().lens;
     }
 
     function _createPool(IPoolVault.PoolParams calldata params, bool expiryEnabled) private returns (address pool) {

@@ -41,7 +41,7 @@ contract PoolVault is
     uint8 public constant minMembers = 3;
     uint16 public constant platformBps = 100;
     uint16 public constant burnBps = 0;
-    uint16 public constant saleFeeBps = 200;
+    uint16 public constant saleFeeBps = 100;
     uint16 public constant saleBurnBps = 0;
     uint32 public constant claimInterval = 0;
     uint32 public constant voteDuration = 86400;

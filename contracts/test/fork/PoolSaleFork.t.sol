@@ -157,7 +157,7 @@ contract PoolSaleForkTest is Test {
         _withdrawOriginalRights();
         emit log_named_uint("real final handover gross BEM (atoms)", finalGross);
         emit log_named_uint("real final handover member net BEM (atoms)", finalNet);
-        emit log_named_uint("sale member BNB (wei)", SALE_PRICE - (SALE_PRICE / 50));
+        emit log_named_uint("sale member BNB (wei)", SALE_PRICE - (SALE_PRICE / 100));
         emit log_named_uint("disabled burn budget (wei)", vault.burnBudget());
     }
 
@@ -283,7 +283,7 @@ contract PoolSaleForkTest is Test {
     }
 
     function _assertBnbLiabilities() private view {
-        uint256 fee = SALE_PRICE / 50;
+        uint256 fee = SALE_PRICE / 100;
         uint256 memberNet = SALE_PRICE - fee;
         assertEq(vault.burnBudget(), 0);
         assertEq(vault.totalBurnBnbSpent(), 0);
@@ -322,7 +322,7 @@ contract PoolSaleForkTest is Test {
         address[3] memory members = [ALICE, BOB, CAROL];
         uint256[3] memory shares = [uint256(49), uint256(49), uint256(2)];
         uint256 net = vault.bemAccounted();
-        uint256 memberBnb = SALE_PRICE - (SALE_PRICE / 50);
+        uint256 memberBnb = SALE_PRICE - (SALE_PRICE / 100);
         uint256 paidBem;
         // The sold NFT's protocol claim must not be called while old members withdraw.
         vm.expectCall(Addresses.MINING, abi.encodeCall(ITapeoutMining.claim, (key)), uint64(0));
@@ -351,7 +351,7 @@ contract PoolSaleForkTest is Test {
         uint256 treasuryBefore = TREASURY.balance;
         vm.prank(TREASURY);
         vault.withdrawBnb();
-        assertEq(TREASURY.balance - treasuryBefore, SALE_PRICE / 50);
+        assertEq(TREASURY.balance - treasuryBefore, SALE_PRICE / 100);
         assertEq(vault.totalBnbOwed(), 0);
         assertEq(vault.saleOutstandingWei(), 0);
         assertEq(address(vault).balance, vault.burnBudget());
@@ -400,7 +400,7 @@ contract PoolSaleForkTest is Test {
                 (uint256 gross, uint256 fee, uint256 burnedBem, uint256 net) =
                     abi.decode(entry.data, (uint256, uint256, uint256, uint256));
                 assertEq(gross, SALE_PRICE);
-                assertEq(fee, SALE_PRICE / 50);
+                assertEq(fee, SALE_PRICE / 100);
                 assertEq(burnedBem, 0);
                 assertEq(net, SALE_PRICE - fee);
             }
