@@ -37,6 +37,11 @@ export type MarketQuote = {
 export type PendingMarketTransaction = {
   version: 1; chainId: 56; account: string; factory: string; market: string; nonce: number;
   action: MarketAction; data: string; value: string; hash?: string; submittedAt: string;
+  recoveryHashes?: string[];
+};
+export type MarketRecovery = {
+  pending: PendingMarketTransaction; receipt: TransactionReceipt | null;
+  resolution: 'confirmed' | 'reverted' | 'cancelled' | 'replaced' | null; message: string;
 };
 
 export function address(value: string): string {
@@ -218,7 +223,9 @@ export function restoreMarketPending(storage: Pick<Storage, 'getItem'>): Pending
   let saved: PendingMarketTransaction;
   try { saved = JSON.parse(raw); } catch { throw new Error('本地待确认交易记录无法读取，请保留浏览器数据并核对 BscScan。'); }
   if (saved.version !== 1 || saved.chainId !== 56 || !Number.isSafeInteger(saved.nonce) || saved.nonce < 0
-    || !/^0x[0-9a-f]+$/i.test(saved.data) || !/^\d+$/.test(saved.value) || (saved.hash && !/^0x[0-9a-f]{64}$/i.test(saved.hash))) {
+    || !/^0x(?:[0-9a-f]{2})+$/i.test(saved.data) || !/^\d+$/.test(saved.value) || (saved.hash && !/^0x[0-9a-f]{64}$/i.test(saved.hash))
+    || (saved.recoveryHashes !== undefined && (!Array.isArray(saved.recoveryHashes) || saved.recoveryHashes.length > 16
+      || saved.recoveryHashes.some(hash => typeof hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(hash))))) {
     throw new Error('本地待确认交易记录异常，已停止发送新交易。');
   }
   address(saved.account); address(saved.factory); address(saved.market);
@@ -273,15 +280,82 @@ async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote
   }
 }
 
-export async function recoverMarketReceipt(provider: Provider, pending: PendingMarketTransaction, hash = pending.hash): Promise<{ pending: PendingMarketTransaction; receipt: TransactionReceipt | null }> {
+/** Only a canonical, finalized same-nonce transaction can retire an intent. Never sends or signs. */
+export async function recoverMarketReceipt(provider: Provider, pending: PendingMarketTransaction, hash?: string): Promise<MarketRecovery> {
   if (Number((await provider.getNetwork()).chainId) !== 56) throw new Error('请在 BSC 主网核对交易。');
-  if (!hash || !/^0x[0-9a-f]{64}$/i.test(hash)) throw new Error('请输入钱包记录中的 BSC 交易哈希。');
-  const transaction = await provider.getTransaction(hash);
-  if (!transaction) throw new Error('节点尚未查询到该交易；请稍后再次核对，不要重复发送。');
-  if (!sameAddress(transaction.from, pending.account) || !transaction.to || !sameAddress(transaction.to, pending.market)
-    || transaction.nonce !== pending.nonce || transaction.data !== pending.data || transaction.value.toString() !== pending.value
-    || transaction.chainId !== 56n) throw new Error('该哈希与本次账户、市场、操作或金额不匹配。');
-  return { pending: { ...pending, hash }, receipt: await provider.getTransactionReceipt(hash) };
+  if (hash !== undefined && !/^0x[0-9a-f]{64}$/i.test(hash)) throw new Error('请输入钱包记录中的 BSC 交易哈希。');
+  const hashes = [...new Set([pending.hash, ...(pending.recoveryHashes ?? []), hash].filter((item): item is string => !!item).map(item => item.toLowerCase()))];
+  if (!hashes.length) throw new Error('请输入钱包记录中的原交易、加速或取消交易哈希。');
+  if (hashes.length > 17) throw new Error('已记录过多恢复哈希，请保留记录并人工核对。');
+  const updated = { ...pending, recoveryHashes: [...(pending.recoveryHashes ?? [])] };
+  const waiting = (message: string, receipt: TransactionReceipt | null = null): MarketRecovery => ({ pending: updated, receipt, resolution: null, message });
+  let candidate: { receipt: TransactionReceipt; original: boolean; cancellation: boolean } | undefined;
+  for (const candidateHash of hashes) {
+    const transaction = await provider.getTransaction(candidateHash);
+    if (!transaction) continue; // A missing RPC result cannot prove a dropped transaction.
+    if (transaction.hash.toLowerCase() !== candidateHash || !sameAddress(transaction.from, pending.account)
+      || transaction.nonce !== pending.nonce || transaction.chainId !== 56n) {
+      throw new Error('该哈希与本次账户、nonce 或网络不匹配，记录已保留。');
+    }
+    const original = !!transaction.to && sameAddress(transaction.to, pending.market)
+      && transaction.data.toLowerCase() === pending.data.toLowerCase() && transaction.value.toString() === pending.value;
+    const cancellation = !!transaction.to && sameAddress(transaction.to, pending.account) && transaction.data === '0x' && transaction.value === 0n;
+    if (pending.hash?.toLowerCase() === candidateHash && !original) throw new Error('原交易哈希的市场、操作或金额不匹配。');
+    if (!updated.hash && original) updated.hash = candidateHash;
+    if (candidateHash !== updated.hash?.toLowerCase() && !updated.recoveryHashes.some(item => item.toLowerCase() === candidateHash)) {
+      if (updated.recoveryHashes.length >= 16) throw new Error('已记录过多恢复哈希，请保留记录并人工核对。');
+      updated.recoveryHashes.push(candidateHash);
+    }
+    const receipt = await provider.getTransactionReceipt(candidateHash);
+    if (!receipt) continue;
+    if (receipt.hash.toLowerCase() !== candidateHash || !sameAddress(receipt.from, pending.account)
+      || receipt.to?.toLowerCase() !== transaction.to?.toLowerCase()
+      || transaction.blockNumber !== receipt.blockNumber || transaction.blockHash !== receipt.blockHash
+      || (receipt.status !== 0 && receipt.status !== 1)) throw new Error('交易与回执身份不一致，保留记录等待人工核对。');
+    const canonical = await provider.getBlock(receipt.blockNumber);
+    if (!canonical?.hash || canonical.hash !== receipt.blockHash) continue;
+    if (candidate) return waiting('节点返回多个同 nonce 的规范链回执，结果不一致；保留记录并更换节点核对。');
+    candidate = { receipt, original, cancellation };
+  }
+  let finalized;
+  try { finalized = await provider.getBlock('finalized'); }
+  catch { return waiting('节点无法提供 finalized 最终区块；保留记录，请稍后核对或使用支持最终性的 BSC 节点。', candidate?.receipt); }
+  if (!finalized?.hash) return waiting('暂未获得最终区块，记录已保留。', candidate?.receipt);
+  const finalizedNonce = await provider.getTransactionCount(pending.account, finalized.number);
+  if (!candidate) return waiting(finalizedNonce > pending.nonce
+    ? '该 nonce 已在最终区块中使用，但未找到已记录交易的规范链回执。请补录钱包中的加速、取消或替换哈希；不会自动重发。'
+    : '交易尚未最终确认，或回执已因重组消失。记录已保留，请稍后核对；不要重复发送。');
+  const receipt = candidate.receipt;
+  const latest = await provider.getBlock('latest');
+  if (!latest || latest.number - receipt.blockNumber + 1 < 2 || finalized.number < receipt.blockNumber || finalizedNonce <= pending.nonce) {
+    return waiting('交易已进入区块，仍在等待至少 2 次确认及 BSC finalized 最终性。记录已保留。', receipt);
+  }
+  // Re-read both canonical anchors after the nonce/finality checks; a reorg during the reads stays pending.
+  const [canonical, finalizedCanonical] = await Promise.all([provider.getBlock(receipt.blockNumber), provider.getBlock(finalized.number)]);
+  if (canonical?.hash !== receipt.blockHash || finalizedCanonical?.hash !== finalized.hash) return waiting('核对期间链上区块发生变化，记录已保留，等待重新确认。');
+  if (Number((await provider.getNetwork()).chainId) !== 56) throw new Error('核对期间网络发生变化，记录已保留。');
+  const resolution = candidate.original ? (receipt.status === 1 ? 'confirmed' : 'reverted') : candidate.cancellation && receipt.status === 1 ? 'cancelled' : 'replaced';
+  const message = resolution === 'confirmed' ? '市场交易已最终确认。请刷新订单与余额。'
+    : resolution === 'reverted' ? '市场交易已最终回滚，Gas 已消耗。请重新读取链上状态。'
+    : resolution === 'cancelled' ? '钱包取消交易已最终确认，原市场交易已失效。未重新发送任何操作。'
+    : '另一笔同 nonce 交易已最终确认，原市场交易已失效。请查看替换交易详情；这不代表原市场操作成功。';
+  return { pending: updated, receipt, resolution, message };
+}
+
+/** Re-read and update the journal under the same lock as sending; stale tabs cannot erase a newer intent. */
+export async function reconcileMarketPending(provider: Provider, pending: PendingMarketTransaction, storage: Storage, hash?: string): Promise<MarketRecovery> {
+  return withMarketTransactionLock(async () => {
+    const current = restoreMarketPending(storage);
+    if (!current || current.nonce !== pending.nonce || current.submittedAt !== pending.submittedAt
+      || !sameAddress(current.account, pending.account) || !sameAddress(current.factory, pending.factory)
+      || !sameAddress(current.market, pending.market) || current.data !== pending.data || current.value !== pending.value) {
+      throw new Error('待确认记录已被其他页面更新，请刷新页面后再核对。');
+    }
+    const result = await recoverMarketReceipt(provider, current, hash);
+    if (result.resolution) storage.removeItem(PENDING_MARKET_KEY);
+    else storage.setItem(PENDING_MARKET_KEY, JSON.stringify(result.pending));
+    return result;
+  });
 }
 
 export function marketError(error: unknown): string {
