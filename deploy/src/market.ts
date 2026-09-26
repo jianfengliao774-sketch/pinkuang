@@ -39,6 +39,12 @@ export type PendingMarketTransaction = {
   action: MarketAction; data: string; value: string; hash?: string; submittedAt: string;
   recoveryHashes?: string[];
 };
+/** Server-backed, durable journal. Writes must reject conflicting revisions across devices. */
+export type MarketJournalStorage = {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+  removeItem(key: string, finalizedHash: string): Promise<void>;
+};
 export type MarketRecovery = {
   pending: PendingMarketTransaction; receipt: TransactionReceipt | null;
   resolution: 'confirmed' | 'reverted' | 'cancelled' | 'replaced' | null; message: string;
@@ -217,19 +223,72 @@ export async function prepareMarketAction(wallet: WalletProvider, account: strin
   return { action, account, identity, title, pool, amount, gross, fee, sellerProceeds, withdrawal, gasLimit, gasPrice, gasCost, total, data: market.interface.encodeFunctionData(method, args) };
 }
 
-export function restoreMarketPending(storage: Pick<Storage, 'getItem'>): PendingMarketTransaction | null {
-  const raw = storage.getItem(PENDING_MARKET_KEY);
+export function parseMarketPending(raw: string | null): PendingMarketTransaction | null {
   if (!raw) return null;
   let saved: PendingMarketTransaction;
-  try { saved = JSON.parse(raw); } catch { throw new Error('本地待确认交易记录无法读取，请保留浏览器数据并核对 BscScan。'); }
+  try { saved = JSON.parse(raw); } catch { throw new Error('服务器待确认交易记录无法读取，请保留记录并核对 BscScan。'); }
   if (saved.version !== 1 || saved.chainId !== 56 || !Number.isSafeInteger(saved.nonce) || saved.nonce < 0
     || !/^0x(?:[0-9a-f]{2})+$/i.test(saved.data) || !/^\d+$/.test(saved.value) || (saved.hash && !/^0x[0-9a-f]{64}$/i.test(saved.hash))
     || (saved.recoveryHashes !== undefined && (!Array.isArray(saved.recoveryHashes) || saved.recoveryHashes.length > 16
       || saved.recoveryHashes.some(hash => typeof hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(hash))))) {
-    throw new Error('本地待确认交易记录异常，已停止发送新交易。');
+    throw new Error('服务器待确认交易记录异常，已停止发送新交易。');
   }
   address(saved.account); address(saved.factory); address(saved.market);
   return saved;
+}
+
+export async function loadMarketPending(storage: Pick<MarketJournalStorage, 'getItem'>): Promise<PendingMarketTransaction | null> {
+  return parseMarketPending(await storage.getItem(PENDING_MARKET_KEY));
+}
+
+function canonicalJournalValue(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+}
+function sameJournalRecord(left: PendingMarketTransaction, right: PendingMarketTransaction): boolean {
+  return canonicalJournalValue(left) === canonicalJournalValue(right);
+}
+
+export function sameMarketIntent(left: PendingMarketTransaction, right: PendingMarketTransaction): boolean {
+  return left.version === right.version && left.chainId === right.chainId
+    && sameAddress(left.account, right.account) && sameAddress(left.factory, right.factory)
+    && sameAddress(left.market, right.market) && left.nonce === right.nonce
+    && left.data.toLowerCase() === right.data.toLowerCase() && left.value === right.value
+    && left.submittedAt === right.submittedAt
+    && canonicalJournalValue(left.action) === canonicalJournalValue(right.action);
+}
+
+/** A lost server write must not hide a hash already returned by the wallet. */
+export function withObservedMarketHash(
+  saved: PendingMarketTransaction | null, observed: PendingMarketTransaction | null,
+): PendingMarketTransaction | null {
+  return saved && observed?.hash && sameMarketIntent(saved, observed)
+    ? { ...saved, hash: saved.hash ?? observed.hash } : saved;
+}
+
+/** Transfer only an authenticated wallet's old browser record into the server journal. */
+export async function migrateLegacyMarketPending(
+  storage: MarketJournalStorage, account: string, legacyStorage: Pick<Storage, 'getItem' | 'removeItem'>,
+): Promise<PendingMarketTransaction | null> {
+  let current = await loadMarketPending(storage);
+  if (current && !sameAddress(current.account, account)) throw new Error('服务器交易记录属于其他账户，市场写操作已暂停。');
+  let legacyRaw: string | null;
+  try { legacyRaw = legacyStorage.getItem(PENDING_MARKET_KEY); }
+  catch { return current; } // Disabled browser storage cannot displace the server source of truth.
+  if (!legacyRaw) return current;
+  const legacy = parseMarketPending(legacyRaw)!;
+  if (!sameAddress(legacy.account, account)) return current; // Preserve the other wallet's history.
+  if (current) {
+    if (!sameJournalRecord(current, legacy)) throw new Error('服务器与本机旧交易记录冲突，已暂停交易；请保留两份记录并人工核对。');
+  } else {
+    await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(legacy));
+    current = await loadMarketPending(storage);
+    if (!current || !sameJournalRecord(current, legacy)) throw new Error('旧交易记录尚未在服务器确认，已暂停交易。');
+  }
+  try { legacyStorage.removeItem(PENDING_MARKET_KEY); }
+  catch { /* Server persistence is already confirmed; browser cleanup can be retried. */ }
+  return current;
 }
 
 /** All journal checks, simulations and the signature request run inside one cross-tab lock. */
@@ -244,12 +303,26 @@ export async function withMarketTransactionLock<T>(action: () => Promise<T>, loc
   return action(); // Non-browser callers are used only by disposable local tests.
 }
 
-export async function sendMarketAction(wallet: WalletProvider, quote: MarketQuote, storage: Storage, onPending: (pending: PendingMarketTransaction | null) => void): Promise<PendingMarketTransaction> {
+export async function sendMarketAction(wallet: WalletProvider, quote: MarketQuote, storage: MarketJournalStorage, onPending: (pending: PendingMarketTransaction | null) => void): Promise<PendingMarketTransaction> {
   return withMarketTransactionLock(() => sendMarketActionLocked(wallet, quote, storage, onPending));
 }
 
-async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote, storage: Storage, onPending: (pending: PendingMarketTransaction | null) => void): Promise<PendingMarketTransaction> {
-  if (restoreMarketPending(storage)) throw new Error('已有待确认的市场交易，请先核对回执。');
+/** Preserve the broadcast hash in memory before the server update can fail. */
+export async function recordMarketBroadcast(
+  storage: MarketJournalStorage, pending: PendingMarketTransaction, hash: string,
+  onPending: (pending: PendingMarketTransaction | null) => void,
+): Promise<void> {
+  if (!/^0x[0-9a-f]{64}$/i.test(hash)) throw new Error('钱包返回了无效的交易哈希；请保留服务器意图并核对钱包。');
+  pending.hash = hash;
+  onPending({ ...pending });
+  try { await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending)); }
+  catch {
+    throw new Error(`交易可能已广播，哈希 ${hash}，但服务器尚未确认保存。请复制此哈希并在待核对区补录，勿重发交易。`);
+  }
+}
+
+async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote, storage: MarketJournalStorage, onPending: (pending: PendingMarketTransaction | null) => void): Promise<PendingMarketTransaction> {
+  if (await loadMarketPending(storage)) throw new Error('已有待确认的市场交易，请先核对回执。');
   // Re-simulate and revalidate identity immediately before requesting a signature.
   const fresh = await prepareMarketAction(wallet, quote.account, quote.identity.factory, quote.action);
   if (!sameAddress(fresh.identity.market, quote.identity.market) || !sameAddress(fresh.identity.timelock, quote.identity.timelock)
@@ -263,19 +336,27 @@ async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote
     version: 1, chainId: 56, account: quote.account, factory: quote.identity.factory, market: quote.identity.market,
     nonce, action: quote.action, data: quote.data, value: quote.gross.toString(), submittedAt: new Date().toISOString(),
   };
-  if (restoreMarketPending(storage)) throw new Error('另一个页面已记录市场交易，请先核对回执。');
-  storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending)); onPending(pending);
+  if (await loadMarketPending(storage)) throw new Error('另一个页面已记录市场交易，请先核对回执。');
+  // The server must durably accept this intent before the wallet can broadcast.
+  await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending));
+  const saved = await loadMarketPending(storage);
+  if (!saved || saved.submittedAt !== pending.submittedAt || saved.nonce !== pending.nonce
+    || !sameAddress(saved.account, pending.account) || saved.data !== pending.data || saved.value !== pending.value) {
+    throw new Error('服务器未确认本次交易记录，已停止钱包发送。');
+  }
+  onPending(saved);
   try {
     const tx = await signer.sendTransaction({ to: pending.market, data: pending.data, value: quote.gross, gasLimit: quote.gasLimit, gasPrice: quote.gasPrice, nonce, chainId: 56 });
-    pending.hash = tx.hash;
-    storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending)); onPending({ ...pending });
+    await recordMarketBroadcast(storage, pending, tx.hash, onPending);
     return pending;
   } catch (error) {
     const code = (error as { code?: unknown }).code;
+    // Even ACTION_REJECTED is not proof that the nonce was never broadcast. Keep the
+    // intent until a same-nonce cancellation or replacement is finalized on-chain.
     if (code === 4001 || code === 'ACTION_REJECTED') {
-      storage.removeItem(PENDING_MARKET_KEY); onPending(null);
+      throw new Error(`钱包拒绝或取消了签名。交易意图已保存在服务器（nonce ${pending.nonce}）；请用钱包发送相同 nonce 的 0 BNB 自转取消交易，并在下方补录哈希，最终确认后才能重新发送。`);
     }
-    // Other failures might have broadcast. Keep the intent and never retry the send automatically.
+    // Other failures might have broadcast. Keep the intent and never retry automatically.
     throw error;
   }
 }
@@ -343,17 +424,15 @@ export async function recoverMarketReceipt(provider: Provider, pending: PendingM
 }
 
 /** Re-read and update the journal under the same lock as sending; stale tabs cannot erase a newer intent. */
-export async function reconcileMarketPending(provider: Provider, pending: PendingMarketTransaction, storage: Storage, hash?: string): Promise<MarketRecovery> {
+export async function reconcileMarketPending(provider: Provider, pending: PendingMarketTransaction, storage: MarketJournalStorage, hash?: string): Promise<MarketRecovery> {
   return withMarketTransactionLock(async () => {
-    const current = restoreMarketPending(storage);
-    if (!current || current.nonce !== pending.nonce || current.submittedAt !== pending.submittedAt
-      || !sameAddress(current.account, pending.account) || !sameAddress(current.factory, pending.factory)
-      || !sameAddress(current.market, pending.market) || current.data !== pending.data || current.value !== pending.value) {
+    const current = await loadMarketPending(storage);
+    if (!current || !sameMarketIntent(current, pending)) {
       throw new Error('待确认记录已被其他页面更新，请刷新页面后再核对。');
     }
     const result = await recoverMarketReceipt(provider, current, hash);
-    if (result.resolution) storage.removeItem(PENDING_MARKET_KEY);
-    else storage.setItem(PENDING_MARKET_KEY, JSON.stringify(result.pending));
+    await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(result.pending));
+    if (result.resolution && result.receipt) await storage.removeItem(PENDING_MARKET_KEY, result.receipt.hash);
     return result;
   });
 }

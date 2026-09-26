@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Interface, parseEther, type Provider } from 'ethers';
 import {
-  MARKET_ABI, MARKET_PAGE_SIZE, PENDING_MARKET_KEY, address, pageIds, readMarketIdentity,
-  requireFill, requireList, requireWallet, restoreMarketPending, shareAmount, tradeAmounts, unitPrice,
-  recoverMarketReceipt, sendMarketAction, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
+  MARKET_ABI, MARKET_PAGE_SIZE, address, pageIds, readMarketIdentity,
+  requireFill, requireList, requireWallet, parseMarketPending, migrateLegacyMarketPending, recordMarketBroadcast,
+  sameMarketIntent, shareAmount, tradeAmounts, unitPrice, withObservedMarketHash, recoverMarketReceipt, sendMarketAction,
+  type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
   withMarketTransactionLock,
 } from './market';
 import type { WalletProvider } from './wallet';
@@ -74,14 +75,56 @@ test('ABI encodes exact integer share quantity and zero-price list without allow
   assert.equal(abi.getFunction('approve'), null);
   assert(abi.getFunction('withdrawBnb'));
 });
-test('unknown send intents survive reload and malformed stored records block another send', () => {
+test('unknown send intents survive reload and malformed server records block another send', () => {
   const pending: PendingMarketTransaction = { version: 1, chainId: 56, account: buyer, factory, market, nonce: 7, action: { kind: 'withdraw' }, data: '0x1234', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };
-  const storage = (value: string | null) => ({ getItem: (key: string) => key === PENDING_MARKET_KEY ? value : null });
-  assert.deepEqual(restoreMarketPending(storage(JSON.stringify(pending))), pending);
-  assert.equal(restoreMarketPending(storage(null)), null);
-  assert.throws(() => restoreMarketPending(storage('{not json')), /无法读取/);
-  assert.throws(() => restoreMarketPending(storage(JSON.stringify({ ...pending, chainId: 1 }))), /异常/);
+  assert.deepEqual(parseMarketPending(JSON.stringify(pending)), pending);
+  assert.equal(parseMarketPending(null), null);
+  assert.throws(() => parseMarketPending('{not json'), /无法读取/);
+  assert.throws(() => parseMarketPending(JSON.stringify({ ...pending, chainId: 1 })), /异常/);
   assert.throws(() => address('0x0000000000000000000000000000000000000000'), /零地址/);
+});
+test('legacy market intent migrates once after server ACK; conflicting and other-wallet records are preserved', async () => {
+  const pending: PendingMarketTransaction = { version: 1, chainId: 56, account: buyer, factory, market, nonce: 7,
+    action: { kind: 'list', pool, amount: '1', price: '0.1' }, data: '0x1234', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };
+  let server: string | null = null, legacy: string | null = JSON.stringify(pending), writes = 0;
+  const canonical = (value: string) => JSON.stringify(JSON.parse(value), (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, (item as Record<string, unknown>)[key]])) : item);
+  const storage: MarketJournalStorage = { getItem: async () => server, setItem: async (_key, value) => { writes += 1; server = canonical(value); }, removeItem: async () => {} };
+  const browser = { getItem: () => legacy, removeItem: () => { legacy = null; } };
+  assert.deepEqual(await migrateLegacyMarketPending(storage, buyer, browser), pending);
+  assert.equal(writes, 1); assert.equal(legacy, null);
+  legacy = JSON.stringify(pending);
+  assert.deepEqual(await migrateLegacyMarketPending(storage, buyer, browser), pending);
+  assert.equal(legacy, null, 'canonical key ordering must not look like a conflict');
+  legacy = JSON.stringify({ ...pending, nonce: 8 });
+  await assert.rejects(migrateLegacyMarketPending(storage, buyer, browser), /冲突/);
+  assert(legacy, 'conflicting browser record must remain');
+  legacy = JSON.stringify({ ...pending, account: seller });
+  assert.deepEqual(await migrateLegacyMarketPending(storage, buyer, browser), pending);
+  assert(legacy, 'another wallet history must remain');
+  assert.deepEqual(await migrateLegacyMarketPending(storage, buyer, { getItem: () => { throw new Error('disabled'); }, removeItem: () => {} }), pending);
+  server = null; legacy = JSON.stringify(pending);
+  const rejected: MarketJournalStorage = { ...storage, setItem: async () => { throw new Error('ACK failed'); } };
+  await assert.rejects(migrateLegacyMarketPending(rejected, buyer, browser), /ACK failed/);
+  assert(legacy, 'a failed server write must not delete the old browser record');
+});
+
+test('post-broadcast server failure preserves the wallet hash before throwing and never clears the intent', async () => {
+  const hash = `0x${'ab'.repeat(32)}`;
+  const pending: PendingMarketTransaction = { version: 1, chainId: 56, account: buyer, factory, market, nonce: 7,
+    action: { kind: 'withdraw' }, data: '0x1234', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };
+  const visible: { current: PendingMarketTransaction | null } = { current: null };
+  let deletions = 0;
+  const storage: MarketJournalStorage = { getItem: async () => JSON.stringify(pending),
+    setItem: async () => { throw new Error('disk unavailable'); }, removeItem: async () => { deletions += 1; } };
+  await assert.rejects(recordMarketBroadcast(storage, pending, hash, value => { visible.current = value; }),
+    error => { assert.match(String(error), new RegExp(hash)); assert.match(String(error), /勿重发/); return true; });
+  assert.equal(visible.current?.hash, hash);
+  assert.equal(deletions, 0);
+  assert(sameMarketIntent(pending, { ...pending, action: { kind: 'withdraw' }, hash: undefined }));
+  const serverCopy = { ...pending, hash: undefined };
+  assert.equal(withObservedMarketHash(serverCopy, visible.current)?.hash, hash);
+  assert.equal(withObservedMarketHash({ ...serverCopy, nonce: 8 }, visible.current)?.hash, undefined);
 });
 test('receipt recovery verifies original from/to/nonce/calldata/value and never broadcasts', async () => {
   const hash = `0x${'ab'.repeat(32)}`;
@@ -125,9 +168,18 @@ test('a persisted unknown intent blocks a subsequent tab before any wallet reque
     action: { kind: 'withdraw' }, data: '0x1234', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };
   let requests = 0, writes = 0;
   const wallet: WalletProvider = { request: async () => { requests += 1; throw new Error('Unexpected wallet request.'); } };
-  const storage = { getItem: () => JSON.stringify(pending), setItem: () => { writes += 1; }, removeItem: () => { writes += 1; } } as unknown as Storage;
+  const storage = { getItem: async () => JSON.stringify(pending), setItem: async () => { writes += 1; }, removeItem: async () => { writes += 1; } };
   await assert.rejects(sendMarketAction(wallet, {} as MarketQuote, storage, () => { writes += 1; }), /待确认/);
   assert.equal(requests, 0); assert.equal(writes, 0);
+});
+
+test('unavailable server journal blocks a market send before any wallet request', async () => {
+  let requests = 0;
+  const wallet: WalletProvider = { request: async () => { requests += 1; throw new Error('Unexpected wallet request.'); } };
+  const storage = { getItem: async () => { throw new Error('Server unavailable.'); },
+    setItem: async () => { throw new Error('Must not write.'); }, removeItem: async () => { throw new Error('Must not delete.'); } };
+  await assert.rejects(sendMarketAction(wallet, {} as MarketQuote, storage, () => {}), /Server unavailable/);
+  assert.equal(requests, 0);
 });
 
 test('open sale votes block new orders and fills, and expiry rejects its exact boundary and legacy orders', () => {
