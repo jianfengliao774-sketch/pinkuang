@@ -228,7 +228,7 @@ contract PoolSaleForkTest is Test {
         vm.prank(ALICE);
         proposalId = vault.propose(SALE_PRICE, SALE_PRICE, uint64(block.timestamp));
         PoolSaleState.Proposal memory p = vault.getProposal(proposalId);
-        assertEq(p.snapshotTs, block.timestamp - 1);
+        assertEq(p.snapshotTs, block.timestamp);
         assertEq(p.snapshotMemberCount, 3);
         assertEq(p.snapshotTotalShares, 100);
         vm.prank(ALICE);

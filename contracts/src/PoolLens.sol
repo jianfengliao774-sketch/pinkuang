@@ -362,11 +362,13 @@ contract PoolLens {
     }
 
     function _governanceDerived(address pool, address account, Governance memory g) private view {
+        // The old timestamp-1 format is not executable after the Vault upgrade.
+        bool validSnapshot = uint256(g.proposal.snapshotTs) + 1 days == g.proposal.endsAt;
         if (_valid(g.status, 1 << uint256(GovernanceField.PurchaseCost))) {
             g.discounted = g.proposal.price < g.purchaseCost;
             g.requiredYesShares = g.discounted ? 60 : g.proposal.snapshotTotalShares / 2 + 1;
             g.requiredYesCount = g.proposal.snapshotMemberCount / 2 + 1;
-            g.passed = g.proposal.price != 0 && g.proposal.yesShares >= g.requiredYesShares
+            g.passed = validSnapshot && g.proposal.price != 0 && g.proposal.yesShares >= g.requiredYesShares
                 && g.proposal.yesCount >= g.requiredYesCount;
             _mark(g.status, uint256(GovernanceField.Thresholds), true);
         }
@@ -381,20 +383,20 @@ contract PoolLens {
                 1,
                 READ_GAS
             ) == 1;
-            g.snapshotShares = _field(
-                g.status,
-                uint256(GovernanceField.SnapshotShares),
-                pool,
-                abi.encodeWithSignature("getPastShares(address,uint48)", account, g.proposal.snapshotTs),
-                100,
-                READ_GAS
-            );
+            // At proposal creation getPastShares rejects the current timestamp.
+            // All transfer paths are frozen immediately, so balanceOf is that
+            // timestamp's final checkpoint until the vote closes.
+            bytes memory sharesCall = g.proposal.snapshotTs == block.timestamp
+                ? abi.encodeWithSignature("balanceOf(address)", account)
+                : abi.encodeWithSignature("getPastShares(address,uint48)", account, g.proposal.snapshotTs);
+            g.snapshotShares =
+                _field(g.status, uint256(GovernanceField.SnapshotShares), pool, sharesCall, 100, READ_GAS);
         }
         uint256 necessary = (1 << uint256(GovernanceField.State)) | (1 << uint256(GovernanceField.Thresholds));
         if (!_valid(g.status, necessary)) return;
         // Active is exactly State enum tag 2; timestamp eligibility is an independent strict upper bound.
         // slither-disable-next-line incorrect-equality
-        bool open = g.state == 2 && !g.proposal.executed && block.timestamp < g.proposal.endsAt;
+        bool open = validSnapshot && g.state == 2 && !g.proposal.executed && block.timestamp < g.proposal.endsAt;
         g.canExecute = open && g.passed;
         _mark(g.status, uint256(GovernanceField.ExecutionEligibility), true);
         necessary |= (1 << uint256(GovernanceField.HasVoted)) | (1 << uint256(GovernanceField.SnapshotShares));

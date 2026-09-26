@@ -291,6 +291,10 @@ contract PoolVault is
         VaultStorage storage s = _vaultStorage();
         SaleStorage storage sale = _saleStorage();
         if (s.state != State.Listed) revert WrongState();
+        // A listing approved before the atomic snapshot fix cannot settle after
+        // this implementation is installed. It remains cancellable at expiry.
+        Proposal storage listed = sale.proposals[sale.listedProposalId];
+        if (uint256(listed.snapshotTs) + voteDuration != listed.endsAt) revert InvalidProposal();
         if (block.timestamp >= sale.expiresAt) revert DeadlinePassed();
         if (msg.value != sale.salePrice) revert PaymentMismatch();
         // The guarded internal path proves receipt, zero pending and unchanged

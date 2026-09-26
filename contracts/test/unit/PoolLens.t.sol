@@ -331,6 +331,37 @@ contract PoolLensTest is ShareTransferTestBase {
         assertFalse(lens.governance(address(pool), ALICE).canCancelExpired);
     }
 
+    function test_sameSecondBuyerReceivesLensVoteAndFormerHolderDoesNot() public {
+        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        _transfer(ALICE, DAVE, 49);
+        uint256 price = vault.purchaseCost();
+        vm.prank(BOB);
+        uint256 id = pool.propose(price, 0, 0);
+        assertEq(vault.getProposal(id).snapshotTs, block.timestamp);
+
+        PoolLens.Governance memory buyer = lens.governance(address(pool), DAVE);
+        assertEq(buyer.snapshotShares, 49);
+        assertTrue(buyer.canVote);
+        assertEq(buyer.status.errorMask, 0);
+        PoolLens.Governance memory former = lens.governance(address(pool), ALICE);
+        assertEq(former.snapshotShares, 0);
+        assertFalse(former.canVote);
+    }
+
+    function test_oldProposalFormatIsNeverShownAsExecutable() public {
+        uint256 id = _proposePrice(vault.purchaseCost());
+        PoolSaleState.Proposal memory old = vault.getProposal(id);
+        old.snapshotTs -= 1;
+        old.yesCount = 2;
+        old.yesShares = 98;
+        vm.mockCall(address(pool), abi.encodeWithSignature("getProposal(uint256)", id), abi.encode(old));
+
+        PoolLens.Governance memory g = lens.governance(address(pool), ALICE);
+        assertFalse(g.passed);
+        assertFalse(g.canExecute);
+        assertFalse(g.canVote);
+    }
+
     function test_atCostMajorityThresholdAndVotingDeadlineBoundary() public {
         _transfer(BOB, CAROL, 23);
         uint256 id = _proposePrice(vault.purchaseCost());

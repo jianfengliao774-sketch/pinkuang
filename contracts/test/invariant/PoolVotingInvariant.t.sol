@@ -10,7 +10,8 @@ import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 
 /// @dev Independent ownership ledger. Snapshot weights come from the handler's
-/// last completed second, never from Vault checkpoints, proposal records or votes.
+/// current ownership when proposal creation freezes transfers, never from Vault
+/// checkpoints, proposal records or votes.
 /// Every transfer, market fill, proposal and vote uses a production entry point.
 contract PoolVotingHandler is Test {
     uint256 private constant MAX_PROPOSALS = 16;
@@ -19,7 +20,6 @@ contract PoolVotingHandler is Test {
     uint256 public immutable acquisitionCost;
     address[6] public actors;
     uint256[6] public balances;
-    uint256[6] public completedSecondBalances;
     uint256[6] public lastProposed;
     uint256 public proposalCount;
     uint256 public successfulTransfers;
@@ -46,7 +46,6 @@ contract PoolVotingHandler is Test {
         acquisitionCost = acquisitionCost_;
         // FundingTestBase buys the NFT with these original beneficial holdings.
         balances = [uint256(49), 49, 2, 0, 0, 0];
-        completedSecondBalances = balances;
     }
 
     function advanceTime(uint256 seed) public {
@@ -68,9 +67,7 @@ contract PoolVotingHandler is Test {
             uint256 target = mode == 7 ? nextProposalAt - 1 : nextProposalAt;
             if (target > block.timestamp) delta = target - block.timestamp;
         }
-        // A zero-time step must NOT move the independent snapshot forward.
         if (delta == 0) return;
-        completedSecondBalances = balances;
         vm.warp(block.timestamp + delta);
     }
 
@@ -152,7 +149,7 @@ contract PoolVotingHandler is Test {
         p.actor = actor;
         p.proposedAt = block.timestamp;
         p.price = price;
-        p.weights = completedSecondBalances;
+        p.weights = balances;
     }
 
     function vote(uint256 actorSeed, uint256 proposalSeed, bool support) public {
@@ -200,12 +197,16 @@ contract PoolVotingHandler is Test {
             for (uint256 a; a < 6; ++a) {
                 if (expected.weights[a] != 0) ++members;
                 shares += expected.weights[a];
-                assertEq(vault.getPastShares(actors[a], actual.snapshotTs), expected.weights[a]);
+                if (actual.snapshotTs == vault.clock()) {
+                    assertEq(vault.balanceOf(actors[a]), expected.weights[a]);
+                } else {
+                    assertEq(vault.getPastShares(actors[a], actual.snapshotTs), expected.weights[a]);
+                }
             }
             assertEq(shares, 100);
             assertEq(actual.snapshotMemberCount, members);
             assertEq(actual.snapshotTotalShares, shares);
-            assertEq(actual.snapshotTs, expected.proposedAt - 1);
+            assertEq(actual.snapshotTs, expected.proposedAt);
             assertEq(actual.endsAt, expected.proposedAt + 1 days);
             assertEq(actual.proposer, actors[expected.actor]);
             assertEq(actual.price, expected.price);
@@ -253,7 +254,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         address[6] memory actors = [ALICE, BOB, CAROL, DAVE, ERIN, FRANK];
         handler = new PoolVotingHandler(PoolVault(payable(address(pool))), shareMarket, actors, REWARD_PRICE);
 
-        // Non-vacuous seed: a same-second exit precedes the frozen closed snapshot;
+        // Non-vacuous seed: a same-second exit precedes the proposal snapshot;
         // all three ownership routes then fail, including an already-listed market order.
         vm.prank(BOB);
         uint256 priorOrder = shareMarket.list(address(pool), 10, 0);
