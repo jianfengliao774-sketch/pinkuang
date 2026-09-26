@@ -43,7 +43,7 @@ contract PoolVault is
     uint16 public constant burnBps = 0;
     uint16 public constant saleFeeBps = 200;
     uint16 public constant saleBurnBps = 0;
-    uint32 public constant claimInterval = 86400;
+    uint32 public constant claimInterval = 0;
     uint32 public constant voteDuration = 86400;
     address public constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address public constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
@@ -236,6 +236,13 @@ contract PoolVault is
 
     function claim() external nonReentrant returns (uint256 amount) {
         return RewardAccounting.claim(_rewardStorage(), msg.sender, balanceOf(msg.sender), BEM);
+    }
+
+    /// @notice Anyone may pay gas to release a beneficiary's entire booked reward to that beneficiary.
+    /// @dev Shares and payment destination belong to the beneficiary. Claims have no cooldown.
+    function claimFor(address beneficiary) external nonReentrant returns (uint256 amount) {
+        if (beneficiary == address(0)) revert InvalidParameters();
+        return RewardAccounting.claim(_rewardStorage(), beneficiary, balanceOf(beneficiary), BEM);
     }
 
     /// @notice Deprecated ABI retained for old clients; reward forfeiture is disabled.

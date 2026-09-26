@@ -68,7 +68,6 @@ library RewardAccounting {
     {
         _settle(s, user, shares);
         PoolRewardState.RewardUser storage u = s.users[user];
-        if (u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY) revert ClaimTooSoon();
         amount = u.owed;
         if (amount == 0) revert NothingToClaim();
         if (amount > s.bemAccounted) revert AccountingDeficit();

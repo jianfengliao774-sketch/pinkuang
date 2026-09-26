@@ -116,7 +116,7 @@ contract PoolRewardsForkTest is Test {
         vault.deposit{value: contribution}(shares);
     }
 
-    function test_Fork_PermissionlessHarvestPaysOnePercentAndNoBurnAndClaim24HourBoundary() public {
+    function test_Fork_PermissionlessHarvestAndSameSecondClaimsWithoutCooldown() public {
         uint256 sellerBemAfterPurchase = BEM.balanceOf(SELLER);
         uint256 supplyBefore = BEM.totalSupply();
         uint256 treasuryBefore = BEM.balanceOf(TREASURY);
@@ -144,7 +144,7 @@ contract PoolRewardsForkTest is Test {
         assertEq(vault.claimable(CAROL), net * 2 / 100);
 
         uint256 firstPayment = vault.claimable(ALICE);
-        assertEq(vault.lastClaimAt(ALICE), 0, "first claim has no cooldown");
+        assertEq(vault.lastClaimAt(ALICE), 0, "no successful claim has been recorded");
         uint256 aliceBefore = BEM.balanceOf(ALICE);
         vm.prank(ALICE);
         vault.claim();
@@ -154,32 +154,49 @@ contract PoolRewardsForkTest is Test {
         assertEq(vault.bemAccounted(), net - firstPayment);
         assertEq(vault.lastClaimAt(ALICE), firstAt);
 
-        vm.warp(firstAt + 1 days - 1);
+        _assertFurtherClaimsWithoutCooldown(aliceBefore, firstPayment, firstAt);
+        assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase - 10000);
+        emit log_named_uint("real Mining gross BEM after 3600 seconds (atoms)", gross);
+        emit log_named_uint("platform fee BEM (atoms)", fee);
+        emit log_named_uint("base burn BEM (atoms)", burn);
+        emit log_named_uint("members net BEM (atoms)", net);
+    }
+
+    function _assertFurtherClaimsWithoutCooldown(uint256 aliceBefore, uint256 firstPayment, uint256 firstAt) private {
+        // Real BEM donation is booked in this same timestamp; no fresh Mining
+        // time is needed and the member may immediately collect the new income.
+        vm.prank(SELLER);
+        assertTrue(BEM.transfer(address(vault), 10000));
         vault.harvest();
-        assertGt(vault.claimable(ALICE), 0);
-        uint256 accountedBeforeBlockedClaim = vault.bemAccounted();
+        uint256 secondPayment = vault.claimable(ALICE);
+        assertGt(secondPayment, 0);
         vm.prank(ALICE);
-        vm.expectRevert(IPoolVault.ClaimTooSoon.selector);
+        vault.claim();
+        assertEq(block.timestamp, firstAt);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment);
+        assertEq(vault.lastClaimAt(ALICE), firstAt);
+        assertEq(vault.claimable(ALICE), 0);
+
+        // New pending Mining income is not yet booked. An empty claim must not
+        // harvest it, change the last-success timestamp or alter reserved BEM.
+        vm.warp(firstAt + 60);
+        uint256 accountedBeforeEmptyClaim = vault.bemAccounted();
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.NothingToClaim.selector);
         vault.claim();
         assertEq(vault.lastClaimAt(ALICE), firstAt);
-        assertEq(vault.bemAccounted(), accountedBeforeBlockedClaim);
-        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment);
+        assertEq(vault.bemAccounted(), accountedBeforeEmptyClaim);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment);
 
-        vm.warp(firstAt + 1 days);
         vault.harvest();
         uint256 nextPayment = vault.claimable(ALICE);
         vm.prank(ALICE);
         vault.claim();
         assertGt(nextPayment, 0);
-        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + nextPayment);
-        assertEq(vault.lastClaimAt(ALICE), firstAt + 1 days);
+        assertEq(BEM.balanceOf(ALICE) - aliceBefore, firstPayment + secondPayment + nextPayment);
+        assertEq(vault.lastClaimAt(ALICE), firstAt + 60);
         assertEq(vault.claimable(ALICE), 0);
         assertEq(BEM.balanceOf(address(vault)), vault.bemAccounted());
-        assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase);
-        emit log_named_uint("real Mining gross BEM after 3600 seconds (atoms)", gross);
-        emit log_named_uint("platform fee BEM (atoms)", fee);
-        emit log_named_uint("base burn BEM (atoms)", burn);
-        emit log_named_uint("members net BEM (atoms)", net);
     }
 
     function test_Fork_DirectBemTransferAccountedExactlyOnceAndAllThreeMembersPaid() public {

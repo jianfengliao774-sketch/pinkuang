@@ -155,6 +155,7 @@ interface IPoolVault {
     function mine(bytes calldata data) external returns (bytes memory);
     function harvest() external returns (uint256 gross, uint256 fee, uint256 burned, uint256 net);
     function claim() external returns (uint256 amount);
+    function claimFor(address beneficiary) external returns (uint256 amount);
     function burnExpired(uint32 epoch) external returns (uint256 amount);
     function lock(address member, uint256 amount) external;
     function unlock(address member, uint256 amount) external;

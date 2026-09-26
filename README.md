@@ -2,6 +2,8 @@
 
 当前任务：**一键部署与份额市场的审计整改**。保留单钱包部署，取消所有业务销毁，增加按权重购机限价、折价出售 60% 份额门槛和表决期间交易冻结。最新规则、保留风险和验证记录见 [2026-09-26 整改报告](docs/audits/2026-09-26/remediation.md)。尚未合并或部署主网；较早 T1e/M1 报告只代表其对应历史版本。
 
+后续已确认取消 BEM 领取的 24 小时限制，允许任何人为一个收益钱包代领，资金只能转到该收益钱包。规则与本轮验证见 [无冷却代领说明](docs/audits/2026-09-26/permissionless-claims.md)。
+
 目标仓库：[jianfengliao774-sketch/pinkuang](https://github.com/jianfengliao774-sketch/pinkuang)。
 
 需求以 [开发文档 v0.4](docs/sources/development-spec-v0.4.docx) 为准，任务顺序按

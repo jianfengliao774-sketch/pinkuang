@@ -61,17 +61,35 @@ contract PoolRewardsTest is RewardsTestBase {
         assertEq(bem.balanceOf(DEAD), 0);
     }
 
-    function test_firstClaimImmediateThenExactTwentyFourHourBoundary() public {
+    function test_newBookedRewardsCanBeClaimedAgainInTheSameSecond() public {
         _harvestReward(10000);
         uint256 at = block.timestamp;
         assertEq(_claim(ALICE), 4851);
         _harvestReward(10000);
-        vm.warp(at + 1 days - 1);
-        vm.prank(ALICE);
-        vm.expectRevert(IPoolVault.ClaimTooSoon.selector);
-        rewards.claim();
-        vm.warp(at + 1 days);
+        assertEq(block.timestamp, at);
         assertEq(_claim(ALICE), 4851);
+        assertEq(bem.balanceOf(ALICE), 9702);
+        assertEq(rewards.lastClaimAt(ALICE), at);
+        assertEq(rewards.claimable(ALICE), 0);
+        assertEq(rewards.bemAccounted(), 10098);
+    }
+
+    function test_emptyClaimDoesNotChangeLastSuccessfulTimeOrAccounting() public {
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.NothingToClaim.selector);
+        rewards.claim();
+        assertEq(rewards.lastClaimAt(ALICE), 0);
+        _harvestReward(10000);
+        assertEq(_claim(ALICE), 4851);
+        uint64 paidAt = rewards.lastClaimAt(ALICE);
+        uint256 reserved = rewards.bemAccounted();
+        vm.warp(block.timestamp + 1);
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.NothingToClaim.selector);
+        rewards.claim();
+        assertEq(rewards.lastClaimAt(ALICE), paidAt);
+        assertEq(rewards.bemAccounted(), reserved);
+        assertEq(bem.balanceOf(ALICE), 4851);
     }
 
     function test_feeFailureRollsBackAndDeadRejectionHasNoEffect() public {
@@ -171,7 +189,7 @@ contract PoolRewardsTest is RewardsTestBase {
         _stateIs(IPoolVault.State.Active); // No sale or ownership handover is claimed by this harness test.
     }
 
-    function test_harnessClosedStatePreservesExistingClaimCooldown() public {
+    function test_harnessClosedStatePaysNewBookedRewardImmediatelyWithoutMining() public {
         _harvestReward(10000);
         _claim(ALICE);
         uint64 claimedAt = rewards.lastClaimAt(ALICE);
@@ -180,12 +198,16 @@ contract PoolRewardsTest is RewardsTestBase {
         mining.setClaimFault(1);
         nft.forceTransfer(address(0xB00B), rewardId);
         uint256 callsBefore = mining.claimCalls();
+        assertEq(block.timestamp, claimedAt);
+        assertEq(_claim(ALICE), 4851);
+        assertEq(bem.balanceOf(ALICE), 9702);
+        assertEq(rewards.lastClaimAt(ALICE), claimedAt);
+        assertEq(mining.claimCalls(), callsBefore);
+        vm.warp(block.timestamp + 1);
         vm.prank(ALICE);
-        _expectError("ClaimTooSoon()");
+        _expectError("NothingToClaim()");
         rewards.claim();
         assertEq(rewards.lastClaimAt(ALICE), claimedAt);
-        vm.warp(uint256(claimedAt) + 1 days);
-        assertEq(_claim(ALICE), 4851);
         assertEq(mining.claimCalls(), callsBefore);
     }
 

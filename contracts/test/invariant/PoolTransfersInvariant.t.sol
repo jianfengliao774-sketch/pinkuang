@@ -141,14 +141,14 @@ contract ShareTransferHandler is Test {
         address actor = actors[actorSeed % 6];
         uint256 newNet = 0; // claim pays booked income only.
         uint256 expected = _claimable(actor, newNet);
-        bool tooSoon = lastPaid[actor] != 0 && block.timestamp < lastPaid[actor] + 1 days;
         uint256 beforeBalance = bem.balanceOf(actor);
         vm.prank(actor);
         (bool success, bytes memory reason) = address(rewards).call(abi.encodeCall(IRewardsVault.claim, ()));
-        if (tooSoon || expected == 0) {
+        if (expected == 0) {
             assertFalse(success);
-            bytes4 errorSelector = tooSoon ? bytes4(keccak256("ClaimTooSoon()")) : bytes4(keccak256("NothingToClaim()"));
+            bytes4 errorSelector = bytes4(keccak256("NothingToClaim()"));
             assertEq(reason, abi.encodeWithSelector(errorSelector));
+            assertEq(rewards.lastClaimAt(actor), lastPaid[actor]);
             return;
         }
         assertTrue(success);

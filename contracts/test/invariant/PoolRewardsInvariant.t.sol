@@ -91,14 +91,14 @@ contract RewardsHandler is Test {
         address actor = actors[actorIndex];
         uint256 newNet = 0; // claim pays booked income only.
         uint256 expected = _claimable(actorIndex, newNet);
-        bool tooSoon = lastPaidAt[actor] != 0 && block.timestamp < lastPaidAt[actor] + 1 days;
         uint256 beforeBalance = bem.balanceOf(actor);
         vm.prank(actor);
         (bool success, bytes memory reason) = address(vault).call(abi.encodeCall(IRewardsVault.claim, ()));
-        if (tooSoon || expected == 0) {
+        if (expected == 0) {
             assertFalse(success, "a failed/empty claim must not transfer or reset time");
-            bytes4 errorSelector = tooSoon ? bytes4(keccak256("ClaimTooSoon()")) : bytes4(keccak256("NothingToClaim()"));
+            bytes4 errorSelector = bytes4(keccak256("NothingToClaim()"));
             assertEq(reason, abi.encodeWithSelector(errorSelector));
+            assertEq(vault.lastClaimAt(actor), lastPaidAt[actor]);
             assertEq(bem.balanceOf(actor), beforeBalance);
             return;
         }
