@@ -90,7 +90,14 @@ contract MiningStartProbe is Test {
 
     function _stopAndWait() internal {
         _forward(abi.encodeCall(IStartMining.stop, (key)));
-        assertNotEq(mining.getMiner(key).status, 1, "stop must change mining status");
+        IStartMining.Miner memory stopped = mining.getMiner(key);
+        assertEq(stopped.status, 3, "stop must enter the recoverable stopped state");
+        assertEq(stopped.stopBlock, block.number, "keeper cooldown must use protocol stop block");
+        emit log_named_uint("stopped task id", stopped.taskId);
+        emit log_named_uint("stopped gate count", stopped.gateCount);
+        emit log_named_uint("stopped verified weight", stopped.verifWeight);
+        emit log_named_uint("stopped unverified weight", stopped.unverWeight);
+        emit log_named_uint("stopped optimal", stopped.optimal ? 1 : 0);
         uint256 cooldown = mining.STOP_COOLDOWN();
         vm.roll(block.number + cooldown + 1);
         vm.warp(block.timestamp + cooldown + 1);
@@ -100,6 +107,7 @@ contract MiningStartProbe is Test {
         _forward(abi.encodeCall(IStartMining.arm, (address(nft), TOKEN_ID)));
         uint256 anchor = block.number;
         assertEq(mining.armedAt(key), anchor, "arm records its block number");
+        assertEq(mining.getMiner(key).status, 3, "arm alone does not restart mining");
         (bool cached,, uint32 live) = mining.cachedDepth(address(nft), TOKEN_ID);
         assertTrue(cached);
         uint32 count = mining.sampleCountFor(live, MiningStartFixtures.CYCLES);

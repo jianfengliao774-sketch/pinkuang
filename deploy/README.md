@@ -30,6 +30,8 @@ npm run dev
 
 采购恢复支持显式原样重播、同 nonce 限次提价和零值自转取消；待确认期间不换矿机、不创建新的采购 nonce。本机钱包锁跨资金池和进程生效，持久指针位于 `~/.local/state/pinkuang/purchase-keeper/wallets/`。多机器及其他钱包软件不受该锁控制，必须保持同一钱包只有一个采购执行器。签名账本不得删除或公开；旧版本只有两次确认的终态账本需要人工核实最终确认，不能自动当作已结案。具体步骤见 [采购保护与交易恢复](../docs/purchase-execution.md)。
 
+已购矿机的停挖监测及两笔恢复交易由独立[自动挖矿 keeper](../docs/automatic-mining.md)执行。Factory 级 supervisor 自动发现新增子池并为各池维护私有 journal。Vault 原有 `mine(bytes)` 限定操作对象和 operator；智能合约本身不具备定时发交易能力。默认只读，启用 `--send` 后需单一 operator 执行点。
+
 ## 尚未实现的本轮需求
 
 - 官网代采费进入拼矿金库、Firsto 采购费付 Firsto 的双路径结算，以及不可变费率/收款配置。
