@@ -43,6 +43,30 @@ test('exports only the public, source-bound deployment addresses and receipt', (
   assert.equal(JSON.stringify(manifest).includes('ownerMultisig'), false);
 });
 
+test('exports an identical build after a metadata-only commit while preserving deployment provenance', () => {
+  const snapshot = completeSnapshot();
+  const regenerated = { ...bundle, sourceCommit: 'b'.repeat(40) };
+  assert.equal(artifactDigest(regenerated), snapshot.artifactDigest);
+  const manifest = deploymentManifest(snapshot, regenerated);
+  assert.equal(manifest.sourceCommit, bundle.sourceCommit);
+  assert.equal(snapshot.sourceCommit, bundle.sourceCommit);
+  assert.equal(regenerated.sourceCommit, 'b'.repeat(40));
+  assert.deepEqual(manifest, deploymentManifest(snapshot, bundle));
+});
+
+test('metadata compatibility does not accept changed source, ABI or bytecode and never invents provenance', () => {
+  const snapshot = completeSnapshot();
+  for (const changed of [
+    { ...bundle, sourceHashes: { 'src/PoolVault.sol': 'changed' } },
+    { ...bundle, artifacts: { PoolVault: { abi: [{ type: 'function', name: 'changed' }] } } },
+    { ...bundle, artifacts: { PoolVault: { bytecode: '0x6001' } } },
+  ]) {
+    assert.throws(() => deploymentManifest(snapshot, changed as ArtifactBundle), /源码构建/);
+  }
+  snapshot.sourceCommit = '';
+  assert.throws(() => deploymentManifest(snapshot, bundle), /原始源码提交号/);
+});
+
 test('refuses incomplete, failed or source-mismatched records', () => {
   const partial = completeSnapshot(); partial.status = 'paused';
   assert.throws(() => deploymentManifest(partial, bundle), /完成链上核验/);

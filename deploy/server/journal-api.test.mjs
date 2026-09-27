@@ -54,9 +54,9 @@ function completedProof(owner = account, id = 'completed') {
     const data = `0x60${(index + 1).toString(16).padStart(2, '0')}`;
     const contractAddress = stepId === 'initialize' ? null : getCreateAddress({ from: owner, nonce });
     const to = stepId === 'initialize' ? record.addresses.AtomicDeployment : null;
-    const receipt = { hash, from: owner, to, blockNumber, blockHash, status: 1,
+    const receipt = { hash, from: owner, to, blockNumber, blockHash, index: 0, status: 1,
       contractAddress, gasUsed: 21_000n, gasPrice: 1_000_000_000n, fee };
-    transactions.set(hash, { hash, chainId: 56n, from: owner, nonce, blockNumber, blockHash,
+    transactions.set(hash, { hash, chainId: 56n, from: owner, nonce, blockNumber, blockHash, index: 0,
       to, data, value: 0n });
     receipts.set(hash, receipt);
     blockHashes.set(blockNumber, blockHash);
@@ -77,7 +77,8 @@ function completedProof(owner = account, id = 'completed') {
     getTransactionReceipt: async hash => receipts.get(hash) ?? null,
     getBlock: async tag => tag === 'latest' ? { number: 121, hash: hex(2121) }
       : tag === 'finalized' || tag === 120 ? { number: 120, hash: hex(2120) }
-        : blockHashes.has(tag) ? { number: tag, hash: blockHashes.get(tag) } : null,
+        : blockHashes.has(tag) ? { number: tag, hash: blockHashes.get(tag),
+          transactions: [...transactions.values()].filter(tx => tx.blockNumber === tag).map(tx => tx.hash) } : null,
     getTransactionCount: async () => 23,
   };
   return { record, provider, transactions, receipts, blockHashes };
@@ -131,6 +132,96 @@ test('wallet challenge is one-use, origin-bound and sessions are wallet-isolated
     assert.equal((await f.request('/api/journal/quote', 'POST', { record: { marker: 'wrong-wallet' } }, b.cookie, origin,
       { 'X-Pinkuang-Account': account })).status, 409);
     assert.deepEqual((await f.request('/api/journal/quotes', 'GET', undefined, b.cookie)).body.items, []);
+  } finally { await f.close(); }
+});
+
+test('nonce witness is authenticated, wallet-bound and never changes unresolved deployment or market intents', async () => {
+  const reads = [];
+  const provider = {
+    send: async (method, params) => { reads.push([method, params]); return '0x38'; },
+    getTransactionCount: async (owner, tag) => { reads.push([owner, tag]); return tag === 'latest' ? 7 : 8; },
+  };
+  const f = await fixture(provider);
+  try {
+    assert.equal((await f.request('/api/journal/deployment/nonce')).status, 401);
+    assert.deepEqual(reads, []);
+    const a = await f.login(wallet), b = await f.login(other);
+    assert.equal((await f.request('/api/journal/deployment/nonce', 'GET', undefined, b.cookie, origin,
+      { 'X-Pinkuang-Account': account })).status, 409);
+    assert.equal((await f.request(`/api/journal/deployment/nonce?account=${other.address}`, 'GET', undefined, a.cookie)).status, 400);
+    assert.deepEqual(reads, []);
+    const start = deployment();
+    assert.equal((await f.request('/api/journal/deployment', 'PUT', { record: start, expectedRevision: 0 }, a.cookie)).status, 200);
+    const unresolved = structuredClone(start);
+    unresolved.status = 'paused';
+    unresolved.steps[0] = { id: 'PoolVault', status: 'uncertain', nonce: 7, dataHash: hex(21) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT', { record: unresolved, expectedRevision: 1 }, a.cookie)).status, 200);
+    // An unresolved deployment now owns the wallet signing lane.
+    assert.equal((await f.request('/api/journal/market', 'PUT', { record: intent(), expectedRevision: 0 }, a.cookie)).status, 409);
+    const before = (await f.request('/api/journal/deployment', 'GET', undefined, a.cookie)).body;
+    const marketBefore = (await f.request('/api/journal/market', 'GET', undefined, a.cookie)).body;
+    const result = await f.request('/api/journal/deployment/nonce', 'GET', undefined, a.cookie, origin,
+      { 'X-Pinkuang-Account': account });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, { latest: 7, pending: 8 });
+    assert.deepEqual(reads, [['eth_chainId', []], [account, 'latest'], [account, 'pending'], ['eth_chainId', []]]);
+    assert.deepEqual((await f.request('/api/journal/deployment', 'GET', undefined, a.cookie)).body, before);
+    assert.deepEqual((await f.request('/api/journal/market', 'GET', undefined, a.cookie)).body, marketBefore);
+    reads.length = 0;
+    assert.equal((await f.request('/api/journal/deployment/nonce', 'GET', undefined, b.cookie)).status, 200);
+    assert.deepEqual(reads.filter(([, tag]) => typeof tag === 'string'),
+      [[other.address.toLowerCase(), 'latest'], [other.address.toLowerCase(), 'pending']]);
+  } finally { await f.close(); }
+});
+
+test('nonce witness fails closed on wrong or changing networks, malformed counters and RPC failures', async () => {
+  let network = '0x38', latest = 7, pending = 7, failRpc = false, networkReads = 0, changeNetwork = false;
+  const provider = {
+    send: async () => {
+      networkReads += 1;
+      return changeNetwork && networkReads === 2 ? '0x1' : network;
+    },
+    getTransactionCount: async (_owner, tag) => {
+      if (failRpc) throw new Error('private RPC credential must not leak');
+      return tag === 'latest' ? latest : pending;
+    },
+  };
+  const f = await fixture(provider);
+  try {
+    const { cookie } = await f.login(wallet);
+    const before = (await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body;
+    for (const badNetwork of ['0x1', '56', 56, null, '0xzz']) {
+      network = badNetwork;
+      const result = await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie);
+      assert.equal(result.status, 503);
+      assert.match(result.body.error, /BSC/);
+    }
+    network = '0x38'; changeNetwork = true; networkReads = 0;
+    assert.equal((await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie)).status, 503);
+    changeNetwork = false;
+    for (const [badLatest, badPending] of [[-1, 7], [7, -1], [7.5, 8], [7, 7.5],
+      [Number.MAX_SAFE_INTEGER + 1, Number.MAX_SAFE_INTEGER + 1], [0, Number.MAX_SAFE_INTEGER + 1],
+      [null, 7], [7, undefined], ['7', 7], [7, '7'], [NaN, 7], [7, Infinity], [8, 7]]) {
+      latest = badLatest; pending = badPending;
+      assert.equal((await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie)).status, 503);
+    }
+    latest = pending = 0;
+    assert.deepEqual((await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie)).body, { latest: 0, pending: 0 });
+    failRpc = true;
+    const failed = await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie);
+    assert.equal(failed.status, 503);
+    assert.doesNotMatch(failed.body.error, /private RPC credential/);
+    assert.deepEqual((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body, before);
+  } finally { await f.close(); }
+});
+
+test('nonce witness returns an actionable 503 when server RPC is not configured', async () => {
+  const f = await fixture(null);
+  try {
+    const { cookie } = await f.login(wallet);
+    const result = await f.request('/api/journal/deployment/nonce', 'GET', undefined, cookie);
+    assert.equal(result.status, 503);
+    assert.match(result.body.error, /BSC RPC/);
   } finally { await f.close(); }
 });
 
@@ -428,8 +519,41 @@ test('a fully finalized deployment archives with its complete record and frees t
     assert.equal(chainReads, 2);
     assert.equal(latestReads, 1);
     assert.equal(finalizedReads, 1);
-    assert.equal(nonceReads, 1);
+    assert.equal(nonceReads, 0, 'Completed archive uses canonical transaction inclusion without historical state reads.');
     assert.ok(peakReceipts > 1 && peakReceipts <= 4);
+  } finally { await f.close(); }
+});
+
+test('a same-intent accelerated deployment archives after durable recovery and retains the original hash', async () => {
+  const proof = completedProof();
+  const recovered = proof.record.steps.at(-1);
+  const oldHash = hex(9002);
+  const pending = structuredClone(proof.record);
+  pending.status = 'paused';
+  pending.steps.at(-1).status = 'submitted';
+  pending.steps.at(-1).txHash = oldHash;
+  pending.spentWei = (BigInt(pending.spentWei) - BigInt(recovered.receipt.feeWei)).toString();
+  delete pending.steps.at(-1).receipt;
+  recovered.previousTxHashes = [oldHash];
+  recovered.finalizedRecovery = true;
+  proof.transactions.set(oldHash, { ...proof.transactions.get(recovered.txHash), hash: oldHash,
+    blockNumber: null, blockHash: null });
+  const f = await fixture(proof.provider);
+  try {
+    const { cookie } = await f.login(wallet);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: pending, expectedRevision: 0 }, cookie)).body.revision, 1);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: proof.record, expectedRevision: 1 }, cookie)).body.revision, 2);
+    const result = await f.request('/api/journal/deployment/archive', 'POST',
+      { id: proof.record.id, expectedRevision: 2 }, cookie);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.revision, 3);
+    assert.deepEqual(result.body.archives[0], proof.record);
+    assert.deepEqual(result.body.archives[0].steps.at(-1).previousTxHashes, [oldHash]);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record, null);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: deployment(account, 'after-acceleration'), expectedRevision: 3 }, cookie)).body.revision, 4);
   } finally { await f.close(); }
 });
 
@@ -438,7 +562,7 @@ test('completed archive rejects partial, unknown, replaced, tampered and unfinal
     ['missing step', proof => { proof.record.steps.pop(); }],
     ['unknown step', proof => { proof.record.steps[5].status = 'uncertain'; }],
     ['replaced step', proof => { proof.record.steps[5].replacementHash = hex(9001); }],
-    ['replacement history', proof => { proof.record.steps[5].previousTxHashes = [hex(9002)]; }],
+    ['unmarked acceleration history', proof => { proof.record.steps[5].previousTxHashes = [hex(9002)]; }],
     ['forged calldata', proof => { proof.record.steps[5].dataHash = hex(9003); }],
     ['forged receipt', proof => { proof.record.steps[5].receipt.blockHash = hex(9004); }],
     ['forged address', proof => { proof.record.steps[5].address = Wallet.createRandom().address; }],

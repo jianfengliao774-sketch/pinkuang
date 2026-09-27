@@ -95,6 +95,8 @@ export function governanceAction(snapshot, from, action) {
   const account = nonzero(from);
   requireGovernance(snapshot?.chainId === CHAIN_ID && same(snapshot.account, account),
     'Governance snapshot belongs to another wallet or chain.');
+  if (action?.expectedAccount !== undefined) requireGovernance(same(account, action.expectedAccount), 'Wallet changed; review again.');
+  if (action?.expectedPool !== undefined) requireGovernance(same(snapshot.pool, action.expectedPool), 'Pool changed; review again.');
   const open = snapshot.state === 2n && snapshot.timestamp >= snapshot.activatedAt + WEEK;
   const candidate = id => snapshot.candidates.find(item => item.id === uint(id));
   let method, args = [], value = 0n, chosen = null;
@@ -137,6 +139,8 @@ export function governanceAction(snapshot, from, action) {
     'The whole-miner listing is not open at this exact price.');
     method = 'completeSale'; value = snapshot.salePrice;
   } else throw new Error('Unsupported sale governance action.');
+  if (action.expectedProposalId !== undefined) requireGovernance(chosen?.id === uint(action.expectedProposalId), 'Proposal changed; review again.');
+  if (action.expectedPriceWei !== undefined) requireGovernance((chosen?.priceWei ?? (method === 'propose' ? uint(action.priceWei) : snapshot.salePrice)) === uint(action.expectedPriceWei), 'Price changed; review again.');
   return Object.freeze({ transaction: Object.freeze({ chainId: '0x38', from: account, to: snapshot.pool,
     data: abi.PoolVault.encodeFunctionData(method, args), value: toQuantity(value) }),
   quote: Object.freeze({ action: method, proposalId: chosen?.id ?? null, pool: snapshot.pool,

@@ -53,7 +53,8 @@ before(async () => {
   const port = (server.address() as { port: number }).port;
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   rpcUrl = `http://127.0.0.1:${port}`;
-  processHandle = spawn(fileURLToPath(new URL('../node_modules/.bin/anvil', import.meta.url)), ['--host', '127.0.0.1', '--port', String(port), '--chain-id', '56', '--block-time', '1', '--silent'], { stdio: 'ignore' });
+  const anvilPath = process.platform === 'win32' ? '../node_modules/@foundry-rs/anvil-win32-amd64/bin/anvil.exe' : '../node_modules/.bin/anvil';
+  processHandle = spawn(fileURLToPath(new URL(anvilPath, import.meta.url)), ['--host', '127.0.0.1', '--port', String(port), '--chain-id', '56', '--block-time', '1', '--silent'], { stdio: 'ignore', windowsHide: true });
   let ready = false;
   for (let i = 0; i < 50; i++) {
     try { await rpc('eth_chainId'); ready = true; break; } catch { await delay(100); }
@@ -243,6 +244,96 @@ test('prepared transaction goes straight to the wallet after durable intent and 
   assert.equal(snapshot?.steps[0].status, 'rejected');
 });
 
+test('independent nonce witness replaces an equally stale wallet latest and pending nonce before the durable intent', async () => {
+  let requestedNonce: number | undefined;
+  let witnessReads = 0;
+  const staleWallet: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_getTransactionCount') return Promise.resolve('0x470'); // 1136, as in the incident.
+    if (request.method === 'eth_sendTransaction') {
+      requestedNonce = Number((request.params as Record<string, string>[])[0].nonce);
+      assert.equal(snapshot?.steps[0].nonce, 1140, 'the independent nonce must be durable before the request');
+      throw Object.assign(new Error('user rejected'), { code: 4001 });
+    }
+    return wallet.request(request);
+  } };
+  const guarded = new DeploymentEngine(staleWallet, bundle, {
+    persist: state => { snapshot = structuredClone(state); },
+    readCurrentNonce: async () => { witnessReads++; return { latest: 1140, pending: 1140 }; },
+  });
+  await assert.rejects(guarded.start(input), /user rejected/);
+  assert.equal(witnessReads, 2, 'recheck independently after saving the intent');
+  assert.equal(requestedNonce, 1140);
+});
+
+test('independent pending nonce mismatch blocks before creating a signing intent', async () => {
+  const count = sends;
+  const guarded = new DeploymentEngine(wallet, bundle, {
+    persist: state => { snapshot = structuredClone(state); },
+    readCurrentNonce: async () => ({ latest: 1140, pending: 1141 }),
+  });
+  await assert.rejects(guarded.start(input), /其他待确认交易/);
+  assert.equal(sends, count);
+  assert.equal(snapshot?.steps[0].status, 'waiting');
+  assert.equal(snapshot?.steps[0].nonce, undefined);
+});
+
+test('nonce drift after the durable intent never requests a signature or erases that intent', async () => {
+  const count = sends;
+  let changed = false;
+  const guarded = new DeploymentEngine(wallet, bundle, {
+    persist: state => {
+      snapshot = structuredClone(state);
+      if (state.steps[0].status === 'signing') changed = true;
+    },
+    readCurrentNonce: async () => ({ latest: changed ? 1141 : 1140, pending: changed ? 1141 : 1140 }),
+  });
+  await assert.rejects(guarded.start(input), /nonce 核对失败/);
+  assert.equal(sends, count);
+  assert.equal(snapshot?.steps[0].status, 'signing');
+  assert.equal(snapshot?.steps[0].nonce, 1140);
+  assert.equal(snapshot?.status, 'paused');
+  assert.match(snapshot?.steps[0].error ?? '', /尚未请求钱包签名/);
+  const paused = await guarded.resume(snapshot!);
+  assert.equal(paused.steps[0].status, 'uncertain');
+  assert.equal(sends, count, 'resume must not reinterpret the retained intent as retryable');
+});
+
+test('a wallet nonce ahead of the independent witness blocks before the durable intent', async () => {
+  for (const pendingOnly of [false, true]) {
+    let requested = false;
+    const aheadWallet: Eip1193Provider = { request: request => {
+      if (request.method === 'eth_getTransactionCount') {
+        const tag = (request.params as string[])[1];
+        return Promise.resolve(pendingOnly && tag === 'latest' ? '0x474' : '0x475');
+      }
+      if (request.method === 'eth_sendTransaction') requested = true;
+      return wallet.request(request);
+    } };
+    const guarded = new DeploymentEngine(aheadWallet, bundle, {
+      persist: state => { snapshot = structuredClone(state); },
+      readCurrentNonce: async () => ({ latest: 1140, pending: 1140 }),
+    });
+    // A wallet pending mismatch may be caught even earlier in preflight.
+    await assert.rejects(guarded.start(input), /更新的交易 nonce|待确认交易/);
+    assert.equal(requested, false);
+    assert.notEqual(snapshot?.steps[0].status, 'signing');
+  }
+});
+
+test('independent nonce cannot fall behind a previously confirmed deployment', { timeout: 30_000 }, async () => {
+  const initial = Number(await rpc('eth_getTransactionCount', [account, 'latest']));
+  const count = sends;
+  const guarded = new DeploymentEngine(wallet, bundle, {
+    persist: state => { snapshot = structuredClone(state); },
+    readCurrentNonce: async () => ({ latest: initial, pending: initial }),
+  });
+  await assert.rejects(guarded.start(input), /落后于已确认部署记录/);
+  assert.equal(sends, count + 1);
+  assert.equal(snapshot?.steps[0].status, 'confirmed');
+  assert.equal(snapshot?.steps[1].status, 'waiting');
+  assert.equal(snapshot?.steps[1].nonce, undefined);
+});
+
 test('wallet change after the saved intent still blocks the signature', async () => {
   const other = getAddress((await rpc('eth_accounts') as string[])[1]);
   let switched = false;
@@ -397,6 +488,35 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   const tx = await rpc('eth_getTransactionByHash', [initialize.txHash]) as { input: string; value: string };
   assert.equal(tx.input.slice(0, 10), new Interface(bundle.artifacts.AtomicDeployment.abi).getFunction('deploySingleOwner')!.selector);
   assert.equal(BigInt(tx.value), 0n);
+  // Emulate the wallet envelope's RPC representation around a real, independently
+  // verified Anvil deployment. This exercises recovery, not the wallet relay EVM.
+  const relay = getAddress('0x0000000000000000000000000000000000000123');
+  const wrappedWallet: Eip1193Provider = { request: async request => {
+    const params = request.params as unknown[] | undefined;
+    if (request.method === 'eth_sendTransaction') throw new Error('recovery must never broadcast');
+    if (request.method === 'eth_getTransactionCount' && params?.[1] !== 'latest' && params?.[1] !== 'pending')
+      throw new Error('historical account state is unavailable');
+    const result = await wallet.request(request);
+    if (String(params?.[0]).toLowerCase() === initialize.txHash!.toLowerCase()) {
+      if (request.method === 'eth_getTransactionByHash') return { ...(result as object), to: relay, input: `0xcef6d209${tx.input.slice(2)}00` };
+      if (request.method === 'eth_getTransactionReceipt') return { ...(result as object), to: relay };
+    }
+    return result;
+  } };
+  const waitingWrapped = structuredClone(complete);
+  waitingWrapped.status = 'paused';
+  waitingWrapped.error = '钱包实际发送的交易内容与编译部署计划不一致。';
+  waitingWrapped.steps.at(-1)!.status = 'submitted';
+  const beforeWrapped = sends;
+  const wrapped = await engine(wrappedWallet).reconcile(waitingWrapped);
+  assert.equal(wrapped.status, 'complete');
+  assert.equal(wrapped.steps.at(-1)!.initializationExecution?.kind, 'wrapped');
+  assert.equal(wrapped.steps.at(-1)!.txHash, initialize.txHash);
+  assert.equal(wrapped.steps.at(-1)!.dataHash, initialize.dataHash);
+  assert(wrapped.verification!.checks.every(check => check.passed));
+  const wrappedInspected = await new DeploymentEngine(wrappedWallet, bundle, { persist() { throw new Error('read-only'); } }).inspectGraphForManifest(wrapped);
+  assert.equal(wrappedInspected.status, 'complete');
+  assert.equal(sends, beforeWrapped);
   assert.equal(complete.verification!.checks.find(check => check.label === '初始池子数量')?.actual, '0');
   // Create a real pool on the disposable chain. Subsequent deployment reconciliation
   // must accept legitimate business activity rather than insist the factory stays empty.

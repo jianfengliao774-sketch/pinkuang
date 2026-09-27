@@ -89,3 +89,55 @@ test('a stale deployment tab checks the server digest immediately before wallet 
     await assert.rejects(journal.assertCurrentArtifact(oldDigest), /旧版合约产物/);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('nonce witness uses the authenticated wallet and leaves deployment revision untouched', async () => {
+  const originalFetch = globalThis.fetch;
+  const account = '0x1111111111111111111111111111111111111111';
+  const paths: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const path = new URL(String(input), 'http://localhost').pathname;
+    paths.push(path);
+    assert.equal(new Headers(init?.headers).get('X-Pinkuang-Account'), account);
+    assert.equal(init?.cache, 'no-store');
+    assert.equal(init?.credentials, 'same-origin');
+    if (path.endsWith('/nonce')) {
+      assert.equal(init?.method, 'GET');
+      assert.equal(init?.body, undefined);
+      return new Response(JSON.stringify({ latest: 7, pending: 8 }), { status: 200 });
+    }
+    if (init?.method === 'PUT') {
+      assert.equal(JSON.parse(String(init.body)).expectedRevision, 4);
+      return new Response(JSON.stringify({ revision: 5 }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ record: null, revision: 4,
+      archives: [], archiveNextCursor: null, latestCompleted: null }), { status: 200 });
+  };
+  try {
+    const journal = new ServerJournal(account);
+    await journal.loadDeployment();
+    assert.deepEqual(await journal.readCurrentNonce(), { latest: 7, pending: 8 });
+    await journal.saveDeployment({ chainId: 56, account } as Parameters<ServerJournal['saveDeployment']>[0]);
+    assert.deepEqual(paths, ['/api/journal/deployment', '/api/journal/deployment/nonce', '/api/journal/deployment']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('nonce witness rejects malformed or inconsistent counters and preserves server errors', async () => {
+  const originalFetch = globalThis.fetch;
+  let reply: unknown = null;
+  let status = 200;
+  globalThis.fetch = async () => new Response(JSON.stringify(reply), { status });
+  try {
+    const journal = new ServerJournal('0x1111111111111111111111111111111111111111');
+    for (const badReply of [null, {}, { latest: -1, pending: 0 }, { latest: 0, pending: -1 },
+      { latest: 1, pending: 0 }, { latest: '0', pending: 0 }, { latest: 0, pending: '0' },
+      { latest: 0.5, pending: 1 }, { latest: 0, pending: 1.5 },
+      { latest: 0, pending: Number.MAX_SAFE_INTEGER + 1 }, { latest: Number.MAX_SAFE_INTEGER + 1, pending: Number.MAX_SAFE_INTEGER + 1 }]) {
+      reply = badReply;
+      await assert.rejects(journal.readCurrentNonce(), /交易序号格式异常或不一致/);
+    }
+    reply = { latest: 0, pending: 0 };
+    assert.deepEqual(await journal.readCurrentNonce(), reply);
+    reply = { error: '服务器暂时无法独立核对交易序号；请稍后重试。' }; status = 503;
+    await assert.rejects(journal.readCurrentNonce(), /服务器暂时无法独立核对/);
+  } finally { globalThis.fetch = originalFetch; }
+});

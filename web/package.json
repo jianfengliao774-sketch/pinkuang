@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3108",
     "start:live-api": "node server/live-server.mjs",
-    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node scripts/review-policy-check.mjs && node --test scripts/chain-client.test.mjs scripts/deploy-console-url.test.mjs scripts/live-client.test.mjs scripts/live-market.test.mjs scripts/live-governance.test.mjs server/live-api.test.mjs",
+    "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node scripts/review-policy-check.mjs && node --test scripts/*.test.mjs server/live-api.test.mjs",
     "contracts:sync": "node scripts/sync-contracts.mjs",
     "contracts:check": "node scripts/sync-contracts.mjs --check",
     "prebuild": "pnpm contracts:check"

@@ -200,12 +200,22 @@ export class ChainIndex {
 
   async _scanChunk(fromBlock, toBlock) {
     const headers = [];
-    for (let number = fromBlock; number <= toBlock; ++number) {
-      const header = normalizeBlock(await this.provider.getBlock(number));
-      if (header.number !== number) throw new Error('RPC returned a different block number.');
-      const parent = headers.at(-1) ?? this._header(number - 1);
-      if (parent && header.parentHash !== parent.hash) throw new Error('Chain changed during header scan.');
-      headers.push(header);
+    // Fetch a small, fixed batch concurrently, then validate in chain order.
+    // allSettled drains every in-flight read before failure releases the sync lock.
+    for (let first = fromBlock; first <= toBlock; first += 8) {
+      const numbers = Array.from({ length: Math.min(8, toBlock - first + 1) }, (_, offset) => first + offset);
+      const batch = await Promise.allSettled(numbers.map(async number => {
+        const header = normalizeBlock(await this.provider.getBlock(number));
+        if (header.number !== number) throw new Error('RPC returned a different block number.');
+        return header;
+      }));
+      for (const result of batch) {
+        if (result.status === 'rejected') throw result.reason;
+        const header = result.value;
+        const parent = headers.at(-1) ?? this._header(header.number - 1);
+        if (parent && header.parentHash !== parent.hash) throw new Error('Chain changed during header scan.');
+        headers.push(header);
+      }
     }
     const factoryLogs = await this._logs('factory', [this.factory], fromBlock, toBlock);
     const marketLogs = await this._logs('market', [this.market], fromBlock, toBlock);
@@ -230,7 +240,8 @@ export class ChainIndex {
       if (seen.has(key)) throw new Error('RPC returned duplicate log identity.');
       seen.add(key);
     }
-    if (normalizeBlock(await this.provider.getBlock(toBlock)).hash !== headers.at(-1).hash) {
+    const canonicalTip = normalizeBlock(await this.provider.getBlock(toBlock));
+    if (canonicalTip.number !== toBlock || canonicalTip.hash !== headers.at(-1).hash) {
       throw new Error('Chain changed before index commit.');
     }
     this.db.exec('BEGIN IMMEDIATE');

@@ -3,6 +3,7 @@ import {
   formatEther, getAddress, getCreateAddress, keccak256, parseEther, parseUnits, toUtf8Bytes,
   type Eip1193Provider, type InterfaceAbi, type TransactionReceipt, type TransactionRequest, type TransactionResponse,
 } from 'ethers';
+import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 
 // Vite injects this literal after independently compiling and checking the local Solidity sources.
 // There is deliberately no digest fetched from the artifact server or accepted from the bundle.
@@ -81,6 +82,7 @@ export interface StepRecord {
   previousTxHashes?: string[];
   replacementHash?: string;
   finalizedRecovery?: boolean;
+  initializationExecution?: ReturnType<typeof verifyInitializationExecution>;
   address?: string;
   nonce?: number;
   gasEstimate?: string;
@@ -122,6 +124,8 @@ export interface DeploymentCallbacks {
   persist: (snapshot: DeploymentSnapshot) => void | Promise<void>;
   /** Recheck the server's currently served artifact immediately before each wallet request. */
   assertCurrentArtifact?: (digest: string) => void | Promise<void>;
+  /** An independent RPC witness; browser-wallet nonce responses can be stale. */
+  readCurrentNonce?: () => Promise<{ latest: number; pending: number }>;
   onUpdate?: (snapshot: DeploymentSnapshot) => void;
   /** Read inside the cross-tab lock; prevents a stale tab from replaying already-completed steps. */
   readLatest?: () => DeploymentSnapshot | null | Promise<DeploymentSnapshot | null>;
@@ -472,13 +476,14 @@ export class DeploymentEngine {
       '缺少可核对的原子初始化交易与回执。');
     // Reuse the same canonical/finalized proof as recovery; this path only reads.
     const { tx, receipt } = await this.finalizedReplacement(snapshot, step, step.txHash);
-    assert(tx.chainId === 56n && sameAddress(tx.from, snapshot.account) && tx.nonce === step.nonce &&
-      tx.to !== null && sameAddress(tx.to, snapshot.addresses.AtomicDeployment) && tx.value === 0n,
+    assert(tx.chainId === 56n && sameAddress(tx.from, snapshot.account) && tx.nonce === step.nonce && tx.value === 0n,
       '原子初始化交易的链、账户、nonce、目标或金额与记录不一致。');
     const expected = await this.transaction(snapshot, step);
-    assert(step.dataHash === keccak256(expected.data as string) && keccak256(tx.data) === step.dataHash,
+    assert(step.dataHash === keccak256(expected.data as string),
       '原子初始化交易内容与保存的部署计划不一致。');
-    assert(receipt.status === 1 && sameAddress(receipt.from, tx.from) && receipt.to !== null && sameAddress(receipt.to, tx.to) &&
+    const execution = verifyInitializationExecution({ record: snapshot, step, tx, receipt });
+    if (execution.kind === 'wrapped') await this.verifyWrappedInitialize(snapshot);
+    assert(receipt.status === 1 && sameAddress(receipt.from, tx.from) && receipt.to !== null && tx.to !== null && sameAddress(receipt.to, tx.to) &&
       receipt.gasUsed <= tx.gasLimit && receipt.fee === receipt.gasUsed * receipt.gasPrice && tx.blockHash === receipt.blockHash,
       '原子初始化链上回执与交易不一致或执行失败。');
     const recorded = step.receipt;
@@ -499,6 +504,12 @@ export class DeploymentEngine {
         '当前没有可通过交易哈希恢复的部署步骤。');
       await this.restore(snapshot);
       if (isAborted(snapshot)) return snapshot;
+      if (snapshot.steps.every(item => item.status === 'confirmed')) {
+        snapshot.verification = await this.verifyGraph(snapshot);
+        snapshot.status = 'complete'; delete snapshot.error;
+        await this.save(snapshot);
+        return snapshot;
+      }
       const step = snapshot.steps.find(item => (item.status === 'uncertain' && !item.txHash) ||
         (item.status === 'submitted' && !!item.txHash));
       assert(step, '当前没有可通过交易哈希恢复的部署步骤。');
@@ -524,9 +535,13 @@ export class DeploymentEngine {
       assert(step.gasLimit && step.gasPriceWei && step.maxFeeWei &&
         BigInt(step.maxFeeWei) === BigInt(step.gasLimit) * BigInt(step.gasPriceWei),
         '签名前保存的 Gas 设置自相矛盾。');
-      const samePayload = keccak256(tx.data) === expectedDataHash && tx.value === 0n &&
+      let samePayload = keccak256(tx.data) === expectedDataHash && tx.value === 0n &&
         ((expected.to == null && tx.to === null) ||
           (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)));
+      if (!samePayload && step.id === 'initialize' && receipt.status === 1) {
+        try { samePayload = verifyInitializationExecution({ record: snapshot, step: { ...step, txHash: tx.hash }, tx, receipt }).kind === 'wrapped'; }
+        catch { /* Unproven envelopes remain replacements; no outcome is assumed. */ }
+      }
       const feeOverride = tx.type !== 0 || tx.gasLimit > BigInt(step.gasLimit) ||
         tx.gasPrice > parseUnits(snapshot.input.gasPriceCapGwei, 'gwei') ||
         receipt.gasPrice > parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
@@ -627,16 +642,19 @@ export class DeploymentEngine {
     const [canonical, finalized, latest] = await Promise.all([
       this.provider.getBlock(receipt.blockNumber), this.provider.getBlock('finalized'), this.provider.getBlock('latest'),
     ]);
-    assert(canonical?.hash === receipt.blockHash && tx.blockHash === receipt.blockHash,
+    assert(canonical?.hash === receipt.blockHash && tx.blockHash === receipt.blockHash && tx.blockNumber === receipt.blockNumber &&
+      Number.isSafeInteger(receipt.index) && receipt.index >= 0 && tx.index === receipt.index &&
+      canonical.transactions[receipt.index]?.toLowerCase() === hash.toLowerCase(),
       '替换交易回执不在当前规范链上，原部署仍暂停。');
     assert(finalized?.hash && latest && finalized.number >= receipt.blockNumber && latest.number - receipt.blockNumber + 1 >= 2,
       '替换交易尚未达到 BSC 最终性和 2 次确认，原部署仍暂停。');
-    assert(await this.provider.getTransactionCount(snapshot.account, finalized.number) > step.nonce,
-      '最终区块中原 nonce 尚未消耗，原部署仍暂停。');
+    // Canonical inclusion below a stable finalized anchor proves that this
+    // exact transaction consumed its nonce without requiring archive state.
     const [currentReceipt, currentBlock, finalizedBlock] = await Promise.all([
       this.provider.getTransactionReceipt(hash), this.provider.getBlock(receipt.blockNumber), this.provider.getBlock(finalized.number),
     ]);
     assert(currentReceipt?.blockHash === receipt.blockHash && currentBlock?.hash === receipt.blockHash &&
+      currentBlock?.transactions[receipt.index]?.toLowerCase() === hash.toLowerCase() &&
       finalizedBlock?.hash === finalized.hash, '替换交易核验期间规范链发生变化，原部署仍暂停。');
     return { tx, receipt };
   }
@@ -740,12 +758,22 @@ export class DeploymentEngine {
     verifyArtifactIntegrity(this.bundle);
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
-    const [estimated, fee, balance, nonce, pendingNonce, block] = await Promise.all([
+    const [estimated, fee, balance, walletNonce, walletPendingNonce, block, independentNonce] = await Promise.all([
       this.provider.estimateGas(transaction), this.provider.getFeeData(), this.provider.getBalance(snapshot.account),
       this.provider.getTransactionCount(snapshot.account, 'latest'), this.provider.getTransactionCount(snapshot.account, 'pending'),
       this.provider.getBlock('latest'),
+      this.callbacks.readCurrentNonce?.() ?? Promise.resolve(null),
     ]);
-    assert(nonce === pendingNonce, '账户出现其他待确认交易；部署已暂停。');
+    const currentNonce = independentNonce ?? { latest: walletNonce, pending: walletPendingNonce };
+    assert(Number.isSafeInteger(currentNonce.latest) && currentNonce.latest >= 0 &&
+      Number.isSafeInteger(currentNonce.pending) && currentNonce.pending >= 0, '无法核对部署账户的最新 nonce；部署已暂停。');
+    assert(currentNonce.latest === currentNonce.pending, '账户出现其他待确认交易；部署已暂停。');
+    const nonce = currentNonce.latest;
+    for (const confirmed of snapshot.steps.filter(item => item.status === 'confirmed')) {
+      assert(Number.isSafeInteger(confirmed.nonce) && nonce > confirmed.nonce!, '节点返回的 nonce 落后于已确认部署记录；部署已暂停。');
+    }
+    assert(walletNonce <= nonce && walletPendingNonce <= nonce,
+      '钱包已观察到更新的交易 nonce；独立节点尚未同步，部署已暂停。');
     assert(fee.gasPrice !== null && fee.gasPrice > 0n, '无法读取 Gas 单价。');
     const cap = parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
     assert(fee.gasPrice <= cap, '当前 Gas 单价超过设定上限。');
@@ -761,12 +789,21 @@ export class DeploymentEngine {
     await this.save(snapshot);
     let attemptedBroadcast = false;
     let artifactCheckFailed = false;
+    let nonceCheckFailed = false;
     try {
       await walletAccount(this.wallet, snapshot.account);
       verifyArtifactIntegrity(this.bundle);
       if (this.callbacks.assertCurrentArtifact) {
         try { await this.callbacks.assertCurrentArtifact(snapshot.artifactDigest); }
         catch (error) { artifactCheckFailed = true; throw error; }
+      }
+      if (this.callbacks.readCurrentNonce) {
+        try {
+          const current = await this.callbacks.readCurrentNonce();
+          assert(current.latest === nonce && current.pending === nonce,
+            '签名前账户 nonce 已变化；保留原部署意图，请先核对链上交易。');
+          await walletAccount(this.wallet, snapshot.account);
+        } catch (error) { nonceCheckFailed = true; throw error; }
       }
       attemptedBroadcast = true;
       // The full transaction is already prepared and the wallet identity was just checked.
@@ -780,14 +817,16 @@ export class DeploymentEngine {
         const failure = error as { code?: string | number; info?: { error?: { code?: number } } };
         // An artifact check failed after the signing intent was saved. Preserve
         // that durable intent; the old page must not make it retryable.
-        step.status = artifactCheckFailed ? 'signing' : !attemptedBroadcast ? 'waiting'
+        step.status = artifactCheckFailed || nonceCheckFailed ? 'signing' : !attemptedBroadcast ? 'waiting'
           : failure.code === 'ACTION_REJECTED' || failure.code === 4001 || failure.info?.error?.code === 4001 ? 'rejected' : 'uncertain';
       }
       step.error = artifactCheckFailed
         ? `发送前服务器产物核对失败；本页尚未请求钱包签名。请先核对是否有其他页面或钱包使用了同一 nonce：${errorMessage(error)}`
+        : nonceCheckFailed
+        ? `发送前 nonce 核对失败；本页尚未请求钱包签名。已保留原意图，禁止自动重发：${errorMessage(error)}`
         : errorMessage(error);
       await this.save(snapshot);
-      if (artifactCheckFailed) throw new Error(step.error);
+      if (artifactCheckFailed || nonceCheckFailed) throw new Error(step.error);
       throw error;
     }
     const receipt = await this.provider.waitForTransaction(step.txHash!, 2, 120_000);
@@ -807,8 +846,12 @@ export class DeploymentEngine {
     const tx = await this.provider.getTransaction(receipt.hash);
     assert(tx && tx.chainId === 56n && sameAddress(tx.from, snapshot.account), '交易网络或发送者与本次部署不符。');
     const expected = await this.transaction(snapshot, step);
-    assert(tx.value === 0n && keccak256(tx.data) === keccak256(expected.data as string), '钱包实际发送的交易内容与编译部署计划不一致。');
-    assert((expected.to == null && tx.to === null) || (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)), '交易目标地址与计划不一致。');
+    const initializationExecution = step.id === 'initialize'
+      ? verifyInitializationExecution({ record: snapshot, step, tx, receipt }) : null;
+    if (!initializationExecution) {
+      assert(tx.value === 0n && keccak256(tx.data) === keccak256(expected.data as string), '钱包实际发送的交易内容与编译部署计划不一致。');
+      assert((expected.to == null && tx.to === null) || (typeof expected.to === 'string' && tx.to !== null && sameAddress(tx.to, expected.to)), '交易目标地址与计划不一致。');
+    }
     assert(step.nonce === tx.nonce, '交易 nonce 与记录不一致。');
     if (!finalizedRecovery) {
       assert(tx.gasLimit <= BigInt(step.gasLimit ?? '0') && tx.gasPrice <= parseUnits(snapshot.input.gasPriceCapGwei, 'gwei'), '钱包修改了 Gas 设置并超出页面限制；已停止后续交易。');
@@ -828,7 +871,26 @@ export class DeploymentEngine {
       }
       if (step.id === 'PoolFactory' || step.id === 'ShareMarket') assert((await contract.proxiableUUID()).toLowerCase() === IMPLEMENTATION_SLOT, '实现不是预期 UUPS 存储槽。');
     }
+    if (initializationExecution?.kind === 'wrapped') {
+      await this.finalizedReplacement(snapshot, step, receipt.hash);
+      await this.verifyWrappedInitialize(snapshot);
+      // Attest the initialization outcome, retaining the actual outer transaction.
+      // This never authorizes a wallet to sign arbitrary envelope calls.
+      step.initializationExecution = initializationExecution;
+    }
     step.status = 'confirmed'; delete step.error;
+  }
+
+  private async verifyWrappedInitialize(snapshot: DeploymentSnapshot): Promise<void> {
+    const coordinatorAddress = snapshot.addresses.AtomicDeployment;
+    const coordinatorStep = snapshot.steps.find(item => item.id === 'AtomicDeployment');
+    const code = await this.provider.getCode(coordinatorAddress);
+    assert(coordinatorStep?.status === 'confirmed' && coordinatorStep.codehash === keccak256(code) &&
+      runtimeMatches(this.bundle.artifacts.AtomicDeployment, code, snapshot.addresses, coordinatorAddress),
+      '中转初始化的协调器代码与本次已核验构建不一致。');
+    const coordinator = new Contract(coordinatorAddress, this.bundle.artifacts.AtomicDeployment.abi, this.provider);
+    assert(sameAddress(await coordinator.deployer(), snapshot.account), '中转初始化的协调器固定部署者不匹配。');
+    await this.verifyGraph(snapshot);
   }
 
   private async verifyGraph(snapshot: DeploymentSnapshot, requireInitialEmpty = false): Promise<DeploymentVerification> {

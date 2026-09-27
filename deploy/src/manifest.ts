@@ -24,7 +24,12 @@ export interface DeploymentManifest {
 /** A compact, public handoff for a frontend/indexer. The consumer must still verify it on chain. */
 export function deploymentManifest(snapshot: DeploymentSnapshot, bundle: ArtifactBundle): DeploymentManifest {
   if (snapshot.chainId !== 56 || snapshot.status !== 'complete' || !snapshot.verification) throw new Error('只有完成链上核验的 BSC 部署可以导出合约清单。');
-  if (snapshot.artifactDigest !== artifactDigest(bundle) || snapshot.sourceCommit !== bundle.sourceCommit) throw new Error('部署记录与当前源码构建不一致。');
+  // The digest binds compiler settings, source hashes, ABI and bytecode. A
+  // documentation-only commit may change the bundle's provenance without
+  // changing any deployment content. Keep the original deployment commit in
+  // the exported record rather than relabeling it as the current checkout.
+  if (snapshot.artifactDigest !== artifactDigest(bundle)) throw new Error('部署记录与当前源码构建不一致。');
+  if (typeof snapshot.sourceCommit !== 'string' || !/^[\da-f]{40,64}$/i.test(snapshot.sourceCommit)) throw new Error('部署记录缺少有效的原始源码提交号。');
   if (!snapshot.steps.length || snapshot.steps.some(step => step.status !== 'confirmed')) throw new Error('部署仍有未确认的交易。');
   const initialize = snapshot.steps.find(step => step.id === 'initialize');
   if (!initialize?.txHash || !HASH.test(initialize.txHash) || !initialize.receipt || initialize.receipt.status !== 1 || !HASH.test(initialize.receipt.blockHash)) throw new Error('缺少已成功上链的原子初始化回执。');

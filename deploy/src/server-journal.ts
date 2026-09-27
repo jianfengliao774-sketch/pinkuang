@@ -3,7 +3,9 @@ import type { DeploymentSnapshot } from './deployment';
 import type { MarketJournalStorage } from './market';
 import type { WalletProvider } from './wallet';
 
-const base = '/api/journal';
+// Keep the deployment console's journal under its own mount point when it
+// shares a host with another application. Node tests use the root fallback.
+const base = `${import.meta.env?.BASE_URL ?? '/'}api/journal`;
 const MARKET_KEY = 'pinkuang.market.pending.v1';
 
 class JournalHttpError extends Error {
@@ -83,6 +85,15 @@ export class ServerJournal {
 
   async readLatestDeployment(): Promise<DeploymentSnapshot | null> {
     return (await this.loadDeployment()).record;
+  }
+
+  async readCurrentNonce(): Promise<{ latest: number; pending: number }> {
+    const state = await this.request<{ latest: number; pending: number }>('deployment/nonce');
+    if (!state || !Number.isSafeInteger(state.latest) || state.latest < 0
+      || !Number.isSafeInteger(state.pending) || state.pending < state.latest) {
+      throw new Error('服务器交易序号格式异常或不一致；请稍后重新核对，不能据此重发。');
+    }
+    return { latest: state.latest, pending: state.pending };
   }
 
   async assertCurrentArtifact(digest: string): Promise<void> {

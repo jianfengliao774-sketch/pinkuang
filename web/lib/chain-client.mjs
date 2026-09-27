@@ -1,5 +1,6 @@
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import contracts from './contracts.generated.json' with { type: 'json' };
+import { settleReadRound } from './read-retry.mjs';
 
 export const CHAIN_ID = 56n;
 export const ARTIFACT_DIGEST = contracts.artifactDigest;
@@ -57,31 +58,46 @@ export function hasPosition(row) {
  */
 export async function readPoolSnapshot(provider, { factory: factoryInput, account = ZeroAddress, pools, offset = 0n, limit = 20n, blockNumber }) {
   const factory = address(factoryInput), owner = getAddress(account);
+  // Validate and copy caller input before starting any concurrent reads.
+  let snapshotMethod, snapshotArgs;
+  if (pools !== undefined) {
+    requireCondition(Array.isArray(pools) && pools.length <= 20, 'At most 20 pool addresses per read.');
+    snapshotMethod = 'positions'; snapshotArgs = [[...new Set(pools.map(address))], owner];
+  } else {
+    const size = uint(limit); requireCondition(size <= 20n, 'At most 20 pools per page.');
+    snapshotMethod = 'poolPage'; snapshotArgs = [uint(offset), size, owner];
+  }
+  const requestedBlock = blockNumber === undefined ? undefined : uint(blockNumber);
   const request = (method, params = []) => provider.request({ method, params });
-  requireCondition(BigInt(await request('eth_chainId')) === CHAIN_ID, 'Switch to BSC mainnet (56).');
-  const block = await request('eth_getBlockByNumber', [blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber)), false]);
+  const { chain, block } = await settleReadRound({
+    chain: () => request('eth_chainId'),
+    block: () => request('eth_getBlockByNumber', [requestedBlock === undefined ? 'latest' : toQuantity(requestedBlock), false]),
+  });
+  requireCondition(BigInt(chain) === CHAIN_ID, 'Switch to BSC mainnet (56).');
   requireCondition(block?.hash && block.number && block.timestamp, 'RPC block unavailable.');
-  requireCondition(blockNumber === undefined || BigInt(block.number) === uint(blockNumber), 'RPC returned a different requested block.');
+  requireCondition(requestedBlock === undefined || BigInt(block.number) === requestedBlock, 'RPC returned a different requested block.');
   const blockTag = toQuantity(BigInt(block.number));
   async function call(to, contract, method, args = []) {
     const data = contract.encodeFunctionData(method, args);
     return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data }, blockTag]));
   }
   const lens = address((await call(factory, abi.PoolFactory, 'lens'))[0]);
-  requireCondition(getAddress((await call(lens, abi.PoolLens, 'factory'))[0]) === factory, 'Lens belongs to a different Factory.');
-  requireCondition((await call(lens, abi.PoolLens, 'VERSION'))[0] === 1n, 'Unsupported Lens version.');
-  let snapshot;
-  if (pools !== undefined) {
-    requireCondition(Array.isArray(pools) && pools.length <= 20, 'At most 20 pool addresses per read.');
-    const unique = [...new Set(pools.map(address))];
-    snapshot = (await call(lens, abi.PoolLens, 'positions', [unique, owner]))[0];
-  } else {
-    const size = uint(limit); requireCondition(size <= 20n, 'At most 20 pools per page.');
-    snapshot = (await call(lens, abi.PoolLens, 'poolPage', [uint(offset), size, owner]))[0];
-  }
+  // These calls share one block. A failed binding still drains every started read;
+  // no snapshot is exposed until both lens bindings have been verified.
+  const { lensFactory, version, rows } = await settleReadRound({
+    lensFactory: () => call(lens, abi.PoolLens, 'factory'),
+    version: () => call(lens, abi.PoolLens, 'VERSION'),
+    rows: () => call(lens, abi.PoolLens, snapshotMethod, snapshotArgs),
+  });
+  requireCondition(getAddress(lensFactory[0]) === factory, 'Lens belongs to a different Factory.');
+  requireCondition(version[0] === 1n, 'Unsupported Lens version.');
+  const snapshot = rows[0];
   requireCondition(snapshot.blockNumber === BigInt(block.number) && snapshot.timestamp === BigInt(block.timestamp), 'RPC snapshot block mismatch.');
-  const again = await request('eth_getBlockByNumber', [blockTag, false]);
-  requireCondition(again?.hash === block.hash && BigInt(await request('eth_chainId')) === CHAIN_ID, 'Chain changed during read; refresh.');
+  const { again, finalChain } = await settleReadRound({
+    again: () => request('eth_getBlockByNumber', [blockTag, false]),
+    finalChain: () => request('eth_chainId'),
+  });
+  requireCondition(again?.hash === block.hash && BigInt(finalChain) === CHAIN_ID, 'Chain changed during read; refresh.');
   return Object.freeze({ chainId: CHAIN_ID, factory, lens, account: owner, blockNumber: snapshot.blockNumber,
     blockHash: block.hash, timestamp: snapshot.timestamp, totalPools: snapshot.registryCountValid ? snapshot.totalPools : null,
     nextCursor: snapshot.nextCursor, pools: snapshot.pools.map(row => decodePoolRow(row, factory)) });

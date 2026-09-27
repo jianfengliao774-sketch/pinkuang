@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "chainId": 56,
+  "factory": "0xcB24E7F96D81037086A268d6ea63c53f91D412A2",
+  "shareMarket": "0x0B274eFD3E33139209D1C62512F7e2345F16dD3c",
+  "lens": "0xF278EA9C2a8047ad360B086dd024049C070a5B4e",
+  "beacon": "0x7eDdD145c9c67f2f19DDE62a2AE2A80270725097",
+  "timelock": "0x52Dd0f43bf41FBC8A4c7A229d135AD89d02dc3FA",
+  "deployment": {
+    "txHash": "0x433beee5991ee0c20aaa38163f6494b1fc3509eaf23169c23c1145e2363694c0",
+    "blockNumber": 124286242,
+    "blockHash": "0x89826d91026122bc7aec92a2c7816a8b857dd3419879dc9968b95ddd993a1232"
+  },
+  "artifactDigest": "0xf48637de6a1c988b92d21347662b724b1ee7d59b09f66aaca9c7fe81b9a3b9ce",
+  "sourceCommit": "286fe192479ed06a50de606ae1e410049d10bec7",
+  "verifiedAt": "2026-09-27T06:54:07.949Z",
+  "verifiedBlockNumber": 124288256,
+  "codehash": {
+    "factory": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+    "shareMarket": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+    "lens": "0x883352405088063b71ad38200e5271055ca4a93a953d77ae92c64bc444c625c7",
+    "beacon": "0x5d3eab648d7206ae0ce003b465f8d9c8a4c18565c013bc50fdd36e62eaa2f591",
+    "timelock": "0x131279f01c290b8e925bdb9c33cb89d046554863d8adbb3ea8064b412c6c147b"
+  }
+}

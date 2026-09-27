@@ -80,6 +80,80 @@ function fixture(chain) {
   chain.event('pool', 'Harvested', [1000n, 10n, 0n, 990n], 7); // Unconfirmed at the configured safe head.
 }
 
+function headerBatchFixture({ change = (_number, _count, header) => header, failAt } = {}) {
+  let active = 0, peak = 0, calls = 0;
+  const counts = new Map(), finished = [];
+  const provider = {
+    getLogs: async () => [], call: async () => { throw new Error('Unexpected contract read.'); }, send: async () => '0x38',
+    async getBlock(number) {
+      calls++; active++; peak = Math.max(peak, active);
+      const count = (counts.get(number) || 0) + 1; counts.set(number, count);
+      try {
+        // Reverse completion order within each batch without changing chain order.
+        await new Promise(resolve => setTimeout(resolve, 8 - number % 8));
+        if (number === failAt) throw new Error('Header unavailable.');
+        return change(number, count, { number, hash: hex(number), parentHash: hex(number - 1), timestamp: 1_800_000_000 + number });
+      } finally { active--; finished.push(number); }
+    },
+  };
+  const index = new ChainIndex(provider, { dbPath: ':memory:', factory, market, startBlock: 1, scanRange: 100 });
+  return { index, counts, finished, metrics: () => ({ active, peak, calls }) };
+}
+
+test('header scan uses at most eight concurrent reads and commits all 100 ordered headers atomically', async () => {
+  const f = headerBatchFixture();
+  try {
+    await f.index._scanChunk(1, 100);
+    assert.deepEqual(f.metrics(), { active: 0, peak: 8, calls: 101 });
+    assert.notEqual(f.finished[0], 1, 'fixture must exercise out-of-order responses');
+    assert.equal(f.index.indexedThrough, 100);
+    const headers = f.index.db.prepare('SELECT number, hash, parent_hash FROM headers ORDER BY number').all();
+    assert.equal(headers.length, 100);
+    for (const [offset, header] of headers.entries()) {
+      assert.equal(header.number, offset + 1); assert.equal(header.hash, hex(offset + 1));
+      assert.equal(header.parent_hash, hex(offset));
+    }
+  } finally { f.index.close(); }
+});
+
+test('missing, wrong-number, disconnected and changed final headers never partially commit', async () => {
+  const cases = [
+    (_number, _count, header) => header.number === 3 ? null : header,
+    (_number, _count, header) => header.number === 4 ? { ...header, number: 5 } : header,
+    (_number, _count, header) => header.number === 9 ? { ...header, parentHash: hex(999) } : header,
+    (number, count, header) => number === 12 && count > 1 ? { ...header, hash: hex(999) } : header,
+    (number, count, header) => number === 12 && count > 1 ? { ...header, number: 13 } : header,
+  ];
+  for (const change of cases) {
+    const f = headerBatchFixture({ change });
+    try {
+      await assert.rejects(f.index._scanChunk(1, 12));
+      assert.equal(f.metrics().active, 0, 'failed scan must drain in-flight reads');
+      assert(f.metrics().peak <= 8);
+      assert.equal(f.index.indexedThrough, 0);
+      assert.equal(f.index.db.prepare('SELECT COUNT(*) AS count FROM headers').get().count, 0);
+      assert.equal(f.index.db.prepare('SELECT COUNT(*) AS count FROM logs').get().count, 0);
+    } finally { f.index.close(); }
+  }
+});
+
+test('failed parallel batch drains reads and a broken next batch preserves the committed anchor', async () => {
+  const unavailable = headerBatchFixture({ failAt: 3 });
+  try {
+    await assert.rejects(unavailable.index._scanChunk(1, 20), /Header unavailable/);
+    assert.deepEqual(unavailable.metrics(), { active: 0, peak: 8, calls: 8 });
+    assert.equal(unavailable.index.indexedThrough, 0);
+  } finally { unavailable.index.close(); }
+  const disconnected = headerBatchFixture({ change: (number, _count, header) => number === 9 ? { ...header, parentHash: hex(999) } : header });
+  try {
+    await disconnected.index._scanChunk(1, 8);
+    await assert.rejects(disconnected.index._scanChunk(9, 16), /Chain changed during header scan/);
+    assert.equal(disconnected.index.indexedThrough, 8);
+    assert.equal(disconnected.index.db.prepare('SELECT COUNT(*) AS count FROM headers').get().count, 8);
+    assert.equal(disconnected.index._header(8).hash, hex(8));
+  } finally { disconnected.index.close(); }
+});
+
 test('bounded confirmed indexing, exact balances, historical positions and reorg rollback', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-'));
   const dbPath = join(directory, 'index.sqlite');
