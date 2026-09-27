@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { JsonRpcProvider, getAddress, getCreateAddress, keccak256, verifyMessage } from 'ethers';
+import { JsonRpcProvider, Interface, getAddress, getCreateAddress, keccak256, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
 
@@ -16,6 +16,25 @@ const STEP_STATUSES = new Set(['waiting','signing','submitted','confirmed','reje
 const LIBRARY_STEPS = new Set(['FlexiblePurchase','MiningOperations','PoolFunds','PurchaseValidation',
   'RewardAccounting','SaleGovernance','SaleSettlement','ShareCheckpoints']);
 const FINAL_STEPS = ['AtomicDeployment','PoolVault','PoolFactory','ShareMarket','initialize'];
+// Product intents are deliberately narrower than either contract's complete ABI.
+// There is no arbitrary call, approval, upgrade, operator purchase or admin route.
+export const PRODUCT_POOL_ABI = new Interface([
+  'function deposit(uint8 shares) payable', 'function withdrawDeposit()', 'function finalizeFailure()',
+  'function harvest()', 'function claim()', 'function withdrawBnb()',
+  'function propose(uint256 price,uint256 refPrice,uint64 refAt)', 'function vote(uint256 proposalId,bool support)',
+  'function executeSale(uint256 proposalId)', 'function cancelExpired()', 'function completeSale() payable',
+  'event Deposited(address indexed user,uint8 shares,uint256 amount,uint256 totalRaised)',
+]);
+export const PRODUCT_MARKET_ABI = new Interface([
+  'function list(address pool,uint256 amount,uint256 pricePerUnit)', 'function fill(uint256 orderId,uint256 amount) payable',
+  'function cancel(uint256 orderId)', 'function expire(uint256 orderId)', 'function withdrawBnb()',
+]);
+const IDENTITY_ABI = new Interface([
+  'function isPool(address) view returns(bool)', 'function shareMarket() view returns(address)',
+  'function factory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
+  'function unitPriceWei() view returns(uint256)', 'function salePrice() view returns(uint256)',
+  'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
+]);
 
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -72,6 +91,7 @@ function validateDeployment(value, account) {
 }
 
 function validateMarket(value, account) {
+  if (value?.version === 2) return validateProduct(value, account);
   if (!isRecord(value) || value.version !== 1 || value.chainId !== 56 || identity(value.account) !== account
     || identity(value.factory) === identity(value.market) || !Number.isSafeInteger(value.nonce) || value.nonce < 0
     || !isRecord(value.action) || !['list','fill','cancel','withdraw'].includes(value.action.kind)
@@ -81,7 +101,135 @@ function validateMarket(value, account) {
     || value.hash !== undefined && !HASH.test(value.hash)
     || value.recoveryHashes !== undefined && (!Array.isArray(value.recoveryHashes) || value.recoveryHashes.length > 16
       || value.recoveryHashes.some(hash => typeof hash !== 'string' || !HASH.test(hash)))) fail(400, 'Invalid market intent.');
+  validateCancellationRequests(value);
   return value;
+}
+
+function validateCancellationRequests(record) {
+  if (record.cancellationRequests === undefined) return;
+  if (!Array.isArray(record.cancellationRequests) || record.cancellationRequests.length > 16) fail(400, 'Invalid cancellation history.');
+  for (const tx of record.cancellationRequests) {
+    if (!isRecord(tx) || identity(tx.from) !== identity(record.account) || identity(tx.to) !== identity(record.account)
+      || tx.chainId !== '0x38' || tx.nonce !== `0x${record.nonce.toString(16)}` || tx.data !== '0x' || tx.value !== '0x0'
+      || tx.gas !== '0x5208' || tx.type !== '0x0' || typeof tx.gasPrice !== 'string' || !/^0x[\da-f]{1,16}$/i.test(tx.gasPrice)
+      || BigInt(tx.gasPrice) < 1n || BigInt(tx.gasPrice) > 3_000_000_000n
+      || typeof tx.createdAt !== 'string' || tx.createdAt.length > 50) fail(400, 'Invalid cancellation transaction.');
+  }
+}
+
+function decodeProduct(value) {
+  const contract = value.targetType === 'pool' ? PRODUCT_POOL_ABI : PRODUCT_MARKET_ABI;
+  let decoded;
+  try { decoded = contract.parseTransaction({ data: value.data, value: BigInt(value.value) }); }
+  catch { fail(400, 'Unsupported product call.'); }
+  if (!decoded || decoded.name !== value.action.kind
+    || contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== value.data.toLowerCase())
+    fail(400, 'Product action and exact calldata must match an allowed selector.');
+  if (!['deposit','completeSale','fill'].includes(decoded.name) && value.value !== '0') fail(400, 'This product call cannot send BNB.');
+  if (decoded.name === 'deposit' && (decoded.args[0] < 1n || decoded.args[0] > 100n)
+    || decoded.name === 'list' && (decoded.args[1] < 1n || decoded.args[1] > 100n)
+    || decoded.name === 'fill' && (decoded.args[1] < 1n || decoded.args[1] > 100n)) fail(400, 'Invalid share quantity.');
+  if (decoded.name === 'propose' && decoded.args[0] === 0n) fail(400, 'Whole miner sale price must be positive.');
+  return decoded;
+}
+
+function validateProduct(value, account) {
+  if (!isRecord(value) || value.chainId !== 56 || identity(value.account) !== account
+    || !['pool','market'].includes(value.targetType) || identity(value.factory) === identity(value.target)
+    || !Number.isSafeInteger(value.nonce) || value.nonce < 0 || !isRecord(value.action)
+    || typeof value.action.kind !== 'string' || typeof value.submittedAt !== 'string' || value.submittedAt.length > 50
+    || typeof value.data !== 'string' || !DATA.test(value.data) || value.data.length > 1024
+    || typeof value.value !== 'string' || !DECIMAL.test(value.value) || value.value.length > 78 || BigInt(value.value) >= 2n ** 256n
+    || value.hash !== undefined && !HASH.test(value.hash)
+    || value.recoveryHashes !== undefined && (!Array.isArray(value.recoveryHashes) || value.recoveryHashes.length > 16
+      || value.recoveryHashes.some(hash => typeof hash !== 'string' || !HASH.test(hash)))) fail(400, 'Invalid product intent.');
+  decodeProduct(value);
+  validateCancellationRequests(value);
+  return value;
+}
+
+/** Only an explicit wallet-signed, zero-value EOA self-transfer can consume an unsent/unknown nonce. */
+export async function cancellationIntent(provider, record) {
+  if (!provider) fail(503, 'BSC cancellation verifier is unavailable.');
+  try {
+    if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'Cancellation RPC is not BSC mainnet.');
+    const [latest, pending, code, balance, fees] = await Promise.all([
+      provider.getTransactionCount(record.account, 'latest'), provider.getTransactionCount(record.account, 'pending'),
+      provider.getCode(record.account, 'latest'), provider.getBalance(record.account), provider.getFeeData(),
+    ]);
+    if (latest !== record.nonce || pending < latest || pending > latest + 1)
+      fail(409, 'Recorded nonce was consumed or other transactions are queued. Recover the wallet transaction hash first.');
+    if (code !== '0x') fail(409, 'Automatic cancellation is only available for a plain EOA; use the wallet recovery flow.');
+    let gasPrice = fees.gasPrice;
+    if (!gasPrice || gasPrice < 1n) fail(503, 'Cancellation Gas price is unavailable.');
+    // A known original or previous cancellation can require a higher replacement fee.
+    const knownHashes = [...new Set([record.hash, ...(record.recoveryHashes ?? [])].filter(Boolean))];
+    for (const known of knownHashes) {
+      const tx = await provider.getTransaction(known);
+      if (tx && tx.chainId === 56n && identity(tx.from) === identity(record.account) && tx.nonce === record.nonce
+        && tx.gasPrice && tx.gasPrice > gasPrice) gasPrice = tx.gasPrice;
+    }
+    gasPrice = (gasPrice * 120n + 99n) / 100n;
+    if (gasPrice > 3_000_000_000n || balance < 21_000n * gasPrice) fail(409, 'Cancellation Gas cap exceeded or BNB balance insufficient. Use wallet recovery after reviewing fees.');
+    const transaction = { chainId:'0x38', from:record.account, to:record.account, nonce:`0x${record.nonce.toString(16)}`,
+      data:'0x', value:'0x0', gas:'0x5208', gasPrice:`0x${gasPrice.toString(16)}`, type:'0x0' };
+    await provider.send('eth_call', [{ from:record.account,to:record.account,data:'0x',value:'0x0',gas:'0x5208' }, 'latest']);
+    if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(409, 'Chain changed during cancellation verification.');
+    return transaction;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    fail(503, 'Cancellation RPC could not be verified.');
+  }
+}
+
+/** The trusted server RPC validates registration/value before issuing the first durable signing ACK. */
+export async function verifyProductIntent(provider, record, allowedFactories) {
+  if (!provider) fail(503, 'BSC product verifier is unavailable.');
+  if (!allowedFactories.has(identity(record.factory))) fail(403, 'This Factory is not enabled for product transactions.');
+  const decoded = decodeProduct(record);
+  try {
+    if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'Product RPC is not BSC mainnet.');
+    const block = await provider.getBlock('latest');
+    if (!block?.hash) fail(503, 'Product block is unavailable.');
+    const tag = `0x${block.number.toString(16)}`;
+    const call = async (to, method, args = []) => IDENTITY_ABI.decodeFunctionResult(method,
+      await provider.send('eth_call', [{ to, data: IDENTITY_ABI.encodeFunctionData(method, args) }, tag]))[0];
+    const code = async to => { if (await provider.getCode(to, block.number) === '0x') fail(409, 'Product contract has no code.'); };
+    const registeredPool = async pool => {
+      await code(pool);
+      if (!await call(record.factory, 'isPool', [pool]) || identity(await call(pool, 'factory')) !== identity(record.factory)
+        || identity(await call(pool, 'OFFICIAL_FACTORY')) !== identity(record.factory)) fail(409, 'Pool is not registered to this Factory.');
+    };
+    await code(record.factory); await code(record.target);
+    if (record.targetType === 'pool') {
+      await registeredPool(record.target);
+      if (decoded.name === 'deposit' && BigInt(record.value) !== decoded.args[0] * await call(record.target, 'unitPriceWei'))
+        fail(409, 'Deposit value differs from the current share price.');
+      if (decoded.name === 'completeSale' && (BigInt(record.value) === 0n || BigInt(record.value) !== await call(record.target, 'salePrice')))
+        fail(409, 'Whole miner sale payment differs from the approved price.');
+    } else {
+      if (identity(await call(record.factory, 'shareMarket')) !== identity(record.target)
+        || identity(await call(record.target, 'factory')) !== identity(record.factory)) fail(409, 'Market is not registered to this Factory.');
+      if (decoded.name === 'list') await registeredPool(decoded.args[0]);
+      if (['fill','cancel','expire'].includes(decoded.name)) {
+        const order = await call(record.target, 'orders', [decoded.args[0]]);
+        await registeredPool(order.pool);
+        if (decoded.name === 'fill' && BigInt(record.value) !== order.pricePerUnit * decoded.args[1]) fail(409, 'Order price changed.');
+      }
+    }
+    const [latestNonce, pendingNonce] = await Promise.all([
+      provider.getTransactionCount(record.account, 'latest'), provider.getTransactionCount(record.account, 'pending'),
+    ]);
+    if (record.nonce !== latestNonce || record.nonce !== pendingNonce) fail(409, 'Wallet nonce is already pending or changed.');
+    // Contract simulation is authoritative for state, ownership, voting thresholds and deadlines.
+    await provider.send('eth_call', [{ from: record.account, to: record.target, data: record.data,
+      value: `0x${BigInt(record.value).toString(16)}` }, tag]);
+    const again = await provider.getBlock(block.number);
+    if (again?.hash !== block.hash || BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(409, 'Chain changed during product verification.');
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    fail(409, 'Product identity, value or transaction simulation could not be verified.');
+  }
 }
 
 /** Read-only chain proof that an account nonce is finalized. */
@@ -118,10 +266,30 @@ async function finalizedNonce(provider, account, nonce, hash) {
 }
 
 export async function verifyMarketFinalized(provider, record, hash) {
-  const { tx } = await finalizedNonce(provider, record.account, record.nonce, hash);
-  if (record.hash?.toLowerCase() === hash.toLowerCase()
-    && (tx.to?.toLowerCase() !== record.market.toLowerCase() || tx.data.toLowerCase() !== record.data.toLowerCase()
-      || tx.value.toString() !== record.value)) fail(409, 'Original market transaction payload differs.');
+  const { tx, receipt } = await finalizedNonce(provider, record.account, record.nonce, hash);
+  const target = record.version === 2 ? record.target : record.market;
+  const matches = tx.to?.toLowerCase() === target.toLowerCase() && tx.data.toLowerCase() === record.data.toLowerCase()
+    && tx.value.toString() === record.value;
+  if (record.version !== 2 && record.hash?.toLowerCase() === hash.toLowerCase()
+    && !matches) fail(409, 'Original market transaction payload differs.');
+  const cancelled = tx.to?.toLowerCase() === record.account.toLowerCase() && tx.data === '0x' && tx.value === 0n;
+  const result = { action: record.action.kind, status: matches ? (receipt.status === 1 ? 'confirmed' : 'reverted')
+    : cancelled && receipt.status === 1 ? 'cancelled' : 'replaced', finalized: true, transactionHash: hash.toLowerCase(),
+    account: record.account, target, nonce: record.nonce, factory: record.factory,
+    receipt: { status: receipt.status, transactionHash: hash.toLowerCase(), to: receipt.to,
+      blockNumber: receipt.blockNumber, blockHash: receipt.blockHash } };
+  if (record.version === 2 && record.targetType === 'pool' && record.action.kind === 'deposit' && result.status === 'confirmed') {
+    const expected = decodeProduct(record);
+    const deposits = (receipt.logs ?? []).filter(log => !log.removed && log.address?.toLowerCase() === target.toLowerCase()).flatMap(log => {
+      try { const parsed = PRODUCT_POOL_ABI.parseLog(log); return parsed?.name === 'Deposited' ? [parsed] : []; }
+      catch { return []; }
+    });
+    if (deposits.length !== 1 || identity(deposits[0].args.user) !== record.account.toLowerCase()
+      || deposits[0].args.shares !== expected.args[0] || deposits[0].args.amount.toString() !== record.value)
+      fail(409, 'Finalized deposit event does not match the recorded pool, account, shares and payment.');
+    Object.assign(result, { poolAddress: target, shares: expected.args[0].toString(), amountWei: record.value });
+  }
+  return result;
 }
 
 /** Archival must prove that every terminal deployment nonce is finalized. */
@@ -286,7 +454,7 @@ function sessionCookie(token, secure) {
 }
 
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
-  provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {} } = {}) {
+  provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [] } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -297,6 +465,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const cookieSecure = secureCookies || parsedOrigin.protocol === 'https:';
   const store = new JournalStore(dbPath);
   const provider = suppliedProvider ?? (rpcUrl ? new JsonRpcProvider(rpcUrl) : null);
+  if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
+  const productFactories = new Set(allowedProductFactories.map(identity));
+  if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
   const inFlight = new Set();
   let closed = false;
 
@@ -402,16 +573,35 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200, { id: store.importArchive(account, validateDeployment(body.record, account)) });
       }
       if (method === 'GET' && path === '/api/journal/market') return send(200, store.market(account));
+      if (method === 'GET' && path === '/api/journal/market/result') {
+        const hash = new URL(req.url, origin).searchParams.get('hash');
+        if (!HASH.test(hash ?? '')) fail(400, 'A transaction hash is required.');
+        return send(200, { result: store.marketResult(account, hash) });
+      }
+      if (method === 'POST' && path === '/api/journal/market/cancel-intent') {
+        const body = await readJson(req), revision = exactRevision(body.expectedRevision), current = store.market(account);
+        if (!current.record || current.revision !== revision) fail(409, 'Market revision changed.');
+        if ((current.record.cancellationRequests?.length ?? 0) >= 16) fail(409, 'Cancellation history is full. Recover the wallet hash instead.');
+        const transaction = await cancellationIntent(provider, current.record);
+        const record = { ...current.record, cancellationRequests: [...(current.record.cancellationRequests ?? []),
+          { ...transaction, createdAt:new Date().toISOString() }] };
+        validateMarket(record, account);
+        return send(200, { revision:store.putMarket(account, record, revision), record, transaction });
+      }
       if (method === 'PUT' && path === '/api/journal/market') {
         const body = await readJson(req);
-        return send(200, { revision: store.putMarket(account, validateMarket(body.record, account), exactRevision(body.expectedRevision)) });
+        const record = validateMarket(body.record, account), current = store.market(account);
+        if (current.revision !== exactRevision(body.expectedRevision)) fail(409, 'Market revision changed.');
+        // Recovery writes must work even if the allowlist changes or the RPC is down.
+        if (!current.record && record.version === 2) await verifyProductIntent(provider, record, productFactories);
+        return send(200, { revision: store.putMarket(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'DELETE' && path === '/api/journal/market') {
         const body = await readJson(req), expectedRevision = exactRevision(body.expectedRevision);
         const current = store.market(account);
         if (!current.record || current.revision !== expectedRevision) fail(409, 'Market revision changed.');
-        await verifyMarketFinalized(provider, current.record, body.hash);
-        return send(200, { revision: store.deleteMarket(account, expectedRevision) });
+        const result = await verifyMarketFinalized(provider, current.record, body.hash);
+        return send(200, { revision: store.deleteMarket(account, expectedRevision, result), result });
       }
       if (method === 'POST' && path === '/api/journal/quote') {
         const body = await readJson(req);
@@ -459,5 +649,6 @@ export function journalConfiguration(env = process.env) {
   if (rpcUrl && !/^https:\/\//.test(rpcUrl)) throw new Error('Journal BSC RPC URL must use HTTPS.');
   if (production && !/^https:\/\//.test(origin)) throw new Error('Production journal origin must use HTTPS.');
   return { dbPath, origin, rpcUrl,
+    allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

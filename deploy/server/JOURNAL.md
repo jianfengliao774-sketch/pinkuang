@@ -35,8 +35,50 @@ npm start
 
 已完成部署的归档核实原始交易与 finalized 回执，但图校验结果和合约地址来自先前保存的记录，服务端不独立读取并证明当前部署图。部署台在导出前端清单前，会只读核实原子初始化交易及 finalized 回执，再用当前钱包、同一固定区块的代码、存储槽和合约调用重新核对地址、权限及构建摘要；不会签名或修改日志。升级后运行代码可能合法改变，旧构建对应的清单可能无法通过重新核对；此时需另行核实升级后的实现与配置。使用方仍须独立按链核实清单，不能只凭历史记录接入资产。
 
-**恢复边界：** 钱包已接收交易但尚未返回 hash 时，服务端只能保存签名前意图，不能凭“链上暂未看到”证明未广播，也不能按超时自动删除或重发。用户需要补录钱包交易 hash 并等待最终回执；如果确实没有交易，需单独设计受控恢复流程。旧浏览器 `localStorage` 日志迁移时先确认钱包/链/构建身份，活跃记录只在服务端无冲突时导入；每条记录获得服务端持久化 ACK、留下可核对备份后才移除本地副本。状态为 `aborted` 的旧记录走导入归档接口。
+**恢复边界：** 钱包已接收交易但尚未返回 hash 时，服务端只能保存签名前意图，不能凭“链上暂未看到”证明未广播，也不能按超时自动删除或重发。用户可以补录钱包交易 hash 并等待最终回执；v1 市场或 v2 产品记录也可以使用下述独立点击确认的 nonce 取消流程。部署步骤的未知结果仍需按其专用流程核对。旧浏览器 `localStorage` 日志迁移时先确认钱包/链/构建身份，活跃记录只在服务端无冲突时导入；每条记录获得服务端持久化 ACK、留下可核对备份后才移除本地副本。状态为 `aborted` 的旧记录走导入归档接口。
 
 部署过程中若服务器更换了合约产物，旧页面的下一笔签名会被拒绝。若版本变化恰好发生在签名前意图保存后，页面会明确记录“本页尚未请求钱包签名”，但仍保留签名前意图，不会自动重试；其他页面或钱包是否广播过同一 nonce 无法仅凭此页面判定。恢复时须核对链上交易，并由管理员恢复匹配原记录的构建或走受控人工处理，不能用新字节码继续原部署计划。
 
 测试：`cd deploy && node --test server/journal-api.test.mjs`。测试使用临时 SQLite、随机测试钱包和模拟 RPC，不连接 BSC 主网或发送交易。
+
+## BEMine 主站产品交易（v2）
+
+主站通过同一 `/api/journal/market` 活跃槽保存 `version: 2` 的资金池及份额市场意图，和部署台的 v1 市场记录共享钱包锁。服务端 CAS 在 SQLite 事务内执行；有活跃产品/市场意图时不能开始部署或新部署签名步骤，有未归档部署时不能新建产品/市场意图。兼容现有 v1 记录及其单调更新、恢复路径，不能用切换页面或改版本来覆盖待处理交易。
+
+启用主站签名之前，另外配置：
+
+```sh
+BEMINE_JOURNAL_FACTORIES=0xYourIndependentlyVerifiedFactory
+```
+
+该值为独立核验过的 BSC Factory 地址列表（逗号分隔，最多 32 个）。空列表拒绝所有新 v2 产品交易。它必须与公开部署清单中的 Factory 一致；不得从用户输入、浏览器请求或商城报价自动生成。v1 部署台记录保持原有兼容边界，新产品入口使用 v2，不把 v1 日志校验当作产品调用白名单。
+
+v2 必填字段为 `{version:2,chainId:56,account,factory,target,targetType,nonce,action:{kind},data,value,submittedAt}`。`targetType` 为 `pool` 或 `market`；`value` 为 wei 十进制字符串；后续只可补充原交易 `hash` 及追加 `recoveryHashes`。服务端初次 ACK 前使用固定 RPC、同一区块验证：
+
+- 资金池须在已启用的 Factory 登记，且 `factory()`、`OFFICIAL_FACTORY()` 双向一致。
+- 市场须为 Factory 的 `shareMarket()`，并反查其 Factory；相关挂单中的 pool 也须登记。
+- 仅允许完整、规范编码的产品 ABI：资金池 `deposit`、`withdrawDeposit`、`finalizeFailure`、`harvest`、`claim`、`withdrawBnb`、`propose`、`vote`、`executeSale`、`cancelExpired`、`completeSale`；市场 `list`、`fill`、`cancel`、`expire`、`withdrawBnb`。不允许审批、升级、管理员或任意 calldata。
+- 仅认购、份额购买和整机购买允许附带 BNB，分别核对 `unitPriceWei × shares`、`pricePerUnit × amount`、批准的 `salePrice`。其余调用必须为零 BNB。
+- 钱包的 latest/pending nonce 必须均等于意图 nonce，再以相同账户、目标、数据及金额执行只读模拟；任何不可验证状态拒绝新签名。已经存在的意图仍可在 RPC 故障或 allowlist 改变后补存 hash，避免丢恢复线索。
+
+`DELETE /api/journal/market` 在 finalized 证明满足后返回 `{revision,result}`，并在同一 SQLite 事务中保存结果后清待处理槽。`result.status` 为 `confirmed`、`reverted`、`cancelled` 或 `replaced`；不同内容的同 nonce 替换不得被报告为原操作成功。v2 认购的 `confirmed` 还要求最终回执中恰有一个来自目标 Pool 的 `Deposited` 事件，且 user、shares、amount 与签名前意图完全相符。缺事件、错误事件、未最终确认或重组都保留待处理记录，不给出认购分享依据。
+
+新增 `GET /api/journal/market/result?hash=0x...` 返回 `{result}`（不存在为 null），仅可读取当前认证钱包的已验证结果。可在清除请求的响应丢失后恢复结果，无需重签或重发。认购结果含 `action:'deposit'`、`status:'confirmed'`、`finalized:true`、`poolAddress`、`account`、`shares`、`amountWei`、`transactionHash`、`receipt`；其中份额和金额保持十进制字符串。
+
+旧浏览器可能再次导入已经核销的 v1 待定记录。再次核销仍须重新取得 finalized 证明；同钱包、同 hash 的完整结果与既有证明严格一致时，原子复用既有结果并清除待定槽。任何字段不一致都返回 409，保留原证明和待定记录，不允许覆盖历史结果。
+
+主站适配器位于 `web/lib/live-transactions.mjs`。`connectWallet()` 与 `authenticate()` 只能由用户点击调用；读页面、恢复交易和发送业务交易不自动触发登录签名。`sendProductTransaction()` 接受已经由 ABI 编码的精确交易，模拟并校验钱包/链/nonce/余额/Gas 后，先获得服务端意图 ACK，再请求一次钱包交易；不自动重试。`recoverPending()` 不签名不广播，只核对已有 hash/用户补录 hash。钱包拒绝或响应丢失也保留意图，不能仅凭客户端取消或超时清除服务器记录。
+
+主站配置使用 `journalBase:'/api/journal'`，即使静态页面位于 `/bemine/`；反向代理应把根 `/api/journal/` 指向此服务，并将 `DEPLOYMENT_JOURNAL_ORIGIN` 设为主站的精确 origin。此路径与 HttpOnly cookie 的 Path 一致，不允许外站 API URL。服务没有私钥，也没有任何广播接口。
+
+新增测试：`node --test server/product-journal.test.mjs` 与在 web 下执行 `node --test scripts/live-transactions.test.mjs`。仅使用临时数据库、一次性 loopback HTTP 服务及模拟钱包/RPC。
+
+### 用户主动取消待定 nonce
+
+`cancelPendingNonce({provider,config,account,onState})` 只能接在独立的用户确认按钮上。界面必须事先说明：取消会请求钱包发送一笔 **0 BNB 自转**，仍需支付 Gas；原交易可能先被矿工确认，取消请求不保证胜出。读页面、交易恢复、钱包拒签与超时都不得自动调用此函数。
+
+`POST /api/journal/market/cancel-intent` 接收 `{expectedRevision}`，只处理当前会话钱包已有的 v1/v2 活跃记录，不接收任意目标或 nonce。固定 BSC RPC 必须核实：latest nonce 等于该记录 nonce，pending nonce 只能相同或高一位，账户没有合约代码，且余额足够。服务端依据当前费用和已知原交易/取消 hash 的费用上调 20%，上限 3 gwei；超出上限、账户已消耗 nonce、还有其他排队交易、委托账户或 RPC 不可用均拒绝。服务端模拟零额自转后，以 CAS 追加不可改写的 `cancellationRequests`，返回 `{revision,record,transaction}`；每条记录最多 16 次取消意图。
+
+客户端收到持久化 ACK 后再次核对钱包、BSC、nonce、记录版本、EOA 状态、余额和费用，构造固定 `to=from`、`value=0`、`data=0x`、`gas=21000` 的同 nonce 交易，仅请求一次钱包确认。签回的 hash 先追加到 `recoveryHashes`，原交易 hash 和业务意图不改写；钱包切换也不会主动丢弃已返回的 hash。拒签或响应丢失保留记录，不自动重试。
+
+最终清理仍由原有 finalized 验证完成：只有成功的零额自转才是 `cancelled`；其他同 nonce 交易分别按原操作成功、失败或替换核实。取消函数不会返回原业务 `confirmed`，也不会提供认购分享确认；原操作若抢先确认，用户应补录其 hash 走只读恢复。这里的取消 API 不签名、不广播、不能替用户清掉尚无最终证明的记录。

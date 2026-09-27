@@ -28,6 +28,8 @@ export class JournalStore {
       CREATE TABLE IF NOT EXISTS deployment_archives (account TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
         PRIMARY KEY(account,id));
       CREATE TABLE IF NOT EXISTS market (account TEXT PRIMARY KEY, revision INTEGER NOT NULL, record TEXT);
+      CREATE TABLE IF NOT EXISTS market_results (account TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL,
+        PRIMARY KEY(account,hash));
       CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, account TEXT NOT NULL, record TEXT NOT NULL, created_at INTEGER NOT NULL);`);
   }
 
@@ -93,6 +95,11 @@ export class JournalStore {
       const revision = current?.revision ?? 0;
       if (revision !== expectedRevision) throw new JournalConflict('Deployment revision changed.');
       const previous = read(current?.record ?? null);
+      // A wallet has one signing lane across deployment and product/market pages.
+      // Existing deployment progress may still be saved during reconciliation.
+      if ((!previous || record.steps.some((step, i) => step.status === 'signing' && previous.steps[i]?.status !== 'signing'))
+        && this.db.prepare('SELECT 1 FROM market WHERE account=? AND record IS NOT NULL').get(account))
+        throw new JournalConflict('This wallet has an unresolved product or market transaction.');
       if (previous && previous.id !== record.id) throw new JournalConflict('An active deployment already exists.');
       if (!previous && this.db.prepare('SELECT 1 FROM deployment_archives WHERE account=? AND id=?').get(account, record.id))
         throw new JournalConflict('Archived deployment ID cannot be reused.');
@@ -138,12 +145,18 @@ export class JournalStore {
     const row = this.db.prepare('SELECT revision,record FROM market WHERE account=?').get(account);
     return { record: read(row?.record ?? null), revision: row?.revision ?? 0 };
   }
+  marketResult(account, hash) {
+    const row = this.db.prepare('SELECT result FROM market_results WHERE account=? AND hash=?').get(account, hash.toLowerCase());
+    return read(row?.result ?? null);
+  }
   putMarket(account, record, expectedRevision) {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT revision,record FROM market WHERE account=?').get(account);
       const revision = row?.revision ?? 0;
       if (revision !== expectedRevision) throw new JournalConflict('Market revision changed.');
       const previous = read(row?.record ?? null);
+      if (!previous && this.db.prepare('SELECT 1 FROM deployment WHERE account=? AND record IS NOT NULL').get(account))
+        throw new JournalConflict('Archive or reconcile this wallet\'s active deployment before another transaction.');
       if (previous) validateMarketProgress(previous, record);
       const next = revision + 1;
       this.db.prepare(`INSERT INTO market(account,revision,record) VALUES(?,?,?)
@@ -152,10 +165,19 @@ export class JournalStore {
       return next;
     });
   }
-  deleteMarket(account, expectedRevision) {
+  deleteMarket(account, expectedRevision, result) {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT revision,record FROM market WHERE account=?').get(account);
       if (!row?.record || row.revision !== expectedRevision) throw new JournalConflict('Market revision changed.');
+      if (result) {
+        const hash = result.transactionHash.toLowerCase();
+        const existing = this.db.prepare('SELECT result FROM market_results WHERE account=? AND hash=?').get(account, hash);
+        // Old browser migrations may restore an already finalized v1 intent. Reuse only the exact verified proof.
+        if (existing && !same(read(existing.result), result))
+          throw new JournalConflict('Finalized transaction result differs from the saved proof.');
+        if (!existing) this.db.prepare('INSERT INTO market_results(account,hash,result) VALUES(?,?,?)')
+          .run(account, hash, canonical(result));
+      }
       this.db.prepare('UPDATE market SET revision=?,record=NULL WHERE account=?').run(row.revision + 1, account);
       return row.revision + 1;
     });
@@ -206,9 +228,9 @@ function validateDeploymentProgress(previous, next) {
 }
 
 function validateMarketProgress(previous, next) {
-  for (const field of ['version','chainId','account','factory','market','nonce','data','value','submittedAt']) {
-    const a = field === 'account' || field === 'factory' || field === 'market' ? String(previous[field]).toLowerCase() : previous[field];
-    const b = field === 'account' || field === 'factory' || field === 'market' ? String(next[field]).toLowerCase() : next[field];
+  for (const field of ['version','chainId','account','factory','market','target','targetType','nonce','data','value','submittedAt']) {
+    const a = ['account','factory','market','target'].includes(field) ? String(previous[field]).toLowerCase() : previous[field];
+    const b = ['account','factory','market','target'].includes(field) ? String(next[field]).toLowerCase() : next[field];
     if (a !== b) throw new JournalConflict('Market intent identity cannot be replaced.');
   }
   if (!same(previous.action, next.action)) throw new JournalConflict('Market action cannot change.');
@@ -217,4 +239,7 @@ function validateMarketProgress(previous, next) {
   const before = previous.recoveryHashes ?? [], after = next.recoveryHashes ?? [];
   if (!Array.isArray(after) || before.some((hash, index) => hash.toLowerCase() !== after[index]?.toLowerCase()))
     throw new JournalConflict('Recovery hashes cannot be erased.');
+  const oldCancellations = previous.cancellationRequests ?? [], newCancellations = next.cancellationRequests ?? [];
+  if (!Array.isArray(newCancellations) || oldCancellations.some((item, index) => !same(item, newCancellations[index])))
+    throw new JournalConflict('Cancellation signing intents cannot be erased or changed.');
 }
