@@ -7,13 +7,32 @@ import { createServer } from 'node:http';
 import { Interface, Wallet, getAddress } from 'ethers';
 import { createJournalService, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi } from './journal-api.mjs';
 import { JournalStore } from './journal-store.mjs';
+import { parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { signedSource,firstoProvider,collection,now } from '../scripts/fixtures/firsto-order.mjs';
 const addr = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
 const factory = addr(1), pool = addr(2), market = addr(3), wallet = Wallet.createRandom(), account = wallet.address.toLowerCase();
 const origin = 'http://127.0.0.1:4173';
 const graphVerifier = async()=>{};
 const verifyProductIntent=(provider,record,allow)=>verifyWithGraph(provider,record,allow,graphVerifier);
+
+async function firstoIntentProof(options = {}) {
+  const source=await signedSource(),order=parseFirstoSignedAsk(source,{collection,tokenId:'7',owner:source.account,now});
+  const record=intent('buyFromFirsto',[0,order.encodedOrder],'0'),p=proof(record),f=firstoProvider(source,options);
+  const originalSend=p.provider.send.bind(p.provider),originalBlock=p.provider.getBlock.bind(p.provider);
+  p.provider.getBlock=async tag=>tag==='latest'?{number:100,hash:`0x${'12'.repeat(32)}`}:
+    tag===100?{number:100,hash:`0x${'12'.repeat(32)}`} : originalBlock(tag);
+  p.provider.send=async(method,params)=>{
+    if (['eth_getBlockByNumber','eth_getStorageAt','eth_getCode'].includes(method)
+      || method==='eth_call' && !params[0].from && ![pool,factory,market].some(a=>a.toLowerCase()===params[0].to.toLowerCase()))
+      return f.provider.request({method,params});
+    return originalSend(method,params);
+  };
+  return {record,p,order};
+}
 const views = new Interface(['function operator() view returns(address)','function isPool(address) view returns(bool)','function shareMarket() view returns(address)',
+  'function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
+  'function machinePool(address,uint256) view returns(address)',
   'function factory() view returns(address)','function OFFICIAL_FACTORY() view returns(address)',
   'function unitPriceWei() view returns(uint256)','function salePrice() view returns(uint256)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))']);
@@ -25,7 +44,8 @@ function intent(name = 'deposit', args = [2], value = '20', targetType = 'pool')
 function proof(record = intent()) {
   const state = { mined:false, registered:true, chain:'0x38', final:101, fail:false, nonce:7, txHash:hash(77),
     target:record.target, data:record.data, value:BigInt(record.value), status:1, logs:[],accountCode:'0x',
-    balance:10n**18n,gasPrice:1_000_000_000n,estimate:50000n,operator:account,graphFailed:false,graphChecks:0 };
+    balance:10n**18n,gasPrice:1_000_000_000n,estimate:50000n,operator:account,graphFailed:false,graphChecks:0,
+    registry:[true,true,0n,0n],reservedPool:addr(0) };
   const event = (user = account, shares = 2n, amount = 20n, address = pool) => ({ address,transactionHash:hash(77),blockHash:hash(100),
     ...poolAbi.encodeEventLog(poolAbi.getEvent('Deposited'),[user,shares,amount,20n]) });
   state.logs = record.action.kind === 'deposit' ? [event()] : [];
@@ -37,7 +57,9 @@ function proof(record = intent()) {
       const [tx] = params;
       if (tx.from) return '0x';
       const parsed = views.parseTransaction(tx);
+      if (parsed.name==='machineRegistryStatus') return state.registry===null?'0x':views.encodeFunctionResult(parsed.name,state.registry);
       const result = ({ operator:state.operator,isPool:state.registered,shareMarket:market,factory,OFFICIAL_FACTORY:factory,unitPriceWei:10n,salePrice:200n,
+        machinePool:state.reservedPool,
         orders:[account,pool,100n,5n,true] })[parsed.name];
       return views.encodeFunctionResult(parsed.name,[result]);
     },
@@ -86,6 +108,34 @@ test('all permitted pool and market actions require exact values, registration a
   await assert.rejects(verifyProductIntent(p.provider,intent('fill',[1,2],'11','market'),allow),/Order price/);
   p.state.registered=false; await assert.rejects(verifyProductIntent(p.provider,intent(),allow),/registered/);
   p.state.registered=true;p.state.nonce=8; await assert.rejects(verifyProductIntent(p.provider,intent(),allow),/nonce/);
+});
+
+test('Firsto journal requires operator, exact canonical signed order and independently pinned protocol runtime',async()=>{
+  const allow=new Set([factory.toLowerCase()]);
+  const {record,p,order}=await firstoIntentProof();
+  await verifyProductIntent(p.provider,record,allow);
+  p.state.operator=addr(99);
+  await assert.rejects(verifyProductIntent(p.provider,record,allow),/operator/);
+  p.state.operator=account;
+  for(const bad of [intent('buyFromFirsto',[1,order.encodedOrder],'0'),intent('buyFromFirsto',[0,order.encodedOrder+'00'],'0'),
+    intent('buyFromFirsto',[0,order.encodedOrder],'1')]) await assert.rejects(verifyProductIntent(p.provider,bad,allow));
+  for(const options of [{implementationCode:'0x6000'},{values:{isSignedAskNonceInvalidated:true}},{values:{defaultTakerFeeBps:101n}}]){
+    const changed=await firstoIntentProof(options);
+    await assert.rejects(verifyProductIntent(changed.p.provider,changed.record,allow));
+  }
+});
+
+test('new project signing refuses a legacy/incomplete registry and a machine already registered to any project',async()=>{
+  const p=proof(),allow=new Set([factory.toLowerCase()]),params=[addr(4),1,1000,1000,addr(0),0,2000,3000];
+  const config=[10,1000,1,0,100,90,hash(10)];
+  for(const record of [intent('createPool',[params],'0','factory'),intent('createFlexiblePoolChecked',[params,config,1,10],'0','factory')]) {
+    for(const registry of [null,[false,false,0n,0n],[true,false,0n,1n],[true,true,0n,1n]]){
+      p.state.registry=registry;await assert.rejects(verifyProductIntent(p.provider,record,allow));
+    }
+    p.state.registry=[true,true,0n,0n];p.state.reservedPool=pool;
+    await assert.rejects(verifyProductIntent(p.provider,record,allow),/already has a project/);
+    p.state.reservedPool=addr(0);await verifyProductIntent(p.provider,record,allow);
+  }
 });
 
 test('product route rejects unconfigured factory, arbitrary selector, extra calldata and nonpayable value',async()=>{

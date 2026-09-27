@@ -20,7 +20,7 @@ const binding = new Interface([
 const indexedEvents = Object.freeze({
   factory: new Set(['PoolCreated']),
   market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'OrderCancelled', 'BnbWithdrawn']),
-  pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'AlternativeMinerSelected',
+  pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'FirstoPurchased', 'AlternativeMinerSelected',
     'PurchaseSurplusSettled', 'Harvested', 'BemClaimed', 'BnbWithdrawn', 'Transfer', 'SaleProposed', 'Voted',
     'SaleListed', 'SaleCompleted', 'SaleExpired', 'SaleProceedsSettled', 'LockedSharesChanged',
     'FlexiblePurchaseConfigured', 'PurchaseModelLocked', 'PurchaseReferenceWeightLocked']),

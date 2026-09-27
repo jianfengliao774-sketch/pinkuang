@@ -362,6 +362,7 @@ contract ShareMarketTest is ShareTransferTestBase {
     }
 
     function test_fundingPoolCannotListShares() public {
+        ++defaultParams.circuitId;
         IPoolVault fresh = IPoolVault(address(_createPool(defaultParams)));
         vm.prank(ALICE);
         vm.expectRevert(IShareMarket.WrongState.selector);

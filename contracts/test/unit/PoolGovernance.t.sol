@@ -145,6 +145,7 @@ contract PoolGovernanceTest is Test {
         assertEq(PoolVault(payable(first)).params().targetRaise, params.targetRaise);
         vm.prank(MULTISIG);
         factory.setTreasury(STRANGER);
+        ++params.circuitId;
         vm.prank(OPERATOR);
         address second = factory.createPool(params);
         assertEq(PoolVault(payable(first)).treasury(), TREASURY);

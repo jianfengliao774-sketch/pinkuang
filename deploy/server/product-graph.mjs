@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
 import { Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
+import { FIRSTO_UPGRADE_NAMES, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof } from '../shared/firsto-upgrade-proof.mjs';
 
 const HASH = /^0x[\da-f]{64}$/i;
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -41,9 +42,21 @@ function runtimeMatches(artifact, observed, addresses, ownAddress) {
 }
 
 /** Evidence is operator-owned local data; never accept it from an API caller. */
-export function productGraphConfiguration({ recordPath, bundlePath, record, bundle }={}) {
+export function productGraphConfiguration({ recordPath, bundlePath, record, bundle,
+  genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
+  if (record?.schemaVersion === 2) {
+    check(genesisRecord || genesisRecordPath,'Upgrade requires an independently configured local genesis record.');
+    check(genesisBundle || genesisBundlePath,'Upgrade requires the preserved local genesis artifact bundle.');
+    genesisRecord ??= load(genesisRecordPath); genesisBundle ??= load(genesisBundlePath);
+    check(genesisRecord?.schemaVersion === 1,'Only a schema1 genesis can anchor this fixed upgrade.');
+    productGraphConfiguration({record:genesisRecord,bundle:genesisBundle});
+    const addresses=validateFirstoUpgradeRecord(record,genesisRecord,genesisBundle,bundle);
+    const normalized={...genesisRecord,schemaVersion:2,addresses,artifactDigest:record.artifactDigest,
+      sourceCommit:bundle.sourceCommit,verification:{...record.verification,code:genesisRecord.verification.code}};
+    return JSON.parse(JSON.stringify({record:normalized,bundle,upgradeRecord:record,genesisRecord,genesisBundle}));
+  }
   check(record?.schemaVersion===1 && record.chainId===56 && record.status==='complete'
     && record.steps?.length===13 && record.steps.every(step=>step.status==='confirmed')
     && record.steps.some(step=>step.id==='initialize' && step.receipt?.status===1 && HASH.test(step.txHash))
@@ -64,14 +77,19 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   check(trusted?.record && trusted?.bundle,'Trusted product deployment evidence is unavailable.');
   const {record,bundle}=trusted, a=record.addresses, tag=`0x${block.number.toString(16)}`;
   check(same(factory,a.factory),'Factory differs from the trusted deployment.');
+  const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
+  const sourceFor=name=>trusted.upgradeRecord && !FIRSTO_UPGRADE_NAMES.includes(name) ? trusted.genesisBundle : bundle;
+  const runtimeLinksFor=name=>trusted.upgradeRecord && !FIRSTO_UPGRADE_NAMES.includes(name) ? trusted.genesisRecord.addresses : a;
   const read=async(name,method,args=[])=>{
-    const iface=new Interface(bundle.artifacts[({factory:'PoolFactory',shareMarket:'ShareMarket'})[name] ?? artifacts[name] ?? name].abi);
+    const artifactName=({factory:'PoolFactory',shareMarket:'ShareMarket'})[name] ?? artifacts[name] ?? name;
+    const iface=new Interface(sourceFor(artifactName).artifacts[artifactName].abi);
     return iface.decodeFunctionResult(method,await provider.send('eth_call',[{to:a[name],data:iface.encodeFunctionData(method,args)},tag]))[0];
   };
-  await Promise.all(NAMES.map(async name=>{
+  await settleReads(NAMES.map(async name=>{
     const code=await provider.getCode(a[name],block.number);
-    check(code!=='0x' && same(keccak256(code),record.verification.code[name].codehash)
-      && runtimeMatches(bundle.artifacts[artifacts[name] ?? name],code,a,a[name]),`Reviewed runtime changed: ${name}.`);
+    const upgraded=trusted.upgradeRecord && FIRSTO_UPGRADE_NAMES.includes(name);
+    check(code!=='0x' && (upgraded || same(keccak256(code),record.verification.code[name].codehash))
+      && runtimeMatches(sourceFor(name).artifacts[artifacts[name] ?? name],code,runtimeLinksFor(name),a[name]),`Reviewed runtime changed: ${name}.`);
   }));
   const assertions=[['AtomicDeployment','deployed',true],['AtomicDeployment','deployer',record.account],
     ['AtomicDeployment','predictedFactory',a.factory],['factory','owner',record.input.ownerMultisig],
@@ -81,15 +99,16 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ['shareMarket','feeBps',100n],['beacon','owner',a.timelock],['beacon','implementation',a.PoolVault],
     ['beacon','OFFICIAL_FACTORY',a.factory],['PoolVault','OFFICIAL_FACTORY',a.factory],
     ['timelock','getMinDelay',172800n],['timelock','MINIMUM_DELAY',172800n]];
-  await Promise.all(assertions.map(async([name,method,expected])=>check(String(await read(name,method)).toLowerCase()===String(expected).toLowerCase(),`Reviewed binding changed: ${name}.${method}.`)));
-  await Promise.all([['factory','PoolFactory'],['shareMarket','ShareMarket']].map(async([name,implementation])=>{
+  await settleReads(assertions.map(async([name,method,expected])=>check(String(await read(name,method)).toLowerCase()===String(expected).toLowerCase(),`Reviewed binding changed: ${name}.${method}.`)));
+  await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket']].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);
-    check(same(`0x${slot.slice(-40)}`,a[implementation]),`Reviewed implementation changed: ${name}.`);
+    check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,a[implementation]),`Reviewed implementation changed: ${name}.`);
   }));
-  const roles=await Promise.all(['PROPOSER_ROLE','CANCELLER_ROLE','EXECUTOR_ROLE','DEFAULT_ADMIN_ROLE'].map(name=>read('timelock',name)));
-  await Promise.all([[roles[0],record.input.ownerMultisig,true],[roles[1],record.input.ownerMultisig,true],
+  const roles=await settleReads(['PROPOSER_ROLE','CANCELLER_ROLE','EXECUTOR_ROLE','DEFAULT_ADMIN_ROLE'].map(name=>read('timelock',name)));
+  await settleReads([[roles[0],record.input.ownerMultisig,true],[roles[1],record.input.ownerMultisig,true],
     [roles[2],ZERO,true],[roles[3],a.timelock,true],[roles[3],record.account,false],[roles[3],a.AtomicDeployment,false]].map(async([role,account,expected])=>
       check(await read('timelock','hasRole',[role,account])===expected,'Reviewed Timelock permissions changed.')));
   check((await provider.getBlock(block.number))?.hash===block.hash,'Chain changed during product graph verification.');
-  return {factory:a.factory,operator:record.input.operator,artifactDigest:record.artifactDigest,blockNumber:block.number};
+  return {factory:a.factory,operator:record.input.operator,artifactDigest:record.artifactDigest,blockNumber:block.number,
+    ...(upgradeProof ? {upgrade:upgradeProof} : {})};
 }

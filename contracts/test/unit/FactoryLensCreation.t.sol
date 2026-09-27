@@ -28,6 +28,7 @@ contract FactoryLensCreationTest is FundingTestBase {
 
     function setUp() public override {
         super.setUp();
+        ++defaultParams.circuitId; // Checked creation is a distinct project from the base funding fixture.
         vm.etch(Addresses.MINING, address(new FlexibleMiningMock()).code);
         mining = FlexibleMiningMock(Addresses.MINING);
         mining.configure(defaultParams.circuits, defaultParams.circuitId, 200, 0, false);

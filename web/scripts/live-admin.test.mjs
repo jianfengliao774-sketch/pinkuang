@@ -7,7 +7,7 @@ const address = value => getAddress(`0x${value.toString(16).padStart(40, '0')}`)
 const account = address(1), factory = address(2), lens = address(3), pool = address(4);
 const config = { status: 'ready', chainId: 56, factory, lens };
 const base = { circuits: OFFICIAL_COLLECTIONS[0], circuitId: '7', targetRaiseWei: '11000', priceCapWei: '10000', fundingHours: '24', purchaseHours: '48' };
-function fixture({ operator = account, creationPaused = false } = {}) {
+function fixture({ operator = account, creationPaused = false, registryUnsupported = false, registryReady = true } = {}) {
   let timestamp = 1_800_000_000n, chain = '0x38', changeBlock = false;
   const sent = [], simulated = [];
   const provider = { request: async ({ method, params = [] }) => {
@@ -16,6 +16,9 @@ function fixture({ operator = account, creationPaused = false } = {}) {
     if (method === 'eth_getCode') return '0x6000';
     if (method === 'eth_call') {
       const parsed = abi.PoolFactory.parseTransaction(params[0]); let result;
+      if (parsed.name === 'machineRegistryStatus') return registryUnsupported ? '0x'
+        : abi.PoolFactory.encodeFunctionResult(parsed.fragment, [true, registryReady, 0n, registryReady ? 0n : 1n]);
+      if (parsed.name === 'machinePool') return abi.PoolFactory.encodeFunctionResult(parsed.fragment, [ZeroAddress]);
       if (parsed.name === 'operator') result = operator;
       else if (parsed.name === 'creationPaused') result = creationPaused;
       else if (parsed.name === 'createPool') { simulated.push(parsed.args[0]); result = pool; }
@@ -49,7 +52,7 @@ test('relative deadlines freeze at preview and exact calldata is unchanged after
   assert(Object.isFrozen(preview.request)); assert(Object.isFrozen(preview.request.params));
 });
 test('non-operator and paused creation never produce a transaction or simulate a creation', async () => {
-  for (const options of [{ operator: address(5) }, { creationPaused: true }]) {
+  for (const options of [{ operator: address(5) }, { creationPaused: true }, { registryUnsupported: true }, { registryReady: false }]) {
     const f = fixture(options); await assert.rejects(prepare(f));
     assert.equal(f.simulated.length, 0); assert.deepEqual(f.sent, []);
   }

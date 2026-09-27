@@ -20,7 +20,7 @@ const time = (value: unknown, name: string): number => { const n = typeof value 
 const optionalObj = (value: unknown, name: string) => value == null ? null : obj(value, name);
 const ageIssue = (at: number, now: number) => at > now + 30_000 ? '来源时间超前，无法确认' : now - at > MAX_QUOTE_AGE_MS ? '来源超过 5 分钟，需重新获取' : null;
 
-export interface MineAsk { id: string; seller: string; venue: string; kind: string; priceWei: string; buyerCostWei: string; expiresAt: number | null; legacyListingId: string | null; sourceFeeBps: number | null; sourceSchemaVersion: string | null }
+export interface MineAsk { id: string; seller: string; venue: string; kind: string; status: 'open'; execution: ObjectValue | null; priceWei: string; buyerCostWei: string; expiresAt: number | null; legacyListingId: string | null; sourceFeeBps: number | null; sourceSchemaVersion: string | null }
 export interface MineQuote {
   collection: string; tokenId: string; series: 'TapeOut' | 'Behemoth'; owner: string; status: string; taskId: string | null;
   verifiedWeight: string | null; unverifiedWeight: string | null; estimated24hAtomic: string | null;
@@ -85,7 +85,7 @@ export function parseQuotePage(raw: unknown, receivedAt = Date.now()): MineQuote
         const id = text(a.id, '挂单编号'); const priceWei = uint(a.priceWei, '挂单价'); const buyerCostWei = uint(a.buyerCostWei, '买方总额');
         requireValue(BigInt(buyerCostWei) >= BigInt(priceWei), '买方总额小于挂单价');
         const legacy = /^official:0x6feebbebc07bcb90bd1ac8b0cf9baa4f0ff2b46f:(\d+)$/i.exec(id);
-        ask = { id, seller: address(a.account, '卖家'), venue: text(a.venue, '报价市场'), kind: execution ? text(execution.kind, '报价市场类型') : a.venue === 'official' ? 'official' : 'unknown', priceWei, buyerCostWei, expiresAt: a.expiresAt == null ? null : time(a.expiresAt, '挂单到期'), legacyListingId: a.venue === 'official' && legacy ? uint(legacy[1], '官方挂单编号') : null, sourceFeeBps: execution?.feeBps == null ? null : Number(execution.feeBps), sourceSchemaVersion: execution?.schemaVersion == null ? null : uint(execution.schemaVersion, '来源协议版本') };
+        ask = { id, seller: address(a.account, '卖家'), venue: text(a.venue, '报价市场'), kind: execution ? text(execution.kind, '报价市场类型') : a.venue === 'official' ? 'official' : 'unknown', status: 'open', execution: execution ? Object.freeze({ ...execution }) : null, priceWei, buyerCostWei, expiresAt: a.expiresAt == null ? null : time(a.expiresAt, '挂单到期'), legacyListingId: a.venue === 'official' && legacy ? uint(legacy[1], '官方挂单编号') : null, sourceFeeBps: execution?.feeBps == null ? null : Number(execution.feeBps), sourceSchemaVersion: execution?.schemaVersion == null ? null : uint(execution.schemaVersion, '来源协议版本') };
         if (ask.venue !== 'official' && (!execution || ask.expiresAt === null)) issues.push('缺少 Firsto 挂单执行来源或到期时间');
       }
       for (const prefix of needed) {
@@ -195,7 +195,7 @@ export function createQuotePlan(quote: MineQuote, reference: CapacityReference, 
       '任务型号和参考验证权重均在建池时由参考 NFT 的链上挖矿数据锁定，不随最低权重设置或后续参考矿机变化而改变。expectedTaskId 与 expectedReferenceVerifiedWeight 只是报价来源的预期值，建池前必须核对链上数据。',
       '更低权重的合格替代品必须相应降价；更高权重也不能突破本计划的购机总价上限。额外筹款不会授权以更高单位权重价格买入。',
       '替代品必须同官方合约、同任务型号，且原目标无同时满足质量、总价和单位权重限价的官网挂单。',
-      '实际购买须复核链上挂单、所有权、挖矿条件和双重限价。Firsto signed/batch 挂单不在现有 PoolVault.buyFromMarket 支持范围。',
+      '实际购买须复核链上挂单、所有权、挖矿条件和双重限价。Firsto 单笔签名采购需已启用新合约，并将来源手续费计入购机上限；只支持原目标，批量订单尚未开放。',
       '自动替换须新建已锁定参考验证权重的 flexiblePurchase 池；旧池缺少定价基数将拒绝采购，保留退款路径。本计划只保存公开配置，不签名、不购买、不接收资产。',
       '购机余款按购机时的份额比例计入可领取余额，由持有人领取；筹款总额向上取整为100份，每份为整数wei。',
     ],

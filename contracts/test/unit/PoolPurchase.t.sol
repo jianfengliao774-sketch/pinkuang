@@ -65,6 +65,7 @@ contract PoolPurchaseTest is FundingTestBase {
     }
 
     function _directPool(address seller, uint256 price) internal {
+        _deployFactory(); // Independent same-NFT parameter variant; a factory cannot register the NFT twice.
         IPoolVault.PoolParams memory p = defaultParams;
         p.directSeller = seller;
         p.directPrice = price;
@@ -571,6 +572,7 @@ contract PoolPurchaseTest is FundingTestBase {
     }
 
     function test_noSurplusWhenPurchaseUsesEntireRaise() public {
+        _deployFactory();
         IPoolVault.PoolParams memory p = defaultParams;
         p.priceCap = p.targetRaise;
         pool = _createPool(p);

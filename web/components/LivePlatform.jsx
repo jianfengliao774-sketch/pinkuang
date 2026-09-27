@@ -2692,6 +2692,7 @@ function eventName(value, L) {
     BemClaimed: ["BEM 领取", "BEM claimed"],
     BnbWithdrawn: ["BNB 领取", "BNB withdrawn"],
     Purchased: ["矿机购入", "Miner purchased"],
+    FirstoPurchased: ["Firsto 采购明细", "Firsto purchase details"],
     OrderListed: ["份额挂单", "Shares listed"],
     OrderFilled: ["份额成交", "Shares traded"],
     SaleProposed: ["出售提案", "Sale proposed"],

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xf48637de6a1c988b92d21347662b724b1ee7d59b09f66aaca9c7fe81b9a3b9ce",
+  "artifactDigest": "0xfb3eec9d259a1e12e5431af1642e8018e36661c737ce53c70aaf124d49707d10",
   "abis": {
     "PoolFactory": [
       {
@@ -68,7 +68,43 @@
       },
       {
         "inputs": [],
+        "name": "InvalidMigrationBatch",
+        "type": "error"
+      },
+      {
+        "inputs": [],
         "name": "InvalidParameters",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "circuits",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "circuitId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          }
+        ],
+        "name": "MachineAlreadyReserved",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "MachineRegistryAlreadyInitialized",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "MachineRegistryNotReady",
         "type": "error"
       },
       {
@@ -181,6 +217,69 @@
           }
         ],
         "name": "LensCreated",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "cursor",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "cutoff",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "bool",
+            "name": "ready",
+            "type": "bool"
+          }
+        ],
+        "name": "MachineRegistryMigrationProgress",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "cutoff",
+            "type": "uint256"
+          }
+        ],
+        "name": "MachineRegistryMigrationStarted",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "circuits",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "circuitId",
+            "type": "uint256"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          }
+        ],
+        "name": "MachineReserved",
         "type": "event"
       },
       {
@@ -404,6 +503,31 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "beginMachineRegistryMigration",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "circuits",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "circuitId",
+            "type": "uint256"
+          }
+        ],
+        "name": "claimMachine",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
       },
       {
@@ -876,6 +1000,71 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "circuits",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "circuitId",
+            "type": "uint256"
+          }
+        ],
+        "name": "machinePool",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "machineRegistryStatus",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "ready",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "cursor",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "cutoff",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "maxPools",
+            "type": "uint256"
+          }
+        ],
+        "name": "migrateMachineRegistry",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
       },
       {
@@ -2011,6 +2200,11 @@
       },
       {
         "inputs": [],
+        "name": "FirstoFeeChanged",
+        "type": "error"
+      },
+      {
+        "inputs": [],
         "name": "FlexiblePurchaseAlreadyConfigured",
         "type": "error"
       },
@@ -2037,6 +2231,11 @@
       {
         "inputs": [],
         "name": "InsufficientUnlockedShares",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "InvalidFirstoOrder",
         "type": "error"
       },
       {
@@ -2218,6 +2417,11 @@
       {
         "inputs": [],
         "name": "UnsupportedSubscriptionAsset",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "UnverifiedPurchaseRoute",
         "type": "error"
       },
       {
@@ -2459,6 +2663,49 @@
           }
         ],
         "name": "Failed",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "exchange",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "bytes32",
+            "name": "orderHash",
+            "type": "bytes32"
+          },
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "circuitId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "sellerPrice",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "sourceFee",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "totalCost",
+            "type": "uint256"
+          }
+        ],
+        "name": "FirstoPurchased",
         "type": "event"
       },
       {
@@ -3439,6 +3686,24 @@
           }
         ],
         "name": "buyAlternativeFromMarket",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes",
+            "name": "encodedOrder",
+            "type": "bytes"
+          }
+        ],
+        "name": "buyFromFirsto",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"

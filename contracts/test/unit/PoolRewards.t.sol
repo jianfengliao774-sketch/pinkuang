@@ -106,6 +106,7 @@ contract PoolRewardsTest is RewardsTestBase {
     }
 
     function test_legacyExpiryParameterCannotEnableForfeitureInNewPool() public {
+        ++defaultParams.circuitId;
         vm.prank(OPERATOR);
         address fresh = IRewardsFactory(address(poolFactory)).createPoolWithExpiry(defaultParams, true);
         assertFalse(IRewardsVault(fresh).expiryEnabled());

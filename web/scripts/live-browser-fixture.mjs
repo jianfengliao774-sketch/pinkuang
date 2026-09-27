@@ -20,7 +20,7 @@ const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.
 /** Exported separately so a Node smoke check can run the same RPC/index through the real adapter. */
 export function createLiveBrowserFixture({ account = FIXTURE_ACCOUNT, timestamp = Math.floor(Date.now() / 1000),
   incomplete = false, sourceOverrides = {}, manifestOverrides = {}, confirmDeposit = false, pendingDeposit = false,
-  fundingShares = 20n, isOperator = false } = {}) {
+  fundingShares = 20n, isOperator = false, registryUnsupported = false, registryReady = true } = {}) {
   fundingShares = BigInt(fundingShares);
   if (fundingShares < 0n || fundingShares > 65n) throw new Error('Invalid fixture funding shares');
   account = getAddress(account);
@@ -112,6 +112,9 @@ export function createLiveBrowserFixture({ account = FIXTURE_ACCOUNT, timestamp 
     if (!parsed) throw new Error('Unknown fixture calldata.');
     let result;
     switch (parsed.name) {
+      case 'machineRegistryStatus': return registryUnsupported ? '0x' : abi.PoolFactory.encodeFunctionResult(parsed.fragment,
+        [true, registryReady, 0n, registryReady ? 0n : 1n]);
+      case 'machinePool': result = rows.find(row => match(row.params.circuits, parsed.args[0]) && row.params.circuitId === parsed.args[1])?.pool ?? ZeroAddress; break;
       case 'lens': result = lens; break;
       case 'operator': result = isOperator ? account : FIXTURE_OTHER_ACCOUNT; break;
       case 'creationPaused': result = false; break;
