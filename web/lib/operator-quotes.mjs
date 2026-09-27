@@ -1,5 +1,5 @@
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
-import { fetchQuotePage, fetchMineQuote, fetchCapacityReference, quoteIssue, createQuotePlan } from '../../deploy/src/pricing.ts';
+import { OFFICIAL_COLLECTIONS, fetchQuotePage, fetchMineQuote, fetchCapacityReference, quoteIssue, createQuotePlan } from '../../deploy/src/pricing.ts';
 import { createReadOnlyHttpProvider } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { uint, referenceQuote } from './chain-client.mjs';
@@ -50,10 +50,11 @@ export async function readMachineRegistry(provider, { factory, collection, token
   return Object.freeze({ supported: true, initialized, ready, cursor: cursor.toString(), cutoff: cutoff.toString(), pool });
 }
 
-/** Public quotes are discovery only. Verify the actual NFT, active verified miner and supported market at one block. */
-export async function checkMinerOnchain(provider, quote, { config, blockTag = 'latest' } = {}) {
-  requireValue(['0xb1024b89886b9a34aa4ff5f31c411d708b20a14c', '0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c'].includes(quote?.collection?.toLowerCase()), '仅接受已核验的官方矿机合约。');
-  uint(quote.tokenId);
+/** The exact NFT can be checked on the official market without an indexer or Firsto API. */
+export async function readOfficialMinerOnchain(provider, collectionValue, tokenValue,
+  { config, blockTag = 'latest', allowIneligible = false } = {}) {
+  const collection = getAddress(collectionValue), tokenId = uint(tokenValue);
+  requireValue(Object.values(OFFICIAL_COLLECTIONS).some(value => same(value, collection)), '仅接受已核验的官方矿机合约。');
   const request = (method, params = []) => provider.request({ method, params });
   const { chain, block } = await settleReadRound({ chain: () => request('eth_chainId'), block: () => request('eth_getBlockByNumber', [blockTag, false]) });
   requireValue(BigInt(chain) === 56n && /^0x[\da-f]{64}$/i.test(block?.hash ?? '')
@@ -62,44 +63,68 @@ export async function checkMinerOnchain(provider, quote, { config, blockTag = 'l
   requireValue(blockTag === 'latest' || BigInt(blockTag) === BigInt(tag), '矿机返回区块与请求不一致。');
   const call = async (to, abi, name, args) => abi.decodeFunctionResult(name, await request('eth_call', [{ to, data: abi.encodeFunctionData(name, args) }, tag]));
   const { owner, listing, key } = await settleReadRound({
-    owner: () => call(quote.collection, nftAbi, 'ownerOf', [quote.tokenId]),
-    listing: () => call(MARKET, marketAbi, 'listingFor', [quote.collection, quote.tokenId]),
-    key: () => call(MINING, miningAbi, 'minerKey', [quote.collection, quote.tokenId]),
+    owner: () => call(collection, nftAbi, 'ownerOf', [tokenId]),
+    listing: () => call(MARKET, marketAbi, 'listingFor', [collection, tokenId]),
+    key: () => call(MINING, miningAbi, 'minerKey', [collection, tokenId]),
   });
   const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
-  requireValue(same(owner[0], quote.owner), '矿机持有人已变化，请刷新报价。');
-  requireValue(same(miner.circuits, quote.collection) && miner.circuitId === BigInt(quote.tokenId), '矿机链上身份不一致。');
-  requireValue(miner.status === 1n && !miner.optimal && miner.verifWeight > 0n && miner.unverWeight === 0n, '仅支持链上正在挖矿、纯验证权重的非最优矿机。');
-  requireValue(quote.status === 'verified' && miner.taskId.toString() === quote.taskId && miner.verifWeight.toString() === quote.verifiedWeight
-    && quote.unverifiedWeight === '0', '矿机任务或权重已变化，请重新获取。');
-  const official = listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
+  requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
+  const eligible = miner.status === 1n && !miner.optimal && miner.verifWeight > 0n && miner.unverWeight === 0n;
+  requireValue(allowIneligible || eligible, '仅支持链上正在挖矿、纯验证权重的非最优矿机。');
+  const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
     ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
-  const registry = await readMachineRegistry(provider, { factory: config?.factory, collection: quote.collection, tokenId: quote.tokenId, blockTag: tag });
-  let firsto = null, firstoError = null;
-  if (quote.ask?.venue === 'firsto') {
-    if (!registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
-    else if (!registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
-    else {
-      try {
-        const order = parseFirstoSignedAsk(quote.ask, { collection: quote.collection, tokenId: quote.tokenId, owner: owner[0] });
-        firsto = await verifyFirstoSignedAsk(provider, order, { blockTag: tag });
-        requireValue(firsto.checkedBlock.hash === block.hash, 'Firsto 订单与矿机核对区块不一致。');
-      } catch (error) { firsto = null; firstoError = operatorQuoteError(error); }
-    }
-  }
+  const registry = await readMachineRegistry(provider, { factory: config?.factory ?? config?.manifest?.factory, collection, tokenId, blockTag: tag });
   const { after, finalChain } = await settleReadRound({ after: () => request('eth_getBlockByNumber', [tag, false]), finalChain: () => request('eth_chainId') });
   requireValue(after?.hash === block.hash && after?.number === block.number && after?.timestamp === block.timestamp
     && BigInt(finalChain) === 56n, '矿机核对期间区块或网络变化，请重试。');
-  return Object.freeze({ official, firsto, firstoError, registry, blockNumber: BigInt(block.number).toString(), blockHash: block.hash, checkedAt: Date.now() });
+  return Object.freeze({ collection, tokenId: tokenId.toString(), owner: getAddress(owner[0]), taskId: miner.taskId.toString(),
+    verifiedWeight: miner.verifWeight.toString(), eligible, official, firsto: null, firstoError: null, registry,
+    blockNumber: BigInt(block.number).toString(), blockHash: block.hash, checkedAt: Date.now() });
 }
 
-export async function loadOperatorQuote({ collection, tokenId, config, provider, blockTag, ...options }) {
+function matchQuoteToMiner(quote, chain) {
+  requireValue(same(quote.owner, chain.owner), '矿机持有人已变化，请刷新报价。');
+  requireValue(quote.status === 'verified' && quote.taskId === chain.taskId && quote.verifiedWeight === chain.verifiedWeight
+    && quote.unverifiedWeight === '0', '矿机任务或权重已变化，请重新获取。');
+}
+
+/** Public quotes are discovery only; an official listing always takes purchase priority. */
+export async function checkMinerOnchain(provider, quote, { config, blockTag = 'latest', officialPriceCapWei } = {}) {
+  const chain = await readOfficialMinerOnchain(provider, quote?.collection, quote?.tokenId, { config, blockTag });
+  matchQuoteToMiner(quote, chain);
+  let firsto = null, firstoError = null;
+  const officialWithinCap = chain.official && (officialPriceCapWei === undefined
+    || BigInt(chain.official.priceWei) <= uint(officialPriceCapWei));
+  if (!officialWithinCap && quote.ask?.venue === 'firsto') {
+    if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
+    else if (!chain.registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
+    else {
+      try {
+        const order = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        firsto = await verifyFirstoSignedAsk(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)) });
+        requireValue(firsto.checkedBlock.hash === chain.blockHash, 'Firsto 订单与矿机核对区块不一致。');
+      } catch (error) { firsto = null; firstoError = operatorQuoteError(error); }
+    }
+  }
+  return Object.freeze({ ...chain, firsto, firstoError });
+}
+
+export async function loadOperatorQuote({ collection, tokenId, config, provider, blockTag,
+  mode = 'createPool', officialPriceCapWei, ...options }) {
+  const reader = provider ?? createReadOnlyHttpProvider(config);
+  const officialChain = await readOfficialMinerOnchain(reader, collection, tokenId, { config, blockTag });
+  // A fixed official purchase needs no Firsto availability, estimate or buyer-fee quote.
+  const officialWithinCap = officialChain.official && (officialPriceCapWei === undefined
+    || BigInt(officialChain.official.priceWei) <= uint(officialPriceCapWei));
+  if (officialWithinCap && mode === 'createPool') return Object.freeze({ quote: null, chain: officialChain, reference: null, referenceError: null });
   const opts = { baseUrl: QUOTE_BASE, ...options };
   const results = await Promise.allSettled([fetchMineQuote(collection, tokenId, opts), fetchCapacityReference(opts)]);
   if (results[0].status === 'rejected') throw results[0].reason;
   const quote = results[0].value;
   requireValue(!quoteIssue(quote), quoteIssue(quote));
-  const chain = await checkMinerOnchain(provider ?? createReadOnlyHttpProvider(config), quote, { config, blockTag });
+  matchQuoteToMiner(quote, officialChain);
+  const chain = officialWithinCap ? officialChain : await checkMinerOnchain(reader, quote,
+    { config, blockTag, officialPriceCapWei });
   return Object.freeze({ quote, chain, reference: results[1].status === 'fulfilled' ? results[1].value : null,
     referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });
 }
@@ -107,17 +132,18 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
 /** Only drafts; no signing or broadcasts. Relative deadlines remain operator choices. */
 export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 1000, fundingHours = '24', purchaseHours = '48' } = {}, now = Date.now()) {
   const { quote, chain, reference } = checked;
-  requireValue(!quoteIssue(quote, now), quoteIssue(quote, now));
+  if (quote) requireValue(!quoteIssue(quote, now), quoteIssue(quote, now));
+  else requireValue(mode === 'createPool' && chain?.official, 'Firsto 报价不可用，请重新获取。');
   requireValue(chain && Number.isFinite(chain.checkedAt) && chain.checkedAt <= now + 30000 && now - chain.checkedAt <= 300000, '链上矿机核对已过期，请重新获取。');
   requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间。');
   requireValue(uint(fundingHours, 32) > 0n && uint(purchaseHours, 32) > 0n, '请填写有效的募集和购机时长。');
   requireValue(chain.registry?.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
   requireValue(chain.registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
   requireValue(chain.registry.pool && same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
-  const params = { circuits: getAddress(quote.collection), circuitId: quote.tokenId, fundingHours, purchaseHours };
+  const params = { circuits: getAddress(chain.collection ?? quote.collection), circuitId: chain.tokenId ?? quote.tokenId, fundingHours, purchaseHours };
   if (mode === 'createPool') {
     requireValue(chain.firsto || chain.official, `这台矿机当前没有本项目可购买的官网挂单或已核验 Firsto 订单。${chain.firstoError || ''}`);
-    const priceCapWei = chain.firsto?.grossWei ?? chain.official.priceWei;
+    const priceCapWei = chain.official?.priceWei ?? chain.firsto.grossWei;
     const amounts = referenceQuote(priceCapWei, BigInt(extraBps));
     return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: amounts.targetRaise.toString(), priceCapWei } });
   }

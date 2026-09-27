@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Interface, Transaction, TypedDataEncoder, Wallet, ZeroAddress, toQuantity } from 'ethers';
 import { FIRSTO_ASK_FIELDS, FIRSTO_SIGNED_EXCHANGE } from '../src/firsto-purchase.mjs';
-import { KEEPER_POOL_ABI, OFFICIAL_COLLECTIONS, createKeeperRuntime, fetchCandidates, parseArguments,
+import { KEEPER_POOL_ABI, LISTING_ABI, OFFICIAL_MARKET, OFFICIAL_COLLECTIONS, createKeeperRuntime, fetchCandidates, parseArguments,
   readJournal, readKeeperPool, runKeeperCycle, selectFirstoCandidates, verifyFirstoCandidate, writeJournal } from './purchase-keeper.mjs';
 
 const runtimeFixture = JSON.parse(readFileSync(new URL('./fixtures/firsto-signed-runtime.json', import.meta.url), 'utf8'));
@@ -39,12 +39,14 @@ const exchangeAbi = new Interface(['function factory() view returns(address)', '
   'function feeEpoch() view returns(uint256)', 'function defaultTakerFeeBps() view returns(uint16)',
   'function feeBpsAtEpoch(uint256) view returns(uint16)', 'function SIGNED_ASK_SCHEMA_VERSION() view returns(uint16)',
   'function isSignedAskNonceInvalidated(address,uint256) view returns(bool)']);
+const officialAbi = new Interface([...LISTING_ABI, 'function nextListingId() view returns(uint256)']);
 const nftAbi = new Interface(['function ownerOf(uint256) view returns(address)', 'function getApproved(uint256) view returns(address)',
   'function isApprovedForAll(address,address) view returns(bool)']);
 function simulatedChain() {
   const state = { funding: 1n, flexible: false, chainId: 56n, block: 50, blockHash, owner,
     fee: 100n, invalid: false, approved: FIRSTO_SIGNED_EXCHANGE, cap: 1010n, estimates: [], signed: 0, broadcasts: [], reads: [],
-    timestamp: now, atomicFailure: false, latestNonce: 7, pendingNonce: 7 };
+    timestamp: now, atomicFailure: false, latestNonce: 7, pendingNonce: 7,
+    officialListing: false, officialAlternative: false, officialMaxId: 7n };
   const block = () => ({ number: state.block, hash: state.blockHash, timestamp: state.timestamp, gasLimit: 30000000n });
   const provider = {
     getNetwork: async () => ({ chainId: state.chainId }), getBlock: async () => block(),
@@ -54,14 +56,23 @@ function simulatedChain() {
     call: async transaction => {
       const target = transaction.to.toLowerCase();
       const abi = target === pool.toLowerCase() ? poolAbi : target === factory.toLowerCase() ? registryAbi
-        : target === FIRSTO_SIGNED_EXCHANGE.toLowerCase() ? exchangeAbi : nftAbi;
+        : target === FIRSTO_SIGNED_EXCHANGE.toLowerCase() ? exchangeAbi
+          : target === OFFICIAL_MARKET.toLowerCase() ? officialAbi : nftAbi;
       const decoded = abi.parseTransaction({ data: transaction.data }), name = decoded.name; state.reads.push(name);
       const result = { isPool: [true], factory: [target === FIRSTO_SIGNED_EXCHANGE.toLowerCase() ? officialFactory : factory],
         OFFICIAL_FACTORY: [factory], state: [state.funding], params: [[collection, 7n, 1100n, state.cap, ZeroAddress, 0n, now + 1000, now + 2000]],
-        flexiblePurchase: [state.flexible, 7n, [1n, 1010n, 1n, 1000n, now - 100, 40, blockHash]],
+        flexiblePurchase: [state.flexible, state.flexible ? 7n : 0n,
+          [1n, 1010n, 1n, 1000n, now - 100, 40, blockHash]],
         purchaseModel: [state.flexible, 42n], purchaseReferenceWeight: [state.flexible ? 100n : 0n],
         paused: [false], feeEpoch: [1n], defaultTakerFeeBps: [state.fee], feeBpsAtEpoch: [state.fee], SIGNED_ASK_SCHEMA_VERSION: [2n],
-        isSignedAskNonceInvalidated: [state.invalid], ownerOf: [state.owner], getApproved: [state.approved], isApprovedForAll: [false] }[name];
+        isSignedAskNonceInvalidated: [state.invalid], ownerOf: [state.owner], getApproved: [state.approved], isApprovedForAll: [false],
+        listingFor: decoded.args.length > 1 && decoded.args[1] === 8n && state.officialAlternative ? [8n, owner, 1000n, true]
+          : decoded.args.length > 1 && decoded.args[1] === 7n && state.officialListing ? [7n, owner, 1000n, true]
+            : [0n, ZeroAddress, 0n, false],
+        listingView: decoded.args.length > 0 && decoded.args[0] === 8n && state.officialAlternative ? [owner, collection, 8n, 1000n, 100n, true]
+          : decoded.args.length > 0 && decoded.args[0] === 7n && state.officialListing ? [owner, collection, 7n, 1000n, 100n, true]
+            : [ZeroAddress, ZeroAddress, 0n, 0n, 0n, false],
+        nextListingId: [state.officialMaxId] }[name];
       if (!result) throw new Error(`Unexpected read ${name}`);
       return abi.encodeFunctionResult(name, result);
     },
@@ -78,7 +89,8 @@ function simulatedChain() {
       if (transaction.data === '0x' && transaction.to.toLowerCase() === owner.toLowerCase()) return 21000n;
       const decoded = poolAbi.parseTransaction({ data: transaction.data }); state.estimates.push(decoded);
       if (state.atomicFailure || state.funding !== 1n) throw new Error('Pool quality/occupancy/funding simulation failed');
-      assert.equal(decoded.name, 'buyFromFirsto'); assert.equal(decoded.args[0], 0n);
+      if (decoded.name === 'buyFromFirsto') assert.equal(decoded.args[0], 0n);
+      else assert.equal(decoded.name, state.flexible ? 'buyAlternativeFromMarket' : 'buyFromMarket');
       assert(!transaction.value || transaction.value === 0n);
       return 100n;
     },
@@ -96,7 +108,141 @@ test('Firsto execution requires explicit venue and never enables batch or change
   const base = ['--factory', factory, '--pool', pool];
   assert.equal(parseArguments(base).venue, 'official');
   assert.equal(parseArguments([...base, '--venue', 'firsto-signed']).send, false);
+  assert.equal(parseArguments([...base, '--venue', 'auto']).venue, 'auto');
+  assert.throws(() => parseArguments([...base, '--venue', 'firsto-signed', '--journal', '/tmp/keeper-test.json', '--send']),
+    /read-only for new purchases/);
+  assert.equal(parseArguments([...base, '--venue', 'firsto-signed', '--journal', '/tmp/keeper-test.json', '--send', '--once', '--rebroadcast']).rebroadcast, true);
   assert.throws(() => parseArguments([...base, '--venue', 'batch']), /batch orders are disabled/);
+});
+
+test('runtime API also refuses a direct signed-Firsto send without official-first selection', async t => {
+  const journal = temporary(t), { provider, signer } = simulatedChain();
+  await assert.rejects(runKeeperCycle(provider, { ...options(journal), send: true }, signer, feed()),
+    /cannot send a new purchase/);
+});
+
+test('automatic route buys the original official listing before consulting Firsto', async t => {
+  const journal = temporary(t), { provider, state } = simulatedChain();
+  state.officialListing = true;
+  let firstoReads = 0;
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto' }, null,
+    async () => { firstoReads += 1; throw new Error('Firsto must not be read while the official target is purchasable.'); });
+  assert.equal(result.status, 'dry-run-ready');
+  assert.equal(result.officialPriceWei, 1000n);
+  assert.equal(state.estimates[0].name, 'buyFromMarket');
+  assert.equal(firstoReads, 0);
+});
+
+test('automatic send signs only the official purchase when both venues can sell the same miner', async t => {
+  const journal = temporary(t), { provider, state, signer } = simulatedChain();
+  state.officialListing = true;
+  let firstoReads = 0;
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true }, signer,
+    async () => { firstoReads += 1; return feed()(); });
+  assert.equal(result.status, 'broadcast');
+  assert.equal(state.signed, 1);
+  assert.equal(state.broadcasts.length, 1);
+  assert.equal(poolAbi.parseTransaction({ data: state.broadcasts[0].data }).name, 'buyFromMarket');
+  assert.equal(firstoReads, 0);
+});
+
+test('automatic fixed-pool route checks the official target, then its exact Firsto signed order', async t => {
+  const journal = temporary(t), { provider, state } = simulatedChain();
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto' }, null, feed());
+  assert.equal(result.status, 'dry-run-ready');
+  assert.equal(result.purchaseSequence, 'official-then-firsto');
+  assert.equal(result.firstoTotalCostWei, '1010');
+  assert.equal(state.estimates[0].name, 'buyFromFirsto');
+  assert(state.reads.indexOf('listingFor') < state.reads.indexOf('isSignedAskNonceInvalidated'));
+});
+
+test('automatic flexible-pool route never treats a broken official snapshot as an empty market', async t => {
+  const journal = temporary(t), { provider, state } = simulatedChain();
+  state.flexible = true;
+  let calls = 0;
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto' }, null,
+    async () => { calls += 1; return feed()(); });
+  assert.equal(result.status, 'official-priority-unverified');
+  assert.equal(calls, 1, 'the malformed official response must not trigger Firsto discovery');
+  assert.equal(state.estimates.length, 0);
+});
+
+test('automatic flexible-pool route buys a matching official alternative before Firsto discovery', async t => {
+  const journal = temporary(t), { provider, state } = simulatedChain();
+  state.flexible = true; state.officialAlternative = true; state.officialMaxId = 8n;
+  const marketFeed = { generatedAt: new Date().toISOString(), block: 50, maxId: 8,
+    marketAddr: OFFICIAL_MARKET, listings: [{ id: 8, seller: owner, circuits: collection,
+      circuitId: '8', price: '1000', valid: true }] };
+  let firstoReads = 0;
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto',
+    read: { nextListingId: async () => 8n,
+      listingView: async id => ({ id, seller: owner, circuits: collection, circuitId: '8', price: '1000', valid: true }),
+      miner: async () => ({ circuits: collection, circuitId: 8n, taskId: 42n, status: 1n,
+        optimal: false, verifWeight: 100n, unverWeight: 0n }),
+    } }, null, async url => {
+    if (String(url).includes('tapeout.net')) return Response.json(marketFeed);
+    firstoReads += 1; return feed()();
+  });
+  assert.equal(result.status, 'dry-run-ready');
+  assert.equal(result.listingId, 8n);
+  assert.equal(state.estimates[0].name, 'buyAlternativeFromMarket');
+  assert.equal(firstoReads, 0);
+});
+
+test('automatic flexible-pool fallback requires a complete scan and unchanged official listing head', async t => {
+  const journal = temporary(t), { provider, state } = simulatedChain();
+  state.flexible = true;
+  const runtime = createKeeperRuntime();
+  runtime.autoOfficial = createKeeperRuntime();
+  runtime.autoOfficial.constraints = await readKeeperPool(provider, { ...options(journal), venue: 'official', allowFixedOfficial: true });
+  runtime.autoOfficial.discovery = { officialSnapshotComplete: true, maxId: 7n };
+  runtime.autoOfficial.lastRefreshStarted = Date.now();
+  runtime.autoOfficial.lastRefreshCompleted = Date.now();
+  const officialFeed = { generatedAt: new Date().toISOString(), block: 50,
+    maxId: 7, marketAddr: OFFICIAL_MARKET, listings: [] };
+  const fetcher = async url => String(url).includes('tapeout.net') ? Response.json(officialFeed) : feed()();
+  const autoOptions = { ...options(journal), venue: 'auto',
+    read: { nextListingId: async () => state.officialMaxId } };
+  const ready = await runKeeperCycle(provider, autoOptions, null, fetcher, runtime);
+  assert.equal(ready.status, 'dry-run-ready');
+  assert.equal(ready.firstoTotalCostWei, '1010');
+  assert(state.reads.indexOf('nextListingId') < state.reads.indexOf('isSignedAskNonceInvalidated'));
+  runtime.autoOfficial.discovery.maxId = 6n;
+  runtime.autoFirsto = createKeeperRuntime();
+  const changed = await runKeeperCycle(provider, autoOptions, null, fetcher, runtime);
+  assert.equal(changed.status, 'official-priority-unverified');
+});
+
+test('an older official alternative repriced during Firsto preparation wins before any Firsto signature', async t => {
+  const journal = temporary(t), { provider, state, signer } = simulatedChain();
+  state.flexible = true; state.officialMaxId = 8n;
+  const runtime = createKeeperRuntime();
+  runtime.autoOfficial = createKeeperRuntime();
+  runtime.autoOfficial.constraints = await readKeeperPool(provider, { ...options(journal), venue: 'official' });
+  runtime.autoOfficial.discovery = { officialSnapshotComplete: true, maxId: 8n, generatedAt: new Date().toISOString() };
+  runtime.autoOfficial.lastRefreshStarted = Date.now();
+  runtime.autoOfficial.lastRefreshCompleted = Date.now();
+  const marketFeed = { generatedAt: new Date().toISOString(), block: 50, maxId: 8,
+    marketAddr: OFFICIAL_MARKET, listings: [{ id: 8, seller: owner, circuits: collection,
+      circuitId: '8', price: '1500', valid: true }] };
+  let firstoReads = 0;
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true,
+    read: { nextListingId: async () => 8n,
+      listingView: async id => ({ id, seller: owner, circuits: collection, circuitId: '8',
+        price: state.officialAlternative ? '1000' : '1500', valid: true }),
+      miner: async () => ({ circuits: collection, circuitId: 8n, taskId: 42n, status: 1n,
+        optimal: false, verifWeight: 100n, unverWeight: 0n }),
+    } }, signer, async url => {
+    if (String(url).includes('tapeout.net')) return Response.json(marketFeed);
+    firstoReads += 1;
+    state.officialAlternative = true; // Same listing ID, now below the cap while Firsto is discovered.
+    return feed()();
+  }, runtime);
+  assert.equal(result.status, 'broadcast');
+  assert.equal(result.listingId, 8n);
+  assert.equal(firstoReads, 1);
+  assert.equal(state.signed, 1);
+  assert.equal(poolAbi.parseTransaction({ data: state.broadcasts[0].data }).name, 'buyAlternativeFromMarket');
 });
 
 test('signed discovery is original-target-only, rejects batch/malformed orders, and counts source fee in cap', () => {
@@ -153,7 +299,7 @@ test('stale prewarmed signed orders and failed Pool simulation never reach signi
   await runtime.refreshTask;
   assert.equal(runtime.queue.length, 1);
   state.funding = 1n; state.invalid = true;
-  const failed = await runKeeperCycle(provider, { ...options(journal), send: true }, signer, feed(), runtime);
+  const failed = await runKeeperCycle(provider, options(journal), signer, feed(), runtime);
   assert.equal(failed.status, 'no-executable-firsto-original-target-in-prepared-queue'); assert.equal(state.estimates.length, 0);
   if (runtime.refreshTask) await runtime.refreshTask;
   state.invalid = false; state.atomicFailure = true;
@@ -176,7 +322,8 @@ test('Firsto send retains total gas budget and pending nonce boundaries before a
   for (const boundary of ['budget', 'nonce']) {
     const journal = temporary(t), { provider, state, signer } = simulatedChain();
     if (boundary === 'nonce') state.pendingNonce = 8;
-    const result = await runKeeperCycle(provider, { ...options(journal), send: true, maxGasWei: boundary === 'budget' ? 119n : 1000n }, signer, feed());
+    const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true,
+      maxGasWei: boundary === 'budget' ? 119n : 1000n }, signer, feed());
     assert.equal(result.status, boundary === 'budget' ? 'total-gas-budget-exceeded' : 'keeper-account-has-pending-transactions');
     assert.equal(state.signed, 0); assert.equal(state.broadcasts.length, 0);
   }
@@ -184,7 +331,7 @@ test('Firsto send retains total gas budget and pending nonce boundaries before a
 
 test('Firsto signed bytes are journaled with exact kind/order/zero value and unknown outcomes are never resent', async t => {
   const journal = temporary(t), { provider, state, signer } = simulatedChain();
-  const result = await runKeeperCycle(provider, { ...options(journal), send: true }, signer, feed());
+  const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true }, signer, feed());
   assert.equal(result.status, 'broadcast'); assert.equal(state.signed, 1); assert.equal(state.broadcasts.length, 1);
   const persisted = readJournal(journal, options(journal));
   assert.equal(persisted.transaction.venue, 'firsto-signed'); assert.equal(persisted.transaction.orderHash, askHash);
@@ -192,13 +339,14 @@ test('Firsto signed bytes are journaled with exact kind/order/zero value and unk
   const sent = state.broadcasts[0], decoded = poolAbi.parseTransaction({ data: sent.data });
   assert.equal(decoded.name, 'buyFromFirsto'); assert.equal(decoded.args[0], 0n);
   assert.equal(sent.to.toLowerCase(), pool.toLowerCase()); assert.equal(sent.value, 0n); assert.equal(sent.chainId, 56n);
-  const pending = await runKeeperCycle(provider, { ...options(journal), send: true }, signer, () => { throw new Error('No discovery'); });
+  const pending = await runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true }, signer,
+    () => { throw new Error('No discovery'); });
   assert.equal(pending.status, 'pending-receipt'); assert.equal(state.broadcasts.length, 1); assert.equal(state.signed, 1);
 });
 
 async function pendingPurchase(t) {
   const journal = temporary(t), chain = simulatedChain();
-  const result = await runKeeperCycle(chain.provider, { ...options(journal), send: true }, chain.signer, feed());
+  const result = await runKeeperCycle(chain.provider, { ...options(journal), venue: 'auto', send: true }, chain.signer, feed());
   assert.equal(result.status, 'broadcast');
   // Metadata and the current CLI venue cannot turn this Firsto calldata into an official purchase.
   const persisted = readJournal(journal, options(journal)); persisted.transaction.venue = 'official';

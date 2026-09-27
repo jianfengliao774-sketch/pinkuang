@@ -46,7 +46,8 @@ test('inactive or stale official listings remain reference-only and cannot creat
 
 test('Firsto listing price/buyer total never replace the independently verified official purchase price', async () => {
   const data = dataFixture(), rpc = chainFixture(data.quote), api = apiFixture(data);
-  const checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, provider: rpc.provider, fetcher: api.fetcher });
+  const checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+    provider: rpc.provider, fetcher: api.fetcher, mode: 'createFlexiblePoolChecked' });
   const draft = operatorQuoteDraft(checked, { extraBps: 1000 });
   assert.equal(checked.quote.ask.priceWei, '2355000000000000001');
   assert.equal(checked.quote.ask.buyerCostWei, '2378550000000000002');
@@ -86,12 +87,15 @@ test('stale/future quotes, expired asks and stale/future chain checks never beco
   for (const fundingHours of ['0', '-1', '1.5']) assert.throws(() => operatorQuoteDraft(checked, { fundingHours }, now));
 });
 
-test('reference failure preserves a checked fixed quote but blocks flexible budget generation', async () => {
+test('official fixed purchase survives a broken Firsto API; flexible reference still fails closed', async () => {
   const data = dataFixture(), rpc = chainFixture(data.quote), api = apiFixture(data, { referenceFails: true });
   const checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, provider: rpc.provider, fetcher: api.fetcher });
-  assert.equal(checked.reference, null); assert.match(checked.referenceError, /Firsto.*503/);
+  assert.equal(checked.quote, null); assert.equal(api.requests.length, 0, 'official lookup does not wait for Firsto');
   assert(operatorQuoteDraft(checked));
-  assert.throws(() => operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' }), /503/);
+  const flexible = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+    provider: rpc.provider, fetcher: api.fetcher, mode: 'createFlexiblePoolChecked' });
+  assert.equal(flexible.reference, null); assert.match(flexible.referenceError, /Firsto.*503/);
+  assert.throws(() => operatorQuoteDraft(flexible, { mode: 'createFlexiblePoolChecked' }), /503/);
 });
 
 test('non-official identities are excluded from discovery and cannot reach on-chain quote reads', async () => {
@@ -102,7 +106,7 @@ test('non-official identities are excluded from discovery and cannot reach on-ch
   assert.match(api.requests[0].input, /sort=price_low/);
   await listOperatorQuotes({ sort: 'daily_capacity_price_low' }, { fetcher: api.fetcher });
   assert.match(api.requests[1].input, /sort=daily_capacity_price_low/);
-  await assert.rejects(loadOperatorQuote({ collection: other, tokenId: '16480', provider: rpc.provider, fetcher: api.fetcher }), /只接受官方/);
+  await assert.rejects(loadOperatorQuote({ collection: other, tokenId: '16480', provider: rpc.provider, fetcher: api.fetcher }), /官方矿机/);
   await assert.rejects(checkMinerOnchain(rpc.provider, { ...data.quote, collection: other }), /官方矿机/);
   assert.equal(rpc.requests.length, 0);
 });
@@ -129,15 +133,16 @@ test('failed concurrent owner read drains pending market reads and never continu
   assert(!rpc.calls.includes('getMiner'));
 });
 
-test('stale or mismatched HTTP detail fails before any on-chain request', async () => {
+test('official market is queried before Firsto; stale or mismatched detail still fails closed', async () => {
   for (const fault of ['owner', 'yield', 'stale']) {
     const data = dataFixture(), rpc = chainFixture(data.quote);
     if (fault === 'owner') data.detail.asset.owner = other;
     if (fault === 'yield') data.detail.asset.mining.estimated24hAtomic = '1';
     if (fault === 'stale') Object.keys(data.page.sourceFreshness).forEach(key => { data.page.sourceFreshness[key] = Date.now() - 300001; });
     const api = apiFixture(data);
-    await assert.rejects(loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, provider: rpc.provider, fetcher: api.fetcher }));
-    assert.equal(rpc.requests.length, 0, fault);
+    await assert.rejects(loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+      provider: rpc.provider, fetcher: api.fetcher, mode: 'createFlexiblePoolChecked' }));
+    assert(rpc.calls.includes('listingFor'), fault);
   }
 });
 

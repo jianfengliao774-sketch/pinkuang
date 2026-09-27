@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress, formatEther, getAddress, parseEther, parseUnits, Transaction, keccak256, toQuantity } from 'ethers';
 import { decodeFirstoOrder, parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { MAX_OFFICIAL_SNAPSHOT_AGE_MS, fetchOfficialCandidates, verifyOfficialSnapshotBoundary } from './official-market-discovery.mjs';
 
 export const KEEPER_STATE_ROOT = resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
 
@@ -17,6 +18,7 @@ export const KEEPER_POOL_ABI = [
   'function params() view returns(tuple(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline))',
   'function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,tuple(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)',
   'function buyAlternativeFromMarket(uint256 listingId)',
+  'function buyFromMarket(uint256 listingId)',
   'function buyFromFirsto(uint8 kind,bytes encodedOrder)',
   'function purchaseModel() view returns(bool initialized,uint32 taskId)',
   'function purchaseReferenceWeight() view returns(uint128)',
@@ -52,7 +54,7 @@ export function parseArguments(args) {
   const sort = values.sort ?? 'capacity';
   if (!['capacity', 'price'].includes(sort)) throw new Error('--sort must be capacity or price.');
   const venue = values.venue ?? 'official';
-  if (!['official', 'firsto-signed'].includes(venue)) throw new Error('--venue must be official or firsto-signed; batch orders are disabled.');
+  if (!['official', 'firsto-signed', 'auto'].includes(venue)) throw new Error('--venue must be official, firsto-signed or auto; batch orders are disabled.');
   const rpc = values.rpc ?? 'https://bsc-dataseed.bnbchain.org';
   const rpcUrl = new URL(rpc);
   if (!/^https?:$/.test(rpcUrl.protocol)) throw new Error('RPC must be an HTTP(S) URL.');
@@ -64,6 +66,9 @@ export function parseArguments(args) {
   if (values['recover-hash'] && !/^0x[0-9a-f]{64}$/i.test(values['recover-hash'])) throw new Error('Invalid --recover-hash.');
   if ([values['speed-up'], values.rebroadcast, values['cancel-pending']].filter(Boolean).length > 1) throw new Error('Choose only one recovery action, not both or several.');
   if ((values['speed-up'] || values.rebroadcast || values['cancel-pending']) && (!values.send || !values.once)) throw new Error('Recovery requires explicit --send --once.');
+  if (venue === 'firsto-signed' && values.send && !values['speed-up'] && !values.rebroadcast && !values['cancel-pending']) {
+    throw new Error('Firsto signed mode is read-only for new purchases; use --venue auto to check the official market first.');
+  }
   const maxSpeedUps = Number(values['max-speed-ups'] ?? 3), pendingSeconds = Number(values['pending-seconds'] ?? 120);
   if (!Number.isSafeInteger(maxSpeedUps) || maxSpeedUps < 0 || maxSpeedUps > 5) throw new Error('--max-speed-ups must be 0–5.');
   if (!Number.isSafeInteger(pendingSeconds) || pendingSeconds < 30 || pendingSeconds > 86400) throw new Error('--pending-seconds must be 30–86400.');
@@ -226,11 +231,13 @@ export async function readKeeperPool(provider, options) {
   if (!OFFICIAL_COLLECTIONS.some(item => same(item, params.circuits))) throw new Error('Pool collection is not an official TapeOut/Behemoth collection.');
   if (policy.enabled && !model.initialized) throw new Error('Flexible pool has no immutable on-chain purchase model; create a new configured pool.');
   if (policy.enabled && referenceWeight === 0n) throw new Error('Flexible pool has no immutable reference weight; legacy pricing cannot purchase. Create a new configured pool.');
-  const check = inspectPoolState(state, policy.enabled || options.venue === 'firsto-signed', params.purchaseDeadline, BigInt(block.timestamp));
+  const check = inspectPoolState(state, policy.enabled || options.venue === 'firsto-signed' || options.allowFixedOfficial === true,
+    params.purchaseDeadline, BigInt(block.timestamp));
   if (policy.enabled && (policy.config.minVerifiedWeight === 0n || params.priceCap === 0n)) throw new Error('Invalid flexible-purchase constraints.');
   return { ...check, blockNumber: block.number, blockGasLimit: block.gasLimit, enabled: policy.enabled, state, circuits: params.circuits, circuitId: params.circuitId, priceCap: params.priceCap,
     purchaseDeadline: params.purchaseDeadline, taskId: model.taskId, referenceVerifiedWeight: referenceWeight, minVerifiedWeight: policy.config.minVerifiedWeight,
-    referencePriceWei: policy.config.referencePriceWei, referenceCircuitId: policy.referenceCircuitId };
+    referencePriceWei: policy.config.referencePriceWei,
+    referenceCircuitId: policy.enabled ? policy.referenceCircuitId : params.circuitId };
 }
 
 export async function verifyFirstoCandidate(provider, candidate, constraints) {
@@ -262,7 +269,7 @@ export function createKeeperRuntime() {
     refreshError: null, discovery: null, stopped: false, abortController: new AbortController() };
 }
 
-function referenceFirst(candidates, constraints, sort) {
+function referenceFirst(candidates, constraints, sort, limit = 30) {
   const key = `${constraints.circuits.toLowerCase()}:${constraints.referenceCircuitId}`;
   const existing = candidates.find(candidate => candidate.key === key);
   const reference = existing ? { ...existing, isReference: true } : {
@@ -270,13 +277,13 @@ function referenceFirst(candidates, constraints, sort) {
     verifiedWeight: constraints.minVerifiedWeight, isReference: true, discoverySource: 'pool-reference', discoveryVenue: null,
     indexerSourceBlock: null, indexerBuyerCostWei: null,
   };
-  return [reference, ...candidates.filter(candidate => candidate.key !== key).sort((a, b) => compareCandidates(a, b, sort))].slice(0, 30);
+  return [reference, ...candidates.filter(candidate => candidate.key !== key).sort((a, b) => compareCandidates(a, b, sort))].slice(0, limit);
 }
 
 function orderedCandidates(candidates, constraints, options) {
   return options.venue === 'firsto-signed'
     ? candidates.filter(candidate => candidate.order?.kind === 0 && candidate.tokenId === constraints.circuitId && same(candidate.collection, constraints.circuits)).slice(0, 1)
-    : referenceFirst(candidates, constraints, options.sort);
+    : referenceFirst(candidates, constraints, options.sort, options.officialSnapshot ? Infinity : 30);
 }
 
 const verifyPurchaseCandidate = (provider, candidate, constraints, options) => options.venue === 'firsto-signed'
@@ -287,7 +294,8 @@ async function pollPoolState(provider, options, cached) {
   const block = await provider.getBlock('latest');
   if (!block) throw new Error('Cannot read latest block.');
   const state = await new Contract(options.pool, KEEPER_POOL_ABI, provider).state({ blockTag: block.number });
-  return { ...cached, ...inspectPoolState(state, cached.enabled || options.venue === 'firsto-signed', cached.purchaseDeadline, BigInt(block.timestamp)), state,
+  return { ...cached, ...inspectPoolState(state, cached.enabled || options.venue === 'firsto-signed' || options.allowFixedOfficial === true,
+    cached.purchaseDeadline, BigInt(block.timestamp)), state,
     blockNumber: block.number, blockGasLimit: block.gasLimit };
 }
 
@@ -297,7 +305,9 @@ export function startCandidateRefresh(provider, options, constraints, runtime, f
   runtime.lastRefreshStarted = Date.now();
   runtime.refreshTask = (async () => {
     try {
-      const indexed = await fetchCandidates({ ...options, signal: runtime.abortController.signal }, constraints, fetcher);
+      const indexed = options.officialSnapshot
+        ? await fetchOfficialCandidates(provider, { ...options, signal: runtime.abortController.signal }, constraints, fetcher)
+        : await fetchCandidates({ ...options, signal: runtime.abortController.signal }, constraints, fetcher);
       if (runtime.stopped) return;
       const block = await provider.getBlock('latest');
       if (!block) throw new Error('Cannot read block for candidate preparation.');
@@ -306,6 +316,9 @@ export function startCandidateRefresh(provider, options, constraints, runtime, f
       for (let offset = 0; offset < candidates.length && !runtime.stopped; offset += 4) {
         const resolved = await Promise.allSettled(candidates.slice(offset, offset + 4).map(candidate => verifyPurchaseCandidate(provider,
           { ...candidate, indexerSourceBlock: indexed.sourceBlock }, discoveryConstraints, options)));
+        if (options.officialSnapshot && resolved.some(result => result.status === 'rejected')) {
+          throw new Error('Official listing verification failed; Firsto fallback is blocked.');
+        }
         for (const result of resolved) if (result.status === 'fulfilled' && result.value) prepared.push(result.value);
         // Publish early batches: funding completion need not wait for the remaining NFT lookups.
         if (prepared.length) {
@@ -317,6 +330,8 @@ export function startCandidateRefresh(provider, options, constraints, runtime, f
         runtime.queue = orderedCandidates(prepared, constraints, options);
         runtime.discovery = { scannedRows: indexed.scannedRows, pagesRead: indexed.pagesRead, sourceBlock: indexed.sourceBlock,
           nonOfficialBestAsks: indexed.nonOfficialBestAsks,
+          ...(options.officialSnapshot ? { officialSnapshotComplete: indexed.complete === true, maxId: indexed.maxId,
+            generatedAt: indexed.generatedAt, liveListingsChecked: indexed.liveListingsChecked } : {}),
           ...(options.venue === 'firsto-signed' ? { verifiedSignedOrders: prepared.length } : { resolvedOfficialListings: prepared.length }) };
         runtime.lastRefreshCompleted = Date.now(); runtime.refreshError = null;
       }
@@ -618,7 +633,7 @@ export async function recoverPending(provider, options, signer, journal, diagnos
   return broadcastSigned(provider, options, journal, attempt, true, runtime);
 }
 
-export async function runKeeperCycle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
+async function runKeeperCycleSingle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
   const stopped = stoppedResult(runtime, 'cycle');
   if (stopped) return stopped;
   const firsto = options.venue === 'firsto-signed';
@@ -642,7 +657,9 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
   const refreshDue = Date.now() - runtime.lastRefreshStarted >= (options.refreshInterval ?? 30) * 1000;
   // A ready Funded queue gets priority over any API refresh. While Funding, refresh
   // proceeds in parallel with short state polling and publishes bounded early batches.
-  if ((!constraints.eligible || runtime.queue.length === 0) && refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
+  if ((constraints.enabled || firsto) && (!constraints.eligible || runtime.queue.length === 0) && refreshDue) {
+    startCandidateRefresh(provider, options, constraints, runtime, fetcher);
+  }
   // A bounded one-shot signed-order dry run needs its one original-target discovery round.
   // Continuous mode keeps polling while discovery prewarms in the background.
   if (firsto && options.once && constraints.eligible && runtime.refreshTask) await runtime.refreshTask;
@@ -670,7 +687,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
       runtime.queue = runtime.queue.filter(item => item.key !== prepared.key); continue;
     }
     const overrides = !signer && options.from ? { from: options.from } : {};
-    const method = firsto ? 'buyFromFirsto' : 'buyAlternativeFromMarket';
+    const method = firsto ? 'buyFromFirsto' : constraints.enabled ? 'buyAlternativeFromMarket' : 'buyFromMarket';
     const args = firsto ? [0, candidate.order.encodedOrder] : [candidate.listingId];
     let gasLimit;
     try {
@@ -714,14 +731,87 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
     writeJournal(options.journal, journal); // Exact signed bytes and deterministic hash are durable before any RPC broadcast.
     return { ...await broadcastSigned(provider, options, journal, attempt, false, runtime), ...details };
   }
-  if (refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
+  if ((constraints.enabled || firsto) && refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
   return { status: firsto ? 'no-executable-firsto-original-target-in-prepared-queue' : 'no-executable-official-candidate-in-prepared-queue', terminal: false, ...queueInfo(), skipped,
     message: firsto ? 'Only the original target with a currently verified Firsto signed V2 order is executable; batch and alternative targets are disabled.'
       : 'Only official listings are executable in this venue; Firsto orders require explicit --venue firsto-signed.' };
 }
 
+/** The automatic route checks every discovered official listing before a signed Firsto order.
+ * A failed or incomplete official scan is not proof that the official market has no suitable miner. */
+export async function runKeeperCycle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
+  if (options.venue === 'firsto-signed' && options.send && !options.speedUp && !options.rebroadcast && !options.cancelPending) {
+    throw new Error('Firsto signed mode cannot send a new purchase without the official-first auto route.');
+  }
+  if (options.venue !== 'auto') return runKeeperCycleSingle(provider, options, signer, fetcher, runtime);
+  const stopped = stoppedResult(runtime, 'cycle');
+  if (stopped) return stopped;
+  const binding = `56:${options.factory.toLowerCase()}:${options.pool.toLowerCase()}:auto`;
+  if (runtime.binding && runtime.binding !== binding) throw new Error('In-memory keeper state belongs to another pool.');
+  runtime.binding = binding;
+  runtime.autoOfficial ??= createKeeperRuntime();
+  runtime.autoFirsto ??= createKeeperRuntime();
+  const officialOptions = { ...options, venue: 'official', officialSnapshot: true, allowFixedOfficial: true };
+  const firstoOptions = { ...options, venue: 'firsto-signed' };
+  let official = await runKeeperCycleSingle(provider, officialOptions, signer, fetcher, runtime.autoOfficial);
+  if (official.status === 'funding-prewarming') {
+    // This preparation starts only after a complete independent official-market scan.
+    // No Firsto transaction can be sent while the pool is still Funding.
+    if (runtime.autoOfficial.discovery?.officialSnapshotComplete && runtime.autoOfficial.constraints?.enabled
+      && !runtime.autoFirsto.refreshTask
+      && Date.now() - runtime.autoFirsto.lastRefreshStarted >= (options.refreshInterval ?? 30) * 1000) {
+      startCandidateRefresh(provider, firstoOptions, runtime.autoOfficial.constraints, runtime.autoFirsto, fetcher);
+    }
+    return { ...official, purchaseSequence: 'official-then-firsto' };
+  }
+  if (official.status !== 'no-executable-official-candidate-in-prepared-queue') return official;
+  // A cold funded pool first tries its original target immediately, then waits
+  // for the bounded official snapshot scan before considering Firsto.
+  if (runtime.autoOfficial.refreshTask) {
+    await runtime.autoOfficial.refreshTask;
+    official = await runKeeperCycleSingle(provider, officialOptions, signer, fetcher, runtime.autoOfficial);
+    if (official.status !== 'no-executable-official-candidate-in-prepared-queue') return official;
+  }
+  const priorityCheck = async current => {
+    const discovery = runtime.autoOfficial.discovery;
+    const incomplete = runtime.autoOfficial.constraints?.enabled
+      && (!discovery?.officialSnapshotComplete || runtime.autoOfficial.refreshError
+        || Date.now() - runtime.autoOfficial.lastRefreshCompleted > Math.max(60_000, (options.refreshInterval ?? 30) * 2_000)
+        || (discovery.generatedAt && Date.now() - Date.parse(discovery.generatedAt) > MAX_OFFICIAL_SNAPSHOT_AGE_MS));
+    const uncertain = current.skipped?.some(item => item.reason === 'live-official-listing-read-failed'
+      || item.reason === 'purchase-simulation-reverted-or-listing-changed');
+    if (incomplete || uncertain) return { error: 'Official listings could not be fully ruled out; Firsto fallback is paused.' };
+    if (runtime.autoOfficial.constraints?.enabled) {
+      try {
+        const boundary = await verifyOfficialSnapshotBoundary(provider, discovery.maxId);
+        if (!boundary.complete) throw new Error('Official market added listings after the scan; refresh before Firsto fallback.');
+      } catch (error) { return { error: String(error?.message || 'Official listing index changed before Firsto fallback.').slice(0, 250) }; }
+    }
+    return { discovery };
+  };
+  const priorityFailure = message => ({ status: 'official-priority-unverified', terminal: false, official, message });
+  let priority = await priorityCheck(official);
+  if (priority.error) return priorityFailure(priority.error);
+  // Prepare the exact signed order without signing. While Firsto discovery runs,
+  // an older official listing can be repriced without changing nextListingId().
+  const preview = await runKeeperCycleSingle(provider, { ...firstoOptions, send: false, once: true }, null, fetcher, runtime.autoFirsto);
+  if (preview.status !== 'dry-run-ready') return { ...preview, purchaseSequence: 'official-then-firsto', officialScan: priority.discovery ?? null };
+  if (runtime.autoOfficial.constraints?.enabled) {
+    if (runtime.autoOfficial.refreshTask) await runtime.autoOfficial.refreshTask;
+    const previousDiscovery = runtime.autoOfficial.discovery;
+    await startCandidateRefresh(provider, officialOptions, runtime.autoOfficial.constraints, runtime.autoOfficial, fetcher);
+    if (runtime.autoOfficial.discovery === previousDiscovery) return priorityFailure('Fresh official-market recheck failed before Firsto purchase.');
+  }
+  official = await runKeeperCycleSingle(provider, officialOptions, signer, fetcher, runtime.autoOfficial);
+  if (official.status !== 'no-executable-official-candidate-in-prepared-queue') return official;
+  priority = await priorityCheck(official);
+  if (priority.error) return priorityFailure(priority.error);
+  const firsto = await runKeeperCycleSingle(provider, { ...firstoOptions, once: true }, signer, fetcher, runtime.autoFirsto);
+  return { ...firsto, purchaseSequence: 'official-then-firsto', officialScan: priority.discovery ?? null };
+}
+
 function help() {
-  console.log(`Purchase keeper — BSC official listings or opt-in original-target Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target then the prepared queue immediately; --once performs one cycle.\nOfficial mode seeds the original target without API discovery; Firsto signed mode must obtain its signed order first.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --journal /private/path/pool.json --send\n\n--send reads KEEPER_PRIVATE_KEY only from this process environment. Never put a key in command arguments.\nOptions: --venue official|firsto-signed (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nOfficial mode supports flexible pools through CircuitMarket.listingFor. Firsto signed mode supports fixed/flexible pools, only their original target, with fee-inclusive price caps; batch orders are disabled. Firsto quote discovery is bounded and may find no order. Every attempt revalidates pinned exchange/runtime/fees/nonce/signature/owner/approval and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nWallet journal pointers persist under ~/.local/state/pinkuang/purchase-keeper/wallets (0700/0600).\nPreviously signed attempts remain executable: lowering a later budget cannot revoke their gas exposure.\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
+  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads KEEPER_PRIVATE_KEY only from this process environment. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -734,7 +824,13 @@ export async function main(args = process.argv.slice(2)) {
   const release = () => { releasePool(); releaseJournal(); };
   const runtime = createKeeperRuntime();
   let stopping = false;
-  const stop = () => { stopping = true; runtime.stopped = true; runtime.abortController.abort(); };
+  const stop = () => {
+    stopping = true;
+    for (const current of [runtime, runtime.autoOfficial, runtime.autoFirsto].filter(Boolean)) {
+      current.stopped = true;
+      current.abortController.abort();
+    }
+  };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   const rpcRequest = new FetchRequest(options.rpc);
   rpcRequest.timeout = 15_000;
@@ -765,8 +861,8 @@ export async function main(args = process.argv.slice(2)) {
       for (let elapsed = 0; !stopping && elapsed < options.interval; elapsed += 1) await new Promise(done => setTimeout(done, 1000));
     } while (!stopping);
   } finally {
-    runtime.stopped = true; runtime.abortController.abort();
-    if (runtime.refreshTask) await runtime.refreshTask;
+    stop();
+    await Promise.all([runtime.refreshTask, runtime.autoOfficial?.refreshTask, runtime.autoFirsto?.refreshTask].filter(Boolean));
     releaseWallet?.(); provider.destroy(); process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); release();
   }
 }

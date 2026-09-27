@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {FundingTestBase, IFundingVault} from "../utils/FundingTestBase.sol";
-import {PurchaseMockNft, PurchaseMockBem, PurchaseMockMining} from "../utils/PurchaseMocks.sol";
+import {PurchaseMockNft, PurchaseMockBem, PurchaseMockMining, PurchaseMockMarket} from "../utils/PurchaseMocks.sol";
 import {FirstoSignedAskMock, FirstoRejectingRecipient, Firsto1271Mock} from "../utils/FirstoMocks.sol";
 import {IFirstoSignedAskExchange} from "../../src/interfaces/IFirstoExchange.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
@@ -16,6 +16,7 @@ contract FirstoPurchaseTest is FundingTestBase {
     PurchaseMockNft private nft;
     PurchaseMockBem private bem;
     PurchaseMockMining private mining;
+    PurchaseMockMarket private officialMarket;
     FirstoSignedAskMock private exchange;
     IFirstoSignedAskExchange.SignedAsk private ask;
 
@@ -26,10 +27,12 @@ contract FirstoPurchaseTest is FundingTestBase {
         vm.etch(Addresses.TAPEOUT_CIRCUITS, address(new PurchaseMockNft()).code);
         vm.etch(Addresses.BEM, address(new PurchaseMockBem()).code);
         vm.etch(Addresses.MINING, address(new PurchaseMockMining()).code);
+        vm.etch(Addresses.CIRCUIT_MARKET, address(new PurchaseMockMarket()).code);
         vm.etch(EXCHANGE, address(new FirstoSignedAskMock()).code);
         nft = PurchaseMockNft(Addresses.TAPEOUT_CIRCUITS);
         bem = PurchaseMockBem(Addresses.BEM);
         mining = PurchaseMockMining(payable(Addresses.MINING));
+        officialMarket = PurchaseMockMarket(Addresses.CIRCUIT_MARKET);
         exchange = FirstoSignedAskMock(EXCHANGE);
         exchange.configure(PROTOCOL_FACTORY, 100, 1);
         _prepareMiner(defaultParams.circuitId);
@@ -119,6 +122,52 @@ contract FirstoPurchaseTest is FundingTestBase {
         _buy();
         assertEq(exchange.fills(), 0);
         assertEq(poolFactory.machinePool(address(nft), ask.tokenId), address(0));
+    }
+
+    function test_fixedPoolFirstoCannotBypassEligibleOfficialListing() public {
+        _fundPool();
+        officialMarket.createListing(seller, address(nft), ask.tokenId, 5 ether);
+        vm.expectRevert(IPoolVault.OriginalTargetAvailable.selector);
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_flexiblePoolFirstoCannotBypassEligibleOfficialListing() public {
+        _useFlexiblePool();
+        _deposit(pool, ALICE, 100);
+        officialMarket.createListing(seller, address(nft), ask.tokenId, 5 ether);
+        vm.expectRevert(IPoolVault.OriginalTargetAvailable.selector);
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_delistedOfficialTargetAllowsFirstoPurchase() public {
+        _fundPool();
+        uint256 listingId = officialMarket.createListing(seller, address(nft), ask.tokenId, 5 ether);
+        officialMarket.setValid(listingId, false);
+        _buy();
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Active));
+        assertEq(nft.ownerOf(ask.tokenId), address(pool));
+    }
+
+    function test_overCapOfficialTargetDoesNotBlockFirstoPurchase() public {
+        _fundPool();
+        officialMarket.createListing(seller, address(nft), ask.tokenId, uint96(defaultParams.priceCap + 1));
+        _buy();
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Active));
+        assertEq(nft.ownerOf(ask.tokenId), address(pool));
+    }
+
+    function test_failedOfficialLookupCannotBeTreatedAsNoListing() public {
+        _fundPool();
+        vm.mockCallRevert(
+            address(officialMarket),
+            abi.encodeWithSignature("listingFor(address,uint256)", address(nft), ask.tokenId),
+            abi.encodeWithSignature("Error(string)", "official lookup unavailable")
+        );
+        vm.expectRevert();
+        _buy();
+        _assertUnchanged();
     }
 
     function test_feeEpochOrFeeChangeFailsClosedEvenWhenOldEpochAcceptedByExchange() public {

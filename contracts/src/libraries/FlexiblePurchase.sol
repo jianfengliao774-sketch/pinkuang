@@ -196,6 +196,9 @@ library FlexiblePurchase {
         if (selection.enabled && selection.referenceVerifiedWeight == 0) {
             revert IPoolVault.PurchasePricingNotInitialized();
         }
+        // A signed ask must not bypass an eligible official listing for this exact NFT.
+        // A reverted official-market read does not prove that the listing is gone.
+        if (_originalAvailable(s, selection)) revert IPoolVault.OriginalTargetAvailable();
         _requireFirstoFees(ask);
         if (IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).isSignedAskNonceInvalidated(ask.maker, ask.nonce)) {
             revert IPoolVault.InvalidFirstoOrder();
@@ -313,7 +316,7 @@ library FlexiblePurchase {
         PurchaseSelectionState.SelectionStorage storage selection
     ) private view returns (bool) {
         address circuits = s.params.circuits;
-        uint256 id = selection.referenceCircuitId;
+        uint256 id = selection.enabled ? selection.referenceCircuitId : s.params.circuitId;
         (uint256 listingId, address seller, uint96 price, bool valid) =
             ICircuitMarket(CIRCUIT_MARKET).listingFor(circuits, id);
         if (!valid || seller == address(0) || price == 0 || price > s.params.priceCap) return false;
@@ -330,8 +333,9 @@ library FlexiblePurchase {
         if (IERC721(circuits).ownerOf(id) != seller) return false;
         ITapeoutMining.Miner memory miner =
             ITapeoutMining(MINING).getMiner(ITapeoutMining(MINING).minerKey(circuits, id));
-        return miner.circuits == circuits && miner.circuitId == id && miner.status == 1
-            && miner.taskId == selection.taskId && _meetsQuality(miner, selection.config.minVerifiedWeight)
+        if (miner.circuits != circuits || miner.circuitId != id || miner.status != 1) return false;
+        if (!selection.enabled) return _meetsQuality(miner, 1);
+        return miner.taskId == selection.taskId && _meetsQuality(miner, selection.config.minVerifiedWeight)
             && price <= _referencePriceLimit(selection, miner.verifWeight);
     }
 

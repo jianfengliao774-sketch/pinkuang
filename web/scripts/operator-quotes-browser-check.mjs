@@ -41,9 +41,10 @@ async function preparePage() {
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
   await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
   await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
-  await page.locator('.operator-quote-table').getByRole('button', { name: '核对并选择', exact: true }).waitFor();
+  await page.getByRole('button', { name: '浏览 Firsto 候选', exact: true }).click();
+  await page.locator('.operator-quote-table').getByRole('button', { name: '先查官网并选择', exact: true }).waitFor();
   const select = async () => {
-    await page.locator('.operator-quote-table').getByRole('button', { name: '核对并选择', exact: true }).click();
+    await page.locator('.operator-quote-table').getByRole('button', { name: '先查官网并选择', exact: true }).click();
     await page.getByRole('button', { name: '填入建池表单', exact: true }).waitFor();
     await page.getByRole('button', { name: '填入建池表单', exact: true }).click();
   };
@@ -108,13 +109,13 @@ try {
   const stale = await preparePage();
   try {
     await stale.select();
-    for (const key of Object.keys(stale.data.page.sourceFreshness)) stale.data.page.sourceFreshness[key] = Date.now() - 300001;
+    stale.chain.listing.price += 1n;
     await stale.page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
-    await stale.page.getByRole('alert').filter({ hasText: '超过 5 分钟' }).waitFor();
+    await stale.page.getByRole('alert').filter({ hasText: '最新报价或矿机条件已变化' }).waitFor();
     assert.equal(await stale.page.getByRole('dialog', { name: '确认运营操作' }).count(), 0);
     assert(!stale.fixture.walletRequests.some(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector)));
     assert.equal(stale.fixture.controls.sentTransactions.length, 0);
-    checks.push('source expiration during preparation blocks unsigned preview and any send');
+    checks.push('official listing repricing during preparation blocks unsigned preview and any send');
   } finally { await stale.page.close(); }
 
   const imported = await preparePage();

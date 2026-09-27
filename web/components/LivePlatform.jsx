@@ -40,7 +40,7 @@ import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
-import { prepareAdminAction, readOperatorStatus } from "../lib/live-admin.mjs";
+import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
 import ProjectShare from "./ProjectShare";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { loadLiveConfig } from "../lib/live-config.mjs";
@@ -818,7 +818,8 @@ export default function LivePlatform() {
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
       showTransactionProgress('rechecking');
       const checked = await prepareAdminAction({ provider: wallet, config, account, ...preview.input });
-      if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction))
+      if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction)
+        || !sameAdminPurchasePreview(preview, checked))
         throw new Error(L("运营操作参数已变化，请重新预览。", "Operation changed. Preview again."));
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },

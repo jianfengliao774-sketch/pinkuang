@@ -1,16 +1,32 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { Interface, JsonRpcProvider, getAddress, getCreateAddress, keccak256, toUtf8Bytes, verifyMessage } from 'ethers';
+import { FetchRequest, Interface, JsonRpcProvider, getAddress, getCreateAddress, keccak256, toUtf8Bytes, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mjs';
 
 const MAX_BODY = 64 * 1024;
 const CHALLENGE_MS = 5 * 60_000;
 const SESSION_MS = 12 * 60 * 60_000;
 const TOKEN_COOKIE = 'pinkuang_journal';
+const OFFICIAL_CACHE_MS = 5_000;
+const OFFICIAL_GRAPH_CACHE_MS = 5_000;
+const OFFICIAL_SCAN_MS = 30_000;
+const OFFICIAL_RPC_TIMEOUT_MS = 9_000;
+const MAX_OFFICIAL_SCANS = 2;
+const MAX_OFFICIAL_GRAPH_PROOFS = 2;
+const OFFICIAL_GRAPH_PROOF_BURST = 2;
+const OFFICIAL_GRAPH_PROOF_REFILL_MS = 4_000;
+const MAX_OFFICIAL_BLOCK_AGE = 120;
+const OFFICIAL_REQUEST_BURST = 6;
+const OFFICIAL_REQUEST_REFILL_MS = 500;
+const OFFICIAL_COLLECTIONS = new Set([
+  '0xb1024b89886b9a34aa4ff5f31c411d708b20a14c',
+  '0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c',
+]);
 const HASH = /^0x[\da-f]{64}$/i;
 const DATA = /^0x(?:[\da-f]{2})*$/i;
 const DECIMAL = /^(0|[1-9]\d*)$/;
@@ -53,6 +69,13 @@ const IDENTITY_ABI = new Interface([
   'function factory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
   'function unitPriceWei() view returns(uint256)', 'function salePrice() view returns(uint256)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
+]);
+const OFFICIAL_POOL_READ_ABI = new Interface([
+  'function state() view returns(uint8)',
+  `function params() view returns(${PARAMS})`,
+  `function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,${FLEXIBLE} config)`,
+  'function purchaseModel() view returns(bool initialized,uint32 taskId)',
+  'function purchaseReferenceWeight() view returns(uint128)',
 ]);
 
 class ApiError extends Error {
@@ -635,13 +658,25 @@ function sessionCookie(token, secure) {
   return `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/api/journal; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`;
 }
 
+/** Isolated, bounded public reads. The transaction-signing journal keeps its existing provider. */
+export function createBoundedOfficialProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
+  const request = new FetchRequest(url);
+  request.timeout = timeoutMs;
+  request.setThrottleParams({ maxAttempts: 1 });
+  return new JsonRpcProvider(request, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
+}
+
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productGraphVerifier,
+  officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch,
+  officialScanTimeoutMs = OFFICIAL_SCAN_MS, now = Date.now,
   genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
+  if (!Number.isInteger(officialScanTimeoutMs) || officialScanTimeoutMs < 1 || officialScanTimeoutMs > OFFICIAL_SCAN_MS)
+    throw new Error('Official scan timeout must be within the reviewed limit.');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['https:', 'http:'].includes(parsedOrigin.protocol)) throw new Error('Exact journal origin is required.');
   if (parsedOrigin.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(parsedOrigin.hostname))
@@ -649,6 +684,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const cookieSecure = secureCookies || parsedOrigin.protocol === 'https:';
   const store = new JournalStore(dbPath);
   const provider = suppliedProvider ?? (rpcUrl ? new JsonRpcProvider(rpcUrl, undefined, {cacheTimeout:-1}) : null);
+  const officialProvider = suppliedProvider ? suppliedProvider : rpcUrl ? createBoundedOfficialProvider(rpcUrl) : null;
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
@@ -658,6 +694,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
   const inFlight = new Set();
+  const officialCache = new Map(), officialScans = new Map();
+  const officialGraphCache = new Map(), officialGraphProofs = new Map();
+  let officialTokens = OFFICIAL_REQUEST_BURST, officialRefillAt = now(), activeOfficialScans = 0;
+  let activeOfficialGraphProofs = 0, officialGraphTokens = OFFICIAL_GRAPH_PROOF_BURST;
+  let officialGraphRefillAt = now();
   let closed = false;
 
   function buildDigest() {
@@ -674,6 +715,188 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return buildDigest();
   }
 
+  function consumeOfficialBudget() {
+    const time = now();
+    officialTokens = Math.min(OFFICIAL_REQUEST_BURST,
+      officialTokens + Math.max(0, time - officialRefillAt) / OFFICIAL_REQUEST_REFILL_MS);
+    officialRefillAt = time;
+    if (officialTokens < 1) fail(429, 'Official market preview is busy; retry shortly.');
+    officialTokens -= 1;
+  }
+
+  function consumeOfficialGraphProofBudget() {
+    const time = now();
+    officialGraphTokens = Math.min(OFFICIAL_GRAPH_PROOF_BURST,
+      officialGraphTokens + Math.max(0, time - officialGraphRefillAt) / OFFICIAL_GRAPH_PROOF_REFILL_MS);
+    officialGraphRefillAt = time;
+    if (officialGraphTokens < 1) fail(429, 'Product graph verification budget is busy; retry shortly.');
+    officialGraphTokens -= 1;
+  }
+
+  async function pinnedOfficialBlock(number, hash) {
+    const block = await officialProvider.getBlock(number);
+    if (!block || block.number !== number || !HASH.test(block.hash ?? '') ||
+      block.hash.toLowerCase() !== hash || !Number.isSafeInteger(block.timestamp)) {
+      fail(409, 'Requested BSC block changed or is unavailable.');
+    }
+    return block;
+  }
+
+  async function verifiedOfficialGraph(factory, block, hash) {
+    const key = `${identity(factory)}:${hash}`;
+    const cached = officialGraphCache.get(key);
+    if (cached && cached.expires > now()) return cached.verified;
+    if (cached) officialGraphCache.delete(key);
+    let proof = officialGraphProofs.get(key);
+    if (!proof) {
+      if (activeOfficialGraphProofs >= MAX_OFFICIAL_GRAPH_PROOFS)
+        fail(503, 'Product graph verification is busy; retry shortly.');
+      consumeOfficialGraphProofBudget();
+      activeOfficialGraphProofs += 1;
+      proof = Promise.resolve().then(async () => {
+        const verified = await graphVerifier(officialProvider, factory, block);
+        if (!verified || identity(verified.factory) !== identity(factory) || verified.blockNumber !== block.number ||
+          !HASH.test(verified.artifactDigest ?? '') ||
+          trustedProduct && verified.artifactDigest.toLowerCase() !== trustedProduct.record.artifactDigest.toLowerCase())
+          fail(503, 'Reviewed product graph identity changed.');
+        await pinnedOfficialBlock(block.number, hash);
+        officialGraphCache.set(key, { verified, expires: now() + OFFICIAL_GRAPH_CACHE_MS });
+        if (officialGraphCache.size > 64) {
+          for (const [item, entry] of officialGraphCache) if (entry.expires <= now()) officialGraphCache.delete(item);
+          if (officialGraphCache.size > 64) officialGraphCache.delete(officialGraphCache.keys().next().value);
+        }
+        return verified;
+      });
+      officialGraphProofs.set(key, proof);
+      proof.finally(() => {
+        activeOfficialGraphProofs -= 1;
+        if (officialGraphProofs.get(key) === proof) officialGraphProofs.delete(key);
+      }).catch(() => {});
+    }
+    return proof;
+  }
+
+  async function officialCandidates(url) {
+    const keys = [...url.searchParams.keys()];
+    if (keys.length !== 3 || new Set(keys).size !== 3 || keys.some(key => !['pool','block','hash'].includes(key)))
+      fail(400, 'Exactly pool, block and hash are required.');
+    const pool = identity(url.searchParams.get('pool'));
+    const blockText = url.searchParams.get('block'), blockHash = url.searchParams.get('hash');
+    if (pool === '0x0000000000000000000000000000000000000000' || !/^[1-9]\d*$/.test(blockText ?? '')
+      || !Number.isSafeInteger(Number(blockText)) || !HASH.test(blockHash ?? ''))
+      fail(400, 'Invalid pool, block number or block hash.');
+    const blockNumber = Number(blockText), hash = blockHash.toLowerCase();
+    // No untrusted request reaches graph verification or RPC before this process-wide budget.
+    consumeOfficialBudget();
+    if (!officialProvider || !productMode || trustedProduct && trustedProduct.upgradeRecord?.schemaVersion !== 2)
+      fail(503, 'Reviewed upgraded product graph is unavailable.');
+    const factory = trustedProduct?.record?.addresses?.factory ??
+      (typeof productGraphVerifier === 'function' && productFactories.size === 1 ? [...productFactories][0] : null);
+    if (!factory || !productFactories.has(identity(factory))) fail(503, 'Reviewed Factory is not enabled.');
+    try {
+      if (BigInt(await officialProvider.send('eth_chainId', [])) !== 56n) fail(503, 'Product RPC is not BSC mainnet.');
+      const head = await officialProvider.getBlock('latest');
+      if (!Number.isSafeInteger(head?.number) || blockNumber > head.number ||
+        head.number - blockNumber > MAX_OFFICIAL_BLOCK_AGE)
+        fail(409, 'Requested BSC block is outside the recent purchase window.');
+      const block = await pinnedOfficialBlock(blockNumber, hash);
+      const tag = `0x${blockNumber.toString(16)}`;
+      const read = async (to, iface, name, args = []) => iface.decodeFunctionResult(name,
+        await officialProvider.send('eth_call', [{ to, data: iface.encodeFunctionData(name, args) }, tag]));
+      // Reject arbitrary pool addresses with inexpensive pinned reads before starting
+      // a full schema2 deployment proof. Attribution is only a prefilter: success still
+      // requires the full graph proof below.
+      if (await officialProvider.getCode(pool, blockNumber) === '0x' || !(await read(factory, IDENTITY_ABI, 'isPool', [pool]))[0] ||
+        identity((await read(pool, IDENTITY_ABI, 'factory'))[0]) !== identity(factory) ||
+        identity((await read(pool, IDENTITY_ABI, 'OFFICIAL_FACTORY'))[0]) !== identity(factory))
+        fail(409, 'Pool is not registered to the reviewed Factory.');
+      const [stateRow, paramsRow] = await Promise.all([
+        read(pool, OFFICIAL_POOL_READ_ABI, 'state'), read(pool, OFFICIAL_POOL_READ_ABI, 'params'),
+      ]);
+      const state = stateRow[0], params = paramsRow[0];
+      if (state !== 1n || BigInt(block.timestamp) >= params.purchaseDeadline)
+        fail(409, 'Pool is not Funded or its purchase window has expired.');
+      const verified = await verifiedOfficialGraph(factory, block, hash);
+      await pinnedOfficialBlock(blockNumber, hash);
+      const [policy, purchaseModel, referenceRow] = await Promise.all([
+        read(pool, OFFICIAL_POOL_READ_ABI, 'flexiblePurchase'),
+        read(pool, OFFICIAL_POOL_READ_ABI, 'purchaseModel'),
+        read(pool, OFFICIAL_POOL_READ_ABI, 'purchaseReferenceWeight'),
+      ]);
+      const referenceWeight = referenceRow[0];
+      const response = { complete: true, chainId: 56, factory: getAddress(factory),
+        artifactDigest: verified.artifactDigest.toLowerCase(), pool: getAddress(pool),
+        blockNumber: String(blockNumber), blockHash: hash, flexible: policy.enabled, model: null, candidates: [] };
+      if (!policy.enabled) {
+        await pinnedOfficialBlock(blockNumber, hash);
+        return response;
+      }
+      if (!OFFICIAL_COLLECTIONS.has(params.circuits.toLowerCase()) || policy.referenceCircuitId !== params.circuitId ||
+        !purchaseModel.initialized || referenceWeight === 0n || policy.config.minVerifiedWeight === 0n ||
+        policy.config.referencePriceWei === 0n || params.priceCap === 0n)
+        fail(503, 'Pool purchase model is incomplete.');
+      const constraints = { circuits: getAddress(params.circuits), taskId: purchaseModel.taskId,
+        minVerifiedWeight: policy.config.minVerifiedWeight, referenceVerifiedWeight: referenceWeight,
+        referencePriceWei: policy.config.referencePriceWei, priceCap: params.priceCap };
+      response.model = Object.fromEntries(Object.entries(constraints).map(([key, value]) =>
+        [key, typeof value === 'bigint' ? value.toString() : value]));
+      const key = `${pool}:${hash}`;
+      const cached = officialCache.get(key);
+      if (cached && cached.expires > now()) {
+        await pinnedOfficialBlock(blockNumber, hash);
+        return { ...response, candidates: cached.candidates };
+      }
+      if (cached) officialCache.delete(key);
+      let scan = officialScans.get(key);
+      if (!scan) {
+        if (activeOfficialScans >= MAX_OFFICIAL_SCANS) fail(503, 'Official market scan is busy; retry shortly.');
+        activeOfficialScans += 1;
+        const abort = new AbortController();
+        const work = Promise.resolve().then(() => officialCandidateDiscovery(officialProvider,
+          { blockNumber, signal: abort.signal, now: now() }, constraints, officialSnapshotFetch));
+        work.finally(() => { activeOfficialScans -= 1; }).catch(() => {});
+        scan = Promise.race([work, new Promise((_, reject) => {
+          const timer = setTimeout(() => { abort.abort(); reject(new Error('Official market scan timed out.')); }, officialScanTimeoutMs);
+          work.finally(() => clearTimeout(timer)).catch(() => {});
+        })]);
+        officialScans.set(key, scan);
+        scan.finally(() => { if (officialScans.get(key) === scan) officialScans.delete(key); }).catch(() => {});
+      }
+      let found;
+      try { found = await scan; }
+      catch { fail(503, 'Complete official market scan unavailable.'); }
+      if (found?.complete !== true || found.chainBlock !== blockNumber || !Array.isArray(found.candidates))
+        fail(503, 'Complete official market scan unavailable.');
+      let candidates;
+      try {
+        candidates = found.candidates.map(candidate => ({
+          listingId: BigInt(candidate.listingId).toString(), collection: getAddress(candidate.collection),
+          tokenId: BigInt(candidate.tokenId).toString(), seller: getAddress(candidate.seller),
+          priceWei: BigInt(candidate.priceWei).toString(), verifiedWeight: BigInt(candidate.verifiedWeight).toString(),
+        }));
+      } catch { fail(503, 'Official market scan returned an invalid candidate.'); }
+      if (candidates.some(candidate => candidate.collection.toLowerCase() !== constraints.circuits.toLowerCase() ||
+        BigInt(candidate.listingId) < 1n || BigInt(candidate.tokenId) < 0n || BigInt(candidate.priceWei) < 1n ||
+        BigInt(candidate.priceWei) > constraints.priceCap ||
+        BigInt(candidate.verifiedWeight) < constraints.minVerifiedWeight ||
+        candidate.seller.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+        BigInt(candidate.priceWei) > (BigInt(candidate.verifiedWeight) >= constraints.referenceVerifiedWeight
+          ? constraints.referencePriceWei
+          : constraints.referencePriceWei * BigInt(candidate.verifiedWeight) / constraints.referenceVerifiedWeight)))
+        fail(503, 'Official market scan returned an invalid candidate.');
+      await pinnedOfficialBlock(blockNumber, hash);
+      officialCache.set(key, { candidates, expires: now() + OFFICIAL_CACHE_MS });
+      if (officialCache.size > 64) {
+        for (const [item, entry] of officialCache) if (entry.expires <= now()) officialCache.delete(item);
+        if (officialCache.size > 64) officialCache.delete(officialCache.keys().next().value);
+      }
+      return { ...response, candidates };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      fail(503, 'Verified official market preview is unavailable.');
+    }
+  }
+
   async function respond(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -683,10 +906,12 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     if (closed) return send(503, { error: 'Journal is unavailable.' });
     try {
       if (!req.url || req.url.length > 2048) fail(400, 'Invalid request URL.');
-      const path = new URL(req.url, origin).pathname;
+      const url = new URL(req.url, origin), path = url.pathname;
       const method = req.method;
       if (!['GET','POST','PUT','DELETE'].includes(method)) fail(405, 'Method is not allowed.');
       if (method !== 'GET' && req.headers.origin !== origin) fail(403, 'Request origin is not allowed.');
+      if (method === 'GET' && path === '/api/journal/official-candidates')
+        return send(200, await officialCandidates(url));
       if (method === 'POST' && path === '/api/journal/challenge') {
         const body = await readJson(req), account = identity(body.account);
         const nonce = randomBytes(24).toString('base64url');
@@ -851,6 +1076,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       await Promise.allSettled([...inFlight]);
       store.close();
       if (!suppliedProvider) provider?.destroy();
+      if (officialProvider !== provider) officialProvider?.destroy();
     },
   };
 }

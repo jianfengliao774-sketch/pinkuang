@@ -19,12 +19,14 @@ Firsto 合约固定为 `0x33423244F9a5bF81b12B1a018aF6F4e079B97f29`，网络固�
 ```sh
 node scripts/purchase-keeper.mjs \
   --factory 0xFACTORY --pool 0xPOOL \
-  --venue firsto-signed --journal /private/path/pool.json --once
+  --venue auto --journal /private/path/pool.json --once
 ```
 
 不带 `--send` 时只读取和模拟，不使用私钥、不签名、不广播。Firsto 一次性检查会等待有界订单发现；持续运行可在筹款期间预热。按原目标编号及 TapeOut/Behemoth 系列搜索，默认最多 3 页，每页 50 行，总响应上限 2 MiB，总发现时限 20 秒；不接受重定向或非 JSON。搜索不到不表示整个平台没有订单。发现后只保留规范签名单，发送前重新获取池边界并再次验证订单，最后执行完整 Pool `estimateGas`。
 
-`--venue` 默认仍是 `official`：官网模式先检查官网原目标，再检查合格官网替代品；`firsto-signed` 模式只检查原目标签名单。**目前没有在这两种模式间自动切换的跨渠道执行器。** Firsto 原目标约束属于这条 keeper 采购路线；链上禁止绕过原目标的官网替代检查仍只查询官网挂单，不能声称合约知道所有链下 Firsto 签名订单。
+`--venue` 默认仍是 `official`，避免旧部署意外进入未启用的 Firsto 路径。显式 `--venue auto` 时先尝试官网原目标，再读取官网独立挂单快照，逐笔复查该系列所有有效挂单的链上现价，并补查快照之后新增的挂单；随后逐台核对同任务、验证权重及单位产能限价，并对每笔候选执行最新挂单读取与完整 Pool 模拟。Firsto 原目标签名单准备好后、真正发送前会**强制重新完整扫描官网**，避免旧挂单在 Firsto 查询期间降价而被遗漏。只有官网扫描完成、快照生成时间不超过 6 分钟、挂单编号边界未改变且没有读取或模拟失败时，才尝试 Firsto。官网快照不可用、过旧、超出扫描上限或验证不确定时暂停 Firsto 回退；不会把读取错误当成官网无货。快照仍不是所有历史挂单状态的数学证明，交易打包前也可能发生抢先成交或改价。
+
+`firsto-signed` 保留显式单渠道只读诊断与旧 journal 恢复用途；CLI 和导出的运行入口都禁止用它发送新采购，避免跳过官网候选。Firsto 原目标约束属于这条 keeper 采购路线；链上另阻止原目标矿机在官网有合格挂单时绕路 Firsto，但无法在链上穷举**其他**官网候选。因此生产自动采购应使用 `auto`，并由单一 keeper 钱包和 journal 协调。扫描完成至交易打包期间，旧官网替代挂单仍可改变；官网挂单也能在合约允许的价格上限内提价。当前主网 Vault 未升级为本开发分支，不能把网页显示的 Firsto 订单当成已可购买；正式发送前仍需部署版本与 ABI 验收。
 
 实际启用需用户确认执行钱包与 Gas 总预算，再通过安全的服务环境提供 `KEEPER_PRIVATE_KEY`；不要放入命令参数、源码、日志或聊天。`--send` 要求显式 journal 路径；`--max-gas-bnb` 和 `--max-gas-price-gwei` 限制累计 Gas 支出及单价，程序默认值不是用户已授权的费用预算。采购资金来自已募集的池，keeper 交易附带 BNB 固定为零。
 
@@ -50,7 +52,7 @@ Firsto 使用可升级第三方合约。签名前代码摘要检查不能阻止�
 
 ## 验证与事件索引
 
-- Linux 隔离执行 `node --test scripts/purchase-keeper.test.mjs scripts/firsto-keeper.test.mjs`：**72/72**，包含原 58 项与 Firsto 14 项。新回归覆盖原目标、含费上限、固定池、链号/撤单/持有人/授权/过期变化、Pool 模拟拒绝、未知广播、预算/nonce、精确持久化，以及恢复中的实现/费率/过期拦截与取消/收据不受影响。
+- 自动采购新增专项回归覆盖官网原目标优先、固定池 Firsto 回退、官网快照读取失败阻止回退、官网挂单边界变化阻止回退；旧的 Firsto 签名、费用、Pool 模拟、未知广播、预算/nonce 及 journal 恢复测试仍须全部通过。具体本分支测试结果以对应 PR 的 CI 和提交记录为准。
 - 最新证据位于工作区 `outputs/pinkuang-deployment-200e544/product-live/firsto-keeper-linux-20260927T093804Z/`，含完整日志、结果和每个源文件 SHA256。测试只用隔离 `/tmp`、模拟 RPC 和测试钱包；未修改正式服务。
 - 先前冻结页面 `be9e48f` 的 Linux 179 前端、91 后端、58 keeper 全通过，是旧快照证据，不能替代本分支新合约及后台整体回归。
 - Firsto 成交仍发出 `Purchased(cost, path=2, listingId=0)`，`cost` 为含费总额。索引直接记账该事件的 `cost` 并保存参数，不查询官网 `listingId=0`，因此不会误作官网采购单。新增 `FirstoPurchased` 已进入索引白名单，保留订单和费用拆分；统计仍只累加 `Purchased.cost`，不会把拆分事件再次计入购机总额。实际网页发布及主网事件验收另行进行。
