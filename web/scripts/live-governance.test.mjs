@@ -15,7 +15,7 @@ const proposal = (overrides = {}) => ({ proposer: account, snapshotTs: 170000000
 function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   activeId = 1n, proposals = [proposal(), proposal({ price: 9n, yesCount: 2n, yesShares: 60n })],
   purchased = 10n, listedId = 0n, salePrice = 0n, expiresAt = 0n,
-  factoryBinding = factory } = {}) {
+  factoryBinding = factory, alreadyVoted = false } = {}) {
   return { request: async ({ method, params = [] }) => {
     if (method === 'eth_chainId') return chain;
     if (method === 'eth_getBlockByNumber') return { number: '0x1234', hash: blockHash, timestamp: `0x${timestamp.toString(16)}` };
@@ -31,7 +31,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
       activeProposalId: activeId, nextProposalId: activeId === 0n ? 1n : activeId + BigInt(proposals.length),
       lastProposed: 0n, balanceOf: 30n, listedProposalId: listedId,
       expiresAt, salePrice, getPastShares: 30n,
-      hasVoted: false,
+      hasVoted: alreadyVoted,
     };
     if (parsed.name === 'getProposal') values.getProposal = proposals[Number(parsed.args[0] - activeId)];
     if (parsed.name === 'proposalPassed') {
@@ -54,6 +54,11 @@ test('enumerates competing prices in one frozen round and permits voting for eit
   const vote = governanceAction(snap, account, { kind: 'vote', proposalId: '2', support: true });
   assert.deepEqual(Array.from(abi.PoolVault.parseTransaction({ data: vote.transaction.data }).args), [2n, true]);
   assert.equal(vote.transaction.value, '0x0');
+  const oppose = governanceAction(snap, account, { kind: 'vote', proposalId: '1', support: false });
+  assert.deepEqual(Array.from(abi.PoolVault.parseTransaction({ data: oppose.transaction.data }).args), [1n, false]);
+  assert.equal(oppose.transaction.to, pool);
+  const voted = await readGovernanceSnapshot(rpc({ alreadyVoted: true }), { factory, pool, account });
+  assert.throws(() => governanceAction(voted, account, { kind: 'vote', proposalId: '1', support: false }), /cannot vote again/);
   const execution = governanceAction(snap, account, { kind: 'executeSale', proposalId: '2' });
   assert.equal(abi.PoolVault.parseTransaction({ data: execution.transaction.data }).name, 'executeSale');
   assert.throws(() => governanceAction(snap, account, { kind: 'executeSale', proposalId: '1' }), /threshold/);

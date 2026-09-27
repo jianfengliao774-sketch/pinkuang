@@ -51,6 +51,11 @@ try{
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
  await page.screenshot({animations:'disabled',path:join(output,'mobile-dark-share.png')});checks.push('English dark mobile layout and share dialog');
  await page.getByRole('button',{name:'Dismiss sharing',exact:true}).click();
- await page.goto(`${base}/preview`);await page.locator('.preview-banner strong').waitFor();checks.push('original interactive design retained in preview route');
+ await page.goto(`${base}/preview#governance`);await page.locator('.preview-banner strong').waitFor();
+ await page.getByText('样例提案 · 不可投票',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'赞成出售',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'反对',exact:true}).count(),0);
+ assert.equal(new URL(await page.getByRole('link',{name:'查看链上提案并投票'}).getAttribute('href'),base).hash,'#governance');
+ checks.push('demo governance retains sample figures but only links to on-chain voting');
  assert.deepEqual(errors,[]);await writeFile(join(output,'results.json'),JSON.stringify({checks,pageErrors:errors},null,2));console.log(JSON.stringify({passed:checks.length,checks,output}));
 }finally{await browser.close()}
