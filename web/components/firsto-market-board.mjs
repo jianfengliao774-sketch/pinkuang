@@ -34,7 +34,8 @@ export function marketQuoteView(row, now = Date.now()) {
   if (!unavailable && !sameAddress(row.owner, row.ask?.seller)) unavailable = '卖家与当前 NFT 持有人不一致';
   if (!unavailable && (!positiveInteger(row.ask?.priceWei) || !positiveInteger(row.ask?.buyerCostWei))) unavailable = '市场报价无效';
   const unitWei = unavailable ? null : dailyCapacityPriceWei(row.ask.priceWei, row.estimated24hAtomic);
-  if (!unavailable && unitWei === null) unavailable = '预计日产出不可用';
+  const buyerUnitWei = unavailable ? null : dailyCapacityPriceWei(row.ask.buyerCostWei, row.estimated24hAtomic);
+  if (!unavailable && (unitWei === null || buyerUnitWei === null)) unavailable = '预计日产出不可用';
   return Object.freeze({
     key: `${row.collection}:${row.tokenId}`,
     series: row.series,
@@ -51,6 +52,7 @@ export function marketQuoteView(row, now = Date.now()) {
     buyerCostWei: unavailable ? null : row.ask.buyerCostWei,
     estimated24hAtomic: unavailable ? null : row.estimated24hAtomic,
     dailyCapacityPriceWei: unavailable ? null : unitWei,
+    buyerDailyCapacityPriceWei: unavailable ? null : buyerUnitWei,
   });
 }
 

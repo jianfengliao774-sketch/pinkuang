@@ -9,13 +9,14 @@ import {
   formatMarketAmount,
 } from '../components/firsto-market-board.mjs';
 
-test('per-miner daily-capacity price uses exact seller wei and BEM 8 decimals, not buyer fees', () => {
+test('per-miner daily-capacity prices distinguish exact seller ask and buyer total', () => {
   const data = dataFixture(), quote = marketQuoteView(data.quote, data.now);
   const expected = (BigInt(data.row.bestAsk.priceWei) * 100_000_000n + 123_456_789n - 1n) / 123_456_789n;
   assert.equal(quote.dailyCapacityPriceWei, expected.toString());
   assert.equal(quote.buyerCostWei, data.row.bestAsk.buyerCostWei);
-  assert.notEqual(quote.dailyCapacityPriceWei,
+  assert.equal(quote.buyerDailyCapacityPriceWei,
     dailyCapacityPriceWei(data.row.bestAsk.buyerCostWei, data.row.mining.estimated24hAtomic));
+  assert.notEqual(quote.dailyCapacityPriceWei, quote.buyerDailyCapacityPriceWei);
   assert.equal(dailyCapacityPriceWei('1', '300000000'), '1');
   assert.equal(dailyCapacityPriceWei('0', '100000000'), null);
   assert.equal(dailyCapacityPriceWei('1', '0'), null);
@@ -38,6 +39,7 @@ test('stale, changed-owner and invalid mining quotes expose no executable-lookin
     assert.equal(view.sellerPriceWei, null);
     assert.equal(view.buyerCostWei, null);
     assert.equal(view.dailyCapacityPriceWei, null);
+    assert.equal(view.buyerDailyCapacityPriceWei, null);
   }
 });
 

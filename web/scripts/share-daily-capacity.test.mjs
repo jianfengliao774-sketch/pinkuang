@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Interface, getAddress } from 'ethers';
+import { Interface, getAddress, toQuantity } from 'ethers';
+import { fetchMineDetail } from '../../deploy/src/pricing.ts';
 import { abi } from '../lib/chain-client.mjs';
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from '../lib/share-daily-capacity.mjs';
 
@@ -9,27 +10,37 @@ const factory = address(1), pool = address(2), original = '16210', replacement =
 const collection = getAddress('0xb1024b89886b9a34aa4ff5f31c411d708b20a14c');
 const otherCollection = getAddress('0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c');
 const NFT = new Interface(['function ownerOf(uint256) view returns(address)']);
-const hash = `0x${'ab'.repeat(32)}`;
+const hash = `0x${'ab'.repeat(32)}`, sourceHash = `0x${'ef'.repeat(32)}`;
 const now = 1_780_000_000_000;
 const sharePrice = 68_000_000_000_000_000n;
+const pinnedAt = now - 1000, sourceAt = now - 2000;
 
-function quote(overrides = {}) {
-  return { detailChecked: true, collection, tokenId: replacement, owner: pool, tokenSymbol: 'BEM',
-    tokenDecimals: 8, status: 'verified', estimated24hAtomic: '95000000',
-    source: { observedAt: now - 1000, timestamps: { 'official_circuit_mining:official': now - 1000 },
-      url: 'https://tapeout.firsto.ai/circuits' }, ...overrides };
+function detail(overrides = {}) {
+  const { mining: miningChanges = {}, ...assetChanges } = overrides;
+  return { asset: { collection, tokenId: replacement, owner: pool, category: 'official_mining',
+    classification: 'official_mining', ...assetChanges,
+    mining: { tokenSymbol: 'BEM', tokenDecimals: 8, status: 'verified',
+      estimated24hAtomic: '95000000', sourceBlock: '9', ...miningChanges } } };
 }
 
 function rpc(overrides = {}) {
   const calls = [];
-  let blockReads = 0, chainReads = 0;
+  let pinnedReads = 0, sourceReads = 0, chainReads = 0;
   return { calls, async request({ method, params = [] }) {
     calls.push({ method, params });
     assert(['eth_chainId', 'eth_getBlockByNumber', 'eth_call'].includes(method), `Unexpected RPC ${method}`);
     if (method === 'eth_chainId') return ++chainReads > 1 && overrides.finalChain ? overrides.finalChain : overrides.chain ?? '0x38';
     if (method === 'eth_getBlockByNumber') {
-      blockReads++;
-      return { number: '0xa', hash: blockReads > 1 && overrides.reorg ? `0x${'cd'.repeat(32)}` : hash };
+      if (params[0] === '0x9') {
+        sourceReads++;
+        return { number: overrides.sourceNumber ?? '0x9',
+          hash: sourceReads > 1 && overrides.sourceReorg ? `0x${'cd'.repeat(32)}` : overrides.sourceHash ?? sourceHash,
+          timestamp: overrides.sourceTimestamp ?? toQuantity(BigInt(sourceAt / 1000)) };
+      }
+      assert(['latest', '0xa', '0xb'].includes(params[0]));
+      pinnedReads++;
+      return { number: '0xa', hash: pinnedReads > 1 && overrides.reorg ? `0x${'cd'.repeat(32)}` : hash,
+        timestamp: overrides.pinnedTimestamp ?? toQuantity(BigInt(pinnedAt / 1000)) };
     }
     assert.equal(params[1], '0xa', 'all identity calls use the pinned block');
     const target = getAddress(params[0].to);
@@ -52,7 +63,7 @@ function rpc(overrides = {}) {
 
 const input = (provider, options = {}) => readShareDailyCapacityPrice(provider, {
   factory, pool, pricePerUnitWei: sharePrice, now,
-  quoteLoader: async () => quote(), ...options,
+  quoteLoader: async () => detail(), ...options,
 });
 
 test('daily capacity price uses exact BigInt and rounds up at most one wei', () => {
@@ -66,19 +77,46 @@ test('daily capacity price uses exact BigInt and rounds up at most one wei', () 
   assert.throws(() => shareDailyCapacityPriceWei(1.1, 1n), /exact bigint/);
 });
 
-test('uses the actual replacement NFT in current PoolVault.params, not the original target', async () => {
+test('uses the actual replacement NFT and its source block, with no sell order required', async () => {
   const provider = rpc();
   let requested;
   const result = await input(provider, { blockNumber: '10', quoteLoader: async (...args) => {
-    requested = args; return quote({ ask: null });
+    requested = args; return detail();
   } });
   assert.equal(result.available, true);
   assert.deepEqual(requested, [collection, replacement]);
   assert.notEqual(result.tokenId, original);
   assert.equal(result.estimated24hAtomic, 95_000_000n);
+  assert.equal(result.observedAt, sourceAt);
+  assert.equal(result.validUntil, sourceAt + 300_000);
+  assert.equal(result.miningSourceBlock, 9n);
   assert.equal(result.priceWeiPerDailyBem, (sharePrice * 100n * 100_000_000n + 95_000_000n - 1n) / 95_000_000n);
   assert.equal(result.basis, 'gross_estimated_output');
   assert(provider.calls.every(call => ['eth_call', 'eth_chainId', 'eth_getBlockByNumber'].includes(call.method)));
+});
+
+test('default loader fetches only the bounded exact Firsto detail, never text search pages', async () => {
+  const originalFetch = globalThis.fetch, seen = [];
+  globalThis.fetch = async (url, init) => { seen.push({ url, init }); return Response.json(detail()); };
+  try {
+    const result = await readShareDailyCapacityPrice(rpc(), { factory, pool, pricePerUnitWei: sharePrice, now });
+    assert.equal(result.available, true);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, `/pinkuang-deploy/firsto-api/v1/circuit/${collection.toLowerCase()}/${replacement}`);
+    assert.equal(seen[0].init.method, 'GET');
+    assert.equal(seen[0].init.credentials, 'omit');
+    assert.equal(seen[0].init.redirect, 'error');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('exact detail reader rejects counterfeit assets and oversized responses', async () => {
+  let calls = 0;
+  const fetcher = async () => { calls++; return new Response(' '.repeat(2_000_001),
+    { headers: { 'content-type': 'application/json' } }); };
+  await assert.rejects(fetchMineDetail(address(8), replacement, { fetcher }), /官方/);
+  assert.equal(calls, 0);
+  await assert.rejects(fetchMineDetail(collection, replacement, { baseUrl: '/pinkuang-deploy/firsto-api', fetcher }), /读取上限/);
+  assert.equal(calls, 1);
 });
 
 test('unknown/stale/wrong Firsto capacity stays unavailable without changing order price', async () => {
@@ -87,27 +125,35 @@ test('unknown/stale/wrong Firsto capacity stays unavailable without changing ord
     [{ tokenId: original }, 'quote_identity'],
     [{ collection: otherCollection }, 'quote_identity'],
     [{ owner: address(9) }, 'quote_identity'],
-    [{ detailChecked: false }, 'quote_identity'],
-    [{ tokenSymbol: 'OTHER' }, 'quote_identity'],
-    [{ status: 'inactive' }, 'quote_identity'],
-    [{ source: { observedAt: now - 300_001,
-      timestamps: { 'official_circuit_mining:official': now - 1000 } } }, 'stale_quote'],
-    [{ source: { observedAt: now + 30_001,
-      timestamps: { 'official_circuit_mining:official': now - 1000 } } }, 'stale_quote'],
-    [{ source: { observedAt: now - 1000, timestamps: {} } }, 'stale_quote'],
-    [{ source: { observedAt: now - 1000,
-      timestamps: { 'official_circuit_mining:official': now - 300_001 } } }, 'stale_quote'],
-    [{ estimated24hAtomic: '0' }, 'missing_output'],
+    [{ category: 'other' }, 'quote_identity'],
+    [{ classification: 'other' }, 'quote_identity'],
+    [{ mining: { tokenSymbol: 'OTHER' } }, 'quote_identity'],
+    [{ mining: { tokenDecimals: 18 } }, 'quote_identity'],
+    [{ mining: { status: 'inactive' } }, 'quote_identity'],
+    [{ mining: { sourceBlock: null } }, 'stale_quote'],
+    [{ mining: { sourceBlock: '11' } }, 'stale_quote'],
+    [{ mining: { estimated24hAtomic: '0' } }, 'missing_output'],
+    [{ mining: { estimated24hAtomic: 95_000_000 } }, 'missing_output'],
   ];
   for (const [change, reason] of cases) {
     const result = await input(rpc(), { pricePerUnitWei: order.pricePerUnitWei,
-      quoteLoader: async () => quote(change) });
+      quoteLoader: async () => detail(change) });
     assert.deepEqual(result, { available: false, reason });
     assert.equal(order.pricePerUnitWei, sharePrice);
     assert.equal(order.remaining, 7n);
   }
   assert.deepEqual(await input(rpc(), { quoteLoader: async () => { throw new Error('API outage'); } }),
     { available: false, reason: 'unavailable' });
+});
+
+test('source block must be canonical, present and no more than five minutes old', async () => {
+  for (const [change, reason] of [
+    [{ sourceTimestamp: toQuantity(BigInt(Math.floor((now - 300_001) / 1000))) }, 'stale_quote'],
+    [{ sourceTimestamp: toQuantity(BigInt((now + 1000) / 1000)) }, 'stale_quote'],
+    [{ sourceNumber: '0x8' }, 'stale_quote'],
+    [{ sourceHash: '0x0' }, 'stale_quote'],
+    [{ sourceReorg: true }, 'chain_changed'],
+  ]) assert.deepEqual(await input(rpc(change)), { available: false, reason });
 });
 
 test('rejects invalid pool, NFT ownership, chain and reorg before exposing a price', async () => {
@@ -119,6 +165,7 @@ test('rejects invalid pool, NFT ownership, chain and reorg before exposing a pri
     [{ owner: address(12) }, 'miner_not_in_pool'],
     [{ reorg: true }, 'chain_changed'],
     [{ finalChain: '0x1' }, 'chain_changed'],
+    [{ pinnedTimestamp: toQuantity(BigInt((now - 301_000) / 1000)) }, 'invalid_block'],
   ]) {
     assert.deepEqual(await input(rpc(change)), { available: false, reason });
   }

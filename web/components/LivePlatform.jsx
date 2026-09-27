@@ -36,6 +36,7 @@ import SiteOverview from "./SiteOverview";
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
+import FirstoMarketBoard from "./FirstoMarketBoard";
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
@@ -43,7 +44,8 @@ import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-ret
 import { prepareAdminAction, readOperatorStatus } from "../lib/live-admin.mjs";
 import ProjectShare from "./ProjectShare";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
-import { loadLiveConfig } from "../lib/live-config.mjs";
+import { createReadOnlyHttpProvider, loadLiveConfig } from "../lib/live-config.mjs";
+import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
 import {
   connectWallet,
@@ -208,6 +210,8 @@ export default function LivePlatform() {
   const [yieldData, setYieldData] = useState(null),
     [yieldDays, setYieldDays] = useState(30);
   const [loadedRoute, setLoadedRoute] = useState("");
+  const [orderCapacity, setOrderCapacity] = useState({});
+  const [capacityNow, setCapacityNow] = useState(() => Date.now());
   const [operator, setOperator] = useState(null);
   const [positionsLoaded, setPositionsLoaded] = useState(false);
   const [loading, setLoading] = useState(false),
@@ -229,6 +233,7 @@ export default function LivePlatform() {
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares");
   const epoch = useRef(0),
+    capacityEpoch = useRef(0),
     modalRef = useRef(null),
     restoreFocus = useRef(null),
     connectedWallet = useRef(null),
@@ -426,6 +431,17 @@ export default function LivePlatform() {
           locale === "en" ? "en-GB" : "zh-CN",
           { timeZone: "Asia/Shanghai", hour12: false },
         );
+  const capacityCell = (order) => {
+    const capacity = orderCapacity[order.pool?.toLowerCase()];
+    if (capacity?.available && capacity.validUntil > capacityNow) return <>
+      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic), 18, 6)}</strong>
+      <small>Firsto · {new Date(capacity.observedAt).toLocaleString(locale === "en" ? "en-GB" : "zh-CN")}</small>
+    </>;
+    if (capacity?.loading) return L("计算中…", "Loading…");
+    return <button className="text-button" onClick={() => void readAdditionalOrderCapacity(order)} disabled={!config || loading}>
+      {capacity?.available ? L("报价已过期 · 刷新", "Quote expired · refresh") : capacity ? L("暂不可用 · 重试", "Unavailable · retry") : L("查询日产能价", "Check capacity price")}
+    </button>;
+  };
   const actionLabel = (kind) => L(...(actionNames[kind] || [kind, kind]));
   const accountNeeded = ["overview", "rewards"].includes(route.route);
 
@@ -459,7 +475,7 @@ export default function LivePlatform() {
     async function load() {
       return readPageRound(client, { route, account, marketTab });
     }
-    retryReadRound(load, { isCurrent: current, onAttempt: clearRound })
+    retryReadRound(load, { isCurrent: current, onAttempt: clearRound, maxAttempts: 5 })
       .then((result) => {
         if (result === READ_CANCELLED || !current()) return;
         setPools(result.catalog.items.map(viewPool));
@@ -501,6 +517,54 @@ export default function LivePlatform() {
       epoch.current++;
     };
   }, [client, account, route.route, route.pool, refresh, marketTab]);
+
+  useEffect(() => {
+    if (route.route !== "market") return;
+    const timer = setInterval(() => setCapacityNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, [route.route]);
+
+  useEffect(() => {
+    const revision = ++capacityEpoch.current;
+    setOrderCapacity({});
+    if (!client || route.route !== "market" || marketTab === "whole" || !orders.length || !config) return;
+    const provider = createReadOnlyHttpProvider(config);
+    const firstByPool = new Map();
+    for (const order of orders) {
+      const key = order.pool?.toLowerCase();
+      if (key && !firstByPool.has(key)) firstByPool.set(key, order);
+    }
+    // The reverse proxy shares a 30-request/minute Firsto budget across visitors.
+    // Read two distinct miners automatically; additional rows are query-on-click.
+    void (async () => {
+      const entries = [...firstByPool].slice(0, 2);
+      for (let i = 0; i < entries.length; i += 2) {
+        if (capacityEpoch.current !== revision) return;
+        await Promise.all(entries.slice(i, i + 2).map(async ([key, order]) => {
+          setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
+          const result = await readShareDailyCapacityPrice(provider, {
+            factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
+          });
+          if (capacityEpoch.current !== revision) return;
+          setOrderCapacity(previous => ({ ...previous, [key]: result }));
+        }));
+      }
+    })();
+    return () => { capacityEpoch.current++; };
+  }, [client, route.route, marketTab, orders, boot]);
+
+  async function readAdditionalOrderCapacity(order) {
+    if (!config || !client || !order?.pool) return;
+    const key = order.pool.toLowerCase();
+    if (orderCapacity[key]?.loading) return;
+    const revision = capacityEpoch.current;
+    setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
+    const result = await readShareDailyCapacityPrice(createReadOnlyHttpProvider(config), {
+      factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
+    });
+    if (capacityEpoch.current !== revision) return;
+    setOrderCapacity(previous => ({ ...previous, [key]: result }));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1282,6 +1346,13 @@ export default function LivePlatform() {
                     : L("暂时无法完成链上核验，请稍后刷新。", "On-chain verification is temporarily unavailable. Please refresh later.")}
                 </p>
               </div>
+              <a
+                className="text-button"
+                href={`${basePath}/preview${process.env.NODE_ENV === "production" ? ".html" : ""}`}
+              >
+                {L("浏览页面预览", "Explore the preview")}
+                <ArrowUpRight size={16} />
+              </a>
             </div>
           )}
           {error && (
@@ -2077,8 +2148,8 @@ export default function LivePlatform() {
               {heading(
                 L("矿机转让", "Marketplace"),
                 L(
-                  "按链上有效订单买卖份额，也可购买挂牌整机。",
-                  "Trade valid share orders or purchase a listed miner.",
+                  "按链上有效订单买卖份额；下方 Firsto 行情为只读报价。",
+                  "Trade verified on-chain shares; Firsto miner quotes below are read-only.",
                 ),
                 refreshButton,
               )}
@@ -2116,6 +2187,7 @@ export default function LivePlatform() {
                           <th>{L("项目", "Pool")}</th>
                           <th>{L("剩余份额", "Remaining")}</th>
                           <th>{L("每份单价", "Per share")}</th>
+                          <th>{L("日产能价", "Daily capacity price")}<small>BNB / (BEM / {L("天", "day")})</small></th>
                           <th>{L("卖家", "Seller")}</th>
                           <th>{L("到期", "Expires")}</th>
                           <th />
@@ -2134,6 +2206,7 @@ export default function LivePlatform() {
                             </td>
                             <td>{o.remaining?.toString() ?? "—"}</td>
                             <td>{amount(o.pricePerUnitWei)} BNB</td>
+                            <td>{capacityCell(o)}</td>
                             <td>{shortAddress(o.seller)}</td>
                             <td>
                               {date(o.expiresAt)}
@@ -2201,6 +2274,7 @@ export default function LivePlatform() {
                       />
                     )}
                   </div>
+                  {!!orders.length && <p className="subtle-note">{L("日产能价按该挂单每份价格 × 100 ÷ 当前矿机预计日产出计算，属于毛产能估算；实际收益另按合约费率结算。产能来源过期或未核验时不显示价格，不影响链上买卖。", "Capacity price is each share order's price × 100 ÷ estimated daily output of the miner currently held by its pool. This gross estimate is not a return guarantee; unavailable estimates do not affect on-chain trading.")}</p>}
                   {moreButton(orderCursor, "orders")}
                 </section>
               )}
@@ -2227,6 +2301,7 @@ export default function LivePlatform() {
                   />
                 )}
               </section>
+              <FirstoMarketBoard />
             </>
           )}
           {route.route === "governance" && (

@@ -95,7 +95,10 @@ export default function FirstoMarketBoard() {
           <td>{unavailable ? '—' : formatMarketAmount(row.sellerPriceWei)}</td>
           <td>{unavailable ? '—' : formatMarketAmount(row.buyerCostWei)}</td>
           <td>{unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8, 5)}</td>
-          <td className="firsto-board-unit">{unavailable ? text(locale, '暂不可用', 'Unavailable') : formatMarketAmount(row.dailyCapacityPriceWei)}</td>
+          <td className="firsto-board-unit">{unavailable ? text(locale, '暂不可用', 'Unavailable') : <>
+            <strong>{text(locale, '挂牌', 'Ask')} {formatMarketAmount(row.dailyCapacityPriceWei)}</strong>
+            <small>{text(locale, '买方总价口径', 'Buyer-total basis')} {formatMarketAmount(row.buyerDailyCapacityPriceWei)}</small>
+          </>}</td>
           <td><time>{time(row.observedAt, locale)}</time><small>#{row.sourceBlock} · <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看官网', 'Open market')} ↗</a></small>
             {unavailable && <em>{unavailable}</em>}</td>
         </tr>;
@@ -103,8 +106,8 @@ export default function FirstoMarketBoard() {
       {!data.rows.length && <p className="firsto-board-status">{text(locale, '当前没有通过官方身份检查的矿机报价。', 'No official miner quote passed identity checks.')}</p>}
       <footer className="firsto-board-foot">
         <p>{text(locale,
-          '逐台日产能价 = 卖家挂单价 ÷ 该矿机估计日产出；市场参考价来自 Firsto 市场统计。Firsto 买方总价单独列示，可能含来源手续费。估计产出随全网状态变化，并非收益保证或可成交承诺。',
-          'Per-miner price per daily BEM = seller ask ÷ estimated daily output. The market reference is Firsto statistics. Buyer total may include venue fees. Output changes with network conditions; quotes are not a yield or execution guarantee.')}</p>
+          '逐台展示挂牌价和买方总价各自除以估计日产出的日产能价；买方总价可能包含 Firsto 手续费。市场参考价来自 Firsto 统计。估计产出随全网状态变化，并非收益保证或可成交承诺。',
+          'Per-miner capacity prices use seller ask and buyer total separately, each divided by estimated daily output. Buyer total may include Firsto fees. The market reference comes from Firsto statistics; estimates are not a yield or execution guarantee.')}</p>
         <div><button type="button" disabled={busy || data.page <= 1} onClick={() => void load(data.page - 1, data.viewId)}>{text(locale, '上一页', 'Previous')}</button>
           <span>{data.page} / {Math.max(1, data.totalPages)}</span>
           <button type="button" disabled={busy || data.page >= data.totalPages} onClick={() => void load(data.page + 1, data.viewId)}>{text(locale, '下一页', 'Next')}</button></div>
