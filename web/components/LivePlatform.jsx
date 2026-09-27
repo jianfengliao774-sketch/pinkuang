@@ -182,7 +182,9 @@ export default function LivePlatform() {
   const [appearance, setAppearance] = useState("light"),
     [menu, setMenu] = useState(false),
     [route, setRoute] = useState({ route: "home", pool: null });
+  const routeIdentity = useRef(route);
   const [boot, setBoot] = useState({ status: "loading" }),
+    [bootAttempt, setBootAttempt] = useState(0),
     [client, setClient] = useState(null),
     [account, setAccount] = useState(null),
     [wallet, setWallet] = useState(null);
@@ -286,8 +288,12 @@ export default function LivePlatform() {
       if (["light", "dark"].includes(stored)) setAppearance(stored);
     } catch {}
     const sync = () => {
-      epoch.current++;
-      setRoute(parseProductRoute(location.hash));
+      const next = parseProductRoute(location.hash);
+      if (next.route !== routeIdentity.current.route || next.pool !== routeIdentity.current.pool) {
+        epoch.current++;
+        routeIdentity.current = next;
+        setRoute(next);
+      }
       setMenu(false);
       setModal(null);
       setPrepared(null);
@@ -304,6 +310,9 @@ export default function LivePlatform() {
   }, [appearance]);
   useEffect(() => {
     let cancelled = false;
+    setBoot({ status: "loading" });
+    setClient(null);
+    setError("");
     loadLiveConfig({ basePath })
       .then(async (result) => {
         if (cancelled) return;
@@ -327,7 +336,7 @@ export default function LivePlatform() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bootAttempt]);
   useEffect(() => {
     if (!wallet?.on) return;
     const changed = () => {
@@ -968,8 +977,8 @@ export default function LivePlatform() {
   const refreshButton = (
     <Button
       secondary
-      onClick={() => setRefresh((v) => v + 1)}
-      disabled={loading || busy}
+      onClick={() => boot.status === "ready" ? setRefresh((v) => v + 1) : setBootAttempt((v) => v + 1)}
+      disabled={loading || busy || boot.status === "loading"}
     >
       <RefreshCw size={16} />
       {L("刷新", "Refresh")}
@@ -1282,6 +1291,9 @@ export default function LivePlatform() {
                     : L("暂时无法完成链上核验，请稍后刷新。", "On-chain verification is temporarily unavailable. Please refresh later.")}
                 </p>
               </div>
+              {boot.status !== "loading" && <Button secondary disabled={busy} onClick={() => setBootAttempt((v) => v + 1)}>
+                <RefreshCw size={16} />{L("重新加载", "Retry loading")}
+              </Button>}
               <a
                 className="text-button"
                 href={`${basePath}/preview${process.env.NODE_ENV === "production" ? ".html" : ""}`}

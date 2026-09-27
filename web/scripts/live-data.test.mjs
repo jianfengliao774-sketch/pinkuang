@@ -138,6 +138,57 @@ test('deployment verifies all code hashes and bindings at a canonical pinned blo
   await assert.rejects(c.verifyDeployment({ blockNumber: 8n }), { code: 'deployment_block' });
 });
 
+for (const failedMethod of ['eth_chainId', 'eth_getBlockByNumber']) {
+  test(`header failure in ${failedMethod} drains the other in-flight read before rejecting`, async () => {
+    const base = provider(), failure = new Error('header transport failed');
+    const started = []; let releaseSlow, finishedSlow = false, settled = false;
+    const slow = new Promise(resolve => { releaseSlow = resolve; });
+    const rpc = { async request(request) {
+      started.push(request.method);
+      if (request.method === failedMethod) throw failure;
+      await slow;
+      finishedSlow = true;
+      return base.request(request);
+    } };
+    const result = createLiveDataClient(config, { provider: rpc }).verifyDeployment({ blockNumber: 10n });
+    const rejected = assert.rejects(result, error => error === failure);
+    result.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    try {
+      assert.deepEqual(started, ['eth_chainId', 'eth_getBlockByNumber']);
+      assert.equal(settled, false);
+      assert.equal(finishedSlow, false);
+    } finally { releaseSlow(); }
+    await rejected;
+    assert.equal(finishedSlow, true);
+    assert.equal(started.length, 2, 'no code or binding reads may start after an invalid header');
+  });
+}
+
+for (const [invalidMethod, expectedCode] of [['eth_chainId', 'wrong_chain'], ['eth_getBlockByNumber', 'rpc_block']]) {
+  test(`parallel header still rejects ${expectedCode} after its slower companion completes`, async () => {
+    const base = provider(), started = []; let releaseSlow, settled = false;
+    const slow = new Promise(resolve => { releaseSlow = resolve; });
+    const rpc = { async request(request) {
+      started.push(request.method);
+      if (request.method === invalidMethod)
+        return invalidMethod === 'eth_chainId' ? '0x1' : { number: '0xb', timestamp: toQuantity(timestamp), hash: blockHash };
+      await slow;
+      return base.request(request);
+    } };
+    const result = createLiveDataClient(config, { provider: rpc }).verifyDeployment({ blockNumber: 10n });
+    const rejected = assert.rejects(result, { code: expectedCode });
+    result.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    try {
+      assert.deepEqual(started, ['eth_chainId', 'eth_getBlockByNumber']);
+      assert.equal(settled, false);
+    } finally { releaseSlow(); }
+    await rejected;
+    assert.equal(started.length, 2);
+  });
+}
+
 test('same-block deployment callers share bounded reads and cached success still checks the canonical block', async () => {
   const base = provider(); let active = 0, peak = 0;
   const rpc = { async request(request) {

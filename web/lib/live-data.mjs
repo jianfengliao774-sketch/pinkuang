@@ -1,6 +1,7 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint, readPoolSnapshot, hasPosition, assetKey } from './chain-client.mjs';
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS } from './live-config.mjs';
+import { settleReadRound } from './read-retry.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -67,8 +68,12 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   const verified = new Map(), verifying = new Map();
 
   async function blockHeader(blockNumber) {
-    insist(BigInt(await request('eth_chainId')) === 56n, 'wrong_chain', '请切换至 BSC 主网。');
-    const block = await request('eth_getBlockByNumber', [blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber)), false]);
+    const tag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
+    const { chainId, block } = await settleReadRound({
+      chainId: () => request('eth_chainId'),
+      block: () => request('eth_getBlockByNumber', [tag, false]),
+    });
+    insist(BigInt(chainId) === 56n, 'wrong_chain', '请切换至 BSC 主网。');
     insist(block && hash(block.hash) && /^0x[\da-f]+$/i.test(block.number) && /^0x[\da-f]+$/i.test(block.timestamp), 'rpc_block', 'RPC 区块响应无效。');
     insist(blockNumber === undefined || BigInt(block.number) === uint(blockNumber), 'rpc_block', 'RPC 返回了错误的区块。');
     return { number: BigInt(block.number), timestamp: BigInt(block.timestamp), hash: block.hash.toLowerCase() };
