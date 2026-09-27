@@ -1,0 +1,3 @@
+/* Keep review previews steady while preserving the shipped layout and copy. */
+.bemine-scene *, .bemine-scene *::before, .bemine-scene *::after{animation-play-state:paused!important}
+html{scroll-behavior:auto!important}
