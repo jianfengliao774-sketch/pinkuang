@@ -131,8 +131,9 @@ async function readApi(path: string, options: FetchOptions): Promise<unknown> {
   const forward = () => abort.abort(); options.signal?.addEventListener('abort', forward, { once: true });
   if (options.signal?.aborted) abort.abort();
   try {
-    const response = await (options.fetcher ?? fetch)(`${apiBase(options)}${path}`, { method: 'GET', signal: abort.signal, cache: 'no-store', credentials: 'omit', headers: { Accept: 'application/json' } });
+    const response = await (options.fetcher ?? fetch)(`${apiBase(options)}${path}`, { method: 'GET', signal: abort.signal, cache: 'no-store', credentials: 'omit', redirect: 'error', headers: { Accept: 'application/json' } });
     requireValue(response.ok, `Firsto 报价来源暂不可用（HTTP ${response.status}），不使用估算或旧报价`);
+    requireValue(!response.redirected, 'Firsto 报价来源发生重定向');
     requireValue(response.headers.get('content-type')?.includes('application/json'), '报价代理未返回 JSON，请检查同源 API 代理');
     const reader = response.body?.getReader(); requireValue(reader, '报价响应为空');
     const parts: Uint8Array[] = []; let size = 0;
@@ -151,6 +152,12 @@ export async function fetchQuotePage(input: { query?: string; sort?: PriceSort; 
   return parseQuotePage(await readApi(`/v1/circuits?${params}`, options));
 }
 export async function fetchCapacityReference(options: FetchOptions = {}): Promise<CapacityReference> { return parseCapacityReference(await readApi('/v1/circuit-holders?page=1', options)); }
+/** Exact official NFT detail, with the same bounded JSON reader as market quotes. No text search or listing is required. */
+export async function fetchMineDetail(collectionValue: string, tokenValue: string, options: FetchOptions = {}): Promise<unknown> {
+  const collection = address(collectionValue, '矿机合约'); const tokenId = uint(tokenValue.trim(), '矿机编号');
+  requireValue(collection === OFFICIAL_COLLECTIONS.TapeOut || collection === OFFICIAL_COLLECTIONS.Behemoth, '只接受官方 TapeOut / Behemoth 合约地址，不按同名认定');
+  return readApi(`/v1/circuit/${collection}/${tokenId}`, options);
+}
 export async function fetchMineQuote(collectionValue: string, tokenValue: string, options: FetchOptions = {}): Promise<MineQuote> {
   const collection = address(collectionValue, '矿机合约'); const tokenId = uint(tokenValue.trim(), '矿机编号');
   const series = (Object.keys(OFFICIAL_COLLECTIONS) as (keyof typeof OFFICIAL_COLLECTIONS)[]).find(key => OFFICIAL_COLLECTIONS[key] === collection);
@@ -163,7 +170,7 @@ export async function fetchMineQuote(collectionValue: string, tokenValue: string
     if (found || page >= result.totalPages) break;
   }
   requireValue(found, '受限查询未找到完全匹配的官方矿机，不能推测其报价');
-  const detail = await readApi(`/v1/circuit/${collection}/${tokenId}`, options);
+  const detail = await fetchMineDetail(collection, tokenId, options);
   return verifyQuoteDetail(found, detail);
 }
 

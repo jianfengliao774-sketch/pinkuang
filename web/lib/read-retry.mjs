@@ -17,13 +17,16 @@ export async function settleReadRound(reads) {
   return Object.fromEntries(entries.map(([key], index) => [key, results[index].value]));
 }
 
-/** Up to three fresh rounds; obsolete route/account results are never returned for rendering. */
+/** Bounded fresh rounds; obsolete route/account results are never returned for rendering. */
 export async function retryReadRound(read, {
   isCurrent = () => true,
   onAttempt = () => {},
+  maxAttempts = 3,
   wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
 } = {}) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 6)
+    throw new Error('Invalid read retry limit');
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (!isCurrent()) return READ_CANCELLED;
     onAttempt();
     try {
@@ -31,7 +34,7 @@ export async function retryReadRound(read, {
       return isCurrent() ? result : READ_CANCELLED;
     } catch (error) {
       if (!isCurrent()) return READ_CANCELLED;
-      if (!isRetryableReadError(error) || attempt === 2) throw error;
+      if (!isRetryableReadError(error) || attempt === maxAttempts - 1) throw error;
       await wait(1000);
     }
   }

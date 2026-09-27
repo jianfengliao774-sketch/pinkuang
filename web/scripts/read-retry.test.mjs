@@ -72,6 +72,19 @@ test('recoverable reads stop at three total attempts and preserve the final erro
   }
 });
 
+test('live page can outwait three brief incomplete-index rounds without accepting partial data', async () => {
+  let attempts = 0, delays = 0;
+  const complete = Object.freeze({ source: { complete: true }, rows: [] });
+  const result = await retryReadRound(async () => {
+    attempts++;
+    if (attempts <= 3) throw problem('index_incomplete');
+    return complete;
+  }, { maxAttempts: 5, wait: async ms => { assert.equal(ms, 1000); delays++; } });
+  assert.equal(result, complete);
+  assert.equal(attempts, 4);
+  assert.equal(delays, 3);
+});
+
 test('an obsolete route drains its reads but neither retries nor writes to the replacement route', async () => {
   const oldRead = deferred(), started = deferred();
   let current = true, attempts = 0, rendered = 'new route';
