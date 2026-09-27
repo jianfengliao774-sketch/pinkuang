@@ -146,6 +146,7 @@ abstract contract RewardsTestBase is FundingTestBase {
         vm.warp((block.timestamp / 1 days + 1) * 1 days + 100);
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
+        ++defaultParams.circuitId; // The earlier funding-only fixture retains its own permanent reservation.
         pool = _createPool(defaultParams);
 
         vm.etch(Addresses.TAPEOUT_CIRCUITS, address(new PurchaseMockNft()).code);

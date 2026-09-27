@@ -54,8 +54,9 @@ contract WholeMinerConcurrencyTest is SaleTestBase {
         assertEq(address(target).balance, 1.5 ether);
     }
 
-    function testFuzz_twoFundedPoolsCannotBuyTheSameOfficialListing(bool reverseOrder) public {
+    function testFuzz_twoIndependentFactoriesCannotBuyTheSameOfficialListing(bool reverseOrder) public {
         (IFundingVault first, uint256 listingId) = _fundedPoolAndListing();
+        _deployFactory(); // Same-site duplicates are rejected; separate factory deployments still compete on-chain.
         IFundingVault second = _createPool(defaultParams);
         _deposit(second, BOB, 100);
         IFundingVault winner = reverseOrder ? second : first;

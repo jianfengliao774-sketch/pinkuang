@@ -87,6 +87,9 @@ interface IPoolVault {
     error BurnDisabled();
     error LegacyRewardMigrationRequired();
     error OriginalTargetAvailable();
+    error UnverifiedPurchaseRoute();
+    error InvalidFirstoOrder();
+    error FirstoFeeChanged();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
     event DepositWithdrawn(address indexed user, uint8 shares, uint256 amount);
@@ -133,6 +136,14 @@ interface IPoolVault {
     event FlexibleSurplusAllocated(uint256 amount, address indexed roundingRecipient, uint256 roundingWei);
     event PurchaseModelLocked(uint32 indexed taskId);
     event PurchaseReferenceWeightLocked(uint128 verifiedWeight);
+    event FirstoPurchased(
+        address indexed exchange,
+        bytes32 indexed orderHash,
+        uint256 indexed circuitId,
+        uint256 sellerPrice,
+        uint256 sourceFee,
+        uint256 totalCost
+    );
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -142,6 +153,8 @@ interface IPoolVault {
     function setDepositPaused(bool paused) external;
     function buyFromMarket(uint256 listingId) external;
     function buyAlternativeFromMarket(uint256 listingId) external;
+    /// @notice kind 0 is the fixed signed-ask V2 route. Other kinds, including unverified batch, are rejected.
+    function buyFromFirsto(uint8 kind, bytes calldata encodedOrder) external;
     function configureFlexiblePurchase(FlexiblePurchaseConfig calldata config) external;
     function flexiblePurchase()
         external

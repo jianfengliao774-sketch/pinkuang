@@ -267,9 +267,12 @@ contract PoolLensTest is ShareTransferTestBase {
         }
     }
 
-    function test_duplicateNftPoolAddressesRemainSeparateAndParamsAreCurrent() public {
+    function test_legacyDuplicateNftViewsRemainSeparateAndParamsAreCurrent() public {
+        ++defaultParams.circuitId;
         vm.prank(OPERATOR);
         address second = poolFactory.createPool(defaultParams);
+        // Simulate the read shape of two historical pools; new Factory creation itself forbids duplicates.
+        vm.mockCall(second, abi.encodeWithSignature("params()"), abi.encode(pool.params()));
         address[] memory pools = new address[](2);
         pools[0] = address(pool);
         pools[1] = second;
@@ -457,6 +460,7 @@ contract PoolLensTest is ShareTransferTestBase {
     function test_twentyDistinctColdPoolsStayWithinMeasuredReadBudget() public {
         address[] memory pools = new address[](20);
         for (uint256 i = 0; i < pools.length; ++i) {
+            ++defaultParams.circuitId;
             vm.prank(OPERATOR);
             pools[i] = poolFactory.createPool(defaultParams);
             vm.cool(pools[i]);

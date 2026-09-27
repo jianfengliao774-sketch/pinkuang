@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 
 const MAX_BODY = 64 * 1024;
 const CHALLENGE_MS = 5 * 60_000;
@@ -24,6 +25,7 @@ const FINAL_STEPS = ['AtomicDeployment','PoolVault','PoolFactory','ShareMarket',
 // There is no arbitrary call, approval or upgrade route; operator actions are checked separately.
 export const PRODUCT_POOL_ABI = new Interface([
   'function buyFromMarket(uint256 listingId)', 'function buyAlternativeFromMarket(uint256 listingId)', 'function mine(bytes data)',
+  'function buyFromFirsto(uint8 kind,bytes encodedOrder)',
   'function deposit(uint8 shares) payable', 'function withdrawDeposit()', 'function finalizeFailure()',
   'function harvest()', 'function claim()', 'function withdrawBnb()',
   'function propose(uint256 price,uint256 refPrice,uint64 refAt)', 'function vote(uint256 proposalId,bool support)',
@@ -42,6 +44,8 @@ export const PRODUCT_FACTORY_ABI = new Interface([
   'event PoolCreated(address indexed pool,address indexed circuits,uint256 indexed circuitId,uint256 targetRaise,uint256 priceCap,address treasury)',
 ]);
 const MINING_ABI = new Interface(['function arm(address circuits,uint256 circuitId)','function reclaim(bytes32 key)']);
+const MACHINE_REGISTRY_ABI = new Interface(['function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
+  'function machinePool(address,uint256) view returns(address)']);
 const IDENTITY_ABI = new Interface([
   'function operator() view returns(address)',
 
@@ -145,6 +149,10 @@ function decodeProduct(value) {
     || decoded.name === 'list' && (decoded.args[1] < 1n || decoded.args[1] > 100n)
     || decoded.name === 'fill' && (decoded.args[1] < 1n || decoded.args[1] > 100n)) fail(400, 'Invalid share quantity.');
   if (decoded.name === 'propose' && decoded.args[0] === 0n) fail(400, 'Whole miner sale price must be positive.');
+  if (decoded.name === 'buyFromFirsto') {
+    if (decoded.args[0] !== 0n) fail(400, 'Firsto batch purchases are not enabled.');
+    try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
+  }
   if (decoded.name === 'mine') {
     let inner;
     try { inner = MINING_ABI.parseTransaction({data:decoded.args[0]}); } catch { fail(400, 'Unsupported mining call.'); }
@@ -232,10 +240,23 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     if (record.targetType === 'factory') {
       if (identity(record.target) !== identity(record.factory) || identity(await call(record.factory, 'operator')) !== identity(record.account))
         fail(403, 'Only the configured Factory operator may create pools.');
+      // A legacy factory cannot guarantee the user's one-machine-one-project rule.
+      // Creation stays closed until the upgraded on-chain registry is fully initialized.
+      const status=MACHINE_REGISTRY_ABI.decodeFunctionResult('machineRegistryStatus',await provider.send('eth_call',[
+        {to:record.factory,data:MACHINE_REGISTRY_ABI.encodeFunctionData('machineRegistryStatus')},tag]));
+      if (!status.initialized || !status.ready || status.cursor!==status.cutoff)
+        fail(409,'Machine registry is not ready; creation requires the verified uniqueness upgrade.');
+      const params=decoded.args[0];
+      const occupied=MACHINE_REGISTRY_ABI.decodeFunctionResult('machinePool',await provider.send('eth_call',[
+        {to:record.factory,data:MACHINE_REGISTRY_ABI.encodeFunctionData('machinePool',[params.circuits,params.circuitId])},tag]))[0];
+      if (identity(occupied)!=='0x0000000000000000000000000000000000000000')
+        fail(409,`This machine already has a project: ${occupied}.`);
     } else if (record.targetType === 'pool') {
       await registeredPool(record.target);
-      if (['buyFromMarket','buyAlternativeFromMarket','mine'].includes(decoded.name)
+      if (['buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine'].includes(decoded.name)
         && identity(await call(record.factory, 'operator')) !== identity(record.account)) fail(403, 'Only the Factory operator may operate mining or purchase.');
+      if (decoded.name === 'buyFromFirsto') await verifyFirstoSignedAsk({ request:({ method,params }) => provider.send(method,params) },
+        decodeFirstoOrder(decoded.args[1]), { blockTag:tag });
       if (decoded.name === 'deposit' && BigInt(record.value) !== decoded.args[0] * await call(record.target, 'unitPriceWei'))
         fail(409, 'Deposit value differs from the current share price.');
       if (decoded.name === 'completeSale' && (BigInt(record.value) === 0n || BigInt(record.value) !== await call(record.target, 'salePrice')))
@@ -616,7 +637,8 @@ function sessionCookie(token, secure) {
 
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
-  productDeploymentRecord, productArtifactBundle, productGraphVerifier } = {}) {
+  productDeploymentRecord, productArtifactBundle, productGraphVerifier,
+  genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -631,7 +653,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
   const trustedProduct = productGraphConfiguration({recordPath:productDeploymentRecordPath,record:productDeploymentRecord,
-    bundle:productArtifactBundle,bundlePath:new URL('../dist/deployment-artifacts.json',import.meta.url)});
+    bundle:productArtifactBundle,bundlePath:new URL('../dist/deployment-artifacts.json',import.meta.url),
+    genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle});
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
   const inFlight = new Set();
@@ -843,5 +866,7 @@ export function journalConfiguration(env = process.env) {
   return { dbPath, origin, rpcUrl,
     allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     productDeploymentRecordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
+    genesisRecordPath: env.BEMINE_GENESIS_RECORD_PATH,
+    genesisBundlePath: env.BEMINE_GENESIS_ARTIFACT_PATH,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

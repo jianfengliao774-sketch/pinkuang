@@ -129,6 +129,10 @@ jobs:
         env:
           VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}
         run: npm run test:fork
+      - name: Firsto real signed order into a funded Pool at its separate fixed block
+        env:
+          VALIDATION_EVIDENCE_ROOT: ${{ runner.temp }}/t1e-fork-${{ github.run_id }}-${{ github.run_attempt }}/firsto
+        run: npm run test:fork:firsto
       - name: Preserve current raw fork evidence
         if: always()
         uses: actions/upload-artifact@v4

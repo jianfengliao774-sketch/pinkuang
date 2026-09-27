@@ -55,6 +55,22 @@ abstract contract FundingTestBase is Test {
 
     function setUp() public virtual {
         vm.warp(1_800_000_000);
+        _deployFactory();
+        defaultParams = IPoolVault.PoolParams({
+            circuits: Addresses.TAPEOUT_CIRCUITS,
+            circuitId: 16210,
+            targetRaise: 100 * UNIT_PRICE,
+            priceCap: 6 ether,
+            directSeller: address(0),
+            directPrice: 0,
+            fundingDeadline: uint64(block.timestamp + 7 days),
+            purchaseDeadline: uint64(block.timestamp + 10 days)
+        });
+        pool = _createPool(defaultParams);
+    }
+
+    /// @dev Parameter variants for the same NFT use separate real deployments; never erase a registry reservation.
+    function _deployFactory() internal {
         timelock = new PoolTimelock(OWNER);
         address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         vaultImplementation = new PoolVault(predictedFactory);
@@ -70,17 +86,6 @@ abstract contract FundingTestBase is Test {
                 )
             )
         );
-        defaultParams = IPoolVault.PoolParams({
-            circuits: Addresses.TAPEOUT_CIRCUITS,
-            circuitId: 16210,
-            targetRaise: 100 * UNIT_PRICE,
-            priceCap: 6 ether,
-            directSeller: address(0),
-            directPrice: 0,
-            fundingDeadline: uint64(block.timestamp + 7 days),
-            purchaseDeadline: uint64(block.timestamp + 10 days)
-        });
-        pool = _createPool(defaultParams);
     }
 
     function _createPool(IPoolVault.PoolParams memory p) internal returns (IFundingVault result) {

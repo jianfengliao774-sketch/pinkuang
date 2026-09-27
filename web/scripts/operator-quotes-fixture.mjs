@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { OFFICIAL_COLLECTIONS, parseQuotePage, parseCapacityReference, verifyQuoteDetail } from '../../deploy/src/pricing.ts';
-import { QUOTE_BASE } from '../lib/operator-quotes.mjs';
+import { QUOTE_BASE, machineRegistryAbi } from '../lib/operator-quotes.mjs';
+const config = { factory: getAddress('0x0000000000000000000000000000000000000201') };
 const MARKET = getAddress('0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f');
 const MINING = getAddress('0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46');
 const seller = getAddress('0x1111111111111111111111111111111111111111');
@@ -58,6 +59,12 @@ function chainFixture(quote, changes = {}) {
     assert.equal(params[1], '0x64', 'every call is pinned');
     const [tx] = params, target = getAddress(tx.to);
     assert(!Object.hasOwn(tx, 'from'), 'no transaction simulation or send in quote reads');
+    if (target === config.factory) {
+      const parsed = machineRegistryAbi.parseTransaction(tx);
+      if (parsed.name === 'machineRegistryStatus') return changes.registryUnsupported ? '0x'
+        : machineRegistryAbi.encodeFunctionResult(parsed.fragment, [true, changes.registryReady ?? true, 0n, changes.registryReady === false ? 1n : 0n]);
+      return machineRegistryAbi.encodeFunctionResult(parsed.fragment, [changes.registryPool ?? ZeroAddress]);
+    }
     const iface = target === MARKET ? marketAbi : target === MINING ? miningAbi : nftAbi;
     const parsed = iface.parseTransaction(tx); calls.push(parsed.name);
     if (parsed.name === 'ownerOf') { assert.equal(parsed.args[0], BigInt(quote.tokenId)); return iface.encodeFunctionResult(parsed.fragment, [changes.owner ?? seller]); }
@@ -85,4 +92,4 @@ function apiFixture(data, { referenceFails = false, invalidJson = false } = {}) 
 }
 
 
-export { dataFixture, chainFixture, apiFixture, MARKET, MINING, seller, other, blockHash };
+export { dataFixture, chainFixture, apiFixture, MARKET, MINING, seller, other, blockHash, config };

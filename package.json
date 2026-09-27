@@ -9,6 +9,7 @@
     "build": "node scripts/run-forge.mjs build --root contracts --sizes",
     "test": "node scripts/run-forge.mjs test --root contracts --no-match-path test/fork/** -vv",
     "test:fork": "node scripts/run-fork.mjs",
+    "test:fork:firsto": "node scripts/run-firsto-fork.mjs",
     "validate:upgrades": "node scripts/validate-upgrades.mjs"
   },
   "devDependencies": {

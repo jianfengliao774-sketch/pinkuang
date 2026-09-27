@@ -32,7 +32,7 @@ try {
   const previews = fixture.walletRequests.filter(p => p.method === 'eth_call' && p.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector));
   assert.equal(previews.length, 1);
   const params = abi.PoolFactory.parseTransaction(previews[0].params[0]).args[0];
-  assert.equal(params.targetRaise, 1100000000000000n); assert.equal(params.priceCap, 1000000000000000n);
+  assert.equal(params.targetRaise, 1000000000000000n); assert.equal(params.priceCap, 1000000000000000n);
   await owner.evaluate(() => window.ethereum.__emit('accountsChanged', ['0x0000000000000000000000000000000000000009']));
   await owner.getByText('此页面仅限授权运营人员', { exact: true }).waitFor();
   assert.equal(await owner.getByRole('dialog', { name: '确认运营操作' }).count(), 0);

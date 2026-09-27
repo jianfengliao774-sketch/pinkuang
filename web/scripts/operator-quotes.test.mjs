@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ZeroAddress, getAddress } from 'ethers';
-import { dataFixture, chainFixture, apiFixture, MARKET, other, blockHash } from './operator-quotes-fixture.mjs';
-import { checkMinerOnchain, loadOperatorQuote, listOperatorQuotes, operatorQuoteDraft, operatorQuoteError, parseOperatorImport } from '../lib/operator-quotes.mjs';
+import { dataFixture, chainFixture, apiFixture, MARKET, other, blockHash, config } from './operator-quotes-fixture.mjs';
+import { checkMinerOnchain as checkMiner, loadOperatorQuote as loadQuote, listOperatorQuotes, operatorQuoteDraft, operatorQuoteError, parseOperatorImport } from '../lib/operator-quotes.mjs';
+const checkMinerOnchain = (provider, quote) => checkMiner(provider, quote, { config });
+const loadOperatorQuote = input => loadQuote({ config, ...input });
 
 test('quote selection uses exact official NFT/Mining/Market ABI and pins every read to one BSC block', async () => {
   for (const series of ['TapeOut', 'Behemoth']) {
@@ -11,7 +13,7 @@ test('quote selection uses exact official NFT/Mining/Market ABI and pins every r
     assert.equal(result.blockNumber, '100'); assert.equal(result.blockHash, blockHash);
     assert.equal(result.official.id, '45'); assert.equal(result.official.priceWei, '2000000000000000001');
     assert.deepEqual(chain.calls, ['ownerOf', 'listingFor', 'minerKey', 'getMiner']);
-    assert.equal(chain.requests.length, 8);
+    assert.equal(chain.requests.length, 10);
   }
 });
 

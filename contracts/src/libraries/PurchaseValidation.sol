@@ -68,6 +68,18 @@ library PurchaseValidation {
         return _activeMinerKey(circuits, circuitId);
     }
 
+    /// @dev Called by the fixed Firsto route under Vault.nonReentrant after checking the exact order and total cost.
+    function prepareFirstoPurchase(address circuits, uint256 circuitId, address seller, bytes32 tradeId)
+        external
+        returns (bytes32 key)
+    {
+        if (seller == address(0) || IERC721(circuits).ownerOf(circuitId) != seller) {
+            revert IPoolVault.InvalidListing();
+        }
+        key = _activeMinerKey(circuits, circuitId);
+        _settleSellerRewards(circuits, circuitId, seller, key, tradeId);
+    }
+
     function _activeMinerKey(address circuits, uint256 circuitId) private view returns (bytes32 key) {
         key = ITapeoutMining(MINING).minerKey(circuits, circuitId);
         ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);

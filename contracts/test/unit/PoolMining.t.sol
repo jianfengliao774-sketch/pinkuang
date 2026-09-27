@@ -28,6 +28,7 @@ contract PoolMiningTest is FundingTestBase {
 
     function setUp() public override {
         super.setUp();
+        _deployFactory(); // Isolate the direct-purchase variant from the base funding-only pool.
         vm.etch(Addresses.TAPEOUT_CIRCUITS, address(new PurchaseMockNft()).code);
         vm.etch(Addresses.BEM, address(new PurchaseMockBem()).code);
         vm.etch(Addresses.MINING, address(new MiningPermissionMock()).code);

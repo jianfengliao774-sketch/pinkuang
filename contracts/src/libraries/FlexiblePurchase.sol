@@ -8,6 +8,8 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "../interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "../interfaces/ITapeoutMining.sol";
 import {ICircuitMarket} from "../interfaces/ICircuitMarket.sol";
+import {IFirstoSignedAskExchange} from "../interfaces/IFirstoExchange.sol";
+import {IPoolMachineRegistry} from "../interfaces/IPoolMachineRegistry.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
 import {PurchaseSelectionState} from "../PurchaseSelectionState.sol";
 import {PurchaseValidation} from "./PurchaseValidation.sol";
@@ -18,6 +20,11 @@ import {PoolFunds} from "./PoolFunds.sol";
 library FlexiblePurchase {
     address private constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address private constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
+    address private constant FIRSTO_SIGNED_ASK = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
+    address private constant PROTOCOL_FACTORY = 0x68224F668083c29e9800Be2a646d42d18cedF7e2;
+    bytes32 private constant SIGNED_ASK_TYPEHASH = keccak256(
+        "SignedAsk(address maker,address collection,uint256 tokenId,uint256 nonce,uint128 price,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion)"
+    );
 
     bytes32 private constant SELECTION_STORAGE = 0xabb161195ab2dca5bb4a3b74cf71ac027f503287a65da4d00c8f2426b582f100;
 
@@ -31,6 +38,14 @@ library FlexiblePurchase {
     event PurchaseSurplusSettled(address indexed user, uint256 shares, uint256 amount);
     event PurchaseModelLocked(uint32 indexed taskId);
     event PurchaseReferenceWeightLocked(uint128 verifiedWeight);
+    event FirstoPurchased(
+        address indexed exchange,
+        bytes32 indexed orderHash,
+        uint256 indexed circuitId,
+        uint256 sellerPrice,
+        uint256 sourceFee,
+        uint256 totalCost
+    );
 
     function configure(
         PoolVaultState.VaultStorage storage s,
@@ -118,6 +133,7 @@ library FlexiblePurchase {
                 revert IPoolVault.OriginalTargetAvailable();
             }
         }
+        IPoolMachineRegistry(s.factory).claimMachine(s.params.circuits, circuitId);
         (address seller, uint256 price, bytes32 key) =
             PurchaseValidation.prepareMarketPurchase(s.params.circuits, circuitId, s.params.priceCap, listingId);
         // Claim may alter miner state. Recheck the actual returned price and chain weight before any purchase payment.
@@ -142,6 +158,7 @@ library FlexiblePurchase {
         if (_selection().enabled) revert IPoolVault.InvalidParameters();
         address seller = s.params.directSeller;
         uint256 price = s.params.directPrice;
+        IPoolMachineRegistry(s.factory).claimMachine(s.params.circuits, s.params.circuitId);
         bytes32 key = PurchaseValidation.prepareDirectPurchase(
             s.params.circuits, s.params.circuitId, seller, price, s.params.priceCap
         );
@@ -150,6 +167,96 @@ library FlexiblePurchase {
         _finish(s, price, 1, 0, key);
         s.bnbOwed[seller] += price;
         s.totalBnbOwed += price;
+    }
+
+    /// @notice Fixed signed-ask V2 purchase of the original target only. No caller-selected target or calldata.
+    /// @dev The separate batch ABI is intentionally not executable until its runtime provenance is resolved.
+    function buyFirsto(PoolVaultState.VaultStorage storage s, uint8 kind, bytes calldata encodedOrder) external {
+        _requireWindow(s);
+        if (kind != 0) revert IPoolVault.UnverifiedPurchaseRoute();
+        // Bound work before decoding; the fixed exchange validates ECDSA or ERC-1271 signatures itself.
+        if (block.chainid != 56 || encodedOrder.length < 384 || encodedOrder.length > 1408) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        (IFirstoSignedAskExchange.SignedAsk memory ask, bytes memory signature) =
+            abi.decode(encodedOrder, (IFirstoSignedAskExchange.SignedAsk, bytes));
+        if (signature.length > 1024 || keccak256(encodedOrder) != keccak256(abi.encode(ask, signature))) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        PurchaseSelectionState.SelectionStorage storage selection = _selection();
+        uint256 originalId = selection.enabled ? selection.referenceCircuitId : s.params.circuitId;
+        if (ask.collection != s.params.circuits || ask.tokenId != originalId || ask.tokenId != s.params.circuitId) {
+            revert IPoolVault.WrongCircuit();
+        }
+        if (
+            ask.maker == address(0) || ask.payoutRecipient == address(0) || ask.price == 0
+                || ask.expiry <= block.timestamp || ask.schemaVersion != 2
+        ) revert IPoolVault.InvalidFirstoOrder();
+        if (selection.enabled && !selection.modelInitialized) revert IPoolVault.PurchaseModelNotInitialized();
+        if (selection.enabled && selection.referenceVerifiedWeight == 0) {
+            revert IPoolVault.PurchasePricingNotInitialized();
+        }
+        _requireFirstoFees(ask);
+        if (IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).isSignedAskNonceInvalidated(ask.maker, ask.nonce)) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        // Source protocol uses integer division (floor). The pool budget always includes this buyer-paid fee.
+        uint256 fee = uint256(ask.price) * ask.feeBps / 10_000;
+        uint256 cost = uint256(ask.price) + fee;
+        if (cost > s.params.priceCap || cost > s.totalRaised) revert IPoolVault.OverPriceCap();
+        if (address(this).balance < s.totalBnbOwed + cost) revert IPoolVault.AccountingDeficit();
+        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        IPoolMachineRegistry(s.factory).claimMachine(ask.collection, ask.tokenId);
+        bytes32 orderHash = _signedAskHash(ask);
+        bytes32 key = PurchaseValidation.prepareFirstoPurchase(ask.collection, ask.tokenId, ask.maker, orderHash);
+        // The reward claim must not alter eligibility or source fees between validation and payment.
+        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        _requireFirstoFees(ask);
+        _expectNft(s, ask.maker, FIRSTO_SIGNED_ASK);
+        uint256 balanceBefore = address(this).balance;
+        IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).fillSignedAsk{value: cost}(ask, signature, address(this));
+        // A refund or unsolicited transfer during execution must not make recorded cost differ from net spending.
+        if (address(this).balance != balanceBefore - cost) revert IPoolVault.PaymentMismatch();
+        _finish(s, cost, 2, 0, key);
+        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        _requireFirstoFees(ask);
+        if (selection.enabled) _allocateEntireSurplus(s, s.totalRaised - cost);
+        emit FirstoPurchased(FIRSTO_SIGNED_ASK, orderHash, ask.tokenId, ask.price, fee, cost);
+    }
+
+    function _requireFirstoFees(IFirstoSignedAskExchange.SignedAsk memory ask) private view {
+        IFirstoSignedAskExchange exchange = IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK);
+        if (exchange.factory() != PROTOCOL_FACTORY || exchange.paused() || exchange.SIGNED_ASK_SCHEMA_VERSION() != 2) {
+            revert IPoolVault.InvalidFirstoOrder();
+        }
+        // Epoch changes fail closed even if the exchange itself still accepts a historical signed fee epoch.
+        if (
+            ask.feeBps > 10_000 || ask.feeEpoch != exchange.feeEpoch() || ask.feeBps != exchange.defaultTakerFeeBps()
+                || ask.feeBps != exchange.feeBpsAtEpoch(ask.feeEpoch)
+        ) revert IPoolVault.FirstoFeeChanged();
+    }
+
+    function _requireFirstoQuality(
+        PurchaseSelectionState.SelectionStorage storage selection,
+        address circuits,
+        uint256 circuitId,
+        uint256 cost
+    ) private view {
+        if (selection.enabled) _requirePricedModel(selection, circuits, circuitId, cost);
+        else _requireQuality(circuits, circuitId, 1);
+    }
+
+    function _signedAskHash(IFirstoSignedAskExchange.SignedAsk memory ask) private view returns (bytes32) {
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Firsto Circuit Signed Ask"),
+                keccak256("2"),
+                block.chainid,
+                FIRSTO_SIGNED_ASK
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domain, keccak256(abi.encode(SIGNED_ASK_TYPEHASH, ask))));
     }
 
     function _requireWindow(PoolVaultState.VaultStorage storage s) private view {

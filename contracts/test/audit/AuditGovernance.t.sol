@@ -5,15 +5,6 @@ import {SaleTestBase} from "../utils/SaleTestBase.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 
-/// @dev Test-only storage fixture simulating the former timestamp-1 proposal format.
-contract OldSnapshotVaultFixture is PoolVault {
-    constructor(address factory) PoolVault(factory) {}
-
-    function recordOldSnapshot(uint256 proposalId) external {
-        _saleStorage().proposals[proposalId].snapshotTs -= 1;
-    }
-}
-
 /// @notice Regression for the ee8c809 same-timestamp ownership/vote finding.
 /// No fork or real wallets. Funding, share trades, voting and NFT handover use production entry points.
 contract AuditGovernance is SaleTestBase {
@@ -22,7 +13,7 @@ contract AuditGovernance is SaleTestBase {
         _readyForSale();
         vm.prank(ALICE);
         uint256 id = saleVault.propose(SALE_PRICE, 0, 0);
-        OldSnapshotVaultFixture(payable(address(pool))).recordOldSnapshot(id);
+        _recordOldSnapshot(id);
 
         assertFalse(saleVault.proposalPassed(id));
         // An old-format opener may not create a competing candidate with the
@@ -49,7 +40,7 @@ contract AuditGovernance is SaleTestBase {
         saleVault.vote(id, true);
         saleVault.executeSale(id);
         uint64 expiry = saleVault.expiresAt();
-        OldSnapshotVaultFixture(payable(address(pool))).recordOldSnapshot(id);
+        _recordOldSnapshot(id);
         _upgradeVault(address(new PoolVault(address(poolFactory))), keccak256("restore-production-vault"));
         assertLt(block.timestamp, expiry);
 
@@ -125,9 +116,24 @@ contract AuditGovernance is SaleTestBase {
         emit log_named_uint("buyers' payment in wei", 7.4 ether);
     }
 
-    function _installOldSnapshotFixture() private returns (OldSnapshotVaultFixture fixture) {
-        fixture = new OldSnapshotVaultFixture(address(poolFactory));
+    function _installOldSnapshotFixture() private {
+        PoolVault fixture = new PoolVault(address(poolFactory));
         _upgradeVault(address(fixture), keccak256("old-snapshot-fixture"));
+    }
+
+    /// @dev Historical-state injection only. Keep the real production implementation rather than adding a
+    /// storage-writing test entry point to a Vault whose runtime is near the EIP-170 deployment limit.
+    function _recordOldSnapshot(uint256 id) private {
+        uint48 current = saleVault.getProposal(id).snapshotTs;
+        assertGt(current, 0);
+        uint256 saleNamespace = 0x2f6815c6ef0fa51be4582ec22c24e8543902265d5f78fd79c749f4419f2ad600;
+        // PoolSaleState.proposals is namespace slot 3; proposer occupies bytes 0..19 and snapshotTs bytes 20..25.
+        bytes32 slot = keccak256(abi.encode(id, saleNamespace + 3));
+        uint256 stored = uint256(vm.load(address(pool), slot));
+        assertEq(uint48(stored >> 160), current, "historical fixture must match the live getter layout");
+        uint256 mask = uint256(type(uint48).max) << 160;
+        vm.store(address(pool), slot, bytes32((stored & ~mask) | (uint256(current - 1) << 160)));
+        assertEq(saleVault.getProposal(id).snapshotTs, current - 1);
     }
 
     function _upgradeVault(address implementation, bytes32 salt) private {

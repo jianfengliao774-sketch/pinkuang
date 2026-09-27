@@ -1,9 +1,10 @@
 import { getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { settleReadRound } from './read-retry.mjs';
+import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
-const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeSale','buyFromMarket','buyAlternativeFromMarket','mine']);
+const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
 const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked']);
 const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
 const active = new Set();
@@ -119,12 +120,15 @@ function normalize(config, transaction, action) {
   const contract = targetType === 'factory' ? abi.PoolFactory : targetType === 'pool' ? abi.PoolVault : abi.ShareMarket;
   const allowed = targetType === 'factory' ? FACTORY_ACTIONS : targetType === 'pool' ? POOL_ACTIONS : MARKET_ACTIONS;
   const value = exact(transaction.value ?? '0'), data = transaction.data;
-  requireValue(typeof data === 'string' && /^0x(?:[0-9a-f]{2}){4,1024}$/i.test(data), '交易 calldata 格式错误。');
+  requireValue(typeof data === 'string' && /^0x(?:[0-9a-f]{2}){4,2048}$/i.test(data), '交易 calldata 格式错误。');
   const decoded = contract.parseTransaction({ data, value });
   const kind = typeof action === 'string' ? action : action?.kind;
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
   requireValue(['deposit','completeSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
+  if (decoded.name === 'buyFromFirsto') {
+    requireValue(decoded.args[0] === 0n, 'Firsto 批量挂单尚未开放。'); decodeFirstoOrder(decoded.args[1]);
+  }
   return { factory, target, targetType, account, value, data: data.toLowerCase(), action: { kind: decoded.name } };
 }
 function validateResult(result, account, record, hash) {

@@ -143,6 +143,10 @@ contract PoolVault is
         FlexiblePurchase.buy(_vaultStorage(), listingId, true);
     }
 
+    function buyFromFirsto(uint8 kind, bytes calldata encodedOrder) external nonReentrant {
+        FlexiblePurchase.buyFirsto(_vaultStorage(), kind, encodedOrder);
+    }
+
     function sellToPool() external nonReentrant {
         FlexiblePurchase.sell(_vaultStorage());
     }

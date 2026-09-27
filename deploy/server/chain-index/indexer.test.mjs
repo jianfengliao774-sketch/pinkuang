@@ -195,6 +195,22 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('Firsto detail preserves order and fee evidence without double counting the Purchased cost',async()=>{
+  const chain=new MockChain();
+  chain.event('factory','PoolCreated',[pool,collection,16210n,1100n,1000n,alice],1);
+  chain.event('pool','Purchased',[505n,2,0n],3);
+  chain.event('pool','FirstoPurchased',[addr(90),hex(91),16210n,500n,5n,505n],3);
+  chain.event('market','OrderListed',[1n,alice,pool,5n,10n],4);
+  const index=new ChainIndex(chain,{dbPath:':memory:',factory,market,startBlock:1,confirmations:2,scanRange:2,maxBlocksPerSync:20});
+  try{
+    await index.sync();
+    assert.equal(index.stats().purchasedCostWei,'505');
+    const detail=index.activity({pool}).items.find(row=>row.event==='FirstoPurchased');
+    assert.equal(detail.fields.orderHash,hex(91));assert.equal(detail.fields.exchange,addr(90));
+    assert.equal(detail.fields.sellerPrice,'500');assert.equal(detail.fields.sourceFee,'5');assert.equal(detail.fields.totalCost,'505');
+  }finally{index.close();}
+});
+
 test('one wallet subscribes 20+80 then another buys 40+60 without duplicate positions or people', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-repeat-'));
   const chain = new MockChain();

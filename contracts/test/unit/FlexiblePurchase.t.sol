@@ -145,6 +145,9 @@ contract FlexiblePurchaseTest is FundingTestBase {
         private
         returns (IFundingVault)
     {
+        // Each same-reference pricing/model variant needs its own actual factory deployment.
+        // Dedicated registry tests exercise duplicate rejection within a single factory.
+        if (poolFactory.machinePool(params.circuits, params.circuitId) != address(0)) _deployFactory();
         vm.prank(OPERATOR);
         return IFundingVault(poolFactory.createFlexiblePool(params, terms));
     }
@@ -197,6 +200,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function test_configureRejectsPostFundingEvenWhenFactoryCalls() public {
+        _deployFactory();
         IFundingVault fixedPool = _createPool(defaultParams);
         _deposit(fixedPool, ALICE, 1);
         vm.prank(address(poolFactory));
@@ -205,6 +209,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function testFuzz_configureRejectsInvalidOnchainReferenceAtomically(uint8 fault) public {
+        _deployFactory();
         fault = uint8(bound(fault, 0, 5));
         bytes32 key = mining.minerKey(address(nft), REFERENCE_ID);
         if (fault == 0) mining.setIdentity(key, Addresses.BEHEMOTH_CIRCUITS, uint64(REFERENCE_ID));
@@ -271,6 +276,8 @@ contract FlexiblePurchaseTest is FundingTestBase {
         assertEq(mining.getMiner(key).taskId, 7);
         assertEq(mining.pending(key), 999);
         assertEq(bem.balanceOf(SELLER), 0);
+        assertEq(poolFactory.machinePool(address(nft), ALTERNATIVE_ID), address(0));
+        assertEq(poolFactory.machinePool(address(nft), REFERENCE_ID), address(pool));
     }
 
     function test_originalAffordableListingPreventsThirdPartyAlternativeFrontRun() public {
@@ -290,7 +297,10 @@ contract FlexiblePurchaseTest is FundingTestBase {
 
     function testFuzz_twoFundedPoolsCannotBuyTheSameAlternativeListing(bool secondPoolFirst) public {
         _fund();
-        IFundingVault other = _flexible(defaultParams, config);
+        IPoolVault.PoolParams memory otherParams = defaultParams;
+        otherParams.circuitId = REFERENCE_ID + 2;
+        _mintMiner(otherParams.circuitId);
+        IFundingVault other = _flexible(otherParams, config);
         _deposit(other, DAVE, 100);
         uint256 listing = _list(ALTERNATIVE_ID, 6 ether);
         IFundingVault winner = secondPoolFirst ? other : pool;
@@ -310,9 +320,28 @@ contract FlexiblePurchaseTest is FundingTestBase {
         assertEq(winner.totalBnbOwed(), 0.6 ether);
         assertEq(address(winner).balance, 0.6 ether);
         assertEq(uint256(loser.state()), uint256(IPoolVault.State.Funded));
-        assertEq(loser.params().circuitId, REFERENCE_ID);
+        assertEq(loser.params().circuitId, secondPoolFirst ? REFERENCE_ID : otherParams.circuitId);
         assertEq(loser.totalBnbOwed(), 0);
         assertEq(address(loser).balance, defaultParams.targetRaise);
+        assertEq(poolFactory.machinePool(address(nft), ALTERNATIVE_ID), address(winner));
+        assertEq(poolFactory.machinePool(address(nft), REFERENCE_ID), address(pool));
+        assertEq(poolFactory.machinePool(address(nft), otherParams.circuitId), address(other));
+    }
+
+    function test_alternativeReservedAsAnotherProjectsReferenceCannotBePurchased() public {
+        IPoolVault.PoolParams memory otherParams = defaultParams;
+        otherParams.circuitId = ALTERNATIVE_ID;
+        IFundingVault other = _createPool(otherParams);
+        _fund();
+        uint256 listing = _list(ALTERNATIVE_ID, 6 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PoolFactory.MachineAlreadyReserved.selector, address(nft), ALTERNATIVE_ID, address(other)
+            )
+        );
+        pool.buyAlternativeFromMarket(listing);
+        _assertUntouched();
+        assertEq(poolFactory.machinePool(address(nft), ALTERNATIVE_ID), address(other));
     }
 
     function testFuzz_originalUnavailableOrUnqualifiedAllowsReplacement(uint8 fault) public {
@@ -502,6 +531,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
         poolFactory.createFlexiblePool(defaultParams, config);
         IPoolVault.PoolParams memory invalid = defaultParams;
         invalid.targetRaise += 100;
+        _deployFactory();
         uint256 count = poolFactory.poolCount();
         vm.prank(OPERATOR);
         vm.expectRevert(IPoolVault.InvalidParameters.selector);
@@ -510,11 +540,15 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function test_extraFundraisingCannotRaiseOriginalPurchaseCap() public {
+        // Validate a new parameter variant without an earlier duplicate reservation masking the expected error.
+        PoolFactory originalFactory = poolFactory;
+        _deployFactory();
         IPoolVault.PoolParams memory invalid = defaultParams;
         invalid.priceCap = invalid.targetRaise;
         vm.prank(OPERATOR);
         vm.expectRevert(IPoolVault.InvalidParameters.selector);
         poolFactory.createFlexiblePool(invalid, config);
+        poolFactory = originalFactory;
         _fund();
         uint256 listing = _list(REFERENCE_ID, uint96(defaultParams.targetRaise));
         vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
@@ -651,6 +685,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function test_configRejectsDirectRouteAndZeroOrFutureTerms() public {
+        _deployFactory();
         IPoolVault.PoolParams memory params = defaultParams;
         params.directSeller = SELLER;
         params.directPrice = 6 ether;
@@ -781,6 +816,7 @@ contract FlexiblePurchaseTest is FundingTestBase {
     }
 
     function test_fixedPoolCannotUseAlternativeAndKeepsOriginalName() public {
+        _deployFactory();
         pool = _createPool(defaultParams);
         _fund();
         assertEq(IERC20Metadata(address(pool)).name(), "TapeOut #16210 Pool Share");
