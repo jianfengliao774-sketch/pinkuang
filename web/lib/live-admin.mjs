@@ -248,7 +248,16 @@ export async function prepareAdminAction(input) {
       }
     } else if (kind === 'buyFromMarket' || kind === 'buyAlternativeFromMarket') {
       need(row.state === 1n && row.params && status.timestamp < row.params.purchaseDeadline, '矿池未募满或购机期限已过。');
-      transaction = tx(target, abi.PoolVault, kind, [uint(listingId)]);
+      const id = uint(listingId);
+      const listed = officialMarket.decodeFunctionResult('listingView', await request('eth_call',
+        [{ to: OFFICIAL_MARKET, data: officialMarket.encodeFunctionData('listingView', [id]) }, tag]));
+      need(listed.valid && same(listed.circuits, row.params.circuits), '官网挂单无效或矿机系列与矿池不一致。');
+      const quality = await readOfficialMinerOnchain(provider, listed.circuits, listed.tokenId,
+        { config, blockTag: tag });
+      need(quality.blockHash === status.blockHash, '官网矿机核对区块不一致。');
+      need(kind !== 'buyFromMarket' || listed.tokenId === row.params.circuitId,
+        '官网挂单不是当前矿池的指定矿机。');
+      transaction = tx(target, abi.PoolVault, kind, [id]);
     } else if (kind === 'mine') {
       need(row.state === 2n && row.params, '矿池尚未持有可操作矿机。');
       let data;

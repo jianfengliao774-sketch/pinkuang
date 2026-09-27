@@ -274,6 +274,63 @@ contract PoolPurchaseTest is FundingTestBase {
         assertEq(nft.ownerOf(ID), SELLER);
     }
 
+    function test_fixedMarketRejectsUnverifiedMixedAndOptimalBeforePaying() public {
+        _fundPool();
+        uint256 listingId = _list(PRICE);
+        mining.setUnverifiedWeight(key, 1);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.buyFromMarket(listingId);
+        mining.setUnverifiedWeight(key, 0);
+        mining.setOptimal(key, true);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.buyFromMarket(listingId);
+        mining.setOptimal(key, false);
+        mining.setVerifiedWeight(key, 0);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.buyFromMarket(listingId);
+        _assertMarketFailureAtomic(listingId);
+    }
+
+    function test_fixedDirectRejectsUnverifiedMixedAndOptimalBeforePaying() public {
+        _directPool(SELLER, PRICE);
+        mining.setUnverifiedWeight(key, 1);
+        vm.prank(SELLER);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.sellToPool();
+        mining.setUnverifiedWeight(key, 0);
+        mining.setOptimal(key, true);
+        vm.prank(SELLER);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.sellToPool();
+        mining.setOptimal(key, false);
+        mining.setVerifiedWeight(key, 0);
+        vm.prank(SELLER);
+        vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+        purchase.sellToPool();
+        assertEq(mining.claimCalls(), 0);
+        assertEq(nft.ownerOf(ID), SELLER);
+        assertEq(pool.bnbOwed(SELLER), 0);
+        _stateIs(IPoolVault.State.Funded);
+    }
+
+    function test_qualityChangesDuringClaimOrMarketTransferRollbackEntirePurchase() public {
+        _fundPool();
+        uint256 listingId = _list(PRICE);
+        for (uint8 fault = 7; fault <= 9; ++fault) {
+            mining.setClaimFault(fault);
+            vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+            purchase.buyFromMarket(listingId);
+            _assertMarketFailureAtomic(listingId);
+        }
+        mining.setClaimFault(0);
+        for (uint8 fault = 7; fault <= 9; ++fault) {
+            market.setBuyFault(fault);
+            vm.expectRevert(IPoolVault.MinerDoesNotMeetCriteria.selector);
+            purchase.buyFromMarket(listingId);
+            _assertMarketFailureAtomic(listingId);
+        }
+    }
+
     function test_miningRecordMustMatchRequestedNft() public {
         _fundPool();
         uint256 listingId = _list(PRICE);

@@ -71,6 +71,25 @@ test('registry transport failure cannot be mistaken for an old compatible deploy
   await assert.rejects(readMachineRegistry({ request: async () => { throw failure; } }, { factory: (await operatorFirstoFixture()).config.factory }), error => error === failure);
 });
 
+test('manual official listing blocks optimal and unverified miners before wallet simulation', async () => {
+  const bad = [
+    [{ optimal: true }, /最优矿机/],
+    [{ verifWeight: 0n }, /验证权重为零/],
+    [{ unverWeight: 1n }, /含未验证权重/],
+  ];
+  for (const [miner, reason] of bad) {
+    const f = await operatorFirstoFixture({ officialListing: true, originalMiner: miner });
+    await assert.rejects(prepareAdminAction({ provider: f.provider, config: f.config, account: f.account,
+      kind: 'buyFromMarket', pool: f.pool, listingId: '45' }), reason);
+    assert.equal(f.simulations.length, 0);
+  }
+  const eligible = await operatorFirstoFixture({ officialListing: true });
+  const preview = await prepareAdminAction({ provider: eligible.provider, config: eligible.config,
+    account: eligible.account, kind: 'buyFromMarket', pool: eligible.pool, listingId: '45' });
+  assert.equal(abi.PoolVault.parseTransaction(preview.transaction).name, 'buyFromMarket');
+  assert.equal(eligible.simulations.length, 1);
+});
+
 test('missing or unfinished registry rejects every new creation path, even with an official quote or manual parameters', async () => {
   for (const options of [{ old: true }, { ready: false }]) {
     const f = await operatorFirstoFixture(options), checked = await quote(f);

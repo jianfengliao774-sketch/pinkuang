@@ -85,6 +85,11 @@ library PurchaseValidation {
         ITapeoutMining.Miner memory miner = ITapeoutMining(MINING).getMiner(key);
         if (miner.circuits != circuits || miner.circuitId != circuitId) revert IPoolVault.WrongCircuit();
         if (miner.status != 1) revert IPoolVault.MinerNotActive();
+        // Every route, including legacy fixed-listing and direct sale, buys pure verified
+        // capacity only. _finish calls this again after seller claim and NFT callbacks.
+        if (miner.optimal || miner.unverWeight != 0 || miner.verifWeight == 0) {
+            revert IPoolVault.MinerDoesNotMeetCriteria();
+        }
     }
 
     function _settleSellerRewards(address circuits, uint256 circuitId, address seller, bytes32 key, bytes32 tradeId)

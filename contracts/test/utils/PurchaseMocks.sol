@@ -147,6 +147,14 @@ contract PurchaseMockMining {
         miners[key].verifWeight = weight;
     }
 
+    function setUnverifiedWeight(bytes32 key, uint128 weight) external {
+        miners[key].unverWeight = weight;
+    }
+
+    function setOptimal(bytes32 key, bool optimal) external {
+        miners[key].optimal = optimal;
+    }
+
     function setClaimFault(uint8 fault) external {
         claimFault = fault;
     }
@@ -185,6 +193,9 @@ contract PurchaseMockMining {
         if (claimFault == 4) PurchaseMockNft(miner.circuits).forceTransfer(address(0xBAD), miner.circuitId);
         if (claimFault == 5) miners[key].status = 3;
         if (claimFault == 6) miners[key].status = 255;
+        if (claimFault == 7) miners[key].unverWeight = 1;
+        if (claimFault == 8) miners[key].optimal = true;
+        if (claimFault == 9) miners[key].verifWeight = 0;
     }
 
     receive() external payable {}
@@ -258,6 +269,18 @@ contract PurchaseMockMarket {
         if (buyFault == 6) {
             PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
             mining.setVerifiedWeight(mining.minerKey(listing.circuits, listing.tokenId), 150);
+        }
+        if (buyFault == 7) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setUnverifiedWeight(mining.minerKey(listing.circuits, listing.tokenId), 1);
+        }
+        if (buyFault == 8) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setOptimal(mining.minerKey(listing.circuits, listing.tokenId), true);
+        }
+        if (buyFault == 9) {
+            PurchaseMockMining mining = PurchaseMockMining(payable(Addresses.MINING));
+            mining.setVerifiedWeight(mining.minerKey(listing.circuits, listing.tokenId), 0);
         }
         uint256 fee = uint256(listing.price) / 100;
         fees += fee;

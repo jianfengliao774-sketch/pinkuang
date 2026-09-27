@@ -52,8 +52,13 @@ export async function operatorFirstoFixture(options = {}) {
         const parsed = officialAbi.parseTransaction(tx);
         if (parsed?.name === 'listingFor' && parsed.args[1] === 8n) return officialAbi.encodeFunctionResult(parsed.fragment,
           [46n, source.account, state.alternativeListing.price, state.alternativeListing.valid]);
-        if (parsed?.name === 'listingView') return officialAbi.encodeFunctionResult(parsed.fragment,
+        if (parsed?.name === 'listingView' && parsed.args[0] === 46n) return officialAbi.encodeFunctionResult(parsed.fragment,
           [source.account, source.execution.collection, 8n, state.alternativeListing.price, 100n, state.alternativeListing.valid]);
+      }
+      if (target === MARKET) {
+        const parsed = officialAbi.parseTransaction(tx);
+        if (parsed?.name === 'listingView' && parsed.args[0] === 45n) return officialAbi.encodeFunctionResult(parsed.fragment,
+          [source.account, source.execution.collection, 7n, 4000000000000000n, 100n, state.officialListing === true]);
       }
       if (target === MARKET || target === MINING) return officialMarket.provider.request(input);
       if (target === getAddress(source.execution.collection) && options.originalOwner) {
