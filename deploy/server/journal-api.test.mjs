@@ -83,10 +83,10 @@ function completedProof(owner = account, id = 'completed') {
   return { record, provider, transactions, receipts, blockHashes };
 }
 
-async function fixture(provider = chainProof()) {
+async function fixture(provider = chainProof(), currentArtifactDigest = () => hex(5), assertSigningInputsCurrent = () => {}) {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-journal-'));
   const dbPath = join(directory, 'private', 'journal.sqlite');
-  const service = createJournalService({ dbPath, origin, provider });
+  const service = createJournalService({ dbPath, origin, provider, currentArtifactDigest, assertSigningInputsCurrent });
   const server = createServer((req, res) => service.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -157,7 +157,7 @@ test('deployment journal is durable, CAS guarded and archives import idempotentl
     assert.equal((await f.request('/api/journal/deployment/import-archive', 'POST', { record: old }, cookie)).status, 200);
     old.spentWei = '1';
     assert.equal((await f.request('/api/journal/deployment/import-archive', 'POST', { record: old }, cookie)).status, 409);
-    const service2 = createJournalService({ dbPath: f.dbPath, origin, provider: chainProof() });
+    const service2 = createJournalService({ dbPath: f.dbPath, origin, provider: chainProof(), currentArtifactDigest: () => hex(5) });
     try {
       const stored = await new Promise(resolve => {
         const server = createServer((req, res) => service2.handle(req, res));
@@ -170,6 +170,82 @@ test('deployment journal is durable, CAS guarded and archives import idempotentl
       assert.equal(stored.revision, 4);
       assert.deepEqual(stored.archives.map(item => item.id), ['legacy', 'first']);
     } finally { await service2.close(); }
+  } finally { await f.close(); }
+});
+
+test('stale deployment tab cannot start new signatures but can save an already sent transaction', async () => {
+  let currentDigest = hex(5);
+  const f = await fixture(chainProof(), () => currentDigest);
+  try {
+    const { cookie } = await f.login(wallet);
+    const old = deployment();
+    old.steps.push({ id: 'ShareMarket', status: 'waiting' });
+    assert.equal((await f.request('/api/journal/build', 'GET', undefined, cookie)).body.artifactDigest, hex(5));
+    currentDigest = hex(6);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: old, expectedRevision: 0 }, cookie)).status, 409);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record, null);
+    currentDigest = hex(5);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: old, expectedRevision: 0 }, cookie)).status, 200);
+    const signing = structuredClone(old);
+    signing.steps[0] = { id: 'PoolVault', status: 'signing', nonce: 7, dataHash: hex(21) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: signing, expectedRevision: 1 }, cookie)).status, 200);
+    currentDigest = hex(6);
+    const submitted = structuredClone(signing);
+    submitted.steps[0].status = 'submitted'; submitted.steps[0].txHash = hex(77);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: submitted, expectedRevision: 2 }, cookie)).status, 200);
+    const confirmed = structuredClone(submitted);
+    confirmed.steps[0].status = 'confirmed';
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: confirmed, expectedRevision: 3 }, cookie)).status, 200);
+    const nextSigning = structuredClone(confirmed);
+    nextSigning.steps[1] = { id: 'ShareMarket', status: 'signing', nonce: 8, dataHash: hex(22) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: nextSigning, expectedRevision: 4 }, cookie)).status, 409);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.steps[1].status, 'waiting');
+    assert.equal((await f.request('/api/journal/build', 'GET', undefined, cookie)).body.artifactDigest, hex(6));
+  } finally { await f.close(); }
+});
+
+test('source drift blocks pre-send build checks and new intents without losing a broadcast hash', async () => {
+  let sourceCurrent = false;
+  const f = await fixture(chainProof(), () => hex(5), () => {
+    if (!sourceCurrent) throw new Error('Solidity source changed');
+  });
+  try {
+    const { cookie } = await f.login(wallet);
+    const start = deployment();
+    start.steps.push({ id: 'ShareMarket', status: 'waiting' });
+    assert.equal((await f.request('/api/journal/build', 'GET', undefined, cookie)).status, 503);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: start, expectedRevision: 0 }, cookie)).status, 503);
+    sourceCurrent = true;
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: start, expectedRevision: 0 }, cookie)).status, 200);
+    const signing = structuredClone(start);
+    signing.steps[0] = { id: 'PoolVault', status: 'signing', nonce: 7, dataHash: hex(21) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: signing, expectedRevision: 1 }, cookie)).status, 200);
+    sourceCurrent = false;
+    assert.equal((await f.request('/api/journal/build', 'GET', undefined, cookie)).status, 503);
+    const submitted = structuredClone(signing);
+    submitted.steps[0].status = 'submitted'; submitted.steps[0].txHash = hex(77);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: submitted, expectedRevision: 2 }, cookie)).status, 200);
+    const confirmed = structuredClone(submitted);
+    confirmed.steps[0].status = 'confirmed';
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: confirmed, expectedRevision: 3 }, cookie)).status, 200);
+    const next = structuredClone(confirmed);
+    next.steps[1] = { id: 'ShareMarket', status: 'signing', nonce: 8, dataHash: hex(22) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: next, expectedRevision: 4 }, cookie)).status, 503);
+    const saved = (await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body;
+    assert.equal(saved.record.steps[0].txHash, hex(77));
+    assert.equal(saved.record.steps[1].status, 'waiting');
   } finally { await f.close(); }
 });
 
@@ -216,7 +292,8 @@ test('two wallets racing one order keep independent market intents, nonces and r
 
 test('market recovery remains pending on unavailable RPC and the production HTTP mount reaches the journal', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-journal-mount-'));
-  const service = createJournalService({ dbPath: join(directory, 'private', 'journal.sqlite'), origin });
+  const service = createJournalService({ dbPath: join(directory, 'private', 'journal.sqlite'), origin,
+    currentArtifactDigest: () => hex(5) });
   const server = createDeploymentServer({ journalService: service });
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -503,6 +580,7 @@ test('journal refuses a group-readable database directory, including its WAL fil
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-journal-perms-'));
   try {
     await chmod(directory, 0o755);
-    assert.throws(() => createJournalService({ dbPath: join(directory, 'journal.sqlite'), origin, provider: chainProof() }), /private/);
+    assert.throws(() => createJournalService({ dbPath: join(directory, 'journal.sqlite'), origin,
+      provider: chainProof(), currentArtifactDigest: () => hex(5) }), /private/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

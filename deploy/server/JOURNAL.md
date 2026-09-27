@@ -19,9 +19,10 @@ npm start
 | 接口 | 请求与结果 |
 | --- | --- |
 | `GET /api/journal/session` | `{account}`，无有效会话返回 401 |
+| `GET /api/journal/build` | `{artifactDigest}`；返回此服务器当前实际提供的合约产物摘要。开发服务还会核对当前 Solidity、依赖与构建输入；漂移时返回 503。每笔部署交易向钱包发送前页面再次请求此接口，不额外读取链上状态 |
 | `GET /api/journal/deployment` | `{record,revision,archives,archiveNextCursor,latestCompleted}`；归档只返回最近 100 条，最近一次完成部署独立返回，均仅属于当前登录账户 |
 | `GET /api/journal/deployment/archives?cursor=<rowid>&limit=20` | 本钱包更早的完整部署记录，返回 `{items,nextCursor}`；游标是服务端归档序号，单页上限 100 |
-| `PUT /api/journal/deployment` | `{record,expectedRevision}` → `{revision}`；一个账户只容许一个活跃部署 ID，版本冲突 409 |
+| `PUT /api/journal/deployment` | `{record,expectedRevision}` → `{revision}`；一个账户只容许一个活跃部署 ID，版本冲突 409。新部署及新步骤签名前，记录摘要与源文件必须与服务器当前构建一致；构建更新后仍可补记原有交易的哈希与回执 |
 | `POST /api/journal/deployment/archive` | `{id,expectedRevision}` → `{revision,archives,archiveNextCursor,latestCompleted}`；`aborted` 须核实终止步骤的同账户、同 nonce 最终链上结果；`complete` 须核实全部 13 笔原交易、回执及记录内声称通过的图校验。两种状态都由固定 BSC RPC 确认 finalized 后，原子归档完整记录并清活跃指针，才能用同钱包新建部署 |
 | `POST /api/journal/deployment/import-archive` | `{record}` → `{id}`；仅导入本钱包旧版 `aborted` 记录，同 ID 同内容幂等 |
 | `GET /api/journal/market` | `{record,revision}`，一账户仅一条活跃意图，覆盖同钱包所有市场 nonce |
@@ -35,5 +36,7 @@ npm start
 已完成部署的归档核实原始交易与 finalized 回执，但图校验结果和合约地址来自先前保存的记录，服务端不独立读取并证明当前部署图。部署台在导出前端清单前，会只读核实原子初始化交易及 finalized 回执，再用当前钱包、同一固定区块的代码、存储槽和合约调用重新核对地址、权限及构建摘要；不会签名或修改日志。升级后运行代码可能合法改变，旧构建对应的清单可能无法通过重新核对；此时需另行核实升级后的实现与配置。使用方仍须独立按链核实清单，不能只凭历史记录接入资产。
 
 **恢复边界：** 钱包已接收交易但尚未返回 hash 时，服务端只能保存签名前意图，不能凭“链上暂未看到”证明未广播，也不能按超时自动删除或重发。用户需要补录钱包交易 hash 并等待最终回执；如果确实没有交易，需单独设计受控恢复流程。旧浏览器 `localStorage` 日志迁移时先确认钱包/链/构建身份，活跃记录只在服务端无冲突时导入；每条记录获得服务端持久化 ACK、留下可核对备份后才移除本地副本。状态为 `aborted` 的旧记录走导入归档接口。
+
+部署过程中若服务器更换了合约产物，旧页面的下一笔签名会被拒绝。若版本变化恰好发生在签名前意图保存后，页面会明确记录“本页尚未请求钱包签名”，但仍保留签名前意图，不会自动重试；其他页面或钱包是否广播过同一 nonce 无法仅凭此页面判定。恢复时须核对链上交易，并由管理员恢复匹配原记录的构建或走受控人工处理，不能用新字节码继续原部署计划。
 
 测试：`cd deploy && node --test server/journal-api.test.mjs`。测试使用临时 SQLite、随机测试钱包和模拟 RPC，不连接 BSC 主网或发送交易。

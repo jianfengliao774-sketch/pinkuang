@@ -15,6 +15,8 @@ npm run dev
 
 默认地址为 http://127.0.0.1:4173/。开发服务同时运行本机 SQLite 操作日志；市场交易恢复还需设置 `DEPLOYMENT_JOURNAL_RPC_URL` 为可信 BSC HTTPS RPC。`npm run build` 只生成页面；`npm start` 必须按[服务器日志配置](server/JOURNAL.md)提供持久卷、精确 HTTPS Origin 与 RPC。纯静态托管没有操作日志 API，不能用于一键部署或市场签名。
 
+若开发期间重新运行 `npm run artifacts`，Vite 会重新核对源码、刷新内置产物摘要并重载页面。旧版已运行的 Vite 进程不会自动获得这项监听；出现“源码摘要不一致”时，先运行 `npm run artifacts:check`，再停止旧进程并重新运行 `npm run dev`。源码、编译配置或产物在页面运行期间发生漂移时，部署签名前核对会失败，日志服务拒绝新的部署签名意图；已广播交易的哈希和回执仍可保存。`GET /api/journal/session` 在未登录时返回 JSON 401 是日志 API 已挂载的正常探测结果；返回网页 HTML 或 404 则说明访问到的是纯静态页面。
+
 ## 已实现
 
 - 单钱包部署：8 个链接库、协调器与三个实现、最后原子初始化，共 13 笔钱包确认。Factory/Market 使用 UUPS，Vault 使用共享 Beacon，升级经至少 48 小时时间锁。

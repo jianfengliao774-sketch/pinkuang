@@ -85,6 +85,14 @@ export class ServerJournal {
     return (await this.loadDeployment()).record;
   }
 
+  async assertCurrentArtifact(digest: string): Promise<void> {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(digest)) throw new Error('部署产物摘要格式无效。');
+    const state = await this.request<{ artifactDigest: string }>('build');
+    if (state.artifactDigest?.toLowerCase() !== digest.toLowerCase()) {
+      throw new Error('部署页面使用旧版合约产物；已停止请求钱包签名，请刷新页面并核对服务器记录。');
+    }
+  }
+
   async saveDeployment(record: DeploymentSnapshot): Promise<void> {
     if (record.chainId !== 56 || record.account.toLowerCase() !== this.account.toLowerCase()) throw new Error('部署记录与已认证钱包不匹配。');
     const result = await this.request<{ revision: number }>('deployment', 'PUT', { record, expectedRevision: this.deploymentRevision });

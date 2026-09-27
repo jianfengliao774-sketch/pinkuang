@@ -261,6 +261,24 @@ test('wallet change after the saved intent still blocks the signature', async ()
   assert.equal(snapshot?.steps[0].status, 'waiting');
 });
 
+test('a changed server artifact after the saved intent blocks eth_sendTransaction', async () => {
+  const before = sends;
+  let checks = 0;
+  const stale = new DeploymentEngine(wallet, bundle, {
+    persist: state => { snapshot = structuredClone(state); },
+    assertCurrentArtifact: digest => {
+      checks++;
+      assert.equal(digest, artifactDigest(bundle));
+      throw new Error('部署页面使用旧版合约产物');
+    },
+  });
+  await assert.rejects(stale.start(input), /旧版合约产物/);
+  assert.equal(checks, 1);
+  assert.equal(sends, before, 'no wallet send should occur after the server build check fails');
+  assert.equal(snapshot?.steps[0].status, 'signing', 'the write-ahead intent remains durable and cannot be silently retried');
+  assert.equal(snapshot?.status, 'paused');
+});
+
 test('wallet account change after broadcast still verifies that receipt and blocks the next signature', { timeout: 30_000 }, async () => {
   const other = getAddress((await rpc('eth_accounts') as string[])[1]);
   let sent = false;

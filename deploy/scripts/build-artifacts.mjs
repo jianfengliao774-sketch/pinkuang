@@ -224,6 +224,24 @@ export function verifiedBuildDigest() {
   return artifactContentDigest(compiled);
 }
 
+/** Cheap request-time guard for a long-running Vite process. No Solidity compile. */
+export function assertCurrentArtifactInputs(expectedDigest, { root = repositoryRoot, artifactPath = outputPath } = {}) {
+  verifyBuildConfiguration(root);
+  const saved = JSON.parse(readFileSync(artifactPath, 'utf8'));
+  assert.equal(artifactContentDigest(saved), expectedDigest, 'Deployment artifacts changed after Vite started. Restart the dev server.');
+  assert.deepEqual(saved.settings, compilerSettings, 'Deployment compiler settings changed. Regenerate artifacts.');
+  const hashes = {};
+  for (const path of sourceFiles(join(root, 'contracts/src'))) {
+    const name = relative(join(root, 'contracts'), path).split(sep).join('/');
+    hashes[name] = sha256(readFileSync(path, 'utf8'));
+  }
+  for (const name of Object.keys(saved.sourceHashes)) {
+    if (!name.startsWith('@openzeppelin/')) continue;
+    hashes[name] = sha256(readFileSync(join(root, 'node_modules', name), 'utf8'));
+  }
+  assert.deepEqual(saved.sourceHashes, sortedObject(hashes), 'Solidity sources changed. Regenerate deployment artifacts.');
+}
+
 function main() {
   const args = process.argv.slice(2);
   assert(args.length === 0 || (args.length === 1 && args[0] === '--check'), 'Usage: node scripts/build-artifacts.mjs [--check]');

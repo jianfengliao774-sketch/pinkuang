@@ -120,6 +120,8 @@ export interface DeploymentSnapshot {
 export interface DeploymentCallbacks {
   /** Must durably save synchronously or resolve only after saving. Failure prevents the next signature. */
   persist: (snapshot: DeploymentSnapshot) => void | Promise<void>;
+  /** Recheck the server's currently served artifact immediately before each wallet request. */
+  assertCurrentArtifact?: (digest: string) => void | Promise<void>;
   onUpdate?: (snapshot: DeploymentSnapshot) => void;
   /** Read inside the cross-tab lock; prevents a stale tab from replaying already-completed steps. */
   readLatest?: () => DeploymentSnapshot | null | Promise<DeploymentSnapshot | null>;
@@ -758,9 +760,14 @@ export class DeploymentEngine {
     // Write-ahead intent makes a reload between wallet acceptance and hash delivery fail closed.
     await this.save(snapshot);
     let attemptedBroadcast = false;
+    let artifactCheckFailed = false;
     try {
       await walletAccount(this.wallet, snapshot.account);
       verifyArtifactIntegrity(this.bundle);
+      if (this.callbacks.assertCurrentArtifact) {
+        try { await this.callbacks.assertCurrentArtifact(snapshot.artifactDigest); }
+        catch (error) { artifactCheckFailed = true; throw error; }
+      }
       attemptedBroadcast = true;
       // The full transaction is already prepared and the wallet identity was just checked.
       // Avoid getSigner()'s extra wallet account lookup before showing the same RPC request.
@@ -771,10 +778,16 @@ export class DeploymentEngine {
     } catch (error) {
       if (!step.txHash) {
         const failure = error as { code?: string | number; info?: { error?: { code?: number } } };
-        step.status = !attemptedBroadcast ? 'waiting' : failure.code === 'ACTION_REJECTED' || failure.code === 4001 || failure.info?.error?.code === 4001 ? 'rejected' : 'uncertain';
+        // An artifact check failed after the signing intent was saved. Preserve
+        // that durable intent; the old page must not make it retryable.
+        step.status = artifactCheckFailed ? 'signing' : !attemptedBroadcast ? 'waiting'
+          : failure.code === 'ACTION_REJECTED' || failure.code === 4001 || failure.info?.error?.code === 4001 ? 'rejected' : 'uncertain';
       }
-      step.error = errorMessage(error);
+      step.error = artifactCheckFailed
+        ? `发送前服务器产物核对失败；本页尚未请求钱包签名。请先核对是否有其他页面或钱包使用了同一 nonce：${errorMessage(error)}`
+        : errorMessage(error);
       await this.save(snapshot);
+      if (artifactCheckFailed) throw new Error(step.error);
       throw error;
     }
     const receipt = await this.provider.waitForTransaction(step.txHash!, 2, 120_000);

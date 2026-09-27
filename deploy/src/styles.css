@@ -10,3 +10,16 @@
 
 .budget-recovery{padding:0 25px 20px}.budget-recovery p{font-size:12px;line-height:1.8;color:#8c989d;margin-top:8px}.field-label,.budget-row label,.toggle-row b,.advanced>summary{font-size:14px}.field-help,.toggle-row small,.risk-note p,.signer-note{font-size:12px}.journey b,.deployment-summary dl>div,.deployment-summary dd{font-size:13px}.architecture-card>p,.architecture-card>button{font-size:12px}
 .record-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.alert-success{background:#eef7f2;color:#397b5d;border:1px solid #d5e9dc}
+.progress-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px}
+.progress-actions .small-button{padding:5px 8px;font-size:11px;white-space:nowrap}
+.next-action{margin:17px 25px 2px;padding:12px 14px;display:flex;flex-direction:column;gap:3px;background:#f5f8f6;border:1px solid #dce9e0;border-radius:6px;color:#47745e}
+.next-action.needs-check{background:#fffaf0;border-color:#eddfbf;color:#90753b}
+.next-action b{font-size:12px;font-weight:600}.next-action span{font-size:11px;line-height:1.65}
+.preflight-card{padding-bottom:20px}.preflight-card .card-heading{border-bottom:1px solid var(--line);margin-bottom:17px}
+.preflight-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;padding:0 24px}
+.preflight-facts>div{background:#f7f9f8;border:1px solid #e8eeea;border-radius:6px;padding:10px 11px;min-width:0}
+.preflight-facts span{display:block;color:#8c9896;font-size:10px}.preflight-facts b{display:block;color:#38594d;font-size:12px;font-weight:600;overflow-wrap:anywhere;margin-top:4px}
+.preflight-card>p{font-size:11px;line-height:1.8;color:#839094;margin:13px 24px}
+.preflight-card details{margin:0 24px;font-size:11px;color:#7f8f92}.preflight-card summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}.preflight-card summary::-webkit-details-marker{display:none}.preflight-card details[open] summary svg{transform:rotate(180deg)}.preflight-card ul{margin:10px 0 0;padding-left:18px;line-height:1.8}
+@media(max-width:680px){.progress-actions{gap:6px}.progress-actions .small-button{font-size:0;gap:0;padding:6px}.progress-actions .small-button svg{width:15px;height:15px}.next-action{margin:15px 18px 2px}.preflight-facts{padding:0 18px;grid-template-columns:1fr 1fr}.preflight-facts>div:last-child{grid-column:1/-1}.preflight-card>p,.preflight-card details{margin-left:18px;margin-right:18px}}

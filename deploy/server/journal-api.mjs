@@ -285,8 +285,11 @@ function sessionCookie(token, secure) {
   return `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/api/journal; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`;
 }
 
-export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false, provider: suppliedProvider } = {}) {
+export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
+  provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {} } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
+  if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
+  if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['https:', 'http:'].includes(parsedOrigin.protocol)) throw new Error('Exact journal origin is required.');
   if (parsedOrigin.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(parsedOrigin.hostname))
@@ -296,6 +299,20 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const provider = suppliedProvider ?? (rpcUrl ? new JsonRpcProvider(rpcUrl) : null);
   const inFlight = new Set();
   let closed = false;
+
+  function buildDigest() {
+    try {
+      const digest = currentArtifactDigest();
+      if (typeof digest !== 'string' || !HASH.test(digest)) throw new Error('Invalid build digest.');
+      return digest.toLowerCase();
+    } catch { fail(503, 'The deployment artifact served by this server is unavailable.'); }
+  }
+
+  function signingBuildDigest() {
+    try { assertSigningInputsCurrent(); }
+    catch { fail(503, 'Deployment signing inputs changed; regenerate artifacts and reload this page.'); }
+    return buildDigest();
+  }
 
   async function respond(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -342,6 +359,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if (expectedAccount !== undefined && identity(expectedAccount) !== account)
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
       if (method === 'GET' && path === '/api/journal/session') return send(200, { account });
+      if (method === 'GET' && path === '/api/journal/build') return send(200, { artifactDigest: signingBuildDigest() });
       if (method === 'GET' && path === '/api/journal/deployment') return send(200, store.deployment(account));
       if (method === 'GET' && path === '/api/journal/deployment/archives') {
         const url = new URL(req.url, origin);
@@ -357,7 +375,16 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       }
       if (method === 'PUT' && path === '/api/journal/deployment') {
         const body = await readJson(req);
-        return send(200, { revision: store.putDeployment(account, validateDeployment(body.record, account), exactRevision(body.expectedRevision)) });
+        const record = validateDeployment(body.record, account);
+        const previous = store.deployment(account).record;
+        const newSigningIntent = !previous || record.steps.some((step, i) =>
+          step.status === 'signing' && previous.steps[i]?.status !== 'signing');
+        if (newSigningIntent && record.artifactDigest.toLowerCase() !== signingBuildDigest()) {
+          fail(409, 'Deployment artifacts changed. Reload this page before another wallet signature.');
+        }
+        // Progress on an existing intent, especially a returned hash or receipt,
+        // must remain durable even if the source or served artifact changes.
+        return send(200, { revision: store.putDeployment(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'POST' && path === '/api/journal/deployment/archive') {
         const body = await readJson(req);

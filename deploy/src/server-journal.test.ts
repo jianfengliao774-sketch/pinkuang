@@ -69,3 +69,23 @@ test('archived deployment pagination is scoped to the selected wallet', async ()
     await assert.rejects(journal.loadArchivedDeployments('0'), /分页参数无效/);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('a stale deployment tab checks the server digest immediately before wallet signing', async () => {
+  const originalFetch = globalThis.fetch;
+  const account = '0x1111111111111111111111111111111111111111';
+  const oldDigest = `0x${'1'.repeat(64)}`;
+  let currentDigest = oldDigest;
+  globalThis.fetch = async (input, init) => {
+    assert.equal(new URL(String(input), 'http://localhost').pathname, '/api/journal/build');
+    assert.equal(init?.method, 'GET');
+    assert.equal(init?.cache, 'no-store');
+    assert.equal(new Headers(init?.headers).get('X-Pinkuang-Account'), account);
+    return new Response(JSON.stringify({ artifactDigest: currentDigest }), { status: 200 });
+  };
+  try {
+    const journal = new ServerJournal(account);
+    await journal.assertCurrentArtifact(oldDigest);
+    currentDigest = `0x${'2'.repeat(64)}`;
+    await assert.rejects(journal.assertCurrentArtifact(oldDigest), /旧版合约产物/);
+  } finally { globalThis.fetch = originalFetch; }
+});

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
 import { proxyFirsto } from './firsto-proxy.mjs';
 import { createJournalService, journalConfiguration } from './journal-api.mjs';
+import { servedArtifactDigest } from './artifact-digest.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
@@ -42,7 +43,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { host, port } = serverConfiguration();
   // `npm start` serves real wallet actions, regardless of NODE_ENV. Only the
   // explicit Vite development integration may use local defaults.
-  const journalService = createJournalService(journalConfiguration({ ...process.env, NODE_ENV: 'production' }));
+  const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }),
+    currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const server = createDeploymentServer({ journalService });
   server.listen(port, host, () => {
     console.log(`拼矿部署台：http://${host}:${port}`);
