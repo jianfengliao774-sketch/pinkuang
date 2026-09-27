@@ -55,7 +55,10 @@ try {
     await first.select();
     assert.equal(await page.getByLabel('矿机编号', { exact: true }).inputValue(), '16480');
     assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '2.000000000000000001');
-    assert.equal(await page.getByLabel('募集总额（BNB）', { exact: true }).inputValue(), '2.2000000000000001');
+    const funding = page.getByLabel('募集总额（BNB）', { exact: true });
+    assert.equal(await funding.inputValue(), '≈ 2.200');
+    await funding.focus(); assert.equal(await funding.inputValue(), '2.2000000000000001');
+    await funding.blur(); assert.equal(await funding.inputValue(), '≈ 2.200');
     await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
     await page.getByRole('dialog', { name: '确认运营操作' }).waitFor();
     const previews = fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector));
@@ -63,14 +66,44 @@ try {
     const [params] = abi.PoolFactory.parseTransaction(previews[0].params[0]).args;
     assert.equal(params.circuitId, 16480n); assert.equal(params.priceCap, 2000000000000000001n); assert.equal(params.targetRaise, 2200000000000000100n);
     assert.equal(BigInt(previews[0].params[0].value), 0n); assert.equal(fixture.controls.sentTransactions.length, 0);
+    const modal = page.getByRole('dialog', { name: '确认运营操作' });
+    assert.match(await modal.innerText(), /≈ 2\.200 BNB/);
+    await modal.getByText('查看精确金额', { exact: true }).click();
+    assert.match(await modal.innerText(), /2\.2000000000000001 BNB/);
     await page.screenshot({ path: join(output, 'automatic-quote-preview.png'), animations: 'disabled' });
     checks.push('verified quote -> exact official price and 100-share target -> zero-value unsigned createPool preview');
+    checks.push('automatic fundraising total displays three decimals, focus/blur preserves raw Wei, and preview reveals exact amount');
+    await modal.getByRole('button', { name: '返回修改', exact: true }).click();
+    await page.getByLabel('矿机编号', { exact: true }).fill('16481'); // Clears automatic mode, not the saved exact fundraising amount.
+    await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
+    await modal.waitFor();
+    const latest = fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector)).at(-1);
+    assert.equal(abi.PoolFactory.parseTransaction(latest.params[0]).args[0].targetRaise, 2200000000000000100n);
+    checks.push('editing another field clears auto mode without rounding the retained exact fundraising value');
     await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), FIXTURE_OTHER_ACCOUNT);
     await page.getByText('此页面仅限授权运营人员', { exact: true }).waitFor();
     assert.equal(await page.getByRole('dialog', { name: '确认运营操作' }).count(), 0);
     assert.equal(fixture.controls.sentTransactions.length, 0);
     checks.push('account switch invalidates auto-filled creation preview without signing');
   } finally { await page.close(); }
+
+  const manual = await preparePage();
+  try {
+    const funding = manual.page.getByLabel('募集总额（BNB）', { exact: true });
+    assert.equal(await funding.getAttribute('placeholder'), '例如 0.005');
+    await funding.fill('0.0054'); await funding.blur(); assert.equal(await funding.inputValue(), '0.005');
+    await funding.fill('0.0055'); await funding.blur(); assert.equal(await funding.inputValue(), '0.006');
+    await manual.page.getByLabel('矿机编号', { exact: true }).fill('7');
+    await manual.page.getByLabel('购机价格上限（BNB）', { exact: true }).fill('0.001234567890123456');
+    await manual.page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
+    await manual.page.getByRole('dialog', { name: '确认运营操作' }).waitFor();
+    const latest = manual.fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector)).at(-1);
+    const [params] = abi.PoolFactory.parseTransaction(latest.params[0]).args;
+    assert.equal(params.targetRaise, 6000000000000000n); assert.equal(params.priceCap, 1234567890123456n);
+    assert.equal(manual.fixture.controls.sentTransactions.length, 0);
+    await manual.page.screenshot({ path: join(output, 'fundraising-three-decimals-manual.png'), animations: 'disabled' });
+    checks.push('manual total rounds half-up on blur: 0.0054 -> 0.005, 0.0055 -> 0.006; price cap keeps all 18 decimals');
+  } finally { await manual.page.close(); }
 
   const stale = await preparePage();
   try {

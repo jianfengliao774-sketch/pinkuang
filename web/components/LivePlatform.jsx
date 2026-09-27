@@ -21,7 +21,6 @@ import {
   RefreshCw,
   ShieldCheck,
   BookOpen,
-  LockKeyhole,
   Share2,
   CheckCircle2,
   AlertCircle,
@@ -32,6 +31,7 @@ import {
 } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
+import MoreServicesNotice from "./MoreServicesNotice";
 import SiteOverview from "./SiteOverview";
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
@@ -1168,22 +1168,7 @@ export default function LivePlatform() {
         </nav>
         <div className="nav-divider" />
         <div className="nav-caption">{L("更多服务", "MORE SERVICES")}</div>
-        <button
-          className="nav-item muted-nav"
-          onClick={() => setModal({ type: "future" })}
-        >
-          <LockKeyhole size={19} />
-          {L("矿机质押", "Miner collateral")}
-          <em>{L("筹备中", "Coming soon")}</em>
-        </button>
-        <button
-          className="nav-item muted-nav"
-          onClick={() => setModal({ type: "future" })}
-        >
-          <ShieldCheck size={19} />
-          {L("最优质保", "Quality assurance")}
-          <em>{L("筹备中", "Coming soon")}</em>
-        </button>
+        <MoreServicesNotice label={L("敬请期待", "Coming soon")} />
         <div className="side-bottom">
           <button
             className="rules-link"
@@ -2486,8 +2471,8 @@ export default function LivePlatform() {
                 <h2 id="live-dialog-title">{L("服务筹备中", "Coming soon")}</h2>
                 <p>
                   {L(
-                    "矿机质押与最优质保暂未开放。开放后将在这里公布适用范围和参与规则。",
-                    "Miner collateral and quality assurance are not open yet. Eligibility and terms will be published here.",
+                    "更多服务，敬请期待。",
+                    "More services are coming soon.",
                   )}
                 </p>
               </>

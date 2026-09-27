@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 3108",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start --hostname 127.0.0.1 --port 3108",
     "start:live-api": "node server/live-server.mjs",
     "check": "node scripts/catalog-check.mjs && node scripts/bem-price-check.mjs && node scripts/review-policy-check.mjs && node --test scripts/*.test.mjs server/live-api.test.mjs",

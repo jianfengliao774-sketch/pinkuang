@@ -25,6 +25,7 @@ export const platformEn = {
   "记录": "Record",
   "资产工作台": "ASSET WORKSPACE",
   "更多服务": "MORE SERVICES",
+  "敬请期待": "Coming soon",
   "管理员 · 合约部署": "Admin · Contract deployment",
   "独立部署台 · 需服务器记录": "Separate console · Server journal required",
   "矿机质押": "Miner collateral",
