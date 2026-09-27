@@ -19,8 +19,29 @@ const miningAbi = new Interface([
 ]);
 const requireValue = (value, text) => { if (!value) throw new Error(text); };
 const same = (a, b) => getAddress(a) === getAddress(b);
+function minerEligibilityIssue(miner) {
+  if (miner.status !== 1n) return `链上矿机不在挖矿中（状态 ${miner.status}），暂不能放入募集池。`;
+  if (miner.optimal) return '链上标记为最优矿机，当前矿池暂不支持采购。';
+  if (miner.verifWeight === 0n) return '链上验证权重为零，暂不能放入募集池。';
+  if (miner.unverWeight !== 0n) return '矿机含未验证权重，当前只支持纯验证权重矿机。';
+  return null;
+}
 export const QUOTE_BASE = '/pinkuang-deploy/firsto-api';
 export const QUOTE_SOURCE = 'https://tapeout.firsto.ai/circuits';
+/** Exact BNB per estimated daily BEM for the displayed market ask; never use the fundraising reserve. */
+export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 4) {
+  if (priceWei == null || estimated24hAtomic == null) return null;
+  const price = uint(priceWei), yieldAtomic = uint(estimated24hAtomic);
+  if (price === 0n || yieldAtomic === 0n) return null;
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 12) throw new Error('日产能价精度无效。');
+  const scale = 10n ** BigInt(decimals);
+  // BEM has 8 decimals and BNB has 18: priceWei / (yieldAtomic * 10^10).
+  const denominator = yieldAtomic * 10_000_000_000n;
+  const rounded = (price * scale + denominator / 2n) / denominator;
+  if (rounded === 0n) return `<${decimals === 0 ? '1' : `0.${'0'.repeat(decimals - 1)}1`}`;
+  if (decimals === 0) return rounded.toString();
+  return `${rounded / scale}.${(rounded % scale).toString().padStart(decimals, '0')}`;
+}
 export function operatorQuoteError(error) {
   if (error instanceof SyntaxError) return '报价内容不完整，请重新获取；手动导入时请使用完整的报价 JSON。';
   if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return '报价读取超时，请重新获取。';
@@ -69,8 +90,9 @@ export async function readOfficialMinerOnchain(provider, collectionValue, tokenV
   });
   const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
   requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
-  const eligible = miner.status === 1n && !miner.optimal && miner.verifWeight > 0n && miner.unverWeight === 0n;
-  requireValue(allowIneligible || eligible, '仅支持链上正在挖矿、纯验证权重的非最优矿机。');
+  const eligibilityIssue = minerEligibilityIssue(miner);
+  const eligible = eligibilityIssue === null;
+  requireValue(allowIneligible || eligible, eligibilityIssue);
   const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
     ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
   const registry = await readMachineRegistry(provider, { factory: config?.factory ?? config?.manifest?.factory, collection, tokenId, blockTag: tag });
