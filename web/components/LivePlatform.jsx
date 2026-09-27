@@ -1282,13 +1282,6 @@ export default function LivePlatform() {
                     : L("暂时无法完成链上核验，请稍后刷新。", "On-chain verification is temporarily unavailable. Please refresh later.")}
                 </p>
               </div>
-              <a
-                className="text-button"
-                href={`${basePath}/preview${process.env.NODE_ENV === "production" ? ".html" : ""}`}
-              >
-                {L("浏览页面预览", "Explore the preview")}
-                <ArrowUpRight size={16} />
-              </a>
             </div>
           )}
           {error && (
