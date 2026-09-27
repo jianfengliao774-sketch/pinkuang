@@ -62,7 +62,9 @@ async function runAction(kind, options = {}) {
   assert.equal(result.transaction.from, FIXTURE_ACCOUNT);
   const iface = kind === 'deposit' ? abi.PoolVault : abi.ShareMarket;
   assert.equal(iface.parseTransaction(result.transaction).name, kind);
-  assert.equal(BigInt(result.transaction.value), kind === 'deposit' ? parseEther('0.286') : kind === 'fill' ? parseEther('0.243') : 0n);
+  const fillGross = parseEther('0.243');
+  assert.equal(BigInt(result.transaction.value), kind === 'deposit' ? parseEther('0.286')
+    : kind === 'fill' ? fillGross + fillGross / 100n : 0n);
   assert(measured.trace.filter(row => row.method === 'eth_call').every(row => row.blockTag === '0x64'));
   assert.equal(measured.trace.filter(row => row.simulated).length, 1);
   return { ...measured, elapsedMs, result };

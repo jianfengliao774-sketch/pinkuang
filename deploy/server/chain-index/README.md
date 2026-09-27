@@ -29,7 +29,7 @@ npm run start:chain-index
 
 收益按 `Harvested` 所在区块的北京时间入账日归类，不声称是矿机实际产出的日期。单个钱包的每日应计收益需要按交易顺序重放份额与累计奖励，当前服务不推测；`BemClaimed` 只代表本人实际领取。第一方参考日产能属于带时间戳的外部估计，不能替代实际收益。市场事件中的 `OrderFilled` 不重复写池和卖家，索引通过先前 `OrderListed` 关联；因此起始区块必须覆盖完整市场历史。
 
-`/v1/stats` 的金额单位分别为 BNB wei、BNB wei、BEM 最小单位，全部以十进制字符串返回；地址数也为字符串。曾参与地址来自 `Deposited.user` 与份额 `Transfer.to`，排除零地址、Factory、Market 和矿池自身，不能解读为当前活跃人数或独立自然人。市场成交总额只统计本协议份额市场的 `OrderFilled.gross`；矿机采购成本只统计 `Purchased.cost`，不是当前设备估值。
+`/v1/stats` 的金额单位分别为 BNB wei、BNB wei、BEM 最小单位，全部以十进制字符串返回；地址数也为字符串。曾参与地址来自 `Deposited.user` 与份额 `Transfer.to`，排除零地址、Factory、Market 和矿池自身，不能解读为当前活跃人数或独立自然人。市场成交总额只统计本协议份额市场的 `OrderFilled.gross`（挂牌基价），不把新增的买方 1% 手续费加到成交额；`OrderFilled.fee` 仍是卖方 1% 手续费，升级后的 `BuyerFeeCharged.buyerFee` 单独记录买方 1% 手续费。历史旧市场没有 `BuyerFeeCharged`，重放时不可推断它曾收过买方费用。矿机采购成本只统计 `Purchased.cost`，不是当前设备估值。
 
 页面用于签名前，应从已验收配置独立取得 Factory 地址，在同一链区块再次读取 `PoolLens`、`ShareMarket.orders/orderExpiresAt` 与 `PoolVault.shareTradingAllowed`，检查钱包/链/合约身份并执行 `staticCall`、估 Gas。索引服务的订单和余额展示不能成为交易授权依据。`PoolVault.bnbOwed` 与份额市场 `bnbOwed` 是两笔不同债权，前端应分开显示和领取。公开流水中的 BNB 提款事件不细分来源；不能把混合债权提现强行标成单一“余款”或“售款”。
 

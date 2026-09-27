@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
 import { Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
-import { FIRSTO_UPGRADE_NAMES, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof } from '../shared/firsto-upgrade-proof.mjs';
+import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof } from '../shared/firsto-upgrade-proof.mjs';
 
 const HASH = /^0x[\da-f]{64}$/i;
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -78,8 +78,9 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   const {record,bundle}=trusted, a=record.addresses, tag=`0x${block.number.toString(16)}`;
   check(same(factory,a.factory),'Factory differs from the trusted deployment.');
   const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
-  const sourceFor=name=>trusted.upgradeRecord && !FIRSTO_UPGRADE_NAMES.includes(name) ? trusted.genesisBundle : bundle;
-  const runtimeLinksFor=name=>trusted.upgradeRecord && !FIRSTO_UPGRADE_NAMES.includes(name) ? trusted.genesisRecord.addresses : a;
+  const upgradedNames=trusted.upgradeRecord ? upgradeNamesForKind(trusted.upgradeRecord.kind) : [];
+  const sourceFor=name=>trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
+  const runtimeLinksFor=name=>trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisRecord.addresses : a;
   const read=async(name,method,args=[])=>{
     const artifactName=({factory:'PoolFactory',shareMarket:'ShareMarket'})[name] ?? artifacts[name] ?? name;
     const iface=new Interface(sourceFor(artifactName).artifacts[artifactName].abi);
@@ -87,7 +88,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   };
   await settleReads(NAMES.map(async name=>{
     const code=await provider.getCode(a[name],block.number);
-    const upgraded=trusted.upgradeRecord && FIRSTO_UPGRADE_NAMES.includes(name);
+    const upgraded=trusted.upgradeRecord && upgradedNames.includes(name);
     check(code!=='0x' && (upgraded || same(keccak256(code),record.verification.code[name].codehash))
       && runtimeMatches(sourceFor(name).artifacts[artifacts[name] ?? name],code,runtimeLinksFor(name),a[name]),`Reviewed runtime changed: ${name}.`);
   }));
@@ -99,6 +100,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ['shareMarket','feeBps',100n],['beacon','owner',a.timelock],['beacon','implementation',a.PoolVault],
     ['beacon','OFFICIAL_FACTORY',a.factory],['PoolVault','OFFICIAL_FACTORY',a.factory],
     ['timelock','getMinDelay',172800n],['timelock','MINIMUM_DELAY',172800n]];
+  if (trusted.upgradeRecord?.kind === SHARE_FEE_UPGRADE_KIND) assertions.push(['shareMarket','buyerFeeBps',100n]);
   await settleReads(assertions.map(async([name,method,expected])=>check(String(await read(name,method)).toLowerCase()===String(expected).toLowerCase(),`Reviewed binding changed: ${name}.${method}.`)));
   await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket']].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);

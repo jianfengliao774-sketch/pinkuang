@@ -124,6 +124,7 @@ export function createLiveBrowserFixture({ account = FIXTURE_ACCOUNT, timestamp 
       case 'shareMarket': result = shareMarket; break;
       case 'beacon': result = beacon; break;
       case 'VERSION': result = 1n; break;
+      case 'feeBps': case 'buyerFeeBps': result = 100n; break;
       case 'poolCount': result = BigInt(rows.length); break;
       case 'isPool': result = rows.some(row => match(row.pool, parsed.args[0])); break;
       case 'positions': case 'poolPage': {

@@ -69,9 +69,10 @@ contract ShareMarketTest is ShareTransferTestBase {
     }
 
     function _fill(address buyer, uint256 id, uint256 amount, uint256 payment) private {
-        vm.deal(buyer, buyer.balance + payment);
+        uint256 total = payment + payment / 100;
+        vm.deal(buyer, buyer.balance + total);
         vm.prank(buyer);
-        shareMarket.fill{value: payment}(id, amount);
+        shareMarket.fill{value: total}(id, amount);
     }
 
     function _freshFactory() private returns (PoolFactory result) {
@@ -105,7 +106,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         timelock.schedule(target, 0, data, bytes32(0), salt, 48 hours);
     }
 
-    function test_partialFillsPreserveLocksAndDeductExactlyOnePercentFromSeller() public {
+    function test_partialFillsPreserveLocksAndChargeEachSideExactlyOnePercent() public {
         uint256 id = _list(ALICE, 20, UNIT_BNB);
         assertEq(id, 1);
         assertEq(shareMarket.nextOrderId(), 2);
@@ -121,7 +122,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(ALICE), 42);
         assertEq(pool.balanceOf(DAVE), 7);
         assertEq(shareMarket.bnbOwed(ALICE), 0.693 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.007 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.014 ether);
         assertEq(ALICE.balance, aliceBefore, "fill records pull credit and never sends seller BNB");
         _fill(ERIN, id, 13, 13 * UNIT_BNB);
         order = shareMarket.orders(id);
@@ -130,9 +131,9 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(_shareVault().lockedShares(ALICE), 0);
         assertEq(pool.balanceOf(ALICE), 29);
         assertEq(shareMarket.bnbOwed(ALICE), 1.98 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
-        assertEq(shareMarket.totalBnbOwed(), 2 ether);
-        assertEq(address(shareMarket).balance, 2 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.04 ether);
+        assertEq(shareMarket.totalBnbOwed(), 2.02 ether);
+        assertEq(address(shareMarket).balance, 2.02 ether);
         assertEq(pool.balanceOf(address(shareMarket)), 0);
         assertEq(pool.memberCount(), 5);
         assertEq(pool.totalSupply(), 100);
@@ -211,7 +212,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         vm.prank(TREASURY);
         shareMarket.withdrawBnb();
         assertEq(ALICE.balance - aliceBefore, 0.99 ether);
-        assertEq(TREASURY.balance - treasuryBefore, 0.01 ether);
+        assertEq(TREASURY.balance - treasuryBefore, 0.02 ether);
         assertEq(shareMarket.totalBnbOwed(), 0);
         assertEq(address(shareMarket).balance, 0);
         vm.prank(ALICE);
@@ -228,7 +229,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         uint256 id = _list(ALICE, 10, UNIT_BNB);
         _fill(DAVE, id, 10, 1 ether);
         assertEq(pool.treasury(), TREASURY);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.01 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
         assertEq(shareMarket.bnbOwed(ERIN), 0);
     }
 
@@ -236,12 +237,12 @@ contract ShareMarketTest is ShareTransferTestBase {
         _transfer(ALICE, TREASURY, 10);
         uint256 id = _list(TREASURY, 10, UNIT_BNB);
         _fill(DAVE, id, 10, 1 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 1 ether);
-        assertEq(shareMarket.totalBnbOwed(), 1 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 1.01 ether);
+        assertEq(shareMarket.totalBnbOwed(), 1.01 ether);
         uint256 before = TREASURY.balance;
         vm.prank(TREASURY);
         shareMarket.withdrawBnb();
-        assertEq(TREASURY.balance - before, 1 ether);
+        assertEq(TREASURY.balance - before, 1.01 ether);
         assertEq(address(shareMarket).balance, 0);
     }
 
@@ -258,15 +259,73 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertFalse(shareMarket.orders(id).active);
     }
 
-    function test_feeRoundsDownPerPartialFillAndRemainderStaysWithSeller() public {
+    function test_bothFeesRoundDownPerPartialFill() public {
         uint256 id = _list(ALICE, 3, 99);
         _fill(DAVE, id, 1, 99);
         assertEq(shareMarket.bnbOwed(ALICE), 99);
         assertEq(shareMarket.bnbOwed(TREASURY), 0);
         _fill(DAVE, id, 2, 198);
         assertEq(shareMarket.bnbOwed(ALICE), 296);
-        assertEq(shareMarket.bnbOwed(TREASURY), 1);
-        assertEq(shareMarket.totalBnbOwed(), 297);
+        assertEq(shareMarket.bnbOwed(TREASURY), 2);
+        assertEq(shareMarket.totalBnbOwed(), 298);
+    }
+
+    function test_weiBoundariesChargeEachSidePerFillAndPreserveLegacyEvent() public {
+        assertEq(shareMarket.feeBps(), 100);
+        assertEq(shareMarket.buyerFeeBps(), 100);
+        uint256 first = _list(ALICE, 1, 99);
+        uint256 second = _list(ALICE, 1, 100);
+        uint256 third = _list(ALICE, 1, 101);
+        _fill(DAVE, first, 1, 99);
+        vm.recordLogs();
+        _fill(DAVE, second, 1, 100);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bytes32 filledTopic = keccak256("OrderFilled(uint256,address,uint256,uint256,uint256)");
+        bytes32 buyerFeeTopic = keccak256("BuyerFeeCharged(uint256,address,address,uint256)");
+        bool foundFilled;
+        bool foundBuyerFee;
+        for (uint256 i; i < entries.length; ++i) {
+            if (entries[i].emitter != address(shareMarket) || entries[i].topics.length == 0) continue;
+            if (entries[i].topics[0] == filledTopic) {
+                assertEq(uint256(entries[i].topics[1]), second);
+                assertEq(address(uint160(uint256(entries[i].topics[2]))), DAVE);
+                (uint256 amount, uint256 gross, uint256 sellerFee) =
+                    abi.decode(entries[i].data, (uint256, uint256, uint256));
+                assertEq(amount, 1);
+                assertEq(gross, 100);
+                assertEq(sellerFee, 1);
+                foundFilled = true;
+            }
+            if (entries[i].topics[0] == buyerFeeTopic) {
+                assertEq(uint256(entries[i].topics[1]), second);
+                assertEq(address(uint160(uint256(entries[i].topics[2]))), DAVE);
+                assertEq(address(uint160(uint256(entries[i].topics[3]))), TREASURY);
+                assertEq(abi.decode(entries[i].data, (uint256)), 1);
+                foundBuyerFee = true;
+            }
+        }
+        assertTrue(foundFilled);
+        assertTrue(foundBuyerFee);
+        _fill(DAVE, third, 1, 101);
+        assertEq(shareMarket.bnbOwed(ALICE), 298);
+        assertEq(shareMarket.bnbOwed(TREASURY), 4);
+        assertEq(shareMarket.totalBnbOwed(), 302);
+        assertEq(address(shareMarket).balance, 302);
+    }
+
+    function test_treasuryBuyerPaysOwnFeeAndBothCreditsAreConserved() public {
+        uint256 id = _list(ALICE, 10, UNIT_BNB);
+        uint256 before = TREASURY.balance;
+        _fill(TREASURY, id, 10, 1 ether);
+        assertEq(TREASURY.balance, before, "helper funds exact payment before fill");
+        assertEq(shareMarket.bnbOwed(ALICE), 0.99 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
+        assertEq(shareMarket.totalBnbOwed(), 1.01 ether);
+        assertEq(address(shareMarket).balance, 1.01 ether);
+        vm.prank(TREASURY);
+        shareMarket.withdrawBnb();
+        assertEq(TREASURY.balance - before, 0.02 ether);
+        assertEq(shareMarket.totalBnbOwed(), 0.99 ether);
     }
 
     function test_listingAndCancelDoNotTransferSharesOrCreateMemberCheckpoints() public {
@@ -317,7 +376,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         shareMarket.list(address(pool), 21, UNIT_BNB);
         _list(BOB, 20, UNIT_BNB);
         assertEq(_shareVault().lockedShares(BOB), 69);
-        assertEq(shareMarket.totalBnbOwed(), 2 ether);
+        assertEq(shareMarket.totalBnbOwed(), 2.02 ether);
     }
 
     function test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() public {
@@ -337,12 +396,25 @@ contract ShareMarketTest is ShareTransferTestBase {
         vm.expectRevert(IShareMarket.PaymentMismatch.selector);
         shareMarket.fill{value: UNIT_BNB - 1}(id, 1);
         vm.expectRevert(IShareMarket.PaymentMismatch.selector);
+        shareMarket.fill{value: UNIT_BNB}(id, 1);
+        vm.expectRevert(IShareMarket.PaymentMismatch.selector);
         shareMarket.fill{value: UNIT_BNB + 1}(id, 1);
         vm.expectRevert(IShareMarket.InactiveOrder.selector);
         shareMarket.fill(999, 1);
         vm.stopPrank();
         assertEq(shareMarket.orders(id).remaining, 10);
         assertEq(_shareVault().lockedShares(ALICE), 10);
+        assertEq(shareMarket.totalBnbOwed(), 0);
+        assertEq(address(shareMarket).balance, 0);
+    }
+
+    function test_quoteOverflowRejectsWithoutChangingOrderOrCredits() public {
+        uint256 id = _list(ALICE, 1, type(uint256).max);
+        vm.prank(DAVE);
+        vm.expectRevert(IShareMarket.PaymentMismatch.selector);
+        shareMarket.fill(id, 1);
+        assertEq(shareMarket.orders(id).remaining, 1);
+        assertEq(_shareVault().lockedShares(ALICE), 1);
         assertEq(shareMarket.totalBnbOwed(), 0);
         assertEq(address(shareMarket).balance, 0);
     }
@@ -422,13 +494,13 @@ contract ShareMarketTest is ShareTransferTestBase {
         vm.expectRevert(IShareMarket.TransferFailed.selector);
         shareMarket.withdrawBnb();
         assertEq(shareMarket.bnbOwed(address(receiver)), 0.99 ether);
-        assertEq(shareMarket.totalBnbOwed(), 1 ether);
+        assertEq(shareMarket.totalBnbOwed(), 1.01 ether);
         receiver.setReject(false);
         vm.prank(address(receiver));
         shareMarket.withdrawBnb();
         assertEq(address(receiver).balance, 0.99 ether);
         assertEq(shareMarket.bnbOwed(address(receiver)), 0);
-        assertEq(shareMarket.totalBnbOwed(), 0.01 ether);
+        assertEq(shareMarket.totalBnbOwed(), 0.02 ether);
     }
 
     function test_withdrawBnbCallbackCannotReenterAndGetPaidTwice() public {
@@ -444,7 +516,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(receiver.callbackResult(), abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
         assertEq(address(receiver).balance, 0.99 ether);
         assertEq(shareMarket.bnbOwed(address(receiver)), 0);
-        assertEq(shareMarket.totalBnbOwed(), 0.01 ether);
+        assertEq(shareMarket.totalBnbOwed(), 0.02 ether);
     }
 
     function test_miningCallbackCannotReenterFillDuringLockedTransfer() public {
@@ -464,10 +536,10 @@ contract ShareMarketTest is ShareTransferTestBase {
         uint256 id = _list(ALICE, 10, UNIT_BNB);
         _queueReward(10000);
         mining.setClaimFault(1);
-        vm.deal(DAVE, 1 ether);
+        vm.deal(DAVE, 1.01 ether);
         vm.prank(DAVE);
         vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
-        shareMarket.fill{value: 1 ether}(id, 10);
+        shareMarket.fill{value: 1.01 ether}(id, 10);
         assertEq(shareMarket.orders(id).remaining, 10);
         assertTrue(shareMarket.orders(id).active);
         assertEq(_shareVault().lockedShares(ALICE), 10);
@@ -475,7 +547,7 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(DAVE), 0);
         assertEq(shareMarket.totalBnbOwed(), 0);
         assertEq(address(shareMarket).balance, 0);
-        assertEq(DAVE.balance, 1 ether);
+        assertEq(DAVE.balance, 1.01 ether);
         assertEq(mining.unreported(key), 10000);
     }
 
@@ -548,6 +620,7 @@ contract ShareMarketTest is ShareTransferTestBase {
     function test_uupsUpgradeRequiresActual48HourQueueAndPreservesOrderAndCredit() public {
         uint256 id = _list(ALICE, 10, UNIT_BNB);
         _fill(DAVE, id, 3, 3 * UNIT_BNB);
+        uint256 cancellableOrder = _list(ALICE, 5, UNIT_BNB);
         ShareMarketV2Fixture next = new ShareMarketV2Fixture();
         vm.prank(OWNER);
         vm.expectRevert(IShareMarket.Unauthorized.selector);
@@ -567,20 +640,27 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(shareMarket.factory(), address(poolFactory));
         assertEq(shareMarket.timelock(), address(timelock));
         assertEq(poolFactory.shareMarket(), address(shareMarket));
-        assertEq(shareMarket.nextOrderId(), 2);
+        assertEq(shareMarket.nextOrderId(), 3);
         IShareMarket.Order memory order = shareMarket.orders(id);
         assertEq(order.seller, ALICE);
         assertEq(order.pool, address(pool));
         assertEq(order.remaining, 7);
         assertEq(order.pricePerUnit, UNIT_BNB);
         assertTrue(order.active);
-        assertEq(_shareVault().lockedShares(ALICE), 7);
+        assertEq(_shareVault().lockedShares(ALICE), 12);
         assertEq(shareMarket.bnbOwed(ALICE), 0.297 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.003 ether);
-        assertEq(shareMarket.totalBnbOwed(), 0.3 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.006 ether);
+        assertEq(shareMarket.totalBnbOwed(), 0.303 ether);
+        assertEq(shareMarket.buyerFeeBps(), 100);
         _fill(ERIN, id, 7, 7 * UNIT_BNB);
         assertFalse(shareMarket.orders(id).active);
         assertEq(shareMarket.bnbOwed(ALICE), 0.99 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
+        assertEq(shareMarket.totalBnbOwed(), 1.01 ether);
+        vm.prank(ALICE);
+        shareMarket.cancel(cancellableOrder);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        assertFalse(shareMarket.orders(cancellableOrder).active);
     }
 
     function _assertNoOwnershipEvents(Vm.Log[] memory entries) private view {

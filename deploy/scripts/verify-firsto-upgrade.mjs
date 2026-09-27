@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph } from '../server/product-graph.mjs';
-import { FIRSTO_UPGRADE_KIND, buildDigest, evidenceDigest, settleReads } from '../shared/firsto-upgrade-proof.mjs';
+import { FIRSTO_UPGRADE_KIND, buildDigest, evidenceDigest, settleReads, upgradeNamesForKind } from '../shared/firsto-upgrade-proof.mjs';
 
 const read = path => {
   if (lstatSync(path).isSymbolicLink()) throw new Error('Evidence inputs cannot be symlinks.');
@@ -15,7 +15,9 @@ const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowe
 export async function generateFirstoUpgradeEvidence(provider, { genesisRecord,genesisBundle,upgradeBundle,plan }) {
   const block = await provider.getBlock('finalized');
   if (!Number.isSafeInteger(block?.number) || !/^0x[\da-f]{64}$/i.test(block?.hash ?? '')) throw new Error('A finalized verification block is required.');
-  const record = { schemaVersion:2,kind:FIRSTO_UPGRADE_KIND,chainId:56,status:'complete',
+  const kind = plan?.kind ?? FIRSTO_UPGRADE_KIND;
+  upgradeNamesForKind(kind);
+  const record = { schemaVersion:2,kind,chainId:56,status:'complete',
     genesisRecordDigest:evidenceDigest(genesisRecord),genesisArtifactDigest:buildDigest(genesisBundle),
     artifactDigest:buildDigest(upgradeBundle),sourceCommit:upgradeBundle.sourceCommit,
     deployments:plan.deployments,operation:plan.operation,
@@ -35,7 +37,7 @@ export async function generateFirstoUpgradeEvidence(provider, { genesisRecord,ge
     deployment:{txHash:initial.txHash,blockNumber:initial.receipt.blockNumber,blockHash:initial.receipt.blockHash},
     artifactDigest:record.artifactDigest,sourceCommit:record.sourceCommit,verifiedAt:record.verification.checkedAt,
     verifiedBlockNumber:block.number,codehash:Object.fromEntries(keys.map(name=>[name,genesisRecord.verification.code[name].codehash])),
-    upgrade:{kind:FIRSTO_UPGRADE_KIND,genesisArtifactDigest:record.genesisArtifactDigest,operationId:proof.operationId,
+    upgrade:{kind,genesisArtifactDigest:record.genesisArtifactDigest,operationId:proof.operationId,
       executionTxHash:proof.executionTxHash,executedBlock:proof.executedBlock}};
   return {record,manifest};
 }

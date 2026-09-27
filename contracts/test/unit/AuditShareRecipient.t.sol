@@ -36,11 +36,11 @@ contract AuditShareRecipientTest is ShareTransferTestBase {
         address recipient = toFactory ? address(poolFactory) : address(pool);
         vm.prank(ALICE);
         uint256 order = shareMarket.list(address(pool), 1, 1 ether);
-        vm.deal(recipient, recipient.balance + 1 ether);
+        vm.deal(recipient, recipient.balance + 1.01 ether);
         uint256 beforeBalance = recipient.balance;
         vm.prank(recipient);
         vm.expectRevert(IPoolVault.InvalidShareRecipient.selector);
-        shareMarket.fill{value: 1 ether}(order, 1);
+        shareMarket.fill{value: 1.01 ether}(order, 1);
         assertEq(recipient.balance, beforeBalance);
         assertEq(shareMarket.totalBnbOwed(), 0);
         assertTrue(shareMarket.orders(order).active);

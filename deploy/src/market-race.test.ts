@@ -107,9 +107,10 @@ test('Anvil: two wallets broadcast against the same final share; only one fill a
     await execute(market, 'list', await pool.getAddress(), 1n, price);
     assert.equal((await market.getFunction('orders')(1n)).remaining, 1n);
     const data = marketInterface.encodeFunctionData('fill', [1n, 1n]);
+    const buyerFee = price / 100n, payment = price + buyerFee;
     const balancesBefore = [await provider.getBalance(buyerA), await provider.getBalance(buyerB)];
     const sendFill = (buyer: string) => provider.send('eth_sendTransaction', [{ from: buyer,
-      to: market.target, data, value: toQuantity(price), gas: toQuantity(1_000_000), gasPrice: toQuantity(1_000_000_000) }]) as Promise<string>;
+      to: market.target, data, value: toQuantity(payment), gas: toQuantity(1_000_000), gasPrice: toQuantity(1_000_000_000) }]) as Promise<string>;
     const [hashA, hashB] = await Promise.all([sendFill(buyerA), sendFill(buyerB)]);
     assert.notEqual(hashA, hashB);
     assert.equal(await provider.getTransactionReceipt(hashA), null);
@@ -134,13 +135,17 @@ test('Anvil: two wallets broadcast against the same final share; only one fill a
     assert.equal(await pool.getFunction('lockedShares')(seller), 0n);
     const fee = price / 100n;
     assert.equal(await market.getFunction('bnbOwed')(seller), price - fee);
-    assert.equal(await market.getFunction('bnbOwed')(treasury), fee);
-    assert.equal(await market.getFunction('totalBnbOwed')(), price);
-    assert.equal(await provider.getBalance(market.target as string), price);
+    assert.equal(await market.getFunction('bnbOwed')(treasury), fee + buyerFee);
+    assert.equal(await market.getFunction('totalBnbOwed')(), payment);
+    assert.equal(await provider.getBalance(market.target as string), payment);
     const filled = receipts.flatMap(receipt => receipt.logs.map(log => {
       try { return marketInterface.parseLog(log); } catch { return null; }
     })).filter(log => log?.name === 'OrderFilled');
     assert.equal(filled.length, 1, 'a reverted contender cannot emit a second fill');
+    const buyerFeeEvents = receipts.flatMap(receipt => receipt.logs.map(log => {
+      try { return marketInterface.parseLog(log); } catch { return null; }
+    })).filter(log => log?.name === 'BuyerFeeCharged');
+    assert.equal(buyerFeeEvents.length, 1, 'only the winning fill charges a buyer fee');
 
     await mine(66);
     const states = await Promise.all([buyerA, buyerB].map(async (buyer, index) => {
@@ -150,7 +155,7 @@ test('Anvil: two wallets broadcast against the same final share; only one fill a
       const pending: PendingMarketTransaction = { version: 1, chainId: 56, account: buyer,
         factory: await factory.getAddress(), market: await market.getAddress(), nonce: transaction.nonce,
         action: { kind: 'fill', orderId: '1', amount: '1', expectedPrice: price.toString() }, data,
-        value: price.toString(), hash, submittedAt: '2026-09-27T00:00:00.000Z' };
+        value: payment.toString(), hash, submittedAt: '2026-09-27T00:00:00.000Z' };
       let saved: string | null = JSON.stringify(pending);
       const storage: MarketJournalStorage = { getItem: async key => key === PENDING_MARKET_KEY ? saved : null,
         setItem: async (_key, value) => { saved = value; }, removeItem: async (_key, finalHash) => {

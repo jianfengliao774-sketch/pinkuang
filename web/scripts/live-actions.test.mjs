@@ -54,6 +54,11 @@ function mock(options = {}) {
     else if (name === 'factory') value = options.wrongFactory ? addr(99) : factory;
     else if (name === 'VERSION') value = 1n;
     else if (name === 'shareMarket') value = options.wrongMarket ? addr(99) : market;
+    else if (name === 'feeBps') value = options.sellerFeeBps ?? 100n;
+    else if (name === 'buyerFeeBps') {
+      if (options.oldMarket) throw new Error('old Market has no buyerFeeBps getter');
+      value = options.buyerFeeBps ?? 100n;
+    }
     else if (name === 'positions') value = { blockNumber: 10n, timestamp: options.now ?? now, totalPools: 1n,
       nextCursor: 1n, registryCountValid: true, pools: [raw] };
     else if (name === 'governance') value = governance;
@@ -155,14 +160,27 @@ test('withdrawal and failure finalization follow exact state and deadline bounda
 
 test('market ABI tuple, price multiplication, gift listing and withdrawal action name match contracts', async () => {
   const fill = await prepare(mock(), { kind: 'fill', orderId: '7', quantity: '3' });
-  assert.equal(BigInt(fill.transaction.value), 2702159776422297937035n);
+  const gross = 2702159776422297937035n;
+  assert.equal(BigInt(fill.transaction.value), gross + gross / 100n);
+  assert.deepEqual(fill.marketTrade, { grossWei: gross, buyerFeeWei: gross / 100n, sellerFeeWei: gross / 100n,
+    buyerPaymentWei: gross + gross / 100n, sellerNetWei: gross - gross / 100n });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(fill.transaction).args], [7n, 3n]);
   const listing = await prepare(mock(), { kind: 'list', quantity: '4', price: '0' });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(listing.transaction).args], [pool, 4n, 0n]);
+  await assert.rejects(prepare(mock({ row: { availableShares: 100n } }), { kind: 'list', quantity: '100',
+    price: formatEther(((1n << 256n) - 1n) / 100n) }), /buyer fee overflows/);
   const withdrawn = await prepare(mock(), { kind: 'marketWithdraw' });
   assert.equal(withdrawn.kind, 'withdrawBnb'); assert.equal(withdrawn.requestKind, 'marketWithdraw');
   assert.equal(withdrawn.transaction.to, market); assert.equal(withdrawn.pool, null);
   await assert.rejects(prepare(mock({ marketOwed: 0n }), { kind: 'marketWithdraw' }));
+});
+
+test('old one-sided Market blocks new list/fill without stranding withdrawals', async () => {
+  await assert.rejects(prepare(mock({ oldMarket: true }), { kind: 'fill', orderId: '7', quantity: '1' }));
+  await assert.rejects(prepare(mock({ oldMarket: true }), { kind: 'list', quantity: '1', price: '0.1' }));
+  await assert.rejects(prepare(mock({ buyerFeeBps: 0n }), { kind: 'fill', orderId: '7', quantity: '1' }), /Bilateral/);
+  await assert.rejects(prepare(mock({ sellerFeeBps: 0n }), { kind: 'list', quantity: '1', price: '0.1' }), /Bilateral/);
+  assert.equal((await prepare(mock({ oldMarket: true }), { kind: 'marketWithdraw' })).transaction.value, '0x0');
 });
 
 test('market cannot fill expired, zero-expiry, frozen, changed, oversubscribed or overflowing orders', async () => {

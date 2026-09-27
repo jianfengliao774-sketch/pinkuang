@@ -162,6 +162,10 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
     if (!parsed || !MARKET_ACTIONS.has(parsed.name)) fail(400, 'Unsupported ShareMarket action.');
     if (await marketContract.feeBps() !== 100n) fail(503, 'Reviewed ShareMarket fee changed.');
     const method = parsed.name;
+    if (method === 'list' || method === 'fill') {
+      const buyerFee = await marketContract.buyerFeeBps().catch(() => null);
+      if (buyerFee !== 100n) fail(503, 'Reviewed two-sided ShareMarket fee is unavailable.');
+    }
     if (method === 'withdrawBnb') {
       if (lower(pool) !== lower(marketAddress) || value !== 0n || await marketContract.bnbOwed(account) === 0n) {
         fail(400, 'Market BNB withdrawal is not currently available.');
@@ -194,9 +198,11 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
     }
     if (method === 'fill') {
       const amount = parsed.args[1];
+      const gross = amount * order.pricePerUnit;
+      const buyerFee = gross / 100n;
       if (amount < 1n || amount > 100n || amount > order.remaining ||
           order.pricePerUnit > MAX_UINT256 / amount ||
-          value !== amount * order.pricePerUnit || lower(order.seller) === account) {
+          gross > MAX_UINT256 - buyerFee || value !== gross + buyerFee || lower(order.seller) === account) {
         fail(400, 'Market fill amount, seller or exact BNB payment is invalid.');
       }
       const [block, state, tradable, locked] = await Promise.all([

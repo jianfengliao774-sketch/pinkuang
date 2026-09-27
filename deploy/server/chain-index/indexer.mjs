@@ -19,7 +19,7 @@ const binding = new Interface([
 ]);
 const indexedEvents = Object.freeze({
   factory: new Set(['PoolCreated']),
-  market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'OrderCancelled', 'BnbWithdrawn']),
+  market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn']),
   pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'FirstoPurchased', 'AlternativeMinerSelected',
     'PurchaseSurplusSettled', 'Harvested', 'BemClaimed', 'BnbWithdrawn', 'Transfer', 'SaleProposed', 'Voted',
     'SaleListed', 'SaleCompleted', 'SaleExpired', 'SaleProceedsSettled', 'LockedSharesChanged',
@@ -433,7 +433,7 @@ export class ChainIndex {
         : event.kind === 'factory' && event.name === 'PoolCreated' ? a.pool
           : orderPools.get(a.orderId) ?? null;
       if (targetPool && eventPool !== targetPool) continue;
-      if (targetAccount && ![a.user, a.member, a.proposer, a.voter, a.seller, a.buyer, a.from, a.to, orderSellers.get(a.orderId)]
+      if (targetAccount && ![a.user, a.member, a.proposer, a.voter, a.seller, a.buyer, a.treasury, a.from, a.to, orderSellers.get(a.orderId)]
         .some(value => value && lower(value) === targetAccount)) continue;
       if (cursorParts && (event.blockNumber > cursorParts[0]
         || event.blockNumber === cursorParts[0] && (event.txIndex > cursorParts[1]

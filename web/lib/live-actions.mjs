@@ -104,6 +104,13 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     const marketReads = await settleReadRound({
       marketFactory: () => call(market, abi.ShareMarket, 'factory'),
       registeredMarket: () => call(factory, abi.PoolFactory, 'shareMarket'),
+      ...(['list', 'fill'].includes(kind) ? {
+        sellerFeeBps: () => call(market, abi.ShareMarket, 'feeBps'),
+        buyerFeeBps: async () => {
+          try { return await call(market, abi.ShareMarket, 'buyerFeeBps'); }
+          catch { throw new Error('当前市场尚未通过买方 1% 手续费版本核验，暂不可新增挂单或买入 / Bilateral 1% Market upgrade required.'); }
+        },
+      } : {}),
       ...(kind === 'marketWithdraw' ? { owed: () => call(market, abi.ShareMarket, 'bnbOwed', [from]) } : {}),
       ...(orderNumber !== null ? {
         order: () => call(market, abi.ShareMarket, 'orders', [orderNumber]),
@@ -112,6 +119,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     });
     assert(same(marketReads.marketFactory[0], factory), '市场身份不匹配 / Market identity mismatch.');
     assert(same(marketReads.registeredMarket[0], market), '市场登记不匹配 / Market registration mismatch.');
+    if (['list', 'fill'].includes(kind)) assert(marketReads.sellerFeeBps[0] === 100n && marketReads.buyerFeeBps[0] === 100n,
+      '当前市场不支持买卖双方各 1% 手续费，请使用升级后的市场 / Bilateral 1% market upgrade required.');
     if (kind === 'marketWithdraw') {
       assert(marketReads.owed[0] > 0n, '暂无可领取市场余额 / No market BNB to withdraw.');
       return finish(tx(market, abi.ShareMarket, 'withdrawBnb'));
@@ -128,8 +137,12 @@ export async function prepareProductAction({ provider, config, account, pool, ki
         if (expectedPricePerUnitWei !== undefined) assert(order.pricePerUnit === uint(expectedPricePerUnitWei), '挂单价格已变化，请重新确认 / Order price changed.');
         assert(row.state === 2n && row.shareTradingAllowed === true && expiry > timestamp && qty <= order.remaining
           && row.shares !== null && row.shares + qty <= 100n && !same(order.seller, from), '订单当前不可购买 / Order cannot be filled now.');
-        return finish(tx(market, abi.ShareMarket, 'fill', [orderNumber, qty], uint(order.pricePerUnit * qty)),
+        const grossWei = uint(order.pricePerUnit * qty), buyerFeeWei = grossWei / 100n;
+        const buyerPaymentWei = uint(grossWei + buyerFeeWei);
+        return finish(tx(market, abi.ShareMarket, 'fill', [orderNumber, qty], buyerPaymentWei),
           { pool: target, quantity: qty, row, snapshot, orderId: orderNumber,
+            marketTrade: Object.freeze({ grossWei, buyerFeeWei, sellerFeeWei: buyerFeeWei,
+              buyerPaymentWei, sellerNetWei: grossWei - buyerFeeWei }),
             order: Object.freeze({ seller: order.seller, pricePerUnitWei: order.pricePerUnit, remaining: order.remaining }) });
       }
       if (kind === 'cancel') assert(same(order.seller, from), '只能撤销自己的挂单 / Only the seller can cancel.');
@@ -153,7 +166,11 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     const qty = shareQuantity(quantity);
     assert(row.state === 2n && row.shareTradingAllowed === true && row.availableShares !== null && row.availableShares >= qty,
       '可售份额不足或当前暂停转让 / Shares unavailable or trading paused.');
-    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, exactPrice(price, { allowZero: true })]), { ...details, quantity: qty });
+    const priceWei = exactPrice(price, { allowZero: true });
+    const listingGross = priceWei * qty;
+    assert(listingGross + listingGross / 100n < 2n ** 256n,
+      '挂牌金额加买方手续费超出合约范围 / Listing plus buyer fee overflows the market.');
+    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, priceWei]), { ...details, quantity: qty });
   }
   if (kind === 'withdrawDeposit') {
     assert(row.state === 0n && row.shares !== null && row.shares > 0n, '当前不可撤回认购 / Subscription cannot be withdrawn now.');

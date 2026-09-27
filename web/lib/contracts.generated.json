@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xf8b1a969310b8f13736ac75fee159e4771dfecbf48addb973d60298fd93e55ac",
+  "artifactDigest": "0x52148a37bcd25ed9cd670aec15cc5298a8290dd71e8db735cdb8532743f5e3f1",
   "abis": {
     "PoolFactory": [
       {
@@ -5577,6 +5577,37 @@
         "anonymous": false,
         "inputs": [
           {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "orderId",
+            "type": "uint256"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "buyer",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "treasury",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "buyerFee",
+            "type": "uint256"
+          }
+        ],
+        "name": "BuyerFeeCharged",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
             "indexed": false,
             "internalType": "uint64",
             "name": "version",
@@ -5770,6 +5801,19 @@
             "internalType": "uint256",
             "name": "",
             "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "buyerFeeBps",
+        "outputs": [
+          {
+            "internalType": "uint16",
+            "name": "",
+            "type": "uint16"
           }
         ],
         "stateMutability": "view",

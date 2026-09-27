@@ -1096,6 +1096,7 @@ export default function LivePlatform() {
             <tr>
               <th>{L("区块", "Block")}</th>
               <th>{L("类型", "Event")}</th>
+              <th>{L("金额 / 费用", "Amount / fee")}</th>
               <th>{L("合约", "Contract")}</th>
               <th>{L("链上记录", "Transaction")}</th>
             </tr>
@@ -1107,6 +1108,11 @@ export default function LivePlatform() {
                 <tr key={`${hash}-${row.logIndex ?? i}`}>
                   <td>{row.blockNumber}</td>
                   <td>{eventName(row.event ?? row.name, L)}</td>
+                  <td>{(row.event ?? row.name) === 'OrderFilled'
+                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross, 18, 8)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee, 18, 8)} BNB`
+                    : (row.event ?? row.name) === 'BuyerFeeCharged'
+                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee, 18, 8)} BNB`
+                      : '—'}</td>
                   <td>
                     {shortAddress(row.contract ?? row.address ?? row.pool)}
                   </td>
@@ -2129,13 +2135,17 @@ export default function LivePlatform() {
                 </section>
               ) : (
                 <section className="panel">
+                  <p className="inline-note">{L(
+                    "每份挂牌价是成交基价。买方在基价外另付 1%，卖方从基价中扣除 1%；最终钱包金额在确认前展示。",
+                    "The listed price is the trade base. Buyers pay 1% on top and sellers pay a separate 1% from proceeds. Review the exact wallet payment before confirming.",
+                  )}</p>
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
                           <th>{L("项目", "Pool")}</th>
                           <th>{L("剩余份额", "Remaining")}</th>
-                          <th>{L("每份单价", "Per share")}</th>
+                          <th>{L("每份挂牌价", "Listed price")}</th>
                           <th>{L("卖家", "Seller")}</th>
                           <th>{L("到期", "Expires")}</th>
                           <th />
@@ -2523,8 +2533,8 @@ export default function LivePlatform() {
                     [
                       "灵活转让",
                       "Trade shares",
-                      "份额与整机交易各收取 1% 平台费。份额挂单 7 天到期，表决期间暂停新挂单与成交。",
-                      "Share and miner sales have a 1% platform fee. Share orders expire after 7 days; new orders and fills pause during voting.",
+                      "份额交易按成交基价向买方另收 1%，并从卖方收入扣除 1%；整机交易仍只扣 1%。份额挂单 7 天到期，表决期间暂停新挂单与成交。",
+                      "Share trades charge buyers 1% above the base price and deduct a separate 1% from sellers. Whole-miner sales still deduct 1%. Share orders expire after 7 days; voting pauses new orders and fills.",
                     ],
                   ].map(([zh, en, desc, eng]) => (
                     <p key={zh}>
@@ -2594,6 +2604,12 @@ export default function LivePlatform() {
                       {prepared ? (
                         <>
                           <div className="confirm-lines">
+                            {modal.kind === 'fill' && prepared.marketTrade && <>
+                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei, 18, 18)} BNB</strong></div>
+                            </>}
                             <div>
                               <span>{L("支付金额", "Payment")}</span>
                               <strong>
@@ -2696,6 +2712,7 @@ function eventName(value, L) {
     FirstoPurchased: ["Firsto 采购明细", "Firsto purchase details"],
     OrderListed: ["份额挂单", "Shares listed"],
     OrderFilled: ["份额成交", "Shares traded"],
+    BuyerFeeCharged: ["份额买方手续费", "Share buyer fee"],
     SaleProposed: ["出售提案", "Sale proposed"],
     Voted: ["表决", "Vote"],
     SaleCompleted: ["整机成交", "Miner sold"],

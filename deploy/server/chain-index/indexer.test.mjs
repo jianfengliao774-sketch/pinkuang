@@ -195,6 +195,24 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('new buyer-fee event is indexed while old OrderFilled history still replays', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-bilateral-fee-'));
+  const chain = new MockChain(); fixture(chain);
+  chain.event('market', 'BuyerFeeCharged', [1n, bob, carol, 1n], 5);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market, startBlock: 1, confirmations: 2 });
+  try {
+    await index.sync();
+    assert.equal(index.orders({ active: true }).items[0].remaining, '3', 'buyer-fee event must not count as another fill');
+    assert.equal(index.stats().shareMarketFilledGrossWei, '20', 'gross amount remains the OrderFilled base price');
+    const buyerFees = index.activity({ pool, account: bob }).items.filter(row => row.event === 'BuyerFeeCharged');
+    assert.equal(buyerFees.length, 1);
+    assert.deepEqual(buyerFees[0].fields, { orderId: '1', buyer: bob, treasury: carol, buyerFee: '1' });
+    assert.equal(index.activity({ pool, account: carol }).items.filter(row => row.event === 'BuyerFeeCharged').length, 1,
+      'treasury account history includes the buyer fee');
+    assert.equal(index.activity({ pool, account: bob }).items.filter(row => row.event === 'OrderFilled').length, 1);
+  } finally { index.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('Firsto detail preserves order and fee evidence without double counting the Purchased cost',async()=>{
   const chain=new MockChain();
   chain.event('factory','PoolCreated',[pool,collection,16210n,1100n,1000n,alice],1);

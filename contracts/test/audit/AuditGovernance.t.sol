@@ -74,9 +74,9 @@ contract AuditGovernance is SaleTestBase {
         vm.deal(DAVE, 10 ether);
         vm.deal(ERIN, 10 ether);
         vm.prank(DAVE);
-        shareMarket.fill{value: 4.9 ether}(aliceOrder, 49);
+        shareMarket.fill{value: 4.949 ether}(aliceOrder, 49);
         vm.prank(ERIN);
-        shareMarket.fill{value: 2.5 ether}(bobOrder, 25);
+        shareMarket.fill{value: 2.525 ether}(bobOrder, 25);
         assertEq(pool.balanceOf(ALICE), 0);
         assertEq(pool.balanceOf(BOB), 1);
         assertEq(pool.balanceOf(DAVE) + pool.balanceOf(ERIN), 74);

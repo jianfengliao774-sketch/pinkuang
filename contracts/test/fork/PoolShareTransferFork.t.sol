@@ -157,7 +157,7 @@ contract PoolShareTransferForkTest is Test {
         emit log_named_uint("new holder first eligible later BEM (atoms)", paid);
     }
 
-    function test_Fork_MarketFillSettlesRealRewardsAndCreditsSellerBnbMinusOnePercent() public {
+    function test_Fork_MarketFillSettlesRealRewardsAndChargesBothSidesOnePercent() public {
         uint256 pricePerUnit = 0.003 ether;
         uint256 sellerBnbBefore = ALICE.balance;
         vm.prank(ALICE);
@@ -168,7 +168,8 @@ contract PoolShareTransferForkTest is Test {
         _assertMarketNeverMember();
         vm.warp(block.timestamp + 1 hours);
         uint256 supplyBefore = BEM.totalSupply();
-        uint256 payment = 7 * pricePerUnit;
+        uint256 grossPrice = 7 * pricePerUnit;
+        uint256 payment = grossPrice + grossPrice / 100;
         vm.deal(DAVE, payment);
         vm.recordLogs();
         vm.prank(DAVE);
@@ -187,10 +188,10 @@ contract PoolShareTransferForkTest is Test {
         assertTrue(shareMarket.orders(id).active);
         assertEq(ALICE.balance, sellerBnbBefore);
         assertEq(shareMarket.bnbOwed(ALICE), 0.02079 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.00021 ether);
-        assertEq(shareMarket.totalBnbOwed(), 0.021 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.00042 ether);
+        assertEq(shareMarket.totalBnbOwed(), payment);
         assertEq(address(shareMarket).balance, payment);
-        assertEq(DAVE.balance, 0, "buyer pays exactly amount times price, without extra fee");
+        assertEq(DAVE.balance, 0, "buyer pays listed price plus one percent");
         assertEq(vault.bnbOwed(ALICE), 0.0049 ether);
         assertEq(vault.bnbOwed(DAVE), 0);
         _assertMarketNeverMember();

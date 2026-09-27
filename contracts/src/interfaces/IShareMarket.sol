@@ -30,6 +30,7 @@ interface IShareMarket {
         uint256 indexed orderId, address indexed seller, address indexed pool, uint256 amount, uint256 pricePerUnit
     );
     event OrderFilled(uint256 indexed orderId, address indexed buyer, uint256 amount, uint256 gross, uint256 fee);
+    event BuyerFeeCharged(uint256 indexed orderId, address indexed buyer, address indexed treasury, uint256 buyerFee);
     event OrderCancelled(uint256 indexed orderId, address indexed seller, uint256 remaining);
     event BnbWithdrawn(address indexed user, uint256 amount);
     event OrderExpirySet(uint256 indexed orderId, uint64 expiresAt);
@@ -47,6 +48,7 @@ interface IShareMarket {
     function orderExpiresAt(uint256 orderId) external view returns (uint64);
     function bnbOwed(address user) external view returns (uint256);
     function totalBnbOwed() external view returns (uint256);
+    function buyerFeeBps() external view returns (uint16);
 }
 
 interface IShareMarketFactory {

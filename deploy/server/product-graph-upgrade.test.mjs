@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Interface, ZeroHash, getAddress, getCreateAddress, keccak256 } from 'ethers';
 import { productGraphConfiguration,verifyProductGraph } from './product-graph.mjs';
-import { FIRSTO_UPGRADE_KIND,FIRSTO_UPGRADE_NAMES,buildDigest,evidenceDigest,firstoUpgradeBatch,firstoUpgradeDeploymentData,verifyFirstoUpgradeProof } from '../shared/firsto-upgrade-proof.mjs';
+import { FIRSTO_UPGRADE_KIND,FIRSTO_UPGRADE_NAMES,SHARE_FEE_UPGRADE_KIND,upgradeNamesForKind,buildDigest,evidenceDigest,firstoUpgradeBatch,firstoUpgradeDeploymentData,verifyFirstoUpgradeProof } from '../shared/firsto-upgrade-proof.mjs';
 import { generateFirstoUpgradeEvidence } from '../scripts/verify-firsto-upgrade.mjs';
 
 const compiled=JSON.parse(readFileSync(new URL('../public/deployment-artifacts.json',import.meta.url),'utf8'));
@@ -19,9 +19,12 @@ function runtime(artifact,addresses,address) {
   if(libraries.includes(artifact.contractName)&&data.startsWith(`73${'0'.repeat(40)}`))data=`73${address.slice(2).toLowerCase()}${data.slice(42)}`;
   return '0x'+data;
 }
-function fixture() {
+function fixture(kind=FIRSTO_UPGRADE_KIND) {
+  const upgradeNames=upgradeNamesForKind(kind);
   const genesisBundle=structuredClone(compiled),bundle=structuredClone(compiled);
   genesisBundle.sourceCommit='a'.repeat(40);bundle.sourceCommit='b'.repeat(40);
+  if(kind===SHARE_FEE_UPGRADE_KIND && !bundle.artifacts.ShareMarket.abi.some(item=>item.name==='buyerFeeBps'))
+    bundle.artifacts.ShareMarket.abi.push(JSON.parse(new Interface(['function buyerFeeBps() view returns(uint16)']).fragments[0].format('json')));
   // Distinct whole-build metadata proves that unchanged nodes must NOT use the new bundle.
   for(const artifact of Object.values(bundle.artifacts)) { artifact.bytecode+='00';artifact.deployedBytecode+='00'; }
   const old=Object.fromEntries(names.map((name,index)=>[name,addr(index+1)])),account=addr(90),input={ownerMultisig:account,operator:account,treasury:account};
@@ -30,36 +33,38 @@ function fixture() {
     artifactDigest:buildDigest(genesisBundle),steps:[...libraries,'AtomicDeployment','PoolVault','PoolFactory','ShareMarket','initialize']
       .map((id,index)=>({id,status:'confirmed',txHash:hash(1000+index),receipt:{status:1,blockNumber:10,blockHash:hash(10)}})),
     verification:{blockNumber:15,checks:[{passed:true}],code:Object.fromEntries(names.map(name=>[name,{address:old[name],codehash:keccak256(oldCode[name])}]))}};
-  const deployments=Object.fromEntries(FIRSTO_UPGRADE_NAMES.map((name,index)=>[name,{address:getCreateAddress({from:account,nonce:100+index}),txHash:hash(200+index)}]));
-  const record={schemaVersion:2,kind:FIRSTO_UPGRADE_KIND,chainId:56,status:'complete',genesisRecordDigest:evidenceDigest(genesisRecord),
+  const deployments=Object.fromEntries(upgradeNames.map((name,index)=>[name,{address:getCreateAddress({from:account,nonce:100+index}),txHash:hash(200+index)}]));
+  const record={schemaVersion:2,kind,chainId:56,status:'complete',genesisRecordDigest:evidenceDigest(genesisRecord),
     genesisArtifactDigest:buildDigest(genesisBundle),artifactDigest:buildDigest(bundle),sourceCommit:bundle.sourceCommit,deployments,
     operation:{scheduleTxHash:hash(300),executeTxHash:hash(301),salt:hash(99),predecessor:ZeroHash},
     verification:{blockNumber:100,blockHash:hash(100),checkedAt:'2026-09-27T00:00:00Z'}};
-  const addresses={...old,...Object.fromEntries(FIRSTO_UPGRADE_NAMES.map(name=>[name,deployments[name].address]))};
-  const codes=Object.fromEntries(names.map(name=>[name,FIRSTO_UPGRADE_NAMES.includes(name)?runtime(bundle.artifacts[name],addresses,addresses[name]):oldCode[name]]));
+  const addresses={...old,...Object.fromEntries(upgradeNames.map(name=>[name,deployments[name].address]))};
+  const codes=Object.fromEntries(names.map(name=>[name,upgradeNames.includes(name)?runtime(bundle.artifacts[name],addresses,addresses[name]):oldCode[name]]));
   const transactions=new Map(),receipts=new Map(),blocks=new Map();
   const header=number=>({number,hash:hash(number),timestamp:number>=40?174000+number:1000+number,transactions:[]});
-  for(const number of [10,20,21,22,23,30,39,40,100])blocks.set(number,header(number));
+  for(const number of [10,20,21,22,23,24,30,39,40,100])blocks.set(number,header(number));
   const addTx=(txHash,number,to,data,nonce=0,contractAddress=null)=>{
     const block=blocks.get(number),index=block.transactions.length;block.transactions.push(txHash);
     transactions.set(txHash,{hash:txHash,chainId:56n,from:account,to,value:0n,data,nonce,blockNumber:number,blockHash:block.hash,index});
     receipts.set(txHash,{hash:txHash,from:account,to,status:1,contractAddress,blockNumber:number,blockHash:block.hash,index,logs:[]});
   };
-  FIRSTO_UPGRADE_NAMES.forEach((name,index)=>addTx(deployments[name].txHash,20+index,null,firstoUpgradeDeploymentData(name,bundle,addresses),100+index,addresses[name]));
+  upgradeNames.forEach((name,index)=>addTx(deployments[name].txHash,20+index,null,firstoUpgradeDeploymentData(name,bundle,addresses,kind),100+index,addresses[name]));
   const timelock=new Interface(genesisBundle.artifacts.PoolTimelock.abi),factory=new Interface(bundle.artifacts.PoolFactory.abi),beacon=new Interface(genesisBundle.artifacts.PoolBeacon.abi);
-  const batch=firstoUpgradeBatch(addresses,record.operation);
+  const batch=firstoUpgradeBatch(addresses,record.operation,kind);
   addTx(record.operation.scheduleTxHash,30,old.timelock,timelock.encodeFunctionData('scheduleBatch',[...batch.args,172800n]));
   addTx(record.operation.executeTxHash,40,old.timelock,batch.executeData);
   const event=(txHash,address,iface,name,args)=>{
     const receipt=receipts.get(txHash),encoded=iface.encodeEventLog(iface.getEvent(name),args);
     receipt.logs.push({...encoded,address,transactionHash:txHash,blockHash:receipt.blockHash,index:receipt.logs.length});
   };
-  for(let index=0;index<3;index++) {
+  for(let index=0;index<batch.targets.length;index++) {
     event(record.operation.scheduleTxHash,old.timelock,timelock,'CallScheduled',[batch.operationId,index,batch.targets[index],0n,batch.payloads[index],ZeroHash,172800n]);
     event(record.operation.executeTxHash,old.timelock,timelock,'CallExecuted',[batch.operationId,index,batch.targets[index],0n,batch.payloads[index]]);
   }
   event(record.operation.executeTxHash,old.factory,factory,'Upgraded',[addresses.PoolFactory]);
   event(record.operation.executeTxHash,old.beacon,beacon,'Upgraded',[addresses.PoolVault]);
+  if(kind===SHARE_FEE_UPGRADE_KIND) event(record.operation.executeTxHash,old.shareMarket,
+    new Interface(bundle.artifacts.ShareMarket.abi),'Upgraded',[addresses.ShareMarket]);
   event(record.operation.executeTxHash,old.factory,factory,'MachineRegistryMigrationStarted',[0n]);
   event(record.operation.executeTxHash,old.factory,factory,'MachineRegistryMigrationProgress',[0n,0n,true]);
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
@@ -67,19 +72,19 @@ function fixture() {
   const state={beforePools:0n,ready:true,cutoff:0n,done:true,chain:56n,slot:null,binding:null,code:null,finalized:100,requests:[]};
   const values={AtomicDeployment:{deployed:true,deployer:account,predictedFactory:old.factory},
     factory:{owner:account,operator:account,treasury:account,lens:old.lens,shareMarket:old.shareMarket,beacon:old.beacon,timelock:old.timelock},
-    lens:{factory:old.factory,VERSION:1n},shareMarket:{factory:old.factory,timelock:old.timelock,feeBps:100n},
+    lens:{factory:old.factory,VERSION:1n},shareMarket:{factory:old.factory,timelock:old.timelock,feeBps:100n,buyerFeeBps:100n},
     beacon:{owner:old.timelock,implementation:addresses.PoolVault,OFFICIAL_FACTORY:old.factory},PoolVault:{OFFICIAL_FACTORY:old.factory},
     timelock:{getMinDelay:172800n,MINIMUM_DELAY:172800n,PROPOSER_ROLE:hash(1),CANCELLER_ROLE:hash(2),EXECUTOR_ROLE:hash(3),DEFAULT_ADMIN_ROLE:hash(4)}};
   const provider={getBlock:async number=>blocks.get(number==='finalized'?state.finalized:number),
     getTransaction:async txHash=>transactions.get(txHash),getTransactionReceipt:async txHash=>receipts.get(txHash),
     getCode:async(address,number)=>{assert.equal(number,100);const name=names.find(name=>lower(addresses[name])===lower(address));return name===state.code?codes[name]+'ff':codes[name];},
-    getStorage:async address=>'0x'+(state.slot??(lower(address)===lower(old.factory)?addresses.PoolFactory:old.ShareMarket)).slice(2).padStart(64,'0'),
+    getStorage:async address=>'0x'+(state.slot??(lower(address)===lower(old.factory)?addresses.PoolFactory:addresses.ShareMarket)).slice(2).padStart(64,'0'),
     async send(method,params) {
       state.requests.push(method);if(method==='eth_chainId')return '0x'+state.chain.toString(16);
       assert.equal(method,'eth_call');const [tx,tag]=params;
       const name=names.find(name=>lower(addresses[name])===lower(tx.to));
       const artifactName=({factory:'PoolFactory',shareMarket:'ShareMarket'})[name]??aliases[name]??name;
-      const iface=new Interface((FIRSTO_UPGRADE_NAMES.includes(artifactName)?bundle:genesisBundle).artifacts[artifactName].abi);
+      const iface=new Interface((upgradeNames.includes(artifactName)?bundle:genesisBundle).artifacts[artifactName].abi);
       const decoded=iface.parseTransaction(tx);let value=values[name]?.[decoded.name];
       if(decoded.name==='poolCount'){assert.equal(tag,'0x27');value=state.beforePools;}
       if(decoded.name==='machineRegistryStatus')return iface.encodeFunctionResult(decoded.name,[true,state.ready,0n,state.cutoff]);
@@ -194,4 +199,56 @@ test('read-only exporter preserves genesis history start while binding frontend 
   assert.equal(result.manifest.codehash.lens,f.genesisRecord.verification.code.lens.codehash);
   assert.equal(result.manifest.upgrade.operationId,f.batch.operationId);
   assert(f.state.requests.every(method=>['eth_call','eth_chainId'].includes(method)));
+});
+
+test('five-node fee upgrade is a distinct fixed kind; old four-node records stay valid',async()=>{
+  const old=fixture(),fee=fixture(SHARE_FEE_UPGRADE_KIND);
+  await verifyProductGraph(old.provider,old.addresses.factory,old.trusted(),old.block);
+  const result=await verifyProductGraph(fee.provider,fee.addresses.factory,fee.trusted(),fee.block);
+  assert.equal(result.upgrade.operationId,fee.batch.operationId);
+  assert.deepEqual(fee.batch.targets,[fee.addresses.factory,fee.addresses.beacon,fee.addresses.shareMarket,fee.addresses.factory]);
+  assert.equal(fee.record.deployments.ShareMarket.address,fee.addresses.ShareMarket);
+  assert(fee.state.requests.every(method=>['eth_call','eth_chainId'].includes(method)));
+  for(const change of [r=>{delete r.deployments.ShareMarket;},r=>{r.kind=FIRSTO_UPGRADE_KIND;},
+    r=>{r.kind='unreviewed-market-upgrade';},r=>{r.deployments.Unreviewed=r.deployments.ShareMarket;}]) {
+    const record=structuredClone(fee.record);change(record);
+    assert.throws(()=>productGraphConfiguration({record,bundle:fee.bundle,genesisRecord:fee.genesisRecord,genesisBundle:fee.genesisBundle}));
+  }
+  const wrongOld=structuredClone(old.record);wrongOld.kind=SHARE_FEE_UPGRADE_KIND;
+  assert.throws(()=>productGraphConfiguration({record:wrongOld,bundle:old.bundle,genesisRecord:old.genesisRecord,genesisBundle:old.genesisBundle}));
+});
+
+test('five-node proof rejects changed Market creation, missing atomic call or wrong upgrade event',async()=>{
+  for(const mutate of [
+    f=>f.transactions.get(f.record.deployments.ShareMarket.txHash).data+='00',
+    f=>f.transactions.get(f.record.deployments.ShareMarket.txHash).nonce++,
+    f=>f.receipts.get(f.record.deployments.ShareMarket.txHash).status=0,
+    f=>f.transactions.get(f.record.operation.executeTxHash).data=firstoUpgradeBatch(f.addresses,f.record.operation,FIRSTO_UPGRADE_KIND).executeData,
+    f=>f.receipts.get(f.record.operation.executeTxHash).logs.splice(3,1),
+    f=>{const logs=f.receipts.get(f.record.operation.executeTxHash).logs;
+      const market=logs.find(log=>lower(log.address)===lower(f.addresses.shareMarket));
+      market.topics[1]=hash(999);},
+  ]) {
+    const f=fixture(SHARE_FEE_UPGRADE_KIND);mutate(f);
+    await assert.rejects(verifyFirstoUpgradeProof(f.provider,f.trusted(),f.block));
+  }
+});
+
+test('five-node graph pins Market runtime, UUPS slot and both 1% sides',async()=>{
+  for(const change of [f=>f.state.code='ShareMarket',f=>f.state.slot=addr(999),
+    f=>f.state.binding='shareMarket.buyerFeeBps',f=>f.state.binding='shareMarket.feeBps']) {
+    const f=fixture(SHARE_FEE_UPGRADE_KIND);change(f);
+    await assert.rejects(verifyProductGraph(f.provider,f.addresses.factory,f.trusted(),f.block),/changed/);
+  }
+});
+
+test('five-node exporter records the fee kind and preserves the original proxy identity',async()=>{
+  const f=fixture(SHARE_FEE_UPGRADE_KIND);
+  const result=await generateFirstoUpgradeEvidence(f.provider,{genesisRecord:f.genesisRecord,genesisBundle:f.genesisBundle,
+    upgradeBundle:f.bundle,plan:{kind:SHARE_FEE_UPGRADE_KIND,deployments:f.record.deployments,operation:f.record.operation}});
+  assert.equal(result.record.kind,SHARE_FEE_UPGRADE_KIND);
+  assert.equal(result.manifest.upgrade.kind,SHARE_FEE_UPGRADE_KIND);
+  assert.equal(result.manifest.shareMarket,f.genesisRecord.addresses.shareMarket);
+  assert.equal(result.manifest.deployment.blockNumber,10);
+  assert.equal(result.manifest.verifiedBlockNumber,100);
 });

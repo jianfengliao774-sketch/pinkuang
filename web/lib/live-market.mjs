@@ -54,11 +54,11 @@ export async function readMarketSnapshot(provider, {
     const data = contract.encodeFunctionData(method, args);
     return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data }, tag]))[0];
   }
-  const [factoryCode, marketCode, linkedMarket, factoryTimelock, marketFactory, marketTimelock, feeBps, nextOrderId, credit] = await Promise.all([
+  const [factoryCode, marketCode, linkedMarket, factoryTimelock, marketFactory, marketTimelock, feeBps, buyerFeeBps, nextOrderId, credit] = await Promise.all([
     request('eth_getCode', [factory, tag]), request('eth_getCode', [market, tag]),
     call(factory, abi.PoolFactory, 'shareMarket'), call(factory, abi.PoolFactory, 'timelock'),
     call(market, abi.ShareMarket, 'factory'), call(market, abi.ShareMarket, 'timelock'),
-    call(market, abi.ShareMarket, 'feeBps'), call(market, abi.ShareMarket, 'nextOrderId'),
+    call(market, abi.ShareMarket, 'feeBps'), call(market, abi.ShareMarket, 'buyerFeeBps').catch(() => null), call(market, abi.ShareMarket, 'nextOrderId'),
     call(market, abi.ShareMarket, 'bnbOwed', [owner]),
   ]);
   requireMarket(factoryCode && factoryCode !== '0x' && marketCode && marketCode !== '0x', 'Factory or Market has no code.');
@@ -95,22 +95,28 @@ export async function readMarketSnapshot(provider, {
   requireMarket(again?.hash === block.hash && BigInt(await request('eth_chainId')) === CHAIN_ID,
     'Chain changed during market read; refresh.');
   return Object.freeze({ chainId: CHAIN_ID, factory, market, account: owner, blockNumber: number,
-    blockHash: block.hash, timestamp, feeBps, nextOrderId, bnbOwed: credit,
+    blockHash: block.hash, timestamp, feeBps, buyerFeeBps, nextOrderId, bnbOwed: credit,
     orders: Object.freeze(orders), pools: Object.freeze(positions) });
 }
 
 /** Exact calldata and wei only; no signer, wallet request or browser cache. */
 export function marketAction(snapshot, from, action) {
   const account = nonzero(from);
-  requireMarket(snapshot?.chainId === CHAIN_ID && same(snapshot.account, account) && snapshot.feeBps === 100n,
+  requireMarket(snapshot?.chainId === CHAIN_ID && same(snapshot.account, account)
+    && snapshot.feeBps === 100n,
     'Market snapshot belongs to another wallet, chain or fee version.');
+  if (action?.kind === 'list' || action?.kind === 'fill') requireMarket(snapshot.buyerFeeBps === 100n,
+    'Bilateral 1% market upgrade is required before listing or buying shares.');
   const position = pool => snapshot.pools.find(item => same(item.pool, pool));
   const selectedOrder = id => snapshot.orders.find(item => item.id === id);
-  let method, args = [], value = 0n, pool = null, selected = null, amount = null, unitPriceWei = null;
+  let method, args = [], gross = 0n, pool = null, selected = null, amount = null, unitPriceWei = null;
   if (action?.kind === 'list') {
     pool = nonzero(action.pool); amount = shares(action.amount);
     unitPriceWei = uint(action.pricePerUnitWei);
     requireMarket(unitPriceWei <= MAX_UINT256 / amount, 'Share listing price overflows the market.');
+    const listingGross = unitPriceWei * amount;
+    requireMarket(listingGross + listingGross / 100n <= MAX_UINT256,
+      'Share listing plus buyer fee overflows the market.');
     requireMarket(unitPriceWei > 0n || action.allowFree === true, 'A zero-price listing needs explicit confirmation.');
     const holding = position(pool);
     requireMarket(holding && holding.state === 2n && holding.tradingAllowed === true,
@@ -133,7 +139,7 @@ export function marketAction(snapshot, from, action) {
       'Pool is not active or share trading is frozen.');
     requireMarket(selected.pricePerUnitWei <= MAX_UINT256 / amount, 'Order amount overflows the market.');
     unitPriceWei = selected.pricePerUnitWei;
-    value = selected.pricePerUnitWei * amount;
+    gross = selected.pricePerUnitWei * amount;
     method = 'fill'; args = [id, amount];
   } else if (action?.kind === 'cancel') {
     const id = orderId(action.orderId); selected = selectedOrder(id);
@@ -148,11 +154,14 @@ export function marketAction(snapshot, from, action) {
     requireMarket(snapshot.bnbOwed > 0n, 'No Market BNB is owed to this wallet.');
     method = 'withdrawBnb';
   } else throw new Error('Unsupported ShareMarket action.');
-  const feeWei = value / 100n;
+  const buyerFeeWei = gross / 100n, sellerFeeWei = gross / 100n;
+  requireMarket(gross <= MAX_UINT256 - buyerFeeWei, 'Buyer payment overflows the market.');
+  const buyerPaymentWei = gross + buyerFeeWei;
   return Object.freeze({ transaction: Object.freeze({ chainId: '0x38', from: account, to: snapshot.market,
-    data: abi.ShareMarket.encodeFunctionData(method, args), value: toQuantity(value) }),
+    data: abi.ShareMarket.encodeFunctionData(method, args), value: toQuantity(buyerPaymentWei) }),
     quote: Object.freeze({ action: method, pool, orderId: selected?.id ?? null, amount, unitPriceWei,
-      grossWei: value, feeWei, sellerNetWei: value - feeWei, marketCreditWei: snapshot.bnbOwed,
+      grossWei: gross, buyerFeeWei, sellerFeeWei, buyerPaymentWei,
+      sellerNetWei: gross - sellerFeeWei, marketCreditWei: snapshot.bnbOwed,
       blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash }) });
 }
 

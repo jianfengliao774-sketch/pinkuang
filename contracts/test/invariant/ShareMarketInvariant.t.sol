@@ -91,18 +91,20 @@ contract ShareMarketHandler is Test {
         if (capacity > order.remaining) capacity = order.remaining;
         uint256 amount = bound(amountSeed, 1, capacity);
         uint256 gross = amount * order.price;
+        uint256 fee = gross / 100;
+        uint256 payment = gross + fee;
         vm.prank(actors[buyer]);
-        market.fill{value: gross}(id, amount);
+        market.fill{value: payment}(id, amount);
         order.remaining -= amount;
         order.filled += amount;
         order.active = order.remaining != 0;
         locked[order.poolIndex][order.sellerIndex] -= amount;
         shares[order.poolIndex][order.sellerIndex] -= amount;
         shares[order.poolIndex][buyer] += amount;
-        credits[order.sellerIndex] += gross - gross / 100;
-        credits[6] += gross / 100;
-        spent[buyer] += gross;
-        paidIn += gross;
+        credits[order.sellerIndex] += gross - fee;
+        credits[6] += 2 * fee;
+        spent[buyer] += payment;
+        paidIn += payment;
         ++successfulFills;
     }
 
@@ -138,7 +140,8 @@ contract ShareMarketHandler is Test {
         if (id == 0) return;
         uint256 buyer = buyerSeed % 7;
         // One share with one wei too much fails even when the order is free.
-        _rejectFill(id, buyer, orders[id].price + 1, IShareMarket.PaymentMismatch.selector);
+        uint256 gross = orders[id].price;
+        _rejectFill(id, buyer, gross + gross / 100 + 1, IShareMarket.PaymentMismatch.selector);
         ++rejectedPayments;
     }
 
@@ -148,7 +151,8 @@ contract ShareMarketHandler is Test {
         mining.setClaimFault(1);
         // This fails after Market has updated remaining/credit and Vault has
         // released the order's lock, exercising the entire atomic rollback.
-        _rejectFill(id, buyerSeed % 7, orders[id].price, IPoolVault.FinalRewardSettlementFailed.selector);
+        uint256 gross = orders[id].price;
+        _rejectFill(id, buyerSeed % 7, gross + gross / 100, IPoolVault.FinalRewardSettlementFailed.selector);
         mining.setClaimFault(0);
         ++rejectedSettlements;
     }

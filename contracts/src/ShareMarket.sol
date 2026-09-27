@@ -11,7 +11,10 @@ import {IShareMarket, IShareMarketFactory, IShareMarketPool} from "./interfaces/
 /// @notice BNB orders for integer shares, locked in each seller's PoolVault account.
 /// @dev No ERC-20 custody or daily administration. Upgrades require the fixed Factory timelock.
 contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarket {
+    // feeBps is the legacy seller fee. A separate getter marks the upgraded
+    // buyer-fee implementation so callers cannot send a buyer fee to an old proxy.
     uint16 public constant feeBps = 100;
+    uint16 public constant buyerFeeBps = 100;
     uint256 public constant MINIMUM_UPGRADE_DELAY = 48 hours;
     uint256 public constant ORDER_DURATION = 7 days;
 
@@ -73,20 +76,24 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (amount > order.remaining) revert InvalidAmount();
         _requireTradablePool(s, order.pool);
         uint256 gross = amount * order.pricePerUnit;
-        if (msg.value != gross) revert PaymentMismatch();
         // The specification sets no minimum price. Zero-price orders transfer
-        // with zero BNB and zero fee. All integer fee rounding stays with seller.
-        uint256 fee = gross / 100;
+        // with zero BNB and zero fees. Each side's fee rounds down per fill.
+        uint256 sellerFee = gross / 100;
+        uint256 buyerFee = gross / 100;
+        if (gross > type(uint256).max - buyerFee || msg.value != gross + buyerFee) revert PaymentMismatch();
         address feeRecipient = IShareMarketPool(order.pool).treasury();
         if (feeRecipient == address(0)) revert InvalidAddress();
         order.remaining -= amount;
         if (order.remaining == 0) order.active = false;
-        _creditBnb(s, order.seller, gross - fee);
-        _creditBnb(s, feeRecipient, fee);
+        _creditBnb(s, order.seller, gross - sellerFee);
+        _creditBnb(s, feeRecipient, sellerFee + buyerFee);
         // The Vault settles old-owner rewards before moving the locked shares.
         // Any state/settlement/holding-limit failure rolls back the whole fill.
         IShareMarketPool(order.pool).transferLocked(order.seller, msg.sender, amount);
-        emit OrderFilled(orderId, msg.sender, amount, gross, fee);
+        // Keep the legacy OrderFilled topic/meaning so historical indexers can
+        // replay old and new fills. The additional buyer fee has its own event.
+        emit OrderFilled(orderId, msg.sender, amount, gross, sellerFee);
+        emit BuyerFeeCharged(orderId, msg.sender, feeRecipient, buyerFee);
     }
 
     function cancel(uint256 orderId) external nonReentrant {

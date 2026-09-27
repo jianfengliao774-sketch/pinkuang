@@ -18,7 +18,8 @@ contract MultiShareMarketTest is ShareTransferTestBase {
     }
 
     function _buy(address buyer, uint256 id, uint256 amount) private {
-        uint256 payment = amount * PRICE;
+        uint256 gross = amount * PRICE;
+        uint256 payment = gross + gross / 100;
         vm.deal(buyer, buyer.balance + payment);
         vm.prank(buyer);
         shareMarket.fill{value: payment}(id, amount);
@@ -51,9 +52,9 @@ contract MultiShareMarketTest is ShareTransferTestBase {
         assertEq(shareMarket.bnbOwed(ALICE), 4.851 ether);
         assertEq(shareMarket.bnbOwed(BOB), 4.851 ether);
         assertEq(shareMarket.bnbOwed(CAROL), 0.198 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.1 ether);
-        assertEq(shareMarket.totalBnbOwed(), 10 ether);
-        assertEq(address(shareMarket).balance, 10 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.2 ether);
+        assertEq(shareMarket.totalBnbOwed(), 10.1 ether);
+        assertEq(address(shareMarket).balance, 10.1 ether);
     }
 
     function test_oneOrderCanListAndFillAllOneHundredShares() public {
@@ -80,9 +81,9 @@ contract MultiShareMarketTest is ShareTransferTestBase {
         assertEq(shareMarket.orders(id).remaining, 0);
         assertFalse(shareMarket.orders(id).active);
         assertEq(shareMarket.bnbOwed(ALICE), 9.9 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.1 ether);
-        assertEq(shareMarket.totalBnbOwed(), 10 ether);
-        assertEq(address(shareMarket).balance, 10 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.2 ether);
+        assertEq(shareMarket.totalBnbOwed(), 10.1 ether);
+        assertEq(address(shareMarket).balance, 10.1 ether);
     }
 
     function test_repeatedBuysSettleEachRewardPeriodToTheActualOwners() public {

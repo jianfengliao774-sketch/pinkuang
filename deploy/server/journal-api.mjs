@@ -68,6 +68,7 @@ const IDENTITY_ABI = new Interface([
   'function isPool(address) view returns(bool)', 'function shareMarket() view returns(address)',
   'function factory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
   'function unitPriceWei() view returns(uint256)', 'function salePrice() view returns(uint256)',
+  'function feeBps() view returns(uint16)', 'function buyerFeeBps() view returns(uint16)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
 ]);
 const OFFICIAL_POOL_READ_ABI = new Interface([
@@ -287,11 +288,23 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     } else {
       if (identity(await call(record.factory, 'shareMarket')) !== identity(record.target)
         || identity(await call(record.target, 'factory')) !== identity(record.factory)) fail(409, 'Market is not registered to this Factory.');
+      if (decoded.name === 'list' || decoded.name === 'fill') {
+        let sellerFeeBps, buyerFeeBps;
+        try { [sellerFeeBps, buyerFeeBps] = await Promise.all([
+          call(record.target, 'feeBps'), call(record.target, 'buyerFeeBps'),
+        ]); } catch { fail(409, 'Bilateral 1% Market upgrade is not verified.'); }
+        if (sellerFeeBps !== 100n || buyerFeeBps !== 100n) fail(409, 'Bilateral 1% Market fee changed.');
+      }
       if (decoded.name === 'list') await registeredPool(decoded.args[0]);
       if (['fill','cancel','expire'].includes(decoded.name)) {
         const order = await call(record.target, 'orders', [decoded.args[0]]);
         await registeredPool(order.pool);
-        if (decoded.name === 'fill' && BigInt(record.value) !== order.pricePerUnit * decoded.args[1]) fail(409, 'Order price changed.');
+        if (decoded.name === 'fill') {
+          const gross = order.pricePerUnit * decoded.args[1];
+          if (gross >= 2n ** 256n || gross + gross / 100n >= 2n ** 256n
+            || BigInt(record.value) !== gross + gross / 100n)
+            fail(409, 'Order price or buyer fee changed.');
+        }
       }
     }
     const [latestNonce, pendingNonce] = await Promise.all([

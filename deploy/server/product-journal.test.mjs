@@ -35,6 +35,7 @@ const views = new Interface(['function operator() view returns(address)','functi
   'function machinePool(address,uint256) view returns(address)',
   'function factory() view returns(address)','function OFFICIAL_FACTORY() view returns(address)',
   'function unitPriceWei() view returns(uint256)','function salePrice() view returns(uint256)',
+  'function feeBps() view returns(uint16)','function buyerFeeBps() view returns(uint16)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))']);
 function intent(name = 'deposit', args = [2], value = '20', targetType = 'pool') {
   return { version:2, chainId:56, account, factory, target:targetType === 'factory' ? factory : targetType === 'pool' ? pool : market, targetType, nonce:7,
@@ -57,10 +58,11 @@ function proof(record = intent()) {
       const [tx] = params;
       if (tx.from) return '0x';
       const parsed = views.parseTransaction(tx);
+      if (parsed.name==='buyerFeeBps' && state.buyerFeeMissing) return '0x';
       if (parsed.name==='machineRegistryStatus') return state.registry===null?'0x':views.encodeFunctionResult(parsed.name,state.registry);
       const result = ({ operator:state.operator,isPool:state.registered,shareMarket:market,factory,OFFICIAL_FACTORY:factory,unitPriceWei:10n,salePrice:200n,
-        machinePool:state.reservedPool,
-        orders:[account,pool,100n,5n,true] })[parsed.name];
+        machinePool:state.reservedPool,feeBps:state.sellerFeeBps??100n,buyerFeeBps:state.buyerFeeBps??100n,
+        orders:[account,pool,100n,state.orderPrice??5n,true] })[parsed.name];
       return views.encodeFunctionResult(parsed.name,[result]);
     },
     getCode:async target=> target.toLowerCase()===account ? state.accountCode : '0x6000',
@@ -108,6 +110,22 @@ test('all permitted pool and market actions require exact values, registration a
   await assert.rejects(verifyProductIntent(p.provider,intent('fill',[1,2],'11','market'),allow),/Order price/);
   p.state.registered=false; await assert.rejects(verifyProductIntent(p.provider,intent(),allow),/registered/);
   p.state.registered=true;p.state.nonce=8; await assert.rejects(verifyProductIntent(p.provider,intent(),allow),/nonce/);
+});
+
+test('share fill charges the buyer separately and rejects the old one-sided value', async()=>{
+  const p=proof(),allow=new Set([factory.toLowerCase()]);
+  p.state.orderPrice=101n;
+  await verifyProductIntent(p.provider,intent('fill',[1,2],'204','market'),allow);
+  await assert.rejects(verifyProductIntent(p.provider,intent('fill',[1,2],'202','market'),allow),/buyer fee/);
+  p.state.buyerFeeBps=0n;
+  await assert.rejects(verifyProductIntent(p.provider,intent('fill',[1,2],'204','market'),allow),/Bilateral/);
+  p.state.buyerFeeBps=100n;
+  p.state.sellerFeeBps=0n;
+  await assert.rejects(verifyProductIntent(p.provider,intent('list',[pool,1,101],'0','market'),allow),/Bilateral/);
+  p.state.sellerFeeBps=100n;
+  p.state.buyerFeeMissing=true;
+  await assert.rejects(verifyProductIntent(p.provider,intent('fill',[1,2],'204','market'),allow),/Bilateral/);
+  await verifyProductIntent(p.provider,intent('withdrawBnb',[],'0','market'),allow);
 });
 
 test('Firsto journal requires operator, exact canonical signed order and independently pinned protocol runtime',async()=>{

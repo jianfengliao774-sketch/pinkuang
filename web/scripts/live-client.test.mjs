@@ -168,7 +168,7 @@ test('100-share Market listing is quoted at one block and journaled to the verif
     const tx = params[0];
     const iface = tx.to === factory ? abi.PoolFactory : tx.to === market ? abi.ShareMarket : abi.PoolVault;
     const parsed = iface.parseTransaction(tx);
-    const value = { shareMarket: market, timelock, factory, feeBps: 100n, nextOrderId: 1n,
+    const value = { shareMarket: market, timelock, factory, feeBps: 100n, buyerFeeBps: 100n, nextOrderId: 1n,
       bnbOwed: 0n, isPool: true, OFFICIAL_FACTORY: factory, state: 2n,
       shareTradingAllowed: true, balanceOf: 100n, lockedShares: 0n, availableShares: 100n }[parsed.name];
     return iface.encodeFunctionResult(parsed.name, [value]);

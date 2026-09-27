@@ -6,7 +6,7 @@ export const MARKET_PAGE_SIZE = 20;
 export const PENDING_MARKET_KEY = 'pinkuang.market.pending.v1';
 export const MARKET_ABI = [
   'function factory() view returns(address)', 'function timelock() view returns(address)',
-  'function feeBps() view returns(uint16)', 'function nextOrderId() view returns(uint256)',
+  'function feeBps() view returns(uint16)', 'function buyerFeeBps() view returns(uint16)', 'function nextOrderId() view returns(uint256)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
   'function bnbOwed(address) view returns(uint256)', 'function list(address,uint256,uint256) returns(uint256)',
   'function fill(uint256,uint256) payable', 'function cancel(uint256)', 'function withdrawBnb()',
@@ -24,14 +24,14 @@ export const POOL_ABI = [
 export const POOL_STATES = ['认购中', '待购机', '运行中', '整机出售中', '已关闭', '退款中'] as const;
 export const BSC_EXPLORER = 'https://bscscan.com';
 
-export type MarketIdentity = { factory: string; market: string; timelock: string; blockNumber: number };
+export type MarketIdentity = { factory: string; market: string; timelock: string; blockNumber: number; buyerFeeBps: bigint | null };
 export type PoolPosition = { address: string; name: string; state: number; tradingAllowed: boolean; balance: bigint; locked: bigint; available: bigint; treasury: string };
 export type MarketOrder = { id: bigint; seller: string; pool: string; remaining: bigint; pricePerUnit: bigint; active: boolean; expiresAt: bigint; state?: number; tradingAllowed?: boolean; verificationError?: string };
 export type OrderPage = { orders: MarketOrder[]; nextCursor: bigint | null; scanned: number; lastOrderId: bigint };
 export type MarketAction = { kind: 'list'; pool: string; amount: string; price: string } | { kind: 'fill'; orderId: string; amount: string; expectedPrice: string } | { kind: 'cancel'; orderId: string } | { kind: 'withdraw' };
 export type MarketQuote = {
   action: MarketAction; account: string; identity: MarketIdentity; title: string; pool?: string; amount?: bigint;
-  gross: bigint; fee: bigint; sellerProceeds: bigint; withdrawal: bigint;
+  gross: bigint; buyerFee: bigint; sellerFee: bigint; buyerPayment: bigint; sellerProceeds: bigint; withdrawal: bigint;
   gasLimit: bigint; gasPrice: bigint; gasCost: bigint; total: bigint; data: string;
 };
 export type PendingMarketTransaction = {
@@ -66,15 +66,17 @@ export function shareAmount(value: string): bigint {
 export function unitPrice(value: string): bigint {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) throw new Error('单价应为非负 BNB 金额，最多 18 位小数。');
   const price = parseEther(value);
-  if (price > (2n ** 256n - 1n) / 100n) throw new Error('单价超出合约范围。');
+  // The largest possible 100-share fill pays 100 × price plus a 1% buyer fee.
+  if (price > (2n ** 256n - 1n) / 101n) throw new Error('单价超出含买方手续费的合约范围。');
   return price;
 }
 export function tradeAmounts(amount: bigint, price: bigint) {
   if (amount < 1n || amount > 100n || price < 0n) throw new Error('份额或单价无效。');
   const gross = amount * price;
   if (gross >= 2n ** 256n) throw new Error('成交金额超出合约范围。');
-  const fee = gross / 100n;
-  return { gross, fee, sellerProceeds: gross - fee };
+  const buyerFee = gross / 100n, sellerFee = gross / 100n;
+  if (gross > (2n ** 256n - 1n) - buyerFee) throw new Error('含买方手续费的支付金额超出合约范围。');
+  return { gross, buyerFee, sellerFee, buyerPayment: gross + buyerFee, sellerProceeds: gross - sellerFee };
 }
 export function requireList(position: Pick<PoolPosition, 'state' | 'tradingAllowed' | 'available'>, amount: bigint) {
   if (position.state !== 2) throw new Error('仅运行中（Active）的资金池可挂单。');
@@ -124,11 +126,14 @@ export async function readMarketIdentity(provider: Provider, factoryInput: strin
   if (marketCode === '0x' || timelockCode === '0x') throw new Error('市场或时间锁地址缺少合约代码。');
   const contract = new Contract(market, MARKET_ABI, provider);
   const lock = new Contract(timelock, ['function getMinDelay() view returns(uint256)'], provider);
-  const [boundFactory, boundTimelock, delay, fee] = await Promise.all([contract.factory(opts), contract.timelock(opts), lock.getMinDelay(opts), contract.feeBps(opts)]);
+  const [boundFactory, boundTimelock, delay, fee, buyerFeeBps] = await Promise.all([
+    contract.factory(opts), contract.timelock(opts), lock.getMinDelay(opts), contract.feeBps(opts),
+    contract.buyerFeeBps(opts).catch(() => null),
+  ]);
   if (!sameAddress(boundFactory, factory) || !sameAddress(boundTimelock, timelock)) throw new Error('Factory、市场、时间锁双向绑定不匹配。');
   if (delay < 172800n) throw new Error('时间锁升级延迟不足 48 小时。');
   if (fee !== 100n) throw new Error('市场手续费不是当前版本约定的 1%。');
-  return { factory, market, timelock, blockNumber };
+  return { factory, market, timelock, blockNumber, buyerFeeBps };
 }
 
 export async function readPoolPosition(provider: Provider, identity: MarketIdentity, poolInput: string, account: string | null): Promise<PoolPosition> {
@@ -195,17 +200,19 @@ export async function prepareMarketAction(wallet: WalletProvider, account: strin
   const signer = await provider.getSigner(account);
   const market = new Contract(identity.market, MARKET_ABI, signer);
   let method: string, args: unknown[] = [], pool: string | undefined, amount: bigint | undefined;
-  let gross = 0n, fee = 0n, sellerProceeds = 0n, withdrawal = 0n, title: string;
+  let gross = 0n, buyerFee = 0n, sellerFee = 0n, buyerPayment = 0n, sellerProceeds = 0n, withdrawal = 0n, title: string;
   if (action.kind === 'list') {
+    if (identity.buyerFeeBps !== 100n) throw new Error('当前市场尚未升级为买卖双方各收 1% 手续费，暂不可挂单。');
     amount = shareAmount(action.amount); const price = unitPrice(action.price);
     const position = await readPoolPosition(provider, identity, action.pool, account);
     requireList(position, amount); pool = position.address; method = 'list'; args = [pool, amount, price]; title = '确认挂单';
   } else if (action.kind === 'fill') {
+    if (identity.buyerFeeBps !== 100n) throw new Error('当前市场尚未升级为买卖双方各收 1% 手续费，暂不可买入。');
     const order = await readOrder(provider, identity, BigInt(action.orderId));
     const position = await readPoolPosition(provider, identity, order.pool, null);
     amount = shareAmount(action.amount); requireFill(order, position, account, amount);
     if (order.pricePerUnit.toString() !== action.expectedPrice) throw new Error('订单价格与预览不一致，请刷新。');
-    ({ gross, fee, sellerProceeds } = tradeAmounts(amount, order.pricePerUnit));
+    ({ gross, buyerFee, sellerFee, buyerPayment, sellerProceeds } = tradeAmounts(amount, order.pricePerUnit));
     pool = order.pool; method = 'fill'; args = [order.id, amount]; title = '确认购买份额';
   } else if (action.kind === 'cancel') {
     const order = await readOrder(provider, identity, BigInt(action.orderId));
@@ -217,15 +224,16 @@ export async function prepareMarketAction(wallet: WalletProvider, account: strin
     if (withdrawal === 0n) throw new Error('当前没有可领取的市场 BNB。');
     method = 'withdrawBnb'; title = '确认领取 BNB';
   }
-  const fn = market.getFunction(method), overrides = { value: gross };
+  const fn = market.getFunction(method), overrides = { value: buyerPayment };
   // estimateGas executes the same call and reports reverts; a separate staticCall duplicates it.
   const estimate: bigint = await fn.estimateGas(...args, overrides);
   const gasLimit = (estimate * 120n + 99n) / 100n;
   const gasPrice = (await provider.getFeeData()).gasPrice;
   if (!gasPrice || gasPrice <= 0n) throw new Error('无法读取当前 BSC Gas 价格。');
-  const gasCost = gasLimit * gasPrice, total = gross + gasCost;
+  const gasCost = gasLimit * gasPrice, total = buyerPayment + gasCost;
   if (await provider.getBalance(account) < total) throw new Error(`BNB 余额不足，成交金额与 Gas 上限合计 ${bnb(total)} BNB。`);
-  return { action, account, identity, title, pool, amount, gross, fee, sellerProceeds, withdrawal, gasLimit, gasPrice, gasCost, total, data: market.interface.encodeFunctionData(method, args) };
+  return { action, account, identity, title, pool, amount, gross, buyerFee, sellerFee, buyerPayment,
+    sellerProceeds, withdrawal, gasLimit, gasPrice, gasCost, total, data: market.interface.encodeFunctionData(method, args) };
 }
 
 /** Final, narrow check: the exact destination, amount and action must still execute. */
@@ -242,8 +250,13 @@ export async function verifyMarketQuoteForSend(provider: Provider, quote: Market
     market.feeBps(opts).then((current: bigint) => {
       if (current !== 100n) throw new Error('市场手续费已变化，请重新预览交易。');
     }),
-    provider.call({ to: quote.identity.market, from: quote.account, data: quote.data, value: quote.gross, gasLimit: quote.gasLimit, blockTag: blockNumber }),
+    provider.call({ to: quote.identity.market, from: quote.account, data: quote.data, value: quote.buyerPayment, gasLimit: quote.gasLimit, blockTag: blockNumber }),
   ];
+  if (quote.action.kind === 'list' || quote.action.kind === 'fill') checks.push(
+    market.buyerFeeBps(opts).then((current: bigint) => {
+      if (current !== 100n) throw new Error('买方手续费已变化，请重新预览交易。');
+    }),
+  );
   if (quote.action.kind === 'fill') {
     const fill = quote.action;
     checks.push(readOrder(provider, { ...quote.identity, blockNumber }, BigInt(fill.orderId)).then(order => {
@@ -252,7 +265,8 @@ export async function verifyMarketQuoteForSend(provider: Provider, quote: Market
         || quote.amount === undefined || order.remaining < quote.amount || sameAddress(order.seller, quote.account)) {
         throw new Error('订单、价格或可购买份额已变化，请重新预览交易。');
       }
-      if (tradeAmounts(quote.amount, order.pricePerUnit).gross !== quote.gross) {
+      const amounts = tradeAmounts(quote.amount, order.pricePerUnit);
+      if (amounts.gross !== quote.gross || amounts.buyerPayment !== quote.buyerPayment) {
         throw new Error('成交金额已变化，请重新预览交易。');
       }
     }));
@@ -366,14 +380,14 @@ async function sendMarketActionLocked(wallet: WalletProvider, quote: MarketQuote
   await requireWallet(wallet, quote.account);
   const pending: PendingMarketTransaction = {
     version: 1, chainId: 56, account: quote.account, factory: quote.identity.factory, market: quote.identity.market,
-    nonce, action: quote.action, data: quote.data, value: quote.gross.toString(), submittedAt: new Date().toISOString(),
+    nonce, action: quote.action, data: quote.data, value: quote.buyerPayment.toString(), submittedAt: new Date().toISOString(),
   };
   // The server's CAS write durably accepts this intent before the wallet can broadcast.
   await storage.setItem(PENDING_MARKET_KEY, JSON.stringify(pending));
   onPending({ ...pending });
   try {
     const transaction = provider.getRpcTransaction({
-      from: quote.account, to: pending.market, data: pending.data, value: quote.gross,
+      from: quote.account, to: pending.market, data: pending.data, value: quote.buyerPayment,
       gasLimit: quote.gasLimit, gasPrice: quote.gasPrice, nonce, chainId: 56, type: 0,
     });
     const hash = await wallet.request({ method: 'eth_sendTransaction', params: [transaction] }) as string;

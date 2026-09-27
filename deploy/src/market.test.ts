@@ -26,21 +26,26 @@ test('BNB unit prices retain wei precision, accept free transfers, and reject am
   assert.equal(unitPrice('0'), 0n);
   assert.equal(unitPrice('0.000000000000000001'), 1n);
   assert.equal(unitPrice('0.125'), parseEther('0.125'));
-  const maxForFullPool = ((1n << 256n) - 1n) / 100n;
+  const maxForFullPool = ((1n << 256n) - 1n) / 101n;
   assert.equal(unitPrice(formatEther(maxForFullPool)), maxForFullPool);
-  assert.throws(() => unitPrice(formatEther(maxForFullPool + 1n)), /超出合约范围/);
+  assert.throws(() => unitPrice(formatEther(maxForFullPool + 1n)), /超出.*合约范围/);
   for (const invalid of ['', '-1', '.1', '1e3', '1,000', '0.0000000000000000001', '01', 'Infinity']) assert.throws(() => unitPrice(invalid));
 });
-test('partial fill exact gross, 1% fee rounding and seller proceeds conserve every wei', () => {
-  assert.deepEqual(tradeAmounts(3n, 101n), { gross: 303n, fee: 3n, sellerProceeds: 300n });
-  assert.deepEqual(tradeAmounts(1n, 99n), { gross: 99n, fee: 0n, sellerProceeds: 99n });
-  assert.deepEqual(tradeAmounts(100n, 0n), { gross: 0n, fee: 0n, sellerProceeds: 0n });
+test('partial fill exact gross and separate 1% buyer/seller fees conserve every wei', () => {
+  assert.deepEqual(tradeAmounts(3n, 101n), { gross: 303n, buyerFee: 3n, sellerFee: 3n,
+    buyerPayment: 306n, sellerProceeds: 300n });
+  assert.deepEqual(tradeAmounts(1n, 99n), { gross: 99n, buyerFee: 0n, sellerFee: 0n,
+    buyerPayment: 99n, sellerProceeds: 99n });
+  assert.deepEqual(tradeAmounts(100n, 0n), { gross: 0n, buyerFee: 0n, sellerFee: 0n,
+    buyerPayment: 0n, sellerProceeds: 0n });
   const huge = tradeAmounts(100n, 900719925474099300n);
   assert.equal(huge.gross, 90071992547409930000n);
-  assert.equal(huge.fee + huge.sellerProceeds, huge.gross);
+  assert.equal(huge.sellerFee + huge.sellerProceeds, huge.gross);
+  assert.equal(huge.gross + huge.buyerFee, huge.buyerPayment);
   assert.throws(() => tradeAmounts(0n, 1n));
   assert.throws(() => tradeAmounts(101n, 1n));
   assert.throws(() => tradeAmounts(100n, 2n ** 256n));
+  assert.throws(() => tradeAmounts(1n, (2n ** 256n - 1n)), /支付金额超出/);
 });
 test('listing requires Active and unlocked shares while buying checks order remainder', () => {
   assert.doesNotThrow(() => requireList({ state: 2, tradingAllowed: true, available: 4n }, 4n));
@@ -61,7 +66,8 @@ test('one buyer can acquire all 100 shares across separate orders or in one fill
   assert.doesNotThrow(() => requireFill({ ...order, id: 2n, remaining: 80n }, position, buyer, 80n));
   assert.doesNotThrow(() => requireFill({ ...order, remaining: 100n }, position, buyer, 100n));
   assert.throws(() => requireFill({ ...order, remaining: 100n }, position, buyer, 101n), /剩余/);
-  assert.deepEqual(tradeAmounts(100n, 101n), { gross: 10100n, fee: 101n, sellerProceeds: 9999n });
+  assert.deepEqual(tradeAmounts(100n, 101n), { gross: 10100n, buyerFee: 101n, sellerFee: 101n,
+    buyerPayment: 10201n, sellerProceeds: 9999n });
 });
 test('orders paginate latest-first and never enumerate more than 20 ids per request', () => {
   assert.deepEqual(pageIds(1n), []);
@@ -160,12 +166,12 @@ test('final market check uses only routing, fee, exact order and execution reads
   const marketAbi = new Interface(MARKET_ABI), factoryAbi = new Interface(FACTORY_ABI);
   const quote: MarketQuote = {
     action: { kind: 'fill', orderId: '1', amount: '2', expectedPrice: '101' }, account: buyer,
-    identity: { factory, market, timelock, blockNumber: 100 }, title: '购买', pool, amount: 2n,
-    gross: 202n, fee: 2n, sellerProceeds: 200n, withdrawal: 0n,
+    identity: { factory, market, timelock, blockNumber: 100, buyerFeeBps: 100n }, title: '购买', pool, amount: 2n,
+    gross: 202n, buyerFee: 2n, sellerFee: 2n, buyerPayment: 204n, sellerProceeds: 200n, withdrawal: 0n,
     gasLimit: 200000n, gasPrice: 1000000000n, gasCost: 200000000000000n,
-    total: 200000000000202n, data: marketAbi.encodeFunctionData('fill', [1n, 2n]),
+    total: 200000000000204n, data: marketAbi.encodeFunctionData('fill', [1n, 2n]),
   };
-  let routed = market, fee = 100n, price = 101n, expires = 2n ** 63n;
+  let routed = market, fee = 100n, buyerFee = 100n, price = 101n, expires = 2n ** 63n;
   let remaining = 17n, active = true, simulated = true;
   const calls: string[] = [];
   const provider = {
@@ -176,22 +182,25 @@ test('final market check uses only routing, fee, exact order and execution reads
       calls.push(data.slice(0, 10));
       if (to.toLowerCase() === factory.toLowerCase()) return factoryAbi.encodeFunctionResult('shareMarket', [routed]);
       if (data.startsWith(marketAbi.getFunction('feeBps')!.selector)) return marketAbi.encodeFunctionResult('feeBps', [fee]);
+      if (data.startsWith(marketAbi.getFunction('buyerFeeBps')!.selector)) return marketAbi.encodeFunctionResult('buyerFeeBps', [buyerFee]);
       if (data.startsWith(marketAbi.getFunction('orders')!.selector)) return marketAbi.encodeFunctionResult('orders', [[seller, pool, remaining, price, active]]);
       if (data.startsWith(marketAbi.getFunction('orderExpiresAt')!.selector)) return marketAbi.encodeFunctionResult('orderExpiresAt', [expires]);
       assert.equal(to.toLowerCase(), market.toLowerCase());
-      assert.equal(data, quote.data); assert.equal(value, quote.gross);
+      assert.equal(data, quote.data); assert.equal(value, quote.buyerPayment);
       assert.equal(gasLimit, quote.gasLimit, 'final execution uses the approved gas ceiling');
       if (!simulated) throw new Error('execution reverted');
       return '0x';
     },
   } as unknown as Provider;
   await assert.doesNotReject(verifyMarketQuoteForSend(provider, quote));
-  assert.equal(calls.length, 5, 'no duplicate identity, pool, gas, balance, or simulation preflight');
+  assert.equal(calls.length, 6, 'no duplicate identity, pool, gas, balance, or simulation preflight');
   routed = seller;
   await assert.rejects(verifyMarketQuoteForSend(provider, quote), /市场地址已变化/);
   routed = market; fee = 200n;
   await assert.rejects(verifyMarketQuoteForSend(provider, quote), /手续费已变化/);
-  fee = 100n; price = 102n;
+  fee = 100n; buyerFee = 0n;
+  await assert.rejects(verifyMarketQuoteForSend(provider, quote), /买方手续费已变化/);
+  buyerFee = 100n; price = 102n;
   await assert.rejects(verifyMarketQuoteForSend(provider, quote), /价格或可购买份额已变化/);
   price = 101n; expires = 1n;
   await assert.rejects(verifyMarketQuoteForSend(provider, quote), /价格或可购买份额已变化/);
@@ -206,8 +215,8 @@ test('final market check uses only routing, fee, exact order and execution reads
 test('fast market send still stops before wallet submission when the server intent write fails', async () => {
   const marketAbi = new Interface(MARKET_ABI), factoryAbi = new Interface(FACTORY_ABI);
   const quote: MarketQuote = {
-    action: { kind: 'withdraw' }, account: buyer, identity: { factory, market, timelock, blockNumber: 100 },
-    title: '领取', gross: 0n, fee: 0n, sellerProceeds: 0n, withdrawal: 123n,
+    action: { kind: 'withdraw' }, account: buyer, identity: { factory, market, timelock, blockNumber: 100, buyerFeeBps: null },
+    title: '领取', gross: 0n, buyerFee: 0n, sellerFee: 0n, buyerPayment: 0n, sellerProceeds: 0n, withdrawal: 123n,
     gasLimit: 100000n, gasPrice: 1000000000n, gasCost: 100000000000000n,
     total: 100000000000000n, data: marketAbi.encodeFunctionData('withdrawBnb'),
   };

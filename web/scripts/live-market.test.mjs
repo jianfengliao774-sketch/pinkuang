@@ -13,7 +13,7 @@ const order = { seller, pool, remaining: 3n, pricePerUnit: price, active: true }
 function rpc(changes = {}) {
   const calls = [], options = { chain: '0x38', timestamp: 1000n, hash: blockHash,
     linkedMarket: market, marketFactory: factory, factoryTimelock: timelock, marketTimelock: timelock,
-    feeBps: 100n, nextOrderId: 8n, credit: 123n, registered: true, poolFactory: factory,
+    feeBps: 100n, buyerFeeBps: 100n, nextOrderId: 8n, credit: 123n, registered: true, poolFactory: factory,
     officialFactory: factory, state: 2n, tradingAllowed: true, balance: 6n, locked: 2n,
     available: 4n, order, expiresAt: 2000n, ...changes };
   let blockReads = 0;
@@ -35,10 +35,11 @@ function rpc(changes = {}) {
     const iface = to === factory ? abi.PoolFactory : to === market ? abi.ShareMarket : abi.PoolVault;
     const parsed = iface.parseTransaction(params[0]);
     assert(parsed, `Unknown call to ${to}`);
+    if (parsed.name === 'buyerFeeBps' && options.buyerFeeBps === null) throw new Error('Old Market has no buyer fee getter.');
     const values = {
       shareMarket: options.linkedMarket, timelock: to === market ? options.marketTimelock : options.factoryTimelock,
       isPool: options.registered, factory: to === market ? options.marketFactory : options.poolFactory,
-      OFFICIAL_FACTORY: options.officialFactory, feeBps: options.feeBps,
+      OFFICIAL_FACTORY: options.officialFactory, feeBps: options.feeBps, buyerFeeBps: options.buyerFeeBps,
       nextOrderId: options.nextOrderId, bnbOwed: options.credit,
       orders: [options.order.seller, options.order.pool, options.order.remaining,
         options.order.pricePerUnit, options.order.active], orderExpiresAt: options.expiresAt,
@@ -62,6 +63,7 @@ test('one pinned BSC block binds Factory, Market and registered pools with exact
   assert.equal(snapshot.orders[0].expiresAt, 2000n);
   assert.equal(snapshot.pools[0].available, 4n);
   assert.equal(snapshot.bnbOwed, 123n);
+  assert.equal(snapshot.buyerFeeBps, 100n);
   assert.equal(snapshot.blockHash, blockHash);
   assert(provider.calls.filter(item => ['eth_call', 'eth_getCode'].includes(item.method))
     .every(item => item.params[1] === '0xa'));
@@ -91,19 +93,23 @@ test('list allows all 100 unlocked shares, requires explicit zero-price confirma
   assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '101', pricePerUnitWei: '1' }), /1–100/);
   assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0' }), /explicit confirmation/);
   assert.equal(marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0', allowFree: true }).transaction.value, '0x0');
+  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '100',
+    pricePerUnitWei: (((1n << 256n) - 1n) / 100n).toString() }), /buyer fee overflows/);
   const frozen = await readMarketSnapshot(rpc({ tradingAllowed: false }), params({ orderIds: [] }));
   assert.throws(() => marketAction(frozen, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '1' }), /frozen/);
   const locked = await readMarketSnapshot(rpc(), params({ orderIds: [] }));
   assert.throws(() => marketAction(locked, alice, { kind: 'list', pool, amount: '5', pricePerUnitWei: '1' }), /unlocked/);
 });
 
-test('partial fill uses exact current price, seller identity, remainder and 1% fee', async () => {
+test('partial fill uses exact current price and independent buyer and seller 1% fees', async () => {
   const result = await prepareMarketAction(rpc(), { factory, market, account: alice, action: fill() });
-  assert.equal(result.transaction.value, `0x${(2n * price).toString(16)}`);
+  assert.equal(result.transaction.value, `0x${(2n * price + 2n * price / 100n).toString(16)}`);
   assert.equal(result.quote.grossWei, 2n * price);
   assert.equal(result.quote.unitPriceWei, price);
-  assert.equal(result.quote.feeWei, result.quote.grossWei / 100n);
-  assert.equal(result.quote.sellerNetWei, result.quote.grossWei - result.quote.feeWei);
+  assert.equal(result.quote.buyerFeeWei, result.quote.grossWei / 100n);
+  assert.equal(result.quote.sellerFeeWei, result.quote.grossWei / 100n);
+  assert.equal(result.quote.buyerPaymentWei, result.quote.grossWei + result.quote.buyerFeeWei);
+  assert.equal(result.quote.sellerNetWei, result.quote.grossWei - result.quote.sellerFeeWei);
   assert.deepEqual([...abi.ShareMarket.parseTransaction(result.transaction).args], [7n, 2n]);
   const snapshot = result.snapshot;
   assert.throws(() => marketAction(snapshot, alice, fill({ expectedPricePerUnitWei: '1' })), /price changed/);
@@ -121,6 +127,14 @@ test('partial fill uses exact current price, seller identity, remainder and 1% f
   assert.throws(() => marketAction(expired, alice, fill()), /expired/);
   const frozen = await readMarketSnapshot(rpc({ tradingAllowed: false }), params());
   assert.throws(() => marketAction(frozen, alice, fill()), /frozen/);
+});
+
+test('old one-sided Market remains readable and withdrawable but cannot list or fill', async () => {
+  const snapshot = await readMarketSnapshot(rpc({ buyerFeeBps: null }), params());
+  assert.equal(snapshot.buyerFeeBps, null);
+  assert.throws(() => marketAction(snapshot, alice, fill()), /Bilateral 1% market upgrade/);
+  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '101' }), /Bilateral 1% market upgrade/);
+  assert.equal(marketAction(snapshot, alice, { kind: 'withdrawBnb' }).transaction.value, '0x0');
 });
 
 test('cancel stays available when trading is frozen; anyone may expire only after deadline', async () => {

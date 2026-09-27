@@ -142,8 +142,8 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
         assertEq(pool.totalSupply(), 100);
         assertEq(shareMarket.bnbOwed(BOB), 3.96 ether);
         assertEq(shareMarket.bnbOwed(CAROL), 2.97 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.07 ether);
-        assertEq(shareMarket.totalBnbOwed(), 7 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.14 ether);
+        assertEq(shareMarket.totalBnbOwed(), 7.07 ether);
 
         assertEq(rewards.claimable(ALICE), 2_970);
         assertEq(rewards.claimable(BOB), 3_960);
@@ -210,7 +210,8 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
     }
 
     function _fill(address buyer, uint256 orderId, uint256 amount) private {
-        uint256 payment = amount * MARKET_UNIT_PRICE;
+        uint256 gross = amount * MARKET_UNIT_PRICE;
+        uint256 payment = gross + gross / 100;
         vm.deal(buyer, buyer.balance + payment);
         vm.prank(buyer);
         shareMarket.fill{value: payment}(orderId, amount);

@@ -18,11 +18,12 @@ function rpc() {
   const transactions = new Map(), receipts = new Map();
   const orders = new Map();
   const proposals = new Map();
-  let nonce = 0, finalizedNumber = 0, chain = 56, timestamp = 1000, poolState = 2n;
+  let nonce = 0, finalizedNumber = 0, chain = 56, timestamp = 1000, poolState = 2n, buyerFeeBps = 100n;
   let salePrice = 10000n, saleExpiry = 1000100n, listedProposalId = 2n;
   return { transactions, receipts, orders, proposals, setNonce(value) { nonce = value; },
     setFinalized(value) { finalizedNumber = value; }, setChain(value) { chain = value; },
     setTimestamp(value) { timestamp = value; }, setPoolState(value) { poolState = value; },
+    setBuyerFeeBps(value) { buyerFeeBps = value; },
     setSale({ price = salePrice, expiry = saleExpiry, proposalId = listedProposalId }) {
       salePrice = price; saleExpiry = expiry; listedProposalId = proposalId;
     },
@@ -42,6 +43,7 @@ function rpc() {
         : tx.to === market ? abi.ShareMarket : tx.to === beacon ? beaconAbi : abi.PoolVault;
       const parsed = contract.parseTransaction(tx);
       if (!parsed) throw new Error('Unknown call.');
+      if (parsed.name === 'buyerFeeBps' && buyerFeeBps === null) throw new Error('Old ShareMarket has no buyer fee getter.');
       if (parsed.name === 'orders') {
         const order = orders.get(parsed.args[0].toString()) ?? { seller: addr(99), pool, remaining: 0n, pricePerUnit: 0n, active: false };
         return contract.encodeFunctionResult(parsed.name, [[order.seller, order.pool, order.remaining, order.pricePerUnit, order.active]]);
@@ -57,7 +59,7 @@ function rpc() {
       }
       const value = { lens, shareMarket: market, beacon, timelock, isPool: true, factory, VERSION: 1n,
         unitPriceWei: 100n, implementation: poolVaultImpl, owner: timelock, OFFICIAL_FACTORY: factory,
-        feeBps: 100n, nextOrderId: 100n, bnbOwed: 500n, state: poolState, shareTradingAllowed: true,
+        feeBps: 100n, buyerFeeBps, nextOrderId: 100n, bnbOwed: 500n, state: poolState, shareTradingAllowed: true,
         availableShares: 100n, lockedShares: 100n, balanceOf: 100n, activatedAt: 1n,
         activeProposalId: 1n, nextProposalId: 3n, hasVoted: false, proposalPassed: true,
         listedProposalId, expiresAt: saleExpiry, salePrice }[parsed.name];
@@ -276,17 +278,36 @@ test('ShareMarket fill binds order, seller, unit price, pool, quantity and exact
     f.provider.orders.set('7', { seller: seller.address, pool, remaining: 20n, pricePerUnit: 10n, active: true, expiresAt: 2000n });
     const cookie = await f.signIn(buyer), data = abi.ShareMarket.encodeFunctionData('fill', [7n, 10n]);
     const input = { account: buyer.address, chainId: 56, artifactDigest: ARTIFACT_DIGEST,
-      target: market, pool, nonce: 0, data, value: '100', expected: { seller: seller.address, pricePerUnitWei: '10' } };
-    assert.equal((await f.request('/intent', 'POST', { ...input, value: '99' }, cookie, buyer.address)).status, 400);
+      target: market, pool, nonce: 0, data, value: '101', expected: { seller: seller.address, pricePerUnitWei: '10' } };
+    assert.equal((await f.request('/intent', 'POST', { ...input, value: '100' }, cookie, buyer.address)).status, 400);
+    assert.equal((await f.request('/intent', 'POST', { ...input, value: '102' }, cookie, buyer.address)).status, 400);
     assert.equal((await f.request('/intent', 'POST', { ...input, pool: addr(50) }, cookie, buyer.address)).status, 409);
     assert.equal((await f.request('/intent', 'POST', { ...input, expected: { ...input.expected, pricePerUnitWei: '11' } }, cookie, buyer.address)).status, 409);
     assert.equal((await f.request('/intent', 'POST', { ...input, expected: { ...input.expected, seller: buyer.address } }, cookie, buyer.address)).status, 409);
-    assert.equal((await f.request('/intent', 'POST', { ...input, data: abi.ShareMarket.encodeFunctionData('fill', [7n, 21n]), value: '210' }, cookie, buyer.address)).status, 400);
+    assert.equal((await f.request('/intent', 'POST', { ...input, data: abi.ShareMarket.encodeFunctionData('fill', [7n, 21n]), value: '212' }, cookie, buyer.address)).status, 400);
     const saved = await f.request('/intent', 'POST', input, cookie, buyer.address);
     assert.equal(saved.status, 201); assert.equal(saved.body.intent.action, 'market:fill');
     f.provider.orders.get('7').remaining = 9n;
     assert.equal((await f.request('/arm', 'POST', { id: saved.body.intent.id }, cookie, buyer.address)).status, 400);
     assert.equal((await f.request('/abandon', 'POST', { id: saved.body.intent.id }, cookie, buyer.address)).body.intent.status, 'abandoned');
+  } finally { await f.close(); }
+});
+
+test('legacy live API rejects new listings and fills when the buyer fee version is absent', async () => {
+  const f = await fixture(), buyer = Wallet.createRandom(), seller = Wallet.createRandom();
+  try {
+    f.provider.orders.set('7', { seller: seller.address, pool, remaining: 20n, pricePerUnit: 10n, active: true, expiresAt: 2000n });
+    const cookie = await f.signIn(buyer);
+    const base = { account: buyer.address, chainId: 56, artifactDigest: ARTIFACT_DIGEST,
+      target: market, pool, nonce: 0 };
+    const listing = { ...base, data: abi.ShareMarket.encodeFunctionData('list', [pool, 1n, 10n]), value: '0' };
+    const fill = { ...base, data: abi.ShareMarket.encodeFunctionData('fill', [7n, 10n]), value: '101',
+      expected: { seller: seller.address, pricePerUnitWei: '10' } };
+    f.provider.setBuyerFeeBps(null);
+    assert.equal((await f.request('/intent', 'POST', listing, cookie, buyer.address)).status, 503);
+    assert.equal((await f.request('/intent', 'POST', fill, cookie, buyer.address)).status, 503);
+    f.provider.setBuyerFeeBps(200n);
+    assert.equal((await f.request('/intent', 'POST', fill, cookie, buyer.address)).status, 503);
   } finally { await f.close(); }
 });
 

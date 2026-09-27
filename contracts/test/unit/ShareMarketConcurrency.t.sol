@@ -16,7 +16,8 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
     }
 
     function _buy(address buyer, uint256 id, uint256 amount, uint256 price) private {
-        uint256 payment = amount * price;
+        uint256 gross = amount * price;
+        uint256 payment = gross + gross / 100;
         vm.deal(buyer, buyer.balance + payment);
         vm.prank(buyer);
         shareMarket.fill{value: payment}(id, amount);
@@ -40,7 +41,7 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(block.timestamp, timestamp);
         assertEq(shareMarket.orders(id).remaining, 40);
         assertEq(_shareVault().lockedShares(ALICE), 40);
-        assertEq(shareMarket.totalBnbOwed(), 6 ether);
+        assertEq(shareMarket.totalBnbOwed(), 6.06 ether);
         vm.deal(second, 6 ether);
         uint256 secondBalance = second.balance;
         vm.prank(second);
@@ -50,8 +51,8 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(second), 0);
         assertEq(shareMarket.orders(id).remaining, 40);
         assertEq(_shareVault().lockedShares(ALICE), 40);
-        assertEq(shareMarket.totalBnbOwed(), 6 ether);
-        assertEq(address(shareMarket).balance, 6 ether);
+        assertEq(shareMarket.totalBnbOwed(), 6.06 ether);
+        assertEq(address(shareMarket).balance, 6.06 ether);
 
         _buy(second, id, 40, PRICE);
         assertEq(block.timestamp, timestamp);
@@ -63,9 +64,9 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(_shareVault().lockedShares(ALICE), 0);
         assertFalse(shareMarket.orders(id).active);
         assertEq(shareMarket.bnbOwed(ALICE), 9.9 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.1 ether);
-        assertEq(shareMarket.totalBnbOwed(), 10 ether);
-        assertEq(address(shareMarket).balance, 10 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.2 ether);
+        assertEq(shareMarket.totalBnbOwed(), 10.1 ether);
+        assertEq(address(shareMarket).balance, 10.1 ether);
     }
 
     function testFuzz_independentOrdersSettleRegardlessOfBuyerTransactionOrder(bool firstOrderFirst) public {
@@ -91,9 +92,9 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(shareMarket.orders(firstOrder).remaining, 0);
         assertEq(shareMarket.orders(secondOrder).remaining, 0);
         assertEq(shareMarket.bnbOwed(ALICE), 13.86 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.14 ether);
-        assertEq(shareMarket.totalBnbOwed(), 14 ether);
-        assertEq(address(shareMarket).balance, 14 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.28 ether);
+        assertEq(shareMarket.totalBnbOwed(), 14.14 ether);
+        assertEq(address(shareMarket).balance, 14.14 ether);
     }
 
     function testFuzz_sellerCancellationAndBuyerFillFollowTheFirstMinedTransaction(bool fillFirst) public {
@@ -106,8 +107,8 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
             assertEq(pool.balanceOf(DAVE), 4);
             assertEq(pool.balanceOf(ALICE), 45);
             assertEq(shareMarket.bnbOwed(ALICE), 0.396 ether);
-            assertEq(shareMarket.bnbOwed(TREASURY), 0.004 ether);
-            assertEq(shareMarket.totalBnbOwed(), 0.4 ether);
+            assertEq(shareMarket.bnbOwed(TREASURY), 0.008 ether);
+            assertEq(shareMarket.totalBnbOwed(), 0.404 ether);
         } else {
             vm.prank(ALICE);
             shareMarket.cancel(id);
@@ -139,7 +140,7 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
             shareMarket.expire(id);
             assertEq(pool.balanceOf(DAVE), 4);
             assertEq(pool.balanceOf(ALICE), 45);
-            assertEq(shareMarket.totalBnbOwed(), 0.4 ether);
+            assertEq(shareMarket.totalBnbOwed(), 0.404 ether);
         } else {
             vm.warp(expiry);
             vm.deal(DAVE, 4 * PRICE);
@@ -181,9 +182,9 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         _buy(DAVE, newId, 10, 2 * PRICE);
         assertEq(pool.balanceOf(DAVE), 10);
         assertEq(shareMarket.bnbOwed(ALICE), 1.98 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
-        assertEq(shareMarket.totalBnbOwed(), 2 ether);
-        assertEq(address(shareMarket).balance, 2 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.04 ether);
+        assertEq(shareMarket.totalBnbOwed(), 2.02 ether);
+        assertEq(address(shareMarket).balance, 2.02 ether);
     }
 
     function test_sameBlockCompetingBuysAllocateQueuedRewardsToPreFillOwners() public {
@@ -213,9 +214,9 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(rewards.bemAccounted(), 0);
         assertEq(bem.balanceOf(TREASURY), 300);
         assertEq(shareMarket.bnbOwed(ALICE), 5.94 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.06 ether);
-        assertEq(shareMarket.totalBnbOwed(), 6 ether);
-        assertEq(address(shareMarket).balance, 6 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.12 ether);
+        assertEq(shareMarket.totalBnbOwed(), 6.06 ether);
+        assertEq(address(shareMarket).balance, 6.06 ether);
     }
 
     function testFuzz_competingForFinalTwoSharesCannotBothReachOneHundred(bool daveFirst) public {
@@ -240,9 +241,9 @@ contract ShareMarketConcurrencyTest is ShareTransferTestBase {
         assertEq(pool.balanceOf(ERIN), daveFirst ? 0 : 2);
         assertEq(pool.totalSupply(), 100);
         assertEq(pool.balanceOf(address(shareMarket)), 0);
-        assertEq(shareMarket.totalBnbOwed(), 10 ether);
-        assertEq(address(shareMarket).balance, 10 ether);
-        assertEq(shareMarket.bnbOwed(TREASURY), 0.1 ether);
+        assertEq(shareMarket.totalBnbOwed(), 10.1 ether);
+        assertEq(address(shareMarket).balance, 10.1 ether);
+        assertEq(shareMarket.bnbOwed(TREASURY), 0.2 ether);
         assertEq(shareMarket.orders(lastOrder).remaining, 0);
         assertEq(_shareVault().lockedShares(CAROL), 0);
     }
