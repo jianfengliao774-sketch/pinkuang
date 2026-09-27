@@ -153,6 +153,8 @@ try {
   await validate('src/PoolFactory.sol:PoolFactory');
   await validate('src/PoolVault.sol:PoolVault');
   await validate('src/ShareMarket.sol:ShareMarket');
+  await validate('src/BudgetPortfolioFactory.sol:BudgetPortfolioFactory');
+  await validate('src/BudgetPortfolioVault.sol:BudgetPortfolioVault');
   auditLinkedLibraries(root, logRoot);
   validateDeliveredBaselines();
   await validate('test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture', 'src/PoolFactory.sol:PoolFactory');
