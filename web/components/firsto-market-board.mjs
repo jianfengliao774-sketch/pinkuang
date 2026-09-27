@@ -41,7 +41,7 @@ export function marketQuoteView(row, now = Date.now()) {
     tokenId: row.tokenId,
     collection: row.collection,
     taskId: row.taskId,
-    venue: row.ask?.venue === 'official' ? 'TapeOut 官网挂单' : 'Firsto 挂单',
+    venue: !row.ask ? '未挂单' : row.ask.venue === 'official' ? 'TapeOut 官网挂单' : 'Firsto 挂单',
     sourceBlock: row.source.sourceBlock,
     observedAt: row.source.observedAt,
     validUntil: unavailable ? null : Math.min(row.source.observedAt + MAX_QUOTE_AGE_MS + 1,
