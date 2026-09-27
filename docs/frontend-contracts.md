@@ -29,7 +29,7 @@ Factory 初始化时自动创建 `PoolLens`，绑定该 Factory，没有持币�
 | 收益余额 | `claimableBEM` 是已经入账的可领 BEM，不包含尚未 `harvest()` 的外部实时产出 |
 | BNB 余额 | `bnbOwed` 已包含懒结算的余款/整机售款，不能再加一次；份额市场售款另从 `ShareMarket.bnbOwed(account)` 读取并单独提取 |
 | 购机参考 | `purchaseReference(pool)` 返回参考 NFT、参考价、预留、最低验证权重、taskId、参考权重和报价证据；实际购入 NFT 以 `params.circuitId` 为准 |
-| 共同决策 | `governance(pool, account)` 返回提案快照、赞成门槛、是否已投和当前可投/可执行状态；这些是当前区块判断，交易前仍需模拟 |
+| 共同决策 | `governance(pool, account)` 只返回当前轮首提案的快照、赞成门槛和状态；同轮其他候选须从 `activeProposalId` 至 `nextProposalId - 1` 同块读取并逐项核对，交易前仍需模拟。见[提案轮次交接](governance-rounds-2026-09-27.md) |
 | 历史成本/记录 | `initialContributedWei` 只表示原始认购，不是二级买入成本。历史流水、全局统计/排序、历史收益率需事件索引，Lens 不伪造这些数据 |
 
 每条结果含 `status.validMask/errorMask/trustError`。位号由源码的 `Field`、`GovernanceField`、`ReferenceField` 定义；**没有 valid 位就显示未知，不能显示 0 或允许交易**。Lens 对单个异常、错误 ABI、超大返回、耗尽子调用 Gas 的 getter 隔离，对派生字段也检查依赖。全页 `eth_call` 仍需足够的 Gas，RPC 超时可缩小页数重试；不能据超时断言矿机不可用。所有结果仅限该 Factory 注册、且正反向 Factory 绑定一致的池。

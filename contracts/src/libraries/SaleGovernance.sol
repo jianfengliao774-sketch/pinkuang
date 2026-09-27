@@ -61,38 +61,56 @@ library SaleGovernance {
         if (input.currentShares == 0) revert NotMember();
         if (input.price == 0) revert InvalidSalePrice();
         uint256 activeId = s.activeProposalId;
+        uint48 snapshotTs = 0;
+        uint64 endsAt = 0;
+        uint256 snapshotMemberCount = 0;
+        bool joiningRound = false;
         if (activeId != 0) {
             PoolSaleState.Proposal storage active = s.proposals[activeId];
-            if (!active.executed && block.timestamp < active.endsAt) revert ProposalActive();
-            // Pool-wide spacing prevents rotating minority addresses from freezing share trading indefinitely.
-            // endsAt already records proposedAt + VOTE_DURATION; derive the next slot without changing storage.
-            if (block.timestamp < uint256(active.endsAt) + PROPOSE_INTERVAL - VOTE_DURATION) revert ProposeCooldown();
+            if (!active.executed && block.timestamp < active.endsAt) {
+                // A later candidate shares the first proposal's frozen ownership
+                // and deadline. Never inherit a pre-upgrade timestamp-1 snapshot.
+                if (!_currentSnapshot(active) || active.snapshotTotalShares != TOTAL_SHARES) revert ProposalActive();
+                joiningRound = true;
+                snapshotTs = active.snapshotTs;
+                endsAt = active.endsAt;
+                snapshotMemberCount = active.snapshotMemberCount;
+            } else {
+                // Keep one seven-day round even if minority addresses rotate.
+                if (block.timestamp < uint256(active.endsAt) + PROPOSE_INTERVAL - VOTE_DURATION) {
+                    revert ProposeCooldown();
+                }
+            }
         }
         uint256 last = s.lastProposed[msg.sender];
         if (last != 0 && block.timestamp < last + PROPOSE_INTERVAL) revert ProposeCooldown();
 
-        // This call freezes transfers below, so the latest checkpoint in this
-        // timestamp is the ownership that actually receives the vote.
-        uint48 snapshotTs = SafeCast.toUint48(block.timestamp);
+        // The opener atomically snapshots and freezes ownership. Later
+        // candidates reuse it; no share can move before this round closes.
+        if (!joiningRound) {
+            snapshotTs = SafeCast.toUint48(block.timestamp);
+            endsAt = SafeCast.toUint64(block.timestamp + VOTE_DURATION);
+            snapshotMemberCount = counts.upperLookupRecent(snapshotTs);
+        }
         if (snapshotTs <= input.activatedAt) revert DeadlineNotReached();
         proposalId = s.nextProposalId;
         if (proposalId == 0) proposalId = 1;
         s.nextProposalId = proposalId + 1;
-        s.activeProposalId = proposalId;
+        if (!joiningRound) s.activeProposalId = proposalId;
         s.lastProposed[msg.sender] = SafeCast.toUint64(block.timestamp);
 
         PoolSaleState.Proposal storage p = s.proposals[proposalId];
         p.proposer = msg.sender;
         p.snapshotTs = snapshotTs;
-        p.endsAt = SafeCast.toUint64(block.timestamp + VOTE_DURATION);
+        p.endsAt = endsAt;
         p.refAt = input.refAt;
         p.price = input.price;
         p.refPrice = input.refPrice;
-        p.snapshotMemberCount = counts.upperLookupRecent(snapshotTs);
+        p.snapshotMemberCount = snapshotMemberCount;
         p.snapshotTotalShares = TOTAL_SHARES;
 
         emit SaleProposed(proposalId, msg.sender, p.price, p.refPrice, p.refAt, p.endsAt);
-        emit SaleSnapshotRecorded(proposalId, snapshotTs, p.snapshotMemberCount, TOTAL_SHARES);
+        emit SaleSnapshotRecorded(proposalId, snapshotTs, snapshotMemberCount, TOTAL_SHARES);
     }
 
     function vote(
@@ -102,8 +120,7 @@ library SaleGovernance {
         bool support
     ) external {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
-        if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
-        if (!_currentSnapshot(p)) revert InvalidProposal();
+        if (!_inActiveRound(s, proposalId, p) || p.executed) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (s.hasVoted[proposalId][msg.sender]) revert AlreadyVoted();
         // Subsequent holdings are irrelevant: only the frozen proposal snapshot votes.
@@ -136,8 +153,7 @@ library SaleGovernance {
     /// @notice Opens only the Vault's controlled listing; no external market receives an approval.
     function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost) external {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
-        if (proposalId != s.activeProposalId || p.executed) revert InvalidProposal();
-        if (!_currentSnapshot(p)) revert InvalidProposal();
+        if (!_inActiveRound(s, proposalId, p) || p.executed) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
         p.executed = true;
@@ -171,6 +187,18 @@ library SaleGovernance {
     /// Those proposals may have lost their original owners before the vote freeze began.
     function _currentSnapshot(PoolSaleState.Proposal storage p) private view returns (bool) {
         return uint256(p.snapshotTs) + VOTE_DURATION == p.endsAt;
+    }
+
+    function _inActiveRound(PoolSaleState.SaleStorage storage s, uint256 proposalId, PoolSaleState.Proposal storage p)
+        private
+        view
+        returns (bool)
+    {
+        uint256 activeId = s.activeProposalId;
+        if (activeId == 0 || proposalId < activeId || !_currentSnapshot(p)) return false;
+        PoolSaleState.Proposal storage opener = s.proposals[activeId];
+        return _currentSnapshot(opener) && p.snapshotTs == opener.snapshotTs && p.endsAt == opener.endsAt
+            && p.snapshotMemberCount == opener.snapshotMemberCount && p.snapshotTotalShares == TOTAL_SHARES;
     }
 
     function _proposal(PoolSaleState.SaleStorage storage s, uint256 proposalId)

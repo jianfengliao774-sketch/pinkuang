@@ -25,6 +25,11 @@ contract AuditGovernance is SaleTestBase {
         OldSnapshotVaultFixture(payable(address(pool))).recordOldSnapshot(id);
 
         assertFalse(saleVault.proposalPassed(id));
+        // An old-format opener may not create a competing candidate with the
+        // unsafe timestamp-1 ownership snapshot after an upgrade.
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.ProposalActive.selector);
+        saleVault.propose(SALE_PRICE, 0, 0);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.InvalidProposal.selector);
         saleVault.vote(id, true);

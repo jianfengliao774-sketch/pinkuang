@@ -121,22 +121,67 @@ contract PoolVotingTest is ShareTransferTestBase {
         _assertTally(id, 0, 0, false);
     }
 
-    function test_onlyOneLiveProposalAndRejectedAttemptsDoNotSetCooldown() public {
+    function test_competingCandidatesShareOneFrozenSnapshotAndRoundDeadline() public {
         _ready();
         uint256 id = _propose(ALICE);
+        PoolSaleState.Proposal memory opener = voting.getProposal(id);
+        vm.warp(block.timestamp + 8 hours);
         vm.prank(BOB);
-        vm.expectRevert(IPoolVault.ProposalActive.selector);
-        voting.propose(1, 2, 3);
+        uint256 alternative = voting.propose(1, 2, 3);
         vm.prank(ALICE);
-        vm.expectRevert(IPoolVault.ProposalActive.selector);
+        vm.expectRevert(IPoolVault.ProposeCooldown.selector);
         voting.propose(1, 2, 3);
-        assertEq(voting.lastProposed(BOB), 0);
+        assertEq(voting.lastProposed(BOB), block.timestamp);
         assertEq(voting.activeProposalId(), id);
-        assertEq(voting.nextProposalId(), 2);
-        PoolSaleState.Proposal memory p = voting.getProposal(id);
-        assertEq(p.price, 5 ether);
-        assertEq(p.refPrice, 6 ether);
-        assertEq(p.refAt, 1);
+        assertEq(voting.nextProposalId(), 3);
+        PoolSaleState.Proposal memory p = voting.getProposal(alternative);
+        assertEq(p.price, 1);
+        assertEq(p.refPrice, 2);
+        assertEq(p.refAt, 3);
+        assertEq(p.snapshotTs, opener.snapshotTs);
+        assertEq(p.snapshotMemberCount, opener.snapshotMemberCount);
+        assertEq(p.endsAt, opener.endsAt);
+        _vote(BOB, alternative, true);
+        assertTrue(voting.hasVoted(alternative, BOB));
+        assertFalse(voting.hasVoted(id, BOB));
+        assertFalse(voting.shareTradingAllowed());
+    }
+
+    function test_twoPassedCandidatesCannotExecuteTwice() public {
+        _ready();
+        uint256 purchaseCost = voting.purchaseCost();
+        vm.prank(ALICE);
+        uint256 first = voting.propose(purchaseCost, 0, 0);
+        vm.prank(BOB);
+        uint256 second = voting.propose(purchaseCost + 1, 0, 0);
+        for (uint256 i; i < 2; ++i) {
+            uint256 candidate = i == 0 ? first : second;
+            _vote(ALICE, candidate, true);
+            _vote(BOB, candidate, true);
+            assertTrue(voting.proposalPassed(candidate));
+        }
+        voting.executeSale(second);
+        assertEq(voting.listedProposalId(), second);
+        assertEq(voting.salePrice(), purchaseCost + 1);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        voting.executeSale(first);
+    }
+
+    function test_discountedAlternativeStillNeedsSixtySharesAndAddressMajority() public {
+        _transfer(BOB, CAROL, 15); // 49 / 11 / 40 beneficial shares.
+        _ready();
+        uint256 purchaseCost = voting.purchaseCost();
+        vm.prank(BOB);
+        uint256 opener = voting.propose(purchaseCost, 0, 0);
+        vm.prank(ALICE);
+        uint256 alternative = voting.propose(purchaseCost - 1, 0, 0);
+        _vote(ALICE, alternative, true);
+        assertFalse(voting.proposalPassed(alternative));
+        _vote(BOB, alternative, true);
+        _assertTally(alternative, 2, 60, true);
+        assertFalse(voting.proposalPassed(opener));
+        voting.executeSale(alternative);
+        assertEq(voting.listedProposalId(), alternative);
     }
 
     function test_twentyFourHourVotingBoundaryAndExpiredProposalReplacement() public {
@@ -384,48 +429,59 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
 
-    function test_sevenMinorityAddressesCannotRotateProposalsToKeepTradingFrozen() public {
+    function test_minorityCannotMonopolizeRoundPriceOrOpenAnotherRound() public {
         address[7] memory minority;
+        address[7] memory otherMajorityMembers;
         for (uint256 i; i < minority.length; ++i) {
             minority[i] = address(uint160(0xF100 + i));
+            otherMajorityMembers[i] = address(uint160(0xF200 + i));
             _transfer(CAROL, minority[i], 1);
+            _transfer(ALICE, otherMajorityMembers[i], 1);
         }
         _ready();
         uint256 firstAt = block.timestamp;
+        uint256 purchaseCost = voting.purchaseCost();
+        assertEq(voting.memberCount(), 17);
         vm.prank(minority[0]);
-        uint256 firstId = voting.propose(1, 0, 0);
-        assertFalse(voting.shareTradingAllowed());
-        vm.prank(minority[1]);
-        vm.expectRevert(IPoolVault.ProposalActive.selector);
-        voting.propose(1, 0, 0);
-        for (uint256 day = 1; day < 7; ++day) {
-            vm.warp(firstAt + day * 1 days);
+        uint256 opener = voting.propose(1, 0, 0);
+        _vote(minority[0], opener, true);
+        for (uint256 day; day < minority.length; ++day) {
+            vm.warp(firstAt + day * 3 hours);
             vm.prank(minority[day]);
-            vm.expectRevert(IPoolVault.ProposeCooldown.selector);
-            voting.propose(1, 0, 0);
-            assertEq(voting.activeProposalId(), firstId);
-            assertEq(voting.lastProposed(minority[day]), 0);
-            assertTrue(voting.shareTradingAllowed());
-            _transfer(ALICE, BOB, 1);
+            if (day != 0) {
+                uint256 id = voting.propose(1, 0, 0);
+                assertEq(id, day + 1);
+                assertEq(voting.getProposal(id).snapshotTs, firstAt);
+                assertEq(voting.getProposal(id).snapshotMemberCount, 17);
+                _vote(minority[day], id, true);
+                assertFalse(voting.proposalPassed(id));
+            } else {
+                vm.expectRevert(IPoolVault.ProposeCooldown.selector);
+                voting.propose(1, 0, 0);
+            }
         }
-        // Market orders and fills also work during the pool-wide cooldown, after the one-day vote ends.
-        vm.prank(BOB);
-        uint256 orderId = shareMarket.list(address(pool), 1, 1);
-        vm.deal(DAVE, 1);
-        vm.prank(DAVE);
-        shareMarket.fill{value: 1}(orderId, 1);
-        assertEq(pool.balanceOf(DAVE), 1);
-        vm.warp(firstAt + 7 days - 1);
-        vm.prank(minority[1]);
-        vm.expectRevert(IPoolVault.ProposeCooldown.selector);
-        voting.propose(1, 0, 0);
-        vm.warp(firstAt + 7 days);
-        vm.prank(minority[1]);
-        uint256 nextId = voting.propose(1, 0, 0);
-        assertEq(nextId, firstId + 1);
+        assertEq(voting.activeProposalId(), opener);
         assertFalse(voting.shareTradingAllowed());
-        vm.warp(firstAt + 8 days);
-        assertTrue(voting.shareTradingAllowed());
+        // A majority member adds an alternative while the minority's low-price
+        // candidate is still open, with the same ownership snapshot and deadline.
+        vm.prank(BOB);
+        uint256 majorityId = voting.propose(purchaseCost, 0, 0);
+        assertEq(majorityId, minority.length + 1);
+        assertEq(voting.getProposal(majorityId).snapshotTs, firstAt);
+        assertEq(voting.getProposal(majorityId).endsAt, voting.getProposal(opener).endsAt);
+        _vote(ALICE, majorityId, true);
+        _vote(BOB, majorityId, true);
+        _vote(CAROL, majorityId, true);
+        for (uint256 i; i < otherMajorityMembers.length; ++i) {
+            _vote(otherMajorityMembers[i], majorityId, true);
+        }
+        _assertTally(majorityId, 10, 93, true);
+        assertFalse(voting.proposalPassed(opener));
+        voting.executeSale(majorityId);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+        assertEq(voting.listedProposalId(), majorityId);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        voting.executeSale(opener);
     }
 
     function testFuzz_discountWithFiftyOneThroughFiftyNineSharesCannotExecute(uint8 yesShares) public {

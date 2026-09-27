@@ -22,6 +22,7 @@ contract PoolVotingHandler is Test {
     uint256[6] public balances;
     uint256[6] public lastProposed;
     uint256 public proposalCount;
+    uint256 public roundOpenerId;
     uint256 public successfulTransfers;
     uint256[3] public rejectedTransfersByRoute;
     uint256 public successfulVotes;
@@ -31,6 +32,7 @@ contract PoolVotingHandler is Test {
     struct GhostProposal {
         uint256 actor;
         uint256 proposedAt;
+        uint256 roundId;
         uint256 price;
         uint256[6] weights;
         bool[6] voted;
@@ -59,11 +61,11 @@ contract PoolVotingHandler is Test {
             delta = 1 days;
         } else if (mode == 4) {
             delta = 7 days;
-        } else if (mode == 5 && proposalCount != 0) {
-            uint256 deadline = proposals[proposalCount].proposedAt + 1 days;
+        } else if (mode == 5 && roundOpenerId != 0) {
+            uint256 deadline = proposals[roundOpenerId].proposedAt + 1 days;
             if (deadline > block.timestamp) delta = deadline - block.timestamp;
-        } else if ((mode == 6 || mode == 7) && proposalCount != 0) {
-            uint256 nextProposalAt = proposals[proposalCount].proposedAt + 7 days;
+        } else if ((mode == 6 || mode == 7) && roundOpenerId != 0) {
+            uint256 nextProposalAt = proposals[roundOpenerId].proposedAt + 7 days;
             uint256 target = mode == 7 ? nextProposalAt - 1 : nextProposalAt;
             if (target > block.timestamp) delta = target - block.timestamp;
         }
@@ -127,9 +129,9 @@ contract PoolVotingHandler is Test {
             expectedError = IPoolVault.NotMember.selector;
         } else if (price == 0) {
             expectedError = IPoolVault.InvalidSalePrice.selector;
-        } else if (_tradingFrozen()) {
-            expectedError = IPoolVault.ProposalActive.selector;
-        } else if (proposalCount != 0 && block.timestamp < proposals[proposalCount].proposedAt + 7 days) {
+        } else if (
+            !_tradingFrozen() && roundOpenerId != 0 && block.timestamp < proposals[roundOpenerId].proposedAt + 7 days
+        ) {
             expectedError = IPoolVault.ProposeCooldown.selector;
         } else if (lastProposed[actor] != 0 && block.timestamp - lastProposed[actor] < 7 days) {
             expectedError = IPoolVault.ProposeCooldown.selector;
@@ -145,9 +147,11 @@ contract PoolVotingHandler is Test {
         uint256 id = abi.decode(result, (uint256));
         assertEq(id, ++proposalCount);
         lastProposed[actor] = block.timestamp;
+        if (!_tradingFrozen()) roundOpenerId = id;
         GhostProposal storage p = proposals[id];
         p.actor = actor;
         p.proposedAt = block.timestamp;
+        p.roundId = roundOpenerId;
         p.price = price;
         p.weights = balances;
     }
@@ -156,8 +160,9 @@ contract PoolVotingHandler is Test {
         uint256 actor = actorSeed % 6;
         uint256 id = proposalSeed % (proposalCount + 2); // Includes unknown 0 and next id.
         GhostProposal storage p = proposals[id];
-        bool eligible = id != 0 && id == proposalCount && block.timestamp < p.proposedAt + 1 days
-            && p.weights[actor] != 0 && !p.voted[actor];
+        bool eligible = id != 0 && id <= proposalCount && p.roundId == roundOpenerId
+            && block.timestamp < proposals[roundOpenerId].proposedAt + 1 days && p.weights[actor] != 0
+            && !p.voted[actor];
         vm.prank(actors[actor]);
         (bool ok,) = address(vault).call(abi.encodeCall(PoolVault.vote, (id, support)));
         assertEq(ok, eligible, "vote eligibility differs from independent model");
@@ -184,16 +189,19 @@ contract PoolVotingHandler is Test {
         assertEq(vault.memberCount(), currentMembers);
         assertEq(vault.totalSupply(), 100);
         assertEq(vault.balanceOf(address(market)), 0);
-        assertEq(vault.activeProposalId(), proposalCount);
+        assertEq(vault.activeProposalId(), roundOpenerId);
         assertEq(vault.nextProposalId(), proposalCount + 1);
         assertEq(vault.purchaseCost(), acquisitionCost);
         assertEq(vault.shareTradingAllowed(), !_tradingFrozen());
         for (uint256 id = 1; id <= proposalCount; ++id) {
             GhostProposal storage expected = proposals[id];
-            if (id > 1) assertGe(expected.proposedAt, proposals[id - 1].proposedAt + 7 days);
+            if (id > 1 && expected.roundId != proposals[id - 1].roundId) {
+                assertGe(expected.proposedAt, proposals[proposals[id - 1].roundId].proposedAt + 7 days);
+            }
             PoolSaleState.Proposal memory actual = vault.getProposal(id);
             uint256 members;
             uint256 shares;
+            uint256 snapshotAt = proposals[expected.roundId].proposedAt;
             for (uint256 a; a < 6; ++a) {
                 if (expected.weights[a] != 0) ++members;
                 shares += expected.weights[a];
@@ -206,8 +214,8 @@ contract PoolVotingHandler is Test {
             assertEq(shares, 100);
             assertEq(actual.snapshotMemberCount, members);
             assertEq(actual.snapshotTotalShares, shares);
-            assertEq(actual.snapshotTs, expected.proposedAt);
-            assertEq(actual.endsAt, expected.proposedAt + 1 days);
+            assertEq(actual.snapshotTs, snapshotAt);
+            assertEq(actual.endsAt, snapshotAt + 1 days);
             assertEq(actual.proposer, actors[expected.actor]);
             assertEq(actual.price, expected.price);
             assertEq(actual.refPrice, expected.price);
@@ -241,7 +249,7 @@ contract PoolVotingHandler is Test {
     }
 
     function _tradingFrozen() private view returns (bool) {
-        return proposalCount != 0 && block.timestamp < proposals[proposalCount].proposedAt + 1 days;
+        return roundOpenerId != 0 && block.timestamp < proposals[roundOpenerId].proposedAt + 1 days;
     }
 }
 
@@ -265,7 +273,10 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         handler.vote(0, 1, false);
         handler.vote(2, 1, false);
         handler.vote(1, 1, true);
-        handler.propose(3, 6 ether);
+        handler.propose(3, 6 ether); // A competing candidate reuses this frozen round.
+        handler.vote(3, 2, true);
+        handler.vote(1, 2, true);
+        assertTrue(PoolVault(payable(address(pool))).proposalPassed(2));
         handler.moveShares(3, 4, 10, 0);
         handler.moveShares(3, 4, 10, 1);
         handler.moveShares(3, 4, 10, 2);
@@ -277,7 +288,8 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         vm.prank(BOB);
         shareMarket.cancel(priorOrder);
 
-        // Voting expires after one day; ownership routes work during the remaining six-day cooldown.
+        // Voting expires after one day; ownership routes work during the
+        // remaining six-day pool-wide cooldown.
         handler.advanceTime(5);
         handler.moveShares(3, 0, 1, 0);
         handler.moveShares(1, 4, 10, 1);
@@ -285,26 +297,27 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         handler.moveShares(0, 3, 1, 0);
         handler.advanceTime(0); // A same-second reentry must not add a sixth snapshot member.
         handler.vote(1, 1, true);
-        handler.propose(3, 6 ether);
+        handler.propose(4, 6 ether);
         handler.advanceTime(7); // Last second of the pool-wide cooldown still rejects a different proposer.
         handler.propose(4, 6 ether);
         handler.advanceTime(6);
         handler.propose(3, 6 ether);
-        handler.vote(3, 2, true);
-        handler.vote(4, 2, true);
-        handler.vote(5, 2, true); // Three of five owners, 59 shares: preserve a positive historical result.
-        assertTrue(PoolVault(payable(address(pool))).proposalPassed(2));
+        handler.vote(3, 3, true);
+        handler.vote(4, 3, true);
+        handler.vote(5, 3, true); // Three of five owners, 59 shares: preserve a positive historical result.
+        assertTrue(PoolVault(payable(address(pool))).proposalPassed(3));
 
         // The same 59-share majority cannot authorize a discount below the actual acquisition cost.
         handler.advanceTime(6);
-        handler.propose(1, 1);
-        handler.vote(3, 3, true);
-        handler.vote(4, 3, true);
-        handler.vote(5, 3, true);
-        assertFalse(PoolVault(payable(address(pool))).proposalPassed(3));
-        handler.vote(2, 3, true);
-        assertTrue(PoolVault(payable(address(pool))).proposalPassed(3));
+        handler.propose(2, 1);
+        handler.vote(3, 4, true);
+        handler.vote(4, 4, true);
+        handler.vote(5, 4, true);
+        assertFalse(PoolVault(payable(address(pool))).proposalPassed(4));
+        handler.vote(2, 4, true);
+        assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.propose(3, 0); // Invalid prices cannot allocate an id or change a cooldown.
+        handler.propose(2, 1); // The same address cannot add another candidate this round.
 
         bytes4[] memory selectors = new bytes4[](4);
         selectors[0] = PoolVotingHandler.moveShares.selector;

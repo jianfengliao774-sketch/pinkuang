@@ -173,6 +173,10 @@ test('harvest and self claim stay separate, including former holders; no claimFo
   assert.throws(() => personalPoolAction(snapshot, pool, account, 'claimFor'), /Unsupported/);
   assert.equal(abi.PoolVault.getFunction('claimFor'), null);
   assert.equal(personalClaimQueue(localSnapshot(), account).length, 0);
+  assert.equal(abi.PoolVault.parseTransaction(personalPoolAction(localSnapshot(rawRow({ shares: 1n })), pool, account, 'withdrawDeposit')).name, 'withdrawDeposit');
+  assert.throws(() => personalPoolAction(localSnapshot(), pool, account, 'withdrawDeposit'), /No refundable/);
+  assert.equal(abi.PoolVault.parseTransaction(personalPoolAction(localSnapshot(rawRow({ bnbOwed: 1n })), pool, account, 'withdrawBnb')).name, 'withdrawBnb');
+  assert.throws(() => personalPoolAction(localSnapshot(), pool, account, 'withdrawBnb'), /No booked pool BNB/);
 });
 
 test('checked creation encodes reviewed task/weight and rejects reserve-as-price-cap', () => {

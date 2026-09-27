@@ -104,8 +104,12 @@ export function personalPoolAction(snapshot, pool, from, action, quantity) {
       && row.unitPriceWei !== null && row.totalSupply + qty <= 100n, 'Share quantity unavailable.');
     return transaction(owner, target, abi.PoolVault, 'deposit', [qty], uint(row.unitPriceWei * qty));
   }
-  requireCondition(['harvest', 'claim', 'withdrawBnb'].includes(action), 'Unsupported personal pool action.');
+  requireCondition(['harvest', 'claim', 'withdrawBnb', 'withdrawDeposit'].includes(action), 'Unsupported personal pool action.');
   if (action === 'harvest') requireCondition(row.state === 2n || row.state === 3n, 'Pool cannot harvest in this state.');
+  if (action === 'withdrawDeposit') requireCondition(row.state === 0n && row.shares !== null && row.shares > 0n,
+    'No refundable funding shares are available.');
+  if (action === 'claim') requireCondition(row.claimableBEM !== null && row.claimableBEM > 0n, 'No booked BEM is available.');
+  if (action === 'withdrawBnb') requireCondition(row.bnbOwed !== null && row.bnbOwed > 0n, 'No booked pool BNB is available.');
   // claim only pays already-accounted rewards; harvest is a separate permissionless call.
   return transaction(owner, target, abi.PoolVault, action);
 }

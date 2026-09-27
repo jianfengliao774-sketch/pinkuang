@@ -154,6 +154,31 @@ test('fetches only bounded same-origin GET queries and cross-checks identity aga
   assert.equal(seen.length, 2, 'counterfeit identity is rejected before network access');
 });
 
+test('exact miner lookup carries the bounded snapshot through later pages and refuses a changed view', async () => {
+  const requests: URL[] = [];
+  const fetcher: typeof fetch = async input => {
+    const url = new URL(String(input), 'https://local.example');
+    requests.push(url);
+    if (url.pathname.includes('/v1/circuit/')) return new Response(JSON.stringify(detail()), { headers: { 'content-type': 'application/json' } });
+    const pageNumber = Number(url.searchParams.get('page'));
+    const body = { ...page(pageNumber === 3 ? [row()] : []), page: pageNumber, totalPages: 3, total: 1 };
+    return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+  };
+  const miner = await fetchMineQuote(OFFICIAL_COLLECTIONS.TapeOut, '16480', { baseUrl: '/firsto-api', fetcher });
+  assert.equal(miner.detailChecked, true);
+  assert.deepEqual(requests.slice(0, 3).map(url => url.searchParams.get('viewId')), [null, 'test-view', 'test-view']);
+  assert.equal(requests.length, 4, 'only the exact found asset receives a detail request');
+
+  const changed: typeof fetch = async input => {
+    const url = new URL(String(input), 'https://local.example');
+    if (url.pathname.includes('/v1/circuit/')) throw new Error('detail must not be fetched after snapshot drift');
+    const second = url.searchParams.get('page') === '2';
+    return new Response(JSON.stringify({ ...page(second ? [row()] : []), page: second ? 2 : 1,
+      totalPages: 2, total: 1, viewId: second ? 'new-view' : 'test-view' }), { headers: { 'content-type': 'application/json' } });
+  };
+  await assert.rejects(fetchMineQuote(OFFICIAL_COLLECTIONS.TapeOut, '16480', { baseUrl: '/firsto-api', fetcher: changed }), /快照已变化/);
+});
+
 test('HTTP, invalid content and excessive query cannot silently reuse cached quotations', async () => {
   await assert.rejects(fetchQuotePage({}, { baseUrl: '/firsto-api', fetcher: async () => new Response('down', { status: 503 }) }), /HTTP 503/);
   await assert.rejects(fetchQuotePage({}, { baseUrl: '/firsto-api', fetcher: async () => new Response('<html>SPA</html>', { headers: { 'content-type': 'text/html' } }) }), /未返回 JSON/);
