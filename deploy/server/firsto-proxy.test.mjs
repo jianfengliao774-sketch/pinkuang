@@ -7,6 +7,8 @@ test('quote proxy pins the origin, read-only paths and official collections', ()
   assert.equal(upstreamUrl('/firsto-api/v1/circuits?page=1&pageSize=20').searchParams.get('category'),'official_mining');
   assert.equal(upstreamUrl('/firsto-api/v1/circuits?page=1&pageSize=20').searchParams.get('miningStatus'),'verified');
   assert.equal(upstreamUrl('/firsto-api/v1/circuit/0xb1024b89886b9a34aa4ff5f31c411d708b20a14c/16480').origin,'https://api-tapeout.firsto.ai');
+  assert.equal(upstreamUrl('/firsto-api/v1/circuit/0xb1024b89886b9a34aa4ff5f31c411d708b20a14c/16480?display=1').search, '',
+    'the display marker must not be forwarded to Firsto');
   for(const path of ['//evil.example/v1/circuits','/firsto-api/v1/order-request','/firsto-api/v1/circuits?account=0x123','/firsto-api/v1/circuits?category=other','/firsto-api/v1/circuits?pageSize=999999','/firsto-api/v1/circuit/0x0000000000000000000000000000000000000001/1','/firsto-api/v1/circuit/0xb1024b89886b9a34aa4ff5f31c411d708b20a14c/'+(2n**256n).toString()]) assert.throws(()=>upstreamUrl(path));
 });
 
@@ -123,6 +125,19 @@ test('per-peer quote limit ignores spoofed forwarding headers and expires withou
   assert.equal(limiter.size, 1);
 });
 
+test('nginx loopback peer may use its overwritten X-Real-IP without trusting a public peer or forwarded chain', () => {
+  const limiter = createQuoteRateLimiter({ limit: 1 });
+  const request = (peer, realIp, forwarded) => ({ socket: { remoteAddress: peer },
+    headers: { 'x-real-ip': realIp, 'x-forwarded-for': forwarded } });
+  assert.equal(limiter.consume(request('127.0.0.1', '192.0.2.1', '198.51.100.7')).allowed, true);
+  assert.equal(limiter.consume(request('127.0.0.1', '192.0.2.2', '198.51.100.7')).allowed, true);
+  assert.equal(limiter.consume(request('127.0.0.1', '192.0.2.1', '198.51.100.8')).allowed, false);
+  assert.equal(limiter.consume(request('203.0.113.1', '192.0.2.3', '198.51.100.8')).allowed, true);
+  assert.equal(limiter.consume(request('203.0.113.1', '192.0.2.4', '198.51.100.9')).allowed, false);
+  assert.equal(limiter.consume(request('::1', '192.0.2.3, 192.0.2.4', '')).allowed, true,
+    'a forged chain must fall back to the TCP peer');
+});
+
 test('rate-limited requests return 429 before upstream IO; successful responses keep same-origin no-store policy', async () => {
   const limiter = createQuoteRateLimiter({ limit: 1 }); let upstreamCalls = 0;
   const options = { limiter, fetcher: async (_url, init) => {
@@ -154,6 +169,40 @@ test('recent public list quote is returned from a bounded cache before spending 
   now += 3001;
   const expired = make(); await proxyFirsto(req, expired, { limiter, cache, fetcher });
   assert.equal(expired.statusCode, 429, 'expired quote cannot bypass the normal quota');
+});
+
+test('display detail is cached and coalesced, while an unmarked transaction detail remains fresh', async () => {
+  const cache = createQuoteCache({ ttlMs: 30_000 });
+  const limiter = createQuoteRateLimiter({ limit: 2 });
+  const url = '/firsto-api/v1/circuit/0xb1024b89886b9a34aa4ff5f31c411d708b20a14c/16480';
+  const make = () => ({ headers: {}, setHeader(key, value) { this.headers[key.toLowerCase()] = value; }, end(value) { this.body = value; } });
+  let release, calls = 0;
+  const fetcher = async upstream => {
+    calls++;
+    assert.equal(upstream.search, '');
+    if (calls === 1) await new Promise(resolve => { release = resolve; });
+    return Response.json({ asset: { tokenId: '16480', sequence: calls } });
+  };
+  const request = marked => ({ method: 'GET', url: url + (marked ? '?display=1' : ''), socket: { remoteAddress: '127.0.0.3' } });
+  const first = make(), shared = make();
+  const inFlight = proxyFirsto(request(true), first, { limiter, cache, fetcher });
+  const duplicate = proxyFirsto(request(true), shared, { limiter, cache, fetcher });
+  assert.equal(calls, 1);
+  release();
+  await Promise.all([inFlight, duplicate]);
+  assert.equal(first.statusCode, 200);
+  assert.equal(shared.statusCode, 200);
+  assert.equal(shared.headers['x-firsto-cache'], 'HIT');
+  assert.deepEqual(JSON.parse(shared.body), JSON.parse(first.body));
+  const transaction = make();
+  await proxyFirsto(request(false), transaction, { limiter, cache, fetcher });
+  assert.equal(transaction.statusCode, 200);
+  assert.equal(calls, 2, 'transaction checks must bypass the display cache');
+  const cached = make();
+  await proxyFirsto(request(true), cached, { limiter, cache, fetcher });
+  assert.equal(cached.statusCode, 200);
+  assert.equal(cached.headers['x-firsto-cache'], 'HIT');
+  assert.equal(calls, 2);
 });
 
 test('proxy bounds simultaneous upstream work and releases slots after completion', async () => {

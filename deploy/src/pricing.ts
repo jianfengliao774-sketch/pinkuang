@@ -131,7 +131,7 @@ export function verifyQuoteDetail(quote: MineQuote, raw: unknown): MineQuote {
   return { ...quote, detailChecked: true };
 }
 
-type FetchOptions = { signal?: AbortSignal; baseUrl?: string; fetcher?: typeof fetch };
+type FetchOptions = { signal?: AbortSignal; baseUrl?: string; fetcher?: typeof fetch; displayOnly?: boolean };
 function apiBase(options: FetchOptions) { return options.baseUrl ?? `${import.meta.env?.BASE_URL ?? '/'}firsto-api`; }
 async function readApi(path: string, options: FetchOptions): Promise<unknown> {
   const abort = new AbortController(); const timer = setTimeout(() => abort.abort(), 15_000);
@@ -163,7 +163,7 @@ export async function fetchCapacityReference(options: FetchOptions = {}): Promis
 export async function fetchMineDetail(collectionValue: string, tokenValue: string, options: FetchOptions = {}): Promise<unknown> {
   const collection = address(collectionValue, '矿机合约'); const tokenId = uint(tokenValue.trim(), '矿机编号');
   requireValue(collection === OFFICIAL_COLLECTIONS.TapeOut || collection === OFFICIAL_COLLECTIONS.Behemoth, '只接受官方 TapeOut / Behemoth 合约地址，不按同名认定');
-  return readApi(`/v1/circuit/${collection}/${tokenId}`, options);
+  return readApi(`/v1/circuit/${collection}/${tokenId}${options.displayOnly ? '?display=1' : ''}`, options);
 }
 export async function fetchMineQuote(collectionValue: string, tokenValue: string, options: FetchOptions = {}): Promise<MineQuote> {
   const collection = address(collectionValue, '矿机合约'); const tokenId = uint(tokenValue.trim(), '矿机编号');

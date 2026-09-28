@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 const API_ORIGIN = 'https://api-tapeout.firsto.ai';
 const OFFICIAL = new Set(['0xb1024b89886b9a34aa4ff5f31c411d708b20a14c', '0x1f5cb4aeaE1807bf60c3b9c0d8adbcc14e91f12c'.toLowerCase()]);
 const HEADERS = ['x-tapeout-as-of', 'x-tapeout-generation-id', 'x-tapeout-source-block', 'x-tapeout-source-blocks', 'x-tapeout-source-age-ms', 'x-tapeout-market-refreshed-at', 'x-tapeout-market-delivery-age-ms', 'x-tapeout-market-delivery-status'];
@@ -24,10 +26,14 @@ export function verifiedQuotePage(value) {
 export function upstreamUrl(requestPath) {
   const path = requestPath.replace(/^\/firsto-api/, '');
   const url = new URL(path, API_ORIGIN);
-  if (url.origin !== API_ORIGIN || url.username || url.password) throw new Error('Unsupported quote origin');
+  if (url.origin !== API_ORIGIN || url.username || url.password || url.hash) throw new Error('Unsupported quote origin');
   const detail = url.pathname.match(/^\/v1\/circuit\/(0x[0-9a-fA-F]{40})\/(0|[1-9][0-9]{0,77})$/);
   if (detail) {
-    if (!OFFICIAL.has(detail[1].toLowerCase()) || BigInt(detail[2]) >= 2n ** 256n || url.search) throw new Error('Unsupported circuit');
+    // Display-only requests may use a short server cache. Strip this local
+    // marker: the upstream endpoint and transaction quote path stay unchanged.
+    if (!OFFICIAL.has(detail[1].toLowerCase()) || BigInt(detail[2]) >= 2n ** 256n ||
+        (url.search && url.search !== '?display=1')) throw new Error('Unsupported circuit');
+    url.search = '';
     return url;
   }
   if (!['/v1/circuits', '/v1/circuit-holders'].includes(url.pathname)) throw new Error('Unsupported quote endpoint');
@@ -53,19 +59,23 @@ export function upstreamUrl(requestPath) {
   return url;
 }
 
-/** Bounded fixed-window per-peer limiter; only the TCP peer is authoritative. */
+/** Bounded fixed-window limiter. The v2 nginx listener overwrites X-Real-IP. */
 export function createQuoteRateLimiter({ limit = 30, windowMs = 60_000, maxClients = 512, now = Date.now } = {}) {
   const clients = new Map();
   return {
     consume(request) {
       const timestamp = now();
       for (const [key, client] of clients) if (client.expiresAt <= timestamp) clients.delete(key);
-      // X-Forwarded-For is deliberately ignored; a reverse proxy shares its own quota.
       const peer = String(request.socket?.remoteAddress ?? 'unknown').toLowerCase().replace(/^::ffff:/, '');
-      let client = clients.get(peer);
+      // Trust a single nginx-supplied client IP only when the TCP peer is the
+      // loopback listener. Never trust forwarded chains or a public TCP peer.
+      const realIp = request.headers?.['x-real-ip'];
+      const key = ['127.0.0.1', '::1'].includes(peer) && typeof realIp === 'string' && isIP(realIp)
+        ? realIp.toLowerCase() : peer;
+      let client = clients.get(key);
       if (!client) {
         if (clients.size >= maxClients) return { allowed: false, retryAfter: Math.ceil(windowMs / 1000) };
-        client = { count: 0, expiresAt: timestamp + windowMs }; clients.set(peer, client);
+        client = { count: 0, expiresAt: timestamp + windowMs }; clients.set(key, client);
       }
       client.count += 1;
       return { allowed: client.count <= limit, retryAfter: Math.max(1, Math.ceil((client.expiresAt - timestamp) / 1000)) };
@@ -91,6 +101,8 @@ export function createQuoteCache({ ttlMs = 3000, maxEntries = 128, now = Date.no
   };
 }
 const defaultQuoteCache = createQuoteCache();
+const defaultDetailDisplayCache = createQuoteCache({ ttlMs: 30_000, maxEntries: 512 });
+const pendingDisplayByCache = new WeakMap();
 let activeRequests = 0;
 const MAX_ACTIVE_REQUESTS = 8;
 
@@ -103,21 +115,42 @@ export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher 
   let url;
   try { url = upstreamUrl(req.url); }
   catch { res.statusCode = 400; res.end(JSON.stringify({error: '不支持的报价查询。'})); return; }
-  // A very short display cache reduces duplicate public list requests. Signed
-  // order execution still requires a fresh independent chain verification.
-  const quoteCache = cache === undefined ? (fetcher === fetch ? defaultQuoteCache : null) : cache;
-  const cacheKey = url.pathname === '/v1/circuits' || url.pathname === '/v1/circuit-holders' ? url.href : null;
+  // Exact detail caching is explicitly display-only. Procurement and signed
+  // order checks never send this marker and always fetch the current detail.
+  const displayOnly = /^\/firsto-api\/v1\/circuit\//.test(req.url) && req.url.endsWith('?display=1');
+  const quoteCache = cache === undefined ? (fetcher === fetch
+    ? displayOnly ? defaultDetailDisplayCache : defaultQuoteCache : null) : cache;
+  const cacheKey = displayOnly || url.pathname === '/v1/circuits' || url.pathname === '/v1/circuit-holders'
+    ? url.href : null;
   const cached = cacheKey && quoteCache?.get(cacheKey);
   if (cached) {
     for (const [name, value] of Object.entries(cached.headers)) res.setHeader(name, value);
     res.setHeader('X-Firsto-Cache', 'HIT');
     res.statusCode = 200; res.end(cached.body); return;
   }
+  let pendingDisplay;
+  if (displayOnly && quoteCache) {
+    pendingDisplay = pendingDisplayByCache.get(quoteCache);
+    if (!pendingDisplay) { pendingDisplay = new Map(); pendingDisplayByCache.set(quoteCache, pendingDisplay); }
+    const inFlight = pendingDisplay.get(cacheKey);
+    if (inFlight) {
+      await inFlight;
+      const shared = quoteCache.get(cacheKey);
+      if (shared) {
+        for (const [name, value] of Object.entries(shared.headers)) res.setHeader(name, value);
+        res.setHeader('X-Firsto-Cache', 'HIT');
+        res.statusCode = 200; res.end(shared.body); return;
+      }
+      res.statusCode = 502; res.end(JSON.stringify({ error: 'Firsto 报价暂不可用，请稍后重试。' })); return;
+    }
+  }
   const quota = limiter.consume(req);
   if (!quota.allowed || activeRequests >= MAX_ACTIVE_REQUESTS) {
     res.statusCode = 429; res.setHeader('Retry-After', String(quota.allowed ? 2 : quota.retryAfter));
     res.end(JSON.stringify({ error: '报价查询过于频繁，请稍后重试。' })); return;
   }
+  let finishDisplay;
+  if (pendingDisplay) pendingDisplay.set(cacheKey, new Promise(resolve => { finishDisplay = resolve; }));
   activeRequests += 1;
   try {
     const upstream = await fetcher(url, { method: 'GET', headers: {Accept: 'application/json'}, redirect: 'error', signal: AbortSignal.timeout(12_000) });
@@ -137,5 +170,8 @@ export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher 
     if (cacheKey) quoteCache?.set(cacheKey, { body, headers: savedHeaders });
     res.statusCode = 200; res.end(body);
   } catch { res.statusCode = 502; res.end(JSON.stringify({error: '无法获取 Firsto 实时报价，请稍后重试或打开来源页面。'})); }
-  finally { activeRequests -= 1; }
+  finally {
+    activeRequests -= 1;
+    if (finishDisplay) { pendingDisplay.delete(cacheKey); finishDisplay(); }
+  }
 }

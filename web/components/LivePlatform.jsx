@@ -56,6 +56,7 @@ import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, loadLiveConfig } from "../lib/live-config.mjs";
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
+import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
 import { readCurrentPoolMembers } from "../lib/live-members.mjs";
 import {
@@ -826,30 +827,40 @@ export default function LivePlatform() {
     let cancelled = false;
     setPoolCapacity(previous => Object.fromEntries(Object.entries(previous)
       .filter(([, quote]) => quote?.validUntil > Date.now())));
-    if (!client || !config || loading || !['pools', 'detail'].includes(route.route)) return;
-    const rows = route.route === 'detail' ? (detail ? [detail] : []) : pools;
+    if (!client || !config || loading || !['pools', 'detail', 'overview', 'market'].includes(route.route)) return;
+    const rows = route.route === 'detail' ? (detail ? [detail] : [])
+      : route.route === 'pools' ? pools
+        : route.route === 'market' ? (marketTab === 'whole' ? pools.filter(row => row.status === 'Listed') : positions)
+          : positions;
     if (!rows.length) return;
     const provider = createReadOnlyHttpProvider(config);
+    const uniqueRows = [...new Map(rows.filter(row => row?.pool).map(row => [row.pool.toLowerCase(), row])).values()];
     let next = 0;
     const worker = async () => {
-      while (!cancelled && next < rows.length) {
-        const row = rows[next++];
+      while (!cancelled && next < uniqueRows.length) {
+        const row = uniqueRows[next++];
         if (!row?.trusted || !row.params || row.unitPriceWei === null) continue;
         const key = row.pool.toLowerCase();
         const previous = capacityDisplay.current.pools[key];
         if (previous?.available && previous.validUntil > Date.now()
           && previous.forPriceWei === row.unitPriceWei.toString()) continue;
+        const saved = readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
+        if (saved && !cancelled) setPoolCapacity(previous => ({ ...previous, [key]: saved }));
         const quote = await readShareDailyCapacityPrice(provider, {
           factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
           allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
         });
-        if (!cancelled) setPoolCapacity(previous => ({ ...previous,
-          [key]: { ...quote, forPriceWei: row.unitPriceWei.toString() } }));
+        if (!cancelled) {
+          const displayed = { ...quote, forPriceWei: row.unitPriceWei.toString() };
+          if (quote.available) writeCapacityDisplay(displayStorage(), client.manifest, displayed);
+          setPoolCapacity(previous => !quote.available && previous[key]?.available
+            && previous[key].validUntil > Date.now() ? previous : { ...previous, [key]: displayed });
+        }
       }
     };
-    void Promise.all(Array.from({ length: Math.min(2, rows.length) }, worker));
+    void Promise.all(Array.from({ length: Math.min(2, uniqueRows.length) }, worker));
     return () => { cancelled = true; };
-  }, [client, route.route, pools, detail, boot, refresh, loading]);
+  }, [client, route.route, marketTab, pools, positions, detail, boot, refresh, loading]);
 
   useEffect(() => {
     const revision = ++capacityEpoch.current;
@@ -1534,10 +1545,13 @@ export default function LivePlatform() {
                 100
               </td>
               <td className="num">{displayPreciseAmount(p.unitPriceWei)} BNB</td>
-              <td>{poolCapacity[p.pool.toLowerCase()]?.available
+              <td title={poolCapacity[p.pool.toLowerCase()]?.cached
+                ? L('上次核验的展示数据，正在后台更新', 'Previously verified display data; refreshing in the background') : undefined}>{poolCapacity[p.pool.toLowerCase()]?.available
                 ? `${displayPreciseAmount(poolCapacity[p.pool.toLowerCase()].estimated24hAtomic, 8)} BEM`
                 : '—'}</td>
-              <td className="num" title={L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{poolCapacity[p.pool.toLowerCase()]?.available && poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei !== null
+              <td className="num" title={poolCapacity[p.pool.toLowerCase()]?.cached
+                ? L('上次核验的 Firsto 参考价，正在后台更新；单位：BNB / (BEM/天)', 'Previously verified Firsto reference; refreshing; unit: BNB / (BEM/day)')
+                : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{poolCapacity[p.pool.toLowerCase()]?.available && poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei !== null
                 ? displayPreciseAmount(poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei)
                 : '—'}</td>
               <td>

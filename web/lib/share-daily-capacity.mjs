@@ -35,7 +35,7 @@ export async function readShareDailyCapacityPrice(provider, {
   factory: factoryInput, pool: poolInput, pricePerUnitWei,
   allowUnownedTarget = false,
   blockNumber, now = Date.now(), quoteLoader = (collection, tokenId) =>
-    fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE }),
+    fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE, displayOnly: true }),
 } = {}) {
   try {
     if (!provider?.request || !Number.isSafeInteger(now) || now <= 0 || typeof quoteLoader !== 'function') {

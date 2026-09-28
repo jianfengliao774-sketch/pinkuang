@@ -112,7 +112,7 @@ test('default loader fetches only the bounded exact Firsto detail, never text se
     const result = await readShareDailyCapacityPrice(rpc(), { factory, pool, pricePerUnitWei: sharePrice, now });
     assert.equal(result.available, true);
     assert.equal(seen.length, 1);
-    assert.equal(seen[0].url, `/pinkuang-deploy/firsto-api/v1/circuit/${collection.toLowerCase()}/${replacement}`);
+    assert.equal(seen[0].url, `/pinkuang-deploy/firsto-api/v1/circuit/${collection.toLowerCase()}/${replacement}?display=1`);
     assert.equal(seen[0].init.method, 'GET');
     assert.equal(seen[0].init.credentials, 'omit');
     assert.equal(seen[0].init.redirect, 'error');
