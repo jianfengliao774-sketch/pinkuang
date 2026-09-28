@@ -16,7 +16,7 @@ const sameAddress = (a, b) => liveAddress(a) === liveAddress(b);
 const good = (s, bit) => (BigInt(s.validMask) & (1n << BigInt(bit))) !== 0n && (BigInt(s.errorMask) & (1n << BigInt(bit))) === 0n;
 const sameSource = (a, b) => a.chainId === b.chainId && a.factory === b.factory && a.market === b.market
   && a.startBlock === b.startBlock && a.indexedThrough === b.indexedThrough && a.indexedBlockHash === b.indexedBlockHash
-  && a.indexedTimestamp === b.indexedTimestamp;
+  && a.indexedTimestamp === b.indexedTimestamp && a.readMode === b.readMode && a.stale === b.stale;
 
 async function verifyInParallel(checks) {
   let next = 0, failed = false, failure;
@@ -32,15 +32,20 @@ async function verifyInParallel(checks) {
   if (failed) throw failure;
 }
 
-export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs = 120000 } = {}) {
+export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs } = {}) {
   insist(input && input.chainId === 56 && sameAddress(input.factory, manifest.factory)
     && sameAddress(input.market, manifest.shareMarket), 'index_identity', '索引合约身份与部署清单不一致。');
+  const displaySnapshot = input.readMode === 'verified_snapshot';
+  insist(displaySnapshot ? input.stale === true && input.transactionReady === false && typeof input.refreshing === 'boolean'
+    : input.stale !== true && input.transactionReady !== false,
+  'index_stale', '历史展示快照缺少明确的过期或交易限制标记。');
   insist(input.complete === true && input.unknownReason === null, 'index_incomplete', '索引尚未完整核验，请稍后刷新。');
   for (const key of ['startBlock', 'confirmations', 'indexedThrough', 'indexedTimestamp', 'observedSafeHead']) safeInt(input[key], key);
   insist(input.startBlock <= manifest.deployment.blockNumber && input.indexedThrough >= manifest.verifiedBlockNumber
     && input.indexedThrough === input.observedSafeHead && input.confirmations >= 1 && hash(input.indexedBlockHash), 'index_coverage', '索引覆盖或安全区块无效。');
   const checkedAt = Date.parse(input.checkedAt);
-  insist(Number.isFinite(checkedAt) && checkedAt <= now + 30000 && now - checkedAt <= maxAgeMs, 'index_stale', '索引核验已过期，请刷新。');
+  const allowedAge = Math.min(maxAgeMs ?? (displaySnapshot ? 30 * 60 * 1000 : 120000), displaySnapshot ? 30 * 60 * 1000 : 120000);
+  insist(Number.isFinite(checkedAt) && checkedAt <= now + 30000 && now - checkedAt <= allowedAge, 'index_stale', '索引核验已过期，请刷新。');
   return Object.freeze({ ...input, factory: getAddress(input.factory), market: getAddress(input.market), indexedBlockHash: input.indexedBlockHash.toLowerCase() });
 }
 
@@ -170,7 +175,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function directPage({ account = ZeroAddress, cursor = 0, limit = 20, holdings = false }) {
     const source = await directSource();
     const owner = getAddress(account);
-    const first = await readPoolSnapshot(rpc, { factory: manifest.factory, account: owner,
+    const first = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: owner,
       offset: BigInt(cursor), limit: BigInt(limit), blockNumber: BigInt(source.indexedThrough) });
     insist(sameAddress(first.lens, manifest.lens) && first.blockHash.toLowerCase() === source.indexedBlockHash
       && first.timestamp === BigInt(source.indexedTimestamp) && first.totalPools !== null,
@@ -183,7 +188,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       // Account discovery needs the complete registry. A partial scan must
       // never be presented as an empty or complete holdings list.
       for (let offset = BigInt(cursor + first.pools.length); offset < total; offset += 20n) {
-        const part = await readPoolSnapshot(rpc, { factory: manifest.factory, account: owner,
+        const part = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: owner,
           offset, limit: 20n, blockNumber: BigInt(source.indexedThrough) });
         insist(sameAddress(part.lens, manifest.lens) && part.blockHash.toLowerCase() === source.indexedBlockHash
           && part.timestamp === BigInt(source.indexedTimestamp) && part.totalPools === total
@@ -205,7 +210,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function positionsAt(addresses, account, source) {
     const normalized = addresses.map(liveAddress);
     insist(new Set(normalized).size === normalized.length, 'duplicate_pool', '索引包含重复项目地址。');
-    const snapshot = await readPoolSnapshot(rpc, { factory: manifest.factory, account: account ?? ZeroAddress,
+    const snapshot = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: account ?? ZeroAddress,
       pools: normalized, blockNumber: BigInt(source.indexedThrough) });
     insist(sameAddress(snapshot.lens, manifest.lens) && snapshot.blockHash.toLowerCase() === source.indexedBlockHash
       && snapshot.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '聚合读取与索引区块不一致。');

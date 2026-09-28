@@ -590,6 +590,9 @@ contract BudgetPortfolioTest is FundingTestBase {
 
         vm.prank(ALICE);
         uint256 orderId = shareMarket.list(address(project), 10, 0.1 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.RewardsLocked.selector);
+        project.claimBem();
         vm.deal(BOB, 1.01 ether);
         vm.prank(BOB);
         shareMarket.fill{value: 1.01 ether}(orderId, 10);
@@ -598,8 +601,35 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.balanceOf(BOB), 10);
         assertEq(project.claimableBem(ALICE), beforeBem * 90 / 100);
         assertEq(project.claimableBem(BOB), beforeBem / 10);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), beforeBem / 10);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), beforeBem * 90 / 100);
         assertEq(shareMarket.bnbOwed(ALICE), 0.99 ether);
         assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
+    }
+
+    function test_sellerCanClaimBemAfterCancellingShareOrder() public {
+        _subscribe(ALICE, 100);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        project.collectChildBem(address(pool));
+        uint256 pending = project.claimableBem(ALICE);
+
+        vm.prank(ALICE);
+        uint256 orderId = shareMarket.list(address(project), 10, 0.1 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.RewardsLocked.selector);
+        project.claimBem();
+
+        vm.prank(ALICE);
+        shareMarket.cancel(orderId);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), pending);
     }
 
     function test_belowMarketSaleNeedsPlatformReviewAfterDoubleMajority() public {

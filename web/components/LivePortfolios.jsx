@@ -32,7 +32,7 @@ const displayStorage = () => { try { return window.sessionStorage; } catch { ret
 /** A parent project owns its miners. Its 100 shares are never counted once per child. */
 export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onShare, onBuyChild, onReadStateChange, operatorVerified = false, refreshKey = 0 }) {
   const T=text=>portfolioText(locale,text);
-  const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null);
+  const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
   const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
   const [readRetry,setReadRetry]=useState(null),[readFailed,setReadFailed]=useState(false);
   const [loadedIdentity,setLoadedIdentity]=useState(''),[orders,setOrders]=useState([]),[orderCursor,setOrderCursor]=useState(null),[orderPool,setOrderPool]=useState(null);
@@ -61,6 +61,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   useEffect(()=>{const saved=recentPages.get(cacheKey),cached=saved && Date.now()-saved.savedAt<120_000?saved.result
       :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`);
     setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setRows(cached?.items || []);
+    setListingSource(cached?.source || null);
     setSelected(initialPool?cached?.items[0] || null:null);setChild(initialPool?cached?.items[0]?.children.find(item=>!item.sold)?.pool || '':'');
     setPreview(null);setError('');setReadRetry(null);setReadFailed(false);
     setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);
@@ -96,7 +97,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         if(recentPages.size>8)recentPages.delete(recentPages.keys().next().value);
         writeDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,result);}
       setRows(previous=>nextCursor? [...previous,...result.items.filter(item=>!previous.some(p=>same(p.pool,item.pool)))]:result.items);
-      setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setSelected(initialPool?result.items[0]:null);if(initialPool)setChild(result.items[0].children.find(c=>!c.sold)?.pool || '');}
+      setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setListingSource(result.source || null);setSelected(initialPool?result.items[0]:null);if(initialPool)setChild(result.items[0].children.find(c=>!c.sold)?.pool || '');}
     }catch(problem){if(current(ticket)){setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
@@ -146,6 +147,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     {!enabled ? <p role="status">{T("预算项目合约尚未完成部署验收。")}</p> : mine&&!account ? <button className="btn" onClick={onConnect}>{T("连接钱包查看项目权益")}</button> : <>
       {error&&<div className="portfolio-error" role="alert"><p>{T(error)}</p>{readFailed&&<button className="btn secondary" disabled={busy || loading || disabled} onClick={()=>void load()}>{locale==='en'?'Retry portfolio data':'重新读取预算项目'}</button>}</div>}
       {loading&&<p role="status">{readRetry?(locale==='en'?`Portfolio data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`:`预算数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`):T("正在核对预算项目…")}</p>}
+      {listingSource?.readMode==='verified_snapshot'&&listingSource.stale===true&&<p className="portfolio-error" role="status">{locale==='en'
+        ? `Historical portfolio snapshot · block #${listingSource.indexedThrough}, verified ${new Date(listingSource.checkedAt).toLocaleString('en-GB')}. Listings may have changed; every transaction preview rechecks current on-chain state.`
+        : `预算项目历史快照 · 区块 #${listingSource.indexedThrough}，核验于 ${new Date(listingSource.checkedAt).toLocaleString('zh-CN')}。列表可能已变化；每次交易预览均重新核对最新链上状态。`}</p>}
       {mode==='operator'&&isOperator&&<section id="multi-miner-create" className="portfolio-create"><h3>{T("创建多矿机预算项目")}</h3><p>{T("预算项目固定 100 份；总预算、单机绝对上限及换算后的每 H 限价写入合约，采购不能突破这些链上限额。")}</p><p>{T("先创建共享 100 份的预算项目；募满后在项目中设置本批最多采购台数（1–20 台），从当前合格挂单逐台核验并买入。矿机可能在募集期间售出，因此创建时不锁定具体编号；同一项目可用剩余预算继续采购下一批。")}</p>
         <p>{T('Firsto 市场参考日产能价')}: <strong>{dailyReference&&!referenceIssue(dailyReference)?`${amount(dailyReference.dailyCapacityPriceWei,18,5)} BNB / (BEM / 天)`:'—'}</strong>{dailyReference&&!referenceIssue(dailyReference)?` · ${new Date(dailyReference.observedAt).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:dailyReferenceError?` · ${dailyReferenceError}`:''} <button className="btn secondary" disabled={capacityBusy} onClick={()=>void refreshCapacity()}>{T('刷新市场产能')}</button></p>
         <p>{T('输入日产能价上限后，系统按当前 Firsto 样本的最低日产出 / H 比率向下折算为链上每 H 上限；合约不会随未来产能变化自动更新。')}</p>
@@ -168,8 +172,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           {selectedCurrent.state===1n&&selectedCurrent.timestamp>=selectedCurrent.purchaseDeadline&&<button className="btn" disabled={frozen} onClick={()=>act('finalizeAcquisition')}>{T("结束购机并结算余款")}</button>}
           {selectedCurrent.fundingFailed&&selectedCurrent.state===5n&&selectedCurrent.shares>0n&&<button className="btn" disabled={frozen} onClick={()=>act('claimFailedFunding')}>{T("结算募集退款")}</button>}
           {selectedCurrent.withdrawableBnb>0n&&<button className="btn" disabled={frozen} onClick={()=>act('withdrawBnb')}>{T("领取")} {amount(selectedCurrent.withdrawableBnb)} BNB</button>}
-          {selectedCurrent.claimableBem>0n&&<button className="btn" disabled={frozen} onClick={()=>act('claimBem')}>{T("领取")} {amount(selectedCurrent.claimableBem,8)} BEM</button>}
+          {selectedCurrent.claimableBem>0n&&<button className="btn" disabled={frozen || selectedCurrent.lockedShares>0n} onClick={()=>act('claimBem')}>{T("领取")} {amount(selectedCurrent.claimableBem,8)} BEM</button>}
         </div>
+        {selectedCurrent.claimableBem>0n&&selectedCurrent.lockedShares>0n&&<p>{T("有份额挂单仍在锁定。未领 BEM 继续显示在上方；请先撤单，或等待挂单成交、到期解锁后再领取。")}</p>}
         <p>{T("卖款结算后仍可归集已售子矿池的 BEM；未归集的 BEM 随项目份额转移。")}</p>
         <div className="portfolio-child-table"><table><thead><tr><th>{T("项目内矿机")}</th><th>{T("采购来源 / 成本")}</th><th>{T("状态")}</th><th>{T("操作")}</th></tr></thead><tbody>{selectedCurrent.children.map(item=><tr key={item.pool}><td><a href={explorerAddress(item.pool)} target="_blank" rel="noopener noreferrer">#{item.tokenId.toString()} · {shortAddress(item.pool)}</a></td><td>{T(item.official?'官网':'Firsto')} · {amount(item.costWei)} BNB</td><td>{T(item.sold?'已归集卖款':states[Number(item.state)])}</td><td><button className="btn secondary" disabled={frozen} onClick={()=>act('collectChildBem',{child:item.pool})}>{T("归集该台 BEM")}</button>{item.state===3n&&<button className="btn" disabled={frozen} onClick={()=>onBuyChild?.(item.pool)}>{T("预览 Firsto 购买")}</button>}</td></tr>)}</tbody></table></div>
         {selectedCurrent.children.length<Number(selectedCurrent.childCount)&&<button className="btn secondary" disabled={frozen} onClick={()=>void moreChildren()}>{T("加载更多子矿机")}</button>}
@@ -184,7 +189,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           <h3>{T("出售我的项目份额")}</h3><p>{T("已自动选择当前持仓项目，可售份额：")} {selectedCurrent.availableShares.toString()} / {selectedCurrent.shares.toString()} {T("份")}</p>
           <div className="portfolio-actions"><label>{T("挂牌份数")}<input type="number" min="1" max={selectedCurrent.availableShares.toString()} step="1" value={listingQuantity} onChange={e=>setListingQuantity(e.target.value)}/></label><label>{T("每份价格（BNB）")}<input inputMode="decimal" placeholder="0.005" value={price} onChange={e=>setPrice(e.target.value)}/></label><button className="btn" disabled={frozen||/^0(?:\.0*)?$/.test(price.trim())} onClick={()=>act('marketList',{quantity:listingQuantity,price})}>{T("预览挂卖份额")}</button></div>
         </section>}
-        <details className="portfolio-market"><summary>{T("预算项目份额市场")}</summary><p>{T("买方另付成交价的 1%，卖方从成交价扣除 1%。成交时尚未领取的 BEM 随份额按比例移动；卖方在成交前仍可领取，挂单时的待领数额不保证交付。历史 BNB 债权不随份额转移。治理期间暂停新增挂单和成交，原挂单仍可撤销。")}</p>
+        <details className="portfolio-market"><summary>{T("预算项目份额市场")}</summary><p>{T("买方另付成交价的 1%，卖方从成交价扣除 1%。成交时尚未领取的 BEM 随份额按比例移动；卖方有份额挂单锁定时不能先领取 BEM。历史 BNB 债权不随份额转移。治理期间暂停新增挂单和成交，原挂单仍可撤销。")}</p>
           <div className="portfolio-actions"><button className="btn secondary" disabled={frozen} onClick={()=>void loadOrders()}>{T("读取本项目挂单")}</button><button className="btn secondary" disabled={frozen||!account} onClick={()=>act('marketWithdraw')}>{T("预览领取预算市场 BNB")}</button></div>
           {same(orderPool,selectedCurrent.pool)&&<><div className="portfolio-child-table"><table><thead><tr><th>{T("订单")}</th><th>{T("卖方")}</th><th>{T("剩余份额 / 每份价")}</th><th>{T("操作")}</th></tr></thead><tbody>{orders.map(order=><tr key={order.id.toString()}><td>#{order.id.toString()}</td><td>{shortAddress(order.seller)}</td><td>{order.remaining.toString()} / {amount(order.pricePerUnitWei)} BNB</td><td>{order.active&&order.remaining>0n? <>{same(order.seller,account)?<button className="btn secondary" disabled={frozen} onClick={()=>act('marketCancel',{orderId:order.id.toString()})}>{T("撤销挂单")}</button>:!order.expired&&<button className="btn" disabled={frozen||!selectedCurrent.shareTradingAllowed} onClick={()=>act('marketFill',{orderId:order.id.toString(),quantity,expectedSeller:order.seller,expectedPricePerUnitWei:order.pricePerUnitWei.toString()})}>{T("预览买入")} {quantity} {T("份")}</button>}{order.expired&&<button className="btn secondary" disabled={frozen} onClick={()=>act('marketExpire',{orderId:order.id.toString()})}>{T("解锁到期挂单")}</button>}</>:T('已结束')}</td></tr>)}</tbody></table></div><label>{T("买入份数")}<input inputMode="numeric" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>{!orders.length&&<p>{T("暂无本项目挂单。")}</p>}{orderCursor!==null&&<button className="btn secondary" disabled={frozen} onClick={()=>void loadOrders(orderCursor)}>{T("加载更多挂单")}</button>}</>}
         </details>

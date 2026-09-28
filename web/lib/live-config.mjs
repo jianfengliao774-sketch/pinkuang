@@ -146,11 +146,19 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
   insist(typeof basePath === 'string' && /^(?:\/[A-Za-z0-9_-]+)*\/?$/.test(basePath), 'invalid_config', '网站路径无效。');
   const base = basePath.replace(/\/$/, '');
   const manifestUrl = `${origin}${base}/data/frontend-manifest.json`;
-  const input = await fetchLiveJson(manifestUrl, { fetcher, allow404: true, maxBytes: 65536 });
+  const productGraphUrl = `${origin}${base}/api/journal/product-graph`;
+  // Both same-origin documents are independent network fetches. Validate the
+  // pinned genesis first, then bind the product graph to that exact genesis.
+  const [manifestRead, graphRead] = await Promise.allSettled([
+    fetchLiveJson(manifestUrl, { fetcher, allow404: true, maxBytes: 65536 }),
+    fetchLiveJson(productGraphUrl, { fetcher, maxBytes: 65536 }),
+  ]);
+  if (manifestRead.status === 'rejected') throw manifestRead.reason;
+  const input = manifestRead.value;
   if (input === null) return Object.freeze({ status: 'unconfigured', reason: '尚未配置已核验的正式合约。', manifestUrl });
   const genesis = validatePinnedGenesis(input);
-  const productGraphUrl = `${origin}${base}/api/journal/product-graph`;
-  const graph = validateProductGraph(await fetchLiveJson(productGraphUrl, { fetcher, maxBytes: 65536 }), genesis);
+  if (graphRead.status === 'rejected') throw graphRead.reason;
+  const graph = validateProductGraph(graphRead.value, genesis);
   const rpc = new URL(rpcUrl ?? `${base}/api/rpc`, origin);
   insist(!rpc.username && !rpc.password && !rpc.hash, 'invalid_config', '只读 RPC 配置无效。');
   insist(rpc.origin === origin || (rpc.protocol === 'https:' && allowedRpcOrigins.includes(rpc.origin)), 'rpc_not_allowed', 'RPC 来源未获配置授权。');

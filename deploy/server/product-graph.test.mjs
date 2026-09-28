@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { createPinnedSigningGraphVerifier } from './journal-api.mjs';
 const bundle=JSON.parse(readFileSync(new URL('../public/deployment-artifacts.json',import.meta.url),'utf8'));
 const libraries=['FlexiblePurchase','MiningOperations','PoolFunds','PurchaseValidation','RewardAccounting','SaleGovernance','SaleSettlement','ShareCheckpoints','FirstoSale'];
 const names=[...libraries,'AtomicDeployment','PoolVault','PoolFactory','ShareMarket','BudgetPortfolioFactory','BudgetPortfolioVault','factory','shareMarket','lens','beacon','timelock','portfolioFactory','portfolioShareMarket','portfolioBeacon'];
@@ -76,4 +77,43 @@ test('runtime drift, implementation upgrade, reorg, missing evidence and unconfi
   }
   const f=fixture();await assert.rejects(verifyProductGraph(f.provider,f.addresses.factory,null,f.block),/unavailable/);
   await assert.rejects(verifyProductGraph(f.provider,addr(99),f.trusted,f.block),/differs/);
+});
+
+test('signing graph reuses the actual pinned proof only while its block remains canonical and the cache is fresh',async()=>{
+  const f=fixture();let now=1_000;
+  const verified=createPinnedSigningGraphVerifier(
+    (provider,factory,block)=>verifyProductGraph(provider,factory,f.trusted,block),f.trusted,()=>now);
+  const [first,second]=await Promise.all([
+    verified(f.provider,f.addresses.factory,f.block),verified(f.provider,f.addresses.factory,f.block)]);
+  assert.strictEqual(first,second,'simultaneous signing requests share one complete graph proof');
+  assert.equal(first.factory,f.addresses.factory);
+  assert.equal(first.blockNumber,f.block.number);
+  assert.equal(first.artifactDigest,f.trusted.record.artifactDigest);
+  assert.equal(f.state.codeReads,names.length);
+  assert.strictEqual(await verified(f.provider,f.addresses.factory,f.block),first);
+  assert.equal(f.state.codeReads,names.length,'cached signing proof skips repeated full code reads');
+  f.state.reorg=true;
+  await assert.rejects(verified(f.provider,f.addresses.factory,f.block),/Chain changed/);
+  f.state.reorg=false;
+  now+=5_001;
+  await verified(f.provider,f.addresses.factory,f.block);
+  assert.equal(f.state.codeReads,names.length*2,'expired proof is verified again');
+});
+
+test('signing graph never caches a verifier result with another block or artifact digest',async()=>{
+  const f=fixture();let checks=0;
+  const badResults=[
+    {factory:f.addresses.factory,blockNumber:f.block.number+1,artifactDigest:f.trusted.record.artifactDigest},
+    {factory:f.addresses.factory,blockNumber:f.block.number,artifactDigest:hash(999)},
+  ];
+  const verified=createPinnedSigningGraphVerifier(async()=>{
+    checks++;
+    return badResults.shift()??{factory:f.addresses.factory,blockNumber:f.block.number,
+      artifactDigest:f.trusted.record.artifactDigest};
+  },f.trusted);
+  await assert.rejects(verified(f.provider,f.addresses.factory,f.block),/graph identity changed/);
+  await assert.rejects(verified(f.provider,f.addresses.factory,f.block),/graph identity changed/);
+  await verified(f.provider,f.addresses.factory,f.block);
+  await verified(f.provider,f.addresses.factory,f.block);
+  assert.equal(checks,3,'invalid graph results are never cached');
 });

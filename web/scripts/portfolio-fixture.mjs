@@ -32,12 +32,12 @@ export function portfolioFixture(options={}) {
     const member=parsed.args.length>0&&parsed.args[0]&&typeof parsed.args[0]==='string'&&same(parsed.args[0],FIXTURE_ACCOUNT);
     const values={legacyFactory:manifest.factory,shareMarket:extra.portfolioMarket,beacon:extra.portfolioBeacon,operator:FIXTURE_ACCOUNT,
       implementation:extra.portfolioImplementation,owner:manifest.timelock,timelock:manifest.timelock,factory:extra.portfolioFactory,OFFICIAL_FACTORY:extra.portfolioFactory,
-      isPool:state.foreign!==true,state:state.poolState??(same(tx.to,PORTFOLIOS[1])?2n:0n),budgetWei:5000000000000000n,
+      isPool:state.foreign!==true,portfolioCount:2n,state:state.poolState??(same(tx.to,PORTFOLIOS[1])?2n:0n),budgetWei:5000000000000000n,
       absoluteCapWei:3000000000000000n,unitCapWei:100000000000n,spentWei:0n,totalSupply:50n,memberCount:2n,
       childCount:state.childCount??0n,activeChildCount:0n,fundingDeadline:BigInt(source().indexedTimestamp)+86400n,
       purchaseDeadline:BigInt(source().indexedTimestamp)+3n*86400n,fundingFailed:false,refundPerShareWei:2n,salePerShareWei:3n,
       activeProposalId:0n,nextProposalId:1n,nextRoundAt:0n,shareTradingAllowed:state.trading??true,balanceOf:member?(state.shares??10n):0n,
-      claimableBem:member?100n:0n,bnbOwed:member?(state.bnbOwed??7n):0n,refundSettled:state.refundSettled??false,saleDebt:member?(state.saleDebt??5n):0n,lockedShares:0n,
+      claimableBem:member?100n:0n,bnbOwed:member?(state.bnbOwed??7n):0n,refundSettled:state.refundSettled??false,saleDebt:member?(state.saleDebt??5n):0n,lockedShares:member?(state.lockedShares??0n):0n,
       feeBps:100n,buyerFeeBps:state.buyerFeeBps??100n,orderExpiresAt:BigInt(source().indexedTimestamp)+86400n,
       orders:{seller:FIXTURE_OTHER_ACCOUNT,pool:PORTFOLIOS[0],remaining:5n,pricePerUnit:100n,active:true},
     };

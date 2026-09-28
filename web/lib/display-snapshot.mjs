@@ -16,6 +16,10 @@ function key(manifest, page) {
 function verifiedSource(result, manifest) {
   const source = result?.detail?.source ?? result?.catalog?.source ?? result?.source;
   return source?.complete === true && source.unknownReason === null && source.chainId === 56
+    && (source.readMode === 'verified_snapshot'
+      ? source.stale === true && source.transactionReady === false && typeof source.refreshing === 'boolean'
+        && Number.isFinite(Date.parse(source.checkedAt))
+      : source.stale !== true && source.transactionReady !== false)
     && source.factory?.toLowerCase() === manifest.factory.toLowerCase()
     && source.market?.toLowerCase() === manifest.shareMarket.toLowerCase()
     && HASH.test(source.indexedBlockHash)
@@ -28,8 +32,10 @@ export function readDisplaySnapshot(storage, manifest, page, { now = Date.now(),
   if (!storage || !cacheKey) return null;
   try {
     const record = JSON.parse(storage.getItem(cacheKey), decode);
+    const source = record?.result?.detail?.source ?? record?.result?.catalog?.source ?? record?.result?.source;
     if (!record || !Number.isSafeInteger(record.savedAt) || record.savedAt > now
-      || now - record.savedAt > maxAgeMs || !verifiedSource(record.result, manifest)) return null;
+      || now - record.savedAt > maxAgeMs || !verifiedSource(record.result, manifest)
+      || source?.readMode === 'verified_snapshot' && now - Date.parse(source.checkedAt) > 30 * 60 * 1000) return null;
     return record.result;
   } catch { return null; }
 }

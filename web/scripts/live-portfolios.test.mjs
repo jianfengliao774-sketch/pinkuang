@@ -29,6 +29,18 @@ test('portfolio discovery uses parent registration and does not multiply 100 sha
     const broken=portfolioFixture(option);await assert.rejects(readPortfolioPage(broken.config,broken.provider,{fetcher:broken.fetcher}));
   }
 });
+test('automatic portfolio fallback remains an explicitly stale display snapshot',async()=>{
+  const f=portfolioFixture();
+  const source={...f.source(),checkedAt:new Date(Date.now()-10*60_000).toISOString(),
+    readMode:'verified_snapshot',stale:true,refreshing:true,transactionReady:false,portfolioCount:'2'};
+  const fetcher=async url=>new Response(JSON.stringify({...f.index(url),source}),
+    {headers:{'content-type':'application/json'}});
+  const page=await readPortfolioPage(f.config,f.provider,{account:f.account,fetcher});
+  assert.equal(page.source.stale,true);
+  assert.equal(page.source.transactionReady,false);
+  assert.equal(page.source.checkedAt,source.checkedAt);
+  assert.equal(page.items.length,2);
+});
 test('former holders can read and withdraw settled BNB without current shares',async()=>{
   const f=portfolioFixture({shares:0n,saleDebt:0n,bnbOwed:99n});
   const row=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account);
@@ -36,6 +48,18 @@ test('former holders can read and withdraw settled BNB without current shares',a
   const prepared=await preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],action:{kind:'withdrawBnb'}});
   assert.equal(prepared.action.targetType,'portfolio');assert.equal(prepared.transaction.value,'0x0');assert.equal(prepared.payoutWei,99n);
   assert(!f.calls.some(({method,params})=>method==='eth_call' && params?.[0]?.from===f.account));
+});
+test('portfolio BEM stays visible while listed shares block a fresh claim preview',async()=>{
+  const f=portfolioFixture({lockedShares:2n});
+  const row=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(row.claimableBem,100n);
+  assert.equal(row.lockedShares,2n);
+  await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,
+    pool:PORTFOLIOS[0],action:{kind:'claimBem'}}),/挂单仍在锁定/);
+  f.state.lockedShares=0n;
+  const prepared=await preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,
+    pool:PORTFOLIOS[0],action:{kind:'claimBem'}});
+  assert.equal(prepared.payoutWei,100n);
 });
 test('portfolio page reads overlap but an unfinished row cannot publish partial page results',async()=>{
   const f=portfolioFixture();let release,second;const held=new Promise(r=>release=r),seen=new Promise(r=>second=r);let gated=false,finished=false;

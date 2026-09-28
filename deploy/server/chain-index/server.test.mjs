@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { Interface, ZeroAddress, toQuantity } from 'ethers';
-import { serverConfiguration, startChainIndex } from './server.mjs';
+import { chainIndexFailureMessage, serverConfiguration, startChainIndex } from './server.mjs';
 
 const config = rpc => ({ rpc, host: '127.0.0.1', port: 0, dbPath: ':memory:',
   factory: '0x0000000000000000000000000000000000000001',
@@ -37,6 +37,17 @@ test('production configuration keeps HTTPS and loopback requirements', () => {
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'https://bsc.publicnode.com', CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'https://bsc.publicnode.com' }), /differ/);
+});
+
+test('sync failure diagnostics identify a bounded RPC method without leaking provider URLs', () => {
+  const error = Object.assign(new Error('upstream https://rpc.example/?token=secret'), {
+    rpcMethod: 'eth_getLogs', code: 'SERVER_ERROR', error: { code: -32005, body: 'private response' },
+    info: { response: { statusCode: 429, body: 'another private response' } },
+  });
+  const message = chainIndexFailureMessage({ status: () => ({ unknownReason: 'sync_failed' }), lastFailureStage: 'scan_factory_logs' }, error);
+  assert.match(message, /stage=scan_factory_logs; method=eth_getLogs; type=Error; code=SERVER_ERROR; rpcCode=-32005; httpStatus=429/);
+  assert.equal(message.includes('secret'), false);
+  assert.equal(message.includes('private response'), false);
 });
 
 const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',

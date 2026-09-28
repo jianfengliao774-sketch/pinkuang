@@ -139,6 +139,21 @@ test('page boots only after same-origin genesis and verified product graph agree
   assert.throws(() => createLiveDataClient(empty), { code: 'unconfigured' });
 });
 
+test('boot fetches the pinned manifest and product graph concurrently, then validates them together', async () => {
+  const calls = [], releases = new Map();
+  const waiting = loadLiveConfig({ origin, fetcher: url => {
+    calls.push(url);
+    return new Promise(resolve => releases.set(url, resolve));
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  const manifestUrl = `${origin}/data/frontend-manifest.json`;
+  const graphUrl = `${origin}/api/journal/product-graph`;
+  assert.deepEqual(calls, [manifestUrl, graphUrl]);
+  releases.get(graphUrl)(response(verifiedGraph()));
+  releases.get(manifestUrl)(response(pinnedGenesis));
+  assert.equal((await waiting).status, 'ready');
+});
+
 test('manifest identity, artifact, blocks, addresses and RPC allowlist fail closed', async () => {
   for (const change of [{ chainId: 1 }, { schemaVersion: 2 }, { sourceCommit: '' }, { verifiedBlockNumber: 7 },
     { artifactDigest: blockHash }, { codehash: {} }, { lens: factory }]) assert.throws(() => validateManifest({ ...manifest, ...change }));
@@ -398,18 +413,38 @@ test('temporary index 503 reads confirmed Factory/Lens for pools and wallet shar
 });
 
 test('a recent saved index snapshot discovers pools during sync, but Lens still verifies the pinned block', async () => {
-  const snapshotSource = { ...source, readMode: 'verified_snapshot' };
+  const snapshotSource = { ...source, readMode: 'verified_snapshot', stale: true, refreshing: true, transactionReady: false };
   const fetcher = async url => new URL(url).pathname.endsWith('/v1/snapshot/pools')
     ? response({ source: snapshotSource, data: poolsData }) : response({ error: 'syncing' }, 503);
   const c = createLiveDataClient(config, { provider: provider(), fetcher, now: () => now });
   const catalog = await c.readPools({ account });
   assert.equal(catalog.source.readMode, 'verified_snapshot');
+  assert.equal(catalog.source.stale, true);
+  assert.equal(catalog.source.transactionReady, false);
   assert.equal(catalog.items[0].pool, pool);
   const wrong = createLiveDataClient(config, { provider: provider(), fetcher: async url =>
     new URL(url).pathname.endsWith('/v1/snapshot/pools')
       ? response({ source: { ...snapshotSource, indexedBlockHash: deploymentHash }, data: poolsData })
       : response({ error: 'syncing' }, 503), now: () => now });
   await assert.rejects(wrong.readPools({ account }), { code: 'source_reorg' });
+});
+
+test('automatic snapshot responses keep their historical checkedAt and never gain live transaction status', async () => {
+  const historical = { ...source, checkedAt: new Date(now - 10 * 60_000).toISOString(),
+    readMode: 'verified_snapshot', stale: true, refreshing: false, transactionReady: false };
+  const c = client({ '/v1/pools': poolsData, '/v1/orders': ordersData, '/v1/stats': {
+    scope: 'confirmed_indexed_history', registeredPoolCount: '1', everParticipantAddressCount: '0',
+    purchasedCostWei: '0', shareMarketFilledGrossWei: '0', harvestedToMembersBemAtomic: '0',
+  } }, {}, historical);
+  const [catalog, orders, stats] = await Promise.all([c.readPools({ account }), c.readOrders({ active: true }), c.readStats()]);
+  for (const result of [catalog, orders, stats]) {
+    assert.equal(result.source.checkedAt, historical.checkedAt);
+    assert.equal(result.source.stale, true);
+    assert.equal(result.source.transactionReady, false);
+  }
+  for (const bad of [{ stale: false }, { transactionReady: true }, { refreshing: undefined },
+    { readMode: undefined }, { checkedAt: new Date(now - 30 * 60_000 - 1).toISOString() }])
+    assert.throws(() => validateIndexSource({ ...historical, ...bad }, manifest, { now }), { code: 'index_stale' });
 });
 
 test('an older index without the snapshot route falls through to confirmed direct reads', async () => {

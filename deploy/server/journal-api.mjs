@@ -21,6 +21,7 @@ const SESSION_MS = 12 * 60 * 60_000;
 const TOKEN_COOKIE = 'pinkuang_journal';
 const OFFICIAL_CACHE_MS = 5_000;
 const OFFICIAL_GRAPH_CACHE_MS = 5_000;
+const SIGNING_GRAPH_CACHE_MS = 5_000;
 const PRODUCT_GRAPH_SNAPSHOT_MS = 20_000;
 const OFFICIAL_SCAN_MS = 60_000;
 const OFFICIAL_RPC_TIMEOUT_MS = 9_000;
@@ -743,6 +744,53 @@ export function createProductVerifierProvider(url) {
   return new JsonRpcProvider(url, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
 }
 
+/** Reuse only a proof for the exact canonical block and configured deployment.
+ * Per-intent registration, values, nonce, fees and balance remain fresh in
+ * verifyProductIntent, including its final block-hash and chain-ID check. */
+export function createPinnedSigningGraphVerifier(graphVerifier, trustedProduct, now = Date.now) {
+  if (!trustedProduct) return graphVerifier;
+  const digests = [trustedProduct.record?.artifactDigest, trustedProduct.integratedUpgrade?.digest]
+    .filter(value => HASH.test(value ?? '')).map(value => value.toLowerCase()).sort();
+  if (!digests.length) fail(503, 'Trusted product deployment digest is unavailable.');
+  const cache = new Map(), proofs = new Map();
+  return async (provider, factory, block) => {
+    if (!Number.isSafeInteger(block?.number) || !HASH.test(block?.hash ?? ''))
+      fail(503, 'Product block is unavailable.');
+    const factoryId = identity(factory), blockHash = block.hash.toLowerCase();
+    const key = `${factoryId}:${block.number}:${blockHash}:${digests.join(':')}`;
+    const assertPinned = async () => {
+      const current = await provider.getBlock(block.number);
+      if (current?.hash?.toLowerCase() !== blockHash)
+        fail(409, 'Chain changed during product graph verification.');
+    };
+    const cached = cache.get(key);
+    if (cached && cached.expires > now()) {
+      await assertPinned();
+      return cached.graph;
+    }
+    if (cached) cache.delete(key);
+    let proof = proofs.get(key);
+    if (!proof) {
+      proof = (async () => {
+        const graph = await graphVerifier(provider, factory, block);
+        if (!graph || identity(graph.factory) !== factoryId || graph.blockNumber !== block.number
+          || !digests.includes(graph.artifactDigest?.toLowerCase()))
+          fail(503, 'Reviewed product graph identity changed.');
+        await assertPinned();
+        cache.set(key, { graph, expires:now() + SIGNING_GRAPH_CACHE_MS });
+        if (cache.size > 64) {
+          for (const [item, entry] of cache) if (entry.expires <= now()) cache.delete(item);
+          if (cache.size > 64) cache.delete(cache.keys().next().value);
+        }
+        return graph;
+      })();
+      proofs.set(key, proof);
+      proof.finally(() => { if (proofs.get(key) === proof) proofs.delete(key); }).catch(() => {});
+    }
+    return proof;
+  };
+}
+
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productArtifactBundlePath, productGraphVerifier, legacyFactory,
@@ -778,6 +826,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest});
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
+  const signingGraphVerifier = createPinnedSigningGraphVerifier(graphVerifier, trustedProduct, now);
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
   const inFlight = new Set();
   const officialCache = new Map(), officialScans = new Map();
@@ -1335,7 +1384,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           fail(400,'A new unsigned product intent is required.');
         const current=store.market(account);
         if (current.record || current.revision!==revision) fail(409,'Market revision changed.');
-        await verifyProductIntent(provider,record,productFactories,graphVerifier,{legacyFactory});
+        await verifyProductIntent(provider,record,productFactories,signingGraphVerifier,{legacyFactory});
         const next=store.prepareAndArmMarket(account,record,revision), hex=value=>`0x${BigInt(value).toString(16)}`;
         return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
           nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),gasPrice:hex(record.gasPrice),type:'0x0'}});
@@ -1345,7 +1394,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (!current.record || current.record.version !== 2 || current.revision !== revision) fail(409,'Product revision changed.');
         if (current.record.hash || current.record.recoveryHashes?.length || current.record.cancellationRequests?.length)
           fail(409,'Product transaction already has a send or recovery history.');
-        await verifyProductIntent(provider,current.record,productFactories,graphVerifier,{ legacyFactory });
+        await verifyProductIntent(provider,current.record,productFactories,signingGraphVerifier,{ legacyFactory });
         const record=current.record, hex=value=>`0x${BigInt(value).toString(16)}`;
         const next=store.armMarket(account,revision);
         return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
@@ -1370,7 +1419,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (!current.record && productMode && record.version === 1 && !record.hash && !record.recoveryHashes?.length)
           fail(409, '旧市场入口已停止新签名，请从 BEMine 产品页面操作；已有交易可继续补录哈希恢复。');
         // Recovery writes must work even if the allowlist changes or the RPC is down.
-        if (!current.record && record.version === 2) await verifyProductIntent(provider, record, productFactories, graphVerifier,{ legacyFactory });
+        if (!current.record && record.version === 2) await verifyProductIntent(provider, record, productFactories, signingGraphVerifier,{ legacyFactory });
         return send(200, { revision: store.putMarket(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'DELETE' && path === '/api/journal/market') {

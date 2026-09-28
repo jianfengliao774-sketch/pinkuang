@@ -5,7 +5,7 @@
 ## 信任锚与预演
 
 - 旧部署记录：服务器私有 `trusted-product-deployment.json` 的已完成 journal。旧产物由部署时的仓库提交 `697f2e337c67a4fc4615737c07ee6d8cc116c177` 导出，其摘要为 `0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7`。`web/public/data/frontend-manifest.json` 是独立发布的旧地址、代码哈希和初始化交易信任锚。不能仅信任用户上传的 journal。
-- 新产物：`deploy/public/deployment-artifacts.json`，摘要 `0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c`。部署页面构建时固定该摘要；对十个替换合约依次核验链接后的 creation/runtime、immutable、链 ID 和已终结区块。两个 ShareMarket 实例都切到同一新实现。
+- 新产物：`deploy/public/deployment-artifacts.json`，摘要 `0x328f8f9323c925551bddae687601594b76d073c96bf5946e3bf142516dfacc99`。部署页面构建时固定该摘要；对十个替换合约依次核验链接后的 creation/runtime、immutable、链 ID 和已终结区块。两个 ShareMarket 实例都切到同一新实现。
 - 存储布局：运行 `node scripts/validate-integrated-storage.mjs --output docs/storage/Integrated-v2-upgrade-evidence.json`。它对正式已部署提交 `8c5598cf44fe8fb6174969eba12b3baa13f7942b` 的五种可升级目标（PoolFactory、PoolVault、ShareMarket、BudgetPortfolioFactory、BudgetPortfolioVault）做 OpenZeppelin 布局兼容检查。旧基线在 `docs/storage/Integrated-v2-deployed-*.json`，新编译使用 solc 0.8.24、Shanghai、optimizer runs 1。五种布局均需通过。
 - 已在非零池真实 BSC 状态的本地 Anvil fork 演练；命令见下文。此演练不代表主网交易已发生。正式签名前仍须重做链上预检、核对旧池/订单与角色、使用硬件钱包。
 
@@ -33,7 +33,7 @@
 
 Gas relay 的私有命令文件还必须携带 `expectedCodehash`，取自部署页已核验的 Authority 运行时代码哈希；发送模式会先比对链上 runtime，缺失或不符一律拒绝。这与 artifact 摘要不同：后者固定编译产物，前者包含构造参数写入的 immutable 地址。服务端仍须核验订单/报价和 maxCost，并等待管理员签名；不可由 Gas 钱包自拟签名参数。
 
-预算份额挂单后，卖家仍可自行领取先前累积的 BEM。份额成交仅随份额转移**成交时尚未领取**的奖励；报价页面不得把挂单时的 claimable BEM 当作买家保底收益。当前 UI 已明确披露这一点；若未来承诺最低随份额奖励，需另加买方指定的链上 reward floor 并停用无保护成交入口。
+预算份额挂单会锁定卖家的相应份额；只要该钱包仍有锁定份额，`claimBem` 就拒绝领取。挂单前尚未领取的 BEM 会在成交时按份额转给买家，卖家可在订单取消、到期解锁或完全成交后领取其剩余权益。前端仍不得把挂单时的 `claimableBem` 当作成交时的固定收益，因为新挖矿收入和其他份额转让会改变该值；交易预览需重新读取链上状态。
 
 已知剩余风险：活动矿池的份额转移、整机出售交割，以及活动旧池 treasury 迁移均要求先严格结清矿池收益。若上游 Mining 的 `pending` 为正而 `claim` 持续失败，这些操作会一直回滚。不能简单跳过 claim，否则旧持有人应得但未领取的 BEM 可能随份额/矿机交给新持有人。现有 PoolVault 运行时 24,304 字节，距 EIP-170 上限仅 272 字节，尚无经审计的旧收益债权快照/逃生机制。本升级只证明**正常 claim 路径**和本地 fork 当前状态，不能宣称永久冻结风险已消除；出现上述链上状态时须保持建池暂停并进行单独设计与升级。
 

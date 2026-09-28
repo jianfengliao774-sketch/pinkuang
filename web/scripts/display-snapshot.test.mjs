@@ -30,3 +30,16 @@ test('section snapshots stay separate for each account and reject unverified dat
   assert.equal(readDisplaySnapshot(cache, manifest, accountB, { now: 2000 }), null);
   assert.equal(writeDisplaySnapshot(cache, manifest, accountB, { ...first, source: { ...source, complete: false } }), false);
 });
+
+test('display-only server snapshots retain stale markers and expire from the original verification time', () => {
+  const cache = storage();
+  const checkedAt = new Date(1000).toISOString();
+  const result = { source: { ...source, readMode: 'verified_snapshot', stale: true,
+    refreshing: true, transactionReady: false, checkedAt }, items: [] };
+  assert.equal(writeDisplaySnapshot(cache, manifest, 'historical', result, { now: 1000 }), true);
+  assert.deepEqual(readDisplaySnapshot(cache, manifest, 'historical', { now: 30 * 60_000 }), result);
+  assert.equal(readDisplaySnapshot(cache, manifest, 'historical', { now: 30 * 60_000 + 1001 }), null);
+  assert.equal(writeDisplaySnapshot(cache, manifest, 'unmarked', {
+    ...result, source: { ...result.source, transactionReady: true },
+  }, { now: 1000 }), false);
+});

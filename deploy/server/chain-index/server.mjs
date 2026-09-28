@@ -52,6 +52,19 @@ function readProvider(rpc, timeout = 12_000) {
   });
 }
 
+export function chainIndexFailureMessage(index, error) {
+  const code = typeof error?.code === 'string' && /^[A-Z_]{2,30}$/.test(error.code) ? error.code : 'unknown';
+  const rpcCodeValue = error?.error?.code ?? error?.info?.error?.code;
+  const rpcCode = Number.isSafeInteger(rpcCodeValue) ? rpcCodeValue : 'unknown';
+  const httpStatusValue = error?.statusCode ?? error?.info?.response?.statusCode ?? error?.info?.response?.status;
+  const httpStatus = Number.isInteger(httpStatusValue) && httpStatusValue >= 100 && httpStatusValue <= 599
+    ? httpStatusValue : 'unknown';
+  const method = ['eth_chainId', 'eth_call', 'eth_getBlockByNumber', 'eth_getCode', 'eth_getLogs'].includes(error?.rpcMethod)
+    ? error.rpcMethod : 'unknown';
+  const type = typeof error?.name === 'string' && /^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'unknown';
+  return `Chain index unavailable: ${index.status().unknownReason}; stage=${index.lastFailureStage ?? 'unknown'}; method=${method}; type=${type}; code=${code}; rpcCode=${rpcCode}; httpStatus=${httpStatus}`;
+}
+
 export async function startChainIndex(config) {
   const logsTimeoutMs = logsTimeout(config.logsTimeoutMs);
   const primary = readProvider(config.rpc);
@@ -62,6 +75,17 @@ export async function startChainIndex(config) {
   const fallbackLogs = config.fallbackLogsRpc ? readProvider(config.fallbackLogsRpc, logsTimeoutMs) : null;
   const providers = [...new Set([primary, logs, fallbackLogs].filter(Boolean))];
   let verifiedTips = new Map();
+  async function observedRead(method, operation) {
+    try { return await operation(); }
+    catch (error) {
+      // Preserve the original error for the sync loop, but expose only this
+      // fixed method name in diagnostics. Provider messages may contain URLs.
+      if (error && typeof error === 'object') {
+        try { error.rpcMethod ??= method; } catch { /* immutable upstream error */ }
+      }
+      throw error;
+    }
+  }
   async function checkedLogs(source, filter) {
     if (source !== primary) {
       const key = `${source === logs ? 'primary' : 'fallback'}:${filter.toBlock}`;
@@ -78,7 +102,7 @@ export async function startChainIndex(config) {
     return source.getLogs(filter);
   }
   const provider = Object.freeze({
-    send: async (method, params) => {
+    send: (method, params) => observedRead(method === 'eth_chainId' ? method : 'other', async () => {
       if (method === 'eth_chainId') {
         verifiedTips = new Map();
         const ids = await Promise.all(providers.map(source => source.send(method, params)));
@@ -87,17 +111,17 @@ export async function startChainIndex(config) {
         return ids[0];
       }
       return primary.send(method, params);
-    },
-    call: primary.call.bind(primary),
-    getBlock: primary.getBlock.bind(primary),
-    getCode: primary.getCode.bind(primary),
-    getLogs: async filter => {
+    }),
+    call: (...args) => observedRead('eth_call', () => primary.call(...args)),
+    getBlock: (...args) => observedRead('eth_getBlockByNumber', () => primary.getBlock(...args)),
+    getCode: (...args) => observedRead('eth_getCode', () => primary.getCode(...args)),
+    getLogs: filter => observedRead('eth_getLogs', async () => {
       try { return await checkedLogs(logs, filter); }
       catch (error) {
         if (!fallbackLogs) throw error;
         return checkedLogs(fallbackLogs, filter);
       }
-    },
+    }),
   });
   let index;
   let server;
@@ -127,9 +151,7 @@ export async function startChainIndex(config) {
     try { await index.sync(); consecutiveFailures = 0; }
     catch (error) {
       consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
-      const code = typeof error?.code === 'string' && /^[A-Z_]{2,30}$/.test(error.code) ? error.code : 'unknown';
-      const rpcCode = Number.isSafeInteger(error?.error?.code) ? error.error.code : 'unknown';
-      console.error(`Chain index unavailable: ${index.status().unknownReason}; stage=${index.lastFailureStage ?? 'unknown'}; code=${code}; rpcCode=${rpcCode}`);
+      console.error(chainIndexFailureMessage(index, error));
     }
     const delay = consecutiveFailures ? Math.min(60_000, 4_000 * 2 ** (consecutiveFailures - 1))
       : index.status().complete ? 10_000 : 1_000;

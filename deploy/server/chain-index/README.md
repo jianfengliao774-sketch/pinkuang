@@ -21,7 +21,7 @@ npm run start:chain-index
 
 私有故障诊断应只记录固定角色（primary/logs）、方法白名单、数字区块范围、耗时、受限错误码（如 TIMEOUT/SERVER_ERROR、数字JSON-RPC码）和HTTP状态码；不要记录RPC URL、请求/响应body、headers、错误message或堆栈。对外 `/health` 继续只报告 `sync_failed` 等既有有限原因，不把失败当空列表或沿用未验收快照。
 
-每个响应的 `source` 含固定合约身份、已索引区块号/哈希/时间、安全头和 `complete`。追赶、RPC 错误、重组或身份不匹配时，除 `/health` 外返回 HTTP 503，`data:null`。金额、NFT 编号、订单编号都是十进制字符串；时间戳为秒。分页上限 50。
+每个响应的 `source` 含固定合约身份、已索引区块号/哈希/时间、安全头和 `complete`。正常同步开始时保留上一轮成功状态；发现更高安全头后，未追平的实时读返回 HTTP 503。`/v1/pools`、`/v1/portfolios`、`/v1/stats`、`/v1/orders` 可在同步或 RPC 故障时返回最近 30 分钟内的已验证展示快照，`source.readMode=verified_snapshot`、`source.stale=true`，并以 `source.refreshing` 标示当前是否正在同步；缺少对应完整快照仍为 503。快照的 `complete=true` 只说明其历史固定块曾完整核验，所有快照都标 `transactionReady=false`，不能作为交易授权。其他读接口及签名前核验保持新鲜度门禁。短暂的 RPC 安全头回退报告 `rpc_lagging`，不会仅凭低高度删除已提交历史。金额、NFT 编号、订单编号都是十进制字符串；时间戳为秒。分页上限 50。
 
 | 接口 | 数据范围 |
 | --- | --- |

@@ -347,6 +347,8 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal(body.data.items[0].address, pool);
     const saved = await (await fetch(`${url}/v1/snapshot/pools?limit=1`)).json();
     assert.equal(saved.source.readMode, 'verified_snapshot');
+    assert.equal(saved.source.stale, true);
+    assert.equal(saved.source.transactionReady, false);
     assert.equal(saved.data.items[0].address, pool);
     assert.equal(saved.data.registeredPoolCount, '1');
     assert.equal(saved.data.childPoolCount, '0');
@@ -374,7 +376,7 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
   }
 });
 
-test('HTTP waits briefly for an active sync but still fails closed on timeout or RPC failure', async () => {
+test('HTTP serves a verified display snapshot during refresh and fails closed for other reads', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-wait-'));
   const chain = new MockChain(); fixture(chain);
   const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market, startBlock: 1, confirmations: 2 });
@@ -388,20 +390,33 @@ test('HTTP waits briefly for an active sync but still fails closed on timeout or
     const gate = new Promise(resolve => { release = resolve; });
     chain.send = async (...args) => { await gate; return originalSend(...args); };
     const syncing = index.sync();
-    assert.equal(index.status().complete, false);
+    assert.equal(index.status().complete, true, 'the previously verified tip remains readable before the new head is observed');
     const pending = fetch(url);
-    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal((await pending).status, 200);
     release();
     await syncing;
-    const response = await pending;
-    assert.equal(response.status, 200);
-    assert.equal((await response.json()).source.complete, true);
 
+    // Advance the observed safe head, then pause the new verification. The
+    // mutable index must not be served as though it already covered that head.
+    const originalBlock = chain.getBlock.bind(chain), originalCall = chain.call.bind(chain);
+    chain.getBlock = number => number === 'latest'
+      ? Promise.resolve({ number: 9, hash: hex(1009), parentHash: chain.blocks.get(8).hash, timestamp: 1_700_000_027 })
+      : originalBlock(number);
+    chain.call = input => originalCall({ ...input, blockTag: input.blockTag === 7 ? 6 : input.blockTag });
     let releaseSlow;
     const slow = new Promise(resolve => { releaseSlow = resolve; });
     chain.send = async (...args) => { await slow; return originalSend(...args); };
     const delayed = index.sync();
-    assert.equal((await fetch(url)).status, 503);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(index.status().complete, false);
+    const displayed = await (await fetch(url)).json();
+    assert.equal(displayed.source.readMode, 'verified_snapshot');
+    assert.equal(displayed.source.refreshing, true);
+    assert.equal(displayed.source.transactionReady, false);
+    assert.equal(displayed.source.indexedThrough, 6);
+    assert.equal(displayed.data.items[0].address, pool);
+    assert.equal((await fetch(url.replace('/v1/pools', '/v1/activity'))).status, 503);
+    assert.equal((await fetch(`${url}?limit=51`)).status, 400);
     const duringSync = await (await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).json();
     assert.equal(duringSync.source.indexedBlockHash, chain.blocks.get(6).hash);
     assert.equal(duringSync.data.items[0].address, pool);
@@ -409,16 +424,33 @@ test('HTTP waits briefly for an active sync but still fails closed on timeout or
 
     chain.send = async () => { throw new Error('upstream failure'); };
     const failed = assert.rejects(index.sync());
-    const failedResponse = await fetch(url);
     await failed;
-    assert.equal(failedResponse.status, 503);
-    assert.equal((await failedResponse.json()).source.unknownReason, 'sync_failed');
+    assert.equal(index.status().unknownReason, 'sync_failed');
+    assert.equal((await fetch(url)).status, 200);
+    assert.equal((await fetch(url.replace('/v1/pools', '/v1/activity'))).status, 503);
     assert.equal((await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).status, 200);
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('a lagging latest RPC cannot roll back a verified index tip', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-lagging-'));
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market, startBlock: 1, confirmations: 2 });
+  try {
+    await index.sync();
+    const originalBlock = chain.getBlock.bind(chain);
+    chain.getBlock = number => number === 'latest' ? originalBlock(7) : originalBlock(number);
+    await assert.rejects(index.sync(), /safe head regressed/);
+    assert.equal(index.indexedThrough, 6);
+    assert.equal(index.status().unknownReason, 'rpc_lagging');
+    assert.equal(index.verifiedDisplaySnapshot().source.indexedThrough, 6);
+    chain.getBlock = originalBlock;
+    assert.equal((await index.sync()).complete, true);
+  } finally { index.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('listener startup fails cleanly when the port is occupied', async () => {

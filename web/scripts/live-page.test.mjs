@@ -42,6 +42,10 @@ test('each page starts only its catalog and never waits for unrelated sections',
   assert.equal(f.calls.length, count);
   await readPageRound(f.client, { route: 'market' });
   assert.equal(f.calls.at(-1).options.account, ZeroAddress);
+  const marketCalls = f.calls.length;
+  for (const marketTab of ['shares', 'mine'])
+    assert.deepEqual(await readPageRound(f.client, { route: 'market', marketTab, account }), { catalog: null });
+  assert.equal(f.calls.length, marketCalls);
   await readPageRound(f.client, { route: 'governance' });
   assert.equal(f.calls.at(-1).options.account, ZeroAddress);
 });
@@ -70,6 +74,14 @@ test('a page accepts its own valid source and rejects incomplete or malformed da
   const newer = { ...source, indexedThrough: 11, observedSafeHead: 11 };
   const f = fixture(async () => ({ source: newer, items: [] }));
   assert.equal((await readPageRound(f.client, { route: 'market', account })).catalog.source.indexedThrough, 11);
+  const display = { ...source, readMode: 'verified_snapshot', stale: true, refreshing: true, transactionReady: false };
+  const stale = fixture(async () => ({ source: display, items: [] }));
+  assert.equal((await readPageRound(stale.client, { route: 'pools' })).catalog.source.transactionReady, false);
+  for (const bad of [{ ...display, stale: false }, { ...display, transactionReady: true },
+    { ...source, stale: true }, { ...source, transactionReady: false }]) {
+    const malformed = fixture(async () => ({ source: bad, items: [] }));
+    await assert.rejects(readPageRound(malformed.client, { route: 'pools' }), { code: 'index_stale' });
+  }
 });
 
 test('catalog failure cannot become a successful empty list', async () => {

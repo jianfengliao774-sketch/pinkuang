@@ -8,8 +8,15 @@ const pageInt = (value, label, fallback, max = 50) => {
   return number;
 };
 
+const displaySnapshots = Object.freeze({
+  '/v1/pools': '/v1/snapshot/pools',
+  '/v1/portfolios': '/v1/snapshot/portfolios',
+  '/v1/stats': '/v1/snapshot/stats',
+  '/v1/orders': '/v1/snapshot/orders',
+});
+
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
-export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
+export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -27,15 +34,22 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
     catch { return send(400, { error: 'Invalid URL.' }); }
     let source = index.status();
     if (url.pathname === '/health') return send(200, { source });
-    if (['/v1/snapshot/pools', '/v1/snapshot/portfolios', '/v1/snapshot/stats', '/v1/snapshot/orders'].includes(url.pathname)) {
+    // Display-only reads can use a previously completed, canonical snapshot
+    // while the next sync runs or an RPC is unavailable. Transaction paths
+    // continue to require a fresh graph and finalized on-chain checks.
+    const snapshotPath = url.pathname.startsWith('/v1/snapshot/') ? url.pathname
+      : !source.complete ? displaySnapshots[url.pathname] : undefined;
+    if (snapshotPath && Object.values(displaySnapshots).includes(snapshotPath)) {
       const snapshot = index.verifiedDisplaySnapshot();
       if (!snapshot) return send(503, { source, data: null, error: 'No recent canonical verified display snapshot.' });
+      const snapshotSource = { ...snapshot.source, stale: true, refreshing: index.syncing,
+        transactionReady: false };
       try {
-        if (url.pathname.endsWith('/stats')) {
+        if (snapshotPath.endsWith('/stats')) {
           if (!snapshot.stats) return send(503, { source, data: null, error: 'Verified statistics snapshot is unavailable.' });
-          return send(200, { source: snapshot.source, data: snapshot.stats });
+          return send(200, { source: snapshotSource, data: snapshot.stats });
         }
-        if (url.pathname.endsWith('/orders')) {
+        if (snapshotPath.endsWith('/orders')) {
           if (!snapshot.orders) return send(503, { source: snapshot.source, data: null, error: 'Verified order snapshot is unavailable.' });
           const pool = url.searchParams.get('pool'), seller = url.searchParams.get('seller');
           if ([pool, seller].some(value => value !== null && !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new Error('Invalid address filter.');
@@ -48,21 +62,21 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
             && (active === null || order.openAtSourceBlock === (active === 'true'))
             && (cursor === null || BigInt(order.orderId) < BigInt(cursor)));
           const items = filtered.slice(0, limit);
-          return send(200, { source: snapshot.source, data: { items,
+          return send(200, { source: snapshotSource, data: { items,
             nextCursor: filtered.length > limit ? items.at(-1).orderId : null } });
         }
         const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
         const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
-        const portfolio = url.pathname.endsWith('/portfolios');
+        const portfolio = snapshotPath.endsWith('/portfolios');
         const directory = portfolio ? snapshot.portfolios : snapshot.pools;
         if (!directory) return send(503, { source: snapshot.source, data: null, error: 'Verified directory snapshot is unavailable.' });
         const items = directory.slice(cursor, cursor + limit);
-        return send(200, { source: snapshot.source,
+        return send(200, { source: snapshotSource,
           data: { items, nextCursor: cursor + limit < directory.length ? cursor + limit : null,
             registeredPoolCount: snapshot.source.registeredPoolCount,
             childPoolCount: snapshot.source.childPoolCount,
             standalonePoolCount: snapshot.source.standalonePoolCount } });
-      } catch { return send(400, { source: snapshot.source, error: 'Invalid snapshot query.' }); }
+      } catch { return send(400, { source: snapshotSource, error: 'Invalid snapshot query.' }); }
     }
     // A normal sync makes the snapshot temporarily incomplete. Let that cycle
     // finish briefly. Once a saved verified snapshot exists, return promptly

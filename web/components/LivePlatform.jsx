@@ -249,6 +249,7 @@ export default function LivePlatform() {
   const [activityReadError, setActivityReadError] = useState("");
   const [activityReadSource, setActivityReadSource] = useState(null);
   const [statsReadError, setStatsReadError] = useState("");
+  const [statsSource, setStatsSource] = useState(null);
   const [notificationClaim, setNotificationClaim] = useState(null);
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
   const [cachedPage, setCachedPage] = useState(false);
@@ -559,12 +560,14 @@ export default function LivePlatform() {
     const revision = ++epoch.current;
     const current = () => !cancelled && revision === epoch.current;
     const accountKey = account?.toLowerCase() || '';
-    const pageKey = JSON.stringify([route.route, route.pool?.toLowerCase() || '', accountKey]);
+    const pageKey = JSON.stringify([route.route, route.pool?.toLowerCase() || '', accountKey,
+      route.route === 'market' ? marketTab : '']);
     const cache = pageCache.current.get(client);
     const saved = cache?.get(pageKey);
     const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
     const persisted = recent(saved) ? null : readDisplaySnapshot(displayStorage(), client.manifest, pageKey);
-    const needsCatalog = ['home', 'pools', 'market'].includes(route.route) || (route.route === 'governance' && !account);
+    const needsCatalog = ['home', 'pools'].includes(route.route)
+      || route.route === 'market' && marketTab === 'whole' || (route.route === 'governance' && !account);
     const shared = needsCatalog && !recent(saved) && !persisted
       ? [...(cache?.values() || [])].reverse().find(entry => recent(entry) && entry.account === accountKey && entry.result.catalog)
       : null;
@@ -603,7 +606,7 @@ export default function LivePlatform() {
       if (cached) showResult(cached);
     };
     async function load() {
-      return readPageRound(client, { route, account });
+      return readPageRound(client, { route, account, marketTab });
     }
     retryReadRound(load, { isCurrent: current, onAttempt: clearRound,
       onRetry: progress => { if (current()) setReadRetry(progress); } })
@@ -641,7 +644,7 @@ export default function LivePlatform() {
       cancelled = true;
       epoch.current++;
     };
-  }, [client, account, route.route, route.pool, refresh]);
+  }, [client, account, route.route, route.pool, marketTab, refresh]);
 
   useEffect(() => {
     if (!client || !['overview', 'rewards', 'governance', 'market'].includes(route.route)) return;
@@ -779,10 +782,12 @@ export default function LivePlatform() {
     const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
       : readDisplaySnapshot(displayStorage(), client.manifest, 'stats');
     setStats(cached?.data ?? null);
+    setStatsSource(cached?.source ?? null);
     retryReadRound(() => client.readStats(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setStats(result.data);
+        setStatsSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
         entries.set('stats', { savedAt: Date.now(), result });
@@ -831,7 +836,7 @@ export default function LivePlatform() {
     if (loading || !['pools', 'detail', 'overview', 'market'].includes(route.route)) return;
     const rows = route.route === 'detail' ? (detail ? [detail] : [])
       : route.route === 'pools' ? pools
-        : route.route === 'market' ? (marketTab === 'whole' ? pools.filter(row => row.status === 'Listed') : positions)
+        : route.route === 'market' ? (marketTab === 'whole' ? pools.filter(row => row.status === 'Listed') : [])
           : positions;
     if (!rows.length) return;
     const provider = createReadOnlyHttpProvider(config);
@@ -846,7 +851,12 @@ export default function LivePlatform() {
         if (previous?.available && previous.validUntil > Date.now()
           && previous.forPriceWei === row.unitPriceWei.toString()) continue;
         const saved = readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
-        if (saved && !cancelled) setPoolCapacity(previous => ({ ...previous, [key]: saved }));
+        if (saved && !cancelled) {
+          setPoolCapacity(previous => ({ ...previous, [key]: saved }));
+          // A valid identity- and price-bound display quote can be reused until
+          // its stated expiry; page refreshes need not re-spend the shared quota.
+          if (saved.validUntil > Date.now() + 30_000) continue;
+        }
         setPoolCapacity(previous => ({ ...previous, [key]: { ...previous[key], loading: true } }));
         const quote = await readShareDailyCapacityPrice(provider, {
           factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
@@ -1150,6 +1160,7 @@ export default function LivePlatform() {
       try {
         const snapshot = await readPoolSnapshot(wallet, {
           factory: config.factory,
+          lens: config.lens,
           account,
           pools: [deposit.poolAddress],
         });
@@ -1585,11 +1596,11 @@ export default function LivePlatform() {
               </td>
               <td className="num">{displayPreciseAmount(p.unitPriceWei)} BNB</td>
               <td title={currentPoolQuote(p)?.cached
-                ? L('上次核验的展示数据，正在后台更新', 'Previously verified display data; refreshing in the background') : undefined}>{currentPoolQuote(p)
+                ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window') : undefined}>{currentPoolQuote(p)
                 ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
                 : poolQuotePlaceholder(p)}</td>
               <td className="num" title={currentPoolQuote(p)?.cached
-                ? L('上次核验的 Firsto 参考价，正在后台更新；单位：BNB / (BEM/天)', 'Previously verified Firsto reference; refreshing; unit: BNB / (BEM/day)')
+                ? L('此前核验的 Firsto 参考价，仍在有效期内；单位：BNB / (BEM/天)', 'Previously verified Firsto reference, still within its validity window; unit: BNB / (BEM/day)')
                 : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{currentPoolQuote(p)?.marketReferencePriceWei != null
                 ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
                 : poolQuotePlaceholder(p)}</td>
@@ -1702,6 +1713,11 @@ export default function LivePlatform() {
       onConnect={connect} onError={problem => setError(textError(problem))}
       onAction={sendGovernanceAction} /></section>;
   }
+
+  const pageSource = route.route === 'market' && marketTab !== 'whole' ? marketOrderSource : source;
+  const displaySources = route.route === 'home' ? [pageSource, statsSource]
+    : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
+  const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
 
   return (
     <div
@@ -1878,6 +1894,12 @@ export default function LivePlatform() {
           </div>}
           {loading && cachedPage && <div className="live-notice" role="status">
             <RefreshCw size={18}/><span>{L('显示上次核验的数据，正在更新；交易需等待最新核对。', 'Showing previously verified data while refreshing; transactions wait for a fresh check.')}</span>
+          </div>}
+          {historicalSource && <div className="live-notice" role="status">
+            <AlertCircle size={18}/><span>{L(
+              `历史展示快照 · 区块 #${historicalSource.indexedThrough} · 核验于 ${new Date(historicalSource.checkedAt).toLocaleString('zh-CN')}。索引${historicalSource.refreshing ? '正在同步' : '尚未追平'}；列表不代表当前可成交状态，交易预览会重新核对最新链上状态。`,
+              `Historical display snapshot · block #${historicalSource.indexedThrough} · verified ${new Date(historicalSource.checkedAt).toLocaleString('en-GB')}. Index ${historicalSource.refreshing ? 'is syncing' : 'has not caught up'}; listings may have changed. Transaction previews recheck current on-chain state.`,
+            )}</span>
           </div>}
           {error && (
             <div className="live-notice error" role="alert">
@@ -3005,9 +3027,9 @@ export default function LivePlatform() {
               )}
             </span>
             {route.route !== 'notifications' && <span>
-              {source
-                ? L("数据区块", "Data block") +
-                  ` ${source.indexedBlock ?? source.indexedThrough ?? source.blockNumber ?? "—"}`
+              {pageSource
+                ? L(pageSource.stale ? "历史快照区块" : "数据区块", pageSource.stale ? "Historical snapshot block" : "Data block") +
+                  ` ${pageSource.indexedBlock ?? pageSource.indexedThrough ?? pageSource.blockNumber ?? "—"}`
                 : route.route === 'portfolio'
                   ? L('预算项目独立核对', 'Portfolio data verified separately')
                 : boot.status === 'loading' || loading

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c",
+  "artifactDigest": "0x328f8f9323c925551bddae687601594b76d073c96bf5946e3bf142516dfacc99",
   "abis": {
     "PoolFactory": [
       {
@@ -7375,6 +7375,11 @@
       {
         "inputs": [],
         "name": "ReentrancyGuardReentrantCall",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "RewardsLocked",
         "type": "error"
       },
       {

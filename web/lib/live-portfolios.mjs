@@ -244,6 +244,8 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     requireValue(method === 'autoPurchase' || PORTFOLIO_ACTIONS.has(method), '不支持的预算项目操作。');
     row = await readPortfolio(context, target, owner, { includeChildren: false });
     if (action.expectedPool) requireValue(same(target, action.expectedPool), '预算项目已改变。');
+    if (method === 'claimBem') requireValue(row.lockedShares === 0n,
+      '份额挂单仍在锁定；请先撤单或等待成交、到期解锁后再领取 BEM。');
     if (method === 'autoPurchase') {
       requireValue(same(owner, context.operator) && row.state === 1n, '预算项目未募满或当前钱包不是运营钱包。');
       const child = address(action.child);

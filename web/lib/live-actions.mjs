@@ -82,7 +82,7 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   }
 
   async function poolSnapshot(target) {
-    const snapshot = await readPoolSnapshot(provider, { factory, account: from, pools: [target], blockNumber });
+    const snapshot = await readPoolSnapshot(provider, { factory, lens, account: from, pools: [target], blockNumber });
     const row = snapshot.pools[0];
     assert(same(snapshot.lens, lens) && snapshot.blockHash.toLowerCase() === block.hash.toLowerCase() && snapshot.timestamp === timestamp,
       '矿池读取与部署或区块不一致 / Pool deployment or block mismatch.');

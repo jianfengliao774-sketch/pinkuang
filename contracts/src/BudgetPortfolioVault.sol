@@ -111,6 +111,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     error ProposalNotPassed();
     error ProposeCooldown();
     error InsufficientUnlockedShares();
+    error RewardsLocked();
 
     event Deposited(address indexed member, uint8 shares, uint256 amount);
     event ChildPurchased(
@@ -357,6 +358,10 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     }
 
     function claimBem() external nonReentrant returns (uint256 amount) {
+        // A listed share carries its unclaimed BEM to the buyer. Letting the
+        // seller claim while an order is live would let them front-run a fill
+        // and strip that value after the buyer has agreed to the price.
+        if (lockedShares[msg.sender] != 0) revert RewardsLocked();
         amount = rewards.take(msg.sender, balanceOf(msg.sender));
         if (amount == 0) revert NothingToClaim();
         IERC20(BEM).safeTransfer(msg.sender, amount);

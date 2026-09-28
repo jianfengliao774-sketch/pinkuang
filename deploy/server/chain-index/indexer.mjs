@@ -399,17 +399,18 @@ export class ChainIndex {
     this.syncSettled = new Promise(resolve => { resolveSync = resolve; });
     let stage = 'latest_header';
     this.lastScanPhase = null;
-    this.ready = false;
     try {
       const latest = normalizeBlock(await this.provider.getBlock('latest'));
       const safeHead = latest.number - this.confirmations;
       if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
       this.observedSafeHead = safeHead;
+      // A load-balanced RPC can briefly report a shorter latest chain. That
+      // alone is not proof of a reorg and must not erase committed history.
+      // Reconcile by hash once the endpoint can serve the indexed tip again.
+      stage = 'safe_head';
+      if (this.indexedThrough > safeHead) throw new Error('RPC safe head regressed below the indexed tip.');
       stage = 'deployment';
       await this._verifyDeployment(safeHead);
-      // A shorter replacement chain cannot supply our old tip by number. Drop
-      // that tail first, then compare the remaining stored headers normally.
-      if (this.indexedThrough > safeHead) this._rollback(safeHead);
       stage = 'reconcile';
       await this._reconcile();
       const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
@@ -447,7 +448,8 @@ export class ChainIndex {
       // URL with credentials or an upstream response body.
       this.lastError = error instanceof Error && error.message === 'RPC is not BSC mainnet (56).'
         ? 'wrong_chain' : error instanceof Error && error.message.startsWith('Event history is incomplete')
-          ? 'incomplete_history' : 'sync_failed';
+          ? 'incomplete_history' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
+            ? 'rpc_lagging' : 'sync_failed';
       this.checkedAt = new Date().toISOString();
       throw error;
     } finally { this.syncing = false; resolveSync(); this.syncSettled = null; }

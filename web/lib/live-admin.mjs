@@ -178,7 +178,8 @@ export async function prepareAdminAction(input) {
       : checkedPoolCreation({ factory, from, params: normalizedParams, config: flexible, expectedTaskId, expectedReferenceWeight });
     details = { params: normalizedParams, unitPriceWei: targetRaise / 100n };
   } else {
-    const target = addr(pool), snap = await readPoolSnapshot(provider, { factory, account: from, pools: [target], blockNumber: status.blockNumber });
+    const target = addr(pool), snap = await readPoolSnapshot(provider, { factory, lens: configured(config, 'lens'),
+      account: from, pools: [target], blockNumber: status.blockNumber });
     const row = snap.pools[0];
     need(row?.trusted && same(row.pool, target) && same(snap.lens, configured(config, 'lens')) && snap.blockHash === status.blockHash, '矿池身份或读取区块不一致。');
     if (kind === 'autoPurchase' || kind === 'buyFromFirsto') {

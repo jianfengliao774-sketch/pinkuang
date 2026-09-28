@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { abandonPreparedIntent, cancelLiveIntent, liveConfig, sendLiveGovernanceAction, sendLiveMarketAction, sendLivePoolAction } from '../lib/live-client.mjs';
+import { abandonPreparedIntent, cancelLiveIntent, indexPage, liveConfig, sendLiveGovernanceAction, sendLiveMarketAction, sendLivePoolAction } from '../lib/live-client.mjs';
 
 const addr = number => getAddress(`0x${number.toString(16).padStart(40, '0')}`);
 const factory = addr(1), lens = addr(2), pool = addr(3), account = addr(4), collection = addr(5), market = addr(6);

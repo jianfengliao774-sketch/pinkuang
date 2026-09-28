@@ -62,7 +62,8 @@ export default function LiveWorkspace() {
       const chain = BigInt(await wallet.request({ method: 'eth_chainId' }));
       if (chain !== 56n) throw new Error('钱包不在 BSC 主网，请切换到 Chain ID 56 后刷新。');
       for (let offset = 0; offset < addresses.length; offset += 20) {
-        const snapshot = await readPoolSnapshot(wallet, { factory: currentConfig.factory, account: currentAccount ?? ZeroAddress,
+        const snapshot = await readPoolSnapshot(wallet, { factory: currentConfig.factory, lens: currentConfig.lens,
+          account: currentAccount ?? ZeroAddress,
           pools: addresses.slice(offset, offset + 20), blockNumber: readBlock?.number });
         if (getAddress(snapshot.lens) !== getAddress(currentConfig.lens) || readBlock && snapshot.blockHash !== readBlock.hash) {
           throw new Error('合约身份或分页区块发生变化，请重新读取。');
@@ -87,7 +88,7 @@ export default function LiveWorkspace() {
     setCatalog(visibleEntries);
     setRows(snapshotRows);
     setCursor(index.data.nextCursor);
-    setNotice('已从服务器索引和链上刷新。');
+    setNotice(index.source.stale ? '显示此前核验的历史快照；交易仍须重新核对最新链上状态。' : '已从服务器索引和链上刷新。');
   }, [config, account, catalog, rows]);
 
   useEffect(() => {
@@ -228,7 +229,7 @@ export default function LiveWorkspace() {
       {error && <div className="live-alert" role="alert"><CircleAlert size={18}/>{error}</div>}
       {notice && <div className="live-note" role="status"><CheckCircle2 size={17}/>{notice}</div>}
       {!config && <section className="live-empty"><h2>真实服务尚未就绪</h2><p>需要先验收 BSC Factory 部署地址，启动服务器交易记录和事件索引。当前页面不会使用演示地址发送交易。</p></section>}
-      {config && <><section className="live-identities"><div><span>网络</span><strong>BSC 主网 · 56</strong></div><div><span>已验收 Factory</span><strong title={config.factory}>{short(config.factory)}</strong></div><div><span>服务器索引</span><strong>{source?.complete ? `已核至 #${source.indexedThrough}` : '等待完整同步'}</strong></div><div><span>链上读取</span><strong>{block ? `#${block.number}` : '等待钱包提供 RPC'}</strong></div><div><span>当前钱包</span><strong title={account || ''}>{short(account)}</strong></div></section>
+      {config && <><section className="live-identities"><div><span>网络</span><strong>BSC 主网 · 56</strong></div><div><span>已验收 Factory</span><strong title={config.factory}>{short(config.factory)}</strong></div><div><span>服务器索引</span><strong>{source?.stale ? `历史快照 #${source.indexedThrough}` : source?.complete ? `已核至 #${source.indexedThrough}` : '等待完整同步'}</strong></div><div><span>链上读取</span><strong>{block ? `#${block.number}` : '等待钱包提供 RPC'}</strong></div><div><span>当前钱包</span><strong title={account || ''}>{short(account)}</strong></div></section>
         {pending?.active && <section className="live-pending"><div><h2>待确认交易 · nonce {pending.nonce}</h2><p>{pending.action} · {short(pending.pool)} · {pending.status}。{pending.status === 'prepared' ? '服务器已保存准备记录，但尚未允许钱包签名，可直接放弃。' : '结果未知时不会重发；可从钱包复制原交易、加速或取消交易哈希进行核对。'}</p>{pending.hashes.map(hash => <a key={hash} href={`https://bscscan.com/tx/${hash}`} target="_blank" rel="noreferrer">{short(hash)}<ArrowUpRight size={13}/></a>)}<div>{pending.status === 'prepared' ? <><button className="live-cancel" disabled={busy} onClick={abandonPending}>放弃未签名意图</button><small>此状态尚未请求钱包发交易，无需支付 Gas。</small></> : <><button className="live-cancel" disabled={busy} onClick={cancelPending}>用同 nonce 发送 0 BNB 自转取消</button><small>需钱包确认并支付 Gas；只有取消交易最终确认，旧意图才会解除。</small></>}</div></div>{pending.status !== 'prepared' && <div className="live-recovery"><input value={recoveryHash} onChange={event => setRecoveryHash(event.target.value)} placeholder="0x…交易哈希" aria-label="待确认交易哈希"/><button disabled={busy || !/^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim())} onClick={recover}>补录并核对</button></div>}</section>}
         <section className="live-section"><div className="live-section-head"><div><h2>服务器登记的矿池</h2><p>同一 NFT 可能有多个历史池；以 Factory + 池地址识别。未知字段不会显示为零。</p></div><span>{all.length} 个已读取池</span></div>
           {!all.length && <div className="live-empty"><p>{source?.complete ? '当前索引没有矿池。' : '正在等待服务器索引和钱包读取。'}</p></div>}

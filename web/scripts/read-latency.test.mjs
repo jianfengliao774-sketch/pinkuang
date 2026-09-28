@@ -109,6 +109,23 @@ if (process.argv.includes('--benchmark')) {
     assert.equal((await snapshot).pools[0].pool, FIXTURE_POOLS.funding, 'caller mutation cannot change the scheduled read');
   });
 
+  test('a pinned Lens reads the page alongside the Factory binding and still rejects a changed binding', async () => {
+    const measured = measuredProvider({ latency: (_input, meta) => meta.name === 'lens' ? 40 : 0 });
+    const page = await readPoolSnapshot(measured.provider, { factory: config.factory, lens: config.lens,
+      account: FIXTURE_ACCOUNT, pools: [FIXTURE_POOLS.funding] });
+    assert.equal(page.lens, config.lens);
+    const factoryBinding = measured.trace.find(row => row.name === 'lens');
+    const positions = measured.trace.find(row => row.name === 'positions');
+    assert(positions.started < factoryBinding.finished, 'Lens page must overlap the live Factory binding');
+    assert.equal(measured.active, 0);
+
+    const changed = measuredProvider({ intercept: async (_input, meta, original) => meta.name === 'lens'
+      ? abi.PoolFactory.encodeFunctionResult('lens', [FIXTURE_POOLS.active]) : original() });
+    await assert.rejects(readPoolSnapshot(changed.provider, { factory: config.factory, lens: config.lens,
+      account: FIXTURE_ACCOUNT, pools: [FIXTURE_POOLS.funding] }), /Configured Lens differs/);
+    assert.equal(changed.active, 0);
+  });
+
   test('initial RPC failure drains the parallel block request and never starts contract reads', async () => {
     const failure = new Error('chain RPC failed');
     const measured = measuredProvider({ latency: (_input, meta) => meta.name === 'eth_getBlockByNumber' ? 40 : 0,
