@@ -182,6 +182,18 @@ test('new project signing refuses a legacy/incomplete registry and a machine alr
   }
 });
 
+test('genesis product graph rejects the candidate-only budget child selector before reserving a nonce',async()=>{
+  const p=proof(),allow=new Set([factory.toLowerCase()]);
+  const params=[addr(4),1,1000,1000,addr(0),0,2000,3000];
+  const record=intent('createBudgetChildPool',[params,addr(99)],'0','factory');
+  await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({
+    factory,artifactDigest:hash(1),productKind:'pool',
+  })),/verified upgraded Factory/);
+  await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({
+    factory,artifactDigest:hash(2),productKind:'pool',securityUpgrade:{operationId:hash(3)},
+  })),/Budget child subscriber is not a registered project/);
+});
+
 test('cutover is checked before journal persistence and again before a creation signing permission',async()=>{
   const params=[addr(4),1,1000,1000,addr(0),0,2000,3000],record=intent('createPool',[params],'0','factory');
   const f=await fixture({record,legacyFactory:addr(10)});

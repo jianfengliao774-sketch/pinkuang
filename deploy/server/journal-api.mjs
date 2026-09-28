@@ -21,6 +21,7 @@ const SESSION_MS = 12 * 60 * 60_000;
 const TOKEN_COOKIE = 'pinkuang_journal';
 const OFFICIAL_CACHE_MS = 5_000;
 const OFFICIAL_GRAPH_CACHE_MS = 5_000;
+const PRODUCT_GRAPH_SNAPSHOT_MS = 20_000;
 const OFFICIAL_SCAN_MS = 60_000;
 const OFFICIAL_RPC_TIMEOUT_MS = 9_000;
 const MAX_OFFICIAL_SCANS = 2;
@@ -71,6 +72,9 @@ export const PRODUCT_FACTORY_ABI = new Interface([
 const MINING_ABI = new Interface(['function arm(address circuits,uint256 circuitId)','function reclaim(bytes32 key)']);
 const MACHINE_REGISTRY_ABI = new Interface(['function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
   'function machinePool(address,uint256) view returns(address)']);
+const TIMELOCK_EXECUTION_ABI = new Interface([
+  'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
+]);
 const IDENTITY_ABI = new Interface([
   'function operator() view returns(address)',
 
@@ -267,6 +271,11 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     const tag = `0x${block.number.toString(16)}`;
     if (typeof graphVerifier !== 'function') fail(503, 'Trusted product graph verifier is unavailable.');
     const graph = await graphVerifier(provider, record.factory, block);
+    // This selector does not exist on the independently pinned genesis Factory.
+    // A stale page must not reserve a nonce for candidate-only calldata before
+    // the reviewed upgrade has actually become the verified chain graph.
+    if (decoded.name === 'createBudgetChildPool' && !graph?.securityUpgrade)
+      fail(409, 'Budget child creation requires the verified upgraded Factory.');
     await verifyCreationCutover(provider, record, decoded, block, legacyFactory, fail);
     const call = async (to, method, args = []) => IDENTITY_ABI.decodeFunctionResult(method,
       await provider.send('eth_call', [{ to, data: IDENTITY_ABI.encodeFunctionData(method, args) }, tag]))[0];
@@ -736,10 +745,12 @@ export function createProductVerifierProvider(url) {
 
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
-  productDeploymentRecord, productArtifactBundle, productGraphVerifier, legacyFactory,
+  productDeploymentRecord, productArtifactBundle, productArtifactBundlePath, productGraphVerifier, legacyFactory,
   officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch, budgetCandidateDiscovery = readBudgetCandidates,
   officialScanTimeoutMs = OFFICIAL_SCAN_MS, now = Date.now, notificationService,
-  genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle } = {}) {
+  genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle,
+  integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
+  integratedUpgradeArtifact, genesisManifestPath, genesisManifest } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -753,6 +764,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   legacyFactory = legacyFactoryConfiguration(legacyFactory);
   const store = new JournalStore(dbPath);
   const allowChallenge = createRequestLimiter({ perClient: 120 });
+  const allowPublicGraph = createRequestLimiter({ windowMs: 10_000, perClient: 4 });
   const allowQuote = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 40 });
   const allowArchive = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 300 });
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
@@ -761,14 +773,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
   const trustedProduct = productGraphConfiguration({recordPath:productDeploymentRecordPath,record:productDeploymentRecord,
-    bundle:productArtifactBundle,bundlePath:new URL('../dist/deployment-artifacts.json',import.meta.url),
-    genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle});
+    bundle:productArtifactBundle,bundlePath:productArtifactBundlePath ?? new URL('../dist/deployment-artifacts.json',import.meta.url),
+    genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle,
+    integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
+    integratedUpgradeArtifact,genesisManifestPath,genesisManifest});
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
   const inFlight = new Set();
   const officialCache = new Map(), officialScans = new Map();
   const publicDiscoveryJobs = new Map();
   const officialGraphCache = new Map(), officialGraphProofs = new Map();
+  const activationBlocks = new Map();
+  let lastVerifiedProductGraphSnapshot = null;
   let officialTokens = OFFICIAL_REQUEST_BURST, officialRefillAt = now(), activeOfficialScans = 0;
   let activeOfficialGraphProofs = 0, officialGraphTokens = OFFICIAL_GRAPH_PROOF_BURST;
   let officialGraphRefillAt = now();
@@ -830,7 +846,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const verified = await graphVerifier(officialProvider, factory, block);
         if (!verified || identity(verified.factory) !== identity(factory) || verified.blockNumber !== block.number ||
           !HASH.test(verified.artifactDigest ?? '') ||
-          trustedProduct && verified.artifactDigest.toLowerCase() !== trustedProduct.record.artifactDigest.toLowerCase())
+          trustedProduct && ![trustedProduct.record.artifactDigest,
+            trustedProduct.integratedUpgrade?.digest].filter(Boolean).some(value =>
+            verified.artifactDigest.toLowerCase() === value.toLowerCase()))
           fail(503, 'Reviewed product graph identity changed.');
         await pinnedOfficialBlock(block.number, hash);
         officialGraphCache.set(key, { verified, expires: now() + OFFICIAL_GRAPH_CACHE_MS });
@@ -847,6 +865,54 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       }).catch(() => {});
     }
     return proof;
+  }
+
+  /** The operator-owned execute hash identifies the exact stage boundary.
+   * Historical eth_call is intentionally avoided: non-archive BSC RPCs may
+   * discard old state even while transaction receipts remain available. */
+  async function verifiedCodeActivation(operationId, finalized, deploymentBlock) {
+    const hash=trustedProduct.integratedUpgrade?.codeExecuteTxHash;
+    if (!HASH.test(hash ?? '')) fail(503,'Reviewed upgrade execution hash has not been installed.');
+    const plan=trustedProduct.integratedUpgrade.plan;
+    const cached=activationBlocks.get(hash);
+    if (cached && cached.number <= finalized.number) {
+      const again=await officialProvider.getBlock(cached.number);
+      if (again?.hash?.toLowerCase()===cached.hash.toLowerCase()) return cached;
+      activationBlocks.delete(hash);
+    }
+    const [tx,receipt]=await Promise.all([
+      officialProvider.getTransaction(hash),officialProvider.getTransactionReceipt(hash),
+    ]);
+    if (!tx || !receipt || tx.hash?.toLowerCase()!==hash.toLowerCase()
+      || (receipt.hash ?? receipt.transactionHash)?.toLowerCase()!==hash.toLowerCase()
+      || BigInt(tx.chainId) !== 56n || receipt.status !== 1
+      || !Number.isSafeInteger(receipt.blockNumber) || receipt.blockNumber <= deploymentBlock
+      || receipt.blockNumber > finalized.number || tx.blockNumber !== receipt.blockNumber
+      || tx.blockHash?.toLowerCase()!==receipt.blockHash?.toLowerCase()
+      || !Number.isSafeInteger(receipt.index) || receipt.index < 0 || tx.index !== receipt.index)
+      fail(503,'Reviewed upgrade execution is not a finalized successful transaction.');
+    const activated=await officialProvider.getBlock(receipt.blockNumber);
+    if (activated?.number!==receipt.blockNumber || activated.hash?.toLowerCase()!==receipt.blockHash.toLowerCase()
+      || !Number.isSafeInteger(activated.timestamp) || activated.timestamp<=0
+      || activated.transactions?.[receipt.index]?.toLowerCase()!==hash.toLowerCase())
+      fail(503,'Reviewed upgrade execution transaction index is not canonical.');
+    const events=(receipt.logs ?? []).filter(log=>!log.removed
+      && log.address?.toLowerCase()===trustedProduct.record.addresses.timelock.toLowerCase()
+      && log.transactionHash?.toLowerCase()===hash.toLowerCase()
+      && log.blockHash?.toLowerCase()===activated.hash.toLowerCase()).flatMap(log=>{
+        try { const parsed=TIMELOCK_EXECUTION_ABI.parseLog(log); return parsed?.name==='CallExecuted' ? [parsed] : []; }
+        catch { return []; }
+      });
+    if (events.length!==plan.steps.length || events.some((event,index)=>
+      event.args.id?.toLowerCase()!==operationId.toLowerCase()
+      || event.args.index!==BigInt(index)
+      || event.args.target?.toLowerCase()!==plan.targets[index].toLowerCase()
+      || event.args.value!==0n
+      || event.args.data?.toLowerCase()!==plan.payloads[index].toLowerCase()))
+      fail(503,'Reviewed upgrade execution events differ from the fixed plan.');
+    const result={number:activated.number,hash:activated.hash,timestamp:activated.timestamp};
+    activationBlocks.set(hash,result);
+    return result;
   }
 
   async function officialCandidates(url) {
@@ -1075,6 +1141,69 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if (method !== 'GET' && req.headers.origin !== origin) fail(403, 'Request origin is not allowed.');
       if (method === 'GET' && path === '/api/journal/notifications/capabilities')
         return send(200, notificationService?.capabilities() ?? { enabled: false, botUsername: 'BEMineNotifyBot' });
+      if (method === 'GET' && path === '/api/journal/product-graph') {
+        if (url.search) fail(400, 'Product graph does not accept caller-selected parameters.');
+        if (!allowPublicGraph(req)) fail(429, 'Too many product-graph reads; retry shortly.');
+        if (!officialProvider || !trustedProduct || !productMode)
+          fail(503, 'Reviewed product graph is unavailable.');
+        const cached=lastVerifiedProductGraphSnapshot;
+        const snapshotAgeMs=cached ? now()-cached.savedAt : Infinity;
+        if (snapshotAgeMs>=0 && snapshotAgeMs<PRODUCT_GRAPH_SNAPSHOT_MS)
+          return send(200,{...cached.body,snapshotAgeMs});
+        try {
+          if (BigInt(await officialProvider.send('eth_chainId',[])) !== 56n)
+            fail(503, 'Product RPC is not BSC mainnet.');
+          const block=await officialProvider.getBlock('finalized');
+          if (!Number.isSafeInteger(block?.number) || !HASH.test(block?.hash ?? '')
+            || !Number.isSafeInteger(block?.timestamp) || block.timestamp <= 0)
+            fail(503, 'A finalized product block is unavailable.');
+          const graph=await verifiedOfficialGraph(trustedProduct.record.addresses.factory,block,block.hash);
+          const old=trustedProduct.record;
+          const initial=old.steps.find(step=>step.id==='initialize');
+          const activation=graph.securityUpgrade
+            ? await verifiedCodeActivation(graph.securityUpgrade.operationId,block,initial.receipt.blockNumber)
+            : await officialProvider.getBlock(initial.receipt.blockNumber);
+          if (!Number.isSafeInteger(activation?.number) || activation.number > block.number
+            || !HASH.test(activation.hash ?? '') || !Number.isSafeInteger(activation.timestamp)
+            || activation.timestamp <= 0 || !graph.securityUpgrade
+              && activation.hash.toLowerCase() !== initial.receipt.blockHash.toLowerCase())
+            fail(503,'Reviewed product activation block changed.');
+          const manifestNames={factory:'factory',shareMarket:'shareMarket',lens:'lens',beacon:'beacon',timelock:'timelock',
+            portfolioFactory:'portfolioFactory',portfolioMarket:'portfolioShareMarket',
+            portfolioBeacon:'portfolioBeacon',portfolioImplementation:'BudgetPortfolioVault',
+            portfolioFactoryImplementation:'BudgetPortfolioFactory'};
+          const manifestCodehash=Object.fromEntries(Object.entries(manifestNames)
+            .map(([key,name])=>[key,graph.codehash[name]]));
+          const stage=graph.securityUpgrade
+            ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
+              : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
+          const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
+            ...Object.fromEntries(Object.entries(manifestNames)
+              .map(([key,name])=>[key,graph.addresses[name]])),
+            deployment:{txHash:initial.txHash,blockNumber:initial.receipt.blockNumber,
+              blockHash:initial.receipt.blockHash},artifactDigest:graph.artifactDigest,
+            sourceCommit:graph.securityUpgrade ? trustedProduct.integratedUpgrade.bundle.sourceCommit : old.sourceCommit,
+            verifiedAt:new Date(activation.timestamp*1000).toISOString(),
+            verifiedBlockNumber:activation.number,
+            codehash:manifestCodehash};
+          const body={chainId:56,status:'verified',stage,
+            artifactDigest:graph.artifactDigest,genesisArtifactDigest:trustedProduct.record.artifactDigest,
+            upgradeArtifactDigest:trustedProduct.integratedUpgrade?.digest ?? null,
+            operationId:graph.securityUpgrade?.operationId ?? null,
+            verifiedBlockNumber:block.number,verifiedBlockHash:block.hash,
+            stageActivationBlock:activation.number,stageActivationHash:activation.hash,
+            factory:trustedProduct.record.addresses.factory,
+            portfolioFactory:trustedProduct.record.addresses.portfolioFactory ?? null,
+            creationPaused:graph.securityUpgrade ? true : undefined,
+            operationalReady:false,
+            manifest};
+          lastVerifiedProductGraphSnapshot={savedAt:now(),body};
+          return send(200,{...body,snapshotAgeMs:0});
+        } catch (error) {
+          if (error instanceof ApiError) throw error;
+          fail(503, 'Reviewed product graph could not be verified.');
+        }
+      }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
         const response=await discoveryResponse(url,path.endsWith('/budget-candidates')?'budget':'official');
         return send(response.status,response.body);
@@ -1134,7 +1263,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         catch { fail(400, 'Invalid purchase queue or wallet identity.'); }
         if (record.approved !== true || identity(record.portfolioFactory) !== identity(trustedProduct?.record?.addresses?.portfolioFactory)
           || identity(record.factory) !== identity(trustedProduct?.record?.addresses?.factory)
-          || record.artifactDigest.toLowerCase() !== trustedProduct.record.artifactDigest.toLowerCase())
+          || ![trustedProduct.record.artifactDigest,trustedProduct.integratedUpgrade?.digest]
+            .filter(Boolean).some(value => record.artifactDigest.toLowerCase() === value.toLowerCase()))
           fail(409, 'Purchase queue does not match the reviewed deployment.');
         return send(200, { revision: store.putBudgetQueue(account, parent, record, exactRevision(body.expectedRevision)) });
       }
@@ -1301,7 +1431,11 @@ export function journalConfiguration(env = process.env) {
     legacyFactory: legacyFactoryConfiguration(env.BEMINE_LEGACY_FACTORY),
     allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     productDeploymentRecordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
+    productArtifactBundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     genesisRecordPath: env.BEMINE_GENESIS_RECORD_PATH,
     genesisBundlePath: env.BEMINE_GENESIS_ARTIFACT_PATH,
+    integratedUpgradeEvidencePath: env.BEMINE_INTEGRATED_UPGRADE_EVIDENCE_PATH,
+    integratedUpgradeArtifactPath: env.BEMINE_INTEGRATED_UPGRADE_ARTIFACT_PATH,
+    genesisManifestPath: env.BEMINE_GENESIS_MANIFEST_PATH,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }
