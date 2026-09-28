@@ -5,7 +5,7 @@
 ## 信任锚与预演
 
 - 旧部署记录：服务器私有 `trusted-product-deployment.json` 的已完成 journal。旧产物由部署时的仓库提交 `697f2e337c67a4fc4615737c07ee6d8cc116c177` 导出，其摘要为 `0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7`。`web/public/data/frontend-manifest.json` 是独立发布的旧地址、代码哈希和初始化交易信任锚。不能仅信任用户上传的 journal。
-- 新产物：`deploy/public/deployment-artifacts.json`，摘要 `0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84`。部署页面构建时固定该摘要；对十个替换合约依次核验链接后的 creation/runtime、immutable、链 ID 和已终结区块。两个 ShareMarket 实例都切到同一新实现。
+- 新产物：`deploy/public/deployment-artifacts.json`，摘要 `0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c`。部署页面构建时固定该摘要；对十个替换合约依次核验链接后的 creation/runtime、immutable、链 ID 和已终结区块。两个 ShareMarket 实例都切到同一新实现。
 - 存储布局：运行 `node scripts/validate-integrated-storage.mjs --output docs/storage/Integrated-v2-upgrade-evidence.json`。它对正式已部署提交 `8c5598cf44fe8fb6174969eba12b3baa13f7942b` 的五种可升级目标（PoolFactory、PoolVault、ShareMarket、BudgetPortfolioFactory、BudgetPortfolioVault）做 OpenZeppelin 布局兼容检查。旧基线在 `docs/storage/Integrated-v2-deployed-*.json`，新编译使用 solc 0.8.24、Shanghai、optimizer runs 1。五种布局均需通过。
 - 已在非零池真实 BSC 状态的本地 Anvil fork 演练；命令见下文。此演练不代表主网交易已发生。正式签名前仍须重做链上预检、核对旧池/订单与角色、使用硬件钱包。
 
@@ -57,6 +57,6 @@ node deploy/scripts/rehearse-integrated-upgrade.mjs \
 
 该脚本在两笔暂停前做完整旧图校验；随后证明 Stage0、十个新 runtime、Stage1 六调用及后置图、Stage2 Authority 与权限、每个旧池的独立手续费迁移，再独立安排/执行 48 小时恢复建池 batch 并重查解除暂停后的完整链上图。它逐字节比较旧订单、池 state/params、份额总量和旧 owner 余额、募集金额、旧 treasury 的 BNB 欠款在代码升级和手续费迁移前后的值。终态输出包括 `roleMigrationComplete=true` 和本地 fork 中两套 Factory 已解除暂停的断言；由于真实 keeper 切换未在 fork 中验证，`deploymentComplete=false`。
 
-2026-09-29 的真实 BSC 单池 fork 结果保存在 `docs/storage/Integrated-v2-fork-rehearsal.jsonl`。起点区块 `124584261`、哈希 `0x35602fcb6213b115847b8ec16e80bf6849e3819c4c9fa784572f4c8ace6f2aec`；已有 1 池、0 预算项目、2 个历史订单。Stage0、十个替换实现、Stage1、Authority/角色迁移、历史池独立 treasury 迁移及恢复建池 batch 均在**本地 fork**成功；旧池仍有 100 份、旧 owner 99 份、旧 BNB 欠款 0 wei，订单原字节不变，treasury 转向 fork 中的 Authority 地址，两套 Factory owner 均变为 48 小时 Timelock。此次演练使用包含管理员签名授权和 nonce 作废功能的最终候选产物，产物摘要为 `0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84`。`keeperCutoverVerified` 和 `deploymentComplete` 仍为 false，不能据本地演练宣称主网上线。
+2026-09-29 的真实 BSC 单池 fork 结果保存在 `docs/storage/Integrated-v2-fork-rehearsal.jsonl`。起点区块 `124584261`、哈希 `0x35602fcb6213b115847b8ec16e80bf6849e3819c4c9fa784572f4c8ace6f2aec`；已有 1 池、0 预算项目、2 个历史订单。Stage0、十个替换实现、Stage1、Authority/角色迁移、历史池独立 treasury 迁移及恢复建池 batch 均在**本地 fork**成功；旧池仍有 100 份、旧 owner 99 份、旧 BNB 欠款 0 wei，订单原字节不变，treasury 转向 fork 中的 Authority 地址，两套 Factory owner 均变为 48 小时 Timelock。该次演练使用修复预算子池 BEM 结算卡死之前的候选产物，摘要为 `0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84`；新版 `0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c` 尚需重跑 fork。`keeperCutoverVerified` 和 `deploymentComplete` 仍为 false，不能据本地演练宣称主网上线。
 
 正式部署若签名/发送结果不明，先按 operationId、tx hash、nonce 和链上状态恢复；不得盲目重发。每次签署前重新校验最新已终结区块，不靠浏览器保存的旧 preflight 直接授权。
