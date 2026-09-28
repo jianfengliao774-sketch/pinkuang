@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "releaseKind": "integrated-v2",
+  "compiledSourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+  "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+  "compiler": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+  "sourceCount": 71,
+  "artifactCount": 19,
+  "deploymentTransactions": 16,
+  "chainId": 56,
+  "mainnetDeployed": false,
+  "productionPublished": false,
+  "oldFrontendManifestArchived": "docs/deployments/legacy-frontend-manifest-20260927.json",
+  "newFrontendManifest": "Must be exported after verified integrated deployment; no placeholder addresses",
+  "mainBranch": "codex/contracts-v2-integration",
+  "priorBaseline": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
+  "handoff": "docs/INTEGRATION_HANDOFF.md",
+  "frontendReview": "docs/frontend-completeness-2026-09-28.md"
+}

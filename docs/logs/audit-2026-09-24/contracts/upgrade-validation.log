@@ -1,0 +1,109 @@
+Upgrade build-info prepared: 1 file(s), 45 metadata-verified input aliases; compiler output unchanged.
+Preparation audit: C:\Users\ADMINI~1\AppData\Local\Temp\tapeout-check-fgqHDk\contracts\out\upgrade-build-info-audit.json
+
+Validation target: src/PoolFactory.sol:PoolFactory (initial implementation)
+ ✔  src/PoolFactory.sol:PoolFactory
+
+SUCCESS
+
+Validation target: src/PoolVault.sol:PoolVault (initial implementation)
+ ✔  src/PoolVault.sol:PoolVault
+
+SUCCESS
+
+Validation target: src/ShareMarket.sol:ShareMarket (initial implementation)
+ ✔  src/ShareMarket.sol:ShareMarket
+
+SUCCESS
+PASS: PoolVault links exactly 8 reviewed libraries; source hashes, unlinked templates and scoped AST gates recorded.
+ShareMarket: six business fields and nonempty inherited namespaces extracted.
+
+T1a baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+
+T1a baseline -> current src/PoolVault.sol:PoolVault: PASS (15 -> 25 business fields)
+
+T1b baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+
+T1b baseline -> current src/PoolVault.sol:PoolVault: PASS (24 -> 25 business fields)
+
+T1c baseline -> current src/PoolFactory.sol:PoolFactory: PASS (7 -> 8 business fields)
+
+T1c baseline -> current src/PoolVault.sol:PoolVault: PASS (24 -> 25 business fields)
+
+T1d baseline -> current src/PoolFactory.sol:PoolFactory: PASS (8 -> 8 business fields)
+
+T1d baseline -> current src/PoolVault.sol:PoolVault: PASS (25 -> 25 business fields)
+
+T1d baseline -> current src/ShareMarket.sol:ShareMarket: PASS (6 -> 6 business fields)
+
+T1eVoting baseline -> current src/PoolVault.sol:PoolVault: PASS (25 -> 25 business fields)
+
+T1e baseline -> current src/PoolFactory.sol:PoolFactory: PASS (8 -> 8 business fields)
+
+T1e baseline -> current src/PoolVault.sol:PoolVault: PASS (25 -> 25 business fields)
+
+T1e baseline -> current src/ShareMarket.sol:ShareMarket: PASS (6 -> 6 business fields)
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture against src/PoolFactory.sol:PoolFactory
+ ✔  test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture (upgrades from src/PoolFactory.sol:PoolFactory)
+
+SUCCESS
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture against src/PoolVault.sol:PoolVault
+ ✔  test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture (upgrades from src/PoolVault.sol:PoolVault)
+
+SUCCESS
+
+Validation target: test/unit/ShareMarket.t.sol:ShareMarketV2Fixture against src/ShareMarket.sol:ShareMarket
+ ✔  test/unit/ShareMarket.t.sol:ShareMarketV2Fixture (upgrades from src/ShareMarket.sol:ShareMarket)
+
+SUCCESS
+
+Validation target: test/utils/InvalidVaultLayout.sol:InvalidVaultLayout against src/PoolVault.sol:PoolVault
+ ✘  test/utils/InvalidVaultLayout.sol:InvalidVaultLayout (upgrades from src/PoolVault.sol:PoolVault)
+
+      PoolVaultState: Deleted `unitPriceWei`
+        > Keep the variable even if unused
+      
+      test\utils\InvalidVaultLayout.sol:21: Inserted `unitPriceWei`
+        > New variables should be placed after all existing inherited variables
+      
+      PoolVaultState: Deleted `purchaseCost`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `activatedAt`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `surplusPerShareWei`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `surplusRemainder`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `surplusOutstandingWei`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `surplusSettled`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `expectedNftSeller`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `expectedNftOperator`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `nftReceived`
+        > Keep the variable even if unused
+      
+      PoolVaultState: Deleted `lockedShares`
+        > Keep the variable even if unused
+      
+      PoolSaleState: Deleted namespace `erc7201:tapeout.storage.PoolSales`
+        > Keep the struct with annotation '@custom:storage-location erc7201:tapeout.storage.PoolSales' even if unused
+      
+      PoolRewardState: Deleted namespace `erc7201:tapeout.storage.PoolRewards`
+        > Keep the struct with annotation '@custom:storage-location erc7201:tapeout.storage.PoolRewards' even if unused
+
+FAILED
+PASS: deliberately incompatible namespace layout rejected.
+Initial checks, delivered T1a through complete T1e baselines, three compatible fixtures, and incompatible-layout rejection completed.

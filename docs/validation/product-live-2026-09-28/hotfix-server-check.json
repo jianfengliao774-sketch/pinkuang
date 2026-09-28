@@ -1,0 +1,311 @@
+{
+  "proofSchemaVersion": 2,
+  "checkedAt": "2026-09-28T05:06:34.144541+00:00",
+  "readOnly": true,
+  "transactionsSent": 0,
+  "walletRequests": 0,
+  "operationId": "v2-runtime-20260928-c90c255-hotfix1",
+  "checks": {
+    "runtimeManifestSha256": true,
+    "runtimeSourceHead": true,
+    "runtimeArtifactDigest": true,
+    "productManifestSha256": true,
+    "productSourceHead": true,
+    "productArtifactDigest": true,
+    "productBasePath": true,
+    "productCurrentTarget": true,
+    "pinkuang-deploy-v2.serviceActive": true,
+    "pinkuang-deploy-v2.serviceIdentity": true,
+    "pinkuang-deploy-v2.serviceUnitSha256": true,
+    "pinkuang-deploy-v2.serviceNoEnvironmentFile": true,
+    "pinkuang-deploy-v2.service:PORT": true,
+    "pinkuang-deploy-v2.service:DEPLOYMENT_JOURNAL_DB": true,
+    "pinkuang-deploy-v2.service:BEMINE_JOURNAL_FACTORIES": true,
+    "pinkuang-deploy-v2.service:BEMINE_LEGACY_FACTORY": true,
+    "pinkuang-deploy-v2.service:BEMINE_DEPLOYMENT_RECORD_PATH": true,
+    "pinkuang-deploy-v2.service:BEMINE_INDEX_URL": true,
+    "pinkuang-deploy-v2.service:BEMINE_NOTIFICATIONS_ENABLED": true,
+    "pinkuang-deploy-v2.serviceProcessCwd": true,
+    "pinkuang-deploy-v2.serviceProcessArguments": true,
+    "pinkuang-index-v2.serviceActive": true,
+    "pinkuang-index-v2.serviceIdentity": true,
+    "pinkuang-index-v2.serviceUnitSha256": true,
+    "pinkuang-index-v2.serviceNoEnvironmentFile": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_HOST": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_PORT": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_DB": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_CONFIRMATIONS": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_SCAN_RANGE": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_RPC_URL": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_LOGS_RPC_URL": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_FACTORY": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_MARKET": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_PORTFOLIO_FACTORY": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_PORTFOLIO_MARKET": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_START_BLOCK": true,
+    "pinkuang-index-v2.service:CHAIN_INDEX_LOGS_TIMEOUT_MS": true,
+    "pinkuang-index-v2.serviceProcessCwd": true,
+    "pinkuang-index-v2.serviceProcessArguments": true,
+    "nginxCandidateHash": true,
+    "snippetCandidateHash": true,
+    "recordCandidateHash": true,
+    "journalInodePreserved": true,
+    "journalPermissions": true,
+    "indexDatabaseInodePreserved": true,
+    "indexDatabasePermissions": true,
+    "recordCompleteOriginalArtifact": true,
+    "activationMarker": true,
+    "legacy:pinkuang-deploy.service": true,
+    "legacy:pinkuang-index.service": true,
+    "legacy:bem2075-site.service": true,
+    "legacy:sparkdraw-keeper.service": true,
+    "legacy:sparkdraw-bot.service": true,
+    "legacy:bemine-price.service": true,
+    "legacy:/srv/pinkuang-deploy/current": true,
+    "legacy:/var/www/bemine-preview/current": true,
+    "legacy:/srv/crowdfund/current": true,
+    "http:https://tapeout.cc.cd/bemine-v2/": true,
+    "http:https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json": true,
+    "publicManifestExact": true,
+    "http:https://tapeout.cc.cd/pinkuang-deploy-v2/": true,
+    "http:https://tapeout.cc.cd/pinkuang-deploy-v2/deployment-artifacts.json": true,
+    "unauthenticated:https://tapeout.cc.cd/bemine-v2/api/journal/build": true,
+    "unauthenticated:https://tapeout.cc.cd/pinkuang-deploy-v2/api/journal/build": true,
+    "oldProduct200": true,
+    "publicRpcChain56": true,
+    "quoteIdentity": true,
+    "quoteFinitePositive": true,
+    "quoteFresh:updatedAt": true,
+    "quoteFresh:blockTimestamp": true,
+    "indexComplete": true,
+    "index:factory": true,
+    "index:market": true,
+    "index:portfolioFactory": true,
+    "index:portfolioMarket": true,
+    "indexChainAndStart": true,
+    "indexCoversVerifiedBlock": true,
+    "indexFresh": true,
+    "indexCanonical": true,
+    "indexRecentSafeHead": true
+  },
+  "failures": [],
+  "release": {
+    "runtime": {
+      "path": "/srv/pinkuang-deploy-v2/releases/v2-20260928-c90c255",
+      "manifestSha256": "1038ecc1539a3997aead8c4dff495d29a0f1660529afdf6cea8b4985e00a8055",
+      "sourceHead": "c90c25531e57bbcb89d710704625a65618275ae2",
+      "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7"
+    },
+    "product": {
+      "path": "/var/www/bemine-v2/releases/v2-product-20260928-7b5176a",
+      "manifestSha256": "c8f59d8717681bed3c12493464a6bf68e0804e60685d5b354d66d9b0de71381c",
+      "sourceHead": "7b5176a769cf330ecebb609fbcacc5dd64a4306f",
+      "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7"
+    },
+    "productCurrent": "/var/www/bemine-v2/releases/v2-product-20260928-7b5176a"
+  },
+  "services": {
+    "pinkuang-deploy-v2.service": {
+      "MainPID": "348407",
+      "User": "pinkuang-v2",
+      "Group": "pinkuang-v2",
+      "LoadState": "loaded",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/pinkuang-deploy-v2.service",
+      "DropInPaths": "",
+      "InvocationID": "9135169a33c542c793d57d066ceda5b8"
+    },
+    "pinkuang-index-v2.service": {
+      "MainPID": "348409",
+      "User": "pinkuang-v2",
+      "Group": "pinkuang-v2",
+      "LoadState": "loaded",
+      "ActiveState": "active",
+      "SubState": "running",
+      "FragmentPath": "/etc/systemd/system/pinkuang-index-v2.service",
+      "DropInPaths": "",
+      "InvocationID": "26053b631979411bae7d1323f461c18c"
+    }
+  },
+  "unitHashes": {
+    "pinkuang-deploy-v2.service": "3b09107c211e19b98f857c24cf3cfdf36d6d3f9c7bde1d715086ba234da80fcc",
+    "pinkuang-index-v2.service": "2ea19df4ab01bfbb7475f50a7eb1ac28f708098c51465cc90c573a1e5ad73deb"
+  },
+  "publicConfiguration": {
+    "pinkuang-deploy-v2.service": {
+      "PORT": "4174",
+      "DEPLOYMENT_JOURNAL_DB": "/var/lib/pinkuang-deploy-v2/journal.sqlite",
+      "BEMINE_JOURNAL_FACTORIES": "0x2995B10d19056c8C24C57b281C22562a603C571F,0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+      "BEMINE_LEGACY_FACTORY": "0xcB24E7F96D81037086A268d6ea63c53f91D412A2",
+      "BEMINE_DEPLOYMENT_RECORD_PATH": "/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json",
+      "BEMINE_INDEX_URL": "http://127.0.0.1:4181",
+      "BEMINE_NOTIFICATIONS_ENABLED": "0"
+    },
+    "pinkuang-index-v2.service": {
+      "CHAIN_INDEX_HOST": "127.0.0.1",
+      "CHAIN_INDEX_PORT": "4181",
+      "CHAIN_INDEX_DB": "/var/lib/pinkuang-index-v2/index.sqlite",
+      "CHAIN_INDEX_CONFIRMATIONS": "12",
+      "CHAIN_INDEX_SCAN_RANGE": "500",
+      "CHAIN_INDEX_RPC_URL": "https://bsc-dataseed.bnbchain.org",
+      "CHAIN_INDEX_LOGS_RPC_URL": "https://bsc-rpc.publicnode.com",
+      "CHAIN_INDEX_FACTORY": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+      "CHAIN_INDEX_MARKET": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+      "CHAIN_INDEX_PORTFOLIO_FACTORY": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+      "CHAIN_INDEX_PORTFOLIO_MARKET": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+      "CHAIN_INDEX_START_BLOCK": "124453751",
+      "CHAIN_INDEX_LOGS_TIMEOUT_MS": "30000"
+    }
+  },
+  "journal": {
+    "path": "/var/lib/pinkuang-deploy-v2/journal.sqlite",
+    "device": 64769,
+    "inode": 2651054,
+    "mode": "0o600",
+    "owner": "pinkuang-v2",
+    "contentsRead": false
+  },
+  "indexDatabase": {
+    "device": 64769,
+    "inode": 2651053,
+    "mode": "0o600",
+    "contentsRead": false
+  },
+  "legacy": {
+    "services": {
+      "pinkuang-deploy.service": {
+        "MainPID": "332052",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "c58b6a08840d4ad7bb59aefd10740545"
+      },
+      "pinkuang-index.service": {
+        "MainPID": "332022",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "1ddd2a9836a74a768dbd9c7408b74cb6"
+      },
+      "bem2075-site.service": {
+        "MainPID": "138055",
+        "User": "app",
+        "Group": "app",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "9050895f39f24c67b8d1d692e9674bc7"
+      },
+      "sparkdraw-keeper.service": {
+        "MainPID": "126362",
+        "User": "sparkdraw-keeper",
+        "Group": "sparkdraw-keeper",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "fbed717f34db4d378cbdfb567b6b6f6f"
+      },
+      "sparkdraw-bot.service": {
+        "MainPID": "276573",
+        "User": "sparkdraw-bot",
+        "Group": "sparkdraw-bot",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "1450d93a809a4498b9f92907fb250c34"
+      },
+      "bemine-price.service": {
+        "MainPID": "293719",
+        "User": "www-data",
+        "Group": "www-data",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "efb4c109c79b459c96548a37f960642f"
+      }
+    },
+    "links": {
+      "/srv/pinkuang-deploy/current": "/srv/pinkuang-deploy/releases/pinkuang-notify-20260927T1605Z",
+      "/var/www/bemine-preview/current": "/var/www/bemine-preview/releases/bemine-notify-20260927T1605Z-r2",
+      "/srv/crowdfund/current": "/srv/crowdfund/releases/chouj-20260912-compact-wallet"
+    }
+  },
+  "http": {
+    "https://tapeout.cc.cd/bemine-v2/": {
+      "status": 200,
+      "sha256": "c18a3bfff09ed92f357e6ef360e791a81fd4daebd85771fe22dea662bdf52832"
+    },
+    "https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json": {
+      "status": 200,
+      "sha256": "5bf6596502e966de526e899c31d4bc71ef2a9a176e365bf75c0603a12c1b10ae"
+    },
+    "https://tapeout.cc.cd/pinkuang-deploy-v2/": {
+      "status": 200,
+      "sha256": "c35479d82328af5a009c5b5e6ee89cebd66e2acb53e2aaa934a832709d0261af"
+    },
+    "https://tapeout.cc.cd/pinkuang-deploy-v2/deployment-artifacts.json": {
+      "status": 200,
+      "sha256": "22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b"
+    },
+    "https://tapeout.cc.cd/bemine-v2/api/journal/build": {
+      "status": 401
+    },
+    "https://tapeout.cc.cd/pinkuang-deploy-v2/api/journal/build": {
+      "status": 401
+    },
+    "https://tapeout.cc.cd/bemine/": {
+      "status": 200
+    }
+  },
+  "rpcProxy": {
+    "status": 200,
+    "chainId": "0x38"
+  },
+  "publicQuote": {
+    "statusCode": 200,
+    "status": "ok",
+    "chainId": 56,
+    "tokenAddress": "0x5ce033b2bfca3af30b3e8c8457deaf776a8b695a",
+    "poolAddress": "0x28b12792f9d81bd529bc5572434e861c9edbbbc2",
+    "conversionPoolAddress": "0x172fcd41e0913e95784454622d1c3724f546f849",
+    "quoteCurrency": "USDT",
+    "priceUsdt": 50.00259773115218,
+    "updatedAt": "2026-09-28T05:06:31.134Z",
+    "blockNumber": 124465869,
+    "blockTimestamp": "2026-09-28T05:06:30.000Z"
+  },
+  "indexObservation": {
+    "samples": 1,
+    "incompleteOrUnavailable": 0,
+    "maxWaitSeconds": 90
+  },
+  "index": {
+    "chainId": 56,
+    "factory": "0x2995b10d19056c8c24c57b281c22562a603c571f",
+    "market": "0x347e094baab9b74059567a25ab49dfaea149e734",
+    "portfolioFactory": "0x07fc0b1118529ba3c7c406058699b9b57dd9e360",
+    "portfolioMarket": "0xc6d3860817e8f04b42da4975319aed32540e8cf8",
+    "startBlock": 124453751,
+    "confirmations": 12,
+    "indexedThrough": 124465841,
+    "indexedBlockHash": "0xa2cec0bc45e298de932157fc8f58bb5f480e967349b2ded014680bd852e97a26",
+    "indexedTimestamp": 1790571977,
+    "observedSafeHead": 124465841,
+    "complete": true,
+    "checkedAt": "2026-09-28T05:06:27.083Z",
+    "unknownReason": null
+  },
+  "canonical": {
+    "chainId": "0x38",
+    "pinnedBlock": 124465841,
+    "pinnedHash": "0xa2cec0bc45e298de932157fc8f58bb5f480e967349b2ded014680bd852e97a26",
+    "latestBlock": 124465880,
+    "safeHeadGap": 39
+  },
+  "passed": true
+}

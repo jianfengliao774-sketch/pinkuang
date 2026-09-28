@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PoolFactory} from "../../src/PoolFactory.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
+import {PoolBeacon} from "../../src/PoolBeacon.sol";
+import {PoolTimelock} from "../../src/PoolTimelock.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
+import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {ITapeoutMining} from "../../src/interfaces/ITapeoutMining.sol";
+import {Addresses} from "../../script/Addresses.sol";
+
+/// @notice Independent audit reproduction on the real BSC Mining contract (pinned block 123728000).
+/// Only the miner's status byte is overwritten to simulate a successful on-chain challenge
+/// (status 2 = revoked). Mining's miner mapping is at slot 8; `status` is the low byte of word +2.
+contract AuditRevokedForkTest is Test {
+    uint256 private constant FORK_BLOCK = 123728000;
+    uint256 private constant TOKEN_ID = 16210;
+    uint256 private constant RAISE = 0.02 ether;
+    uint256 private constant PRICE = 0.01 ether;
+    address private constant SELLER = 0xd48aaaF5DB140ccbd64A8fBD1B63f3f631443744;
+    address private constant OWNER = address(0x1111);
+    address private constant OPERATOR = address(0x2222);
+    address private constant TREASURY = address(0x3333);
+    address private constant ALICE = address(0xA11CE);
+    address private constant BOB = address(0xB0B);
+    address private constant CAROL = address(0xCA201);
+    address private constant DAVE = address(0xDA7E);
+    IERC721 private constant NFT = IERC721(Addresses.TAPEOUT_CIRCUITS);
+    ITapeoutMining private constant MINING = ITapeoutMining(Addresses.MINING);
+
+    PoolVault private vault;
+    bytes32 private key;
+
+    function setUp() public {
+        require(block.chainid == 56 && block.number == FORK_BLOCK, "requires pinned BSC fork");
+        key = MINING.minerKey(Addresses.TAPEOUT_CIRCUITS, TOKEN_ID);
+        PoolTimelock timelock = new PoolTimelock(OWNER);
+        PoolBeacon beacon = new PoolBeacon(address(new PoolVault()), address(timelock));
+        PoolFactory factory = PoolFactory(
+            address(
+                new ERC1967Proxy(
+                    address(new PoolFactory()),
+                    abi.encodeCall(
+                        PoolFactory.initialize, (OWNER, OPERATOR, TREASURY, address(timelock), address(beacon))
+                    )
+                )
+            )
+        );
+        ShareMarket market = ShareMarket(
+            address(
+                new ERC1967Proxy(
+                    address(new ShareMarket()),
+                    abi.encodeCall(ShareMarket.initialize, (address(factory), address(timelock)))
+                )
+            )
+        );
+        bytes memory registration = abi.encodeCall(PoolFactory.registerShareMarket, (address(market)));
+        vm.prank(OWNER);
+        timelock.schedule(address(factory), 0, registration, bytes32(0), bytes32(0), 48 hours);
+        vm.warp(block.timestamp + 48 hours);
+        timelock.execute(address(factory), 0, registration, bytes32(0), bytes32(0));
+
+        vm.prank(OPERATOR);
+        vault = PoolVault(
+            payable(
+                factory.createPool(
+                    IPoolVault.PoolParams({
+                        circuits: Addresses.TAPEOUT_CIRCUITS,
+                        circuitId: TOKEN_ID,
+                        targetRaise: RAISE,
+                        priceCap: PRICE,
+                        directSeller: SELLER,
+                        directPrice: PRICE,
+                        fundingDeadline: uint64(block.timestamp + 1 days),
+                        purchaseDeadline: uint64(block.timestamp + 2 days)
+                    })
+                )
+            )
+        );
+        _deposit(ALICE, 49);
+        _deposit(BOB, 49);
+        _deposit(CAROL, 2);
+        vm.startPrank(SELLER);
+        NFT.approve(address(vault), TOKEN_ID);
+        vault.sellToPool();
+        vm.stopPrank();
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
+    }
+
+    function test_AuditFork_RevokedMinerMakesRealClaimRevertAndFreezesShares() public {
+        vm.warp(block.timestamp + 1 hours);
+        vault.harvest(); // accrue something normal first
+
+        _setMinerStatus(2);
+        assertEq(MINING.getMiner(key).status, 2);
+        assertEq(MINING.getMiner(key).circuitId, TOKEN_ID, "identity survives revocation");
+
+        // Real protocol behaviour: claim reverts for a revoked miner.
+        vm.prank(address(vault));
+        vm.expectRevert();
+        MINING.claim(key);
+
+        // Ordinary harvest swallows that failure and members can still claim accounted BEM.
+        vault.harvest();
+        vm.prank(ALICE);
+        vault.claim();
+
+        // But every share movement is now permanently blocked.
+        vm.prank(BOB);
+        vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
+        vault.transfer(DAVE, 1);
+    }
+
+    function _setMinerStatus(uint8 status) private {
+        bytes32 word = bytes32(uint256(keccak256(abi.encode(key, uint256(8)))) + 2);
+        uint256 value = uint256(vm.load(Addresses.MINING, word));
+        vm.store(Addresses.MINING, word, bytes32((value & ~uint256(0xff)) | status));
+    }
+
+    function _deposit(address member, uint8 shares) private {
+        uint256 amount = uint256(shares) * RAISE / 100;
+        vm.deal(member, amount);
+        vm.prank(member);
+        vault.deposit{value: amount}(shares);
+    }
+}

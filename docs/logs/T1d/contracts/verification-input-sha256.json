@@ -1,0 +1,16 @@
+{
+  "docs/storage/T1a-PoolFactory.json": "4867b4e796fbdfce044a77ebc83d3cd0c064995074f21dd7b8811a6a69dca192",
+  "docs/storage/T1a-PoolVault.json": "d836342a653eafdb3bf92c329d3268314797c10c932eedfa0f1ab884a0d2a7ba",
+  "docs/storage/T1b-PoolFactory.json": "904f600af8ca337c6d1d632bde8dd367a86876e856a33cd9f0bf1fa304ddca82",
+  "docs/storage/T1b-PoolVault.json": "c95ae0b94417aefc39791b6ce74a35f5e63892f8a445dc0b5b474ef46073aa98",
+  "docs/storage/T1c-PoolFactory.json": "6086418a48999a689df62b4d68ab8aa66cd13e4bb9a16af5d20f28d795be13e7",
+  "docs/storage/T1c-PoolVault.json": "3e3d458b83926490271a9f5ea324fbcf21cfa5442a6fea015dbd8dec0f655294",
+  "package-lock.json": "7a1395137ed98b3893d159ecd140b68040a587802bf9165eda19b879dceab7e0",
+  "package.json": "4278ae429921414c6ca9d371b1a3b08274a893c9390c3fff86e6ace08ed13931",
+  "scripts/audit-linked-libraries.mjs": "8e2a6316012d740a8d301a7e3a51369b36186d3277d3dc111f73610bb10078f5",
+  "scripts/check-local.mjs": "0ca30e59e18367bc831e0d596d1244d6af0873ea295b46fb7e8ae4e83a979362",
+  "scripts/m0/generate-start-fixture.mjs": "f488066fd23a13ac443dad378c2bf61d0433b62a7cf536a6c75ef68b5f351409",
+  "scripts/prepare-upgrade-build-info.mjs": "79057aee723ecd8641fc9c3b79c009ce4dee3aa85b8c1fc8581cda1cd453111d",
+  "scripts/run-fork.mjs": "663e662355234f0f7ff04ba33abcc00931bba8978653ad9e95bf34afbb13019b",
+  "scripts/validate-upgrades.mjs": "45a9cec91db678269a0354d5eefd7cb11906bd349032a582a2d50ef0d6636b24"
+}

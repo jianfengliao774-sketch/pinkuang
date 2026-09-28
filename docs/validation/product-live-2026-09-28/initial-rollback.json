@@ -1,0 +1,113 @@
+{
+  "checkedAt": "2026-09-28T04:26:49.339009+00:00",
+  "readOnly": true,
+  "legacy": {
+    "services": {
+      "pinkuang-deploy.service": {
+        "MainPID": "332052",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "c58b6a08840d4ad7bb59aefd10740545"
+      },
+      "pinkuang-index.service": {
+        "MainPID": "332022",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "1ddd2a9836a74a768dbd9c7408b74cb6"
+      },
+      "bem2075-site.service": {
+        "MainPID": "138055",
+        "User": "app",
+        "Group": "app",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "9050895f39f24c67b8d1d692e9674bc7"
+      },
+      "sparkdraw-keeper.service": {
+        "MainPID": "126362",
+        "User": "sparkdraw-keeper",
+        "Group": "sparkdraw-keeper",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "fbed717f34db4d378cbdfb567b6b6f6f"
+      },
+      "sparkdraw-bot.service": {
+        "MainPID": "276573",
+        "User": "sparkdraw-bot",
+        "Group": "sparkdraw-bot",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "1450d93a809a4498b9f92907fb250c34"
+      }
+    },
+    "links": {
+      "/srv/pinkuang-deploy/current": "/srv/pinkuang-deploy/releases/pinkuang-notify-20260927T1605Z",
+      "/var/www/bemine-preview/current": "/var/www/bemine-preview/releases/bemine-notify-20260927T1605Z-r2",
+      "/srv/crowdfund/current": "/srv/crowdfund/releases/chouj-20260912-compact-wallet"
+    }
+  },
+  "v2Services": {
+    "pinkuang-deploy-v2.service": {
+      "MainPID": "346378",
+      "User": "pinkuang-v2",
+      "Group": "pinkuang-v2",
+      "LoadState": "loaded",
+      "ActiveState": "active",
+      "SubState": "running",
+      "InvocationID": "71b6cee496a045a2929430c16266b04e"
+    },
+    "pinkuang-index-v2.service": {
+      "MainPID": "0",
+      "User": "",
+      "Group": "",
+      "LoadState": "not-found",
+      "ActiveState": "inactive",
+      "SubState": "dead",
+      "InvocationID": ""
+    }
+  },
+  "files": {
+    "/etc/nginx/sites-available/bem2075": {
+      "exists": true,
+      "symlink": false,
+      "sha256": "d14d23f5b0ccfa3edd9e253a34646771e572f52416133824695c09f7fc885bdd",
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0
+    },
+    "/etc/systemd/system/pinkuang-deploy-v2.service": {
+      "exists": true,
+      "symlink": false,
+      "sha256": "06945fce12900a239bc6f6c497f7084499359fe5e797987ee4dfc65a03360e5b",
+      "mode": "0o644",
+      "uid": 0,
+      "gid": 0
+    },
+    "/etc/systemd/system/pinkuang-index-v2.service": {
+      "exists": false,
+      "symlink": false
+    },
+    "/etc/nginx/snippets/bemine-v2.conf": {
+      "exists": false,
+      "symlink": false
+    },
+    "/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json": {
+      "exists": false,
+      "symlink": false
+    }
+  },
+  "productCurrent": {
+    "exists": false,
+    "symlink": false,
+    "target": "/var/www/bemine-v2/current"
+  }
+}

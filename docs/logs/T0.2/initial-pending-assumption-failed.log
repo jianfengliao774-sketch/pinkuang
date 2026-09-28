@@ -1,0 +1,90 @@
+No files changed, compilation skipped
+
+Ran 7 tests for test/fork/MiningStartProbe.t.sol:MiningStartProbe
+[PASS] test_Q1_contractHolderArmStartStop_realProofs() (gas: 1798902)
+[PASS] test_Q1_strangerArmStartStopRevert() (gas: 1866178)
+[PASS] test_Q2_startAfterSixtyFourBlocksReverts() (gas: 1036463)
+[PASS] test_Q2_startAtElevenBlocks_realProofs() (gas: 1768315)
+[PASS] test_Q2_startAtSixtyFourBlocks_realProofs() (gas: 1768314)
+[PASS] test_Q2_startAtTenBlocks_realProofs() (gas: 1768359)
+[PASS] test_Q2_startInArmBlockReverts() (gas: 1035987)
+Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 8.88ms (36.46ms CPU time)
+
+Ran 5 tests for test/fork/TokenSwapProbe.t.sol:TokenSwapProbeTest
+[PASS] test_Q8_MintOnlyImmutableMiningMinterAndCap() (gas: 71677)
+Logs:
+  Q8 sole immutable minter: 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46
+  Q8 original totalSupply (BEM raw, 8 decimals): 22572656921338
+  Q8 MAX_SUPPLY (BEM raw, 8 decimals): 2100000000000000
+
+[PASS] test_Q9_BemToNativeBnbWithMinOutAndUnwrap() (gas: 176510)
+Logs:
+  Q9 SELL BEM raw -> native BNB wei
+  input raw: 1000000
+  instantaneous spot output, excluding fee and impact: 816053242925108
+  spot output after nominal 1% pool fee: 807892710495856
+  minimum output raw: 799813783390897
+  actual output raw: 807891677110236
+  nominal pool fee ppm: 10000
+  price impact plus rounding ppb vs fee-adjusted spot (rounded down): 1279
+
+[PASS] test_Q9_BnbToBemWithMinOutAndRefund() (gas: 160980)
+Logs:
+  Q9 BUY BNB wei -> BEM raw (8 decimals)
+  input raw: 1000000000000000
+  instantaneous spot output, excluding fee and impact: 1225410
+  spot output after nominal 1% pool fee: 1213155
+  minimum output raw: 1201023
+  actual output raw: 1213154
+  nominal pool fee ppm: 10000
+  price impact plus rounding ppb vs fee-adjusted spot (rounded down): 824
+
+[PASS] test_Q9_ExcessiveMinOutRevertsWithoutTakingBnb() (gas: 136401)
+[PASS] test_Q9_PoolAndRouterIdentity() (gas: 19363)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 589.35ms (2.27ms CPU time)
+
+Ran 5 tests for test/fork/MarketProbe.t.sol:MarketProbeTest
+[PASS] test_Q4_MarketBuyerPaysListedPriceAndSellerBearsOnePercent() (gas: 274063)
+Logs:
+  seller BNB delta: 990000000000000000
+  seller owed delta: 0
+  protocol BNB delta: 0
+  protocol owed delta: 10000000000000000
+  market BNB delta: 10000000000000000
+
+[PASS] test_Q4_MarketRejectsUnderpaymentAndFeeAddedOnTop() (gas: 616586)
+[PASS] test_Q5_ContractSellerReceivesBnbDirectlyAndHasNothingToWithdraw() (gas: 553156)
+Logs:
+  contract seller BNB after buy: 990000000000000000
+  contract seller owed after buy: 0
+  contract seller receive callbacks: 1
+  market BNB delta after buy: 10000000000000000
+
+[PASS] test_Q5_ProtocolFeeUsesOwedAndWithdraw() (gas: 553104)
+[PASS] test_Q5_RejectingSellerRevertsTradeInsteadOfCreatingOwed() (gas: 617959)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 589.56ms (3.42ms CPU time)
+
+Ran 8 tests for test/fork/ProtocolProbe.t.sol:ProtocolProbe
+[PASS] test_ProbeWhitelistRejectsUnknownSelectorAndStranger() (gas: 24694)
+[FAIL: assertion failed: 342456 <= 342456] test_Q3_ActiveMinerContinuesAndClaimsToContractAfterTransfer() (gas: 95229)
+[FAIL: assertion failed: 342827 != 342456] test_Q6_BareMarketSaleDoesNotForceFinalClaim() (gas: 438914)
+[FAIL: assertion failed: 342827 != 342456] test_Q6_BuyerClaimsSellerThenBuysAtomically() (gas: 420496)
+[PASS] test_Q6_ClaimFailurePreventsControlledTransfer() (gas: 89583)
+[FAIL: assertion failed: 382099 != 342456] test_Q6_ControlledSaleSettlesBeforeTransfer() (gas: 215145)
+[PASS] test_Q6_FailedBuyRollsBackPriorClaim() (gas: 365389)
+[PASS] test_Q7_ConsecutiveZeroPendingClaim() (gas: 179209)
+Suite result: FAILED. 4 passed; 4 failed; 0 skipped; finished in 1.38s (3.89s CPU time)
+
+Ran 4 test suites in 1.99s (2.57s CPU time): 21 tests passed, 4 failed, 0 skipped (25 total tests)
+
+Failing tests:
+Encountered 4 failing tests in test/fork/ProtocolProbe.t.sol:ProtocolProbe
+[FAIL: assertion failed: 342456 <= 342456] test_Q3_ActiveMinerContinuesAndClaimsToContractAfterTransfer() (gas: 95229)
+[FAIL: assertion failed: 342827 != 342456] test_Q6_BareMarketSaleDoesNotForceFinalClaim() (gas: 438914)
+[FAIL: assertion failed: 342827 != 342456] test_Q6_BuyerClaimsSellerThenBuysAtomically() (gas: 420496)
+[FAIL: assertion failed: 382099 != 342456] test_Q6_ControlledSaleSettlesBeforeTransfer() (gas: 215145)
+
+Encountered a total of 4 failing tests, 21 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 4 failed tests
+2026-09-24T09:00:37.368888Z  WARN evm::traces::external: etherscan config not found

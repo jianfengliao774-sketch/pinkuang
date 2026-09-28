@@ -1,0 +1,31 @@
+✔ exact NFT lookup reaches page two through the real proxy and verifies its detail (46.63769ms)
+✔ page-two snapshot changes fail before detail lookup even when the target matches (14.602951ms)
+✔ SIGTERM during simulation prevents a fresh signature and broadcast afterward (590.744844ms)
+✔ task-1 official vectors rebuild the fork-proven Merkle root; a corrupt vector fails closed (225.367253ms)
+✔ sample proofs open to the official root at indices derived from anchor and NFT identity (97.029662ms)
+✔ restart only a stopped pure-verified miner after the block cooldown (0.620848ms)
+✔ send requires explicit journal and an HTTPS RPC (1.839129ms)
+✔ mining journal cannot be mistaken for purchase or a different mining stage (5.077233ms)
+✔ public journal route verifies graph, registered Funded pool and pinned model before listing candidates (120.349298ms)
+✔ fixed pool returns complete empty set without an external scan (29.659423ms)
+✔ query, graph, membership, deadline and model failures never return a complete empty market (72.176159ms)
+✔ snapshot failure, incomplete result and mid-scan reorg fail closed (68.947525ms)
+✔ a complete official scan taking longer than the old 12-second budget remains usable (12131.770818ms)
+✔ bounded official RPC rejects a hung response and does not retry a throttled request (98.226111ms)
+✔ timed-out HTTP scans retain slots until bounded RPC work settles, then scans recover (136.634546ms)
+✔ anonymous rate budget rejects before any RPC and refills without losing the short cache (68.611011ms)
+✔ global scan slots cap distinct blocks at two while same-block callers share discovery (42.187446ms)
+✔ bogus pool identity is rejected before any full product graph proof (28.694103ms)
+✔ distinct recent blocks consume a separate graph-proof budget while cache hits remain free (46.96073ms)
+✔ graph proof is coalesced before candidate discovery and expires after five seconds (61.407282ms)
+✔ historical and future block probes stop before graph verification, including after a cached proof (31.255664ms)
+✔ graph cache never bypasses per-request canonical block-hash validation (22.0283ms)
+✔ asynchronous single-pool discovery exposes only the pinned pool job and completes without a signing session (41.381768ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16394.371084

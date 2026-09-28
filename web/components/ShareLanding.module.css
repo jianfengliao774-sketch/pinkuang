@@ -1,0 +1,4 @@
+.page{min-height:100svh;display:grid;place-items:center;background:#132f27;padding:24px;padding:calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));color:#f7f3e8}
+.card{width:min(100%,560px);padding:36px;border:1px solid #65765b;border-radius:20px;background:#1c3b30}
+.brand{font-size:26px;font-weight:750;color:#dec697}.brand span{font-size:19px;margin-left:10px}
+.card h1{font-size:clamp(23px,5vw,34px);line-height:1.4;margin:30px 0 12px}.card p{font-size:17px;line-height:1.7;color:#dce4d9}.card a{display:inline-flex;gap:24px;align-items:center;min-height:48px;margin-top:12px;padding:8px 22px;background:#dec697;color:#18362b;border-radius:8px;font-weight:700;text-decoration:none}.card a:focus-visible{outline:3px solid #fff;outline-offset:5px}.card noscript{display:block;margin-top:20px;font-size:15px;line-height:1.7}@media(max-width:480px){.card{padding:25px}}

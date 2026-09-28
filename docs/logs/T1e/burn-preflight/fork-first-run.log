@@ -1,0 +1,24 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 9.92s
+Compiler run successful!
+
+Ran 3 tests for test/fork/PoolBurnFork.t.sol:PoolBurnForkTest
+[PASS] test_Fork_ActualSwapBurnOnlyNewBemAndPreserveAllMemberAssets() (gas: 650178)
+Logs:
+  actual budget BNB spent (wei): 200000000000000
+  minimum BEM output (8-decimal atoms): 240204
+  actual newly bought and burned BEM (atoms): 242631
+
+[PASS] test_Fork_ExcessiveMinimumRollsBackRouterAndVaultAssetAccounting() (gas: 620725)
+[FAIL: Unauthorized()] test_Fork_PrefundedRouterRefundsWrappedInputThroughActualBeaconProxy2300GasReceive() (gas: 332250)
+Suite result: FAILED. 2 passed; 1 failed; 0 skipped; finished in 14.80s (1.02s CPU time)
+
+Ran 1 test suite in 24.68s (14.80s CPU time): 2 tests passed, 1 failed, 0 skipped (3 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/fork/PoolBurnFork.t.sol:PoolBurnForkTest
+[FAIL: Unauthorized()] test_Fork_PrefundedRouterRefundsWrappedInputThroughActualBeaconProxy2300GasReceive() (gas: 332250)
+
+Encountered a total of 1 failing tests, 2 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

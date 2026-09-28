@@ -1,0 +1,170 @@
+'forge clean' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-burn-50615c3d\contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: C:\Users\Administrator\AppData\Local\Temp\tapeout-burn-50615c3d\contracts)
+INFO:Detectors:
+Detector: reentrancy-events
+Reentrancy in PurchaseValidation._settleSellerRewards(address,uint256,address,bytes32,bytes32) (src/libraries/PurchaseValidation.sol#78-99):
+	External calls:
+	- ITapeoutMining(MINING).claim(key) (src/libraries/PurchaseValidation.sol#84-87)
+	Event emitted after the call(s):
+	- RewardSettledBeforeTransfer(circuits,circuitId,seller,afterBalance - beforeBalance,tradeId) (src/libraries/PurchaseValidation.sol#98)
+Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#36-75):
+	External calls:
+	- token.safeTransfer(treasury,fee) (src/libraries/RewardAccounting.sol#67)
+	- token.safeTransfer(DEAD,burned) (src/libraries/RewardAccounting.sol#68)
+	Event emitted after the call(s):
+	- Harvested(gross,fee,burned,net) (src/libraries/RewardAccounting.sol#74)
+Reentrancy in RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#148-165):
+	External calls:
+	- IERC20(bem).safeTransfer(DEAD,amount) (src/libraries/RewardAccounting.sol#163)
+	Event emitted after the call(s):
+	- EpochExpiredBurned(epoch,amount) (src/libraries/RewardAccounting.sol#164)
+Reentrancy in RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#82-117):
+	External calls:
+	- IERC20(bem).safeTransfer(user,amount) (src/libraries/RewardAccounting.sol#115)
+	Event emitted after the call(s):
+	- BemClaimed(user,amount) (src/libraries/RewardAccounting.sol#116)
+Reentrancy in MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87):
+	External calls:
+	- ITapeoutMining(MINING).claim(key) (src/libraries/MiningOperations.sol#67-73)
+	Event emitted after the call(s):
+	- MiningClaimFailed(key,reason) (src/libraries/MiningOperations.sol#72)
+Reentrancy in BurnOperations.execute(PoolSaleState.SaleStorage,uint256,uint256) (src/libraries/BurnOperations.sol#31-98):
+	External calls:
+	- IWbnb(WBNB).deposit{value: amount}() (src/libraries/BurnOperations.sol#44)
+	- IERC20(WBNB).forceApprove(ROUTER,amount) (src/libraries/BurnOperations.sol#48)
+	- reported = IPancakeBurnRouter(ROUTER).exactInputSingle(IPancakeBurnRouter.ExactInputSingleParams(WBNB,BEM,10_000,address(this),amount,minOut,0)) (src/libraries/BurnOperations.sol#49-52)
+	- IERC20(WBNB).forceApprove(ROUTER,0) (src/libraries/BurnOperations.sol#53)
+	- IWbnb(WBNB).withdraw(refund) (src/libraries/BurnOperations.sol#68)
+	- IERC20(BEM).safeTransfer(DEAD,burned) (src/libraries/BurnOperations.sol#93)
+	External calls sending eth:
+	- IWbnb(WBNB).deposit{value: amount}() (src/libraries/BurnOperations.sol#44)
+	Event emitted after the call(s):
+	- BurnExecuted(spent,burned) (src/libraries/BurnOperations.sol#97)
+Reentrancy in SaleSettlement.handover(PoolSaleState.SaleStorage,address,uint256,uint256) (src/libraries/SaleSettlement.sol#51-64):
+	External calls:
+	- nft.safeTransferFrom(address(this),buyer,circuitId) (src/libraries/SaleSettlement.sol#59)
+	Event emitted after the call(s):
+	- SaleCompleted(s.saleProceeds,fee,0,s.saleProceeds - fee - fee) (src/libraries/SaleSettlement.sol#63)
+Reentrancy in PoolFunds.withdraw(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#78-86):
+	External calls:
+	- (success,None) = msg.sender.call{value: amount}() (src/libraries/PoolFunds.sol#83)
+	Event emitted after the call(s):
+	- BnbWithdrawn(msg.sender,amount) (src/libraries/PoolFunds.sol#85)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+INFO:Detectors:
+Detector: timestamp
+PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#184-196) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#191)
+PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#58-73) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#62)
+PoolVault.deposit(uint8) (src/PoolVault.sol#75-95) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#79)
+PoolVault._requirePurchaseWindow() (src/PoolVault.sol#153-157) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.purchaseDeadline (src/PoolVault.sol#156)
+PoolVault.completeSale() (src/PoolVault.sol#290-303) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= sale.expiresAt (src/PoolVault.sol#294)
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#532-568) uses timestamp for comparisons
+	Dangerous comparisons:
+	- previousCount != currentCount (src/PoolVault.sol#567)
+PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#570-573) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#571)
+PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#575-578) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#576)
+PoolFunds.finalizeFailure(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#18-39) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.params.fundingDeadline (src/libraries/PoolFunds.sol#21)
+	- block.timestamp < s.params.purchaseDeadline (src/libraries/PoolFunds.sol#23)
+RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#82-117) uses timestamp for comparisons
+	Dangerous comparisons:
+	- u.lastClaimAt != 0 && block.timestamp < uint256(u.lastClaimAt) + DAY (src/libraries/RewardAccounting.sol#88)
+	- epoch <= current (src/libraries/RewardAccounting.sol#96)
+	- slot.epoch != epoch || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#100)
+RewardAccounting.claimable(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#120-145) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch <= current (src/libraries/RewardAccounting.sol#131)
+	- slot.epoch == epoch (src/libraries/RewardAccounting.sol#139)
+RewardAccounting.burnExpired(PoolRewardState.RewardStorage,uint32,address) (src/libraries/RewardAccounting.sol#148-165) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch >= current || current - epoch <= 7 (src/libraries/RewardAccounting.sol#155)
+RewardAccounting._settle(PoolRewardState.RewardStorage,address,uint256) (src/libraries/RewardAccounting.sol#167-213) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch <= current (src/libraries/RewardAccounting.sol#181)
+	- delta == 0 || shares == 0 || s.epochBurnedFlag[epoch] (src/libraries/RewardAccounting.sol#186)
+	- slot.epoch != epoch (src/libraries/RewardAccounting.sol#190)
+RewardAccounting._firstLiveEpoch(uint256) (src/libraries/RewardAccounting.sol#215-217) uses timestamp for comparisons
+	Dangerous comparisons:
+	- current > 7 (src/libraries/RewardAccounting.sol#216)
+RewardAccounting._epochDelta(PoolRewardState.RewardStorage,uint256,uint256) (src/libraries/RewardAccounting.sol#219-232) uses timestamp for comparisons
+	Dangerous comparisons:
+	- right > s.acc (src/libraries/RewardAccounting.sol#226)
+	- left < debtAcc (src/libraries/RewardAccounting.sol#230)
+	- epoch == 0 (src/libraries/RewardAccounting.sol#229)
+	- right > left (src/libraries/RewardAccounting.sol#231)
+SaleGovernance.propose(PoolSaleState.SaleStorage,Checkpoints.Trace208,SaleGovernance.ProposalInput) (src/libraries/SaleGovernance.sol#52-90) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < uint256(input.activatedAt) + PROPOSE_INTERVAL (src/libraries/SaleGovernance.sol#57)
+	- last != 0 && block.timestamp < last + PROPOSE_INTERVAL (src/libraries/SaleGovernance.sol#62)
+	- ! active.executed && block.timestamp < active.endsAt (src/libraries/SaleGovernance.sol#67)
+	- snapshotTs <= input.activatedAt (src/libraries/SaleGovernance.sol#71)
+SaleGovernance.vote(PoolSaleState.SaleStorage,mapping(address => Checkpoints.Trace208),uint256,bool) (src/libraries/SaleGovernance.sol#92-111) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= p.endsAt (src/libraries/SaleGovernance.sol#100)
+SaleGovernance.execute(PoolSaleState.SaleStorage,uint256) (src/libraries/SaleGovernance.sol#120-131) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= p.endsAt (src/libraries/SaleGovernance.sol#123)
+SaleGovernance.cancel(PoolSaleState.SaleStorage) (src/libraries/SaleGovernance.sol#134-143) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.expiresAt (src/libraries/SaleGovernance.sol#137)
+SaleSettlement.prepare(PoolSaleState.SaleStorage,address,uint256,address,uint256) (src/libraries/SaleSettlement.sol#21-49) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.expiresAt (src/libraries/SaleSettlement.sol#29)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+PoolFactory._factoryStorage() (src/PoolFactory.sol#198-201) uses assembly
+	- INLINE ASM (src/PoolFactory.sol#200)
+PoolRewardState._rewardStorage() (src/PoolRewardState.sol#54-58) uses assembly
+	- INLINE ASM (src/PoolRewardState.sol#55-57)
+PoolSaleState._saleStorage() (src/PoolSaleState.sol#50-54) uses assembly
+	- INLINE ASM (src/PoolSaleState.sol#51-53)
+PoolVaultState._vaultStorage() (src/PoolVaultState.sol#42-46) uses assembly
+	- INLINE ASM (src/PoolVaultState.sol#43-45)
+ShareMarket._marketStorage() (src/ShareMarket.sol#157-161) uses assembly
+	- INLINE ASM (src/ShareMarket.sol#158-160)
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) uses assembly
+	- INLINE ASM (src/libraries/MiningOperations.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: cyclomatic-complexity
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#532-568) has a high cyclomatic complexity (12).
+BurnOperations.execute(PoolSaleState.SaleStorage,uint256,uint256) (src/libraries/BurnOperations.sol#31-98) has a high cyclomatic complexity (12).
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) has a high cyclomatic complexity (15).
+MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-87) has a high cyclomatic complexity (13).
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cyclomatic-complexity
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in ShareMarket.withdrawBnb() (src/ShareMarket.sol#97-106):
+	- (success,None) = msg.sender.call{value: amount}() (src/ShareMarket.sol#103)
+Low level call in MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57):
+	- (success,result) = MINING.call(data) (src/libraries/MiningOperations.sol#52)
+Low level call in PoolFunds.withdraw(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#78-86):
+	- (success,None) = msg.sender.call{value: amount}() (src/libraries/PoolFunds.sol#83)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: missing-inheritance
+PoolFactory (src/PoolFactory.sol#18-202) should inherit from IShareMarketFactory (src/interfaces/IShareMarket.sol#47-51)
+PoolVault (src/PoolVault.sol#27-699) should inherit from IShareMarketPool (src/interfaces/IShareMarket.sol#53-59)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-inheritance
+INFO:Detectors:
+Detector: naming-convention
+Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#584-586) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Slither:. analyzed (62 contracts with 101 detectors), 44 result(s) found

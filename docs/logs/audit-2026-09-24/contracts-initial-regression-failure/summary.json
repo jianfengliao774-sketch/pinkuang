@@ -1,0 +1,52 @@
+{
+  "task": "T1e",
+  "stage": "contracts",
+  "startedAt": "2026-09-24T16:44:52.973Z",
+  "status": "failed",
+  "sourceCommit": "2732e57d0f3816c0df9e570399c58129bb6770cf",
+  "ci": null,
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-check-m87V2X",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 1
+    }
+  ],
+  "finishedAt": "2026-09-24T16:46:33.090Z"
+}

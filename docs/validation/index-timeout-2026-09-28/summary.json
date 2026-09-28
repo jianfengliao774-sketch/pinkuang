@@ -1,0 +1,30 @@
+{
+  "checkedAtUtc": "2026-09-28T04:59:15.7726273Z",
+  "scope": "All deploy/server/chain-index/*.test.mjs (5 files)",
+  "uniqueTests": 32,
+  "windows": {
+    "durationMs": 29450.5717,
+    "passed": 32,
+    "failed": 0
+  },
+  "linux": {
+    "durationMs": 31313.996548,
+    "isolatedDirectory": "/tmp/pinkuang-index-timeout-20260928T045803Z",
+    "passed": 32,
+    "failed": 0
+  },
+  "sourceSha256": {
+    "deploy/server/chain-index/server.mjs": "45bde89de401ff4e693e9dd6b9422e2bb82bb1a24c92994c938a7001e1db8258",
+    "deploy/server/chain-index/indexer.mjs": "f5e115d8453081c61891687c2322603f92007b18600b10ab81606a42b8100506",
+    "deploy/server/chain-index/server.test.mjs": "640d48857e22034352daca04c9deca494f1ee765c33c074987efa40ddd38e4e0",
+    "deploy/server/chain-index/portfolio-index.test.mjs": "c4b7b06edc77eac0ebc382bb46b087bc3f61391bf4f25329fb9a0bb678e9b121",
+    "deploy/server/chain-index/README.md": "5841febb87807be96f3eb76d885cc563762eb899d6db137f799bcb64dedaacf1"
+  },
+  "validated": [
+    "logs 12.5-second HTTP response succeeds with logs timeout 30000",
+    "primary request stays at 12 seconds even with same-URL logs timeout 30000",
+    "four global log requests overlap; failure drains all peers before sync unlock; no partial commit",
+    "429 retry/backoff, wrong chain, reorg, malformed/missing history, core and portfolio indexing and notifications"
+  ],
+  "productionChanged": false
+}

@@ -1,0 +1,41 @@
+{
+  "url": "https://tapeout.cc.cd/pinkuang-deploy-v2/",
+  "sourceHead": "f64b36644a8de8fdfdbe1c72073a5c947a7f2d1d",
+  "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "sha256": "b2e34ae06fca11a0d7ffb9929e14c00d1747b595607d7d8e3e8cd44f32e52235",
+      "matchedFile": "dist/index.html",
+      "contentType": "text/html; charset=utf-8",
+      "cache": "no-store"
+    },
+    {
+      "path": "/deployment-artifacts.json",
+      "status": 200,
+      "sha256": "22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b",
+      "matchedFile": "dist/deployment-artifacts.json",
+      "contentType": "application/json; charset=utf-8",
+      "cache": "no-store"
+    },
+    {
+      "path": "/api/journal/build",
+      "status": 401,
+      "sha256": "7f46b8b5117c46421d16acb0d3896fbba3b5c0784d19f194223b8e2aac5f30b9",
+      "matchedFile": null,
+      "contentType": "application/json; charset=utf-8",
+      "cache": "no-store"
+    },
+    {
+      "path": "/api/journal/notifications/capabilities",
+      "status": 200,
+      "sha256": "53faff2b954766f70f3b3996a187f6da6d32e34b2ad163ecfb7bc82738429af2",
+      "matchedFile": null,
+      "contentType": "application/json; charset=utf-8",
+      "cache": "no-store"
+    }
+  ],
+  "signatures": 0,
+  "transactions": 0
+}

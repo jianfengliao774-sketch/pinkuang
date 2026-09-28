@@ -1,0 +1,307 @@
+{
+  "checkedAt": "2026-09-28T05:33:47.473Z",
+  "base": "https://tapeout.cc.cd/bemine-v2/",
+  "mode": "read-only; no wallet provider; no signatures or transactions",
+  "routes": [],
+  "responses": [
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json",
+      "status": 200,
+      "type": "fetch",
+      "at": 1790573629322
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json",
+      "status": 200,
+      "type": "fetch",
+      "at": 1790573629577
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573631904
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573631905
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573633093
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573633093
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573635283
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573635283
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573639463
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573639464
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573647646
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573647646
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573659828
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573659829
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573672015
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+      "status": 503,
+      "type": "fetch",
+      "at": 1790573672015
+    }
+  ],
+  "failures": [
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/api/rpc",
+      "method": "POST",
+      "error": "net::ERR_ABORTED"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/pools?cursor=0&limit=20",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 503 ()",
+      "location": {
+        "url": "https://tapeout.cc.cd/bemine-v2/api/chain-index/v1/stats",
+        "line": 0,
+        "column": 0,
+        "lineNumber": 0,
+        "columnNumber": 0
+      }
+    }
+  ],
+  "pageErrors": [],
+  "blockedWrites": [],
+  "rpcMethods": [
+    "eth_call",
+    "eth_chainId",
+    "eth_getBlockByNumber",
+    "eth_getCode"
+  ],
+  "checks": [
+    "public manifest binds the verified new core and portfolio factories"
+  ],
+  "manifest": {
+    "schemaVersion": 1,
+    "chainId": 56,
+    "factory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+    "shareMarket": "0x347e094BAAB9b74059567A25ab49dFaEA149E734",
+    "lens": "0x60E358bE80D3035320019D65F2E3B32E2d7478b7",
+    "beacon": "0x310EB94d4495c7fD08F2FB16bad5d850B0861673",
+    "timelock": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+    "kind": "integrated-v2",
+    "portfolioFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+    "portfolioMarket": "0xC6d3860817e8F04b42DA4975319aED32540e8cf8",
+    "portfolioBeacon": "0xB6A81cd593be825cC562486c302cc9AB47c58423",
+    "portfolioImplementation": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
+    "portfolioFactoryImplementation": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+    "deployment": {
+      "txHash": "0x4497fc6a8bc5fce4c006c6a1e6f7490b08d138ad9a64bcff983855c56f9e30f0",
+      "blockNumber": 124453751,
+      "blockHash": "0x181d3484dfcee1f8d71513bbb689b44230911d91cb775af11914dba9f3b0c39a"
+    },
+    "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "sourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "verifiedAt": "2026-09-28T03:35:55.803Z",
+    "verifiedBlockNumber": 124453799,
+    "codehash": {
+      "factory": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+      "shareMarket": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+      "lens": "0x9df503947408f1ada4e68f23d52e726a339f2d84510912e16cfe8898e7be2c0d",
+      "beacon": "0x30b31db8ee3ba6aa3981e3081c5ecf2f1477f0bf63bcce2c11b3466b6326fbec",
+      "timelock": "0x131279f01c290b8e925bdb9c33cb89d046554863d8adbb3ea8064b412c6c147b",
+      "portfolioFactory": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+      "portfolioMarket": "0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7",
+      "portfolioBeacon": "0x75f6796d383fdfd60db3db1d7c53837236d85027edb409064a9d0a394f9bea3c",
+      "portfolioImplementation": "0x50fb9b100a8724453a2baaa84136574de5dd247194fbe02bc054b89482fb44a2",
+      "portfolioFactoryImplementation": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7"
+    }
+  },
+  "error": {
+    "message": "locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.page-footer').getByText(/数据区块 \\d+/) to be visible\u001b[22m\n",
+    "stack": "locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.page-footer').getByText(/数据区块 \\d+/) to be visible\u001b[22m\n\n    at C:\\Users\\Administrator\\Documents\\流片上链条\\outputs\\pinkuang-mainnet-readiness-20260928\\live-browser\\live-readonly-check.mjs:37:60"
+  },
+  "failureText": "数据服务暂不可用（HTTP 503）。\n重新读取项目\n拼矿 BEMine · 一起参与 TapeOut\n一份投入，十分热爱，\n百分参与，万份回报。\n\n从一份矿机开始，与更多 Tapeouters 共同持有、共享产出，参与 TapeOut 的每一步成长。\n\n寻找我的第一份矿机\n了解如何参与\n「万份回报」为品牌愿景，不代表收益承诺。实际产出会随矿机及协议状态变化。\n暂停动效\nOUR PURPOSE\n初衷愿景\n让每一位 Tapeouter，都能享受挖矿的乐趣。\n\n我们相信，参与 TapeOut 不应只属于少数人。无论投入多少，每一份热爱都值得有一个参与的入口。\n\nBEMine 希望通过共同持有矿机，降低独自购机的资金门槛，让每一位 Tapeouter 在参与生态建设的同时，也有能力享受挖矿的乐趣。\n\n从一份开始，一起建设，一起成长。\nTOGETHER IN TAPEOUT\n每一份参与，都在这里汇聚。\n平台统计 · 链上记录\n累计立项\n—个\n\n拼矿已创建项目\n\n参与 Tapeouters\n—位\n\n按参与地址去重\n\n管理矿机\n—台\n\n已完成购机并管理\n\n当前预估日产\n—BEM\n\n全机产出 · 分配前\n\n当前币价\n≈ 49.268USDT\n\n每 15 秒更新 · 13:34:31\n\n来源：PancakeSwap V3\n\n参与人数按历史参与钱包地址去重。未取得可靠数据的指标显示为 —；币价为独立行情。\n\nFIND YOUR SHARE\n找到属于你的参与方式。\n查看项目总览\n01 / 募集中\n—个项目\n\n一起出资，开启下一台矿机。\n\n查看已加载项目\n02 / 挖矿中\n—个项目\n\n共同持有，按份额分享产出。\n\n查看已加载项目\n03 / 整机出售中\n—个项目\n\n共同决定，让矿机有序流转。\n\n查看已加载项目\nYOUR SHARE. YOUR VOICE.\n一起拼矿，\n也一起决定。\n\n资产有归属，产出有记录，\n重大事项由共同持有人参与决定。\n\n了解平台规则\n从 1 份开始\n\n每台矿机共有 100 份，单地址可认购全部份额。\n\n按份分享真实产出\n\n产出先归集到池子，个人按份领取；已入账收益永久保留。\n\n共同参与重要决策\n\n地址数须过半；折价出售需至少 60 份赞成，其余需超过 50 份。\n\n把记录摆在明处\n\n查看归集、分配与本人领取记录，了解每一份权益。\n\nGROW WITH THE COMMUNITY\n共持BEM矿机，共享BEM人生\n\n让参与更轻一点，让每一份选择更清楚一点。\n\n查看我的资产\n查看公开记录\n公开规则 · 明确权益 · 可核对的记录\n数据暂不可用",
+  "passed": false,
+  "finishedAt": "2026-09-28T05:34:37.312Z"
+}

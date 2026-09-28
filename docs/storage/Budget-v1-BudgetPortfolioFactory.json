@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/BudgetPortfolioFactory.sol:BudgetPortfolioFactory",
+  "provenance": {
+    "commit": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
+    "sourceSha256": "ebdf7aa43af27ad29098e3055a29a9d552d1d23e931f9a7f5caf0e89b80762eb",
+    "buildInfoFile": "79b4c56a60b205a1.json",
+    "buildInfoSha256": "bfae58e73d08c2698d06112ad6e68841b93bab3dbc79c931c456ba3ba0e49ad6",
+    "compiler": "0.8.24",
+    "verification": "Every compiled src/ dependency metadata hash matched the fixed 5f160c5 source snapshot."
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [
+      {
+        "label": "operator",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:32"
+      },
+      {
+        "label": "treasury",
+        "offset": 0,
+        "slot": "1",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:33"
+      },
+      {
+        "label": "timelock",
+        "offset": 0,
+        "slot": "2",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:34"
+      },
+      {
+        "label": "beacon",
+        "offset": 0,
+        "slot": "3",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:35"
+      },
+      {
+        "label": "legacyFactory",
+        "offset": 0,
+        "slot": "4",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:36"
+      },
+      {
+        "label": "shareMarket",
+        "offset": 0,
+        "slot": "5",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:37"
+      },
+      {
+        "label": "creationPaused",
+        "offset": 20,
+        "slot": "5",
+        "type": "t_bool",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:38"
+      },
+      {
+        "label": "isPool",
+        "offset": 0,
+        "slot": "6",
+        "type": "t_mapping(t_address,t_bool)",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:39"
+      },
+      {
+        "label": "portfolios",
+        "offset": 0,
+        "slot": "7",
+        "type": "t_array(t_address)dyn_storage",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src\\BudgetPortfolioFactory.sol:40"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]",
+        "numberOfBytes": "32"
+      },
+      "t_bool": {
+        "label": "bool",
+        "numberOfBytes": "1"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)",
+        "numberOfBytes": "32"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\utils\\ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "..\\node_modules\\@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

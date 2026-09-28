@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {BEM_ADDRESS,BEM_POOL,WBNB_USDT_POOL,calculateBnbUsdt,calculateBemUsdt,validBemQuote} from '../lib/bem-price.mjs';
+assert.equal(calculateBnbUsdt(2n**95n),4,'invert WBNB per USDT; both tokens use 18 decimals');
+assert.throws(()=>calculateBnbUsdt(0n));
+assert.throws(()=>calculateBnbUsdt(-1n));
+const price=calculateBemUsdt(2n**96n,800);
+assert.ok(Math.abs(price-0.00000008)<1e-20,'8 versus 18 decimal conversion');
+assert.throws(()=>calculateBemUsdt(0n,800));
+assert.throws(()=>calculateBemUsdt(2n**96n,-1));
+const now=Date.now();
+const q={status:'ok',chainId:56,tokenAddress:BEM_ADDRESS,poolAddress:BEM_POOL,conversionPoolAddress:WBNB_USDT_POOL,source:'PancakeSwap V3',quoteCurrency:'USDT',priceUsdt:54,updatedAt:new Date(now).toISOString()};
+assert.equal(validBemQuote(q,now),true);
+for(const fields of [{source:'Binance'},{conversionPoolAddress:'0xwrong'},{status:'unavailable'},{priceUsdt:null},{priceUsdt:'54'},{priceUsdt:0},{priceUsdt:Infinity},{quoteCurrency:'USD'},{tokenAddress:'0xwrong'},{updatedAt:new Date(now-60001).toISOString()},{updatedAt:new Date(now+6000).toISOString()}])assert.equal(validBemQuote({...q,...fields},now),false);
+console.log('BEM price checks passed: decimal scaling, nonpositive/malformed price, token/currency identity, stale/future timestamps.');

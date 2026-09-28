@@ -1,0 +1,36 @@
+{
+  "result": "pass",
+  "uniquePassed": 81,
+  "failed": 0,
+  "tests": [
+    "deploy/server/firsto-proxy.test.mjs",
+    "deploy/server/creation-cutover.test.mjs",
+    "deploy/server/journal-api.test.mjs",
+    "deploy/server/product-journal.test.mjs",
+    "deploy/server/journal-official-candidates.test.mjs",
+    "deploy/server/journal-budget-candidates.test.mjs"
+  ],
+  "sourceSha256": {
+    "deploy/server/firsto-proxy.mjs": "df079905ce6bfca28f7cb770a74062d082fb36bf10f385181e413deee53c7013",
+    "deploy/server/firsto-proxy.test.mjs": "a850bcc14434c29aa98687cf3a8bd4d4edf3fe9060287252f54963cdc018e9f7",
+    "deploy/server/creation-cutover.mjs": "534e341b273399bfde16dbee5b4c2c7cc79e626bdde59bce17074053637458e7",
+    "deploy/server/creation-cutover.test.mjs": "63db0638126659b9359dd77e2f8351bcf6207dae901194b527785445b1e534ed",
+    "deploy/server/journal-api.mjs": "d9b239d6c48bcc8e7317d5f09ee1afa76db8cb0f43dddfa5fd316728d4d3cabb",
+    "deploy/server/journal-api.test.mjs": "813d0ae0ffc34ac2a08910e879ba782d6c6eddb18a4233b7dde9469f9e99700f",
+    "deploy/server/product-journal.test.mjs": "903c9d828514ba1f3e54636c7ac5c60c6d0a16d5e35c3d0060ba17896a2016fe",
+    "deploy/server/journal-official-candidates.test.mjs": "1f2ac9d50b6e7d7aeae10e5818ab4788f0f95f52a0bae72c9ad06fc9ad0bf368",
+    "deploy/server/journal-budget-candidates.test.mjs": "5c23c0dd0ebec69c6847a20458d597d24036f6bdb71f3ba2ffb4220bf83a0d7e"
+  },
+  "logs": [
+    "quote-cutover-linux-tests.log",
+    "quote-cutover-linux-tests.initial.log"
+  ],
+  "initialFailure": "The first isolated test archive omitted runtime discovery scripts, so all six files failed to load before any assertions. Added the exact scripts and reran the six files: 81/81 passed. No production changes.",
+  "configuration": "BEMINE_LEGACY_FACTORY is optional for old deployments and mandatory for this v2 cutover; never accept it from browser input.",
+  "notes": [
+    "All mining-state and market-source observations were read-only.",
+    "The source first 50 verified daily-price rows have no exact seller-price/daily-output inversions. All buyerCost/price ratios in that sample are 1.01, so it does not distinguish which denominator-independent upstream price field implements sorting.",
+    "Display amount rounding does not change wei, calldata, order signatures or source estimates.",
+    "Public RPC archive access was unavailable at the API source block; miner on-chain corroboration uses the separately documented later fixed block, not a falsely claimed same-block comparison."
+  ]
+}

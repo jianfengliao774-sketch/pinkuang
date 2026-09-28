@@ -1,0 +1,16 @@
+Upgrade build-info prepared: 2 file(s), 77 metadata-verified input aliases; compiler output unchanged.
+Preparation audit: /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/contracts/out/upgrade-build-info-audit.json
+/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/node_modules/@openzeppelin/upgrades-core/dist/cli/validate/find-contract.js:36
+        throw new error_1.ValidateCommandError(msg, () => `This may be caused by old copies of build info files. Clean and recompile your project, then run the command again with the updated files.`);
+              ^
+
+ValidateCommandError: Found multiple contracts with name src/PoolFactory.sol:PoolFactory.
+
+This may be caused by old copies of build info files. Clean and recompile your project, then run the command again with the updated files.
+    at findContract (/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/node_modules/@openzeppelin/upgrades-core/dist/cli/validate/find-contract.js:36:15)
+    at findSpecifiedContracts (/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/node_modules/@openzeppelin/upgrades-core/dist/cli/validate/validate-upgrade-safety.js:54:56)
+    at validateUpgradeSafety (/Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/node_modules/@openzeppelin/upgrades-core/dist/cli/validate/validate-upgrade-safety.js:47:32)
+    at async validate (file:///Users/liaojianfeng/Documents/ChatGPT/%E8%AE%A1%E7%AE%97/pinkuang/scripts/validate-upgrades.mjs:29:18)
+    at async file:///Users/liaojianfeng/Documents/ChatGPT/%E8%AE%A1%E7%AE%97/pinkuang/scripts/validate-upgrades.mjs:153:3
+
+Node.js v25.9.0

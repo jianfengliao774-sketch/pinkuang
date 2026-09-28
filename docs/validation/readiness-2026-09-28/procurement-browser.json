@@ -1,0 +1,24 @@
+{
+  "passed": 7,
+  "checks": [
+    "Firsto selected quote fills fee-inclusive cap",
+    "duplicate appearing after quote selection blocks create preview with exact existing pool",
+    "one click reads original target and previews exact seller price, source fee, pool gross and wallet Gas only",
+    "flexible pool discovers and simulates an official same-task replacement before Firsto, with miner identity and price warning",
+    "old factory allows read-only quote checks but blocks applying the quote, fixed/flexible creation and Firsto purchase",
+    "unfinished registry migration keeps creation and Firsto disabled",
+    "account switch invalidates Firsto procurement preview without signing"
+  ],
+  "output": "C:/Users/Administrator/Documents/流片上链条/outputs/pinkuang-rewrite-handoff-20260928/verified-operator-firsto-browser-check",
+  "script": "web/scripts/operator-firsto-browser-check.mjs",
+  "verifiedAt": "2026-09-28T03:07:08.287Z",
+  "testScope": "Offline Chromium fixtures, no real wallet signatures or chain broadcasts",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3200,
+    "handler": "ThreadingHTTPServer",
+    "request_queue_size": 128,
+    "requestLogging": false
+  },
+  "exitCode": 0
+}

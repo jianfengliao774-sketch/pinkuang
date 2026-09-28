@@ -1,0 +1,13 @@
+{
+  "status": "NOT_DEPLOYED",
+  "chainId": 56,
+  "coreFactory": "0x2995B10d19056c8C24C57b281C22562a603C571F",
+  "budgetFactory": "0x07FC0b1118529bA3c7C406058699b9B57Dd9e360",
+  "timelock": "0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C",
+  "administrators": [
+    "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+    "0xeD2FCBe59EBe1754a3676aeb9CcfBA20f193FcbB"
+  ],
+  "gasWallet": null,
+  "upgradeWallet": null
+}

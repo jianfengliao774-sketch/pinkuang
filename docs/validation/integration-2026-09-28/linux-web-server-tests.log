@@ -1,0 +1,21 @@
+✔ exact wallet session, server index identity and one durable 100-share intent (362.920082ms)
+✔ only a canonical finalized original or cancellation retires an intent (177.119905ms)
+✔ wrong Origin and foreign nonce or hash never authorize transaction completion (100.201146ms)
+✔ a changed implementation code hash blocks live config and all signatures (60.207235ms)
+✔ raw RPC chain ID change blocks config and transaction intents even with reviewed bytecode (73.960255ms)
+✔ pending transaction is restored from SQLite after server restart and new wallet login (105.881707ms)
+✔ prepared intent can be abandoned without a wallet transaction; armed intent cannot (109.362183ms)
+✔ ShareMarket listing uses the same wallet journal and only its exact target receipt completes it (206.228332ms)
+✔ ShareMarket fill binds order, seller, unit price, pool, quantity and exact BNB (212.955974ms)
+✔ legacy live API rejects new listings and fills when the buyer fee version is absent (119.250638ms)
+✔ ShareMarket cancel, expiry and BNB credit each enforce exact current eligibility (180.754126ms)
+✔ sale governance journal admits only exact current proposal, vote and execution calldata (251.333615ms)
+✔ whole-miner completion requires exact sale BNB; expiry unlock is a separate zero-value action (197.921441ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2631.222091

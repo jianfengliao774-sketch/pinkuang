@@ -1,0 +1,75 @@
+{
+  "namespace": "erc7201:tapeout.storage.FlexiblePurchase",
+  "fields": [
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "enabled",
+      "type": "t_bool",
+      "src": "src/PurchaseSelectionState.sol:10"
+    },
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "referenceCircuitId",
+      "type": "t_uint256",
+      "src": "src/PurchaseSelectionState.sol:11"
+    },
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "config",
+      "type": "t_struct(FlexiblePurchaseConfig)77561_storage",
+      "src": "src/PurchaseSelectionState.sol:12"
+    },
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "modelInitialized",
+      "type": "t_bool",
+      "src": "src/PurchaseSelectionState.sol:14"
+    },
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "taskId",
+      "type": "t_uint32",
+      "src": "src/PurchaseSelectionState.sol:15"
+    },
+    {
+      "contract": "PurchaseSelectionState",
+      "label": "referenceVerifiedWeight",
+      "type": "t_uint128",
+      "src": "src/PurchaseSelectionState.sol:17"
+    }
+  ],
+  "config": {
+    "label": "struct IPoolVault.FlexiblePurchaseConfig",
+    "members": [
+      {
+        "label": "minVerifiedWeight",
+        "type": "t_uint128"
+      },
+      {
+        "label": "referencePriceWei",
+        "type": "t_uint256"
+      },
+      {
+        "label": "targetDailyYieldAtomic",
+        "type": "t_uint256"
+      },
+      {
+        "label": "extraBps",
+        "type": "t_uint16"
+      },
+      {
+        "label": "referenceObservedAt",
+        "type": "t_uint64"
+      },
+      {
+        "label": "referenceBlock",
+        "type": "t_uint64"
+      },
+      {
+        "label": "referenceDigest",
+        "type": "t_bytes32"
+      }
+    ]
+  },
+  "source": "Extracted by OpenZeppelin from the current PoolVault compiler output; inherited PurchaseSelectionState."
+}

@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "funding ownership does not interrupt subscription with a notification prompt",
+    "explicit bind -> private bot link -> visible account -> final wallet confirmation",
+    "iPhone 375px: no horizontal overflow",
+    "iPhone 390px: no horizontal overflow",
+    "iPhone 430px: no horizontal overflow",
+    "English and dark appearance, persisted prompt skip, notification route reload",
+    "no automatic signatures, wallet writes or external messages"
+  ],
+  "errors": []
+}

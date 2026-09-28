@@ -1,0 +1,187 @@
+"""Reviewed static-product pointer update only. No service, nginx, database or chain mutations."""
+import datetime,fcntl,hashlib,json,os,pathlib,re,stat,subprocess,time
+if not __debug__:raise RuntimeError('Python optimization must remain disabled')
+CONFIG=json.loads(__CONFIG_JSON__)
+PHASE=__PHASE__
+assert PHASE in ['prepare','activate','rollback'] and os.geteuid()==0
+sha=lambda body:hashlib.sha256(body).hexdigest()
+base=pathlib.Path('/var/www/bemine-v2/releases')
+current=base.parent/'current'
+backup_base=pathlib.Path('/var/backups/pinkuang-v2')
+manifest_name='product-release-manifest.json'
+html_name='public/bemine-v2/index.html'
+frontend_name='public/bemine-v2/data/frontend-manifest.json'
+service_names=['pinkuang-deploy-v2.service','pinkuang-index-v2.service','pinkuang-deploy.service','pinkuang-index.service',
+ 'bem2075-site.service','sparkdraw-keeper.service','sparkdraw-bot.service','bemine-price.service']
+protected_files=['/etc/nginx/sites-available/bem2075','/etc/nginx/snippets/bemine-v2.conf',
+ '/etc/systemd/system/pinkuang-deploy-v2.service','/etc/systemd/system/pinkuang-index-v2.service',
+ '/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json']
+protected_links=['/srv/pinkuang-deploy/current','/var/www/bemine-preview/current','/srv/crowdfund/current']
+database_paths=['/var/lib/pinkuang-deploy-v2/journal.sqlite','/var/lib/pinkuang-index-v2/index.sqlite']
+
+def options(value):
+    for key in ['releaseId','previousReleaseId']:
+        assert isinstance(value.get(key),str) and re.fullmatch(r'v2-product-[a-z0-9][a-z0-9-]{1,70}',value[key]),'Invalid release ID'
+    assert value['releaseId']!=value['previousReleaseId'],'New product release required'
+    assert isinstance(value.get('operationId'),str) and re.fullmatch(r'v2-static-[a-z0-9][a-z0-9-]{1,80}',value['operationId']),'Invalid operation ID'
+    for key in ['sourceHead','previousSourceHead']:
+        assert isinstance(value.get(key),str) and re.fullmatch(r'[0-9a-f]{40}',value[key]),'Expected exact source commit'
+    for key in ['manifestSha256','previousManifestSha256','frontendManifestSha256']:
+        assert isinstance(value.get(key),str) and re.fullmatch(r'[0-9a-f]{64}',value[key]),'Expected SHA256'
+    assert isinstance(value.get('artifactDigest'),str) and re.fullmatch(r'0x[0-9a-f]{64}',value['artifactDigest']),'Expected artifact digest'
+    return value
+
+options(CONFIG)
+candidate=base/CONFIG['releaseId']
+previous=base/CONFIG['previousReleaseId']
+backup=backup_base/CONFIG['operationId']
+
+def no_links(path):
+    for part in [path,*path.parents]:assert not part.is_symlink(),'Symlink refused: '+str(part)
+
+def directory(path):
+    no_links(path);value=path.stat()
+    assert stat.S_ISDIR(value.st_mode) and value.st_uid==0 and not value.st_mode&0o022,'Untrusted directory: '+str(path)
+
+def regular(path):
+    no_links(path);value=path.stat()
+    assert stat.S_ISREG(value.st_mode) and value.st_uid==0 and not value.st_mode&0o022,'Untrusted regular file: '+str(path)
+    return path.read_bytes()
+
+def relative_file(name):
+    assert isinstance(name,str) and name and '\\' not in name and ':' not in name
+    value=pathlib.PurePosixPath(name)
+    assert not value.is_absolute() and value.as_posix()==name and all(p not in ['.','..'] and not p.startswith('.') for p in value.parts),'Unsafe release path'
+    assert len(value.parts)>=3 and value.parts[:2]==('public','bemine-v2'),'Only static product files are allowed'
+    assert not any(p.lower() in ['journal.sqlite','.env','id_rsa','id_ed25519'] or p.lower().endswith(('.key','.pem','.sqlite','.sqlite-wal','.sqlite-shm')) for p in value.parts),'Private/runtime data forbidden'
+    return value
+
+def verify_release(root,expected_hash,source_head):
+    directory(base);directory(root)
+    assert root.parent==base and root.name in [CONFIG['releaseId'],CONFIG['previousReleaseId']]
+    body=regular(root/manifest_name);assert sha(body)==expected_hash,'Product manifest digest changed'
+    value=json.loads(body)
+    assert value.get('schemaVersion')==1 and value.get('sourceHead')==source_head and value.get('artifactDigest')==CONFIG['artifactDigest']
+    assert value.get('basePath')=='/bemine-v2' and value.get('chainId')==56
+    files=value.get('files');assert isinstance(files,dict) and 2<=len(files)<=2000
+    assert html_name in files and frontend_name in files
+    total=0
+    for name,spec in files.items():
+        relative_file(name);assert isinstance(spec,dict) and re.fullmatch(r'[0-9a-f]{64}',spec.get('sha256',''))
+        assert type(spec.get('bytes')) is int and 0<=spec['bytes']<=128*1024*1024
+        data=regular(root/name);assert len(data)==spec['bytes'] and sha(data)==spec['sha256'],'Product file changed: '+name
+        total+=len(data)
+    assert total<=128*1024*1024,'Product package too large'
+    actual=set()
+    for item in root.rglob('*'):
+        assert not item.is_symlink(),'Release contains symlink'
+        if item.is_dir():directory(item)
+        else:regular(item);actual.add(item.relative_to(root).as_posix())
+    assert actual==set(files)|{manifest_name},'Unlisted or missing product file'
+    frontend=regular(root/frontend_name);assert sha(frontend)==CONFIG['frontendManifestSha256'],'Static update must preserve exact contract manifest'
+    parsed=json.loads(frontend);assert parsed.get('kind')=='integrated-v2' and parsed.get('chainId')==56 and parsed.get('artifactDigest')==CONFIG['artifactDigest']
+    return value
+
+def link_target():
+    directory(current.parent);assert current.is_symlink(),'Existing current symlink required'
+    target=os.readlink(current);assert pathlib.Path(target).is_absolute() and pathlib.Path(target).parent==base,'Unexpected current target'
+    assert target in [str(previous),str(candidate)],'Concurrent/unknown product target'
+    return target
+
+def protected_surface():
+    result={'files':{},'services':{},'links':{},'databaseIds':{}}
+    for name in protected_files:result['files'][name]=sha(regular(pathlib.Path(name)))
+    for name in service_names:
+        process=subprocess.run(['systemctl','show',name,'--property=LoadState,ActiveState,SubState,MainPID,InvocationID,User,Group'],capture_output=True,text=True,timeout=15)
+        assert process.returncode in [0,1];result['services'][name]=dict(line.split('=',1) for line in process.stdout.splitlines() if '=' in line)
+    for name in protected_links:
+        path=pathlib.Path(name);assert path.is_symlink();result['links'][name]=os.readlink(path)
+    for name in database_paths:
+        path=pathlib.Path(name);no_links(path);value=path.stat();assert stat.S_ISREG(value.st_mode)
+        result['databaseIds'][name]=[value.st_dev,value.st_ino]
+    return result
+
+def exclusive(path,data):
+    no_links(path);fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'wb') as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
+
+def state_bytes(value):return (json.dumps(value,sort_keys=True,indent=2)+'\n').encode()
+
+def switch(expected,target):
+    assert expected in [str(previous),str(candidate)] and target in [str(previous),str(candidate)]
+    assert link_target()==expected,'Concurrent product switch; refusing overwrite'
+    temp=current.with_name('current.'+CONFIG['operationId']+'.tmp')
+    assert not temp.exists() and not temp.is_symlink(),'Temporary pointer already exists'
+    os.symlink(target,temp)
+    try:
+        assert link_target()==expected,'Concurrent product switch; refusing overwrite'
+        os.replace(temp,current)
+        fd=os.open(current.parent,os.O_RDONLY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    finally:
+        if temp.is_symlink() and os.readlink(temp)==target:temp.unlink()
+    assert link_target()==target,'Product pointer did not converge'
+
+def public(path):
+    assert path in ['/bemine-v2/','/bemine-v2/data/frontend-manifest.json']
+    reply=subprocess.run(['curl','--silent','--show-error','--max-time','4','--noproxy','*','--resolve','tapeout.cc.cd:443:127.0.0.1',
+      '--header','Cache-Control: no-cache','--write-out','\n%{http_code}','https://tapeout.cc.cd'+path],capture_output=True,timeout=6)
+    assert reply.returncode==0,'Public HTTPS probe failed'
+    data,status=reply.stdout.rsplit(b'\n',1);return int(status),data
+
+def verify_public(root):
+    for path,name in [('/bemine-v2/',html_name),('/bemine-v2/data/frontend-manifest.json',frontend_name)]:
+        expected=regular(root/name);matched=False
+        for attempt in range(5):
+            code,body=public(path)
+            if code==200 and body==expected:matched=True;break
+            if attempt<4:time.sleep(0.25)
+        assert matched,'Public product bytes differ: '+path
+
+def restore(state):
+    assert state['configDigest']==sha(state_bytes(CONFIG))
+    verify_release(previous,CONFIG['previousManifestSha256'],CONFIG['previousSourceHead'])
+    target=link_target()
+    assert target in [state['priorTarget'],state['candidateTarget']],'Concurrent edit blocks rollback'
+    if target==state['candidateTarget']:switch(state['candidateTarget'],state['priorTarget'])
+    verify_public(previous)
+    return {'rolledBack':True,'productTarget':link_target(),'servicesChanged':False,'databasesRestored':False}
+
+def activate(state):
+    assert state['configDigest']==sha(state_bytes(CONFIG))
+    assert state['priorTarget']==str(previous) and state['candidateTarget']==str(candidate)
+    assert link_target()==str(previous),'Current target differs from prepared target'
+    verify_release(previous,CONFIG['previousManifestSha256'],CONFIG['previousSourceHead'])
+    verify_release(candidate,CONFIG['manifestSha256'],CONFIG['sourceHead'])
+    assert protected_surface()==state['protected'],'Protected service/config/database identity changed since prepare'
+    attempted=False
+    try:
+        attempted=True;switch(str(previous),str(candidate))
+        verify_public(candidate)
+        assert protected_surface()==state['protected'],'Protected surface changed during static update'
+        return {'activated':True,'productTarget':link_target(),'sourceHead':CONFIG['sourceHead'],'servicesRestarted':False,'databasesRestored':False}
+    except BaseException:
+        if attempted:restore(state)
+        raise
+
+def main():
+    directory(backup_base);directory(base)
+    lock=backup_base/'product-static-update.lock';no_links(lock)
+    fd=os.open(lock,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'a+b') as locked:
+        fcntl.flock(locked,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if PHASE=='prepare':
+            assert link_target()==str(previous)
+            verify_release(previous,CONFIG['previousManifestSha256'],CONFIG['previousSourceHead'])
+            verify_release(candidate,CONFIG['manifestSha256'],CONFIG['sourceHead'])
+            verify_public(previous)
+            snapshot=protected_surface();backup.mkdir(mode=0o700,exist_ok=False)
+            state={'configDigest':sha(state_bytes(CONFIG)),'priorTarget':str(previous),'candidateTarget':str(candidate),
+              'preparedAtUtc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'protected':snapshot}
+            exclusive(backup/'prepared.json',state_bytes(state));print(json.dumps({'prepared':True,'activated':False,'backup':str(backup)}));return
+        directory(backup);state=json.loads(regular(backup/'prepared.json'))
+        result=activate(state) if PHASE=='activate' else restore(state)
+        exclusive(backup/(PHASE+'-result.json'),state_bytes(result));print(json.dumps(result))
+
+if __name__=='__main__':main()

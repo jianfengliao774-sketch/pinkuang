@@ -1,0 +1,35 @@
+Upgrade build-info prepared: 1 file(s), 43 metadata-verified input aliases; compiler output unchanged.
+Preparation audit: C:\Users\ADMINI~1\AppData\Local\Temp\tapeout-check-oQRwEN\contracts\out\upgrade-build-info-audit.json
+
+Validation target: src/PoolFactory.sol:PoolFactory (initial implementation)
+ ✔  src/PoolFactory.sol:PoolFactory
+
+SUCCESS
+
+Validation target: src/PoolVault.sol:PoolVault (initial implementation)
+ ✔  src/PoolVault.sol:PoolVault
+
+SUCCESS
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture against src/PoolFactory.sol:PoolFactory
+ ✔  test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture (upgrades from src/PoolFactory.sol:PoolFactory)
+
+SUCCESS
+
+Validation target: test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture against src/PoolVault.sol:PoolVault
+ ✔  test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture (upgrades from src/PoolVault.sol:PoolVault)
+
+SUCCESS
+
+Validation target: test/utils/InvalidVaultLayout.sol:InvalidVaultLayout against src/PoolVault.sol:PoolVault
+ ✘  test/utils/InvalidVaultLayout.sol:InvalidVaultLayout (upgrades from src/PoolVault.sol:PoolVault)
+
+      PoolVault: Deleted `unitPriceWei`
+        > Keep the variable even if unused
+      
+      test\utils\InvalidVaultLayout.sol:21: Inserted `unitPriceWei`
+        > New variables should be placed after all existing inherited variables
+
+FAILED
+PASS: deliberately incompatible namespace layout rejected.
+Initial safety checks, both compatible upgrades, and incompatible-layout rejection completed.

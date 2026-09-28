@@ -1,0 +1,65 @@
+{
+  "recordedAt": "2026-09-26T07:49:58.729317+00:00",
+  "scope": "Local development only; no mainnet signing, approval, purchase, or deployment.",
+  "contracts": {
+    "passed": 332,
+    "failed": 0,
+    "profile": "ci",
+    "log": "model-ci-regression.log"
+  },
+  "upgradeValidation": {
+    "ok": true,
+    "checks": 21,
+    "summary": "model-upgrades/upgrade-summary.json"
+  },
+  "frontendDeploymentMarketPricing": {
+    "passed": 28,
+    "failed": 0,
+    "log": "purchase-ui-and-recovery-tests.log (first test suite)"
+  },
+  "finalScriptSuite": {
+    "passed": 60,
+    "failed": 0,
+    "keeper": 49,
+    "anvilRecoveryIntegration": 3,
+    "artifacts": 6,
+    "proxy": 2,
+    "log": "purchase-final-scripts-tests.log"
+  },
+  "productionBuild": {
+    "ok": true,
+    "log": "purchase-build.log"
+  },
+  "solidityFormatCheck": true,
+  "sha256": {
+    "contracts/src/libraries/FlexiblePurchase.sol": "4dc81acad1b454f7e098442537a97bd885ceb909ee45a62430fe2c9cf4ce5115",
+    "contracts/src/PurchaseSelectionState.sol": "c6991d312f30e72eef68321b2c13b86078d7d7faba92b074cc58ead24c754feb",
+    "contracts/test/unit/FlexiblePurchase.t.sol": "7b37d95236b3769c2833501ba65fc5e91e867e0bcef5ecfa38dcee1709ad3a11",
+    "deploy/scripts/purchase-keeper.mjs": "a45584abd4f33aa7a0214bbdcd71c412a7eba0688400e6f469b58f1913cfa045",
+    "deploy/scripts/purchase-keeper.test.mjs": "67b2b7075599474bf3b80ea6780ab7783cdf10c5cc1c532436bedd46a4cd8cc6",
+    "deploy/scripts/purchase-recovery.integration.test.mjs": "f2b98f7c91b35d9ac0df2619480889fa8b50a56d32bb6b11774442c2ce03d51c",
+    "deploy/src/pricing.ts": "6f5f920519a408a37976dfac14eb9dc866da30ed1cd58f246e4136c901f206ef",
+    "deploy/src/PricingPanel.tsx": "54e86de49e6462859c6e3463e6415a8905c4480b6f395438812b0b3ea3281dfc",
+    "deploy/public/deployment-artifacts.json": "0c61e7e6098ac62575ca7d63e700d3bf993d7d755d41c310cf747ec53f195d05"
+  },
+  "limits": [
+    "No mainnet or successful Firsto execution fork test.",
+    "Only official market purchase is implemented; Firsto order execution and own procurement service fee remain incomplete.",
+    "Quote export does not create/fund a pool; full funding and withdrawal page remains incomplete.",
+    "Single wallet and upgrade timelock do not guarantee asset safety; external RPC/protocol and chain availability remain trusted dependencies."
+  ],
+  "publication": {
+    "recordedAt": "2026-09-26T08:11:59.070073+00:00",
+    "sourceCommit": "b4f99cc8b713ec74ef40f35f3503ccb4bd9c7781",
+    "artifactChange": "Only sourceCommit metadata changed after committing the validated source; ABI, bytecode, compiler settings and source hashes are identical.",
+    "artifactTests": {
+      "passed": 6,
+      "failed": 0,
+      "log": "publication-artifacts.log"
+    },
+    "productionBuild": {
+      "ok": true,
+      "log": "publication-build.log"
+    }
+  }
+}

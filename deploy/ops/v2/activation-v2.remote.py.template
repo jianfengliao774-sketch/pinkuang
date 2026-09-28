@@ -1,0 +1,246 @@
+"""Generated review draft. Mutates only when explicitly sent to the remote root shell."""
+import datetime,fcntl,hashlib,json,os,pathlib,pwd,re,socket,stat,subprocess,time,urllib.error,urllib.request
+if not __debug__:raise RuntimeError('Run without Python optimization; validation guards must remain enabled')
+CONFIG=json.loads(__CONFIG_JSON__)
+PHASE=__PHASE__
+sha=lambda data:hashlib.sha256(data).hexdigest()
+rid=CONFIG['releaseId']
+assert PHASE in ['prepare','activate'] and re.fullmatch(r'v2-[a-z0-9][a-z0-9-]{1,70}',rid)
+assert os.geteuid()==0
+site=pathlib.Path('/etc/nginx/sites-available/bem2075')
+snippet=pathlib.Path('/etc/nginx/snippets/pinkuang-deploy-v2.conf')
+unit=pathlib.Path('/etc/systemd/system/pinkuang-deploy-v2.service')
+release=pathlib.Path('/srv/pinkuang-deploy-v2/releases')/rid
+backup=pathlib.Path('/var/backups/pinkuang-v2')/rid
+anchor='    location = /pinkuang-deploy { return 308 /pinkuang-deploy/; }'
+include='    include /etc/nginx/snippets/pinkuang-deploy-v2.conf;\n'
+directories=[pathlib.Path('/var/lib')/name for name in ['pinkuang-deploy-v2','pinkuang-index-v2','pinkuang-notifications-v2']]
+old_services=['pinkuang-deploy.service','pinkuang-index.service','bem2075-site.service','sparkdraw-keeper.service','sparkdraw-bot.service']
+old_currents=['/srv/pinkuang-deploy/current','/var/www/bemine-preview/current','/srv/crowdfund/current']
+
+def command(args,**kwargs):
+    result=subprocess.run(args,capture_output=True,text=True,timeout=kwargs.pop('timeout',30),**kwargs)
+    if result.returncode:raise RuntimeError('Command failed: '+args[0]+' '+args[1]+' (exit '+str(result.returncode)+')')
+    return result.stdout
+
+def no_links(path):
+    for candidate in [path,*path.parents]:
+        assert not candidate.is_symlink(),'Refusing symlink: '+str(candidate)
+
+def service(name):
+    result=subprocess.run(['systemctl','show',name,'--property=LoadState,ActiveState,SubState,MainPID,InvocationID,User,Group'],capture_output=True,text=True,timeout=20)
+    value=dict(row.split('=',1) for row in result.stdout.splitlines() if '=' in row)
+    assert result.returncode in [0,1] and value.get('LoadState') in ['loaded','not-found'],'Cannot inspect service metadata'
+    return value
+
+def legacy():
+    return {'services':{name:service(name) for name in old_services},
+            'current':{name:{'exists':pathlib.Path(name).exists(),'symlink':pathlib.Path(name).is_symlink(),'target':str(pathlib.Path(name).resolve())} for name in old_currents}}
+
+def assert_legacy(expected):
+    assert legacy()==expected,'A legacy PID, InvocationID, unit identity or current target changed; stop for review'
+
+def available_port():
+    assert not any(re.search(r'[:\]]4174\s',line) for line in command(['ss','-H','-ltn']).splitlines()),'Port 4174 is in use'
+
+def exclusive(path,data,mode):
+    no_links(path);path.parent.mkdir(parents=True,exist_ok=True)
+    if path.exists():
+        assert path.is_file() and path.stat().st_uid==0 and path.read_bytes()==data,'Existing file differs: '+str(path)
+        assert stat.S_IMODE(path.stat().st_mode)==mode,'Existing file mode differs: '+str(path)
+        return
+    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode)
+    with os.fdopen(fd,'wb') as stream:stream.write(data);stream.flush();os.fsync(stream.fileno())
+    os.chmod(path,mode)
+
+def replace_site(data,original_stat):
+    tmp=site.with_name(site.name+'.pinkuang-v2-'+rid+'.tmp')
+    exclusive(tmp,data,stat.S_IMODE(original_stat.st_mode));os.chown(tmp,original_stat.st_uid,original_stat.st_gid)
+    os.replace(tmp,site)
+    fd=os.open(site.parent,os.O_RDONLY);os.fsync(fd);os.close(fd)
+
+def server_bounds(text,position):
+    # Ignore quoted regexes and comments while matching actual nginx block braces.
+    lexer=re.compile(r'\#[^\n]*|\s+|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[{};]|[^{};\s#]+')
+    stack=[];statement=[];matches=[]
+    for token in lexer.finditer(text):
+        value=token.group()
+        if value.isspace() or value.startswith('#'):continue
+        if value=='{':stack.append((statement[-1] if statement else '',token.start()));statement=[]
+        elif value=='}':
+            assert stack,'Unbalanced nginx block';kind,start=stack.pop()
+            if kind=='server' and start<position<token.start():matches.append((start,token.end()))
+            statement=[]
+        elif value==';':statement=[]
+        else:statement.append(value)
+    assert not stack and len(matches)==1,'Deployment anchor must belong to exactly one server block'
+    return matches[0]
+
+def candidate_site(original):
+    text=original.decode('utf8');assert text.count(anchor)==1 and '/pinkuang-deploy-v2' not in text and include.strip() not in text
+    start,end=server_bounds(text,text.index(anchor));header=text[start:text.index(anchor)]
+    assert re.search(r'(?m)^\s*listen\s+443\s+ssl(?:\s|;)',header)
+    assert re.search(r'(?m)^\s*server_name\s+tapeout\.cc\.cd\s*;',header),'Not the dedicated tapeout HTTPS server'
+    result=text.replace(anchor,include+anchor,1).encode('utf8')
+    assert result.replace(include.encode(),b'',1)==original,'Only the new include may change existing nginx bytes'
+    return result
+
+def verify_release():
+    no_links(release);assert release.is_dir() and release.stat().st_uid==0
+    manifest_bytes=(release/'release-manifest.json').read_bytes()
+    assert sha(manifest_bytes)==CONFIG['manifestSha256']
+    manifest=json.loads(manifest_bytes);assert manifest['kind']=='integrated-v2' and manifest['transactionCount']==16 and manifest['chainId']==56
+    for key in ['sourceHead','sourceCommit','artifactDigest']:assert manifest[key]==CONFIG[key]
+    marker=json.loads((release/'stage-complete.json').read_text())
+    assert marker['archiveSha256']==CONFIG['archiveSha256'] and marker['activated'] is False
+    for name,record in manifest['files'].items():
+        part=pathlib.PurePosixPath(name);assert not part.is_absolute() and '..' not in part.parts and '\\' not in name and ':' not in name
+        path=release/name;no_links(path);assert path.is_file() and path.stat().st_uid==0
+        assert not path.stat().st_mode&0o022,'Group/world-writable release file'
+        data=path.read_bytes();assert len(data)==record['bytes'] and sha(data)==record['sha256'],name
+    assert (release/'node_modules').is_dir()
+    assert command(['/usr/bin/node','-p','process.versions.node.split(".")[0]']).strip()=='24'
+    return manifest
+
+def http(path,method='GET',payload=None,public=False,timeout_s=20):
+    if public:
+        assert method=='GET' and payload is None
+        result=subprocess.run(['curl','--silent','--show-error','--max-time',str(timeout_s),'--noproxy','*','--resolve','tapeout.cc.cd:443:127.0.0.1',
+                               '--write-out','\n%{http_code}','https://tapeout.cc.cd/pinkuang-deploy-v2'+path],capture_output=True,timeout=timeout_s+2)
+        assert result.returncode==0,'Local TLS/SNI HTTPS probe failed'
+        body,status=result.stdout.rsplit(b'\n',1);return int(status),body
+    request=urllib.request.Request('http://127.0.0.1:4174'+path,data=json.dumps(payload).encode() if payload is not None else None,
+                                   method=method,headers={'Origin':'https://tapeout.cc.cd','Host':'tapeout.cc.cd','Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(request,timeout=20) as response:return response.status,response.read()
+    except urllib.error.HTTPError as error:return error.code,error.read()
+
+def wait_public_release(manifest):
+    # systemctl reload reports signal delivery before nginx's new workers accept
+    # requests. Require exact bytes, allowing only a bounded propagation window.
+    expected=manifest['files']['dist/index.html']['sha256'];last='no response'
+    for attempt in range(10):
+        try:
+            status,body=http('/',public=True,timeout_s=3)
+            actual=sha(body);last='HTTP '+str(status)+' SHA256 '+actual
+            if status==200 and actual==expected:return
+        except (OSError,urllib.error.URLError,subprocess.TimeoutExpired,AssertionError):
+            last='HTTPS probe unavailable'
+        if attempt<9:time.sleep(0.5)
+    raise RuntimeError('New HTTPS route did not converge to the reviewed release: '+last)
+
+def verify_http(manifest,public=False):
+    for path,file in [('/','dist/index.html'),('/deployment-artifacts.json','dist/deployment-artifacts.json')]:
+        status,body=http(path,public=public);assert status==200 and sha(body)==manifest['files'][file]['sha256'],'Served release differs: '+path
+    status,_=http('/api/journal/build',public=public);assert status==401,'Build endpoint must require the real wallet login'
+    status,body=http('/api/journal/notifications/capabilities',public=public)
+    assert status==200 and json.loads(body)['enabled'] is False,'Notifications must remain disabled'
+    if not public:
+        status,body=http('/api/rpc',method='POST',payload={'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]})
+        assert status==200 and json.loads(body).get('result')=='0x38','BSC read-only RPC unavailable or wrong chain'
+
+def main():
+    no_links(site);assert site.is_file() and site.stat().st_uid==0
+    assert pathlib.Path('/etc/nginx/sites-enabled/bem2075').resolve()==site
+    assert sha(site.read_bytes())==CONFIG['nginxSha256'],'Nginx changed since reviewed snapshot; regenerate, do not force'
+    expected={'services':CONFIG['oldServices'],'current':CONFIG['oldCurrent']};assert_legacy(expected)
+    assert service('pinkuang-index-v2.service')['ActiveState']=='inactive','Do not start the v2 index before a verified graph'
+    assert service('pinkuang-deploy-v2.service')['ActiveState']=='inactive','V2 deploy service is already active; do not reset its journal'
+    available_port();manifest=verify_release();original=site.read_bytes();candidate=candidate_site(original)
+    unit_data=CONFIG['unitText'].encode();snippet_data=CONFIG['snippetText'].encode()
+    assert 'EnvironmentFile' not in CONFIG['unitText'] and '/etc/pinkuang-notifications.env' not in CONFIG['unitText']
+    assert 'location ^~ /bemine-v2/' not in CONFIG['snippetText'] and '4181' not in CONFIG['snippetText']
+    if PHASE=='prepare':
+        for path in [backup.parent,backup]:
+            no_links(path)
+            if not path.exists():path.mkdir(mode=0o700)
+            assert path.is_dir() and path.stat().st_uid==0 and stat.S_IMODE(path.stat().st_mode)==0o700
+        exclusive(backup/'bem2075.before.conf',original,0o600)
+        try:user=pwd.getpwnam('pinkuang-v2')
+        except KeyError:
+            command(['useradd','--system','--user-group','--home-dir','/nonexistent','--no-create-home','--shell','/usr/sbin/nologin','pinkuang-v2'])
+            user=pwd.getpwnam('pinkuang-v2')
+        assert 0<user.pw_uid<1000 and user.pw_shell=='/usr/sbin/nologin' and user.pw_dir=='/nonexistent'
+        assert set(os.getgrouplist(user.pw_name,user.pw_gid))=={user.pw_gid},'V2 user must have no supplemental legacy group access'
+        for path in directories:
+            no_links(path)
+            if not path.exists():path.mkdir(mode=0o700);os.chown(path,user.pw_uid,user.pw_gid)
+            st=path.stat();assert path.is_dir() and st.st_uid==user.pw_uid and st.st_gid==user.pw_gid and stat.S_IMODE(st.st_mode)==0o700
+        exclusive(unit,unit_data,0o644);exclusive(snippet,snippet_data,0o644)
+        command(['systemd-analyze','verify',str(unit)])
+        state={'configDigest':sha(json.dumps(CONFIG,sort_keys=True).encode()),'legacy':expected,'nginxSha256':sha(original),
+               'candidateNginxSha256':sha(candidate),'unitSha256':sha(unit_data),'snippetSha256':sha(snippet_data),'prepared':True,'activated':False}
+        exclusive(backup/'prepared.json',json.dumps(state,indent=2,sort_keys=True).encode(),0o600)
+        assert_legacy(expected);assert sha(site.read_bytes())==sha(original);available_port()
+        print(json.dumps({'prepared':True,'activated':False,'backup':str(backup),'newUser':'pinkuang-v2','port':4174,'productEnabled':False,'indexEnabled':False}))
+        return
+    no_links(backup);state=json.loads((backup/'prepared.json').read_text())
+    assert state['configDigest']==sha(json.dumps(CONFIG,sort_keys=True).encode()) and state['legacy']==expected
+    assert (backup/'bem2075.before.conf').read_bytes()==original and state['candidateNginxSha256']==sha(candidate)
+    assert unit.read_bytes()==unit_data and snippet.read_bytes()==snippet_data
+    user=pwd.getpwnam('pinkuang-v2');assert user.pw_shell=='/usr/sbin/nologin'
+    for path in directories:
+        no_links(path);st=path.stat();assert st.st_uid==user.pw_uid and st.st_gid==user.pw_gid and stat.S_IMODE(st.st_mode)==0o700
+    start_attempted=False;written=False;reload_attempted=False;enabled=False;original_stat=site.stat()
+    try:
+        command(['systemctl','daemon-reload'])
+        # A failed/timed-out CLI may already have queued the systemd job. This
+        # unit was verified inactive above; always stop our attempted start.
+        start_attempted=True;command(['systemctl','start','pinkuang-deploy-v2.service'])
+        for attempt in range(20):
+            try:
+                status,_=http('/');
+                if status==200:break
+            except (OSError,urllib.error.URLError):pass
+            time.sleep(1)
+        verify_http(manifest)
+        for name in ['journal.sqlite','journal.sqlite-wal','journal.sqlite-shm']:
+            path=directories[0]/name
+            if name=='journal.sqlite' or path.exists():
+                no_links(path);st=path.stat();assert stat.S_IMODE(st.st_mode)==0o600 and st.st_uid==user.pw_uid and st.st_gid==user.pw_gid
+        assert_legacy(expected);assert sha(site.read_bytes())==sha(original)
+        written=True;replace_site(candidate,original_stat)
+        command(['nginx','-t'])
+        # Reload can take effect even if its command subsequently reports an
+        # error. Rollback must reload the restored original in that case too.
+        reload_attempted=True;command(['systemctl','reload','nginx'])
+        wait_public_release(manifest)
+        verify_http(manifest,public=True);assert_legacy(expected)
+        new=service('pinkuang-deploy-v2.service');assert new['ActiveState']=='active' and new['User']=='pinkuang-v2' and int(new['MainPID'])>0
+        listeners=command(['ss','-H','-ltn']);matching=[line for line in listeners.splitlines() if re.search(r':4174\s',line)]
+        assert len(matching)==1 and '127.0.0.1:4174' in matching[0],'New service must remain loopback-only'
+        command(['systemctl','enable','pinkuang-deploy-v2.service']);enabled=True
+        assert_legacy(expected)
+        result={'activated':True,'deploymentConsoleOnly':True,'url':'https://tapeout.cc.cd/pinkuang-deploy-v2/',
+                'releaseId':rid,'artifactDigest':CONFIG['artifactDigest'],'nginxSha256':sha(candidate),'legacyUnchanged':True,
+                'newService':new,'productEnabled':False,'indexEnabled':False,'notificationsEnabled':False,'walletSignatures':0,
+                'cookiePath':'/pinkuang-deploy-v2/api/journal','cookieRuntimeVerified':False,
+                'checkedAtUtc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        exclusive(backup/'activated.json',json.dumps(result,indent=2,sort_keys=True).encode(),0o600)
+        print(json.dumps(result))
+    except BaseException as error:
+        rollback={'nginxRestored':False,'newServiceStopped':False,'journalPreserved':True}
+        try:
+            if written:
+                if sha(site.read_bytes())==sha(candidate):
+                    replace_site(original,original_stat)
+                    rollback['nginxRestored']=True
+                elif sha(site.read_bytes())==sha(original):rollback['nginxRestored']=True
+                else:rollback['nginxConcurrentChange']='Refused overwrite; manually compare the private backup and live file'
+                if rollback['nginxRestored']:
+                    command(['nginx','-t'])
+                    if reload_attempted:command(['systemctl','reload','nginx'])
+        except BaseException as rollback_error:rollback['nginxRestoreError']=str(rollback_error)
+        finally:
+            try:
+                if enabled:command(['systemctl','disable','pinkuang-deploy-v2.service'])
+                if start_attempted:command(['systemctl','stop','pinkuang-deploy-v2.service']);rollback['newServiceStopped']=True
+            except BaseException as stop_error:rollback['stopError']=str(stop_error)
+        print(json.dumps({'activationFailed':True,'reason':str(error),'rollback':rollback,'backup':str(backup)}))
+        raise
+
+lockpath=pathlib.Path('/run/lock/pinkuang-v2-activation.lock');no_links(lockpath)
+lockfd=os.open(lockpath,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+try:
+    fcntl.flock(lockfd,fcntl.LOCK_EX|fcntl.LOCK_NB);main()
+finally:os.close(lockfd)

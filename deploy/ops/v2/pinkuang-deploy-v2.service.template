@@ -1,0 +1,32 @@
+[Unit]
+Description=BEMine integrated-v2 deployment console (isolated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pinkuang-v2
+Group=pinkuang-v2
+WorkingDirectory=/srv/pinkuang-deploy-v2/releases/__RELEASE_ID__
+ExecStart=/usr/bin/node /srv/pinkuang-deploy-v2/releases/__RELEASE_ID__/server/index.mjs
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=4174
+Environment=DEPLOYMENT_JOURNAL_ORIGIN=https://tapeout.cc.cd
+Environment=DEPLOYMENT_JOURNAL_DB=/var/lib/pinkuang-deploy-v2/journal.sqlite
+Environment=DEPLOYMENT_JOURNAL_RPC_URL=https://bsc-dataseed.bnbchain.org
+Environment=BEMINE_READ_RPC_URL=https://bsc-dataseed.bnbchain.org
+Environment=BEMINE_INDEX_URL=http://127.0.0.1:4181
+Environment=BEMINE_NOTIFICATIONS_ENABLED=0
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pinkuang-deploy-v2 /var/lib/pinkuang-notifications-v2
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

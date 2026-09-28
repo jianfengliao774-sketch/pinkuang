@@ -1,0 +1,126 @@
+import { fileURLToPath } from 'node:url';
+import { FetchRequest, JsonRpcProvider } from 'ethers';
+import { ChainIndex } from './indexer.mjs';
+import { createChainIndexServer } from './api.mjs';
+
+const required = (env, key) => {
+  if (!env[key]) throw new Error(`${key} is required.`);
+  return env[key];
+};
+const exactNumber = (value, label) => {
+  if (!/^(0|[1-9]\d*)$/.test(String(value))) throw new Error(`Invalid ${label}.`);
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) throw new Error(`Invalid ${label}.`);
+  return number;
+};
+const logsTimeout = value => {
+  const timeout = exactNumber(value ?? 12_000, 'logs timeout');
+  if (timeout < 12_000 || timeout > 30_000) throw new Error('Logs timeout must be between 12000 and 30000 milliseconds.');
+  return timeout;
+};
+
+export function serverConfiguration(env = process.env) {
+  const rpc = required(env, 'CHAIN_INDEX_RPC_URL');
+  if (!/^https:\/\//.test(rpc)) throw new Error('CHAIN_INDEX_RPC_URL must use HTTPS.');
+  const logsRpc = env.CHAIN_INDEX_LOGS_RPC_URL || null;
+  if (logsRpc && !/^https:\/\//.test(logsRpc)) throw new Error('CHAIN_INDEX_LOGS_RPC_URL must use HTTPS.');
+  const host = env.CHAIN_INDEX_HOST || '127.0.0.1';
+  if (host !== '127.0.0.1' && host !== '::1') throw new Error('Bind the index only to loopback; use an authenticated/rate-limited reverse proxy.');
+  const port = exactNumber(env.CHAIN_INDEX_PORT || '4180', 'port');
+  if (port < 1 || port > 65535) throw new Error('Invalid port.');
+  const scanRange = exactNumber(env.CHAIN_INDEX_SCAN_RANGE ?? '100', 'scan range');
+  if (scanRange < 1 || scanRange > 500) throw new Error('Scan range must be between 1 and 500 blocks.');
+  if(Boolean(env.CHAIN_INDEX_PORTFOLIO_FACTORY)!==Boolean(env.CHAIN_INDEX_PORTFOLIO_MARKET))throw new Error('Configure both portfolio Factory and market.');
+  return { rpc, logsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), host, port, dbPath: required(env, 'CHAIN_INDEX_DB'), factory: required(env, 'CHAIN_INDEX_FACTORY'),
+    ...(env.CHAIN_INDEX_PORTFOLIO_FACTORY?{portfolioFactory:env.CHAIN_INDEX_PORTFOLIO_FACTORY,portfolioMarket:env.CHAIN_INDEX_PORTFOLIO_MARKET}:{}),
+    market: required(env, 'CHAIN_INDEX_MARKET'), startBlock: exactNumber(required(env, 'CHAIN_INDEX_START_BLOCK'), 'start block'),
+    confirmations: exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12', 'confirmations'), scanRange };
+}
+
+function readProvider(rpc, timeout = 12_000) {
+  const request = new FetchRequest(rpc);
+  request.timeout = timeout;
+  // The sync loop retries failures; an upstream Retry-After must not hold shutdown open.
+  request.retryFunc = async () => false;
+  // ChainIndex asks eth_chainId directly on every sync before indexing any data.
+  // The static network avoids ethers' separate, indefinitely retrying bootstrap loop.
+  return new JsonRpcProvider(request, 56, {
+    staticNetwork: true, cacheTimeout: -1, batchMaxCount: 8,
+  });
+}
+
+export async function startChainIndex(config) {
+  const logsTimeoutMs = logsTimeout(config.logsTimeoutMs);
+  const primary = readProvider(config.rpc);
+  // A longer logs deadline must never lengthen primary header/code/call requests,
+  // including when both roles point at the same URL.
+  const logsRpc = config.logsRpc || config.rpc;
+  const logs = logsRpc !== config.rpc || logsTimeoutMs !== 12_000 ? readProvider(logsRpc, logsTimeoutMs) : primary;
+  const providers = [...new Set([primary, logs])];
+  const provider = Object.freeze({
+    send: async (method, params) => {
+      if (method === 'eth_chainId' && logs !== primary) {
+        const [chainId, logsChainId] = await Promise.all([primary.send(method, params), logs.send(method, params)]);
+        if (!/^0x[0-9a-f]+$/i.test(logsChainId) || BigInt(logsChainId) !== 56n)
+          throw new Error('RPC is not BSC mainnet (56).');
+        return chainId;
+      }
+      return primary.send(method, params);
+    },
+    call: primary.call.bind(primary),
+    getBlock: primary.getBlock.bind(primary),
+    getCode: primary.getCode.bind(primary),
+    getLogs: logs.getLogs.bind(logs),
+  });
+  let index;
+  let server;
+  try {
+    index = new ChainIndex(provider, config);
+    server = createChainIndexServer(index);
+    await new Promise((resolve, reject) => {
+      const onError = error => { server.off('listening', onListening); reject(error); };
+      const onListening = () => { server.off('error', onError); resolve(); };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      try { server.listen(config.port, config.host); }
+      catch (error) { server.off('error', onError); server.off('listening', onListening); reject(error); }
+    });
+  } catch (error) {
+    index?.close();
+    for (const source of providers) source.destroy();
+    throw error;
+  }
+  let stopped = false;
+  let timer = null;
+  let running;
+  let closing;
+  let consecutiveFailures = 0;
+  async function tick() {
+    if (stopped) return;
+    try { await index.sync(); consecutiveFailures = 0; }
+    catch { consecutiveFailures = Math.min(consecutiveFailures + 1, 5); console.error(`Chain index unavailable: ${index.status().unknownReason}`); }
+    const delay = consecutiveFailures ? Math.min(60_000, 4_000 * 2 ** (consecutiveFailures - 1))
+      : index.status().complete ? 10_000 : 1_000;
+    if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);
+  }
+  running = tick();
+  return { index, server, close() {
+    if (closing) return closing;
+    closing = (async () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      // Cancel queued reads now. Active primary requests stay bounded by 12s;
+      // logs requests by at most 30s, within the deployment's 45s stop allowance.
+      for (const source of providers) source.destroy();
+      await running;
+      await new Promise(resolve => server.close(resolve));
+      index.close();
+    })();
+    return closing;
+  } };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const service = await startChainIndex(serverConfiguration());
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void service.close().then(() => process.exit(0)); });
+}

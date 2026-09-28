@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-09-28T01:22:13.189Z",
+  "currentBuildInfoSha256": "6e23de79202a2450f5a0afd3509d4904bed1e9b7dbc981a4fd0811c9e3ebec7b",
+  "results": [
+    {
+      "name": "BudgetPortfolioFactory",
+      "ok": true,
+      "priorFields": 9,
+      "currentFields": 9,
+      "baselineSha256": "2668b4173d2b0beda71a4cc0e197ff3d02485429bc261fe3da651ca4eba34343",
+      "currentSourceSha256": "64a79a71ef8ea054cf0de12eaf54a8482b974f14442b7c32d058b381c145d8ff",
+      "explanation": "",
+      "namespaces": [
+        "erc7201:openzeppelin.storage.ReentrancyGuard",
+        "erc7201:openzeppelin.storage.Ownable",
+        "erc7201:openzeppelin.storage.Initializable"
+      ]
+    },
+    {
+      "name": "BudgetPortfolioVault",
+      "ok": true,
+      "priorFields": 30,
+      "currentFields": 30,
+      "baselineSha256": "9a608cda28d3f1efd03238c78461eb577f687c84adc2703ccf36e233a38b5492",
+      "currentSourceSha256": "b798a6d3dd26b9ede0576f13fab7f8111f2f904dfb59dad83150467e7584e73a",
+      "explanation": "",
+      "namespaces": [
+        "erc7201:tapeout.storage.BudgetGovernance",
+        "erc7201:openzeppelin.storage.ReentrancyGuard",
+        "erc7201:openzeppelin.storage.ERC20",
+        "erc7201:openzeppelin.storage.Initializable"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+
+> pinkuang-deploy-console@0.1.0 build
+> tsc -b && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 1734 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.68 kB │ gzip:   0.47 kB
+dist/assets/index-B6br5vVP.css   44.44 kB │ gzip:  10.04 kB
+dist/assets/index-5fk1XfFb.js   588.76 kB │ gzip: 198.61 kB
+✓ built in 1.41s

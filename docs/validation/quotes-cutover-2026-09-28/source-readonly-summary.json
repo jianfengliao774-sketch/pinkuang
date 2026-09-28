@@ -1,0 +1,3497 @@
+{
+  "checkedAt": "2026-09-28T03:56:29.865Z",
+  "source": "https://api-tapeout.firsto.ai/v1/circuits",
+  "snapshots": {
+    "default": {
+      "sourceBlock": "124456466",
+      "viewId": "v109929-p174442:738f4609e714d901c845d91d52884126abbf14f50bc7c8228aab95c18147d6d5",
+      "total": 18632,
+      "statusCounts": {
+        "not_started": 3,
+        "unverified": 5,
+        "verified": 42
+      },
+      "rows": [
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "2559",
+          "mining": {
+            "status": "not_started",
+            "taskId": null,
+            "bstar": null,
+            "bonus": null,
+            "weight": null,
+            "verifiedWeight": null,
+            "unverifiedWeight": null,
+            "estimated24hAtomic": null,
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "5000000000000000",
+          "buyerCostWei": "5050000000000000",
+          "listingReference": null
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9703",
+          "mining": {
+            "status": "unverified",
+            "taskId": "0",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "1",
+            "estimated24hAtomic": "172800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "20000000000000000",
+          "buyerCostWei": "20200000000000000",
+          "listingReference": {
+            "priceWei": "20000000000000000",
+            "dailyCapacityPriceWei": "11574074074074074074"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16479",
+          "mining": {
+            "status": "unverified",
+            "taskId": "0",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "2",
+            "estimated24hAtomic": "345600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "31553280000000000",
+          "buyerCostWei": "31868812800000000",
+          "listingReference": {
+            "priceWei": "40000000000000000",
+            "dailyCapacityPriceWei": "11574074074074074074"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "1336",
+          "mining": {
+            "status": "unverified",
+            "taskId": "0",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "2",
+            "estimated24hAtomic": "345600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "40000000000000000",
+          "buyerCostWei": "40400000000000000",
+          "listingReference": {
+            "priceWei": "40000000000000000",
+            "dailyCapacityPriceWei": "11574074074074074074"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9708",
+          "mining": {
+            "status": "unverified",
+            "taskId": "0",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "1",
+            "estimated24hAtomic": "172800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "40000000000000000",
+          "buyerCostWei": "40400000000000000",
+          "listingReference": {
+            "priceWei": "20000000000000000",
+            "dailyCapacityPriceWei": "11574074074074074074"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "774",
+          "mining": {
+            "status": "not_started",
+            "taskId": null,
+            "bstar": null,
+            "bonus": null,
+            "weight": null,
+            "verifiedWeight": null,
+            "unverifiedWeight": null,
+            "estimated24hAtomic": null,
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "40900000000000000",
+          "buyerCostWei": "41309000000000000",
+          "listingReference": null
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16516",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16517",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16518",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16519",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16521",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16522",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16310",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16312",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16313",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15183",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "43000000000000000",
+          "buyerCostWei": "43430000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15329",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "47000000000000000",
+          "buyerCostWei": "47470000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16274",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16288",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16290",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5788",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15015",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15017",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15018",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15019",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15770",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50112000000000000",
+          "buyerCostWei": "50613120000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15346",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51000000000000000",
+          "buyerCostWei": "51510000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16273",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16283",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16286",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16287",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16293",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "54990000000000000",
+          "buyerCostWei": "55539900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15169",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "55000000000000000",
+          "buyerCostWei": "55550000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16299",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "60000000000000000",
+          "buyerCostWei": "60600000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "13706",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "61800000000000000",
+          "buyerCostWei": "62418000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9034",
+          "mining": {
+            "status": "not_started",
+            "taskId": "0",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "0",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": null,
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "66600000000000000",
+          "buyerCostWei": "67266000000000000",
+          "listingReference": null
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16318",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "78000000000000000",
+          "buyerCostWei": "78780000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16380",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "81000000000000000",
+          "buyerCostWei": "81810000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16381",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "87000000000000000",
+          "buyerCostWei": "87870000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16282",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "90000000000000000",
+          "buyerCostWei": "90900000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16382",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "92000000000000000",
+          "buyerCostWei": "92920000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16384",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "94200000000000000",
+          "buyerCostWei": "95142000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15680",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16082",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16137",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16355",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16466",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16169",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99990000000000000",
+          "buyerCostWei": "100989900000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16174",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99990000000000000",
+          "buyerCostWei": "100989900000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "1328",
+          "mining": {
+            "status": "unverified",
+            "taskId": "0",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "0",
+            "unverifiedWeight": "2",
+            "estimated24hAtomic": "345600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "40000000000000000",
+            "dailyCapacityPriceWei": "11574074074074074074"
+          }
+        }
+      ]
+    },
+    "verifiedPrice": {
+      "sourceBlock": "124456466",
+      "viewId": "v109928-p174442:738f4609e714d901c845d91d52884126abbf14f50bc7c8228aab95c18147d6d5",
+      "total": 17720,
+      "statusCounts": {
+        "verified": 50
+      },
+      "rows": [
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16516",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16517",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16518",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16519",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16521",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16522",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42000000000000000",
+          "buyerCostWei": "42420000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16310",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16312",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16313",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "42200000000000000",
+          "buyerCostWei": "42622000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15183",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "43000000000000000",
+          "buyerCostWei": "43430000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15329",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "47000000000000000",
+          "buyerCostWei": "47470000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16274",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16288",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16290",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "49990000000000000",
+          "buyerCostWei": "50489900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5788",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15015",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15017",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15018",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15019",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50000000000000000",
+          "buyerCostWei": "50500000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15770",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "50112000000000000",
+          "buyerCostWei": "50613120000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15346",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51000000000000000",
+          "buyerCostWei": "51510000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16273",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16283",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16286",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16287",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "51799000000000000",
+          "buyerCostWei": "52316990000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16293",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "54990000000000000",
+          "buyerCostWei": "55539900000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15169",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "55000000000000000",
+          "buyerCostWei": "55550000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16299",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "60000000000000000",
+          "buyerCostWei": "60600000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "13706",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "61800000000000000",
+          "buyerCostWei": "62418000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16318",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "78000000000000000",
+          "buyerCostWei": "78780000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16380",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "81000000000000000",
+          "buyerCostWei": "81810000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16381",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "87000000000000000",
+          "buyerCostWei": "87870000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16282",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "90000000000000000",
+          "buyerCostWei": "90900000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16382",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "92000000000000000",
+          "buyerCostWei": "92920000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16384",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "94200000000000000",
+          "buyerCostWei": "95142000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "15680",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16082",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16137",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16355",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16466",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99900000000000000",
+          "buyerCostWei": "100899000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16169",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99990000000000000",
+          "buyerCostWei": "100989900000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16174",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "99990000000000000",
+          "buyerCostWei": "100989900000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "4234",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "4235",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "4237",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "4575",
+          "mining": {
+            "status": "verified",
+            "taskId": "1",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "4675",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5029",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5786",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "1",
+            "bonus": "0",
+            "weight": "1",
+            "verifiedWeight": "1",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "432000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "34722222222222223",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "8301",
+          "mining": {
+            "status": "verified",
+            "taskId": "74",
+            "bstar": "2",
+            "bonus": "0",
+            "weight": "2",
+            "verifiedWeight": "2",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "864000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "100000000000000000",
+          "buyerCostWei": "101000000000000000",
+          "listingReference": {
+            "priceWei": "69444444444444445",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        }
+      ]
+    },
+    "verifiedDaily": {
+      "sourceBlock": "124456466",
+      "viewId": "v109927-p174442:738f4609e714d901c845d91d52884126abbf14f50bc7c8228aab95c18147d6d5",
+      "total": 17720,
+      "statusCounts": {
+        "verified": 50
+      },
+      "rows": [
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "2465",
+          "mining": {
+            "status": "verified",
+            "taskId": "61",
+            "bstar": "1204",
+            "bonus": "0",
+            "weight": "1204",
+            "verifiedWeight": "1204",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "562896000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "40000000000000000000",
+          "buyerCostWei": "40400000000000000000",
+          "listingReference": {
+            "priceWei": "46044892800000000000",
+            "dailyCapacityPriceWei": "8180000000000000000"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "2562",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "61",
+            "bonus": "0",
+            "weight": "366",
+            "verifiedWeight": "366",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "171072000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "13343616000000000000",
+          "buyerCostWei": "13477052160000000000",
+          "listingReference": {
+            "priceWei": "14691028453608247423",
+            "dailyCapacityPriceWei": "8587628865979381443"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16192",
+          "mining": {
+            "status": "verified",
+            "taskId": "173",
+            "bstar": "264",
+            "bonus": "0",
+            "weight": "264",
+            "verifiedWeight": "264",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "123379200",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "9900000000000000000",
+          "buyerCostWei": "9999000000000000000",
+          "listingReference": {
+            "priceWei": "10092418560000000000",
+            "dailyCapacityPriceWei": "8180000000000000000"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5485",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1500000000000000000",
+          "buyerCostWei": "1515000000000000000",
+          "listingReference": {
+            "priceWei": "1520000000000000000",
+            "dailyCapacityPriceWei": "8144718792866941015"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "2108",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "61",
+            "bonus": "0",
+            "weight": "366",
+            "verifiedWeight": "366",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "171072000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "13864080000000000000",
+          "buyerCostWei": "14002720800000000000",
+          "listingReference": {
+            "priceWei": "14691028453608247423",
+            "dailyCapacityPriceWei": "8587628865979381443"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5478",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1520000000000000000",
+          "buyerCostWei": "1535200000000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6127",
+          "mining": {
+            "status": "verified",
+            "taskId": "38",
+            "bstar": "112",
+            "bonus": "0",
+            "weight": "112",
+            "verifiedWeight": "112",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "52358400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "4282917120000000000",
+          "buyerCostWei": "4325746291200000000",
+          "listingReference": {
+            "priceWei": "4208333333333333333",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6428",
+          "mining": {
+            "status": "verified",
+            "taskId": "210",
+            "bstar": "83",
+            "bonus": "0",
+            "weight": "83",
+            "verifiedWeight": "83",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "38793600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "3173316480000000000",
+          "buyerCostWei": "3205049644800000000",
+          "listingReference": {
+            "priceWei": "3118055555555555556",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6430",
+          "mining": {
+            "status": "verified",
+            "taskId": "93",
+            "bstar": "79",
+            "bonus": "0",
+            "weight": "79",
+            "verifiedWeight": "79",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "36892800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "3017831040000000000",
+          "buyerCostWei": "3048009350400000000",
+          "listingReference": {
+            "priceWei": "2965277777777777778",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6435",
+          "mining": {
+            "status": "verified",
+            "taskId": "117",
+            "bstar": "91",
+            "bonus": "0",
+            "weight": "91",
+            "verifiedWeight": "91",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "42508800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "3477219840000000000",
+          "buyerCostWei": "3511992038400000000",
+          "listingReference": {
+            "priceWei": "3416666666666666667",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6442",
+          "mining": {
+            "status": "verified",
+            "taskId": "113",
+            "bstar": "64",
+            "bonus": "0",
+            "weight": "64",
+            "verifiedWeight": "64",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "29894400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "2445361920000000000",
+          "buyerCostWei": "2469815539200000000",
+          "listingReference": {
+            "priceWei": "2402777777777777778",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6473",
+          "mining": {
+            "status": "verified",
+            "taskId": "57",
+            "bstar": "42",
+            "bonus": "0",
+            "weight": "42",
+            "verifiedWeight": "42",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "19612800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1604327040000000000",
+          "buyerCostWei": "1620370310400000000",
+          "listingReference": {
+            "priceWei": "1576388888888888889",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9135",
+          "mining": {
+            "status": "verified",
+            "taskId": "60",
+            "bstar": "122",
+            "bonus": "0",
+            "weight": "122",
+            "verifiedWeight": "122",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "57024000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "4664563200000000000",
+          "buyerCostWei": "4711208832000000000",
+          "listingReference": {
+            "priceWei": "4583333333333333333",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9145",
+          "mining": {
+            "status": "verified",
+            "taskId": "119",
+            "bstar": "32",
+            "bonus": "0",
+            "weight": "32",
+            "verifiedWeight": "32",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "14947200",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1222680960000000000",
+          "buyerCostWei": "1234907769600000000",
+          "listingReference": {
+            "priceWei": "1201388888888888889",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "9601",
+          "mining": {
+            "status": "verified",
+            "taskId": "176",
+            "bstar": "94",
+            "bonus": "0",
+            "weight": "94",
+            "verifiedWeight": "94",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "43891200",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "3590300160000000000",
+          "buyerCostWei": "3626203161600000000",
+          "listingReference": {
+            "priceWei": "3527777777777777778",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "11143",
+          "mining": {
+            "status": "verified",
+            "taskId": "143",
+            "bstar": "29",
+            "bonus": "0",
+            "weight": "29",
+            "verifiedWeight": "29",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "13478400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1102533120000000000",
+          "buyerCostWei": "1113558451200000000",
+          "listingReference": {
+            "priceWei": "1083333333333333334",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "11420",
+          "mining": {
+            "status": "verified",
+            "taskId": "154",
+            "bstar": "66",
+            "bonus": "0",
+            "weight": "66",
+            "verifiedWeight": "66",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "30844800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "2523104640000000000",
+          "buyerCostWei": "2548335686400000000",
+          "listingReference": {
+            "priceWei": "2479166666666666667",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "11942",
+          "mining": {
+            "status": "verified",
+            "taskId": "174",
+            "bstar": "270",
+            "bonus": "0",
+            "weight": "270",
+            "verifiedWeight": "270",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "126230400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "10325646720000000000",
+          "buyerCostWei": "10428903187200000000",
+          "listingReference": {
+            "priceWei": "10145833333333333333",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6107",
+          "mining": {
+            "status": "verified",
+            "taskId": "100",
+            "bstar": "25",
+            "bonus": "0",
+            "weight": "25",
+            "verifiedWeight": "25",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "11664000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "955000000000000000",
+          "buyerCostWei": "964550000000000000",
+          "listingReference": {
+            "priceWei": "937500000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "6539",
+          "mining": {
+            "status": "verified",
+            "taskId": "100",
+            "bstar": "25",
+            "bonus": "0",
+            "weight": "25",
+            "verifiedWeight": "25",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "11664000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "955000000000000000",
+          "buyerCostWei": "964550000000000000",
+          "listingReference": {
+            "priceWei": "937500000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5484",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1530000000000000000",
+          "buyerCostWei": "1545300000000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5487",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1548979200000000000",
+          "buyerCostWei": "1564468992000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16583",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16584",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16585",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16586",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16587",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16588",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16589",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16590",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16591",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16592",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "387244800000000000",
+          "buyerCostWei": "391117248000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5495",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1561000000000000000",
+          "buyerCostWei": "1576610000000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "2182",
+          "mining": {
+            "status": "verified",
+            "taskId": "195",
+            "bstar": "64",
+            "bonus": "0",
+            "weight": "384",
+            "verifiedWeight": "384",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "179452800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "15018490000000000000",
+          "buyerCostWei": "15168674900000000000",
+          "listingReference": {
+            "priceWei": "15410740453608247423",
+            "dailyCapacityPriceWei": "8587628865979381443"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5496",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1562000000000000000",
+          "buyerCostWei": "1577620000000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "1785",
+          "mining": {
+            "status": "verified",
+            "taskId": "16",
+            "bstar": "24",
+            "bonus": "0",
+            "weight": "24",
+            "verifiedWeight": "24",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "11145600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "936230400000000000",
+          "buyerCostWei": "945592704000000000",
+          "listingReference": {
+            "priceWei": "895833333333333334",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "12119",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "392000000000000000",
+          "buyerCostWei": "395920000000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "12126",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "10",
+            "bonus": "0",
+            "weight": "10",
+            "verifiedWeight": "10",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "4665600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "392000000000000000",
+          "buyerCostWei": "395920000000000000",
+          "listingReference": {
+            "priceWei": "375000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5482",
+          "mining": {
+            "status": "verified",
+            "taskId": "210",
+            "bstar": "98",
+            "bonus": "0",
+            "weight": "98",
+            "verifiedWeight": "98",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "45792000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "3892320000000000000",
+          "buyerCostWei": "3931243200000000000",
+          "listingReference": {
+            "priceWei": "3680555555555555556",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "12968",
+          "mining": {
+            "status": "verified",
+            "taskId": "181",
+            "bstar": "50",
+            "bonus": "0",
+            "weight": "50",
+            "verifiedWeight": "50",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "23328000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1982880000000000000",
+          "buyerCostWei": "2002708800000000000",
+          "listingReference": {
+            "priceWei": "1875000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "14094",
+          "mining": {
+            "status": "verified",
+            "taskId": "157",
+            "bstar": "59",
+            "bonus": "0",
+            "weight": "59",
+            "verifiedWeight": "59",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "27561600",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "2342736000000000000",
+          "buyerCostWei": "2366163360000000000",
+          "listingReference": {
+            "priceWei": "2215277777777777778",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5469",
+          "mining": {
+            "status": "verified",
+            "taskId": "82",
+            "bstar": "40",
+            "bonus": "0",
+            "weight": "40",
+            "verifiedWeight": "40",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "18662400",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1590000000000000000",
+          "buyerCostWei": "1605900000000000000",
+          "listingReference": {
+            "priceWei": "1500000000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "16483",
+          "mining": {
+            "status": "verified",
+            "taskId": "220",
+            "bstar": "61",
+            "bonus": "0",
+            "weight": "61",
+            "verifiedWeight": "61",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "28512000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "2430000000000000000",
+          "buyerCostWei": "2454300000000000000",
+          "listingReference": {
+            "priceWei": "2291666666666666667",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "12887",
+          "mining": {
+            "status": "verified",
+            "taskId": "145",
+            "bstar": "54",
+            "bonus": "0",
+            "weight": "54",
+            "verifiedWeight": "54",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "25228800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "2157062400000000000",
+          "buyerCostWei": "2178633024000000000",
+          "listingReference": {
+            "priceWei": "2027777777777777778",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "5405",
+          "mining": {
+            "status": "verified",
+            "taskId": "100",
+            "bstar": "25",
+            "bonus": "0",
+            "weight": "25",
+            "verifiedWeight": "25",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "11664000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1000000000000000000",
+          "buyerCostWei": "1010000000000000000",
+          "listingReference": {
+            "priceWei": "937500000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+          "tokenId": "7880",
+          "mining": {
+            "status": "verified",
+            "taskId": "100",
+            "bstar": "25",
+            "bonus": "0",
+            "weight": "25",
+            "verifiedWeight": "25",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "11664000",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "1000000000000000000",
+          "buyerCostWei": "1010000000000000000",
+          "listingReference": {
+            "priceWei": "937500000000000000",
+            "dailyCapacityPriceWei": "8037551440329218106"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "165",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "3",
+            "bonus": "0",
+            "weight": "18",
+            "verifiedWeight": "18",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "8380800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "719712000000000000",
+          "buyerCostWei": "726909120000000000",
+          "listingReference": {
+            "priceWei": "701393129513721714",
+            "dailyCapacityPriceWei": "8369047459833449241"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "166",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "3",
+            "bonus": "0",
+            "weight": "18",
+            "verifiedWeight": "18",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "8380800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "719712000000000000",
+          "buyerCostWei": "726909120000000000",
+          "listingReference": {
+            "priceWei": "701393129513721714",
+            "dailyCapacityPriceWei": "8369047459833449241"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "168",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "3",
+            "bonus": "0",
+            "weight": "18",
+            "verifiedWeight": "18",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "8380800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "719712000000000000",
+          "buyerCostWei": "726909120000000000",
+          "listingReference": {
+            "priceWei": "701393129513721714",
+            "dailyCapacityPriceWei": "8369047459833449241"
+          }
+        },
+        {
+          "collection": "0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c",
+          "tokenId": "171",
+          "mining": {
+            "status": "verified",
+            "taskId": "4",
+            "bstar": "3",
+            "bonus": "0",
+            "weight": "18",
+            "verifiedWeight": "18",
+            "unverifiedWeight": "0",
+            "estimated24hAtomic": "8380800",
+            "tokenSymbol": "BEM",
+            "tokenDecimals": 8,
+            "sourceBlock": "124456442"
+          },
+          "priceWei": "719712000000000000",
+          "buyerCostWei": "726909120000000000",
+          "listingReference": {
+            "priceWei": "701393129513721714",
+            "dailyCapacityPriceWei": "8369047459833449241"
+          }
+        }
+      ]
+    }
+  },
+  "holderReference": {
+    "sourceBlock": "124456442",
+    "asOf": "2026-09-28T03:55:52.478Z",
+    "viewId": "hv6738-p174442:738f4609e714d901c845d91d52884126abbf14f50bc7c8228aab95c18147d6d5",
+    "marketStats": {
+      "volume24hWei": "137298758240000000000",
+      "trades24h": 92,
+      "activeListingCount": 671,
+      "listedEffectiveH": "86825",
+      "holderAddressCount": 1726,
+      "dailyCapacityPriceWei": "8024042950513538748",
+      "recentFiveDailyCapacityPriceWei": "8024042950513538748",
+      "recentSaleDailyCapacityPriceWei": "7823216735253772290",
+      "referenceDailyCapacityPriceWei": "8024042950513538748",
+      "optimalDailyCapacityPriceWei": "6810380747126436781",
+      "participantCount24h": 80
+    }
+  }
+}

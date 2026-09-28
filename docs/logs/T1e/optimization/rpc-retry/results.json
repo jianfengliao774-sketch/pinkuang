@@ -1,0 +1,693 @@
+{
+  "fixture": "local synthetic JSON-RPC; not BSC chain evidence",
+  "forgeVersion": "1.7.1",
+  "syntheticChainId": 13371337,
+  "noStorageCaching": true,
+  "results": [
+    {
+      "mode": "recover",
+      "exitCode": 0,
+      "elapsedMs": 2376,
+      "args": [
+        "test",
+        "--root",
+        "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-rpc-retry-138580a2",
+        "--match-contract",
+        "RetryProbe",
+        "--fork-url",
+        "http://127.0.0.1:56980",
+        "--fork-block-number",
+        "123728000",
+        "--no-storage-caching",
+        "--threads",
+        "1",
+        "--compute-units-per-second",
+        "50",
+        "--fork-retries",
+        "10",
+        "--fork-retry-backoff",
+        "2000",
+        "-vv"
+      ],
+      "calls": [
+        {
+          "at": 1790260072503,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260074508,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 2,
+          "id": 0
+        },
+        {
+          "at": 1790260074509,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 1
+        },
+        {
+          "at": 1790260074510,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260074510,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 1,
+          "id": 2
+        },
+        {
+          "at": 1790260074510,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 3
+        },
+        {
+          "at": 1790260074512,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 2,
+          "id": 0
+        },
+        {
+          "at": 1790260074513,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 2,
+          "id": 1
+        },
+        {
+          "at": 1790260074514,
+          "key": "{\"method\":\"eth_getAccountInfo\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getAccountInfo",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260074514,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 3
+        },
+        {
+          "at": 1790260074514,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 1
+        },
+        {
+          "at": 1790260074514,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 2
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":6,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 6
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":4,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 4
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":5,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 5
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":9,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 9
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":7,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 7
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":8,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 8
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":12,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 12
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":10,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 10
+        },
+        {
+          "at": 1790260074515,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":11,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 11
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":15,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 15
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":13,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 13
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":14,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 14
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getCode\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":18,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getCode",
+          "count": 1,
+          "id": 18
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getBalance\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":16,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBalance",
+          "count": 1,
+          "id": 16
+        },
+        {
+          "at": 1790260074516,
+          "key": "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":17,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getTransactionCount",
+          "count": 1,
+          "id": 17
+        },
+        {
+          "at": 1790260074517,
+          "key": "{\"method\":\"eth_getStorageAt\",\"params\":[\"0x7109709ecfa91a80626ff3989d68f67f5b1dd12d\",\"0x6661696c65640000000000000000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":19,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getStorageAt",
+          "count": 1,
+          "id": 19
+        }
+      ],
+      "counts": {
+        "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}": 2,
+        "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}": 2,
+        "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}": 2,
+        "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getAccountInfo\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":0,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":3,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":1,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x1804c8ab1f12e6bbf3894d4083f33e07309d1f38\",\"0x75ff080\"],\"id\":2,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":6,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":4,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x1f95d37f27ea0dea9c252fc09d5a6eaa97647353\",\"0x75ff080\"],\"id\":5,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":9,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":7,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x7fa9385be102ac3eac297483dd6233d62b3e1496\",\"0x75ff080\"],\"id\":8,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":12,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":10,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x0000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":11,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":15,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":13,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x4e59b44847b379578588920ca78fbf26c0b4956c\",\"0x75ff080\"],\"id\":14,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getCode\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":18,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBalance\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":16,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getTransactionCount\",\"params\":[\"0x3fab184622dc19b6109349b94811493bf2a45362\",\"0x75ff080\"],\"id\":17,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getStorageAt\",\"params\":[\"0x7109709ecfa91a80626ff3989d68f67f5b1dd12d\",\"0x6661696c65640000000000000000000000000000000000000000000000000000\",\"0x75ff080\"],\"id\":19,\"jsonrpc\":\"2.0\"}": 1
+      }
+    },
+    {
+      "mode": "exhaust",
+      "exitCode": 1,
+      "elapsedMs": 40558,
+      "args": [
+        "test",
+        "--root",
+        "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-rpc-retry-138580a2",
+        "--match-contract",
+        "RetryProbe",
+        "--fork-url",
+        "http://127.0.0.1:57000",
+        "--fork-block-number",
+        "123728000",
+        "--no-storage-caching",
+        "--threads",
+        "1",
+        "--compute-units-per-second",
+        "50",
+        "--fork-retries",
+        "10",
+        "--fork-retry-backoff",
+        "2000",
+        "-vv"
+      ],
+      "calls": [
+        {
+          "at": 1790260074875,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260076887,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 2,
+          "id": 0
+        },
+        {
+          "at": 1790260078897,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 3,
+          "id": 0
+        },
+        {
+          "at": 1790260080900,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 4,
+          "id": 0
+        },
+        {
+          "at": 1790260082916,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 5,
+          "id": 0
+        },
+        {
+          "at": 1790260084922,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 6,
+          "id": 0
+        },
+        {
+          "at": 1790260086925,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 7,
+          "id": 0
+        },
+        {
+          "at": 1790260088934,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 8,
+          "id": 0
+        },
+        {
+          "at": 1790260090943,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 9,
+          "id": 0
+        },
+        {
+          "at": 1790260092949,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 10,
+          "id": 0
+        },
+        {
+          "at": 1790260094964,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 11,
+          "id": 0
+        },
+        {
+          "at": 1790260094964,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 1,
+          "id": 2
+        },
+        {
+          "at": 1790260094965,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260094965,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 1
+        },
+        {
+          "at": 1790260094965,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 3
+        },
+        {
+          "at": 1790260096971,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 2,
+          "id": 0
+        },
+        {
+          "at": 1790260096971,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 2,
+          "id": 1
+        },
+        {
+          "at": 1790260097976,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 2,
+          "id": 2
+        },
+        {
+          "at": 1790260097976,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 2,
+          "id": 3
+        },
+        {
+          "at": 1790260098981,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 3,
+          "id": 0
+        },
+        {
+          "at": 1790260098982,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 3,
+          "id": 1
+        },
+        {
+          "at": 1790260100991,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 3,
+          "id": 3
+        },
+        {
+          "at": 1790260100992,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 3,
+          "id": 2
+        },
+        {
+          "at": 1790260100992,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 4,
+          "id": 0
+        },
+        {
+          "at": 1790260100992,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 4,
+          "id": 1
+        },
+        {
+          "at": 1790260103008,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 5,
+          "id": 0
+        },
+        {
+          "at": 1790260103008,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 5,
+          "id": 1
+        },
+        {
+          "at": 1790260103996,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 4,
+          "id": 2
+        },
+        {
+          "at": 1790260103996,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 4,
+          "id": 3
+        },
+        {
+          "at": 1790260105019,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 6,
+          "id": 0
+        },
+        {
+          "at": 1790260105020,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 6,
+          "id": 1
+        },
+        {
+          "at": 1790260107005,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 5,
+          "id": 2
+        },
+        {
+          "at": 1790260107005,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 5,
+          "id": 3
+        },
+        {
+          "at": 1790260107021,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 7,
+          "id": 0
+        },
+        {
+          "at": 1790260107021,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 7,
+          "id": 1
+        },
+        {
+          "at": 1790260109038,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 8,
+          "id": 1
+        },
+        {
+          "at": 1790260109038,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 8,
+          "id": 0
+        },
+        {
+          "at": 1790260110011,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 6,
+          "id": 3
+        },
+        {
+          "at": 1790260110012,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 6,
+          "id": 2
+        },
+        {
+          "at": 1790260111049,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 9,
+          "id": 1
+        },
+        {
+          "at": 1790260111049,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 9,
+          "id": 0
+        },
+        {
+          "at": 1790260113016,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 7,
+          "id": 3
+        },
+        {
+          "at": 1790260113016,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 7,
+          "id": 2
+        },
+        {
+          "at": 1790260113063,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 10,
+          "id": 1
+        },
+        {
+          "at": 1790260113064,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 10,
+          "id": 0
+        },
+        {
+          "at": 1790260115078,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 11,
+          "id": 0
+        },
+        {
+          "at": 1790260115078,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 11,
+          "id": 1
+        }
+      ],
+      "counts": {
+        "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}": 11,
+        "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}": 7,
+        "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}": 11,
+        "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}": 11,
+        "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}": 7
+      }
+    },
+    {
+      "mode": "not-retryable",
+      "exitCode": 1,
+      "elapsedMs": 311,
+      "args": [
+        "test",
+        "--root",
+        "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-rpc-retry-138580a2",
+        "--match-contract",
+        "RetryProbe",
+        "--fork-url",
+        "http://127.0.0.1:57197",
+        "--fork-block-number",
+        "123728000",
+        "--no-storage-caching",
+        "--threads",
+        "1",
+        "--compute-units-per-second",
+        "50",
+        "--fork-retries",
+        "10",
+        "--fork-retry-backoff",
+        "2000",
+        "-vv"
+      ],
+      "calls": [
+        {
+          "at": 1790260115389,
+          "key": "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260115390,
+          "key": "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_getBlockByNumber",
+          "count": 1,
+          "id": 0
+        },
+        {
+          "at": 1790260115390,
+          "key": "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_gasPrice",
+          "count": 1,
+          "id": 2
+        },
+        {
+          "at": 1790260115390,
+          "key": "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 3
+        },
+        {
+          "at": 1790260115390,
+          "key": "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}",
+          "method": "eth_chainId",
+          "count": 1,
+          "id": 1
+        }
+      ],
+      "counts": {
+        "{\"method\":\"eth_chainId\",\"id\":0,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x75ff080\",false],\"id\":0,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_gasPrice\",\"id\":2,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_chainId\",\"id\":3,\"jsonrpc\":\"2.0\"}": 1,
+        "{\"method\":\"eth_chainId\",\"id\":1,\"jsonrpc\":\"2.0\"}": 1
+      }
+    }
+  ]
+}
