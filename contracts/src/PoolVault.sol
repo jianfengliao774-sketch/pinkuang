@@ -74,6 +74,7 @@ contract PoolVault is
 
     function deposit(uint8 shares) external payable nonReentrant {
         VaultStorage storage s = _vaultStorage();
+        if (s.factory == address(0)) revert Unauthorized();
         if (s.state != State.Funding) revert WrongState();
         if (s.depositPaused) revert DepositPaused();
         address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));

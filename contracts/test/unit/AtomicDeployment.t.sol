@@ -127,7 +127,7 @@ contract AtomicDeploymentTest is Test {
         assertEq(emptyClone.factory(), address(0));
         assertEq(emptyClone.totalSupply(), 0);
         // Zero-initialized parameters must not permit free share minting on an empty clone.
-        vm.expectRevert(IPoolVault.DeadlinePassed.selector);
+        vm.expectRevert(IPoolVault.Unauthorized.selector);
         emptyClone.deposit(1);
         assertEq(emptyClone.totalSupply(), 0);
     }

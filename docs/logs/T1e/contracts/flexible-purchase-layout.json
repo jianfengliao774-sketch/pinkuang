@@ -16,7 +16,7 @@
     {
       "contract": "PurchaseSelectionState",
       "label": "config",
-      "type": "t_struct(FlexiblePurchaseConfig)88046_storage",
+      "type": "t_struct(FlexiblePurchaseConfig)88057_storage",
       "src": "src/PurchaseSelectionState.sol:12"
     },
     {

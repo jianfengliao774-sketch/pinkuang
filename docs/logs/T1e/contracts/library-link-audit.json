@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-28T07:53:14.523Z",
+  "generatedAt": "2026-09-28T08:08:28.689Z",
   "ok": true,
   "vault": {
     "source": {
       "path": "contracts/src/PoolVault.sol",
-      "sourceSha256": "45f0a27e6cab4c2737923bc1472c56b91554d94ebe355cb14fac485362cf2cf1",
-      "compilerMetadataKeccak256": "0xb826076a858467612c9521b1636a49057279f73a1f7ef155082882ceef98eb4b"
+      "sourceSha256": "d3d1ebc9d696d54bcdd7de028e4f4a3a22394d59e50cab7e3fde02fc6a61ac60",
+      "compilerMetadataKeccak256": "0xfeda2e9080904bc5b3924d39f3b80045d13472244c116fee89d38c6a5cf9954a"
     },
     "selectionSource": {
       "path": "contracts/src/PurchaseSelectionState.sol",
@@ -14,11 +14,11 @@
       "compilerMetadataKeccak256": "0x4a7b895dba7427c16fb37a0c54d8034ef38984b0e891129bd768e83229cdb176"
     },
     "artifactPath": "contracts/out/PoolVault.sol/PoolVault.json",
-    "artifactSha256": "4aa507bbf46471d9d5f3ba928d3e4623811458cb03234c38af5b7268df163c66",
+    "artifactSha256": "853d19e2eef6db69fd9f672bd5b79b6013121cd053b402fac2b9573a9abb212c",
     "runtimeBytecodeTemplate": {
-      "sha256": "34f6b3524f2dcef2e865fc9ac31463f8fc539bd865ae779cff185fe97bf1a58e",
+      "sha256": "39ec8eb496cf981c11d0d4ee8941c8a154ef893db4bd2657edb91d7d6492ace5",
       "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
-      "byteLength": 23703,
+      "byteLength": 23743,
       "isDeployedCodeHash": false
     },
     "creationLinks": [
@@ -78,7 +78,7 @@
             "length": 20
           },
           {
-            "start": 15733,
+            "start": 15773,
             "length": 20
           }
         ],
@@ -93,7 +93,7 @@
             "length": 20
           },
           {
-            "start": 17062,
+            "start": 17102,
             "length": 20
           }
         ],
@@ -120,11 +120,11 @@
             "length": 20
           },
           {
-            "start": 16141,
+            "start": 16181,
             "length": 20
           },
           {
-            "start": 16688,
+            "start": 16728,
             "length": 20
           }
         ],
@@ -143,11 +143,11 @@
             "length": 20
           },
           {
-            "start": 17137,
+            "start": 17177,
             "length": 20
           },
           {
-            "start": 19818,
+            "start": 19858,
             "length": 20
           }
         ],
@@ -182,11 +182,11 @@
             "length": 20
           },
           {
-            "start": 17394,
+            "start": 17434,
             "length": 20
           },
           {
-            "start": 18268,
+            "start": 18308,
             "length": 20
           }
         ],
@@ -205,7 +205,7 @@
             "length": 20
           },
           {
-            "start": 16256,
+            "start": 16296,
             "length": 20
           }
         ],
@@ -216,7 +216,7 @@
         "name": "ShareCheckpoints",
         "positions": [
           {
-            "start": 18990,
+            "start": 19030,
             "length": 20
           }
         ],
@@ -280,7 +280,7 @@
             "length": 20
           },
           {
-            "start": 15354,
+            "start": 15394,
             "length": 20
           }
         ],
@@ -295,7 +295,7 @@
             "length": 20
           },
           {
-            "start": 16683,
+            "start": 16723,
             "length": 20
           }
         ],
@@ -322,11 +322,11 @@
             "length": 20
           },
           {
-            "start": 15762,
+            "start": 15802,
             "length": 20
           },
           {
-            "start": 16309,
+            "start": 16349,
             "length": 20
           }
         ],
@@ -345,11 +345,11 @@
             "length": 20
           },
           {
-            "start": 16758,
+            "start": 16798,
             "length": 20
           },
           {
-            "start": 19439,
+            "start": 19479,
             "length": 20
           }
         ],
@@ -384,11 +384,11 @@
             "length": 20
           },
           {
-            "start": 17015,
+            "start": 17055,
             "length": 20
           },
           {
-            "start": 17889,
+            "start": 17929,
             "length": 20
           }
         ],
@@ -407,7 +407,7 @@
             "length": 20
           },
           {
-            "start": 15877,
+            "start": 15917,
             "length": 20
           }
         ],
@@ -418,7 +418,7 @@
         "name": "ShareCheckpoints",
         "positions": [
           {
-            "start": 18611,
+            "start": 18651,
             "length": 20
           }
         ],
@@ -435,7 +435,7 @@
         "compilerMetadataKeccak256": "0xaccb0a2b13084457eabbd316c7e86ee64e8d78c326bdfcbcfac77d86959a900e"
       },
       "artifactPath": "contracts/out/FirstoSale.sol/FirstoSale.json",
-      "artifactSha256": "742d5493f56849bd2a85735bb8f681cf63c98213c3991e1c3f676936beb313b1",
+      "artifactSha256": "84d8da113e1592061ede4116ebf043b33aa7454dd5869fbe6f78cf85de5aca84",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "116516a46bf1074f67682849dadf797bff76632c33d287c5e9fe9c86aef09e9c",
@@ -488,7 +488,7 @@
         "compilerMetadataKeccak256": "0x6d4751fae6cc8226440c92e9e79632087034b57ea830fd592b0dd156b1a5df16"
       },
       "artifactPath": "contracts/out/FlexiblePurchase.sol/FlexiblePurchase.json",
-      "artifactSha256": "c9fbc3209aab2d23637fb352142a7742d492f936acf5fdd79d79a361022957b7",
+      "artifactSha256": "a056390f12c878975098021817a642f40c8df4ac5a9bc813dde2fece0bc18e80",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "ba8673e12ab1bbda7b3a571c2fe1981d22da19391c2640181815e6adfaf3caac",
@@ -593,7 +593,7 @@
         "compilerMetadataKeccak256": "0x5b07bccf415b44c5547bce2a7ee6d45658b7c24cf5afa546187bdc2f78a14b10"
       },
       "artifactPath": "contracts/out/MiningOperations.sol/MiningOperations.json",
-      "artifactSha256": "2a45d34f055a0dbdcdb6f9e1fba9ebaa68a474e8acb67d9eac838502d8dea0ee",
+      "artifactSha256": "ab0488fffcf3c222a24d546b45fdfb098d1916683482921679490152536c179e",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "14632a4af1d7e21143f79ccd0f92cd2727de3686fe6984c1214e1be62e48c775",
@@ -628,7 +628,7 @@
         "compilerMetadataKeccak256": "0x974197bbcc376fede8d3d6febb4bf6cdd4ceab5b82747a000e230710f50085a6"
       },
       "artifactPath": "contracts/out/PoolFunds.sol/PoolFunds.json",
-      "artifactSha256": "0424c88198db68e608bcaf28dffbc2defbf4f9addfe6f1243a57aecbabdcd15b",
+      "artifactSha256": "fa872a020255d0e65a6570a5984de418a978d7fbb6e99956ed101f9009ea6579",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "f9d24cca39314517411f5f5b73b08afc9aaee727b50f116621025a2c6211618b",
@@ -663,7 +663,7 @@
         "compilerMetadataKeccak256": "0x7bda9b5e81fe778037927d0e9f63d64d907269b0d601bbf575b15a78b48ef649"
       },
       "artifactPath": "contracts/out/PurchaseValidation.sol/PurchaseValidation.json",
-      "artifactSha256": "a588bc5f3c343ba9f50d17b8cda9e816358e2d121d5cd478077e6bee7d434fca",
+      "artifactSha256": "129643ad7d9b5735447b57bce3bea2219fbeb258604bc069862e2e0bd91f38e5",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "af92fa1d7925d3c3f889419538618a8ecfd1e269b249337140df08115038038c",
@@ -692,7 +692,7 @@
         "compilerMetadataKeccak256": "0x98038babb518b78ea31704a0d07779738c053dc817f121645435e6f6af4a5208"
       },
       "artifactPath": "contracts/out/RewardAccounting.sol/RewardAccounting.json",
-      "artifactSha256": "e0abbca6177d304d51654f8c5cd1ef5d694de2cc5ad0db1238c1914279799255",
+      "artifactSha256": "212a686b8a9f6c26fa350023bb71163367a3c2805d1d1279d7068221c4a2c7c7",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "5cff76854cffb66599557f815977a122de60c2160e9a1c6b11df8f382d7703a8",
@@ -721,7 +721,7 @@
         "compilerMetadataKeccak256": "0xa0bf69cfef6230f722e7a66964ac72de00f46576aa7e96dc6e57bab8defef506"
       },
       "artifactPath": "contracts/out/SaleGovernance.sol/SaleGovernance.json",
-      "artifactSha256": "8fd3f12f668bd4fcd94a6347705aee82afaa219024dcaba4414f86540bd9e631",
+      "artifactSha256": "c74effc880be3bacdf24466312e58a7b8574ef1fefa4b883add46f479570d734",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "6042f635f69700db345950048b0cdbcecaf0108573c30ce402bc69f929ae9bd2",
@@ -750,7 +750,7 @@
         "compilerMetadataKeccak256": "0xf18c1bdeb0b8dbd3fd041028386a3c0d9e91b2f8a4a43b2ad0b92a3a4cddc374"
       },
       "artifactPath": "contracts/out/SaleSettlement.sol/SaleSettlement.json",
-      "artifactSha256": "23090ddeeb0442a5eec78dbeea80b660fb58394609a0db56a8201b882d6c0b0c",
+      "artifactSha256": "ca269410258e03e4dcc6b148172347ea45ea7e7ad605b1bd484c6cbacc2ca2d0",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "20c51f4f4eb0b418dc950fd0f7f54bde8f0f2569206410e37ce5e1a14de7923b",
@@ -779,7 +779,7 @@
         "compilerMetadataKeccak256": "0x6d6da862e0f131e1c0e5d1b8610eee12d164a47291b81eeb1114c0d96c9c7eb0"
       },
       "artifactPath": "contracts/out/ShareCheckpoints.sol/ShareCheckpoints.json",
-      "artifactSha256": "3b288ebedad1ce5ca339274691391a17bfdbe98ab70a03b5522d34fd0f26f9f0",
+      "artifactSha256": "7538188d8c416257882e58bafbeb5dcdfe33531813f73a7fd1e668717f24213f",
       "compilerVersion": "0.8.24+commit.e11b9ed9",
       "runtimeBytecodeTemplate": {
         "sha256": "c73ce52a099f22a0831761719cc8bb8d1e2187822918e59d258d98f50eee4d3f",
