@@ -9,8 +9,19 @@ import {
   validateIntegratedUpgradeScheduledAgainstChain,
   validateIntegratedUpgradeResultAgainstChain,
   buildIntegratedTreasuryMigrationPlan,
+  validateIntegratedUpgradePreparationAgainstChain,
+  buildIntegratedProposerBootstrapPlan, validateIntegratedProposerBootstrapAgainstChain,
+  integratedAuthorityDeploymentData, validateIntegratedPostCodeGraphAgainstChain,
+  validateIntegratedAuthorityAgainstChain, buildIntegratedRoleMigrationPlan,
+  validateIntegratedRoleMigrationStateAgainstChain, validateIntegratedRoleMigrationActionAgainstChain,
+  validateIntegratedTreasuryMigrationActionAgainstChain,
+  validateIntegratedTreasuryMigrationResultAgainstChain,
+  validateIntegratedOnChainMigrationCompleteAgainstChain,
   type IntegratedUpgradePreflight, type IntegratedGenesisPreflight, type IntegratedUpgradeResult,
   type IntegratedReplacementName, type IntegratedReplacements,
+  type IntegratedProposerBootstrapPlan, type IntegratedAuthorityProof,
+  type IntegratedRoleMigrationPlan, type IntegratedRoleState,
+  type IntegratedTreasuryMigrationPlan,
 } from '../shared/integrated-upgrade-plan.mjs';
 import { artifactDigest, validateArtifacts, type ArtifactBundle, type DeploymentSnapshot } from './deployment';
 import { assertTrustedGenesis } from './upgrade-ui';
@@ -30,6 +41,7 @@ type Props = {
   chainId: number | null;
   currentBundle: ArtifactBundle | null;
   currentRecord: DeploymentSnapshot | null;
+  initialGenesisBundle?: ArtifactBundle | null;
   onConnect: () => void;
 };
 
@@ -64,18 +76,21 @@ function newSalt(): string {
   return `0x${Array.from(bytes, part => part.toString(16).padStart(2, '0')).join('')}`;
 }
 
-export default function UpgradeConsole({wallet, account, chainId, currentBundle, currentRecord, onConnect}: Props) {
+export default function UpgradeConsole({wallet, account, chainId, currentBundle, currentRecord,
+  initialGenesisBundle, onConnect}: Props) {
   const [uploadedRecord, setUploadedRecord] = useState<DeploymentSnapshot | null>(null);
   const [uploadedGenesisBundle, setUploadedGenesisBundle] = useState<ArtifactBundle | null>(null);
   const [journal, setJournal] = useState<UpgradeJournal | null>(null);
   const [pauseProof, setPauseProof] = useState<PauseTargetProof | null>(null);
+  const [bootstrapProof, setBootstrapProof] = useState<Awaited<ReturnType<typeof validateIntegratedProposerBootstrapAgainstChain>> | null>(null);
   const [genesisProof, setGenesisProof] = useState<IntegratedGenesisPreflight | null>(null);
   const [planProof, setPlanProof] = useState<IntegratedUpgradePreflight | null>(null);
   const [resultProof, setResultProof] = useState<IntegratedUpgradeResult | null>(null);
+  const [authorityProof, setAuthorityProof] = useState<IntegratedAuthorityProof | null>(null);
+  const [roleState, setRoleState] = useState<IntegratedRoleState | null>(null);
+  const [onChainComplete, setOnChainComplete] = useState(false);
   const [hardwareWalletInput, setHardwareWalletInput] = useState('');
   const [gasWalletInput, setGasWalletInput] = useState('');
-  const [authorityAddress, setAuthorityAddress] = useState('');
-  const [migrationSalt, setMigrationSalt] = useState('');
   const [operation, setOperation] = useState<ChainOperation>('unknown');
   const [readyAt, setReadyAt] = useState<number | null>(null);
   const [busy, setBusy] = useState('');
@@ -84,9 +99,10 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const [reviewed, setReviewed] = useState(false);
   const [recoveryHash, setRecoveryHash] = useState('');
   const [pauseRecoveryHash, setPauseRecoveryHash] = useState('');
+  const [stageTwoRecoveryHash, setStageTwoRecoveryHash] = useState('');
 
   const record = uploadedRecord || currentRecord;
-  const oldBundle = uploadedGenesisBundle || (currentBundle && record
+  const oldBundle = uploadedGenesisBundle || initialGenesisBundle || (currentBundle && record
     && artifactDigest(currentBundle).toLowerCase() === record.artifactDigest.toLowerCase() ? currentBundle : null);
   const upgradeBundle = currentBundle;
   const oldTrust = useMemo(() => {
@@ -121,11 +137,15 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     return {expected, key: upgradeJournalKey(expected.factory, expected.genesisArtifactDigest, expected.upgradeArtifactDigest)};
   }, [record, upgradeBundle, oldTrust.ok, upgradeTrust.ok]);
   useEffect(() => {
-    setPauseProof(null); setGenesisProof(null); setPlanProof(null); setResultProof(null); setOperation('unknown'); setReviewed(false);
+    setPauseProof(null); setBootstrapProof(null); setGenesisProof(null); setPlanProof(null); setResultProof(null);
+    setAuthorityProof(null); setRoleState(null); setOnChainComplete(false); setOperation('unknown'); setReviewed(false);
     if (!context) { setJournal(null); return; }
     try {
       const raw = localStorage.getItem(context.key);
-      setJournal(raw ? parseUpgradeJournal(JSON.parse(raw), context.expected) : null);
+      const restored = raw ? parseUpgradeJournal(JSON.parse(raw), context.expected) : null;
+      setJournal(restored);
+      if (restored?.bootstrap) setHardwareWalletInput(restored.bootstrap.hardwareWallet);
+      if (restored?.authority) setGasWalletInput(restored.authority.gasWallet);
     } catch (problem) { setJournal(null); setError(messageOf(problem)); }
   }, [context]);
   useEffect(() => { setPauseProof(null); setGenesisProof(null); setPlanProof(null); setReviewed(false); }, [account, chainId]);
@@ -155,6 +175,16 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     if (entries.some(([, address]) => !address)) return null;
     return Object.fromEntries(entries) as IntegratedReplacements;
   }, [journal]);
+  const bootstrapPlanState = useMemo(() => {
+    if (!record || !oldBundle || !journal?.bootstrap || !oldTrust.ok) return {plan:null,reason:''};
+    try { return {plan:buildIntegratedProposerBootstrapPlan({
+      genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,
+      hardwareWallet:journal.bootstrap.hardwareWallet,salt:journal.bootstrap.salt,
+      delaySeconds:journal.bootstrap.delaySeconds,
+    }),reason:''}; }
+    catch (problem) { return {plan:null,reason:messageOf(problem)}; }
+  }, [record,oldBundle,journal?.bootstrap,oldTrust.ok]);
+  const bootstrapPlan = bootstrapPlanState.plan;
   const planState = useMemo(() => {
     if (!record || !oldBundle || !upgradeBundle || !journal || !completeAddresses
       || !oldTrust.ok || !upgradeTrust.ok) return {plan: null, reason: ''};
@@ -228,15 +258,18 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   }
   async function sendPause(name: PauseFactoryName) {
     await run(`暂停 ${name} 建池`, async () => {
-      // The full old implementation graph must be proved before any proxy call.
-      // A proxy codehash and owner read alone do not authenticate its UUPS implementation.
-      if (!pausePreparationVerified) throw new Error('暂停前完整旧实现图预检尚未就绪，签署保持锁定。');
       if (!wallet || !account || !onBsc || !record || !oldBundle || !journal || !oldTrust.ok
         || !upgradeTrust.ok || pendingPause) throw new Error('旧 owner 钱包、部署记录或暂停交易尚未就绪。');
+      const preparation = await validateIntegratedUpgradePreparationAgainstChain(rpcProvider(),{
+        genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,
+        signer:account,nextPause:name === 'factory' ? 'core' : 'budget',
+      });
       const trusted = assertTrustedGenesis(record,oldBundle,trustedGenesisManifest as never);
       const proof = await inspectPauseTargets(rpcProvider(),trusted,record.input.ownerMultisig);
       setPauseProof(proof);
       const target = proof.targets[name];
+      if (getAddress(preparation.target) !== getAddress(target.address)
+        || preparation.data !== pauseCreationData()) throw new Error('完整旧图预检的暂停目标或 calldata 不匹配。');
       if (getAddress(account) !== getAddress(target.owner)) throw new Error('只有链上当前旧 owner 钱包可以暂停建池。');
       if (target.paused) throw new Error(`${name} 已暂停，无须再次交易。`);
       const data = pauseCreationData();
@@ -276,6 +309,66 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       setMessage(`${name} 已在链上暂停建池。`);
     });
   }
+  function createBootstrap() {
+    if (!journal || !record || !oldBundle || !genesisProof || !hardwareWalletInput || !onBsc) return;
+    try {
+      const candidate = buildIntegratedProposerBootstrapPlan({genesisRecord:record,
+        genesisBundle:oldBundle,trustedGenesisManifest,hardwareWallet:hardwareWalletInput,
+        salt:newSalt(),delaySeconds:172800});
+      save({...journal,bootstrap:{hardwareWallet:candidate.hardwareWallet,salt:candidate.salt,
+        delaySeconds:candidate.delaySeconds}});
+      setHardwareWalletInput(candidate.hardwareWallet); setBootstrapProof(null);
+    } catch (problem) { setError(messageOf(problem)); }
+  }
+  async function verifyBootstrap(phase: 'unscheduled' | 'ready' | 'done') {
+    if (!bootstrapPlan || !record || !oldBundle) throw new Error('硬件钱包角色授权计划尚未建立。');
+    const proof = await validateIntegratedProposerBootstrapAgainstChain(rpcProvider(),bootstrapPlan,{
+      genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,phase,
+      ...(phase === 'done' ? {} : {signer:account || ''}),
+    });
+    setBootstrapProof(proof);
+    return proof;
+  }
+  async function sendBootstrap(which: 'schedule' | 'execute') {
+    await run(which === 'schedule' ? '安排硬件钱包角色' : '执行硬件钱包角色授权',async () => {
+      if (!wallet || !account || !onBsc || !journal?.bootstrap || !bootstrapPlan
+        || journal.bootstrap[which]) throw new Error('钱包、角色计划或现有交易状态未就绪。');
+      await verifyBootstrap(which === 'schedule' ? 'unscheduled' : 'ready');
+      const data = which === 'schedule' ? bootstrapPlan.scheduleData : bootstrapPlan.executeData;
+      const tx: UpgradeTransaction = {status:'uncertain',from:account,dataHash:keccak256(data)};
+      await exclusiveSend(async () => {
+        save({...journal,bootstrap:{...journal.bootstrap!,[which]:tx}});
+        let hash: string;
+        try { hash = await sendUpgradeTransaction(wallet,{from:account,to:bootstrapPlan.timelock,data}); }
+        catch (problem) {
+          if (!(problem instanceof UncertainUpgradeSubmission)) {
+            save({...journal,bootstrap:{...journal.bootstrap!,[which]:undefined}});
+          }
+          throw problem;
+        }
+        save({...journal,bootstrap:{...journal.bootstrap!,[which]:{...tx,status:'submitted',txHash:hash}}});
+        setMessage(`硬件钱包角色 ${which === 'schedule' ? '提案' : '执行'}交易已提交，请核对回执。`);
+      });
+    });
+  }
+  async function recoverBootstrap(which: 'schedule' | 'execute') {
+    await run('核对硬件钱包角色交易',async () => {
+      if (!journal?.bootstrap || !bootstrapPlan) throw new Error('角色授权记录不可用。');
+      const tx = journal.bootstrap[which];
+      if (!tx || tx.status === 'confirmed') throw new Error('没有待核对的角色授权交易。');
+      const hash = tx.txHash || recoveryHash.trim();
+      if (!hash) throw new Error('请输入钱包中原交易的完整哈希。');
+      const data = which === 'schedule' ? bootstrapPlan.scheduleData : bootstrapPlan.executeData;
+      if (tx.dataHash.toLowerCase() !== keccak256(data).toLowerCase()) throw new Error('记录的角色授权 calldata 已改变。');
+      const receipt = await verifyUpgradeReceipt(receiptProvider(),hash,
+        {from:tx.from,to:bootstrapPlan.timelock,dataHash:tx.dataHash});
+      if (!receipt) { setMessage('角色授权交易尚未最终确认，请稍后核对。'); return; }
+      if (which === 'execute') await verifyBootstrap('done');
+      save({...journal,bootstrap:{...journal.bootstrap,[which]:{...tx,status:'confirmed',txHash:hash}}});
+      setRecoveryHash('');
+      setMessage(which === 'schedule' ? '角色授权已安排，至少等待 48 小时。' : '硬件钱包 proposer/canceller 已由链上确认。');
+    });
+  }
   async function confirmDeployment(name: IntegratedReplacementName, tx: UpgradeTransaction, hash: string) {
     if (!record || !upgradeBundle || !journal) throw new Error('升级记录不可用。');
     const addresses = { ...record.addresses,
@@ -303,9 +396,12 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   async function deployReplacement(name: IntegratedReplacementName) {
     await run(`部署 ${name}`, async () => {
       if (!wallet || !account || !onBsc || !record || !oldBundle || !upgradeBundle || !journal
-        || !oldTrust.ok || !upgradeTrust.ok || !genesisProof || pendingName || name !== nextName) {
+        || !oldTrust.ok || !upgradeTrust.ok || !genesisProof || pendingName || name !== nextName
+        || !bootstrapPlan || journal.bootstrap?.execute?.status !== 'confirmed'
+        || getAddress(account) !== getAddress(bootstrapPlan.hardwareWallet)) {
         throw new Error('部署步骤或钱包未准备好，或者上一笔交易尚未核对。');
       }
+      await verifyBootstrap('done');
       const prior = Object.fromEntries(integratedUpgradeDeploymentOrder.slice(0,
         integratedUpgradeDeploymentOrder.indexOf(name)).map(item => [item,journal.deployments[item]?.address]));
       await validateIntegratedUpgradePartialReplacementsAgainstChain(rpcProvider(),{
@@ -361,12 +457,12 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   }
   async function verifyPlan() {
     await run('核验升级批次', async () => {
-      if (!plan || !record || !oldBundle || !upgradeBundle || !account || !onBsc) {
+      if (!plan || !record || !oldBundle || !upgradeBundle || !account || !onBsc || !bootstrapPlan) {
         throw new Error('需完成全部新实现部署并连接 BSC 主网管理钱包。');
       }
       const proof = await validateIntegratedUpgradePlanAgainstChain(rpcProvider(), plan, {
         genesisRecord:record, genesisBundle:oldBundle, trustedGenesisManifest,
-        upgradeBundle, trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__, proposer:account,
+        upgradeBundle, trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__, proposer:account,bootstrapPlan,
       });
       setPlanProof(proof);
       if (!journal) throw new Error('本机升级记录不可用。');
@@ -376,9 +472,9 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   }
   async function sendBatch(which: 'schedule' | 'execute') {
     await run(which === 'schedule' ? '提交 48 小时提案' : '执行已等待的升级', async () => {
-      if (!wallet || !account || !onBsc || !plan || !record || !oldBundle || !upgradeBundle || !journal
+      if (!wallet || !account || !onBsc || !plan || !record || !oldBundle || !upgradeBundle || !journal || !bootstrapPlan
         || !reviewed || (which === 'schedule' && !planProof)
-        || (which === 'execute' && (!journal.preExecutionPreflight || journal.schedule?.status !== 'confirmed'))
+        || (which === 'execute' && journal.schedule?.status !== 'confirmed')
         || journal[which]) {
         throw new Error('钱包、批次核验、人工审阅或交易记录未就绪。');
       }
@@ -387,12 +483,12 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       if (which === 'schedule') {
         await validateIntegratedUpgradePlanAgainstChain(rpcProvider(), plan, {
           genesisRecord:record, genesisBundle:oldBundle, trustedGenesisManifest,
-          upgradeBundle, trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__, proposer:account,
+          upgradeBundle, trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__, proposer:account,bootstrapPlan,
         });
       } else {
         scheduledProof = await validateIntegratedUpgradeScheduledAgainstChain(rpcProvider(),plan,{
           genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,upgradeBundle,
-          trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,proposer:account,
+          trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,proposer:account,bootstrapPlan,
         });
         const status = await refreshOperation(plan);
         if (status !== 'ready') throw new Error('时间锁尚未进入可执行状态，请刷新链上状态。');
@@ -450,13 +546,256 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     });
   }
 
+  function stageTwoBase() {
+    if (!plan || !bootstrapPlan || !record || !oldBundle || !upgradeBundle || !resultProof
+      || !journal?.authority?.deployment?.address || !journal.authority.deployment.txHash
+      || journal.authority.deployment.status !== 'confirmed' || !stageTwoConfig.value
+      || getAddress(stageTwoConfig.value.hardwareWallet) !== getAddress(bootstrapPlan.hardwareWallet)
+      || getAddress(journal.authority.hardwareWallet) !== getAddress(bootstrapPlan.hardwareWallet)
+      || getAddress(journal.authority.gasWallet) !== getAddress(stageTwoConfig.value.gasWallet)) {
+      throw new Error('代码升级证明、硬件钱包或已核验 Authority 部署记录尚未就绪。');
+    }
+    return {codePlan:plan,bootstrapPlan,genesisRecord:record,genesisBundle:oldBundle,
+      trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
+      authorityAddress:journal.authority.deployment.address,
+      deploymentTxHash:journal.authority.deployment.txHash,
+      administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],
+      gasWallet:stageTwoConfig.value.gasWallet};
+  }
+  async function deployAuthority() {
+    await run('部署 PlatformAuthority', async () => {
+      if (!wallet || !account || !onBsc || !record || !oldBundle || !upgradeBundle || !plan
+        || !resultProof || !journal || !stageTwoConfig.value || journal.authority
+        || !bootstrapPlan || getAddress(account) !== getAddress(bootstrapPlan.hardwareWallet)
+        || getAddress(stageTwoConfig.value.hardwareWallet) !== getAddress(bootstrapPlan.hardwareWallet)) {
+        throw new Error('须完成代码升级后置证明并连接已授权的硬件钱包。');
+      }
+      await validateIntegratedPostCodeGraphAgainstChain(rpcProvider(),plan,{
+        genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,upgradeBundle,
+        trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
+      });
+      const data=integratedAuthorityDeploymentData({genesisRecord:record,genesisBundle:oldBundle,
+        trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
+        administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],
+        gasWallet:stageTwoConfig.value.gasWallet});
+      const tx:UpgradeTransaction={status:'uncertain',from:account,dataHash:keccak256(data)};
+      const authority={hardwareWallet:bootstrapPlan.hardwareWallet,gasWallet:stageTwoConfig.value.gasWallet,deployment:tx};
+      await exclusiveSend(async () => {
+        save({...journal,authority});
+        let hash:string;
+        try { hash=await sendUpgradeTransaction(wallet,{from:account,data}); }
+        catch (problem) {
+          if (!(problem instanceof UncertainUpgradeSubmission)) save({...journal,authority:undefined});
+          throw problem;
+        }
+        save({...journal,authority:{...authority,deployment:{...tx,status:'submitted',txHash:hash}}});
+        setMessage('Authority 部署交易已记录；请核对最终确认回执与构造状态。');
+      });
+    });
+  }
+  async function verifyAuthority() {
+    const base=stageTwoBase();
+    const proof=await validateIntegratedAuthorityAgainstChain(receiptProvider(),base);
+    setAuthorityProof(proof);
+    return proof;
+  }
+  async function recoverAuthority() {
+    await run('核验 PlatformAuthority 回执',async () => {
+      if (!record || !oldBundle || !upgradeBundle || !plan || !journal?.authority?.deployment
+        || !bootstrapPlan || !stageTwoConfig.value) throw new Error('Authority 部署记录不完整。');
+      const tx=journal.authority.deployment;
+      const hash=tx.txHash || stageTwoRecoveryHash.trim();
+      if (!hash) throw new Error('请输入原部署交易哈希。');
+      const data=integratedAuthorityDeploymentData({genesisRecord:record,genesisBundle:oldBundle,
+        trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
+        administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],
+        gasWallet:journal.authority.gasWallet});
+      if (tx.dataHash.toLowerCase()!==keccak256(data).toLowerCase()) throw new Error('Authority 构造字节码已变化。');
+      const receipt=await verifyUpgradeReceipt(receiptProvider(),hash,{from:tx.from,dataHash:tx.dataHash});
+      if (!receipt) {setMessage('部署交易尚未最终确认。');return;}
+      if (!receipt.contractAddress) throw new Error('部署回执缺少 Authority 地址。');
+      const proof=await validateIntegratedAuthorityAgainstChain(receiptProvider(),{
+        codePlan:plan,genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,upgradeBundle,
+        trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
+        authorityAddress:receipt.contractAddress,deploymentTxHash:hash,
+        administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],
+        gasWallet:journal.authority.gasWallet,
+      });
+      save({...journal,authority:{...journal.authority,deployment:{...tx,status:'confirmed',txHash:hash,
+        address:getAddress(receipt.contractAddress)}}});
+      setAuthorityProof(proof);setStageTwoRecoveryHash('');
+      setMessage(`Authority 已在最终确认区块 #${proof.blockNumber} 核验。`);
+    });
+  }
+  function createRolePlan() {
+    try {
+      if (!journal || !authorityProof || !plan || !bootstrapPlan || !record
+        || !journal.authority?.deployment?.address || journal.role) throw new Error('Authority 尚未核验或角色计划已建立。');
+      const salt=newSalt(),delaySeconds=172800;
+      buildIntegratedRoleMigrationPlan({genesisRecord:record,codePlan:plan,bootstrapPlan,
+        authorityAddress:journal.authority.deployment.address,
+        hardwareWallet:bootstrapPlan.hardwareWallet,salt,delaySeconds});
+      save({...journal,role:{salt,delaySeconds,direct:{}}});
+      setMessage('角色迁移计划已固定；逐项核对完整 calldata 后再签署。');
+    } catch (problem) {setError(messageOf(problem));}
+  }
+  async function verifyRoleState() {
+    if (!rolePlan) throw new Error('角色迁移计划尚未建立。');
+    const proof=await validateIntegratedRoleMigrationStateAgainstChain(receiptProvider(),rolePlan,stageTwoBase());
+    setRoleState(proof);return proof;
+  }
+  type RoleAction = {type:'direct';index:number}|{type:'schedule'|'execute'};
+  function roleTx(action:RoleAction) {
+    if (!journal?.role) return undefined;
+    return action.type==='direct' ? journal.role.direct[action.index] : journal.role[action.type];
+  }
+  function roleData(action:RoleAction) {
+    if (!rolePlan) throw new Error('角色计划不可用。');
+    return action.type==='direct' ? {target:rolePlan.directSteps[action.index].target,
+      data:rolePlan.directSteps[action.index].data} : {
+      target:rolePlan.timelock,data:action.type==='schedule'
+        ? rolePlan.roleBatch.scheduleData : rolePlan.roleBatch.executeData};
+  }
+  function withRoleTx(action:RoleAction,tx:UpgradeTransaction|undefined) {
+    if (!journal?.role) throw new Error('角色迁移本机记录不可用。');
+    return action.type==='direct' ? {...journal.role,direct:{...journal.role.direct,[action.index]:tx}}
+      : {...journal.role,[action.type]:tx};
+  }
+  async function sendRoleAction(action:RoleAction) {
+    await run('签署 Factory / Timelock 角色迁移',async () => {
+      if (!wallet || !account || !onBsc || !journal?.role || !rolePlan || roleTx(action))
+        throw new Error('角色迁移步骤或钱包未就绪。');
+      const {target,data}=roleData(action);
+      const proof=await validateIntegratedRoleMigrationActionAgainstChain(receiptProvider(),rolePlan,{
+        ...stageTwoBase(),action,signer:account});
+      if (getAddress(proof.target)!==getAddress(target) || proof.calldata!==data)
+        throw new Error('角色迁移预检目标或 calldata 与固定计划不匹配。');
+      setRoleState(proof);
+      const tx:UpgradeTransaction={status:'uncertain',from:account,dataHash:keccak256(data)};
+      await exclusiveSend(async () => {
+        save({...journal,role:withRoleTx(action,tx)});
+        let hash:string;
+        try {hash=await sendUpgradeTransaction(wallet,{from:account,to:target,data});}
+        catch (problem) {
+          if (!(problem instanceof UncertainUpgradeSubmission)) save({...journal,role:withRoleTx(action,undefined)});
+          throw problem;
+        }
+        save({...journal,role:withRoleTx(action,{...tx,status:'submitted',txHash:hash})});
+        setMessage(`角色交易 ${hash} 已记录，待最终确认。`);
+      });
+    });
+  }
+  async function recoverRoleAction(action:RoleAction) {
+    await run('核对角色迁移回执',async () => {
+      if (!journal?.role || !rolePlan) throw new Error('角色迁移本机记录不可用。');
+      const tx=roleTx(action);if (!tx || tx.status==='confirmed') throw new Error('没有待核对的角色交易。');
+      const hash=tx.txHash || stageTwoRecoveryHash.trim();if (!hash) throw new Error('请输入钱包中的原交易哈希。');
+      const {target,data}=roleData(action);
+      if (tx.dataHash.toLowerCase()!==keccak256(data).toLowerCase()) throw new Error('角色交易 calldata 与记录不符。');
+      const receipt=await verifyUpgradeReceipt(receiptProvider(),hash,{from:tx.from,to:target,dataHash:tx.dataHash});
+      if (!receipt) {setMessage('角色交易尚未最终确认。');return;}
+      const proof=await validateIntegratedRoleMigrationStateAgainstChain(receiptProvider(),rolePlan,stageTwoBase());
+      if (action.type==='direct' ? !proof.applied[action.index]
+        : action.type==='schedule' ? proof.status==='unscheduled' : proof.status!=='done') {
+        throw new Error('回执已确认，但链上角色/权限状态未达到计划值。');
+      }
+      save({...journal,role:withRoleTx(action,{...tx,status:'confirmed',txHash:hash})});
+      setRoleState(proof);setStageTwoRecoveryHash('');
+      setMessage(`角色迁移步骤已在最终确认区块 #${proof.blockNumber} 验证。`);
+    });
+  }
+  function createTreasuryPlan() {
+    try {
+      if (!journal || !record || !resultProof || !authorityProof || !roleState?.roleWiringComplete
+        || !journal.authority?.deployment?.address || journal.treasury)
+        throw new Error('角色接线尚未由链上证明完成。');
+      const saltSeed=newSalt(),delaySeconds=172800;
+      buildIntegratedTreasuryMigrationPlan({genesisRecord:record,codeResult:resultProof,
+        authorityAddress:journal.authority.deployment.address,saltSeed,delaySeconds});
+      save({...journal,treasury:{saltSeed,delaySeconds,operations:{}}});
+      setMessage('历史池金库迁移计划已固定；每池单独等待 48 小时。');
+    } catch (problem) {setError(messageOf(problem));}
+  }
+  async function sendTreasuryAction(index:number,which:'schedule'|'execute') {
+    await run('签署历史池金库迁移',async () => {
+      const op=treasuryPlan.plan?.operations[index],local=journal?.treasury?.operations[index];
+      if (!wallet || !account || !onBsc || !journal?.treasury || !rolePlan || !op
+        || local?.[which] || (which==='execute' && local?.schedule?.status!=='confirmed'))
+        throw new Error('历史池金库步骤或钱包未就绪。');
+      const phase=which==='schedule'?'unscheduled':'ready';
+      const proof=await validateIntegratedTreasuryMigrationActionAgainstChain(receiptProvider(),
+        treasuryPlan.plan!,{...stageTwoBase(),rolePlan,codeResult:resultProof!,
+          operationIndex:index,phase,signer:account});
+      const data=which==='schedule'?op.scheduleData:op.executeData;
+      if (getAddress(proof.transactionTarget)!==getAddress(treasuryPlan.plan!.timelock)
+        || proof.calldata!==data || proof.operationId.toLowerCase()!==op.operationId.toLowerCase())
+        throw new Error('历史池迁移链上预检与已审阅计划不一致。');
+      const tx:UpgradeTransaction={status:'uncertain',from:account,dataHash:keccak256(data)};
+      const before={...local,...(which==='execute'?{preExecutionPreflight:proof}:{}),[which]:tx};
+      await exclusiveSend(async () => {
+        save({...journal,treasury:{...journal.treasury!,operations:{...journal.treasury!.operations,[index]:before}}});
+        let hash:string;
+        try {hash=await sendUpgradeTransaction(wallet,{from:account,to:treasuryPlan.plan!.timelock,data});}
+        catch (problem) {
+          if (!(problem instanceof UncertainUpgradeSubmission)) save({...journal,treasury:{...journal.treasury!,
+            operations:{...journal.treasury!.operations,[index]:local}}});
+          throw problem;
+        }
+        save({...journal,treasury:{...journal.treasury!,operations:{...journal.treasury!.operations,
+          [index]:{...before,[which]:{...tx,status:'submitted',txHash:hash}}}}});
+        setMessage(`历史池 ${short(op.target)} ${which==='schedule'?'提案':'执行'}交易已记录。`);
+      });
+    });
+  }
+  async function recoverTreasuryAction(index:number,which:'schedule'|'execute') {
+    await run('核对历史池金库迁移回执',async () => {
+      const op=treasuryPlan.plan?.operations[index],local=journal?.treasury?.operations[index];
+      const tx=local?.[which];
+      if (!journal?.treasury || !op || !tx || tx.status==='confirmed' || !rolePlan || !resultProof)
+        throw new Error('没有可核对的历史池交易。');
+      const hash=tx.txHash || stageTwoRecoveryHash.trim();if (!hash) throw new Error('请输入原交易哈希。');
+      const data=which==='schedule'?op.scheduleData:op.executeData;
+      if (tx.dataHash.toLowerCase()!==keccak256(data).toLowerCase()) throw new Error('迁移 calldata 与记录不符。');
+      const receipt=await verifyUpgradeReceipt(receiptProvider(),hash,
+        {from:tx.from,to:treasuryPlan.plan!.timelock,dataHash:tx.dataHash});
+      if (!receipt) {setMessage('迁移交易尚未最终确认。');return;}
+      if (which==='execute') {
+        if (!local?.preExecutionPreflight || !local.schedule?.txHash)
+          throw new Error('缺少链上执行前的旧金库欠款快照或提案交易。');
+        await validateIntegratedTreasuryMigrationResultAgainstChain(receiptProvider(),treasuryPlan.plan!,{
+          ...stageTwoBase(),rolePlan,codeResult:resultProof,operationIndex:index,
+          preExecutionPreflight:local.preExecutionPreflight as never,
+          scheduleTxHash:local.schedule.txHash,executeTxHash:hash,
+        });
+      }
+      save({...journal,treasury:{...journal.treasury,operations:{...journal.treasury.operations,
+        [index]:{...local,[which]:{...tx,status:'confirmed',txHash:hash}}}}});
+      setStageTwoRecoveryHash('');
+      setMessage(which==='execute'?'旧池金库迁移及原金库欠款保留已在链上核验。':'历史池迁移提案已核验，等待至少 48 小时。');
+    });
+  }
+  async function verifyOnChainComplete() {
+    await run('核验全部链上角色与历史池',async () => {
+      if (!treasuryPlan.plan || !rolePlan || !resultProof || !journal?.treasury)
+        throw new Error('历史池迁移计划尚未建立。');
+      if (treasuryPlan.plan.operations.some((_,index)=>journal.treasury?.operations[index]?.execute?.status!=='confirmed'))
+        throw new Error('仍有旧池迁移执行交易未取得最终确认回执。');
+      const proof=await validateIntegratedOnChainMigrationCompleteAgainstChain(receiptProvider(),
+        treasuryPlan.plan,{...stageTwoBase(),rolePlan,codeResult:resultProof});
+      if (!proof) throw new Error('链上迁移证明不可用。');
+      setOnChainComplete(true);
+      setMessage('链上代码、角色和历史池金库迁移已核验；后台 Gas 代付与服务接线尚待独立核验，建池仍暂停。');
+    });
+  }
+
   const deployed = journal ? integratedUpgradeDeploymentOrder.filter(name => journal.deployments[name]?.status === 'confirmed').length : 0;
   const allDeployed = !!journal && deployed === integratedUpgradeDeploymentOrder.length;
   const pendingPause = pauseFactoryNames.some(name => journal?.pauses?.[name]?.status === 'submitted'
     || journal?.pauses?.[name]?.status === 'uncertain');
-  const pausePreparationVerified = false;
   const canDeploy = onBsc && oldTrust.ok && upgradeTrust.ok && !!genesisProof && !!journal
-    && !pendingPause && !pendingName && !busy;
+    && !pendingPause && !pendingName && !busy && !!bootstrapPlan
+    && journal.bootstrap?.execute?.status === 'confirmed'
+    && !!account && getAddress(account) === getAddress(bootstrapPlan.hardwareWallet);
   const stageTwoConfig = useMemo(() => {
     if (!record || !hardwareWalletInput || !gasWalletInput) return {value:null,reason:''};
     try { return {value:stageTwoAddresses(hardwareWalletInput,gasWalletInput,{
@@ -465,16 +804,28 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     }),reason:''}; }
     catch (problem) { return {value:null,reason:messageOf(problem)}; }
   }, [record,hardwareWalletInput,gasWalletInput]);
+  const rolePlanState = useMemo(() => {
+    if (!journal?.role || !record || !plan || !bootstrapPlan || !journal.authority?.deployment?.address)
+      return {plan:null,reason:''};
+    try {return {plan:buildIntegratedRoleMigrationPlan({genesisRecord:record,codePlan:plan,
+      bootstrapPlan,authorityAddress:journal.authority.deployment.address,
+      hardwareWallet:bootstrapPlan.hardwareWallet,salt:journal.role.salt,
+      delaySeconds:journal.role.delaySeconds}),reason:''};}
+    catch (problem) {return {plan:null,reason:messageOf(problem)};}
+  }, [journal?.role, journal?.authority?.deployment?.address,record,plan,bootstrapPlan]);
+  const rolePlan=rolePlanState.plan;
   const treasuryPlan = useMemo(() => {
-    if (!resultProof || !record || !stageTwoConfig.value || !authorityAddress || !migrationSalt) return {plan:null,reason:''};
+    if (!resultProof || !record || !journal?.treasury || !journal.authority?.deployment?.address)
+      return {plan:null,reason:''};
     try { return {plan:buildIntegratedTreasuryMigrationPlan({genesisRecord:record,codeResult:resultProof,
-      authorityAddress,saltSeed:migrationSalt,delaySeconds:172800}),reason:''}; }
+      authorityAddress:journal.authority.deployment.address,saltSeed:journal.treasury.saltSeed,
+      delaySeconds:journal.treasury.delaySeconds}),reason:''}; }
     catch (problem) { return {plan:null,reason:messageOf(problem)}; }
-  }, [record,resultProof,stageTwoConfig.value,authorityAddress,migrationSalt]);
+  }, [record,resultProof,journal?.treasury,journal?.authority?.deployment?.address]);
 
   return <div className="upgrade-page">
     <section className="card upgrade-intro">
-      <div><h2>集成版合约升级</h2><p>页面按固定依赖顺序部署新库与实现，再提交一个不可拆分的 48 小时时间锁批次。所有操作均由连接的管理钱包在 BSC 主网签署；请在钱包设备上核对交易。本页不会请求私钥。</p><p className="upgrade-stage-warning">第二阶段正在接入 PlatformAuthority、角色和旧池金库迁移的链上预检。核验接口完成前签署保持锁定；代码升级完成也不能切换正式产品清单。</p></div>
+      <div><h2>集成版合约升级</h2><p>先由旧 owner 暂停建池并安排硬件钱包权限；硬件钱包部署候选实现，安排并执行原子升级；随后逐笔迁移 Authority、Factory、Timelock 和历史池金库。每笔交易由对应钱包签署，并先核对链上身份和精确 calldata。本页不接收私钥。</p><p className="upgrade-stage-warning">链上迁移完成不代表后台 Gas 代付服务已经接线。正式产品清单与两套 Factory 的建池权限保持锁定，直到运营服务也有独立核验证据。</p></div>
       <span className="upgrade-state"><LockKeyhole size={14}/>主网 · 单批次时间锁</span>
     </section>
     <section className="card">
@@ -490,11 +841,11 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         </div>
         <div className="upgrade-migration-preview">
           <b>升级前先暂停两套 Factory 建池</b>
-          <p>当前旧 owner 钱包各签一笔 <code>pauseCreation(true)</code>。每笔只校验已发布的代理代码、Timelock 绑定、当前 owner 和最终确认区块，不做交易模拟。两套暂停后再核验完整旧图。</p>
+          <p>当前旧 owner 钱包各签一笔 <code>pauseCreation(true)</code>。每笔先在最终确认区块核对完整旧合约图、当前 owner 与准确 calldata；不做交易模拟。两套暂停后再核验完整旧图。</p>
           {!wallet && <div className="upgrade-actions"><button className="small-button" onClick={onConnect}><Wallet size={14}/>连接旧 owner 钱包</button></div>}
           <ol className="upgrade-step-list">{pauseFactoryNames.map((name,index) => {
             const tx = journal?.pauses?.[name], target = pauseProof?.targets[name];
-            const canPause = pausePreparationVerified && !!journal && !!target && !target.paused && !tx && !pendingPause && onBsc
+            const canPause = !!journal && !!target && !target.paused && !tx && !pendingPause && onBsc
               && !!account && getAddress(account) === getAddress(target.owner) && !busy;
             return <li className="upgrade-step" key={name}>
               <span className="upgrade-step-index">{target?.paused ? <Check size={15}/> : index + 1}</span>
@@ -506,13 +857,26 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
                 : <button className="small-button" disabled={!canPause} onClick={() => void sendPause(name)}>{target?.paused ? '已暂停' : '由旧 owner 暂停'}</button>}
             </li>;
           })}</ol>
-          <div className="upgrade-alert note">暂停交易需要完整旧实现图预检，包含 Factory 代理的实现槽和原运行代码；该验证接口接入前按钮保持锁定。</div>
+          <div className="upgrade-alert note">每笔暂停交易在钱包弹出前都会重新验证完整旧图：原始运行代码、UUPS 实现槽、Beacon、Timelock、注册表和历史池。</div>
           <div className="upgrade-actions"><button className="small-button" disabled={!oldTrust.ok || !upgradeTrust.ok || pendingPause || !!busy || !pauseProof || pauseFactoryNames.some(name => !pauseProof.targets[name].paused)} onClick={() => void verifyGenesis()}><ShieldCheck size={14}/>核验完整旧链上图</button></div>
         </div>
       </div>
     </section>
     <section className="card">
-      <div className="card-heading"><div><Wallet size={19}/><h2>2. 用管理钱包部署新库与实现</h2></div><span className="subtle-tag">{deployed} / {integratedUpgradeDeploymentOrder.length}</span></div>
+      <div className="card-heading"><div><LockKeyhole size={19}/><h2>2. 授予硬件钱包提案权限</h2></div><span className="subtle-tag">旧提案人安排 · 48 小时</span></div>
+      <div className="upgrade-section">
+        <p>现有 Timelock 的提案人仍是旧 owner。旧提案人先安排一次不可拆分的授权批次，48 小时后执行，授予硬件钱包 proposer 和 canceller；旧提案人的撤销留到第二阶段。每次签署前均核验旧图、角色和操作状态。</p>
+        <div className="upgrade-config-grid"><label>新硬件钱包公开地址<input className="upgrade-step-input" value={hardwareWalletInput} disabled={!!journal?.bootstrap} placeholder="0x… · 不输入私钥" onChange={event => setHardwareWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label></div>
+        <div className="upgrade-actions"><button className="small-button" disabled={!journal || !genesisProof || !onBsc || !!busy || !!journal?.bootstrap} onClick={createBootstrap}>生成角色授权批次</button>{bootstrapPlan && <button className="small-button" disabled={!!busy} onClick={() => void run('核验角色授权',async () => { const phase = journal?.bootstrap?.execute?.status === 'confirmed' ? 'done' : journal?.bootstrap?.schedule?.status === 'confirmed' ? 'ready' : 'unscheduled'; const proof = await verifyBootstrap(phase); setMessage(`角色授权 ${proof.phase} · 最终确认区块 #${proof.blockNumber}`); })}>核验授权状态</button>}</div>
+        {bootstrapPlanState.reason && <div className="upgrade-alert error">{bootstrapPlanState.reason}</div>}
+        {bootstrapPlan && <><div className="upgrade-meta"><div><span>旧提案人</span><b className="upgrade-code">{bootstrapPlan.oldProposer}</b></div><div><span>目标硬件钱包</span><b className="upgrade-code">{bootstrapPlan.hardwareWallet}</b></div><div><span>操作 ID</span><b className="upgrade-code">{bootstrapPlan.operationId}</b></div><div><span>链上状态</span><b>{bootstrapProof?.phase || '未核验'}</b></div></div><details className="upgrade-details"><summary>核对两个授权目标、0 BNB 和完整 calldata</summary><pre>{JSON.stringify({targets:bootstrapPlan.targets,values:bootstrapPlan.values,payloads:bootstrapPlan.payloads,predecessor:bootstrapPlan.predecessor,salt:bootstrapPlan.salt,delaySeconds:bootstrapPlan.delaySeconds,operationId:bootstrapPlan.operationId,scheduleData:bootstrapPlan.scheduleData,executeData:bootstrapPlan.executeData},null,2)}</pre></details></>}
+        <div className="upgrade-actions"><button className="primary-button" disabled={!bootstrapPlan || !!journal?.bootstrap?.schedule || !onBsc || !!busy} onClick={() => void sendBootstrap('schedule')}>由旧提案人安排授权</button><button className="primary-button" disabled={!bootstrapPlan || journal?.bootstrap?.schedule?.status !== 'confirmed' || !!journal?.bootstrap?.execute || !onBsc || !!busy} onClick={() => void sendBootstrap('execute')}>48 小时后执行授权</button></div>
+        {(['schedule','execute'] as const).map(which => { const tx=journal?.bootstrap?.[which]; return tx && tx.status !== 'confirmed' ? <div className="upgrade-actions" key={which}><input className="upgrade-step-input" value={recoveryHash} placeholder="如未收到哈希，输入原交易哈希" onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy || !onBsc} onClick={() => void recoverBootstrap(which)}>核对{which === 'schedule' ? '安排' : '执行'}交易</button></div> : null; })}
+        {journal?.bootstrap?.execute?.status === 'confirmed' && <div className="upgrade-alert ok">硬件钱包提案权限已有最终确认的交易回执；部署每笔实现前仍会重新核对链上授权。</div>}
+      </div>
+    </section>
+    <section className="card">
+      <div className="card-heading"><div><Wallet size={19}/><h2>3. 用硬件钱包部署新库与实现</h2></div><span className="subtle-tag">{deployed} / {integratedUpgradeDeploymentOrder.length}</span></div>
       <div className="upgrade-section">
         <p>每笔部署地址及交易哈希会保存在本机记录。刷新后逐笔核对链上回执；只有前一项已确认，下一项才会开放。钱包会自行显示 Gas 费用。</p>
         {!wallet ? <div className="upgrade-actions"><button className="small-button" onClick={onConnect}><Wallet size={14}/>连接部署钱包</button></div> : !onBsc ? <div className="upgrade-alert note">请把钱包切换到 BSC 主网（Chain ID 56）。</div> : null}
@@ -524,7 +888,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       </div>
     </section>
     <section className="card">
-      <div className="card-heading"><div><LockKeyhole size={19}/><h2>3. 原子时间锁批次</h2></div><span className="subtle-tag">一个 scheduleBatch</span></div>
+      <div className="card-heading"><div><LockKeyhole size={19}/><h2>4. 原子时间锁批次</h2></div><span className="subtle-tag">一个 scheduleBatch</span></div>
       <div className="upgrade-section">
         <p>六个代理/Beacon 升级调用必须在同一批次内安排和执行，金额均为 0 BNB。固定 salt、前置操作及操作 ID 可供钱包逐字核对。</p>
         {journal && <div className="upgrade-meta"><div><span>等待时间</span><b><input type="number" min={172800} step={3600} value={journal.delaySeconds} disabled={!!journal.schedule || !!busy} onChange={event => { const delaySeconds = Number(event.target.value); if (Number.isSafeInteger(delaySeconds) && delaySeconds >= 172800) save({...journal,delaySeconds}); }}/></b></div><div><span>Salt</span><b className="upgrade-code">{journal.salt}</b></div><div><span>Operation ID</span><b className="upgrade-code">{plan?.operationId || '待全部实现确认'}</b></div></div>}
@@ -541,21 +905,21 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       </div>
     </section>
     <section className="card">
-      <div className="card-heading"><div><ShieldCheck size={19}/><h2>4. 后置图与权限迁移</h2></div><span className="subtle-tag">独立阶段</span></div>
+      <div className="card-heading"><div><ShieldCheck size={19}/><h2>5. 后置图与权限迁移</h2></div><span className="subtle-tag">独立阶段</span></div>
       <div className="upgrade-section">
         <p>代码升级与角色接线分别验收。旧矿池的金库地址在创建时写入，Factory 金库变更不会改变现有池；原金库已产生的应收费用仍归原地址。</p>
         <div className="upgrade-meta">
           <div><span>代码升级</span><b>{resultProof ? `本次已核验 #${resultProof.blockNumber}` : journal?.execute?.status === 'confirmed' ? '交易已执行，等待后置图证明' : '未完成'}</b></div>
-          <div><span>PlatformAuthority 与双管理员</span><b>待独立部署与核验</b></div>
-          <div><span>角色接线</span><b>待旧 owner / Timelock 授权迁移</b></div>
-          <div><span>旧池金库</span><b>{resultProof ? `${resultProof.legacyTreasuryResidual.length} 个历史池待逐一处理` : '待后置图枚举'}</b></div>
+          <div><span>PlatformAuthority 与双管理员</span><b>{authorityProof ? `已核验 #${authorityProof.blockNumber}` : '待独立部署与核验'}</b></div>
+          <div><span>角色接线</span><b>{roleState?.roleWiringComplete ? '链上角色已迁移' : '待旧 owner / Timelock 授权迁移'}</b></div>
+          <div><span>旧池金库</span><b>{onChainComplete ? '链上已迁移' : resultProof ? `${resultProof.legacyTreasuryResidual.length} 个历史池待逐一处理` : '待后置图枚举'}</b></div>
         </div>
         <div className="upgrade-migration-preview">
-          <b>第二阶段公开地址 · 待链上核验</b>
+          <b>第二阶段公开地址</b>
           <p>硬件钱包只用于部署、升级权限；Gas 钱包只用于后台代付。这里仅填写公开地址，不接受私钥或助记词。Gas 地址须与受保护服务配置或你已核对的公开地址一致。</p>
           <div className="upgrade-config-grid">
-            <label>目标硬件钱包地址<input className="upgrade-step-input" value={hardwareWalletInput} placeholder="0x…  · 新 owner / proposer / canceller" onChange={event => setHardwareWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label>
-            <label>后台 Gas 钱包公开地址<input className="upgrade-step-input" value={gasWalletInput} placeholder="0x…  · 代付钱包" onChange={event => setGasWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label>
+            <label>目标硬件钱包地址<input className="upgrade-step-input" value={bootstrapPlan?.hardwareWallet || hardwareWalletInput} readOnly placeholder="先完成第二步角色授权" autoComplete="off" spellCheck={false}/></label>
+            <label>后台 Gas 钱包公开地址<input className="upgrade-step-input" value={gasWalletInput} disabled={!!journal?.authority} placeholder="0x…  · 与受保护服务核对" onChange={event => setGasWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label>
           </div>
           {stageTwoConfig.reason && <div className="upgrade-alert error">{stageTwoConfig.reason}</div>}
           <div className="upgrade-meta">
@@ -563,26 +927,37 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
             <div><span>管理员一</span><b className="upgrade-code">{authorityAdministrators[0]}</b></div>
             <div><span>管理员二</span><b className="upgrade-code">{authorityAdministrators[1]}</b></div>
           </div>
-          {stageTwoConfig.value && <div className="upgrade-alert note">公开地址格式已核对；Authority 构造参数、完整运行代码、服务 Gas 配置及当前链上角色尚未验证，不能据此发交易。</div>}
+          {stageTwoConfig.value && <div className="upgrade-alert note">这里先核对公开地址格式。钱包弹出前还会核对完整代码图、Authority 构造 calldata、当前链上角色。后台 Gas 地址须由你从受保护服务的公开配置独立核对。</div>}
         </div>
         {journal?.execute?.status === 'confirmed' && <div className="upgrade-actions"><button className="small-button" disabled={!!busy} onClick={() => void verifyResult()}><ShieldCheck size={14}/>核验最终链上图</button></div>}
         {resultProof && <div className="upgrade-alert ok">六个目标及十个新库/实现均已在最终确认区块核对；此证明只覆盖代码升级。</div>}
-        <ol className="upgrade-handoff">
-          <li><b>部署并核验 PlatformAuthority</b><span>构造参数绑定两套 Factory、两位已指定管理员和公开 Gas 地址；部署回执、完整代码及构造后配置均须核验。</span><em>待预检</em></li>
-          <li><b>迁移两套 Factory 权限</b><span>由旧 owner 对两套 Factory 分别设置 operator、treasury 为 Authority，再转移 owner 到硬件钱包；每笔重新读取当前 owner 和目标。</span><em>待预检</em></li>
-          <li><b>迁移 Timelock 角色</b><span>先授予新硬件钱包 proposer/canceller，再撤旧地址；分别核对提案人、执行人和 Timelock 管理权限。</span><em>待预检</em></li>
-          <li><b>单独迁移历史池金库</b><span>逐池使用独立 48 小时 Timelock 提案；合约在迁移前结算挖矿收益，旧金库已入账欠款仍归旧地址。</span><em>待预检</em></li>
-        </ol>
+        <div className="upgrade-migration-preview"><b>A. 部署 PlatformAuthority</b>
+          <p>由已经授权的硬件钱包部署，构造参数固定绑定两套 Factory、两位管理员与公开 Gas 地址。回执会核对原始创建字节码、运行代码、不可变参数、owner 和 EIP-712 域。</p>
+          {resultProof && stageTwoConfig.value && upgradeBundle && record && oldBundle && <details className="upgrade-details"><summary>查看 Authority 完整构造 calldata 和 0 BNB 金额</summary><pre>{JSON.stringify({administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],gasWallet:stageTwoConfig.value.gasWallet,value:'0',data:integratedAuthorityDeploymentData({genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,administratorOne:authorityAdministrators[0],administratorTwo:authorityAdministrators[1],gasWallet:stageTwoConfig.value.gasWallet})},null,2)}</pre></details>}
+          <div className="upgrade-actions"><button className="primary-button" disabled={!resultProof || !stageTwoConfig.value || !!journal?.authority || !onBsc || !!busy} onClick={() => void deployAuthority()}>硬件钱包部署 Authority</button>{journal?.authority?.deployment?.status==='confirmed' && <button className="small-button" disabled={!!busy || !onBsc} onClick={() => void run('重验 Authority',async()=>{const proof=await verifyAuthority();setMessage(`Authority 已重验 #${proof.blockNumber}`);})}>重新核验 Authority</button>}</div>
+          {journal?.authority?.deployment && journal.authority.deployment.status!=='confirmed' && <div className="upgrade-actions"><input className="upgrade-step-input" value={stageTwoRecoveryHash} placeholder="发送结果未知时输入原部署交易哈希" onChange={event=>setStageTwoRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy || !onBsc} onClick={() => void recoverAuthority()}>核对 Authority 回执</button></div>}
+          {journal?.authority?.deployment?.address && <div className="upgrade-code">Authority：{journal.authority.deployment.address}</div>}
+        </div>
+        <div className="upgrade-migration-preview"><b>B. 迁移 Factory 与 Timelock 角色</b>
+          <p>旧 owner 先签四笔 operator/treasury 设置；新硬件钱包安排 48 小时撤销旧 proposer/canceller 的原子批次；执行后旧 owner 再签两笔所有权转移。签名前都会核验当前角色及完整后置代码图。</p>
+          <div className="upgrade-actions"><button className="small-button" disabled={!authorityProof || !journal || !!journal.role || !!busy} onClick={createRolePlan}>固定角色迁移计划</button>{rolePlan && <button className="small-button" disabled={!!busy || !onBsc} onClick={() => void run('核验角色状态',async()=>{const proof=await verifyRoleState();setMessage(`角色已核验 #${proof.blockNumber} · ${proof.status}`);})}>核验当前角色</button>}</div>
+          {rolePlanState.reason && <div className="upgrade-alert error">{rolePlanState.reason}</div>}
+          {rolePlan && <><details className="upgrade-details"><summary>查看六笔 Factory 操作、角色批次与完整 calldata</summary><pre>{JSON.stringify(rolePlan,null,2)}</pre></details><ol className="upgrade-step-list">{rolePlan.directSteps.map(step=>{const tx=journal?.role?.direct[step.index];const prior=step.index===0 || journal?.role?.direct[step.index-1]?.status==='confirmed';const allowed=step.index<4 ? prior : prior && journal?.role?.execute?.status==='confirmed';return <li className="upgrade-step" key={step.index}><span className="upgrade-step-index">{tx?.status==='confirmed'?<Check size={15}/>:step.index+1}</span><div><b>{step.name}</b><small>签署者 {short(step.signer)} · 目标 {short(step.target)} · 0 BNB · {tx?.status || '待签署'}</small>{tx?.txHash && <a href={`${explorer}/tx/${tx.txHash}`} target="_blank" rel="noreferrer" className="upgrade-code">{short(tx.txHash)}</a>}</div>{tx && tx.status!=='confirmed'?<button className="small-button" disabled={!!busy || !onBsc} onClick={()=>void recoverRoleAction({type:'direct',index:step.index})}>核对回执</button>:<button className="small-button" disabled={!allowed || !!tx || !onBsc || !!busy} onClick={()=>void sendRoleAction({type:'direct',index:step.index})}>签署</button>}</li>;})}</ol>
+          <div className="upgrade-meta"><div><span>角色撤销操作 ID</span><b className="upgrade-code">{rolePlan.roleBatch.operationId}</b></div><div><span>时间锁状态</span><b>{roleState?.status || '待核验'}</b></div></div><div className="upgrade-actions">{(['schedule','execute'] as const).map(which=>{const tx=journal?.role?.[which];const allowed=which==='schedule'?rolePlan.directSteps.slice(0,4).every(step=>journal?.role?.direct[step.index]?.status==='confirmed'):journal?.role?.schedule?.status==='confirmed';return tx && tx.status!=='confirmed'?<button key={which} className="small-button" disabled={!!busy || !onBsc} onClick={()=>void recoverRoleAction({type:which})}>核对{which==='schedule'?'提案':'执行'}回执</button>:<button key={which} className="primary-button" disabled={!allowed || !!tx || !onBsc || !!busy} onClick={()=>void sendRoleAction({type:which})}>{which==='schedule'?'硬件钱包安排角色撤销':'48 小时后执行角色撤销'}</button>;})}</div>
+          {Object.values(journal?.role?.direct || {}).concat([journal?.role?.schedule,journal?.role?.execute].filter(Boolean) as UpgradeTransaction[]).some(tx=>tx?.status==='uncertain') && <input className="upgrade-step-input" value={stageTwoRecoveryHash} placeholder="输入对应原交易的完整哈希" onChange={event=>setStageTwoRecoveryHash(event.target.value)}/>}</>}
+          {roleState?.roleWiringComplete && <div className="upgrade-alert ok">两套 Factory operator、treasury、owner 与 Timelock 新旧角色已在链上核验。</div>}
+        </div>
         {resultProof?.legacyTreasuryResidual.length ? <details className="upgrade-details"><summary>查看 {resultProof.legacyTreasuryResidual.length} 个历史池的旧金库</summary><pre>{JSON.stringify(resultProof.legacyTreasuryResidual,null,2)}</pre></details> : null}
         {resultProof && <div className="upgrade-migration-preview">
-          <b>历史池金库迁移候选 · 只读预览</b>
-          <p>输入已部署并通过链上核验的 PlatformAuthority 公开地址。此处只计算每池独立的 48 小时时间锁操作，不发交易；后续还需 Authority 代码与角色、旧池欠款的独立核验。</p>
-          <div className="upgrade-actions"><input className="upgrade-step-input" aria-label="PlatformAuthority 候选地址" value={authorityAddress} placeholder="PlatformAuthority 合约地址 0x…" onChange={event => setAuthorityAddress(event.target.value)}/><button className="small-button" onClick={() => setMigrationSalt(newSalt())}>生成迁移 salt</button></div>
+          <b>C. 逐池迁移历史金库</b>
+          <p>每个旧矿池独立安排并等待至少 48 小时。执行前保存链上原金库应收快照，回执后逐笔证明已入账旧费用仍属于原金库；若严格挖矿收益结算失败，该池执行会回滚并保持旧金库。</p>
+          <div className="upgrade-actions"><button className="small-button" disabled={!roleState?.roleWiringComplete || !authorityProof || !!journal?.treasury || !!busy} onClick={createTreasuryPlan}>固定各池迁移计划</button></div>
           {treasuryPlan.reason && <div className="upgrade-alert error">{treasuryPlan.reason}</div>}
-          {treasuryPlan.plan && <><div className="upgrade-alert note">候选操作 {treasuryPlan.plan.operations.length} 笔。以下数据尚未通过第二阶段链上预检，不能签署。</div><details className="upgrade-details"><summary>查看每池 operation ID 与完整 calldata</summary><pre>{JSON.stringify(treasuryPlan.plan,null,2)}</pre></details></>}
+          {treasuryPlan.plan && <><div className="upgrade-alert note">历史池 {treasuryPlan.plan.operations.length} 个，逐池独立时间锁操作。签署前将重新核验 Authority、角色、旧池状态和原金库欠款。</div><details className="upgrade-details"><summary>查看每池 operation ID 与完整 calldata</summary><pre>{JSON.stringify(treasuryPlan.plan,null,2)}</pre></details><ol className="upgrade-step-list">{treasuryPlan.plan.operations.map((op,index)=>{const local=journal?.treasury?.operations[index];return <li className="upgrade-step" key={op.target}><span className="upgrade-step-index">{local?.execute?.status==='confirmed'?<Check size={15}/>:index+1}</span><div><b>{short(op.target)}</b><small>原金库 {short(op.expectedOld)} → Authority · 操作 {short(op.operationId)}</small><small>{local?.execute?.status==='confirmed'?'已核验旧金库欠款保留':local?.schedule?.status==='confirmed'?'等待或执行中':'待安排'}</small></div><div className="upgrade-actions">{(['schedule','execute'] as const).map(which=>{const tx=local?.[which];const allowed=which==='schedule'?roleState?.roleWiringComplete:local?.schedule?.status==='confirmed';return tx && tx.status!=='confirmed'?<button className="small-button" key={which} disabled={!!busy || !onBsc} onClick={()=>void recoverTreasuryAction(index,which)}>核对{which==='schedule'?'提案':'执行'}回执</button>:<button className="small-button" key={which} disabled={!allowed || !!tx || !onBsc || !!busy} onClick={()=>void sendTreasuryAction(index,which)}>{which==='schedule'?'安排 48 小时':'到期后执行'}</button>;})}</div></li>;})}</ol><div className="upgrade-actions"><input className="upgrade-step-input" value={stageTwoRecoveryHash} placeholder="发送结果不明时，输入对应原交易哈希" onChange={event=>setStageTwoRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy || !onBsc || !roleState?.roleWiringComplete} onClick={()=>void verifyOnChainComplete()}>核验全部链上迁移</button></div></>}
         </div>}
-        <div className="upgrade-alert note">权限迁移尚无完整链上预检与交易入口，页面保持阻断。未完成迁移前不能切换正式产品清单或宣称全部部署完成。</div>
-        {plan && journal && <div className="upgrade-actions"><button className="small-button" onClick={() => download(`pinkuang-upgrade-${plan.operationId}.json`,{plan,journal,genesisProof,planProof,resultProof,treasuryCandidate:treasuryPlan.plan,roleMigration:'not-verified',productManifestSwitched:false})}><ArrowDownToLine size={14}/>导出当前升级证据</button><a className="small-button" target="_blank" rel="noreferrer" href={`${explorer}/address/${record?.addresses.timelock}`}><ExternalLink size={14}/>查看时间锁</a></div>}
+        <div className="upgrade-alert note">{onChainComplete?'链上迁移已经核验；':'链上迁移尚未全部核验；'}后台 Gas 代付与运营接线没有可验证的发布证明，两套 Factory 继续保持建池暂停。正式产品清单尚未切换，不能宣称可以运营。</div>
+        <ol className="upgrade-handoff"><li><b>最后恢复两套 Factory 建池</b><span>仅在后端代付接线、权限、历史池金库及新硬件 owner 全部独立核验后，由新硬件 owner 各签一笔 pauseCreation(false)。当前没有后端接线证明接口。</span><em>阻断 · 保持暂停</em></li></ol>
+        {plan && journal && <div className="upgrade-actions"><button className="small-button" onClick={() => download(`pinkuang-upgrade-${plan.operationId}.json`,{plan,bootstrapPlan,rolePlan,treasuryPlan:treasuryPlan.plan,journal,genesisProof,bootstrapProof,planProof,resultProof,authorityProof,roleState,onChainComplete,keeperCutoverVerified:false,productManifestSwitched:false})}><ArrowDownToLine size={14}/>导出当前升级证据</button><a className="small-button" target="_blank" rel="noreferrer" href={`${explorer}/address/${record?.addresses.timelock}`}><ExternalLink size={14}/>查看时间锁</a></div>}
       </div>
     </section>
     {message && <div className="upgrade-alert ok" role="status">{message}</div>}

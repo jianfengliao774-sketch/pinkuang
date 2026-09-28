@@ -10,6 +10,40 @@ export type UpgradeTransaction = {
   address?: string;
 };
 
+export type UpgradeBootstrapJournal = {
+  hardwareWallet: string;
+  salt: string;
+  delaySeconds: number;
+  schedule?: UpgradeTransaction;
+  execute?: UpgradeTransaction;
+};
+
+export type UpgradeAuthorityJournal = {
+  hardwareWallet: string;
+  gasWallet: string;
+  deployment?: UpgradeTransaction;
+};
+
+export type UpgradeRoleJournal = {
+  salt: string;
+  delaySeconds: number;
+  direct: Partial<Record<number, UpgradeTransaction>>;
+  schedule?: UpgradeTransaction;
+  execute?: UpgradeTransaction;
+};
+
+export type UpgradeTreasuryOperationJournal = {
+  schedule?: UpgradeTransaction;
+  execute?: UpgradeTransaction;
+  preExecutionPreflight?: unknown;
+};
+
+export type UpgradeTreasuryJournal = {
+  saltSeed: string;
+  delaySeconds: number;
+  operations: Partial<Record<number, UpgradeTreasuryOperationJournal>>;
+};
+
 export type UpgradeJournal = {
   schemaVersion: 1;
   genesisArtifactDigest: string;
@@ -18,6 +52,10 @@ export type UpgradeJournal = {
   salt: string;
   delaySeconds: number;
   pauses?: Partial<Record<PauseFactoryName, UpgradeTransaction>>;
+  bootstrap?: UpgradeBootstrapJournal;
+  authority?: UpgradeAuthorityJournal;
+  role?: UpgradeRoleJournal;
+  treasury?: UpgradeTreasuryJournal;
   deployments: Record<string, UpgradeTransaction>;
   schedule?: UpgradeTransaction;
   execute?: UpgradeTransaction;
@@ -48,7 +86,31 @@ export function parseUpgradeJournal(value: unknown, expected: {
       || Object.keys(record.pauses).some(name => name !== 'factory' && name !== 'portfolioFactory'))) {
     throw new Error('本机升级记录中的暂停步骤无效。');
   }
+  if (record.bootstrap && (!hash(record.bootstrap.salt)
+      || !Number.isSafeInteger(record.bootstrap.delaySeconds)
+      || record.bootstrap.delaySeconds < 172800)) {
+    throw new Error('本机硬件钱包角色授权计划无效。');
+  }
+  if (record.bootstrap) getAddress(record.bootstrap.hardwareWallet);
+  if (record.authority) {
+    getAddress(record.authority.hardwareWallet);
+    getAddress(record.authority.gasWallet);
+  }
+  if (record.role && (!hash(record.role.salt) || !Number.isSafeInteger(record.role.delaySeconds)
+      || record.role.delaySeconds < 172800 || !record.role.direct
+      || Object.keys(record.role.direct).some(index => !/^[0-5]$/.test(index)))) {
+    throw new Error('本机 Factory / Timelock 角色迁移记录无效。');
+  }
+  if (record.treasury && (!hash(record.treasury.saltSeed)
+      || !Number.isSafeInteger(record.treasury.delaySeconds)
+      || record.treasury.delaySeconds < 172800 || !record.treasury.operations
+      || Object.keys(record.treasury.operations).some(index => !/^(0|[1-9]\d*)$/.test(index)))) {
+    throw new Error('本机历史池金库迁移记录无效。');
+  }
   for (const tx of [...Object.values(record.pauses || {}), ...Object.values(record.deployments),
+    record.bootstrap?.schedule, record.bootstrap?.execute, record.authority?.deployment,
+    ...Object.values(record.role?.direct || {}), record.role?.schedule, record.role?.execute,
+    ...Object.values(record.treasury?.operations || {}).flatMap(operation => [operation?.schedule,operation?.execute]),
     record.schedule, record.execute].filter(Boolean) as UpgradeTransaction[]) {
     if (!['submitted', 'confirmed', 'uncertain'].includes(tx.status)
         || !hash(tx.dataHash) || !tx.from

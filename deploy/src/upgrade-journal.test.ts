@@ -21,4 +21,18 @@ test('journal rejects a changed build, invalid delay and corrupted transaction',
   assert.throws(() => parseUpgradeJournal({...journal,deployments:{PoolFunds:{status:'confirmed',from:factory,dataHash:'0x00'}}},expected),/字段无效/);
   assert.throws(() => parseUpgradeJournal({...journal,pauses:{factory:{status:'submitted',from:factory,dataHash:'0x00'}}},expected),/字段无效/);
   assert.throws(() => parseUpgradeJournal({...journal,pauses:{otherFactory:{status:'submitted',from:factory,dataHash:oldDigest}}},expected),/暂停步骤/);
+  assert.throws(() => parseUpgradeJournal({...journal,bootstrap:{hardwareWallet:factory,salt:'0x00',delaySeconds:172800}},expected),/角色授权/);
+});
+
+test('restored stage-two records reject incomplete public addresses and altered migration steps', () => {
+  const journal = newUpgradeJournal(expected,salt);
+  const validTx = {status:'submitted' as const,from:factory,dataHash:oldDigest,txHash:newDigest};
+  assert.throws(() => parseUpgradeJournal({...journal,authority:{hardwareWallet:factory,
+    gasWallet:'0x123',deployment:validTx}},expected),/invalid address/i);
+  assert.throws(() => parseUpgradeJournal({...journal,role:{salt,delaySeconds:172800,
+    direct:{6:validTx}}},expected),/角色迁移记录无效/);
+  assert.throws(() => parseUpgradeJournal({...journal,treasury:{saltSeed:salt,
+    delaySeconds:172800,operations:{'01':{schedule:validTx}}}},expected),/金库迁移记录无效/);
+  assert.throws(() => parseUpgradeJournal({...journal,treasury:{saltSeed:salt,
+    delaySeconds:172800,operations:{0:{execute:{...validTx,dataHash:'0x00'}}}}},expected),/交易字段无效/);
 });
