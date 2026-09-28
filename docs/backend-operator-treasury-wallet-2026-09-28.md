@@ -26,7 +26,7 @@ cd deploy
 node scripts/treasury-collector.mjs --factory 0xcB24E7F96D81037086A268d6ea63c53f91D412A2
 ```
 
-仅在后台配置好匹配 Factory treasury 的 `KEEPER_PRIVATE_KEY`、私有 journal 目录且明确启用发送时，才会发起**至多一笔** BNB 提款；脚本不接受命令行私钥。它读取当前实际应付款、模拟精确 `withdrawBnb()`、只在应付款超过预计最高 Gas 时提交，并限制 Gas 单价与累计预算。使用与采购、挖矿 keeper 相同的持久钱包锁和 BSC finalized 回执规则；签名原文、哈希和 nonce 在广播前持久化。RPC 返回不明时不擅自换 nonce，可通过显式 `--rebroadcast`、`--speed-up` 或 `--cancel-pending` 恢复。示例中的目录必须由服务账户独占、权限 0700：
+仅在后台配置好匹配 Factory treasury 的 systemd `keeper-private-key` 凭据（或旧版 `KEEPER_PRIVATE_KEY` 环境变量）、私有 journal 目录且明确启用发送时，才会发起**至多一笔** BNB 提款；脚本不接受命令行私钥，同时配置两种来源会拒绝发送。它读取当前实际应付款、模拟精确 `withdrawBnb()`、只在应付款超过预计最高 Gas 时提交，并限制 Gas 单价与累计预算。使用与采购、挖矿 keeper 相同的持久钱包锁和 BSC finalized 回执规则；签名原文、哈希和 nonce 在广播前持久化。RPC 返回不明时不擅自换 nonce，可通过显式 `--rebroadcast`、`--speed-up` 或 `--cancel-pending` 恢复。示例中的目录必须由服务账户独占、权限 0700：
 
 ```sh
 node scripts/treasury-collector.mjs \

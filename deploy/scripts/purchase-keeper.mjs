@@ -1,12 +1,15 @@
 import { openSync, closeSync, existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, fsyncSync, statSync, chmodSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress, formatEther, getAddress, parseEther, parseUnits, Transaction, keccak256, toQuantity } from 'ethers';
 import { decodeFirstoOrder, parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { MAX_OFFICIAL_SNAPSHOT_AGE_MS, fetchOfficialCandidates, verifyOfficialSnapshotBoundary } from './official-market-discovery.mjs';
+import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
-export const KEEPER_STATE_ROOT = resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
+const configuredStateRoot = process.env.PINKUANG_KEEPER_STATE_ROOT;
+if (configuredStateRoot && !isAbsolute(configuredStateRoot)) throw new Error('Keeper state root must be absolute.');
+export const KEEPER_STATE_ROOT = configuredStateRoot || resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
 
 export const OFFICIAL_MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 export const OFFICIAL_COLLECTIONS = ['0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', '0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C'];
@@ -811,7 +814,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
 }
 
 function help() {
-  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads KEEPER_PRIVATE_KEY only from this process environment. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
+  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads the systemd keeper-private-key credential or KEEPER_PRIVATE_KEY. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -839,9 +842,8 @@ export async function main(args = process.argv.slice(2)) {
   try {
     let signer = null;
     if (options.send) {
-      // Do not inspect this environment variable at all in dry-run mode.
-      const key = process.env.KEEPER_PRIVATE_KEY;
-      if (!/^0x[0-9a-f]{64}$/i.test(key ?? '')) throw new Error('Set a valid KEEPER_PRIVATE_KEY in the local process environment before --send.');
+      // Dry-run never reads either private key source.
+      const key = readKeeperPrivateKey();
       try { signer = new Wallet(key, provider); } catch { throw new Error('The supplied keeper key is invalid.'); }
       releaseWallet = acquireWalletLock(await signer.getAddress(), options.journal);
       if (!existsSync(options.journal)) writeJournal(options.journal, readJournal(options.journal, options));
@@ -854,7 +856,7 @@ export async function main(args = process.argv.slice(2)) {
       } catch (error) {
         // Avoid provider error dumps and request bodies. No private material is printed.
         const message = String(error?.shortMessage || error?.message || 'Keeper cycle failed.').replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');
-        const redacted = options.send && process.env.KEEPER_PRIVATE_KEY ? message.split(process.env.KEEPER_PRIVATE_KEY).join('[redacted]') : message;
+        const redacted = options.send && signer ? message.split(signer.privateKey).join('[redacted]') : message;
         console.error(serial({ at: new Date().toISOString(), status: 'cycle-error', message: redacted.slice(0, 400) }));
         if (options.once) { process.exitCode = 1; break; }
       }

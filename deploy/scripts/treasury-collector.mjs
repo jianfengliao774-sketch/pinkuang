@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress, keccak256, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, gasBudget, readJournal, reconcilePending, recoverPending, writeJournal } from './purchase-keeper.mjs';
+import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
 const FACTORY_ABI = ['function operator() view returns(address)', 'function treasury() view returns(address)',
   'function shareMarket() view returns(address)', 'function poolCount() view returns(uint256)',
@@ -212,7 +213,7 @@ export async function main(args = process.argv.slice(2)) {
   const options = parseTreasuryArguments(args);
   if (options.help) {
     console.log('Read-only: node scripts/treasury-collector.mjs --factory 0x...\n' +
-      'Opt-in BNB withdrawal: --journal-dir /private/treasury --send (reads KEEPER_PRIVATE_KEY).\n' +
+      'Opt-in BNB withdrawal: --journal-dir /private/treasury --send (reads systemd keeper-private-key credential or KEEPER_PRIVATE_KEY).\n' +
       'One transaction maximum per invocation. Schedule after purchase/mining keepers, using their shared wallet lock.\n' +
       'An unresolved signed nonce blocks new work. Explicit recovery: --send --rebroadcast, --speed-up or --cancel-pending.');
     return;
@@ -221,8 +222,7 @@ export async function main(args = process.argv.slice(2)) {
   const provider = new JsonRpcProvider(request);
   let signer = null;
   if (options.send) {
-    const key = process.env.KEEPER_PRIVATE_KEY;
-    if (!/^0x[0-9a-f]{64}$/i.test(key ?? '')) throw new Error('Set KEEPER_PRIVATE_KEY in the private process environment.');
+    const key = readKeeperPrivateKey();
     signer = new Wallet(key, provider);
     mkdirSync(options.journalDir, { recursive: true, mode: 0o700 });
     if ((statSync(options.journalDir).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
@@ -235,7 +235,8 @@ export async function main(args = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main().catch(error => {
-  const key = process.env.KEEPER_PRIVATE_KEY;
+  let key;
+  try { key = readKeeperPrivateKey(); } catch { /* Read-only mode has no key. */ }
   const message = String(error.shortMessage ?? error.message).replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');
   console.error(key ? message.split(key).join('[redacted]') : message); process.exitCode = 1;
 });

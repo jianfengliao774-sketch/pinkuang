@@ -5,6 +5,7 @@ import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress,
 import { KEEPER_STATE_ROOT, MINING, OFFICIAL_COLLECTIONS, acquireKeeperLock, acquireWalletLock,
   gasBudget, readJournal, reconcilePending, writeJournal } from './purchase-keeper.mjs';
 import { fetchTaskVectors, startSamples } from './mining-proofs.mjs';
+import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
 const same = (a, b) => a.toLowerCase() === b.toLowerCase();
 const poolAbi = new Interface([
@@ -234,7 +235,7 @@ export async function main(args = process.argv.slice(2)) {
   const options = parseMiningArguments(args);
   if (options.help) {
     console.log('Mining keeper: node scripts/mining-keeper.mjs --factory 0x... --pool 0x... [--rpc HTTPS] [--once]\n' +
-      'Default is read-only. To enable automatic transactions use --journal /private/path/mining.json --send and KEEPER_PRIVATE_KEY in the process environment.\n' +
+      'Default is read-only. To enable automatic transactions use --journal /private/path/mining.json --send and a systemd keeper-private-key credential or KEEPER_PRIVATE_KEY.\n' +
       'Use one service per pool and one operator wallet executor. The private journal must be preserved for ambiguous transactions.');
     return;
   }
@@ -250,10 +251,10 @@ export async function main(args = process.argv.slice(2)) {
     const request = new FetchRequest(options.rpc); request.timeout = 15_000;
     const provider = new JsonRpcProvider(request);
     let signer;
+    let keeperKey;
     if (options.send) {
-      const key = process.env.KEEPER_PRIVATE_KEY;
-      if (!/^0x[0-9a-f]{64}$/i.test(key ?? '')) throw new Error('Set KEEPER_PRIVATE_KEY in the process environment.');
-      signer = new Wallet(key, provider);
+      keeperKey = readKeeperPrivateKey();
+      signer = new Wallet(keeperKey, provider);
       const journalDirectory = dirname(options.journal);
       mkdirSync(journalDirectory, { recursive: true, mode: 0o700 });
       if ((statSync(journalDirectory).mode & 0o077) !== 0) throw new Error('Mining journal directory must be private (0700).');
@@ -268,7 +269,7 @@ export async function main(args = process.argv.slice(2)) {
       } catch (error) {
         const detail = String(error.shortMessage ?? error.message).replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');
         console.error(json({ at: new Date().toISOString(), status: 'cycle-error',
-          message: (signer ? detail.split(process.env.KEEPER_PRIVATE_KEY).join('[redacted]') : detail).slice(0, 300) }));
+          message: (signer ? detail.split(keeperKey).join('[redacted]') : detail).slice(0, 300) }));
         if (options.once || stopping) { process.exitCode = 1; break; }
       }
       await new Promise(done => setTimeout(done, options.interval * 1000));
