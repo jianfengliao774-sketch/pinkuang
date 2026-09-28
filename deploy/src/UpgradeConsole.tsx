@@ -330,6 +330,30 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     setBootstrapProof(proof);
     return proof;
   }
+  async function readBootstrapStatus() {
+    await run('核验角色授权状态', async () => {
+      if (!bootstrapPlan) throw new Error('硬件钱包角色授权计划尚未建立。');
+      if (journal?.bootstrap?.schedule?.status === 'confirmed'
+        && journal.bootstrap.execute?.status !== 'confirmed') {
+        const lock = new Contract(bootstrapPlan.timelock, timelockAbi, rpcProvider());
+        const [exists, ready, done, timestamp] = await Promise.all([
+          lock.isOperation(bootstrapPlan.operationId) as Promise<boolean>,
+          lock.isOperationReady(bootstrapPlan.operationId) as Promise<boolean>,
+          lock.isOperationDone(bootstrapPlan.operationId) as Promise<boolean>,
+          lock.getTimestamp(bootstrapPlan.operationId) as Promise<bigint>,
+        ]);
+        if (exists && !ready && !done && timestamp > 0n) {
+          setBootstrapProof(null);
+          setMessage(`角色授权仍在等待中，链上最早执行时间 ${new Date(Number(timestamp) * 1000).toLocaleString('zh-CN')}。这是状态预览，执行签署前仍会完整核验旧图及角色。`);
+          return;
+        }
+      }
+      const phase = journal?.bootstrap?.execute?.status === 'confirmed' ? 'done'
+        : journal?.bootstrap?.schedule?.status === 'confirmed' ? 'ready' : 'unscheduled';
+      const proof = await verifyBootstrap(phase);
+      setMessage(`角色授权 ${proof.phase} · 最终确认区块 #${proof.blockNumber}`);
+    });
+  }
   async function sendBootstrap(which: 'schedule' | 'execute') {
     await run(which === 'schedule' ? '安排硬件钱包角色' : '执行硬件钱包角色授权',async () => {
       if (!wallet || !account || !onBsc || !journal?.bootstrap || !bootstrapPlan
@@ -871,7 +895,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       <div className="upgrade-section">
         <p>现有 Timelock 的提案人仍是旧 owner。旧提案人先安排一次不可拆分的授权批次，48 小时后执行，授予硬件钱包 proposer 和 canceller；旧提案人的撤销留到第二阶段。每次签署前均核验旧图、角色和操作状态。</p>
         <div className="upgrade-config-grid"><label>新硬件钱包公开地址<input className="upgrade-step-input" value={hardwareWalletInput} disabled={!!journal?.bootstrap} placeholder="0x… · 不输入私钥" onChange={event => setHardwareWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label></div>
-        <div className="upgrade-actions"><button className="small-button" disabled={!journal || !genesisProof || !onBsc || !!busy || !!journal?.bootstrap} onClick={createBootstrap}>生成角色授权批次</button>{bootstrapPlan && <button className="small-button" disabled={!!busy} onClick={() => void run('核验角色授权',async () => { const phase = journal?.bootstrap?.execute?.status === 'confirmed' ? 'done' : journal?.bootstrap?.schedule?.status === 'confirmed' ? 'ready' : 'unscheduled'; const proof = await verifyBootstrap(phase); setMessage(`角色授权 ${proof.phase} · 最终确认区块 #${proof.blockNumber}`); })}>核验授权状态</button>}</div>
+        <div className="upgrade-actions"><button className="small-button" disabled={!journal || !genesisProof || !onBsc || !!busy || !!journal?.bootstrap} onClick={createBootstrap}>生成角色授权批次</button>{bootstrapPlan && <button className="small-button" disabled={!!busy} onClick={() => void readBootstrapStatus()}>核验授权状态</button>}</div>
         {bootstrapPlanState.reason && <div className="upgrade-alert error">{bootstrapPlanState.reason}</div>}
         {bootstrapPlan && <><div className="upgrade-meta"><div><span>旧提案人</span><b className="upgrade-code">{bootstrapPlan.oldProposer}</b></div><div><span>目标硬件钱包</span><b className="upgrade-code">{bootstrapPlan.hardwareWallet}</b></div><div><span>操作 ID</span><b className="upgrade-code">{bootstrapPlan.operationId}</b></div><div><span>链上状态</span><b>{bootstrapProof?.phase || '未核验'}</b></div></div><details className="upgrade-details"><summary>核对两个授权目标、0 BNB 和完整 calldata</summary><pre>{JSON.stringify({targets:bootstrapPlan.targets,values:bootstrapPlan.values,payloads:bootstrapPlan.payloads,predecessor:bootstrapPlan.predecessor,salt:bootstrapPlan.salt,delaySeconds:bootstrapPlan.delaySeconds,operationId:bootstrapPlan.operationId,scheduleData:bootstrapPlan.scheduleData,executeData:bootstrapPlan.executeData},null,2)}</pre></details></>}
         <div className="upgrade-actions"><button className="primary-button" disabled={!bootstrapPlan || !!journal?.bootstrap?.schedule || !onBsc || !!busy} onClick={() => void sendBootstrap('schedule')}>由旧提案人安排授权</button><button className="primary-button" disabled={!bootstrapPlan || journal?.bootstrap?.schedule?.status !== 'confirmed' || !!journal?.bootstrap?.execute || !onBsc || !!busy} onClick={() => void sendBootstrap('execute')}>48 小时后执行授权</button></div>
@@ -900,7 +924,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         {planState.reason && <div className="upgrade-alert error">{planState.reason}</div>}
         <div className="upgrade-actions"><button className="small-button" disabled={!allDeployed || !onBsc || !!busy} onClick={() => void verifyPlan()}><ShieldCheck size={14}/>{busy || '核验新实现与完整批次'}</button>{plan && <button className="small-button" disabled={!!busy} onClick={() => void run('读取时间锁状态', async () => { await refreshOperation(); })}><RefreshCw size={14}/>刷新时间锁状态</button>}</div>
         {planProof && <div className="upgrade-alert ok">链上代码、绑定关系、提案人角色、批次 ID 已在最终确认区块 #{planProof.blockNumber} 核验。</div>}
-        {!upgradeExecutionRelease.ready && <div className="upgrade-alert error">升级排程与执行暂不可用：{upgradeExecutionRelease.reason}现阶段可完成旧池暂停、角色授权和新实现部署。</div>}
+        {!upgradeExecutionRelease.ready && <div className="upgrade-alert error">升级排程与执行暂不可用：{upgradeExecutionRelease.reason} 当前仍可完成旧池暂停、角色授权和新实现部署。</div>}
         {plan && <div className="upgrade-meta"><div><span>批次状态</span><b>{operation === 'unknown' ? '尚未读取' : operation === 'unscheduled' ? '未提交' : operation === 'waiting' ? '等待中' : operation === 'ready' ? '可执行' : '已执行'}</b></div><div><span>最早执行</span><b>{readyAt ? new Date(readyAt * 1000).toLocaleString('zh-CN') : '—'}</b></div><div><span>批次交易</span><b>{journal?.schedule?.txHash ? short(journal.schedule.txHash) : '—'}</b></div></div>}
         <label className="upgrade-ack"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/><span>我已核对六笔调用目标、新实现、0 BNB 金额、salt 与 operation ID；明白代码升级和后续权限迁移是两个阶段。</span></label>
         <div className="upgrade-actions"><button className="primary-button" disabled={!upgradeExecutionRelease.ready || !plan || !planProof || !onBsc || !reviewed || !!journal?.schedule || operation !== 'unscheduled' || !!busy} onClick={() => void sendBatch('schedule')}>提交 48 小时提案</button><button className="primary-button" disabled={!upgradeExecutionRelease.ready || !plan || !onBsc || !reviewed || journal?.schedule?.status !== 'confirmed' || !!journal?.execute || operation !== 'ready' || !!busy} onClick={() => void sendBatch('execute')}>等待结束后执行批次</button></div>
