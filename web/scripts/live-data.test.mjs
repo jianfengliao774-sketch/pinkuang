@@ -25,6 +25,11 @@ const params = { circuits: collection, circuitId: 900719925474099312345n,
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
   'function beacon() view returns(address)', 'function VERSION() view returns(uint256)']);
+const saleViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+  'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
+]);
+const referenceDigest = `0x${'ee'.repeat(32)}`;
 function row(changes = {}) { return { pool, status: { validMask: (1n << 17n) - 1n, errorMask: 0n, trustError: 0n }, params,
   state: 2n, unitPriceWei: params.targetRaise / 100n, totalRaised: params.targetRaise, totalSupply: 100n,
   memberCount: 3n, depositPaused: false, purchaseCost: params.priceCap, activatedAt: BigInt(timestamp - 172800),
@@ -52,6 +57,7 @@ function provider(options = {}) {
     let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
       : to === pool ? abi.PoolVault : bindings;
     let parsed = iface.parseTransaction({ data });
+    if (!parsed && to === shareMarket) { iface = saleViews; parsed = iface.parseTransaction({ data }); }
     if (!parsed) { iface = bindings; parsed = iface.parseTransaction({ data }); }
     const name = parsed.name; let value;
     if (name === 'lens') value = options.wrongBinding ? addr(99) : lens;
@@ -74,8 +80,17 @@ function provider(options = {}) {
     else if (name === 'orderExpiresAt') value = BigInt(timestamp + 500);
     else if (name === 'governance') value = governance(options.governance ?? {});
     else if (name === 'proposalPassed') value = options.proposalPassed ?? true;
+    else if (name === 'saleReference') {
+      if (options.referenceReadError) throw new Error('reference unavailable');
+      value = [options.referencePrice ?? 9000n, options.referenceAt ?? BigInt(timestamp - 100),
+        options.referenceDigest ?? referenceDigest];
+    }
+    else if (name === 'saleReview') {
+      if (options.reviewReadError) throw new Error('review unavailable');
+      value = [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n];
+    }
     else throw new Error(`unexpected call ${name}`);
-    return iface.encodeFunctionResult(name, [value]);
+    return iface.encodeFunctionResult(name, ['saleReference', 'saleReview'].includes(name) ? value : [value]);
   } };
 }
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -411,8 +426,15 @@ test('a pruned index block falls back to a fresh confirmed order read', async ()
 test('governance reads masks, so unknown eligibility cannot silently be treated as eligible', async () => {
   const result = await client({}).readGovernance({ pool, account });
   assert.equal(result.data.canVote, true); assert.equal(result.data.canExecute, true); assert.equal(result.data.requiredYesCount, 2n);
+  assert.equal(result.data.discounted, false);
   const unknown = await client({}, { governance: { status: { validMask: 1n, errorMask: 1n << 11n, trustError: 0n } } }).readGovernance({ pool, account });
   assert.equal(unknown.data.canVote, null); assert.equal(unknown.data.proposal, null);
+  assert.equal(unknown.data.discounted, null); assert.equal(unknown.data.canExecute, null);
+  const noProposal = await client({}, { governance: { activeProposalId: 0n, canExecute: true,
+    discounted: true, passed: true } }).readGovernance({ pool, account });
+  assert.equal(noProposal.data.discounted, null);
+  assert.equal(noProposal.data.passed, null);
+  assert.equal(noProposal.data.canExecute, null);
 });
 
 test('governance ignores the fixed old Lens sale threshold after the dual-majority Vault upgrade', async () => {
@@ -421,9 +443,27 @@ test('governance ignores the fixed old Lens sale threshold after the dual-majori
     requiredYesShares: 60n, passed: false, canExecute: false } }).readGovernance({ pool, account });
   assert.equal(result.data.requiredYesShares, 51n);
   assert.equal(result.data.passed, true);
+  assert.equal(result.data.discounted, false, 'the current Firsto reference, not purchase cost, sets review need');
   assert.equal(result.data.canExecute, true);
   await assert.rejects(client({}, { governance: { proposal: discounted }, proposalPassed: false })
     .readGovernance({ pool, account }), { code: 'governance_mismatch' });
+});
+
+test('governance never carries Lens canExecute through a missing reference or mismatched review', async () => {
+  const below = { ...proposal, price: 8000n, yesShares: 51n };
+  for (const options of [{ referenceAt: BigInt(timestamp - 901) },
+    { referenceDigest: `0x${'00'.repeat(32)}` }, { referenceReadError: true },
+    { reviewStatus: 0n }, { reviewStatus: 1n, reviewPrice: 7999n },
+    { reviewStatus: 2n, reviewPrice: 8000n }, { reviewReadError: true }]) {
+    const result = await client({}, { ...options, governance: { proposal: below, canExecute: true } }).readGovernance({ pool, account });
+    assert.equal(result.data.passed, true);
+    assert.equal(result.data.canExecute, false);
+  }
+  const approved = await client({}, { governance: { proposal: below, canExecute: false },
+    reviewStatus: 1n, reviewPrice: 8000n }).readGovernance({ pool, account });
+  assert.equal(approved.data.discounted, true);
+  assert.equal(approved.data.reviewApproved, true);
+  assert.equal(approved.data.canExecute, true);
 });
 
 test('activity pagination validates tuple order and keeps event amounts as exact strings', async () => {

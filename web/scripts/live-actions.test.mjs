@@ -5,6 +5,10 @@ import { firstoProvider, runtime } from '../../deploy/scripts/fixtures/firsto-or
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { Interface } from 'ethers';
 const capability = new Interface(['function controlledFirstoSaleVersion() view returns(uint8)']);
+const saleViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+  'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
+]);
 import { abi } from '../lib/chain-client.mjs';
 import { shareQuantity, exactPrice, prepareProductAction } from '../lib/live-actions.mjs';
 
@@ -48,6 +52,13 @@ function mock(options = {}) {
     }
     if (method === 'eth_getCode') return '0x1234';
     assert.equal(method, 'eth_call', 'preparation may only read'); assert.equal(args[1], '0xa', 'every call is pinned');
+    if (args[0].to === market) {
+      const sale = saleViews.parseTransaction(args[0]);
+      if (sale?.name === 'saleReference') return saleViews.encodeFunctionResult('saleReference',
+        [options.referencePrice ?? 800n, options.referenceAt ?? now - 100n, `0x${'ee'.repeat(32)}`]);
+      if (sale?.name === 'saleReview') return saleViews.encodeFunctionResult('saleReview',
+        [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n]);
+    }
     const inputTx = args[0], iface = inputTx.to === factory ? abi.PoolFactory : inputTx.to === lens ? abi.PoolLens
       : inputTx.to === market ? abi.ShareMarket : abi.PoolVault;
     const decoded = iface.parseTransaction(inputTx); assert.ok(decoded, 'known ABI');
@@ -81,7 +92,7 @@ function mock(options = {}) {
     else if (name === 'nextProposalId') value = governance.activeProposalId === 0n ? 1n : governance.activeProposalId + BigInt(options.proposals?.length ?? 1);
     else if (name === 'getProposal') value = options.proposals?.[Number(decoded.args[0]-1n)] ?? governance.proposal;
     else if (name === 'proposalPassed') { const p = options.proposals?.[Number(decoded.args[0]-1n)] ?? governance.proposal;
-      value = p.yesCount*2n>p.snapshotMemberCount && (p.price<raw.purchaseCost ? p.yesShares>=60n : p.yesShares>50n); }
+      value = p.yesCount*2n>p.snapshotMemberCount && p.yesShares>50n; }
 
     else if (name === 'lastProposed') value = options.lastProposed ?? 0n;
     else if (name === 'bnbOwed') value = options.marketOwed ?? 123n;

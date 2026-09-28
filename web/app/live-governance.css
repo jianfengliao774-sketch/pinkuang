@@ -2,5 +2,7 @@
 @media(max-width:800px){.live-gov-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.live-gov-metrics>div{border-bottom:1px solid #e0e9e1}.live-gov-selector input{min-width:0;width:calc(100vw - 70px)}.live-gov-propose input{width:100%}}
 
 /* Governance labels and input text remain readable without zoom on iPhone. */
+.live-gov-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:800px){.live-gov-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .live-governance{font-size:16px;line-height:1.6;min-width:0}.live-governance .live-section-head p{font-size:16px}.live-gov-selector label{min-width:0;max-width:100%;flex:1 1 340px}.live-gov-selector input{min-width:0;width:100%;box-sizing:border-box}.live-gov-propose label{flex:1 1 210px;min-width:0}.live-gov-propose input{width:100%;box-sizing:border-box;font-size:16px}.live-gov-metrics strong{font-size:17px}.live-gov-propose>div>button{min-height:46px}.live-gov-propose input:disabled{opacity:.65}.live-gov-preview dl>div{flex-wrap:wrap}
 @media(max-width:600px){.live-gov-selector{align-items:stretch}.live-gov-selector label{flex-basis:100%}.live-gov-selector input{width:100%}.live-gov-propose label{flex-basis:100%}.live-gov-propose>div>button{width:100%}.live-gov-grid{grid-template-columns:minmax(0,1fr)}.live-gov-metrics>div{padding:12px 10px}.live-gov-metrics strong{font-size:16px}.live-gov-candidates h3 small{display:block;margin-left:0}.live-gov-candidate-head{flex-wrap:wrap}.live-gov-preview{padding:14px}}

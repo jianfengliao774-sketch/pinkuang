@@ -2,6 +2,7 @@ import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ether
 import { abi, uint, readPoolSnapshot, hasPosition, assetKey } from './chain-client.mjs';
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate } from './sale-governance-gate.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -371,12 +372,13 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     insist(g.status.trustError === 0n && good(g.status, 0), 'untrusted_pool', '该治理项目未通过官方身份核验。');
     const result = { pool, account, status: { validMask: g.status.validMask, errorMask: g.status.errorMask, trustError: g.status.trustError } };
     const bits = { state: 1, activeProposalId: 2, proposal: 3, purchaseCost: 4, hasVoted: 5, snapshotShares: 6,
-      listedProposalId: 7, expiresAt: 8, salePrice: 9, requiredYesCount: 10, requiredYesShares: 10, discounted: 10, passed: 10,
-      canVote: 11, canCancelExpired: 12, canExecute: 13 };
+      listedProposalId: 7, expiresAt: 8, salePrice: 9, canVote: 11, canCancelExpired: 12 };
     for (const [key, bit] of Object.entries(bits)) result[key] = good(g.status, bit) ? g[key] : null;
-    // The factory's original Lens is immutable and still applies the former 60-share
-    // discounted-sale threshold. Read the upgraded Vault's actual vote result at
-    // the same canonical block instead of trusting those derived Lens fields.
+    // The immutable Lens derives both its discount flag and execution eligibility
+    // from the old purchase-cost rule. Never expose those fields from the Lens.
+    Object.assign(result, { requiredYesCount: null, requiredYesShares: null, discounted: null,
+      passed: null, canExecute: null, reviewRequired: null, reviewApproved: null,
+      saleReference: null, saleReview: null });
     if (result.activeProposalId > 0n && result.proposal !== null) {
       const p = result.proposal;
       insist(p.snapshotTotalShares === 100n && p.snapshotMemberCount > 0n && p.snapshotMemberCount <= 100n
@@ -391,8 +393,19 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       result.requiredYesCount = requiredYesCount;
       result.requiredYesShares = requiredYesShares;
       result.passed = passed;
-      result.canExecute = result.state === null ? null : result.state === 2n && !p.executed
-        && BigInt(source.indexedTimestamp) < p.endsAt && passed;
+      try {
+        result.saleReference = await readSaleReference(request, manifest.shareMarket, pool,
+          BigInt(source.indexedThrough), BigInt(source.indexedTimestamp));
+      } catch (error) { result.saleReference = Object.freeze({ available: false,
+        reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
+      if (result.saleReference.available && p.price < result.saleReference.priceWei) {
+        try { result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
+          result.activeProposalId, BigInt(source.indexedThrough)); }
+        catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
+      }
+      const gate = saleExecutionGate({ proposal: p, passed, state: result.state,
+        timestamp: BigInt(source.indexedTimestamp), reference: result.saleReference, review: result.saleReview });
+      Object.assign(result, gate);
     }
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });
   }

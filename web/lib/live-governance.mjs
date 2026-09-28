@@ -1,6 +1,7 @@
 import { ZeroAddress, getAddress, toQuantity } from 'ethers';
 import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 import { readControlledFirstoSale } from './firsto-sale.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate } from './sale-governance-gate.mjs';
 
 const DAY = 86400n;
 const WEEK = 7n * DAY;
@@ -27,11 +28,12 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
     const data = contract.encodeFunctionData(method, args);
     return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data }, tag]))[0];
   }
-  const [factoryCode, poolCode, registered, poolFactory, officialFactory, state, purchaseCost,
+  const [factoryCode, poolCode, registered, poolFactory, officialFactory, shareMarket, state, purchaseCost,
     activatedAt, activeProposalId, nextProposalId, lastProposed, shares, listedProposalId, expiresAt, salePrice] = await Promise.all([
     request('eth_getCode', [factory, tag]), request('eth_getCode', [pool, tag]),
     call(factory, abi.PoolFactory, 'isPool', [pool]), call(pool, abi.PoolVault, 'factory'),
-    call(pool, abi.PoolVault, 'OFFICIAL_FACTORY'), call(pool, abi.PoolVault, 'state'),
+    call(pool, abi.PoolVault, 'OFFICIAL_FACTORY'), call(factory, abi.PoolFactory, 'shareMarket'),
+    call(pool, abi.PoolVault, 'state'),
     call(pool, abi.PoolVault, 'purchaseCost'), call(pool, abi.PoolVault, 'activatedAt'),
     call(pool, abi.PoolVault, 'activeProposalId'), call(pool, abi.PoolVault, 'nextProposalId'),
     call(pool, abi.PoolVault, 'lastProposed', [owner]), call(pool, abi.PoolVault, 'balanceOf', [owner]),
@@ -41,6 +43,12 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
   requireGovernance(factoryCode && factoryCode !== '0x' && poolCode && poolCode !== '0x'
     && registered === true && same(poolFactory, factory) && same(officialFactory, factory),
   'Pool is not registered by the reviewed Factory.');
+  const market = nonzero(shareMarket);
+  const [marketCode, marketFactory] = await Promise.all([
+    request('eth_getCode', [market, tag]), call(market, abi.ShareMarket, 'factory'),
+  ]);
+  requireGovernance(marketCode && marketCode !== '0x' && same(marketFactory, factory),
+    'Firsto reference market is not bound to the reviewed Factory.');
   requireGovernance(state <= 5n && shares <= 100n && nextProposalId >= 1n
     && (activeProposalId === 0n || (activeProposalId < nextProposalId)), 'Governance state is inconsistent.');
   requireGovernance(nextProposalId - (activeProposalId || nextProposalId) <= MAX_CANDIDATES,
@@ -48,6 +56,10 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
 
   let opener = null;
   if (activeProposalId > 0n) opener = await call(pool, abi.PoolVault, 'getProposal', [activeProposalId]);
+  let saleReference;
+  try { saleReference = await readSaleReference(request, market, pool, number, timestamp); }
+  catch (error) { saleReference = Object.freeze({ available: false,
+    reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
   const candidates = [];
   for (let id = activeProposalId; id > 0n && id < nextProposalId; id += 1n) {
     const proposal = id === activeProposalId ? opener : await call(pool, abi.PoolVault, 'getProposal', [id]);
@@ -59,19 +71,24 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
       call(pool, abi.PoolVault, 'proposalPassed', [id]),
       call(pool, abi.PoolVault, 'hasVoted', [id, owner]),
     ]);
-    const discounted = proposal.price < purchaseCost;
-    const requiredYesShares = discounted ? 60n : 51n;
+    const requiredYesShares = proposal.snapshotTotalShares / 2n + 1n;
     const requiredYesCount = proposal.snapshotMemberCount / 2n + 1n;
     requireGovernance(proposal.price > 0n && proposal.snapshotMemberCount >= 1n
       && proposal.snapshotMemberCount <= 100n && proposal.yesCount <= proposal.snapshotMemberCount
       && proposal.yesShares <= 100n && passed === (
         proposal.yesShares >= requiredYesShares && proposal.yesCount >= requiredYesCount
       ), 'Sale proposal vote state is inconsistent.');
+    let saleReview = null;
+    if (saleReference.available && proposal.price < saleReference.priceWei) {
+      try { saleReview = await readSaleReview(request, market, pool, id, number); }
+      catch { /* A failed review read must never enable execution. */ }
+    }
+    const gate = saleExecutionGate({ proposal, passed, state, timestamp, reference: saleReference, review: saleReview });
     candidates.push(Object.freeze({ id, proposer: getAddress(proposal.proposer), snapshotTs: proposal.snapshotTs,
       endsAt: proposal.endsAt, priceWei: proposal.price, refPriceWei: proposal.refPrice,
       refAt: proposal.refAt, snapshotMemberCount: proposal.snapshotMemberCount,
       yesCount: proposal.yesCount, yesShares: proposal.yesShares, requiredYesCount, requiredYesShares,
-      discounted, passed, hasVoted, executed: proposal.executed }));
+      ...gate, saleReview, passed, hasVoted, executed: proposal.executed }));
   }
   let snapshotShares = 0n;
   if (owner !== ZeroAddress && candidates.length) {
@@ -93,7 +110,7 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
       snapshotTs: opener.snapshotTs, executed: opener.executed,
       currentFormat: opener.snapshotTs + DAY === opener.endsAt }),
     lastProposed, shares, snapshotShares, listedProposalId, expiresAt,
-    salePrice, firstoSale, candidates: Object.freeze(candidates) });
+    salePrice, firstoSale, saleReference, candidates: Object.freeze(candidates) });
 }
 
 /** Build exact unsigned calldata from an internally consistent chain snapshot. */
@@ -136,6 +153,7 @@ export function governanceAction(snapshot, from, action) {
       method = 'vote'; args = [chosen.id, action.support];
     } else {
       requireGovernance(chosen.passed, 'The sale candidate has not reached both vote thresholds.');
+      requireGovernance(chosen.canExecute, 'Firsto market reference or required platform review is not ready; refresh.');
       method = 'executeSale'; args = [chosen.id];
     }
   } else if (action?.kind === 'cancelExpired') {
@@ -163,6 +181,10 @@ export function governanceAction(snapshot, from, action) {
     paymentWei: value, feeWei: value === 0n ? 0n : snapshot.salePrice / 100n,
     holderNetWei: value === 0n ? 0n : snapshot.salePrice - snapshot.salePrice / 100n,
     sourceFeeWei: value === 0n ? 0n : value - snapshot.salePrice,
+    marketReferenceWei: snapshot.saleReference?.available ? snapshot.saleReference.priceWei : null,
+    marketReferenceObservedAt: snapshot.saleReference?.available ? snapshot.saleReference.observedAt : null,
+    saleReviewStatus: chosen?.saleReview?.status ?? null,
+    saleReviewPriceWei: chosen?.saleReview?.priceWei ?? null,
     feeBps: snapshot.firstoSale?.feeBps ?? null, feeEpoch: snapshot.firstoSale?.feeEpoch ?? null,
     blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash }) });
 }
