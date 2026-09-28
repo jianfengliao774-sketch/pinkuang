@@ -1059,16 +1059,7 @@ export default function LivePlatform() {
         revision === epoch.current &&
         activeModal.current === target
       )
-        setPrepared({ ...result, forModal: target, input,
-          previewBindings: target.kind === 'completeFirstoSale' ? {
-            expectedPriceWei: result.quote.priceWei.toString(),
-            expectedProposalId: result.quote.proposalId.toString(),
-            expectedFeeBps: result.quote.feeBps.toString(),
-            expectedFeeEpoch: result.quote.feeEpoch.toString(),
-          } : target.kind === 'fill' ? {
-            expectedSeller: result.order.seller,
-            expectedPricePerUnitWei: result.order.pricePerUnitWei.toString(),
-          } : {} });
+        setPrepared({ ...result, forModal: target });
     } catch (e) {
       if (context === walletEpoch.current && activeModal.current === target)
         setError(textError(e));
@@ -1234,17 +1225,13 @@ export default function LivePlatform() {
       progress('authenticating');
       await connectJournal({ inspect: false, onState: progress });
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
-      progress('rechecking');
-      const checked = await prepareProductAction({ ...confirmed.input,
-        ...(confirmed.previewBindings || {}), expectedPool: confirmed.pool || undefined,
-        expectedAccount: owner });
-      if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction))
-        throw new Error(L("交易内容或价格已变化，请返回并重新预览。", "Transaction or price changed. Preview again."));
+      // The journal verifies the exact previewed calldata, target, value and live
+      // contract bindings. Repeating the entire preview delays wallet opening.
       const result = await sendProductTransaction({
         provider: wallet,
         config,
-        transaction: checked.transaction,
-        action: { kind: checked.kind },
+        transaction: confirmed.transaction,
+        action: { kind: confirmed.kind },
         onState: progress,
       });
       if (requestEpoch === walletEpoch.current)

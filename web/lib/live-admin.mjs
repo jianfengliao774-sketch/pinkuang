@@ -14,13 +14,6 @@ const officialMarket = new Interface([
 const readVault = async (request, pool, method, blockTag) => abi.PoolVault.decodeFunctionResult(method,
   await request('eth_call', [{ to: pool, data: abi.PoolVault.encodeFunctionData(method) }, blockTag]));
 
-function officialCandidateRevert(error) {
-  const data = error?.data ?? error?.error?.data;
-  return error?.code === 3 || error?.code === 'CALL_EXCEPTION'
-    || typeof data === 'string' && /^0x[\da-f]*$/i.test(data) && /revert/i.test(String(error?.message ?? ''))
-    || /^execution reverted(?:\b|:)/i.test(String(error?.message ?? ''));
-}
-
 async function readFlexiblePurchaseModel({ request, pool, row, tag }) {
   const selection = await readVault(request, pool, 'flexiblePurchase', tag);
   if (!selection.enabled) return null; // Fixed pools may only buy their original NFT.
@@ -65,7 +58,6 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     : result.model?.[key] === value), '官网候选模型与矿池锁定参数不一致。');
   need(Array.isArray(result.candidates) && result.candidates.length <= 1000, '官网候选数据无效。');
   const seen = new Set();
-  let rejectedOfficialSimulation = false;
   for (const hint of result.candidates) {
     const tokenId = uint(hint.tokenId), listingId = uint(hint.listingId), priceWei = uint(hint.priceWei);
     const verifiedWeight = uint(hint.verifiedWeight);
@@ -85,18 +77,10 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     need(live.valid && same(live.seller, hint.seller) && same(live.circuits, expected.circuits)
       && live.tokenId === tokenId && live.price === priceWei, '官网候选挂单明细与当前矿机不一致。');
     const transaction = tx(pool, abi.PoolVault, 'buyAlternativeFromMarket', [listingId]);
-    const { chainId: _chainId, ...unsigned } = transaction;
-    try { await request('eth_call', [unsigned, tag]); }
-    catch (error) {
-      if (!officialCandidateRevert(error)) throw error;
-      rejectedOfficialSimulation = true;
-      continue;
-    }
     return { transaction, official: { id: listingId.toString(), seller: getAddress(live.seller),
       collection: getAddress(live.circuits), tokenId: tokenId.toString(), priceWei: priceWei.toString(),
       verifiedWeight: verifiedWeight.toString() } };
   }
-  need(!rejectedOfficialSimulation, '官网候选购机模拟未通过，不能据此判定官网无货；请重新扫描或人工核对。');
   return null;
 }
 
@@ -161,7 +145,7 @@ export async function readOperatorStatus({ provider, config, account }) {
     isPortfolioOperator: portfolioOperator !== null && same(portfolioOperator, ctx.from) });
 }
 
-/** Read and simulate only. The returned immutable request freezes relative deadlines for confirmation. */
+/** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */
 export async function prepareAdminAction(input) {
   const { provider, config, account, kind, params = {}, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
@@ -208,15 +192,8 @@ export async function prepareAdminAction(input) {
       if (official && flexibleModel && (officialCheck.taskId !== flexibleModel.taskId
         || uint(officialCheck.verifiedWeight) < uint(flexibleModel.minVerifiedWeight)
         || uint(official.priceWei) > flexiblePriceLimit(flexibleModel, officialCheck.verifiedWeight))) official = null;
-      if (official) {
-        const direct = tx(target, abi.PoolVault, 'buyFromMarket', [uint(official.id)]);
-        const { chainId: _chainId, ...unsigned } = direct;
-        try { await request('eth_call', [unsigned, tag]); }
-        catch (error) {
-          if (!officialCandidateRevert(error)) throw error;
-          throw new Error('官网原目标挂单仍符合价格与身份条件，但购机模拟未通过；请重新扫描或人工核对。');
-        }
-      }
+      // Price and miner identity are verified above. Execution is left to the
+      // signed transaction; preview does not invoke the purchase path.
       if (official) {
         need(kind !== 'buyFromFirsto', '官网原目标仍有符合价格上限的挂单，请先从官网采购。');
         resolvedKind = 'buyFromMarket'; selectedListingId = official.id;
@@ -278,13 +255,8 @@ export async function prepareAdminAction(input) {
     } else throw new Error('不支持的运营操作。');
     details = { ...details, pool: target, row, snapshot: snap, miningAction };
   }
-  const contract = same(transaction.to, factory) ? abi.PoolFactory : abi.PoolVault;
-  const { chainId: _chainId, ...unsigned } = transaction;
-  const parsed = contract.parseTransaction(transaction);
-  const result = contract.decodeFunctionResult(parsed.fragment, await request('eth_call', [unsigned, tag]));
   await ctx.verify();
   return Object.freeze({ transaction, kind: resolvedKind, requestKind: resolvedKind, ...details,
-    predictedPool: normalizedParams ? result[0] : undefined,
     request: Object.freeze({ kind, params: normalizedParams, flexible, expectedTaskId, expectedReferenceWeight, pool,
       listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder }),
     checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) });

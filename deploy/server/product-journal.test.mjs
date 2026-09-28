@@ -68,6 +68,7 @@ function proof(record = intent()) {
   const state = { mined:false, registered:true, chain:'0x38', final:101, fail:false, nonce:7, txHash:hash(77),
     target:record.target, data:record.data, value:BigInt(record.value), status:1, logs:[],accountCode:'0x',
     balance:10n**18n,gasPrice:1_000_000_000n,estimate:50000n,operator:account,graphFailed:false,graphChecks:0,
+    simulations:0,estimates:0,
     registry:[true,true,0n,0n],reservedPool:addr(0),legacyCount:0n,legacyPaused:true };
   const event = (user = account, shares = 2n, amount = 20n, address = pool) => ({ address,transactionHash:hash(77),blockHash:hash(100),
     ...(record.targetType==='portfolio'?portfolioAbi.encodeEventLog(portfolioAbi.getEvent('Deposited'),[user,shares,amount])
@@ -79,7 +80,7 @@ function proof(record = intent()) {
       if (method === 'eth_chainId') return state.chain;
       assert.equal(method,'eth_call');
       const [tx] = params;
-      if (tx.from) return '0x';
+      if (tx.from) {state.simulations++;return '0x';}
       const parsed = views.parseTransaction(tx);
       if (parsed.name==='buyerFeeBps' && state.buyerFeeMissing) return '0x';
       if (parsed.name==='machineRegistryStatus') return state.registry===null?'0x':views.encodeFunctionResult(parsed.name,state.registry);
@@ -92,7 +93,7 @@ function proof(record = intent()) {
     getCode:async target=> target.toLowerCase()===account ? state.accountCode : '0x6000',
     getBalance:async()=>state.balance,
     getFeeData:async()=>({gasPrice:state.gasPrice}),
-    estimateGas:async()=>state.estimate,
+    estimateGas:async()=>{state.estimates++;return state.estimate;},
     getTransactionCount:async(_target,tag)=> state.mined ? state.nonce+1 : tag==='pending' ? state.pendingNonce??state.nonce : state.nonce,
     getBlock:async tag => tag === 'latest' ? {number:102,hash:hash(102)} : tag === 'finalized' ? {number:state.final,hash:hash(state.final)}
       : {number:Number(tag),hash:hash(Number(tag)),transactions:state.membership===false?[]:[state.txHash]},
@@ -211,6 +212,8 @@ test('atomic product authorization verifies once and durably saves one signing p
     assert.equal(granted.body.revision,2);
     assert.equal(granted.body.transaction.nonce,'0x7');
     assert.equal(granted.body.transaction.data,record.data);
+    assert.equal(f.state.simulations,0);
+    assert.equal(f.state.estimates,0);
     assert.equal(f.state.graphChecks,2,'one rejected and one accepted request each verify only once');
     const saved=(await f.request('market')).body;
     assert.equal(saved.revision,2);assert.deepEqual(saved.record,record);
@@ -411,8 +414,8 @@ test('one durable signing permission survives concurrent tabs, stale revisions a
   } finally {await f.close();}
 });
 
-test('signing permission rechecks graph, nonce, Gas estimate/price and balance after persistence',async()=>{
-  for (const change of [{nonce:8},{pendingNonce:8},{estimate:100001n},{gasPrice:1000000001n},{balance:1n},{graphFailed:true}]) {
+test('signing permission rechecks graph, nonce, Gas price and balance after persistence',async()=>{
+  for (const change of [{nonce:8},{pendingNonce:8},{gasPrice:1000000001n},{balance:1n},{graphFailed:true}]) {
     const f=await fixture();
     try {
       assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);

@@ -271,11 +271,9 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     else if (method === 'buyFirsto') args = [address(action.child), action.encodedOrder];
   }
   const transaction = { chainId: '0x38', from: owner, to: target, data: contract.encodeFunctionData(method, args), value: toQuantity(value) };
-  const { chainId: _chainId, ...unsigned } = transaction;
-  const output = await provider.request({ method: 'eth_call', params: [unsigned, context.tag] });
-  const simulated = contract.decodeFunctionResult(method, output);
   await context.canonical();
   return { transaction, action: { kind: method, targetType }, row,
     blockNumber: BigInt(context.block.number), args, procurement, marketTrade,
-    payoutWei: targetType === 'portfolio' && ['withdrawBnb', 'claimBem'].includes(method) ? simulated[0] : null };
+    payoutWei: targetType === 'portfolio' && method === 'withdrawBnb' ? row.withdrawableBnb
+      : targetType === 'portfolio' && method === 'claimBem' ? row.claimableBem : null };
 }

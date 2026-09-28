@@ -595,7 +595,7 @@ export class ChainIndex {
     const at = this.status().indexedTimestamp;
     const filtered = [...orders.values()].map(order => ({ ...order,
       openAtSourceBlock: BigInt(order.remaining) > 0n && order.expiresAt !== null && Number(order.expiresAt) > at,
-      executable: false, // Always re-read and simulate on-chain before a wallet signature.
+      executable: false, // Re-read current order and pool state before a wallet signature.
     })).filter(order => (!targetPool || order.pool === targetPool) && (!targetSeller || order.seller === targetSeller)
       && (active === undefined || order.openAtSourceBlock === active)
       && (cursor === undefined || BigInt(order.orderId) < BigInt(cursor)))

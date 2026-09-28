@@ -27,8 +27,8 @@ const views = new Interface([
 ]);
 const same = (a,b) => getAddress(a) === getAddress(b);
 
-/** Reads use the caller's pinned block; the normal journal still simulates,
- * checks Gas and nonce, persists the intent and consumes a one-shot permission. */
+/** Reads use the caller's pinned block; the journal checks fee and nonce,
+ * persists the intent and consumes a one-shot permission without simulation. */
 export async function verifyPortfolioIntent(provider, record, decoded, block, graph, fail) {
   const tag = `0x${block.number.toString(16)}`;
   if (graph?.productKind !== 'budget' || !same(graph.factory,record.factory) || !graph.legacyFactory)

@@ -107,7 +107,7 @@ function transaction(from, to, contract, method, args = [], value = 0n) {
   return Object.freeze({ chainId: '0x38', from: address(from), to: address(to), data: contract.encodeFunctionData(method, args), value: toQuantity(value) });
 }
 
-/** Unsigned direct calls only. Re-read and simulate immediately before a user's signature. */
+/** Unsigned direct calls only. Re-read contract state before a user's signature. */
 export function personalPoolAction(snapshot, pool, from, action, quantity) {
   const owner = address(from), target = address(pool);
   requireCondition(snapshot.chainId === CHAIN_ID && snapshot.account === owner, 'Snapshot belongs to another wallet or chain.');

@@ -21,13 +21,15 @@ const exact = (value, label = '交易金额') => {
 const rpcQuantity = (value, label) => typeof value === 'number'
   ? (requireValue(Number.isSafeInteger(value) && value >= 0, `${label}不是精确的非负整数。`), BigInt(value))
   : exact(value, label);
-/** Timestamp checkpoints can require new storage between estimation and inclusion. Unused Gas is not charged. */
-export function productGasLimit(estimate) {
-  const amount = rpcQuantity(estimate, 'Gas 估算');
-  requireValue(amount > 0n, 'Gas 估算无效。');
-  const proportional = (amount * 120n + 99n) / 100n;
-  const checkpointReserve = amount + 100000n;
-  return proportional > checkpointReserve ? proportional : checkpointReserve;
+// Fixed submission limits avoid a wallet-side estimate and keep simple market
+// orders from reserving the full complex-vault Gas budget. These are caps, not
+// claims that a transaction will succeed. Unused Gas is not charged.
+export function productGasLimit(kind, targetType) {
+  if (targetType === 'market' || targetType === 'portfolioMarket') {
+    if (kind === 'list' || kind === 'cancel' || kind === 'expire' || kind === 'withdrawBnb') return 1_000_000n;
+    if (kind === 'fill') return 3_000_000n;
+  }
+  return 5_000_000n;
 }
 const emit = (callback, state) => { try { callback?.(state); } catch { /* UI callbacks cannot erase a persisted transaction. */ } };
 export class JournalError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -231,7 +233,6 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       && ack.record.cancellationRequests.length === (record.cancellationRequests?.length ?? 0) + 1,
     '服务器没有保存取消签名意图，已停止发送。');
     record = ack.record;
-    await requireWallet(provider, owner);
     const [latest, pending, code, balance, current] = await Promise.all([
       provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
       provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
@@ -245,7 +246,6 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
     requireValue(rpcQuantity(balance, '钱包 BNB 余额') >= gas * gasPrice, 'BNB 余额不足以支付取消交易的 Gas。');
     requireValue(current.revision === ack.revision && current.record?.nonce === record.nonce
       && same(current.record.account, owner), '待处理记录已变化，请重新核对后再取消。');
-    await provider.request({ method: 'eth_call', params: [{ from: owner, to: owner, value:'0x0',data:'0x',gas:'0x5208' }, 'latest'] });
     await requireWallet(provider, owner);
     emit(onState, { status:'awaiting-signature', operation:'cancel-pending', record, gasLimit:gas.toString(),
       gasPriceWei:gasPrice.toString(), maxGasWei:(gas * gasPrice).toString() });
@@ -288,15 +288,15 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     requireValue(!view.record, '这个钱包有待核对交易，请先核对回执；不要重复发送。');
     revision = view.revision;
     const unsigned = { from: account, to: target, data, value: toQuantity(value) };
-    const { latest, pending, estimate, price, balance } = await settleReadRound({
-      simulation: () => provider.request({ method: 'eth_call', params: [unsigned, 'latest'] }),
+    // The wallet confirmation displays a bounded gas limit. Do not run a
+    // transaction simulation or dynamic gas estimate during submission.
+    const { latest, pending, price, balance } = await settleReadRound({
       latest: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
       pending: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
-      estimate: () => provider.request({ method: 'eth_estimateGas', params: [unsigned] }),
       price: () => provider.request({ method: 'eth_gasPrice' }),
       balance: () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] }),
     });
-    const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(estimate), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
+    const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(normalized.action.kind, targetType), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
     requireValue(nonce === rpcQuantity(pending, '钱包待处理 nonce') && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
     requireValue(gas > 0n && gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n
       && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000') && gas * gasPrice <= exact(config.maxTransactionGasWei ?? '10000000000000000'), 'Gas 费用超出页面限制，请稍后重试。');
@@ -328,8 +328,12 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     requireValue(permit.transaction && Object.entries(expectedTx).every(([key, value]) => same(permit.transaction[key], value)), '签名许可交易内容不一致，已停止发送。');
     record = permit.record; revision = permit.revision;
     if (fastAuthorized) emit(onState, { status: 'authorizing' });
-    await requireWallet(provider, account);
-    const [lastNonce, pendingNonce] = await Promise.all(['latest','pending'].map(tag => provider.request({ method: 'eth_getTransactionCount', params: [account, tag] })));
+    const { wallet: finalWallet, lastNonce, pendingNonce } = await settleReadRound({
+      wallet: () => requireWallet(provider, account),
+      lastNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
+      pendingNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
+    });
+    requireValue(same(finalWallet, account), '签名前钱包账户已变化，请重新连接后确认。');
     requireValue(rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
     emit(onState, { status: 'awaiting-signature', record, gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
     hash = await provider.request({ method: 'eth_sendTransaction', params: [{ ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' }] });

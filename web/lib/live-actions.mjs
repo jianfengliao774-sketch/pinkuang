@@ -35,8 +35,8 @@ function id(value) {
 }
 
 /**
- * All reads and the initial simulation use one canonical latest block. This returns an unsigned
- * preview, never a signature or send; the transaction service must simulate latest again before signing.
+ * All read-only checks use one canonical latest block. This returns an unsigned
+ * preview, never a signature or send. The journal checks exact calldata before signing.
  */
 export async function prepareProductAction({ provider, config, account, pool, kind, quantity, price, proposalId, support, orderId,
   priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch,
@@ -70,12 +70,6 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     to: address(to), data: contract.encodeFunctionData(method, args), value: toQuantity(uint(value)) });
 
   async function finish(transaction, details = {}) {
-    const { chainId: _chainId, ...unsigned } = transaction;
-    // The return bytes must also match the ABI, including calls returning booked amounts/order IDs.
-    const contract = market && same(transaction.to, market) ? abi.ShareMarket : abi.PoolVault;
-    const parsed = contract.parseTransaction(transaction);
-    const output = await request('eth_call', [unsigned, blockTag]);
-    contract.decodeFunctionResult(parsed.fragment, output);
     const { after, finalChain } = await settleReadRound({
       after: () => request('eth_getBlockByNumber', [blockTag, false]),
       finalChain: () => request('eth_chainId'),

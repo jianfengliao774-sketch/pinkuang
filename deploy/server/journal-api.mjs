@@ -244,7 +244,6 @@ export async function cancellationIntent(provider, record) {
     if (gasPrice > 3_000_000_000n || balance < 21_000n * gasPrice) fail(409, 'Cancellation Gas cap exceeded or BNB balance insufficient. Use wallet recovery after reviewing fees.');
     const transaction = { chainId:'0x38', from:record.account, to:record.account, nonce:`0x${record.nonce.toString(16)}`,
       data:'0x', value:'0x0', gas:'0x5208', gasPrice:`0x${gasPrice.toString(16)}`, type:'0x0' };
-    await provider.send('eth_call', [{ from:record.account,to:record.account,data:'0x',value:'0x0',gas:'0x5208' }, 'latest']);
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(409, 'Chain changed during cancellation verification.');
     return transaction;
   } catch (error) {
@@ -330,21 +329,18 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
       provider.getTransactionCount(record.account, 'latest'), provider.getTransactionCount(record.account, 'pending'),
     ]);
     if (record.nonce !== latestNonce || record.nonce !== pendingNonce) fail(409, 'Wallet nonce is already pending or changed.');
-    // Simulate the exact bounded transaction and re-estimate immediately before a signing ACK.
-    const transaction={from:record.account,to:record.target,data:record.data,value:`0x${BigInt(record.value).toString(16)}`,
-      gasLimit:BigInt(record.gas),gasPrice:BigInt(record.gasPrice)};
-    const [estimate,fees,balance]=await Promise.all([provider.estimateGas(transaction),provider.getFeeData(),provider.getBalance(record.account)]);
-    if (!fees.gasPrice || fees.gasPrice > BigInt(record.gasPrice) || estimate > BigInt(record.gas)
+    // Validate the exact requested fee and available funds without simulating
+    // this transaction; execution success remains subject to wallet confirmation.
+    const [fees,balance]=await Promise.all([provider.getFeeData(),provider.getBalance(record.account)]);
+    if (!fees.gasPrice || fees.gasPrice > BigInt(record.gasPrice)
       || balance < BigInt(record.value)+BigInt(record.gas)*BigInt(record.gasPrice)) fail(409, 'Product Gas quote changed or balance is insufficient. Review a fresh transaction.');
-    await provider.send('eth_call', [{ from: record.account, to: record.target, data: record.data,
-      value: transaction.value, gas:`0x${BigInt(record.gas).toString(16)}`, gasPrice:`0x${BigInt(record.gasPrice).toString(16)}` }, tag]);
     const [again,finalLatestNonce,finalPendingNonce] = await Promise.all([provider.getBlock(block.number),
       provider.getTransactionCount(record.account,'latest'),provider.getTransactionCount(record.account,'pending')]);
     if (finalLatestNonce !== record.nonce || finalPendingNonce !== record.nonce) fail(409, 'Wallet nonce changed during product verification.');
     if (again?.hash !== block.hash || BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(409, 'Chain changed during product verification.');
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    fail(409, 'Product identity, value or transaction simulation could not be verified.');
+    fail(409, 'Product identity, value or transaction checks could not be verified.');
   }
 }
 

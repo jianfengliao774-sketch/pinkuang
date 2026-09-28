@@ -32,7 +32,7 @@ async function batches(items, size, fn) {
 
 /**
  * Discovery IDs are untrusted. Read them from the reviewed Factory's Market at
- * one block before quoting. The caller must simulate again before signing.
+ * one block before quoting. The caller must recheck the order before signing.
  */
 export async function readMarketSnapshot(provider, {
   factory: configuredFactory, market: configuredMarket, account = ZeroAddress,

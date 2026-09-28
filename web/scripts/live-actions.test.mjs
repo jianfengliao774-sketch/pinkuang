@@ -111,7 +111,7 @@ test('BNB prices preserve every wei and reject floating-point rounding or uint o
   assert.equal(exactPrice('0', { allowZero: true }), 0n);
 });
 
-test('deposit binds exact total, sender, pool and one block; returns only after successful simulation', async () => {
+test('deposit binds exact total, sender, pool and one block without transaction simulation', async () => {
   const rpc = mock({ row: { state: 0n, totalSupply: 90n } });
   const result = await prepare(rpc, { kind: 'deposit', quantity: '4' });
   assert.equal(BigInt(result.transaction.value), 4000000000000000004n);
@@ -119,10 +119,9 @@ test('deposit binds exact total, sender, pool and one block; returns only after 
   assert.equal(decoded.name, 'deposit'); assert.equal(decoded.args[0], 4n);
   assert.equal(result.transaction.from, account); assert.equal(result.transaction.to, pool);
   assert.equal(result.checkedBlock.blockHash, blockHash); assert.equal(result.checkedBlock.blockNumber, 10n);
-  assert.equal(simulations(rpc).length, 1); assert.equal(simulations(rpc)[0].name, 'deposit');
-  assert.equal(simulations(rpc)[0].transaction.value, result.transaction.value);
+  assert.equal(simulations(rpc).length, 0);
   assert(rpc.requests.every(r => ['eth_call', 'eth_chainId', 'eth_getBlockByNumber'].includes(r.method)));
-  for (const options of [{ simulationFails: true }, { wrongChain: true }, { flipChain: true }, { reorg: true }])
+  for (const options of [{ wrongChain: true }, { flipChain: true }, { reorg: true }])
     await assert.rejects(prepare(mock({ ...options, row: { state: 0n, totalSupply: 90n } }), { kind: 'deposit', quantity: '4' }));
 });
 
@@ -151,7 +150,7 @@ test('claims and BNB withdrawals allow former holders but never fabricate unknow
     await assert.rejects(prepare(mock({ row: { [field]: 0n } }), { kind }));
     await assert.rejects(prepare(mock({ row: { status: status(allPool, 1n << bit) } }), { kind }));
   }
-  await assert.rejects(prepare(mock({ badSimulationReturn: true }), { kind: 'claim' }));
+  assert.equal((await prepare(mock({ badSimulationReturn: true }), { kind: 'claim' })).kind, 'claim');
   for (const state of [2n, 3n]) assert.equal((await prepare(mock({ row: { state } }), { kind: 'harvest' })).kind, 'harvest');
   for (const state of [0n, 1n, 4n, 5n]) await assert.rejects(prepare(mock({ row: { state } }), { kind: 'harvest' }));
 });

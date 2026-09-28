@@ -29,7 +29,7 @@ npm run start:chain-index
 | `GET /v1/pools?cursor=0&limit=20` | 已注册池地址、初始 NFT 身份，供页面再用同块 Lens 读取当前状态 |
 | `GET /v1/stats` | 已确认历史口径：注册池数、去重曾参与地址数、实际购机花费、份额市场成交总额、池级归集净额；估计日产和当前活跃池数为 `null` |
 | `GET /v1/accounts/{wallet}/pools?cursor=0&limit=20` | 曾认购、持有、交易或领取的池，包括现已零份额的钱包；**不是当前持仓** |
-| `GET /v1/orders?pool=&seller=&active=true&cursor=&limit=20` | 历史订单重放后的未成交/未过期候选；`executable:false`，任何成交前必须重新读取市场订单、池状态并模拟 |
+| `GET /v1/orders?pool=&seller=&active=true&cursor=&limit=20` | 历史订单重放后的未成交/未过期候选；`executable:false`，任何成交前必须重新读取市场订单与池状态；索引不能保证交易执行成功 |
 | `GET /v1/activity?pool=&account=&cursor=&limit=20` | 区块、交易、日志索引和原始精确字段；游标形如 `block:transactionIndex:logIndex` |
 | `GET /v1/yield?pool=0x...&account=0x...&days=30` | `scope=pool` 的每日池净归集，及可选钱包**实际领取** BEM；个人未领的每日应计收益为 `null` |
 

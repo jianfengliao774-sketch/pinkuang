@@ -20,7 +20,7 @@ const en = {
   '募集预算':'Funding budget','募集预算（BNB）':'Funding budget (BNB)','区块':'Block','单机价格上限（BNB）':'Per-miner price cap (BNB)',
   '卖方':'Seller','反对':'Oppose','发起逐台出售提案':'Propose a miner sale','发送到钱包确认':'Send to wallet for confirmation',
   '可领 BNB':'Claimable BNB','台购入':'purchased','台运行 /':'active /','向':'To','多矿机预算项目':'Multi-miner portfolios',
-  '子矿机出售提案 #':'Miner sale proposal #','子矿池':'Child pool','导出已加载记录':'Export loaded records','已入账 BEM':'Accounted BEM','已模拟可领取':'Simulated amount receivable',
+  '子矿机出售提案 #':'Miner sale proposal #','子矿池':'Child pool','导出已加载记录':'Export loaded records','已入账 BEM':'Accounted BEM','当前链上可领取':'Currently claimable on-chain',
   '已认购':'Subscribed','开启募集失败退款':'Enable failed-funding refunds','归集该台 BEM':'Collect this miner’s BEM','归集该台卖款':'Collect this miner’s sale proceeds',
   '当前没有':'No','待采购子矿池地址':'Child pool to purchase','成交基价':'Base trade price','我的份额':'My shares','执行该台挂牌':'Execute miner listing',
   '拟售价':'Proposed sale price','拟售价格（BNB）':'Proposed sale price (BNB)','挂卖':'List','挂牌份数':'Shares to list',

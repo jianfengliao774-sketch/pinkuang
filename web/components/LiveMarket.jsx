@@ -120,7 +120,7 @@ export default function LiveMarket({ config, account, wallet, disabled = false, 
     if (!preview || !onAction) return;
     setBusy(true); setError('');
     try {
-      // The send layer must re-read the action, simulate and persist its exact
+      // The send layer must re-read the action and persist its exact
       // calldata in the shared server journal before asking for a signature.
       await onAction(preview.action);
       setPreview(null);
