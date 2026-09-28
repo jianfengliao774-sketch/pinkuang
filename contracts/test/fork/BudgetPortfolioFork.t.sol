@@ -146,7 +146,7 @@ contract BudgetPortfolioForkTest is Test {
 
     function _child(uint256 tokenId, uint256 cost) private returns (PoolVault) {
         return PoolVault(
-            payable(factory.createPool(
+            payable(factory.createBudgetChildPool(
                     IPoolVault.PoolParams({
                         circuits: Addresses.TAPEOUT_CIRCUITS,
                         circuitId: tokenId,
@@ -156,7 +156,8 @@ contract BudgetPortfolioForkTest is Test {
                         directPrice: 0,
                         fundingDeadline: uint64(block.timestamp + 1 days),
                         purchaseDeadline: uint64(block.timestamp + 2 days)
-                    })
+                    }),
+                    address(portfolio)
                 ))
         );
     }
