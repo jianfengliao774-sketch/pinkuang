@@ -11,6 +11,12 @@ def plan():
 
 class Configuration(unittest.TestCase):
     def setUp(self):self.ns=functions({'re':re})
+    def test_next_assets_use_product_base_path(self):
+        self.ns['html_name']='public/bemine-v2/index.html'
+        self.ns['regular']=lambda _:b'<script src="/bemine-v2/_next/static/chunks/app.js"></script>'
+        self.ns['verify_base_path_assets'](pathlib.Path('/candidate'))
+        self.ns['regular']=lambda _:b'<script src="/_next/static/chunks/app.js"></script>'
+        with self.assertRaises(AssertionError):self.ns['verify_base_path_assets'](pathlib.Path('/candidate'))
     def test_expected_commit_hashes_and_paths(self):self.assertEqual(self.ns['options'](plan()),plan())
     def test_invalid_inputs_rejected(self):
         for key,value in [('releaseId','../elsewhere'),('releaseId','v2-product-old'),('operationId','v2-static-../bad'),('sourceHead','latest'),('manifestSha256','f'*63),('artifactDigest','0x00')]:
@@ -32,7 +38,7 @@ class FilesAndSwitch(unittest.TestCase):
         self.config['frontendManifestSha256']=self.sha(self.front)
         for directory,source,key in [(self.old,self.config['previousSourceHead'],'previousManifestSha256'),(self.new,self.config['sourceHead'],'manifestSha256')]:
             directory.mkdir();files={}
-            for name,data in [('public/bemine-v2/index.html',b'<html>'+source.encode()+b'</html>'),('public/bemine-v2/data/frontend-manifest.json',self.front)]:
+            for name,data in [('public/bemine-v2/index.html',b'<html><script src="/bemine-v2/_next/static/chunks/app.js"></script>'+source.encode()+b'</html>'),('public/bemine-v2/data/frontend-manifest.json',self.front)]:
                 path=directory/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data);path.chmod(0o644)
                 files[name]={'sha256':self.sha(data),'bytes':len(data)}
             body=(json.dumps({'schemaVersion':1,'sourceHead':source,'artifactDigest':self.config['artifactDigest'],'chainId':56,'basePath':'/bemine-v2','files':files})+'\n').encode()
@@ -54,6 +60,10 @@ class FilesAndSwitch(unittest.TestCase):
         self.verify();result=self.ns['activate'](self.state)
         self.assertEqual(os.readlink(self.current),str(self.new));self.assertTrue(result['activated']);self.assertFalse(result['servicesRestarted'])
         self.assertEqual(self.probes,['/bemine-v2/','/bemine-v2/data/frontend-manifest.json'])
+    def test_unprefixed_next_assets_are_rejected(self):
+        path=self.new/self.ns['html_name']
+        path.write_bytes(b'<html><script src="/_next/static/chunks/app.js"></script></html>')
+        with self.assertRaises(AssertionError):self.ns['verify_base_path_assets'](self.new)
     def test_file_tamper_or_unlisted_file_rejected_before_switch(self):
         path=self.new/'public/bemine-v2/extra.js';path.write_bytes(b'not listed')
         with self.assertRaises(AssertionError):self.ns['activate'](self.state)
