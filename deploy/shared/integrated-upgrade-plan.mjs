@@ -1,5 +1,5 @@
 import {
-  AbiCoder, Interface, ZeroHash, getAddress, keccak256,
+  AbiCoder, Interface, ZeroHash, getAddress, keccak256, toUtf8Bytes,
 } from 'ethers';
 import { buildDigest, evidenceDigest } from './firsto-upgrade-proof.mjs';
 
@@ -34,14 +34,21 @@ const linkPolicy = Object.freeze({
 });
 const factoryAbi = new Interface(['function upgradeToAndCall(address,bytes)', 'function lens() view returns(address)',
   'function owner() view returns(address)', 'function timelock() view returns(address)',
+  'function operator() view returns(address)', 'function treasury() view returns(address)',
+  'function setOperator(address)', 'function setTreasury(address)', 'function transferOwnership(address)',
   'function poolCount() view returns(uint256)', 'function allPools(uint256) view returns(address)',
   'function creationPaused() view returns(bool)',
   'function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
   'event Upgraded(address indexed implementation)']);
 const portfolioFactoryAbi = new Interface(['function owner() view returns(address)',
   'function portfolioCount() view returns(uint256)', 'function portfolioAt(uint256) view returns(address)',
-  'function creationPaused() view returns(bool)', 'function timelock() view returns(address)']);
-const vaultAbi = new Interface(['function treasury() view returns(address)']);
+  'function creationPaused() view returns(bool)', 'function timelock() view returns(address)',
+  'function operator() view returns(address)', 'function treasury() view returns(address)',
+  'function setOperator(address)', 'function setTreasury(address)', 'function transferOwnership(address)']);
+const vaultAbi = new Interface(['function treasury() view returns(address)',
+  'function bnbOwed(address) view returns(uint256)', 'function bemOwed(address) view returns(uint256)',
+  'function state() view returns(uint8)',
+  'event TreasuryMigrated(address indexed previous,address indexed next)']);
 const marketAbi = new Interface(['function upgradeToAndCall(address,bytes)',
   'event Upgraded(address indexed implementation)']);
 const beaconAbi = new Interface(['function upgradeTo(address)', 'function implementation() view returns(address)',
@@ -61,11 +68,20 @@ const timelockAbi = new Interface([
   'function getMinDelay() view returns(uint256)',
   'function hasRole(bytes32,address) view returns(bool)',
   'function PROPOSER_ROLE() view returns(bytes32)',
+  'function CANCELLER_ROLE() view returns(bytes32)',
   'function EXECUTOR_ROLE() view returns(bytes32)',
+  'function grantRole(bytes32,address)', 'function revokeRole(bytes32,address)',
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
   'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
 ]);
 const migrationAbi = new Interface(['function migrateTreasury(address expectedOld,address next)']);
+const authorityAbi = new Interface([
+  'function owner() view returns(address)', 'function coreFactory() view returns(address)',
+  'function budgetFactory() view returns(address)',
+  'function administratorOne() view returns(address)', 'function administratorTwo() view returns(address)',
+  'function gasWallet() view returns(address)',
+  'function eip712Domain() view returns(bytes1 fields,string name,string version,uint256 chainId,address verifyingContract,bytes32 salt,uint256[] extensions)',
+]);
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 function requireThat(ok, reason) { if (!ok) throw new Error(reason); }
 function address(value, label) {
@@ -276,7 +292,7 @@ async function historicalTreasuries(provider,old,poolCount,portfolioCount,tag) {
   return list;
 }
 
-async function genesisAt(provider,{genesisRecord,genesisBundle,trustedGenesisManifest},block) {
+async function genesisAt(provider,{genesisRecord,genesisBundle,trustedGenesisManifest},block,requirePaused=true) {
   const old = checkTrustedGenesis(genesisRecord,genesisBundle,trustedGenesisManifest);
   const tag = `0x${block.number.toString(16)}`, checks = [];
   const checked = (condition,label) => { requireThat(condition,label); checks.push({label,passed:true}); };
@@ -328,12 +344,35 @@ async function genesisAt(provider,{genesisRecord,genesisBundle,trustedGenesisMan
   checked(minDelay >= BigInt(MIN_DELAY),'Timelock minimum delay is below 48 hours.');
   checked(initialized === true && ready === true && cursor === cutoff,
     'Machine registry is not ready for an integrated upgrade.');
-  checked(corePaused === true && budgetPaused === true,
+  if (requirePaused) checked(corePaused === true && budgetPaused === true,
     'Both factories must be paused by the current owner before the upgrade preflight.');
   const historical = await historicalTreasuries(provider,old,poolCount,portfolioCount,tag);
   checks.push({label:`All ${historical.length} historical vault addresses and fee recipients pinned`,passed:true});
   return {checks,registry:{initialized,ready,cursor:cursor.toString(),cutoff:cutoff.toString()},
-    poolCount:poolCount.toString(),portfolioCount:portfolioCount.toString(),historical};
+    poolCount:poolCount.toString(),portfolioCount:portfolioCount.toString(),historical,
+    creationPaused:{core:corePaused,budget:budgetPaused}};
+}
+
+/** Complete old-graph proof before either old-owner pauseCreation transaction. */
+export async function validateIntegratedUpgradePreparationAgainstChain(provider,input) {
+  const [chain,block]=await Promise.all([provider.send('eth_chainId',[]),provider.getBlock('finalized')]);
+  requireThat(BigInt(chain)===56n && Number.isSafeInteger(block?.number) && HASH.test(block?.hash),
+    'A finalized BSC block is required.');
+  const result=await genesisAt(provider,input,block,false);
+  const signer=address(input.signer,'connected old-owner wallet');
+  requireThat(same(signer,input.genesisRecord.input.ownerMultisig),
+    'Only the verified current owner may pause creation.');
+  const next=input.nextPause;
+  requireThat(next==='core' || next==='budget','A core or budget pause target is required.');
+  requireThat(result.creationPaused[next]===false,
+    `${next} factory creation is already paused.`);
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Preparation proof block changed.');
+  const target=next==='core'?input.genesisRecord.addresses.factory
+    :input.genesisRecord.addresses.portfolioFactory;
+  const data=(next==='core'?factoryAbi:portfolioFactoryAbi).encodeFunctionData('pauseCreation',[true]);
+  return {checkedAt:new Date().toISOString(),blockNumber:block.number,blockHash:block.hash,
+    ...result,signer,target,data,checks:[{label:'Finalized BSC chain',passed:true},...result.checks]};
 }
 
 /** Checks the trusted old graph before the first deployment consumes Gas. */
@@ -389,7 +428,14 @@ export async function validateIntegratedUpgradePartialReplacementsAgainstChain(p
 
 /** Read-only preflight at one finalized block; throws closed on any mismatch. */
 async function validatePlanAtChain(provider,plan,input,phase) {
-  const {genesisRecord,genesisBundle,trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest,proposer} = input;
+  const {genesisRecord,genesisBundle,trustedGenesisManifest,upgradeBundle,
+    trustedUpgradeArtifactDigest,proposer,bootstrapPlan} = input;
+  const rebuiltBootstrap=buildIntegratedProposerBootstrapPlan({...input,
+    hardwareWallet:bootstrapPlan?.hardwareWallet,salt:bootstrapPlan?.salt,
+    delaySeconds:bootstrapPlan?.delaySeconds});
+  requireThat(same(evidenceDigest(rebuiltBootstrap),evidenceDigest(bootstrapPlan))
+    && same(proposer,bootstrapPlan.hardwareWallet),
+  'Only the bootstrapped hardware wallet may sign the code-upgrade batch.');
   const regenerated = buildIntegratedUpgradePlan({genesisRecord,genesisBundle,upgradeBundle,
     trustedGenesisManifest,trustedUpgradeArtifactDigest,replacements:plan?.replacements,salt:plan?.salt,delaySeconds:plan?.delaySeconds});
   requireThat(same(evidenceDigest(plan),evidenceDigest(regenerated)), 'Upgrade plan differs from fixed reviewed calldata.');
@@ -436,6 +482,9 @@ async function validatePlanAtChain(provider,plan,input,phase) {
   }
   checked(await call(provider,old.timelock,timelockAbi,'hasRole',[proposerRole,signer],tag) === true,
     'Connected wallet is not a Timelock proposer.');
+  checked(await call(provider,old.timelock,timelockAbi,'isOperationDone',
+    [bootstrapPlan.operationId],tag)===true,
+  'Hardware-wallet proposer bootstrap is not complete.');
   if (phase === 'scheduled') {
     const executorRole = await call(provider,old.timelock,timelockAbi,'EXECUTOR_ROLE',[],tag);
     const [direct,open] = await Promise.all([
@@ -606,6 +655,427 @@ export async function validateIntegratedUpgradeResultAgainstChain(provider,plan,
     historical,legacyTreasuryResidual,checks};
 }
 
+function authorityDeploymentData(input) {
+  const {genesisRecord,genesisBundle,trustedGenesisManifest,upgradeBundle,
+    trustedUpgradeArtifactDigest,administratorOne,administratorTwo,gasWallet} = input;
+  const old = checkTrustedGenesis(genesisRecord,genesisBundle,trustedGenesisManifest);
+  requireThat(HASH.test(trustedUpgradeArtifactDigest)
+    && same(buildDigest(upgradeBundle),trustedUpgradeArtifactDigest),
+  'Authority build differs from the independently trusted upgrade artifact digest.');
+  const artifact = upgradeBundle?.artifacts?.PlatformAuthority;
+  requireThat(artifact?.contractName === 'PlatformAuthority'
+    && /^0x[\da-f]+$/i.test(artifact.bytecode)
+    && /^0x[\da-f]+$/i.test(artifact.deployedBytecode)
+    && Object.keys(artifact.linkReferences ?? {}).length === 0
+    && Object.keys(artifact.deployedLinkReferences ?? {}).length === 0,
+  'The reviewed PlatformAuthority artifact is missing or unexpectedly linked.');
+  const first = address(administratorOne,'first administrator');
+  const second = address(administratorTwo,'second administrator');
+  const gas = address(gasWallet,'public Gas wallet');
+  requireThat(!same(first,second) && !same(first,gas) && !same(second,gas),
+    'The two administrators and public Gas wallet must be distinct.');
+  const constructorArgs = [address(old.factory,'core factory'),address(old.portfolioFactory,'budget factory'),
+    first,second,gas];
+  return {constructorArgs,creationData:artifact.bytecode
+    + new Interface(artifact.abi).encodeDeploy(constructorArgs).slice(2)};
+}
+
+/** Exact creation calldata for a hardware-wallet deployment; the Gas wallet is only a public address here. */
+export function integratedAuthorityDeploymentData(input) {
+  return authorityDeploymentData(input).creationData;
+}
+
+async function postCodeGraphAt(provider,codePlan,input,block) {
+  const {genesisRecord,genesisBundle,trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest} = input;
+  const rebuilt = buildIntegratedUpgradePlan({...input,replacements:codePlan?.replacements,
+    salt:codePlan?.salt,delaySeconds:codePlan?.delaySeconds});
+  requireThat(same(evidenceDigest(rebuilt),evidenceDigest(codePlan)),
+    'Post-code graph plan differs from reviewed calldata.');
+  requireThat(HASH.test(trustedUpgradeArtifactDigest)
+    && same(buildDigest(upgradeBundle),trustedUpgradeArtifactDigest),
+  'Post-code bundle differs from independently trusted digest.');
+  const old=genesisRecord.addresses, tag=`0x${block.number.toString(16)}`;
+  const checks=[];
+  const checked=(condition,label)=>{requireThat(condition,label);checks.push({label,passed:true});};
+  for (const name of oldRuntimeNames) {
+    const observed=await provider.getCode(old[name],block.number);
+    checked(observed!=='0x' && same(observed,genesisRuntime(name,genesisRecord,genesisBundle)),
+      `Preserved genesis runtime changed: ${name}.`);
+  }
+  const addresses={...old,...codePlan.replacements};
+  for (const name of integratedUpgradeDeploymentOrder) {
+    const observed=await provider.getCode(codePlan.replacements[name],block.number);
+    checked(observed!=='0x' && same(observed,expectedRuntime(upgradeBundle.artifacts[name],addresses,
+      codePlan.replacements[name],upgradeImmutable(name,old,codePlan.replacements[name]))),
+    `Reviewed replacement runtime changed: ${name}.`);
+  }
+  for (const [proxy,name] of [
+    ['factory','PoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
+    ['portfolioShareMarket','ShareMarket'],
+  ]) checked(same(slotAddress(await provider.getStorage(old[proxy],IMPLEMENTATION_SLOT,block.number)),
+    codePlan.replacements[name]),`Current ${proxy} implementation differs from completed batch.`);
+  for (const [beacon,name] of [['beacon','PoolVault'],['portfolioBeacon','BudgetPortfolioVault']]) {
+    checked(same(await call(provider,old[beacon],beaconAbi,'implementation',[],tag),codePlan.replacements[name]),
+      `Current ${beacon} implementation differs from completed batch.`);
+  }
+  checked(await call(provider,old.timelock,timelockAbi,'isOperationDone',[codePlan.operationId],tag)===true,
+    'Code-upgrade Timelock batch is not complete.');
+  checked(same(await call(provider,old.factory,factoryAbi,'lens',[],tag),old.lens)
+    && same(await call(provider,old.lens,lensAbi,'factory',[],tag),old.factory),
+  'Legacy Lens binding changed.');
+  const [corePaused,budgetPaused,poolCount,portfolioCount,registryRaw] = await Promise.all([
+    call(provider,old.factory,factoryAbi,'creationPaused',[],tag),
+    call(provider,old.portfolioFactory,portfolioFactoryAbi,'creationPaused',[],tag),
+    call(provider,old.factory,factoryAbi,'poolCount',[],tag),
+    call(provider,old.portfolioFactory,portfolioFactoryAbi,'portfolioCount',[],tag),
+    provider.send('eth_call',[{to:old.factory,data:factoryAbi.encodeFunctionData('machineRegistryStatus')},tag]),
+  ]);
+  const [initialized,ready,cursor,cutoff]=factoryAbi.decodeFunctionResult('machineRegistryStatus',registryRaw);
+  checked(corePaused===true && budgetPaused===true,
+    'Both factories must remain paused during role and historical-pool migration.');
+  checked(initialized===true && ready===true && cursor===cutoff,
+    'Machine registry is not fully ready.');
+  const historical=await historicalTreasuries(provider,old,poolCount,portfolioCount,tag);
+  return {checks,poolCount:poolCount.toString(),portfolioCount:portfolioCount.toString(),
+    registry:{initialized,ready,cursor:cursor.toString(),cutoff:cutoff.toString()},historical};
+}
+
+/** Rechecks the complete upgraded code graph without assuming old vault treasuries are unchanged. */
+export async function validateIntegratedPostCodeGraphAgainstChain(provider,codePlan,input) {
+  const [chain,block]=await Promise.all([provider.send('eth_chainId',[]),provider.getBlock('finalized')]);
+  requireThat(BigInt(chain)===56n && Number.isSafeInteger(block?.number) && HASH.test(block?.hash),
+    'A finalized BSC block is required.');
+  const result=await postCodeGraphAt(provider,codePlan,input,block);
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Post-code graph finalized block changed.');
+  return {codeUpgradeComplete:true,roleMigrationComplete:false,operationId:codePlan.operationId,
+    blockNumber:block.number,blockHash:block.hash,checkedAt:new Date().toISOString(),...result};
+}
+
+function authorityRuntimeShape(artifact,observed) {
+  requireThat(/^0x[\da-f]+$/i.test(observed)
+    && observed.length===artifact.deployedBytecode.length,
+  'PlatformAuthority runtime length differs from the reviewed artifact.');
+  let expected=artifact.deployedBytecode.slice(2).toLowerCase();
+  const actual=observed.slice(2).toLowerCase();
+  for (const locations of Object.values(artifact.immutableReferences ?? {})) {
+    for (const {start,length} of locations) {
+      requireThat(Number.isSafeInteger(start) && start>=0 && Number.isSafeInteger(length)
+        && length>0 && (start+length)*2<=expected.length,
+      'PlatformAuthority immutable reference is malformed.');
+      expected=expected.slice(0,start*2)+actual.slice(start*2,(start+length)*2)
+        +expected.slice((start+length)*2);
+    }
+  }
+  requireThat(expected===actual,
+    'PlatformAuthority runtime differs outside compiler-declared constructor immutables.');
+}
+
+/** Proves the direct creation transaction, runtime shape, immutable getters and EIP-712 domain. */
+export async function validateIntegratedAuthorityAgainstChain(provider,input) {
+  const {codePlan,genesisRecord,upgradeBundle,authorityAddress,deploymentTxHash,
+    administratorOne,administratorTwo,gasWallet} = input;
+  const graph=await validateIntegratedPostCodeGraphAgainstChain(provider,codePlan,input);
+  const authority=address(authorityAddress,'PlatformAuthority');
+  const {constructorArgs,creationData}=authorityDeploymentData(input);
+  requireThat(!Object.values(genesisRecord.addresses).some(value=>same(value,authority))
+    && !Object.values(codePlan.replacements).some(value=>same(value,authority)),
+  'PlatformAuthority reuses a genesis or replacement address.');
+  const block=await provider.getBlock(graph.blockNumber);
+  const deployment=await finalizedTransaction(provider,deploymentTxHash,block);
+  requireThat(deployment.tx.to===null && same(deployment.tx.data,creationData)
+    && same(deployment.receipt.contractAddress,authority),
+  'PlatformAuthority creation transaction differs from reviewed constructor calldata.');
+  const code=await provider.getCode(authority,block.number);
+  authorityRuntimeShape(upgradeBundle.artifacts.PlatformAuthority,code);
+  const tag=`0x${block.number.toString(16)}`;
+  const [owner,core,budget,first,second,gas,domain]=await Promise.all([
+    call(provider,authority,authorityAbi,'owner',[],tag),
+    call(provider,authority,authorityAbi,'coreFactory',[],tag),
+    call(provider,authority,authorityAbi,'budgetFactory',[],tag),
+    call(provider,authority,authorityAbi,'administratorOne',[],tag),
+    call(provider,authority,authorityAbi,'administratorTwo',[],tag),
+    call(provider,authority,authorityAbi,'gasWallet',[],tag),
+    provider.send('eth_call',[{to:authority,data:authorityAbi.encodeFunctionData('eip712Domain')},tag]),
+  ]);
+  const eip712=authorityAbi.decodeFunctionResult('eip712Domain',domain);
+  requireThat(same(owner,genesisRecord.addresses.timelock)
+    && same(core,constructorArgs[0]) && same(budget,constructorArgs[1])
+    && same(first,constructorArgs[2]) && same(second,constructorArgs[3])
+    && same(gas,constructorArgs[4])
+    && eip712.name==='BEMine Platform Authority' && eip712.version==='1'
+    && eip712.chainId===56n && same(eip712.verifyingContract,authority),
+  'PlatformAuthority owner, constructor state or signing domain differs.');
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'PlatformAuthority proof block changed.');
+  return {...graph,authorityAddress:authority,authorityCodehash:keccak256(code),deploymentTxHash,
+    administratorOne:first,administratorTwo:second,gasWallet:gas,
+    checks:[...graph.checks,{label:'Exact direct PlatformAuthority creation transaction',passed:true},
+      {label:'Authority runtime and EIP-712 domain',passed:true}]};
+}
+
+/** Stage zero: the old proposer schedules hardware-wallet proposer and canceller grants. */
+export function buildIntegratedProposerBootstrapPlan(input) {
+  const {genesisRecord,genesisBundle,trustedGenesisManifest,hardwareWallet,salt,delaySeconds}=input;
+  const old=checkTrustedGenesis(genesisRecord,genesisBundle,trustedGenesisManifest);
+  const hardware=address(hardwareWallet,'hardware wallet');
+  const previous=address(genesisRecord.input.ownerMultisig,'old proposer');
+  requireThat(!same(hardware,previous) && HASH.test(salt) && BigInt(salt)!==0n
+    && Number.isSafeInteger(delaySeconds) && delaySeconds>=MIN_DELAY,
+  'Stage-zero hardware address, salt or delay is invalid.');
+  const proposerRole=keccak256(toUtf8Bytes('PROPOSER_ROLE'));
+  const cancellerRole=keccak256(toUtf8Bytes('CANCELLER_ROLE'));
+  const targets=[address(old.timelock,'Timelock'),address(old.timelock,'Timelock')];
+  const values=['0','0'];
+  const payloads=[timelockAbi.encodeFunctionData('grantRole',[proposerRole,hardware]),
+    timelockAbi.encodeFunctionData('grantRole',[cancellerRole,hardware])];
+  const args=[targets,values.map(BigInt),payloads,ZeroHash,salt];
+  const operationId=keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address[]','uint256[]','bytes[]','bytes32','bytes32'],args));
+  return {kind:'integrated-v2-proposer-bootstrap-v1',timelock:targets[0],oldProposer:previous,
+    hardwareWallet:hardware,targets,values,payloads,predecessor:ZeroHash,salt,delaySeconds,
+    operationId,scheduleData:timelockAbi.encodeFunctionData('scheduleBatch',[...args,delaySeconds]),
+    executeData:timelockAbi.encodeFunctionData('executeBatch',args)};
+}
+
+/** Stage-zero unscheduled/ready/done proof; `ready` is checked just before execute. */
+export async function validateIntegratedProposerBootstrapAgainstChain(provider,plan,input) {
+  const phase=input.phase;
+  requireThat(['unscheduled','ready','done'].includes(phase),'Unknown proposer-bootstrap phase.');
+  const rebuilt=buildIntegratedProposerBootstrapPlan({...input,hardwareWallet:plan?.hardwareWallet,
+    salt:plan?.salt,delaySeconds:plan?.delaySeconds});
+  requireThat(same(evidenceDigest(rebuilt),evidenceDigest(plan)),
+    'Proposer bootstrap differs from reviewed Timelock calldata.');
+  const [chain,block]=await Promise.all([provider.send('eth_chainId',[]),provider.getBlock('finalized')]);
+  requireThat(BigInt(chain)===56n && Number.isSafeInteger(block?.number) && HASH.test(block?.hash),
+    'A finalized BSC block is required.');
+  const genesis=await genesisAt(provider,input,block);
+  const tag=`0x${block.number.toString(16)}`,to=plan.timelock;
+  const [minimum,operation,isReady,isDone,readyAt,chainHash,proposerRole,cancellerRole,executorRole]
+    =await Promise.all([
+      call(provider,to,timelockAbi,'getMinDelay',[],tag),
+      call(provider,to,timelockAbi,'isOperation',[plan.operationId],tag),
+      call(provider,to,timelockAbi,'isOperationReady',[plan.operationId],tag),
+      call(provider,to,timelockAbi,'isOperationDone',[plan.operationId],tag),
+      call(provider,to,timelockAbi,'getTimestamp',[plan.operationId],tag),
+      call(provider,to,timelockAbi,'hashOperationBatch',[
+        plan.targets,plan.values.map(BigInt),plan.payloads,plan.predecessor,plan.salt],tag),
+      call(provider,to,timelockAbi,'PROPOSER_ROLE',[],tag),
+      call(provider,to,timelockAbi,'CANCELLER_ROLE',[],tag),
+      call(provider,to,timelockAbi,'EXECUTOR_ROLE',[],tag),
+    ]);
+  requireThat(minimum>=BigInt(MIN_DELAY) && BigInt(plan.delaySeconds)>=minimum
+    && same(chainHash,plan.operationId)
+    && same(proposerRole,keccak256(toUtf8Bytes('PROPOSER_ROLE')))
+    && same(cancellerRole,keccak256(toUtf8Bytes('CANCELLER_ROLE'))),
+  'Stage-zero Timelock roles, operation hash or minimum delay changed.');
+  const [oldProposer,oldCanceller,newProposer,newCanceller,executorOpen]=await Promise.all([
+    call(provider,to,timelockAbi,'hasRole',[proposerRole,plan.oldProposer],tag),
+    call(provider,to,timelockAbi,'hasRole',[cancellerRole,plan.oldProposer],tag),
+    call(provider,to,timelockAbi,'hasRole',[proposerRole,plan.hardwareWallet],tag),
+    call(provider,to,timelockAbi,'hasRole',[cancellerRole,plan.hardwareWallet],tag),
+    call(provider,to,timelockAbi,'hasRole',[executorRole,ZERO_ADDRESS],tag),
+  ]);
+  requireThat(oldProposer && oldCanceller && executorOpen,
+    'The old proposer/canceller or open executor role is missing.');
+  if (phase==='unscheduled') requireThat(!operation && !isReady && !isDone && readyAt===0n
+    && !newProposer && !newCanceller,'Stage-zero salt is already used or hardware roles changed.');
+  if (phase==='ready') requireThat(operation && isReady && !isDone
+    && readyAt>0n && readyAt<=BigInt(block.timestamp) && !newProposer && !newCanceller,
+  'Stage-zero operation is not ready for execution.');
+  if (phase==='done') requireThat(operation && isDone && newProposer && newCanceller,
+    'Stage-zero hardware proposer/canceller grant has not completed.');
+  if (phase==='unscheduled' || phase==='ready') {
+    const signer=address(input.signer,'connected signing wallet');
+    requireThat(phase==='unscheduled' ? same(signer,plan.oldProposer)
+      : executorOpen || await call(provider,to,timelockAbi,'hasRole',[executorRole,signer],tag),
+    'Connected wallet cannot sign this stage-zero Timelock action.');
+  }
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Stage-zero finalized block changed.');
+  return {phase,operationId:plan.operationId,blockNumber:block.number,blockHash:block.hash,
+    readyAt:readyAt.toString(),hardwareWallet:plan.hardwareWallet,
+    proposerBootstrapped:phase==='done',oldProposerRetained:true,
+    historical:genesis.historical,registry:genesis.registry,
+    checks:[...genesis.checks,{label:`Stage-zero Timelock ${phase}`,passed:true}]};
+}
+
+/** Four old-owner setters, one self-administered 48-hour revocation batch, then two ownership transfers. */
+export function buildIntegratedRoleMigrationPlan(input) {
+  const {genesisRecord,codePlan,authorityAddress,hardwareWallet,salt,delaySeconds,bootstrapPlan} = input;
+  const old=genesisRecord?.addresses;
+  requireThat(codePlan?.kind===INTEGRATED_SECURITY_UPGRADE_KIND
+    && HASH.test(codePlan.operationId) && old?.factory && old?.portfolioFactory && old?.timelock,
+  'A code-upgrade plan and both genesis factories are required.');
+  const owner=address(genesisRecord.input?.ownerMultisig,'old owner');
+  const authority=address(authorityAddress,'PlatformAuthority');
+  const hardware=address(hardwareWallet,'hardware wallet');
+  requireThat(bootstrapPlan?.kind==='integrated-v2-proposer-bootstrap-v1'
+    && same(bootstrapPlan.hardwareWallet,hardware) && HASH.test(bootstrapPlan.operationId),
+  'The completed hardware-wallet proposer bootstrap plan is required.');
+  requireThat(!same(owner,hardware) && !same(owner,authority) && !same(hardware,authority),
+    'The old owner, hardware wallet and Authority must be different.');
+  requireThat(HASH.test(salt) && BigInt(salt)!==0n
+    && Number.isSafeInteger(delaySeconds) && delaySeconds>=MIN_DELAY,
+  'A unique nonzero role salt and at least 48-hour delay are required.');
+  const steps=[
+    {name:'Core operator',target:old.factory,abi:factoryAbi,method:'setOperator',next:authority},
+    {name:'Core treasury',target:old.factory,abi:factoryAbi,method:'setTreasury',next:authority},
+    {name:'Budget operator',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'setOperator',next:authority},
+    {name:'Budget treasury',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'setTreasury',next:authority},
+    {name:'Core owner',target:old.factory,abi:factoryAbi,method:'transferOwnership',next:hardware},
+    {name:'Budget owner',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'transferOwnership',next:hardware},
+  ].map(({name,target,abi,method,next},index)=>({name,index,target:address(target,`${name} target`),
+    signer:owner,method,next,data:abi.encodeFunctionData(method,[next]),value:'0',
+    after:index<4?'code-upgrade':'role-batch'}));
+  const proposerRole=keccak256(toUtf8Bytes('PROPOSER_ROLE'));
+  const cancellerRole=keccak256(toUtf8Bytes('CANCELLER_ROLE'));
+  const targets=Array(2).fill(address(old.timelock,'Timelock'));
+  const values=Array(2).fill('0');
+  const payloads=[
+    timelockAbi.encodeFunctionData('revokeRole',[proposerRole,owner]),
+    timelockAbi.encodeFunctionData('revokeRole',[cancellerRole,owner]),
+  ];
+  const args=[targets,values.map(BigInt),payloads,ZeroHash,salt];
+  const operationId=keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address[]','uint256[]','bytes[]','bytes32','bytes32'],args));
+  return {kind:'integrated-v2-role-migration-v1',codeUpgradeOperationId:codePlan.operationId,
+    bootstrapOperationId:bootstrapPlan.operationId,
+    authorityAddress:authority,hardwareWallet:hardware,oldOwner:owner,
+    timelock:address(old.timelock,'Timelock'),delaySeconds,salt,
+    directSteps:steps,roleBatch:{targets,values,payloads,predecessor:ZeroHash,salt,
+      operationId,delaySeconds,
+      scheduleData:timelockAbi.encodeFunctionData('scheduleBatch',[...args,delaySeconds]),
+      executeData:timelockAbi.encodeFunctionData('executeBatch',args)},
+    historicalTreasuryComplete:false,roleMigrationComplete:false};
+}
+
+async function roleStateAt(provider,rolePlan,input,block) {
+  const {genesisRecord,codePlan,bootstrapPlan}=input;
+  const rebuiltBootstrap=buildIntegratedProposerBootstrapPlan({...input,
+    hardwareWallet:bootstrapPlan?.hardwareWallet,salt:bootstrapPlan?.salt,
+    delaySeconds:bootstrapPlan?.delaySeconds});
+  requireThat(same(evidenceDigest(rebuiltBootstrap),evidenceDigest(bootstrapPlan)),
+    'Hardware-wallet bootstrap is not the reviewed two-grant Timelock operation.');
+  const expected=buildIntegratedRoleMigrationPlan({...input,authorityAddress:rolePlan?.authorityAddress,
+    hardwareWallet:rolePlan?.hardwareWallet,salt:rolePlan?.salt,delaySeconds:rolePlan?.delaySeconds});
+  requireThat(same(evidenceDigest(expected),evidenceDigest(rolePlan)),
+    'Role migration plan differs from fixed reviewed calldata.');
+  const old=genesisRecord.addresses,tag=`0x${block.number.toString(16)}`;
+  requireThat(same(bootstrapPlan?.operationId,rolePlan.bootstrapOperationId),
+    'Role plan is not bound to the hardware-wallet bootstrap.');
+  const [coreOwner,coreOperator,coreTreasury,budgetOwner,budgetOperator,budgetTreasury,
+    proposerRole,cancellerRole,executorRole,chainOperationId,minDelay,isOperation,isReady,isDone,readyAt,
+    bootstrapDone]
+    =await Promise.all([
+      call(provider,old.factory,factoryAbi,'owner',[],tag),
+      call(provider,old.factory,factoryAbi,'operator',[],tag),
+      call(provider,old.factory,factoryAbi,'treasury',[],tag),
+      call(provider,old.portfolioFactory,portfolioFactoryAbi,'owner',[],tag),
+      call(provider,old.portfolioFactory,portfolioFactoryAbi,'operator',[],tag),
+      call(provider,old.portfolioFactory,portfolioFactoryAbi,'treasury',[],tag),
+      call(provider,old.timelock,timelockAbi,'PROPOSER_ROLE',[],tag),
+      call(provider,old.timelock,timelockAbi,'CANCELLER_ROLE',[],tag),
+      call(provider,old.timelock,timelockAbi,'EXECUTOR_ROLE',[],tag),
+      call(provider,old.timelock,timelockAbi,'hashOperationBatch',[
+        rolePlan.roleBatch.targets,rolePlan.roleBatch.values.map(BigInt),rolePlan.roleBatch.payloads,
+        rolePlan.roleBatch.predecessor,rolePlan.roleBatch.salt],tag),
+      call(provider,old.timelock,timelockAbi,'getMinDelay',[],tag),
+      call(provider,old.timelock,timelockAbi,'isOperation',[rolePlan.roleBatch.operationId],tag),
+      call(provider,old.timelock,timelockAbi,'isOperationReady',[rolePlan.roleBatch.operationId],tag),
+      call(provider,old.timelock,timelockAbi,'isOperationDone',[rolePlan.roleBatch.operationId],tag),
+      call(provider,old.timelock,timelockAbi,'getTimestamp',[rolePlan.roleBatch.operationId],tag),
+      call(provider,old.timelock,timelockAbi,'isOperationDone',[bootstrapPlan.operationId],tag),
+    ]);
+  requireThat(same(proposerRole,keccak256(toUtf8Bytes('PROPOSER_ROLE')))
+    && same(cancellerRole,keccak256(toUtf8Bytes('CANCELLER_ROLE')))
+    && same(chainOperationId,rolePlan.roleBatch.operationId)
+    && minDelay>=BigInt(MIN_DELAY) && BigInt(rolePlan.delaySeconds)>=minDelay && bootstrapDone===true,
+  'Timelock role selectors, operation ID or delay changed.');
+  const fields=[coreOperator,coreTreasury,budgetOperator,budgetTreasury,coreOwner,budgetOwner];
+  const prior=[genesisRecord.input.operator,genesisRecord.input.treasury,
+    genesisRecord.input.operator,genesisRecord.input.treasury,
+    rolePlan.oldOwner,rolePlan.oldOwner];
+  const applied=fields.map((value,index)=>{
+    requireThat(same(value,prior[index]) || same(value,rolePlan.directSteps[index].next),
+      `Unexpected ${rolePlan.directSteps[index].name} on-chain value.`);
+    return same(value,rolePlan.directSteps[index].next);
+  });
+  for (let i=1;i<4;i++) requireThat(!applied[i] || applied[i-1],
+    'Factory operator/treasury updates were applied out of order.');
+  requireThat(!applied[5] || applied[4], 'Factory ownership transfers were applied out of order.');
+  requireThat(!applied[4] || applied.slice(0,4).every(Boolean),
+    'Factory ownership moved before all Authority setters.');
+  requireThat(isOperation ? (isDone ? !isReady : readyAt>0n)
+    : (!isReady && !isDone && readyAt===0n),
+    'Invalid Timelock operation state.');
+  const roleValues={};
+  for (const [name,role] of [['proposer',proposerRole],['canceller',cancellerRole]]) {
+    roleValues[`${name}Old`]=await call(provider,old.timelock,timelockAbi,'hasRole',[role,rolePlan.oldOwner],tag);
+    roleValues[`${name}Hardware`]=await call(provider,old.timelock,timelockAbi,'hasRole',
+      [role,rolePlan.hardwareWallet],tag);
+  }
+  const executorOpen=await call(provider,old.timelock,timelockAbi,'hasRole',
+    [executorRole,ZERO_ADDRESS],tag);
+  requireThat(executorOpen===true,'Timelock open execution was unexpectedly removed.');
+  if (isDone) {
+    requireThat(isOperation===true && roleValues.proposerHardware && roleValues.cancellerHardware
+      && !roleValues.proposerOld && !roleValues.cancellerOld && applied.slice(0,4).every(Boolean),
+    'Completed role batch did not hand off both proposer and canceller roles.');
+  } else {
+    requireThat(roleValues.proposerOld && roleValues.cancellerOld
+      && roleValues.proposerHardware && roleValues.cancellerHardware
+      && !applied[4] && !applied[5],
+    'Timelock roles or Factory owner changed outside the planned batch.');
+  }
+  const status=isDone?'done':isReady?'ready':isOperation?'waiting':'unscheduled';
+  return {applied,current:{coreOwner,coreOperator,coreTreasury,budgetOwner,budgetOperator,budgetTreasury},
+    roles:roleValues,executorOpen,status,readyAt:readyAt.toString(),
+    nextDirectStep:applied.findIndex((value,index)=>!value && (index<4 || isDone)),
+    roleWiringComplete:isDone && applied.every(Boolean)};
+}
+
+/** Read-only role-state recovery. It proves code + Authority before accepting local journal state. */
+export async function validateIntegratedRoleMigrationStateAgainstChain(provider,rolePlan,input) {
+  const authority=await validateIntegratedAuthorityAgainstChain(provider,{...input,
+    authorityAddress:rolePlan?.authorityAddress});
+  const block=await provider.getBlock(authority.blockNumber);
+  const state=await roleStateAt(provider,rolePlan,input,block);
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Role migration proof block changed.');
+  return {...authority,...state,roleOperationId:rolePlan.roleBatch.operationId,
+    historicalTreasuryComplete:false,roleMigrationComplete:false};
+}
+
+/** Checks the connected wallet and exact next action immediately before each stage-two signature. */
+export async function validateIntegratedRoleMigrationActionAgainstChain(provider,rolePlan,input) {
+  const {action,signer}=input;
+  const wallet=address(signer,'connected signing wallet');
+  const proof=await validateIntegratedRoleMigrationStateAgainstChain(provider,rolePlan,input);
+  const {applied,status}=proof;
+  if (action?.type==='direct') {
+    const index=action.index;
+    requireThat(Number.isSafeInteger(index) && index>=0 && index<6,
+      'Unknown Factory role-migration step.');
+    requireThat(same(wallet,rolePlan.oldOwner) && applied[index]===false
+      && applied.slice(0,index).every(Boolean)
+      && (index<4 ? status==='unscheduled' : status==='done'),
+    'Factory step is out of order or connected wallet is not its current owner.');
+  } else if (action?.type==='schedule') {
+    requireThat(same(wallet,rolePlan.hardwareWallet) && applied.slice(0,4).every(Boolean)
+      && !applied[4] && !applied[5] && status==='unscheduled',
+    'Timelock old-role revocation must be scheduled by the bootstrapped hardware wallet.');
+  } else if (action?.type==='execute') {
+    requireThat(applied.slice(0,4).every(Boolean) && !applied[4] && !applied[5]
+      && status==='ready' && proof.executorOpen===true,
+    'Timelock role handoff is not ready for open execution.');
+  } else throw new Error('Unknown role migration action.');
+  return {...proof,authorizedSigner:wallet,action,calldata:action.type==='direct'
+    ? rolePlan.directSteps[action.index].data
+    : action.type==='schedule'?rolePlan.roleBatch.scheduleData:rolePlan.roleBatch.executeData,
+  target:action.type==='direct'?rolePlan.directSteps[action.index].target:rolePlan.timelock};
+}
+
 /** Independent 48-hour operations; one harvest failure cannot strand another pool. */
 export function buildIntegratedTreasuryMigrationPlan(input) {
   const {genesisRecord,codeResult,authorityAddress,saltSeed,delaySeconds} = input;
@@ -643,4 +1113,194 @@ export function buildIntegratedTreasuryMigrationPlan(input) {
     authorityAddress:authority,timelock:address(old.timelock,'timelock'),
     saltSeed,delaySeconds,operations,roleMigrationComplete:false,
     historicalBnbAndBemOwedRemainWithOldTreasury:true};
+}
+
+async function treasuryMigrationStateAt(provider,migrationPlan,input,phase,block) {
+  const {genesisRecord,codeResult,rolePlan}=input;
+  const expected=buildIntegratedTreasuryMigrationPlan({genesisRecord,codeResult,
+    authorityAddress:migrationPlan?.authorityAddress,saltSeed:migrationPlan?.saltSeed,
+    delaySeconds:migrationPlan?.delaySeconds});
+  requireThat(same(evidenceDigest(expected),evidenceDigest(migrationPlan)),
+    'Historical-pool treasury plan differs from reviewed calldata.');
+  requireThat(same(rolePlan?.authorityAddress,migrationPlan.authorityAddress),
+    'Historical-pool treasury destination differs from verified Authority.');
+  const roleProof=await validateIntegratedRoleMigrationStateAgainstChain(provider,rolePlan,input);
+  requireThat(roleProof.roleWiringComplete===true,
+    'Factory and Timelock role wiring must complete before old-pool treasury migration.');
+  const historical=roleProof.historical;
+  requireThat(historical.length===codeResult.historical.length
+    && historical.every((item,index)=>item.kind===codeResult.historical[index].kind
+      && item.index===codeResult.historical[index].index
+      && same(item.address,codeResult.historical[index].address)),
+  'Factory historical pool/portfolio registry differs from pinned code-upgrade result.');
+  const migrated=new Set(migrationPlan.operations.map(item=>item.target.toLowerCase()));
+  for (const item of historical) {
+    if (item.kind==='portfolio') requireThat(same(item.treasury,migrationPlan.authorityAddress),
+      'A historical budget portfolio has no supported treasury migration.');
+    else if (!migrated.has(item.address.toLowerCase())) requireThat(
+      same(item.treasury,migrationPlan.authorityAddress),
+    'A historical pool was omitted from treasury migration.');
+  }
+  const index=input.operationIndex;
+  requireThat(Number.isSafeInteger(index) && index>=0 && index<migrationPlan.operations.length,
+    'Unknown historical-pool treasury operation index.');
+  const operation=migrationPlan.operations[index];
+  const current=historical.find(item=>same(item.address,operation.target));
+  requireThat(current?.kind==='pool','Treasury migration target is not a registered historical pool.');
+  const tag=`0x${block.number.toString(16)}`;
+  const [isOperation,isReady,isDone,readyAt,chainHash,minimum,currentState,
+    oldBnbOwed,oldBemOwed,executorRole]=await Promise.all([
+      call(provider,migrationPlan.timelock,timelockAbi,'isOperation',[operation.operationId],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'isOperationReady',[operation.operationId],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'isOperationDone',[operation.operationId],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'getTimestamp',[operation.operationId],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'hashOperation',[
+        operation.target,0n,operation.data,operation.predecessor,operation.salt],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'getMinDelay',[],tag),
+      call(provider,operation.target,vaultAbi,'state',[],tag),
+      call(provider,operation.target,vaultAbi,'bnbOwed',[operation.expectedOld],tag),
+      call(provider,operation.target,vaultAbi,'bemOwed',[operation.expectedOld],tag),
+      call(provider,migrationPlan.timelock,timelockAbi,'EXECUTOR_ROLE',[],tag),
+    ]);
+  requireThat(same(chainHash,operation.operationId) && minimum>=BigInt(MIN_DELAY)
+    && BigInt(operation.delaySeconds)>=minimum,
+  'Historical-pool Timelock operation ID or delay changed.');
+  if (phase==='unscheduled') requireThat(!isOperation && !isReady && !isDone && readyAt===0n
+    && same(current.treasury,operation.expectedOld),
+  'Historical-pool treasury operation is already scheduled or treasury changed.');
+  else if (phase==='ready') requireThat(isOperation && isReady && !isDone
+    && readyAt>0n && readyAt<=BigInt(block.timestamp)
+    && same(current.treasury,operation.expectedOld),
+  'Historical-pool treasury operation is not ready or expected old treasury changed.');
+  else if (phase==='done') requireThat(isOperation && isDone
+    && same(current.treasury,operation.next),
+  'Historical-pool treasury operation is not complete.');
+  else throw new Error('Unknown historical-pool treasury phase.');
+  if (phase!=='done') {
+    const wallet=address(input.signer,'connected signing wallet');
+    if (phase==='unscheduled') requireThat(same(wallet,rolePlan.hardwareWallet),
+      'Only the bootstrapped hardware proposer may schedule old-pool treasury migration.');
+    else {
+      const [direct,open]=await Promise.all([
+        call(provider,migrationPlan.timelock,timelockAbi,'hasRole',[executorRole,wallet],tag),
+        call(provider,migrationPlan.timelock,timelockAbi,'hasRole',[executorRole,ZERO_ADDRESS],tag),
+      ]);
+      requireThat(direct===true || open===true,'Connected wallet cannot execute this Timelock operation.');
+    }
+  }
+  return {...roleProof,phase,operationIndex:index,operationId:operation.operationId,
+    target:operation.target,expectedOld:operation.expectedOld,next:operation.next,
+    currentState:Number(currentState),strictHarvestRequired:Number(currentState)===2
+      || Number(currentState)===3,
+    oldBnbOwed:oldBnbOwed.toString(),oldBemOwed:oldBemOwed.toString(),
+    readyAt:readyAt.toString(),historicalTreasuryComplete:false,roleMigrationComplete:false};
+}
+
+/** Per-pool schedule/execute preflight. Active/Listed pools may revert if strict claim fails. */
+export async function validateIntegratedTreasuryMigrationActionAgainstChain(provider,migrationPlan,input) {
+  const phase=input.phase;
+  requireThat(phase==='unscheduled' || phase==='ready',
+    'Only unscheduled and ready treasury operations have a signing preflight.');
+  const [chain,block]=await Promise.all([provider.send('eth_chainId',[]),provider.getBlock('finalized')]);
+  requireThat(BigInt(chain)===56n && Number.isSafeInteger(block?.number) && HASH.test(block?.hash),
+    'A finalized BSC block is required.');
+  const state=await treasuryMigrationStateAt(provider,migrationPlan,input,phase,block);
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Treasury migration preflight block changed.');
+  return {...state,blockNumber:block.number,blockHash:block.hash,
+    checkedAt:new Date().toISOString(),
+    calldata:phase==='unscheduled'?migrationPlan.operations[input.operationIndex].scheduleData
+      :migrationPlan.operations[input.operationIndex].executeData,
+    transactionTarget:migrationPlan.timelock};
+}
+
+/** Finalized single-pool migration receipt, exact Timelock events and old accrued-fee preservation. */
+export async function validateIntegratedTreasuryMigrationResultAgainstChain(provider,migrationPlan,input) {
+  const {preExecutionPreflight,scheduleTxHash,executeTxHash,operationIndex}=input;
+  const operation=migrationPlan?.operations?.[operationIndex];
+  requireThat(operation && preExecutionPreflight?.phase==='ready'
+    && preExecutionPreflight.operationIndex===operationIndex
+    && same(preExecutionPreflight.operationId,operation.operationId)
+    && HASH.test(preExecutionPreflight.blockHash)
+    && Number.isSafeInteger(preExecutionPreflight.blockNumber)
+    && /^\d+$/.test(preExecutionPreflight.oldBnbOwed??'')
+    && /^\d+$/.test(preExecutionPreflight.oldBemOwed??''),
+  'A pinned ready old-pool treasury preflight is required.');
+  const [chain,block,previous]=await Promise.all([
+    provider.send('eth_chainId',[]),provider.getBlock('finalized'),
+    provider.getBlock(preExecutionPreflight.blockNumber),
+  ]);
+  requireThat(BigInt(chain)===56n && HASH.test(block?.hash)
+    && same(previous?.hash,preExecutionPreflight.blockHash),
+  'Treasury migration finality or ready-block anchor changed.');
+  const tag=`0x${previous.number.toString(16)}`;
+  const [priorTreasury,priorBnb,priorBem]=await Promise.all([
+    call(provider,operation.target,vaultAbi,'treasury',[],tag),
+    call(provider,operation.target,vaultAbi,'bnbOwed',[operation.expectedOld],tag),
+    call(provider,operation.target,vaultAbi,'bemOwed',[operation.expectedOld],tag),
+  ]);
+  requireThat(same(priorTreasury,operation.expectedOld)
+    && priorBnb.toString()===preExecutionPreflight.oldBnbOwed
+    && priorBem.toString()===preExecutionPreflight.oldBemOwed,
+  'Persisted old-fee snapshot differs from its canonical historical block.');
+  const [scheduled,executed]=await Promise.all([
+    finalizedTransaction(provider,scheduleTxHash,block),
+    finalizedTransaction(provider,executeTxHash,block),
+  ]);
+  requireThat(scheduled.receipt.blockNumber<=previous.number
+    && executed.receipt.blockNumber>previous.number
+    && BigInt(executed.block.timestamp)>=BigInt(scheduled.block.timestamp)+BigInt(operation.delaySeconds),
+  'Historical-pool Timelock delay or pre-execution ordering differs.');
+  for (const [proof,event] of [[scheduled,'CallScheduled'],[executed,'CallExecuted']]) {
+    const events=logsOf(proof,migrationPlan.timelock,timelockAbi,event);
+    requireThat(events.length===1 && same(events[0].args.id,operation.operationId)
+      && events[0].args.index===0n && same(events[0].args.target,operation.target)
+      && events[0].args.value===0n && same(events[0].args.data,operation.data)
+      && (event!=='CallScheduled' || same(events[0].args.predecessor,ZeroHash)
+        && events[0].args.delay===BigInt(operation.delaySeconds)),
+    `Historical-pool ${event} differs from reviewed plan.`);
+  }
+  const migrated=logsOf(executed,operation.target,vaultAbi,'TreasuryMigrated');
+  requireThat(migrated.length===1 && same(migrated[0].args.previous,operation.expectedOld)
+    && same(migrated[0].args.next,operation.next),
+  'Historical-pool TreasuryMigrated event differs.');
+  const state=await treasuryMigrationStateAt(provider,migrationPlan,input,'done',block);
+  requireThat(BigInt(state.oldBnbOwed)>=priorBnb && BigInt(state.oldBemOwed)>=priorBem,
+    'Previously accrued fees are no longer owed to the old treasury.');
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Treasury migration result block changed.');
+  return {...state,blockNumber:block.number,blockHash:block.hash,
+    checkedAt:new Date().toISOString(),scheduleTxHash,executeTxHash,
+    oldAccruedFeesRemainWithOldTreasury:true};
+}
+
+/** Complete only after every old pool's separate Timelock migration and both Factory/role handoffs. */
+export async function validateIntegratedOnChainMigrationCompleteAgainstChain(provider,migrationPlan,input) {
+  const {genesisRecord,codeResult,rolePlan}=input;
+  const expected=buildIntegratedTreasuryMigrationPlan({genesisRecord,codeResult,
+    authorityAddress:migrationPlan?.authorityAddress,saltSeed:migrationPlan?.saltSeed,
+    delaySeconds:migrationPlan?.delaySeconds});
+  requireThat(same(evidenceDigest(expected),evidenceDigest(migrationPlan))
+    && same(rolePlan?.authorityAddress,migrationPlan.authorityAddress),
+  'Final role/treasury migration plan differs from reviewed calldata.');
+  const proof=await validateIntegratedRoleMigrationStateAgainstChain(provider,rolePlan,input);
+  requireThat(proof.roleWiringComplete===true,
+    'Factory owner/operator/treasury and Timelock roles are not fully migrated.');
+  const tag=`0x${proof.blockNumber.toString(16)}`;
+  const poolAddresses=codeResult.historical.filter(item=>item.kind==='pool'
+    && !same(item.treasury,migrationPlan.authorityAddress)).map(item=>item.address.toLowerCase());
+  requireThat(poolAddresses.length===migrationPlan.operations.length
+    && poolAddresses.every(value=>migrationPlan.operations.some(op=>op.target.toLowerCase()===value)),
+  'Historical pool migration operations do not cover every existing pool.');
+  requireThat(proof.historical.every(item=>same(item.treasury,migrationPlan.authorityAddress)),
+    'A historical pool or portfolio still points at its old treasury.');
+  for (const operation of migrationPlan.operations) requireThat(await call(provider,migrationPlan.timelock,
+    timelockAbi,'isOperationDone',[operation.operationId],tag)===true,
+  `Historical pool ${operation.target} Timelock migration is not complete.`);
+  const again=await provider.getBlock(proof.blockNumber);
+  requireThat(same(again?.hash,proof.blockHash),'Final role migration proof block changed.');
+  return {...proof,historicalTreasuryComplete:true,roleMigrationComplete:true,
+    onChainMigrationComplete:true,keeperCutoverVerified:false,deploymentComplete:false,
+    previousAccruedFeesAreNotRedirected:true,
+    checks:[...proof.checks,{label:'Every historical treasury and Timelock migration',passed:true}]};
 }

@@ -51,7 +51,14 @@ export interface IntegratedGenesisPreflight {
   poolCount: string;
   portfolioCount: string;
   historical: HistoricalTreasury[];
+  creationPaused?: {core: boolean; budget: boolean};
 }
+export declare function validateIntegratedUpgradePreparationAgainstChain(
+  provider: any,
+  input: {genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+    signer: string; nextPause: 'core' | 'budget'},
+): Promise<IntegratedGenesisPreflight & {signer: string; target: string; data: string;
+  creationPaused: {core: boolean; budget: boolean}} >;
 export declare function integratedUpgradeDeploymentData(
   name: IntegratedReplacementName,
   upgradeBundle: any,
@@ -96,6 +103,7 @@ export declare function validateIntegratedUpgradePlanAgainstChain(
     upgradeBundle: any;
     trustedUpgradeArtifactDigest: string;
     proposer: string;
+    bootstrapPlan: IntegratedProposerBootstrapPlan;
   },
 ): Promise<IntegratedUpgradePreflight>;
 /** Rechecks the pinned old graph, replacement bytecode and ready Timelock batch before executeBatch. */
@@ -109,6 +117,7 @@ export declare function validateIntegratedUpgradeScheduledAgainstChain(
     upgradeBundle: any;
     trustedUpgradeArtifactDigest: string;
     proposer: string;
+    bootstrapPlan: IntegratedProposerBootstrapPlan;
   },
 ): Promise<IntegratedUpgradePreflight & { phase: 'scheduled' }>;
 export interface IntegratedUpgradeResult {
@@ -174,3 +183,117 @@ export declare function buildIntegratedTreasuryMigrationPlan(input: {
   saltSeed: string;
   delaySeconds: number;
 }): IntegratedTreasuryMigrationPlan;
+
+export interface IntegratedProposerBootstrapPlan {
+  kind: 'integrated-v2-proposer-bootstrap-v1';
+  timelock: string; oldProposer: string; hardwareWallet: string;
+  targets: string[]; values: string[]; payloads: string[]; predecessor: string;
+  salt: string; delaySeconds: number; operationId: string;
+  scheduleData: string; executeData: string;
+}
+export declare function buildIntegratedProposerBootstrapPlan(input: {
+  genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+  hardwareWallet: string; salt: string; delaySeconds: number;
+}): IntegratedProposerBootstrapPlan;
+export declare function validateIntegratedProposerBootstrapAgainstChain(provider: any,
+  plan: IntegratedProposerBootstrapPlan,
+  input: {genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+    phase: 'unscheduled' | 'ready' | 'done'; signer?: string},
+): Promise<IntegratedGenesisPreflight & {phase: 'unscheduled' | 'ready' | 'done';
+  operationId: string; readyAt: string; hardwareWallet: string;
+  proposerBootstrapped: boolean; oldProposerRetained: true}>;
+
+export interface IntegratedPostCodeGraph extends IntegratedGenesisPreflight {
+  codeUpgradeComplete: true; roleMigrationComplete: false; operationId: string;
+}
+export declare function validateIntegratedPostCodeGraphAgainstChain(provider: any,
+  codePlan: IntegratedUpgradePlan,
+  input: {genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+    upgradeBundle: any; trustedUpgradeArtifactDigest: string},
+): Promise<IntegratedPostCodeGraph>;
+export declare function integratedAuthorityDeploymentData(input: {
+  genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+  upgradeBundle: any; trustedUpgradeArtifactDigest: string;
+  administratorOne: string; administratorTwo: string; gasWallet: string;
+}): string;
+export interface IntegratedAuthorityProof extends IntegratedPostCodeGraph {
+  authorityAddress: string; authorityCodehash: string; deploymentTxHash: string;
+  administratorOne: string; administratorTwo: string; gasWallet: string;
+}
+export declare function validateIntegratedAuthorityAgainstChain(provider: any,input: {
+  codePlan: IntegratedUpgradePlan;
+  genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+  upgradeBundle: any; trustedUpgradeArtifactDigest: string;
+  authorityAddress: string; deploymentTxHash: string;
+  administratorOne: string; administratorTwo: string; gasWallet: string;
+}): Promise<IntegratedAuthorityProof>;
+
+export interface IntegratedRoleMigrationPlan {
+  kind: 'integrated-v2-role-migration-v1';
+  codeUpgradeOperationId: string; bootstrapOperationId: string;
+  authorityAddress: string; hardwareWallet: string; oldOwner: string; timelock: string;
+  delaySeconds: number; salt: string;
+  directSteps: Array<{name: string; index: number; target: string; signer: string;
+    method: string; next: string; data: string; value: '0'; after: string}>;
+  roleBatch: {targets: string[]; values: string[]; payloads: string[];
+    predecessor: string; salt: string; operationId: string; delaySeconds: number;
+    scheduleData: string; executeData: string};
+  historicalTreasuryComplete: false; roleMigrationComplete: false;
+}
+export declare function buildIntegratedRoleMigrationPlan(input: {
+  genesisRecord: any; codePlan: IntegratedUpgradePlan;
+  bootstrapPlan: IntegratedProposerBootstrapPlan;
+  authorityAddress: string; hardwareWallet: string; salt: string; delaySeconds: number;
+}): IntegratedRoleMigrationPlan;
+export interface IntegratedRoleState extends IntegratedAuthorityProof {
+  applied: boolean[];
+  current: {coreOwner: string; coreOperator: string; coreTreasury: string;
+    budgetOwner: string; budgetOperator: string; budgetTreasury: string};
+  roles: Record<string,boolean>; executorOpen: boolean;
+  status: 'unscheduled' | 'waiting' | 'ready' | 'done';
+  readyAt: string; nextDirectStep: number; roleWiringComplete: boolean;
+  roleOperationId: string; historicalTreasuryComplete: false; roleMigrationComplete: false;
+}
+export interface IntegratedRoleProofInput {
+  codePlan: IntegratedUpgradePlan; bootstrapPlan: IntegratedProposerBootstrapPlan;
+  genesisRecord: any; genesisBundle: any; trustedGenesisManifest: any;
+  upgradeBundle: any; trustedUpgradeArtifactDigest: string;
+  authorityAddress: string; deploymentTxHash: string;
+  administratorOne: string; administratorTwo: string; gasWallet: string;
+}
+export declare function validateIntegratedRoleMigrationStateAgainstChain(provider: any,
+  rolePlan: IntegratedRoleMigrationPlan,input: IntegratedRoleProofInput,
+): Promise<IntegratedRoleState>;
+export declare function validateIntegratedRoleMigrationActionAgainstChain(provider: any,
+  rolePlan: IntegratedRoleMigrationPlan,input: IntegratedRoleProofInput & {
+    action: {type: 'direct'; index: number} | {type: 'schedule' | 'execute'}; signer: string},
+): Promise<IntegratedRoleState & {authorizedSigner: string; action: any;
+  calldata: string; target: string}>;
+
+export interface IntegratedTreasuryActionInput extends IntegratedRoleProofInput {
+  rolePlan: IntegratedRoleMigrationPlan;
+  codeResult: IntegratedUpgradeResult;
+  operationIndex: number;
+  phase: 'unscheduled' | 'ready'; signer: string;
+}
+export declare function validateIntegratedTreasuryMigrationActionAgainstChain(provider: any,
+  migrationPlan: IntegratedTreasuryMigrationPlan,input: IntegratedTreasuryActionInput,
+): Promise<IntegratedRoleState & {phase: 'unscheduled' | 'ready'; operationIndex: number;
+  operationId: string; target: string; expectedOld: string; next: string;
+  currentState: number; strictHarvestRequired: boolean; oldBnbOwed: string;
+  oldBemOwed: string; readyAt: string; calldata: string; transactionTarget: string}>;
+export declare function validateIntegratedTreasuryMigrationResultAgainstChain(provider: any,
+  migrationPlan: IntegratedTreasuryMigrationPlan,
+  input: Omit<IntegratedTreasuryActionInput,'phase'|'signer'> & {
+    preExecutionPreflight: Awaited<ReturnType<typeof validateIntegratedTreasuryMigrationActionAgainstChain>>;
+    scheduleTxHash: string; executeTxHash: string},
+): Promise<IntegratedRoleState & {phase: 'done'; operationIndex: number;
+  operationId: string; target: string; oldAccruedFeesRemainWithOldTreasury: true}>;
+export declare function validateIntegratedOnChainMigrationCompleteAgainstChain(provider: any,
+  migrationPlan: IntegratedTreasuryMigrationPlan,
+  input: IntegratedRoleProofInput & {rolePlan: IntegratedRoleMigrationPlan;
+    codeResult: IntegratedUpgradeResult},
+): Promise<IntegratedRoleState & {historicalTreasuryComplete: true;
+  roleMigrationComplete: true; onChainMigrationComplete: true;
+  keeperCutoverVerified: false; deploymentComplete: false;
+  previousAccruedFeesAreNotRedirected: true}>;
