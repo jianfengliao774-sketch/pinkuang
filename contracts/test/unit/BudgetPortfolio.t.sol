@@ -234,6 +234,27 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(nft.ownerOf(params.circuitId), address(child));
     }
 
+    function test_oddOfficialPriceReturnsEveryWeiToSoleProjectHolder() public {
+        _subscribe(ALICE, 100);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId += 11;
+        params.targetRaise = 5 ether;
+        params.priceCap = 5 ether;
+        IFundingVault child = _createBudgetPool(params);
+        uint96 price = uint96(5 ether - 1);
+        uint256 listingId = _list(params.circuitId, price);
+
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(child), listingId);
+
+        assertEq(project.childCount(), 1);
+        assertEq(project.spentWei(), price);
+        assertEq(address(project).balance, 13 ether - price);
+        assertEq(address(child).balance, 0);
+        assertEq(child.bnbOwed(address(project)), 0);
+        assertEq(nft.ownerOf(params.circuitId), address(child));
+    }
+
     function test_exactCostFirstoChildIncludingBuyerFeeNeedsNoSurplusWithdrawal() public {
         _subscribe(ALICE, 100);
         IPoolVault.PoolParams memory params = defaultParams;

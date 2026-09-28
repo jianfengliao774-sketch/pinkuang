@@ -76,6 +76,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         _requireAmount(amount);
         MarketStorage storage s = _marketStorage();
         _requireTradablePool(s, pool);
+        if (pricePerUnit == 0) revert InvalidPrice();
         orderId = s.nextOrderId++;
         s.orders[orderId] = Order(msg.sender, pool, amount, pricePerUnit, true);
         uint64 expiresAt = SafeCast.toUint64(block.timestamp + ORDER_DURATION);
@@ -94,9 +95,11 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (s.orderExpiries[orderId] == 0 || block.timestamp >= s.orderExpiries[orderId]) revert OrderExpired();
         if (amount > order.remaining) revert InvalidAmount();
         _requireTradablePool(s, order.pool);
+        // Historical zero-price orders may exist before this upgrade. Keep them
+        // cancellable, but never let a free transfer execute after the upgrade.
+        if (order.pricePerUnit == 0) revert InvalidPrice();
         uint256 gross = amount * order.pricePerUnit;
-        // The specification sets no minimum price. Zero-price orders transfer
-        // with zero BNB and zero fees. Each side's fee rounds down per fill.
+        // Each side's fee rounds down per fill.
         uint256 sellerFee = gross / 100;
         uint256 buyerFee = gross / 100;
         if (gross > type(uint256).max - buyerFee || msg.value != gross + buyerFee) revert PaymentMismatch();

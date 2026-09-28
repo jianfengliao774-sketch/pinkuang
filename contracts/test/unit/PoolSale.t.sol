@@ -105,7 +105,7 @@ contract PoolSaleTest is SaleTestBase {
     function test_listedFreezesTransfersAndFillsButOrderCanBeCancelled() public {
         _readyForSale();
         vm.prank(ALICE);
-        uint256 order = shareMarket.list(address(pool), 10, 0);
+        uint256 order = shareMarket.list(address(pool), 10, 1);
         _listSale(SALE_PRICE);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.WrongState.selector);

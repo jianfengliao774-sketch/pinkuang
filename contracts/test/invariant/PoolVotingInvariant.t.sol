@@ -265,7 +265,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         // Non-vacuous seed: a same-second exit precedes the proposal snapshot;
         // all three ownership routes then fail, including an already-listed market order.
         vm.prank(BOB);
-        uint256 priorOrder = shareMarket.list(address(pool), 10, 0);
+        uint256 priorOrder = shareMarket.list(address(pool), 10, 1);
         handler.moveShares(0, 3, 49, 0);
         handler.propose(1, 5 ether);
         handler.vote(0, 1, true);
