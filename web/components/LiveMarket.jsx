@@ -33,7 +33,6 @@ export default function LiveMarket({ config, account, wallet, disabled = false, 
   const [position, setPosition] = useState(null);
   const [listAmount, setListAmount] = useState('1');
   const [listPrice, setListPrice] = useState('');
-  const [allowFree, setAllowFree] = useState(false);
   const [buyAmounts, setBuyAmounts] = useState({});
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -172,10 +171,9 @@ export default function LiveMarket({ config, account, wallet, disabled = false, 
 
     <div className="live-market-list"><h3>挂出售出份额</h3><p>仅运行中的矿池可挂牌。挂单锁定份额，收益仍归卖方；有效期 7 天。成交时买方在挂牌基价外支付 1%，卖方从挂牌基价中扣除 1%。</p><label>资金池地址<input value={poolInput} onChange={event => { setPoolInput(event.target.value); setPosition(null); setPreview(null); }} placeholder="0x…"/></label><button className="live-market-inspect" disabled={busy || !poolInput.trim()} onClick={() => void inspect()}>核对我的份额</button>
       {position && <div className="live-market-position"><span>持有 {position.balance} 份</span><span>已锁定 {position.locked} 份</span><strong>可挂单 {position.available} 份</strong>{!position.tradingAllowed && <em>当前暂停份额交易</em>}</div>}
-      <div className="live-market-form"><label>出售份额<input inputMode="numeric" value={listAmount} onChange={event => setListAmount(event.target.value)}/></label><label>每份单价（BNB）<input inputMode="decimal" value={listPrice} onChange={event => { setListPrice(event.target.value); setAllowFree(false); }} placeholder="0.01"/></label></div>
-      {listPrice && /^0(?:\.0{1,18})?$/.test(listPrice) && <label className="live-market-free"><input type="checkbox" checked={allowFree} onChange={event => setAllowFree(event.target.checked)}/>确认以 0 BNB 免费转让这些份额</label>}
+      <div className="live-market-form"><label>出售份额<input inputMode="numeric" value={listAmount} onChange={event => setListAmount(event.target.value)}/></label><label>每份单价（BNB）<input inputMode="decimal" value={listPrice} onChange={event => setListPrice(event.target.value)} placeholder="0.01"/></label></div>
       <button className="live-market-list-button" disabled={locked || !bilateralFeeReady || !position || position.state !== 2n || !position.tradingAllowed} onClick={() => {
-        try { void showPreview({ kind: 'list', pool: position.pool, amount: amount(listAmount), pricePerUnitWei: price(listPrice), allowFree }); }
+        try { void showPreview({ kind: 'list', pool: position.pool, amount: amount(listAmount), pricePerUnitWei: price(listPrice) }); }
         catch (problem) { report(problem); }
       }}>预览挂单<ArrowRight size={15}/></button>
     </div></div>

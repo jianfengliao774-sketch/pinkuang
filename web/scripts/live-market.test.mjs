@@ -82,7 +82,7 @@ test('chain, deployment graph, fee, registry, accounting and reorg changes fail 
   await assert.rejects(readMarketSnapshot(rpc(), params({ blockNumber: '11' })), /wrong market block/);
 });
 
-test('list allows all 100 unlocked shares, requires explicit zero-price confirmation and checks freeze', async () => {
+test('list allows all 100 unlocked shares, rejects zero price and checks freeze', async () => {
   const snapshot = await readMarketSnapshot(rpc({ balance: 100n, locked: 0n, available: 100n }), params({ orderIds: [] }));
   const listed = marketAction(snapshot, alice, { kind: 'list', pool, amount: '100', pricePerUnitWei: '1' });
   assert.equal(listed.transaction.to, market);
@@ -91,8 +91,8 @@ test('list allows all 100 unlocked shares, requires explicit zero-price confirma
   assert.equal(abi.ShareMarket.parseTransaction(listed.transaction).name, 'list');
   assert.equal(abi.ShareMarket.parseTransaction(listed.transaction).args[1], 100n);
   assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '101', pricePerUnitWei: '1' }), /1–100/);
-  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0' }), /explicit confirmation/);
-  assert.equal(marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0', allowFree: true }).transaction.value, '0x0');
+  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0' }), /must be positive/);
+  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0', allowFree: true }), /must be positive/);
   assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '100',
     pricePerUnitWei: (((1n << 256n) - 1n) / 100n).toString() }), /buyer fee overflows/);
   const frozen = await readMarketSnapshot(rpc({ tradingAllowed: false }), params({ orderIds: [] }));

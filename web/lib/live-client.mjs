@@ -184,7 +184,7 @@ export async function sendLiveMarketAction({ wallet, config, account, action, fe
   const prepared = await prepareMarketAction(wallet, { factory: config.factory, market: config.market, account, action });
   const pool = prepared.quote.pool ?? config.market;
   const extra = action.kind === 'fill' ? { expected: { seller: action.expectedSeller,
-    pricePerUnitWei: action.expectedPricePerUnitWei } } : action.kind === 'list' ? { allowFree: action.allowFree === true } : {};
+    pricePerUnitWei: action.expectedPricePerUnitWei } } : {};
   return recordAndSend({ wallet, config, account, pool, target: config.market,
     transaction: prepared.transaction, extra, fetchImpl, onState });
 }
