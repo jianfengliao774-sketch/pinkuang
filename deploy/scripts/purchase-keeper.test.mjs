@@ -641,6 +641,15 @@ test('persistent wallet ledger directory and pointer stay private', t => {
   release();
 });
 
+test('wallet lock can resume a signed authority-mode transaction target', async t => {
+  const path = temporary(t), root = join(path, '..', 'authority-wallets');
+  const { chain, provider, signer } = simulatedChain(); chain.state = 1n;
+  const config = { ...options(path), send: true, transactionTarget: factory };
+  assert.equal((await runKeeperCycle(provider, config, signer)).status, 'broadcast');
+  const release = acquireWalletLock(from, path, root); release();
+  const resume = acquireWalletLock(from, path, root); resume();
+});
+
 test('lower-cost cancellation cannot erase maximum gas exposure from an already signed purchase', async t => {
   const path = temporary(t), { chain, provider, signer } = simulatedChain(); chain.state = 1n;
   provider.getBalance = async () => 1000000n;

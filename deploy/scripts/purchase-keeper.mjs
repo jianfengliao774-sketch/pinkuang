@@ -442,7 +442,8 @@ export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_ST
       // pending ledger with a fresh empty file before reserving another nonce.
       if (!existsSync(owner.journal)) throw new Error('Wallet has an unavailable previous journal; preserve the pointer and recover that journal before sending.');
       const previous = readPrivateJson(owner.journal);
-      readJournal(owner.journal, { factory: previous.factory, pool: previous.pool });
+      readJournal(owner.journal, { factory: previous.factory, pool: previous.pool,
+        transactionTarget: previous.transactionTarget ?? previous.pool });
       if (owner.journal !== resolve(journalPath) && previous.transaction && !finalizedRecord(previous.transaction)) throw new Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
     }
     writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
