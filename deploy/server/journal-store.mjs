@@ -187,6 +187,29 @@ export class JournalStore {
       return next;
     });
   }
+  /** Save the verified intent and consume its one-use signing permission in one durable commit. */
+  prepareAndArmMarket(account, record, expectedRevision) {
+    return this.transaction(() => {
+      const current = this.market(account);
+      if (current.revision !== expectedRevision || current.record)
+        throw new JournalConflict('Market revision changed.');
+      const deployment=read(this.db.prepare('SELECT record FROM deployment WHERE account=?').get(account)?.record ?? null);
+      if (deployment && (deployment.status!=='complete' || deployment.steps.some(step=>step.status!=='confirmed')))
+        throw new JournalConflict('This wallet has an unresolved deployment.');
+      const key=productKey(record);
+      const prior=this.db.prepare('SELECT intent_key FROM market_signing WHERE account=?').get(account);
+      if (prior?.intent_key===key)
+        throw new JournalConflict('This product signing permission was already consumed. Recover the wallet hash; do not resend.');
+      const next=expectedRevision+2;
+      this.db.prepare(`INSERT INTO market(account,revision,record) VALUES(?,?,?)
+        ON CONFLICT(account) DO UPDATE SET revision=excluded.revision,record=excluded.record`)
+        .run(account,next,canonical(record));
+      this.db.prepare(`INSERT INTO market_signing(account,intent_key,armed_at) VALUES(?,?,?)
+        ON CONFLICT(account) DO UPDATE SET intent_key=excluded.intent_key,armed_at=excluded.armed_at`)
+        .run(account,key,Date.now());
+      return next;
+    });
+  }
   canAbandonMarket(account) {
     const {record}=this.market(account);
     if (!record || record.version!==2 || record.hash || record.recoveryHashes?.length || record.cancellationRequests?.length) return false;

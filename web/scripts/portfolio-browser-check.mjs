@@ -43,11 +43,12 @@ try {
   });
   await page.route(/\/api\/journal\//,async route=>{
     const request=route.request(),path=new URL(request.url()).pathname.split('/journal/')[1],method=request.method();
-    const body=request.postData()?request.postDataJSON():null;let response;
+    const body=request.postData()?request.postDataJSON():null;let response,status=200;
     try{
       if(path==='session')response={account:f.state.account};
       else if(path==='notifications/capabilities')response={enabled:false};
       else if(path==='market/result')response={result};
+      else if(path==='market/prepare-and-arm'&&method==='POST'){status=404;response={error:'Unknown journal route.'};}
       else if(path==='market/arm'&&method==='POST'){
         assert.equal(body.expectedRevision,revision);assert(record&&!armed);armed=true;revision++;trace.push('journal:armed');
         response={revision,record,transaction:{from:record.account,to:record.target,chainId:'0x38',nonce:toQuantity(nonce),data:record.data,value:toQuantity(BigInt(record.value)),gas:toQuantity(BigInt(record.gas)),gasPrice:toQuantity(BigInt(record.gasPrice)),type:'0x0'}};
@@ -64,7 +65,7 @@ try {
           receipt:{status:1,transactionHash:txhash,to:PORTFOLIOS[0],blockNumber:100,blockHash:f.source().indexedBlockHash}};
         record=null;revision++;nonce++;trace.push('journal:finalized');response={result,record,revision};
       }else throw new Error(`Unexpected fixture journal route ${method} ${path}`);
-      await route.fulfill({contentType:'application/json',body:json(response)});
+      await route.fulfill({status,contentType:'application/json',body:json(response)});
     }catch(e){errors.push(e.message);await route.fulfill({status:400,contentType:'application/json',body:json({error:e.message})});}
   });
   await page.exposeFunction('__budgetRead',read);

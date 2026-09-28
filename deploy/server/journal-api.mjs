@@ -1183,6 +1183,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (!HASH.test(hash ?? '')) fail(400, 'A transaction hash is required.');
         return send(200, { result: store.marketResult(account, hash) });
       }
+      if (method === 'POST' && path === '/api/journal/market/prepare-and-arm') {
+        if (!productMode) fail(409, 'Product signing is unavailable.');
+        const body=await readJson(req), record=validateMarket(body.record,account), revision=exactRevision(body.expectedRevision);
+        if (record.version!==2 || record.hash || record.recoveryHashes?.length || record.cancellationRequests?.length)
+          fail(400,'A new unsigned product intent is required.');
+        const current=store.market(account);
+        if (current.record || current.revision!==revision) fail(409,'Market revision changed.');
+        await verifyProductIntent(provider,record,productFactories,graphVerifier,{legacyFactory});
+        const next=store.prepareAndArmMarket(account,record,revision), hex=value=>`0x${BigInt(value).toString(16)}`;
+        return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
+          nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),gasPrice:hex(record.gasPrice),type:'0x0'}});
+      }
       if (method === 'POST' && path === '/api/journal/market/arm') {
         const body=await readJson(req), revision=exactRevision(body.expectedRevision), current=store.market(account);
         if (!current.record || current.record.version !== 2 || current.revision !== revision) fail(409,'Product revision changed.');

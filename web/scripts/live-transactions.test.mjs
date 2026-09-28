@@ -52,6 +52,19 @@ function fixture(options={}){
     }
     if(path==='session'&&method==='POST'){state.authenticated=true;return response(200,{account});}
     if(path==='market'&&method==='GET')return response(200,{record:state.record,revision:state.revision});
+    if(path==='market/prepare-and-arm'&&method==='POST'){
+      if(!state.fastAuthorization)return response(404,{error:'Unknown journal route.'});
+      if(state.armFail)return response(409,{error:'Signature permission already consumed'});
+      if(state.record||body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
+      state.record=structuredClone(body.record);state.revision+=2;
+      if(state.afterAck)state.afterAck(state);
+      const r=state.record;
+      const transaction={from:r.account,to:r.target,chainId:'0x38',nonce:`0x${BigInt(r.nonce).toString(16)}`,
+        data:r.data,value:`0x${BigInt(r.value).toString(16)}`,gas:`0x${BigInt(r.gas).toString(16)}`,
+        gasPrice:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x0',...state.permitTransaction};
+      if(state.armAckLost)throw new Error('Signature permission ACK lost');
+      return response(200,{revision:state.revision,record:structuredClone(r),transaction});
+    }
     if(path==='market/arm'&&method==='POST'){
       if(state.armFail)return response(409,{error:'Signature permission already consumed'});
       if(!state.record||body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
@@ -145,6 +158,26 @@ test('wallet safe-number RPC quantities are accepted without changing the zero-v
   assert.equal(result.status,'confirmed');
   const sends=f.calls.filter(x=>x.method==='eth_sendTransaction');
   assert.equal(sends.length,1);assert.equal(sends[0].params[0].value,'0x0');
+});
+
+test('new runtime saves and arms once before a single wallet request',async()=>{
+  const f=fixture({fastAuthorization:true});
+  const result=await f.send();
+  assert.equal(result.status,'confirmed');
+  const authorized=f.calls.filter(x=>x.url?.endsWith('/market/prepare-and-arm'));
+  assert.equal(authorized.length,1);
+  assert.equal(f.calls.filter(x=>x.url?.endsWith('/market/arm')).length,0);
+  assert.equal(f.calls.filter(x=>x.url?.endsWith('/market')&&x.method==='PUT'&&!x.body.record.hash).length,0);
+  assert( f.calls.indexOf(authorized[0]) < f.calls.findIndex(x=>x.method==='eth_sendTransaction'));
+  assert.equal(f.calls.filter(x=>x.method==='eth_sendTransaction').length,1);
+});
+
+test('lost atomic signing ACK cannot prompt a second wallet send',async()=>{
+  const f=fixture({fastAuthorization:true,armAckLost:true});
+  await assert.rejects(f.send(),/Signature permission ACK lost/);
+  assert(f.state.record);
+  assert(!f.calls.some(x=>x.method==='eth_sendTransaction'));
+  await assert.rejects(f.send(),/待核对/);
 });
 
 test('unsafe numeric wallet balance is rejected before an intent is written or a wallet is prompted',async()=>{

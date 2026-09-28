@@ -304,18 +304,30 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     const prepared = { version: 2, chainId: 56, account, factory, target, targetType, nonce: Number(nonce),
       action: normalized.action, data, value: value.toString(), gas: gas.toString(), gasPrice: gasPrice.toString(), submittedAt: new Date().toISOString() };
     emit(onState, { status: 'recording-intent' });
-    const ack = await request(config, 'market', 'PUT', { record: prepared, expectedRevision: revision }, account, fetcher);
-    requireValue(Number.isSafeInteger(ack.revision) && ack.revision === revision + 1, '签名前记录未得到可靠确认，已停止发送。');
-    record = prepared; revision = ack.revision;
-    emit(onState, { status: 'authorizing' });
-    const permit = await request(config, 'market/arm', 'POST', { expectedRevision: revision }, account, fetcher);
-    requireValue(permit.revision === revision + 1 && permit.record
+    let permit, fastAuthorized = false;
+    try {
+      permit = await request(config, 'market/prepare-and-arm', 'POST',
+        { record: prepared, expectedRevision: revision }, account, fetcher);
+      record = prepared;
+      fastAuthorized = true;
+    } catch (error) {
+      // A 404 identifies an older runtime. Every other failure may have persisted
+      // a one-use signing permission, so never retry through the legacy route.
+      if (!(error instanceof JournalError) || error.status !== 404) throw error;
+      const ack = await request(config, 'market', 'PUT', { record: prepared, expectedRevision: revision }, account, fetcher);
+      requireValue(Number.isSafeInteger(ack.revision) && ack.revision === revision + 1, '签名前记录未得到可靠确认，已停止发送。');
+      record = prepared;
+      emit(onState, { status: 'authorizing' });
+      permit = await request(config, 'market/arm', 'POST', { expectedRevision: ack.revision }, account, fetcher);
+    }
+    requireValue(permit.revision === revision + 2 && permit.record
       && ['version','chainId','nonce','data','value','gas','gasPrice','submittedAt','targetType'].every(key => permit.record[key] === prepared[key])
       && same(permit.record.account, account) && same(permit.record.factory, factory) && same(permit.record.target, target)
       && permit.record.action?.kind === normalized.action.kind, '签名许可与确认内容不一致，已停止发送。');
     const expectedTx = { ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' };
     requireValue(permit.transaction && Object.entries(expectedTx).every(([key, value]) => same(permit.transaction[key], value)), '签名许可交易内容不一致，已停止发送。');
     record = permit.record; revision = permit.revision;
+    if (fastAuthorized) emit(onState, { status: 'authorizing' });
     await requireWallet(provider, account);
     const [lastNonce, pendingNonce] = await Promise.all(['latest','pending'].map(tag => provider.request({ method: 'eth_getTransactionCount', params: [account, tag] })));
     requireValue(rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');

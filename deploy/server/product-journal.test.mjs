@@ -198,6 +198,39 @@ test('cutover is checked before journal persistence and again before a creation 
   }finally{await f.close();}
 });
 
+test('atomic product authorization verifies once and durably saves one signing permission',async()=>{
+  const f=await fixture();
+  try{
+    const record=intent();
+    f.state.registered=false;
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})).status,409);
+    assert.equal((await f.request('market')).body.record,null);
+    f.state.registered=true;
+    const granted=await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0});
+    assert.equal(granted.status,200);
+    assert.equal(granted.body.revision,2);
+    assert.equal(granted.body.transaction.nonce,'0x7');
+    assert.equal(granted.body.transaction.data,record.data);
+    assert.equal(f.state.graphChecks,2,'one rejected and one accepted request each verify only once');
+    const saved=(await f.request('market')).body;
+    assert.equal(saved.revision,2);assert.deepEqual(saved.record,record);
+    assert.equal(saved.canAbandon,false,'a granted signing permission cannot be discarded as an unused preparation');
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})).status,409);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:2})).status,409);
+  }finally{await f.close();}
+});
+
+test('concurrent atomic signing requests cannot authorize two wallet sends',async()=>{
+  const f=await fixture();
+  try{
+    const record=intent();
+    const responses=await Promise.all([f.request('market/prepare-and-arm','POST',{record,expectedRevision:0}),
+      f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})]);
+    assert.deepEqual(responses.map(x=>x.status).sort(),[200,409]);
+    assert.equal((await f.request('market')).body.revision,2);
+  }finally{await f.close();}
+});
+
 test('product route rejects unconfigured factory, arbitrary selector, extra calldata and nonpayable value',async()=>{
   const f=await fixture();
   try{
