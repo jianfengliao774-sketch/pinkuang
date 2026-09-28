@@ -14,7 +14,7 @@
 .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .actions a,.actions button{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:46px;padding:10px 12px;background:var(--surface,#fffefa);color:var(--ink,#283e36);border:1px solid var(--border,#dedfd5);border-radius:7px;text-decoration:none;font-family:inherit;font-weight:600;font-size:15px;line-height:1.4;overflow-wrap:anywhere;text-align:center;cursor:pointer}
 .actions a:hover,.actions button:hover:not(:disabled){background:var(--soft,#eaece3);border-color:var(--brand-gold,#cab17b)}
-.actions a:first-child{background:var(--brand-gold,#cab17b);border-color:var(--brand-gold,#cab17b);color:#203a30}
+.actions a:nth-of-type(-n+2){background:var(--brand-gold,#cab17b);border-color:var(--brand-gold,#cab17b);color:#203a30}
 .xMark{font:700 18px/1 sans-serif}
 .privacy{font-size:13px;line-height:1.6;margin:15px 0 0;color:var(--muted,#6b766e);font-weight:550}
 .notice{min-height:21px;font-size:13px;line-height:1.6;margin:6px 0 0;color:var(--ink,#283e36);font-weight:600}

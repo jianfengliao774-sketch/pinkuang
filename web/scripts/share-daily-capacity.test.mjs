@@ -181,3 +181,43 @@ test('rejects invalid pool, NFT ownership, chain and reorg before exposing a pri
   }
   assert.deepEqual(await input(rpc(), { blockNumber: '11' }), { available: false, reason: 'invalid_block' });
 });
+
+test('live capacity read repins and rechecks identity when the quote overtakes its first block', async () => {
+  const base = rpc(); let latestReads = 0; const identityTags = [];
+  const advanced = { number: '0xb', hash: `0x${'12'.repeat(32)}`, timestamp: toQuantity(BigInt(now / 1000)) };
+  const provider = { async request({ method, params = [] }) {
+    if (method === 'eth_getBlockByNumber' && ((params[0] === 'latest' && ++latestReads > 1) || params[0] === '0xb')) return advanced;
+    if (method === 'eth_call' && params[1] === '0xb') {
+      identityTags.push(params[0].to);
+      return base.request({ method, params: [params[0], '0xa'] });
+    }
+    return base.request({ method, params });
+  } };
+  const result = await input(provider, { quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.equal(result.available, true);
+  assert.equal(result.sourceBlock, 11n);
+  assert.equal(result.miningSourceBlock, 11n);
+  assert.equal(result.observedAt, now);
+  assert.equal(identityTags.length, 4, 'registration, factory, target and ownership are rechecked');
+});
+
+test('a historical read never advances to a newer external quote', async () => {
+  const result = await input(rpc(), { blockNumber: '10',
+    quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.deepEqual(result, { available: false, reason: 'stale_quote' });
+});
+
+test('repinning rejects a changed owner instead of attaching capacity to an outdated miner', async () => {
+  const base = rpc(); let latestReads = 0;
+  const advanced = { number: '0xb', hash: `0x${'12'.repeat(32)}`, timestamp: toQuantity(BigInt(now / 1000)) };
+  const provider = { async request({ method, params = [] }) {
+    if (method === 'eth_getBlockByNumber' && params[0] === 'latest' && ++latestReads > 1) return advanced;
+    if (method === 'eth_call' && params[1] === '0xb') {
+      if (getAddress(params[0].to) === collection) return NFT.encodeFunctionResult('ownerOf', [address(20)]);
+      return base.request({ method, params: [params[0], '0xa'] });
+    }
+    return base.request({ method, params });
+  } };
+  const result = await input(provider, { quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.deepEqual(result, { available: false, reason: 'quote_identity' });
+});

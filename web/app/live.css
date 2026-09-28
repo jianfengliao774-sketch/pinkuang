@@ -644,6 +644,20 @@
   }
 }
 
+/* Supporting text on the pool and decision pages uses the normal body size. */
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .subtle-note,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters select,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .asset-cell small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-project-summary small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-governance-list small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .table-wrap th,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .table-wrap td {
+  font-size: 16px;
+  line-height: 1.65;
+}
+
 .live-order-state {
   display: block;
   font-size: 12px;

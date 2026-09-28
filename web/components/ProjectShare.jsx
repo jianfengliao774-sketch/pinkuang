@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { CheckCircle2, Copy, Link2, Send, Share2, X } from 'lucide-react';
 import { createProjectShare } from '../lib/project-share.mjs';
+import { commonSharePreview } from '../lib/share-preview.mjs';
 import ShareArtwork from './ShareArtwork';
 import ShareCopyControls from './ShareCopyControls';
 import useShareVariation from './useShareVariation';
@@ -31,7 +32,6 @@ const COPY = {
 export default function ProjectShare({ locale = 'zh', publicBaseUrl, project, confirmation, onDismiss }) {
   const copy = COPY[locale === 'en' ? 'en' : 'zh'];
   const { posterId, mottoIndex, ready, changeVariation } = useShareVariation();
-  const [channel, setChannel] = useState('telegram');
   const model = createProjectShare({ locale, publicBaseUrl, project, confirmation, mottoIndex, posterId });
   const headingId = useId();
   const previewRef = useRef(null);
@@ -55,7 +55,8 @@ export default function ProjectShare({ locale = 'zh', publicBaseUrl, project, co
     }
   }
 
-  const selectedCopy = `${channel === 'x' ? model.xText : model.text}\n${model.url}`;
+  const preview = commonSharePreview(model);
+  const selectedCopy = preview.copyText;
 
   return <section className={styles.card} aria-labelledby={headingId}>
     <div className={styles.top}>
@@ -68,11 +69,11 @@ export default function ProjectShare({ locale = 'zh', publicBaseUrl, project, co
     <div className={styles.preview}>
       <div className={styles.brand}>拼矿 <span>BEMine</span></div>
       <strong className={styles.project}>{model.title}</strong>
-      <ShareCopyControls locale={locale} channel={channel} onChannelChange={setChannel} ready={ready} onNextVariation={() => { changeVariation(); setNotice(''); }} />
-      <textarea ref={previewRef} aria-label={`${channel === 'x' ? 'X' : 'Telegram'} ${copy.label}`} readOnly value={selectedCopy} rows={6} />
+      <ShareCopyControls locale={locale} ready={ready} onNextVariation={() => { changeVariation(); setNotice(''); }} />
+      <textarea ref={previewRef} aria-label={copy.label} readOnly value={selectedCopy} rows={6} />
     </div>
     <div className={styles.actions}>
-      <a href={model.telegramUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(copy.opened)}><Send size={17} aria-hidden="true" />Telegram</a>
+      <a href={preview.telegramUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(copy.opened)}><Send size={17} aria-hidden="true" />Telegram</a>
       <a href={model.xUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(copy.opened)}><span className={styles.xMark} aria-hidden="true">𝕏</span>X</a>
       <button type="button" onClick={() => copyValue(model.url)}><Link2 size={17} aria-hidden="true" />{copy.link}</button>
       <button type="button" onClick={() => copyValue(selectedCopy)}><Copy size={17} aria-hidden="true" />{copy.text}</button>
