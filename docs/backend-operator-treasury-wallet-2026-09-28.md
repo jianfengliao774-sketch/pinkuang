@@ -12,6 +12,10 @@
 
 凭据交付优先使用 systemd `LoadCredential=keeper-private-key:/etc/pinkuang/keeper-private-key`；四个 keeper 已支持从 `$CREDENTIALS_DIRECTORY/keeper-private-key` 读取，并拒绝它与旧 `KEEPER_PRIVATE_KEY` 同时配置。凭据文件仍需由用户在服务器私有位置建立；仓库、浏览器和聊天均不接收私钥。程序未见到该文件前维持只读，不自动启用发送。
 
+用户另行明确：**合约部署与升级使用其单独准备的硬件钱包**。硬件钱包只在钱包设备中签署部署、Factory 所有者操作和 Timelock 升级提案；私钥不进入服务器。新部署时部署页的管理钱包应连接硬件钱包，并显式填写另一个运营地址及金库地址，不能沿用默认把三种角色都设为连接钱包的配置。
+
+当前已部署的两套 Factory 仍把 `0x6F4d…155E` 同时登记为 owner、operator、treasury，且共享的 `PoolTimelock 0x0E8837c0e1f4EA1FF53053622DEF228F6989C97C` 仍授予此地址提案/取消权限。若要把**现有部署**的升级权移给新硬件地址，先由旧权限签名地址在两套 Factory 执行 `transferOwnership`，再由旧 Timelock 提案地址安排“授予新地址 PROPOSER/CANCELLER、撤销旧地址对应角色”的延时交易，并核验实际角色结果；顺序上先确认新硬件地址已获权，才撤销旧地址。Beacon 与两个市场的升级权限指向该固定 Timelock，不能靠更换后台私钥转移。此迁移尚未执行，硬件钱包地址未提供前不能生成最终交易或宣称权限已分离。
+
 ## 当前链上身份与费用去向
 
 2026-09-28 只读查询 BSC 区块 `124417640`：既有 Factory `0xcB24E7F96D81037086A268d6ea63c53f91D412A2` 的 owner、operator、treasury 均为 `0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E`，`poolCount()=0`。这是当时状态，不证明后台已经持有该私钥。如果后台改用新地址，须先由有权钱包在链上设置 `setOperator` 和 `setTreasury`，然后重新核验；对未来新池生效，已创建池的 treasury 不随 Factory 更新。新地址只需放在后台，不需要把 owner 升级权放进无人值守服务。多矿机 BudgetPortfolioFactory 的 treasury 在初始化时设置，没有当前 Factory 的直接 `setTreasury` 入口；启用前单独核对。下表的双边份额费与多机服务费描述的是本开发分支；主网原 ShareMarket 在 2026-09-27 核对时尚不支持 `buyerFeeBps()`，不能把新版费率当成已上线。
