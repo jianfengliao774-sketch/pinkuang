@@ -48,6 +48,9 @@ const beaconAbi = new Interface(['function upgradeTo(address)', 'function implem
   'function owner() view returns(address)', 'event Upgraded(address indexed implementation)']);
 const lensAbi = new Interface(['function factory() view returns(address)']);
 const timelockAbi = new Interface([
+  'function schedule(address,uint256,bytes,bytes32,bytes32,uint256)',
+  'function execute(address,uint256,bytes,bytes32,bytes32) payable',
+  'function hashOperation(address,uint256,bytes,bytes32,bytes32) view returns(bytes32)',
   'function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)',
   'function executeBatch(address[],uint256[],bytes[],bytes32,bytes32) payable',
   'function hashOperationBatch(address[],uint256[],bytes[],bytes32,bytes32) view returns(bytes32)',
@@ -61,6 +64,7 @@ const timelockAbi = new Interface([
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
   'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
 ]);
+const migrationAbi = new Interface(['function migrateTreasury(address expectedOld,address next)']);
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 function requireThat(ok, reason) { if (!ok) throw new Error(reason); }
 function address(value, label) {
@@ -587,4 +591,43 @@ export async function validateIntegratedUpgradeResultAgainstChain(provider,plan,
     checkedAt:new Date().toISOString(),blockNumber:finalized.number,blockHash:finalized.hash,
     scheduleTxHash,executeTxHash,poolCount:poolCount.toString(),portfolioCount:portfolioCount.toString(),
     historical,legacyTreasuryResidual,checks};
+}
+
+/** Independent 48-hour operations; one harvest failure cannot strand another pool. */
+export function buildIntegratedTreasuryMigrationPlan(input) {
+  const {genesisRecord,codeResult,authorityAddress,saltSeed,delaySeconds} = input;
+  requireThat(codeResult?.codeUpgradeComplete === true && codeResult?.roleMigrationComplete === false
+    && HASH.test(codeResult.operationId) && Array.isArray(codeResult.historical),
+  'A verified code-upgrade result is required before historical treasury migration.');
+  const old = genesisRecord?.addresses;
+  const authority = address(authorityAddress,'PlatformAuthority');
+  requireThat(old?.timelock && old?.factory && old?.portfolioFactory
+    && HASH.test(saltSeed) && BigInt(saltSeed) !== 0n
+    && Number.isSafeInteger(delaySeconds) && delaySeconds >= MIN_DELAY,
+  'Invalid treasury migration authority, seed or delay.');
+  const portfolios = codeResult.historical.filter(item => item.kind === 'portfolio'
+    && !same(item.treasury,authority));
+  requireThat(portfolios.length === 0,
+    'Existing budget portfolio treasuries have no reviewed migration setter.');
+  const pools = codeResult.historical.filter(item => item.kind === 'pool'
+    && !same(item.treasury,authority));
+  requireThat(new Set(pools.map(item => item.address.toLowerCase())).size === pools.length,
+    'Duplicate historical pool migration target.');
+  const operations = pools.map(item => {
+    const target = address(item.address,'historical pool');
+    const expectedOld = address(item.treasury,'historical treasury');
+    const salt = keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32','address'],[saltSeed,target]));
+    const data = migrationAbi.encodeFunctionData('migrateTreasury',[expectedOld,authority]);
+    const operationId = keccak256(AbiCoder.defaultAbiCoder().encode(
+      ['address','uint256','bytes','bytes32','bytes32'],[target,0n,data,ZeroHash,salt]));
+    return {target,expectedOld,next:authority,data,value:'0',predecessor:ZeroHash,salt,
+      delaySeconds,operationId,
+      scheduleData:timelockAbi.encodeFunctionData('schedule',[target,0n,data,ZeroHash,salt,delaySeconds]),
+      executeData:timelockAbi.encodeFunctionData('execute',[target,0n,data,ZeroHash,salt])};
+  });
+  return {kind:'integrated-v2-historical-treasury-migration-v1',
+    codeResultDigest:evidenceDigest(codeResult),codeUpgradeOperationId:codeResult.operationId,
+    authorityAddress:authority,timelock:address(old.timelock,'timelock'),
+    saltSeed,delaySeconds,operations,roleMigrationComplete:false,
+    historicalBnbAndBemOwedRemainWithOldTreasury:true};
 }
