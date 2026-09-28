@@ -105,7 +105,7 @@ def candidate_unit(old):
     return text.encode()
 def index_text():
     m=CONFIG['manifest'];env={'NODE_ENV':'production','CHAIN_INDEX_HOST':'127.0.0.1','CHAIN_INDEX_PORT':'4181',
-      'CHAIN_INDEX_DB':'/var/lib/pinkuang-index-v2/index.sqlite','CHAIN_INDEX_CONFIRMATIONS':'12','CHAIN_INDEX_SCAN_RANGE':'500',
+      'CHAIN_INDEX_DB':'/var/lib/pinkuang-index-v2/index.sqlite','CHAIN_INDEX_CONFIRMATIONS':'12','CHAIN_INDEX_SCAN_RANGE':'100',
       'CHAIN_INDEX_RPC_URL':primary_rpc,'CHAIN_INDEX_LOGS_RPC_URL':CONFIG['logsRpcUrl'],
       'CHAIN_INDEX_FACTORY':m['factory'],'CHAIN_INDEX_MARKET':m['shareMarket'],
       'CHAIN_INDEX_PORTFOLIO_FACTORY':m['portfolioFactory'],'CHAIN_INDEX_PORTFOLIO_MARKET':m['portfolioMarket'],

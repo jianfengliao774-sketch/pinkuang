@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS } from '../lib/live-config.mjs';
+import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS } from '../lib/live-config.mjs';
 import { createLiveDataClient, validateIndexSource } from '../lib/live-data.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
@@ -61,10 +61,10 @@ function provider(options = {}) {
     else if (name === 'VERSION') value = options.lensVersion ?? 1n;
     else if (name === 'poolCount') value = BigInt(options.totalPools ?? rows.length);
     else if (name === 'nextOrderId') value = 2n;
-    else if (name === 'positions') value = { blockNumber: 10n, timestamp: BigInt(timestamp),
+    else if (name === 'positions') value = { blockNumber: BigInt(options.blockNumber ?? 10), timestamp: BigInt(timestamp),
       totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
       pools: parsed.args[0].map(address => rows.find(r => r.pool === address) ?? row({ pool: address })) };
-    else if (name === 'poolPage') value = { blockNumber: 10n, timestamp: BigInt(timestamp),
+    else if (name === 'poolPage') value = { blockNumber: BigInt(options.blockNumber ?? 10), timestamp: BigInt(timestamp),
       totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
       pools: rows.slice(Number(parsed.args[0]), Number(parsed.args[0] + parsed.args[1])) };
     else if (name === 'bnbOwed') value = 123456789012345678901234n;
@@ -388,6 +388,22 @@ test('orders are re-read on chain and remain non-executable history candidates',
   assert.equal(result.items[0].executable, false); assert.equal(result.items[0].requiresLatestSimulation, true);
   await assert.rejects(client({ '/v1/orders': ordersData }, { wrongOrder: true }).readOrders(), { code: 'order_mismatch' });
   await assert.rejects(client({ '/v1/orders': ordersData }).readOrders({ active: false }), { code: 'order_mismatch' });
+});
+
+test('a pruned index block falls back to a fresh confirmed order read', async () => {
+  const base = provider({ latestBlockNumber: 30n, blockNumber: 18n });
+  const rpc = { request(input) {
+    if (input.method === 'eth_getCode' && input.params[1] === '0xa')
+      throw new LiveDataError('rpc_error', '只读 RPC 返回错误或不匹配的响应。');
+    return base.request(input);
+  } };
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/orders')
+    ? response({ source, data: ordersData }) : response({ error: 'index unavailable' }, 503);
+  const result = await createLiveDataClient(config, { provider: rpc, fetcher, now: () => now }).readOrders({ active: true });
+  assert.equal(result.source.readMode, 'direct_chain');
+  assert.equal(result.source.indexedThrough, 18);
+  assert.equal(result.items[0].orderId, 1n);
+  assert.equal(result.items[0].executable, false);
 });
 
 test('governance reads masks, so unknown eligibility cannot silently be treated as eligible', async () => {

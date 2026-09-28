@@ -4,7 +4,7 @@ export const READ_RETRY_DELAYS_MS = Object.freeze([1000, 2000, 4000, 8000, 12000
 export const READ_RETRY_MAX_ATTEMPTS = READ_RETRY_DELAYS_MS.length + 1;
 
 export function isRetryableReadError(error) {
-  return ['index_incomplete', 'index_stale', 'source_changed'].includes(error?.code)
+  return ['index_incomplete', 'index_stale', 'source_changed', 'rpc_error'].includes(error?.code)
     || (error?.code === 'http_unavailable' && [502, 503, 504].includes(error.details?.status));
 }
 

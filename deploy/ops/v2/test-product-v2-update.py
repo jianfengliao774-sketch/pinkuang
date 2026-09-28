@@ -42,6 +42,7 @@ class CatchupConfiguration(unittest.TestCase):
   self.ns.update(CONFIG=config,primary_rpc=primary,runtime='/srv/test-runtime')
   unit=self.ns['index_text']().decode();self.assertIn('CHAIN_INDEX_RPC_URL=https://bsc.publicnode.com\n',unit)
   self.assertIn('CHAIN_INDEX_LOGS_RPC_URL=https://bsc-rpc.publicnode.com\n',unit)
+  self.assertIn('CHAIN_INDEX_SCAN_RANGE=100\n',unit)
   self.assertIn('CHAIN_INDEX_START_BLOCK=124453751\n',unit);self.assertIn('CHAIN_INDEX_CONFIRMATIONS=12\n',unit)
  def test_invalid_bounds_and_path_or_environment_injection_rejected(self):
   for seconds in [True,119,1201,120.0,'600',None]:
