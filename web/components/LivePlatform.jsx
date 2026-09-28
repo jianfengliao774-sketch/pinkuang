@@ -1,6 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
 import {
@@ -231,7 +232,6 @@ export default function LivePlatform() {
   const [loadedRoute, setLoadedRoute] = useState("");
   const [orderCapacity, setOrderCapacity] = useState({});
   const [poolCapacity, setPoolCapacity] = useState({});
-  const [poolQuoteRevision, setPoolQuoteRevision] = useState(0);
   const [capacityNow, setCapacityNow] = useState(0);
   const [loadedAccount, setLoadedAccount] = useState(null);
   const [positionsAccount, setPositionsAccount] = useState(null);
@@ -256,7 +256,8 @@ export default function LivePlatform() {
     [transactionGasWei, setTransactionGasWei] = useState(null),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
-    [refresh, setRefresh] = useState(0);
+    [refresh, setRefresh] = useState(0),
+    [operatorRefresh, setOperatorRefresh] = useState(0);
   const [modal, setModal] = useState(null),
     [quantity, setQuantity] = useState("1"),
     [price, setPrice] = useState(""),
@@ -285,6 +286,14 @@ export default function LivePlatform() {
     lastConfirmed = useRef(null),
     walletEpoch = useRef(0),
     activeModal = useRef(null);
+  const lastPageRefresh = useRef(new Map());
+  const portfolioRead = useRef({ busy: false, failed: false });
+  const capacityDisplay = useRef({ pools: {}, orders: {} });
+  const refreshState = useRef(null);
+  capacityDisplay.current = { pools: poolCapacity, orders: orderCapacity };
+  refreshState.current = { loading: loading || positionsReadLoading || marketOrdersLoading || activityReadLoading,
+    busy, modal: !!modal, pending: !!pending,
+    failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
   useEffect(() => {
     if (modal?.type !== 'connect-wallet') cancelWalletScan();
@@ -304,7 +313,7 @@ export default function LivePlatform() {
   // Reject it during render, before the effect cleanup, when any identity changes.
   const operatorContextCurrent = !!wallet && !!account && !!config
     && connectedWallet.current === wallet && operator?.provider === wallet
-    && operator.walletRevision === walletRevision && operator.refresh === refresh
+    && operator.walletRevision === walletRevision && operator.refresh === operatorRefresh
     && operator.deployment === boot && same(operator.account, account)
     && same(operator.factory, config.factory);
   const isOperator = operatorContextCurrent && operator.status === 'verified'
@@ -333,7 +342,7 @@ export default function LivePlatform() {
     setOperator(null);
     if (wallet && account && config) {
       const binding = { provider: wallet, account, factory: config.factory,
-        walletRevision, refresh, deployment: boot };
+        walletRevision, refresh: operatorRefresh, deployment: boot };
       const current = () => active && connectedWallet.current === wallet && walletEpoch.current === walletRevision;
       setOperator({ ...binding, status: 'checking' });
       readOperatorStatus({ provider: wallet, config, account }).then(result => {
@@ -341,7 +350,7 @@ export default function LivePlatform() {
       }).catch(() => { if (current()) setOperator({ ...binding, status: 'error' }); });
     }
     return () => { active = false; };
-  }, [wallet, account, boot, refresh, walletRevision]);
+  }, [wallet, account, boot, operatorRefresh, walletRevision]);
 
   useEffect(() => {
     try {
@@ -519,6 +528,27 @@ export default function LivePlatform() {
   const accountNeeded = ["overview", "rewards"].includes(route.route);
 
   useEffect(() => {
+    if (!client || refreshIntervalMs(route.route) === null) return;
+    const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+    lastPageRefresh.current.set(page, Date.now());
+    const check = () => {
+      const state = refreshState.current;
+      const now = Date.now();
+      if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
+        visible: document.visibilityState === 'visible',
+        busy: state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy,
+        failed: state.failed || portfolioRead.current.failed })) return;
+      lastPageRefresh.current.set(page, now);
+      setRefresh(value => value + 1);
+    };
+    const timer = setInterval(check, 5_000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => { clearInterval(timer); window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check); };
+  }, [client, route.route, route.pool, account]);
+
+  useEffect(() => {
     if (!client) return;
     if (route.route === 'notifications') {
       setLoadedRoute('notifications'); setLoading(false); setError(''); setReadRetry(null); setReadFailed(false);
@@ -555,23 +585,20 @@ export default function LivePlatform() {
       setReadRetry(progress.attempt > 1 ? progress : null);
       setReadFailed(false);
       setCachedPage(!!cached);
-      setLoadedRoute(cached ? route.route + (route.pool ? `/${route.pool}` : '') : '');
+      setLoadedRoute(cached || (!needsCatalog && route.route !== 'detail')
+        ? route.route + (route.pool ? `/${route.pool}` : '') : '');
       setLoadedAccount(null);
-      if (progress.attempt === 1) { setPositionsLoaded(false); setPositionsAccount(null); }
-      setPools([]);
-      if (progress.attempt === 1) { setPositions([]); setMarketCredit(null); }
       setLoading(true);
       setError("");
-      setDetail(null);
-      setGovernance(null);
-      setMembers([]);
-      setMembersRead({ status: "idle" });
-      if (progress.attempt === 1) { setOrders([]); setActivity([]); setStats(null); }
-      setSource(null);
-      setYieldData(null);
       setPrepared(null);
-      setPoolCursor(null);
-      if (progress.attempt === 1) { setPositionCursor(null); setOrderCursor(null); setActivityCursor(null); }
+      // The route's sections own their data. Keep verified display values visible
+      // while this page revalidates, instead of clearing unrelated panels.
+      if (!cached && progress.attempt === 1) {
+        if (needsCatalog) { setPools([]); setPoolCursor(null); }
+        if (route.route === 'detail') { setDetail(null); setGovernance(null); setMembers([]);
+          setMembersRead({ status: 'idle' }); setYieldData(null); }
+        setSource(null);
+      }
       if (cached) showResult(cached);
     };
     async function load() {
@@ -597,11 +624,9 @@ export default function LivePlatform() {
         if (current()) {
           setError(textError(e));
           setReadFailed(true);
-          setPools([]);
-          setDetail(null);
-          setGovernance(null);
-          setSource(null);
-          setCachedPage(false);
+          // A failed revalidation must not turn the last verified display into
+          // an apparent empty account. Transaction paths still require fresh reads.
+          setCachedPage(!!cached);
         }
       })
       .finally(() => {
@@ -629,15 +654,18 @@ export default function LivePlatform() {
       setPositionsReadLoading(false);
       return;
     }
-    const cached = readCache.current.get(client)?.get(`positions:${owner}`);
-    if (cached && Date.now() - cached.savedAt < 120_000) {
-      setPositions(cached.result.items.map(viewPool));
-      setPositionCursor(cached.result.nextCursor);
+    const cacheKey = `positions:${owner}`;
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setPositions(cached.items.map(viewPool));
+      setPositionCursor(cached.nextCursor);
       setPositionsLoaded(true);
       setPositionsAccount(account);
-      setMarketCredit(cached.result.marketBnbOwed);
-      setPositionsReadSource(cached.result.source);
-      if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(cached.result.source);
+      setMarketCredit(cached.marketBnbOwed);
+      setPositionsReadSource(cached.source);
+      if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(cached.source);
     } else {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
@@ -654,7 +682,8 @@ export default function LivePlatform() {
         if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(`positions:${owner}`, { savedAt: Date.now(), result });
+        entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) setPositionsReadError(textError(error)); })
       .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
@@ -672,11 +701,13 @@ export default function LivePlatform() {
       return;
     }
     const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
-    const cached = readCache.current.get(client)?.get(cacheKey);
-    if (cached && Date.now() - cached.savedAt < 120_000) {
-      setOrders(cached.result.items);
-      setOrderCursor(cached.result.nextCursor);
-      setMarketOrderSource(cached.result.source);
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setOrders(cached.items);
+      setOrderCursor(cached.nextCursor);
+      setMarketOrderSource(cached.source);
     } else {
       setOrders([]); setOrderCursor(null);
     }
@@ -691,6 +722,7 @@ export default function LivePlatform() {
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
         entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) setMarketOrdersError(textError(error)); })
       .finally(() => { if (!cancelled) setMarketOrdersLoading(false); });
@@ -709,12 +741,14 @@ export default function LivePlatform() {
       return;
     }
     const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
-    const cached = readCache.current.get(client)?.get(cacheKey);
-    if (cached && Date.now() - cached.savedAt < 120_000) {
-      setActivity(cached.result.items);
-      setActivityCursor(cached.result.nextCursor);
-      setActivityReadSource(cached.result.source);
-      if (route.route === 'records') setSource(cached.result.source);
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setActivity(cached.items);
+      setActivityCursor(cached.nextCursor);
+      setActivityReadSource(cached.source);
+      if (route.route === 'records') setSource(cached.source);
     } else {
       setActivity([]); setActivityCursor(null);
     }
@@ -729,6 +763,7 @@ export default function LivePlatform() {
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
         entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) setActivityReadError(textError(error)); })
       .finally(() => { if (!cancelled) setActivityReadLoading(false); });
@@ -739,8 +774,10 @@ export default function LivePlatform() {
     if (!client || route.route !== 'home') return;
     let cancelled = false;
     setStatsReadError('');
-    const cached = readCache.current.get(client)?.get('stats');
-    setStats(cached && Date.now() - cached.savedAt < 120_000 ? cached.result.data : null);
+    const memory = readCache.current.get(client)?.get('stats');
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, 'stats');
+    setStats(cached?.data ?? null);
     retryReadRound(() => client.readStats(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -748,51 +785,33 @@ export default function LivePlatform() {
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
         entries.set('stats', { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
       })
       .catch(error => { if (!cancelled) setStatsReadError(textError(error)); });
     return () => { cancelled = true; };
   }, [client, route.route, refresh]);
 
   useEffect(() => {
-    if (!client || !config || route.route !== 'detail' || !source) return;
-    let cancelled = false, checking = false;
-    const checkForUpdate = async () => {
-      if (cancelled || checking || document.visibilityState !== 'visible' || loading || busy || modal
-        || Date.now() - Date.parse(source.checkedAt) < 30_000) return;
-      checking = true;
-      try {
-        const response = await fetch(`${config.indexBaseUrl}/health`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const latest = (await response.json()).source;
-        if (!cancelled && latest?.complete === true && latest.chainId === 56
-          && same(latest.factory, config.factory) && Number.isSafeInteger(latest.indexedThrough)
-          && latest.indexedThrough > source.indexedThrough) setRefresh(value => value + 1);
-      } catch {} finally { checking = false; }
-    };
-    const timer = setInterval(() => void checkForUpdate(), 60_000);
-    window.addEventListener('focus', checkForUpdate);
-    document.addEventListener('visibilitychange', checkForUpdate);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      window.removeEventListener('focus', checkForUpdate);
-      document.removeEventListener('visibilitychange', checkForUpdate);
-    };
-  }, [client, boot, route.route, source, loading, busy, modal]);
-
-  useEffect(() => {
     if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
     let cancelled = false;
     const pool = route.pool;
     const owner = account || ZeroAddress;
+    const governanceKey = `pool-governance:${pool.toLowerCase()}:${owner.toLowerCase()}`;
+    const activityKey = `pool-activity:${pool.toLowerCase()}`;
+    const governanceCache = readDisplaySnapshot(displayStorage(), client.manifest, governanceKey);
+    const activityCache = readDisplaySnapshot(displayStorage(), client.manifest, activityKey);
+    if (governanceCache) setGovernance(governanceCache.data);
+    if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor); }
     void client.readGovernance({ pool, account: owner })
-      .then(result => { if (!cancelled) setGovernance(result.data); })
-      .catch(() => { if (!cancelled) setGovernance(null); });
+      .then(result => { if (!cancelled) { setGovernance(result.data);
+        writeDisplaySnapshot(displayStorage(), client.manifest, governanceKey, result); } })
+      .catch(() => { if (!cancelled && !governanceCache) setGovernance(null); });
     void client.readActivity({ pool })
       .then(result => {
-        if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor); }
+        if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
+          writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
       })
-      .catch(() => { if (!cancelled) { setActivity([]); setActivityCursor(null); } });
+      .catch(() => { if (!cancelled && !activityCache) { setActivity([]); setActivityCursor(null); } });
     return () => { cancelled = true; };
   }, [client, account, route.route, route.pool, detail, loading, refresh]);
 
@@ -804,14 +823,9 @@ export default function LivePlatform() {
   }, [route.route]);
 
   useEffect(() => {
-    if (!['pools', 'detail'].includes(route.route)) return;
-    const timer = setInterval(() => setPoolQuoteRevision(value => value + 1), 120_000);
-    return () => clearInterval(timer);
-  }, [route.route]);
-
-  useEffect(() => {
     let cancelled = false;
-    setPoolCapacity({});
+    setPoolCapacity(previous => Object.fromEntries(Object.entries(previous)
+      .filter(([, quote]) => quote?.validUntil > Date.now())));
     if (!client || !config || loading || !['pools', 'detail'].includes(route.route)) return;
     const rows = route.route === 'detail' ? (detail ? [detail] : []) : pools;
     if (!rows.length) return;
@@ -821,20 +835,26 @@ export default function LivePlatform() {
       while (!cancelled && next < rows.length) {
         const row = rows[next++];
         if (!row?.trusted || !row.params || row.unitPriceWei === null) continue;
+        const key = row.pool.toLowerCase();
+        const previous = capacityDisplay.current.pools[key];
+        if (previous?.available && previous.validUntil > Date.now()
+          && previous.forPriceWei === row.unitPriceWei.toString()) continue;
         const quote = await readShareDailyCapacityPrice(provider, {
           factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
           allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
         });
-        if (!cancelled) setPoolCapacity(previous => ({ ...previous, [row.pool.toLowerCase()]: quote }));
+        if (!cancelled) setPoolCapacity(previous => ({ ...previous,
+          [key]: { ...quote, forPriceWei: row.unitPriceWei.toString() } }));
       }
     };
     void Promise.all(Array.from({ length: Math.min(2, rows.length) }, worker));
     return () => { cancelled = true; };
-  }, [client, route.route, pools, detail, boot, refresh, poolQuoteRevision, loading]);
+  }, [client, route.route, pools, detail, boot, refresh, loading]);
 
   useEffect(() => {
     const revision = ++capacityEpoch.current;
-    setOrderCapacity({});
+    setOrderCapacity(previous => Object.fromEntries(Object.entries(previous)
+      .filter(([, quote]) => quote?.validUntil > Date.now())));
     if (!client || route.route !== "market" || marketTab === "whole" || !orders.length || !config) return;
     const provider = createReadOnlyHttpProvider(config);
     const firstByPool = new Map();
@@ -844,13 +864,17 @@ export default function LivePlatform() {
     }
     // Limit automatic lookups against the shared Firsto quota. Others are explicit.
     void Promise.all([...firstByPool].slice(0, 2).map(async ([key, order]) => {
+      const cached = capacityDisplay.current.orders[key];
+      if (cached?.available && cached.validUntil > Date.now()
+        && cached.forPriceWei === order.pricePerUnitWei.toString()) return;
       setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
       const result = await readShareDailyCapacityPrice(provider, {
         factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
       });
       if (capacityEpoch.current !== revision) return;
       setCapacityNow(Date.now());
-      setOrderCapacity(previous => ({ ...previous, [key]: result }));
+      setOrderCapacity(previous => ({ ...previous,
+        [key]: { ...result, forPriceWei: order.pricePerUnitWei.toString() } }));
     }));
     return () => { capacityEpoch.current++; };
   }, [client, route.route, marketTab, orders, boot]);
@@ -871,7 +895,10 @@ export default function LivePlatform() {
 
   useEffect(() => {
     let cancelled = false;
-    setYieldData(null);
+    const yieldKey = `pool-yield:${route.pool?.toLowerCase() || ''}:${account?.toLowerCase() || 'public'}:${yieldDays}`;
+    const cached = client && route.route === 'detail' && route.pool
+      ? readDisplaySnapshot(displayStorage(), client.manifest, yieldKey) : null;
+    setYieldData(cached?.data || null);
     if (client && route.route === "detail" && route.pool && source)
       client
         .readYield({
@@ -881,7 +908,8 @@ export default function LivePlatform() {
           source,
         })
         .then((result) => {
-          if (!cancelled) setYieldData(result.data);
+          if (!cancelled) { setYieldData(result.data);
+            writeDisplaySnapshot(displayStorage(), client.manifest, yieldKey, result); }
         })
         .catch(() => {});
     return () => {
@@ -1073,6 +1101,7 @@ export default function LivePlatform() {
     setPrepared(null);
     setModal(null);
     setRefresh((v) => v + 1);
+    if (route.route === 'operator') setOperatorRefresh(v => v + 1);
     if (result.status === "confirmed" && result.finalized === true && result.action === "claim")
       setNotificationClaim(result);
     setMessage(
@@ -1416,7 +1445,12 @@ export default function LivePlatform() {
   const refreshButton = (
     <Button
       secondary
-      onClick={() => boot.status === "ready" ? setRefresh((v) => v + 1) : setBootAttempt((v) => v + 1)}
+      onClick={() => {
+        if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
+        const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+        lastPageRefresh.current.set(page, Date.now());
+        setRefresh(v => v + 1);
+      }}
       disabled={loading || busy || boot.status === "loading"}
     >
       <RefreshCw size={16} />
@@ -2786,11 +2820,12 @@ export default function LivePlatform() {
               </section>
             </>
           )}
-          {route.route === "market" && <FirstoMarketBoard />}
+          {route.route === "market" && <FirstoMarketBoard refreshKey={refresh} />}
           {['pools','overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={loading || busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
+            onReadStateChange={state => { portfolioRead.current = state; }}
             onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>}
 
           {route.route === "governance" && (
@@ -2853,7 +2888,7 @@ export default function LivePlatform() {
             {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}:${refresh}`} config={config} wallet={wallet} account={account}
               operator={operator} disabled={loading || busy || !!pending} onSend={sendAdminAction}
               gasFeeWei={transactionGasWei}
-              onRefresh={() => setRefresh(value => value + 1)}/>}
+              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={loading || busy || !!pending} onConnect={connect} onSend={sendPortfolio}
               onSendQueue={sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
@@ -2871,7 +2906,7 @@ export default function LivePlatform() {
             <div className="live-actions">
               <Button secondary onClick={() => go('home')}>{L('返回拼矿首页', 'Back to home')}</Button>
               {wallet && account && operatorAccess !== 'checking' && <Button secondary disabled={busy}
-                onClick={() => setRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
+              onClick={() => setOperatorRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
             </div>
           </section>)}
           {route.route === "records" && (

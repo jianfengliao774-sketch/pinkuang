@@ -19,3 +19,14 @@ test('persists only identity-bound, verified display data and preserves exact am
   assert.equal(readDisplaySnapshot(cache, manifest, 'detail:wallet', { now: 3_601_001 }), null);
   assert.equal(writeDisplaySnapshot(cache, manifest, 'unverified', { detail: { source: { ...source, complete: false } } }), false);
 });
+
+test('section snapshots stay separate for each account and reject unverified data', () => {
+  const cache = storage();
+  const first = { source, items: [{ shares: 99n }] };
+  const accountA = `positions:0x${'aa'.repeat(20)}`;
+  const accountB = `positions:0x${'bb'.repeat(20)}`;
+  assert.equal(writeDisplaySnapshot(cache, manifest, accountA, first, { now: 1000 }), true);
+  assert.deepEqual(readDisplaySnapshot(cache, manifest, accountA, { now: 2000 }), first);
+  assert.equal(readDisplaySnapshot(cache, manifest, accountB, { now: 2000 }), null);
+  assert.equal(writeDisplaySnapshot(cache, manifest, accountB, { ...first, source: { ...source, complete: false } }), false);
+});

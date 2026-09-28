@@ -14,7 +14,7 @@ function key(manifest, page) {
 }
 
 function verifiedSource(result, manifest) {
-  const source = result?.detail?.source ?? result?.catalog?.source;
+  const source = result?.detail?.source ?? result?.catalog?.source ?? result?.source;
   return source?.complete === true && source.unknownReason === null && source.chainId === 56
     && source.factory?.toLowerCase() === manifest.factory.toLowerCase()
     && source.market?.toLowerCase() === manifest.shareMarket.toLowerCase()
