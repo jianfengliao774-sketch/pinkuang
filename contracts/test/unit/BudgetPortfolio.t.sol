@@ -143,6 +143,26 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.childCount(), 1);
     }
 
+    function test_budgetFactoryTreasuryChangeAffectsFutureProjectsOnly() public {
+        address updatedTreasury = address(0xBEEF);
+        vm.prank(ALICE);
+        vm.expectRevert();
+        portfolios.setTreasury(updatedTreasury);
+        vm.prank(OWNER);
+        vm.expectRevert(BudgetPortfolioFactory.InvalidAddress.selector);
+        portfolios.setTreasury(address(0));
+        vm.prank(OWNER);
+        portfolios.setTreasury(updatedTreasury);
+        assertEq(project.treasury(), TREASURY);
+        vm.prank(OPERATOR);
+        BudgetPortfolioVault later = BudgetPortfolioVault(
+            payable(portfolios.createPortfolio(
+                    1 ether, 1 ether, 1 ether, uint64(block.timestamp + 1 days), uint64(block.timestamp + 2 days)
+                ))
+        );
+        assertEq(later.treasury(), updatedTreasury);
+    }
+
     function _list(uint256 id, uint96 price) private returns (uint256 listingId) {
         nft.mint(SELLER, id);
         mining.configure(address(nft), id, 1_000, 100);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0x1d5125e54ab34a36a657939692e5fadd529148538c2d41698c67fbb2c04ca031",
+  "artifactDigest": "0x2925b47c44129f054b6e4bd06d49be62d1fe2b261824e0bc4dcacf165900ec58",
   "abis": {
     "PoolFactory": [
       {
@@ -6684,6 +6684,25 @@
           {
             "indexed": true,
             "internalType": "address",
+            "name": "previous",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "next",
+            "type": "address"
+          }
+        ],
+        "name": "TreasuryChanged",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
             "name": "implementation",
             "type": "address"
           }
@@ -7008,6 +7027,19 @@
           }
         ],
         "name": "setOperator",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "next",
+            "type": "address"
+          }
+        ],
+        "name": "setTreasury",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"

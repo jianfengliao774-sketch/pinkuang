@@ -361,9 +361,11 @@ function readPrivateJson(path) {
 }
 
 export function readJournal(path, options) {
-  if (!existsSync(path)) return { version: 1, chainId: 56, factory: options.factory, pool: options.pool, transaction: null, gasSpentWei: '0', gasReceipts: {} };
+  if (!existsSync(path)) return { version: 1, chainId: 56, factory: options.factory, pool: options.pool,
+    transactionTarget: options.transactionTarget ?? options.pool, transaction: null, gasSpentWei: '0', gasReceipts: {} };
   const journal = readPrivateJson(path);
   if (journal.version !== 1 || journal.chainId !== 56 || !same(journal.factory ?? '', options.factory) || !same(journal.pool ?? '', options.pool)) throw new Error('Journal belongs to a different chain, factory or pool; use the original path.');
+  if (!same(journal.transactionTarget ?? journal.pool, options.transactionTarget ?? options.pool)) throw new Error('Journal transaction target changed; use the original keeper mode and path.');
   const tx = journal.transaction;
   if (tx && (!['intent', 'signed', 'broadcast', 'confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(tx.phase) || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0
     || !/^0x[0-9a-f]+$/i.test(tx.data ?? '') || tx.value !== '0' || !tx.from || (tx.hash && !/^0x[0-9a-f]{64}$/i.test(tx.hash)))) throw new Error('Malformed journal transaction. Do not erase unresolved records.');
@@ -449,7 +451,8 @@ export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_ST
 }
 
 function validateTransaction(transaction, pending, options, kind = 'purchase') {
-  const expectedTo = kind === 'cancel' ? pending.from : options.pool, expectedData = kind === 'cancel' ? '0x' : pending.data;
+  const expectedTo = kind === 'cancel' ? pending.from : (options.transactionTarget ?? options.pool),
+    expectedData = kind === 'cancel' ? '0x' : pending.data;
   if (!transaction || !same(transaction.from ?? '', pending.from) || !transaction.to || !same(transaction.to, expectedTo)
     || transaction.nonce !== pending.nonce || transaction.data !== expectedData || transaction.value !== 0n || transaction.chainId !== 56n) {
     throw new Error('Recovered hash does not match the persisted keeper transaction.');
@@ -468,7 +471,8 @@ function validateSignedAttempt(attempt, pending, options) {
 
 async function signAttempt(signer, pending, options, gasLimit, gasPrice, kind = 'purchase') {
   let raw;
-  try { raw = await signer.signTransaction({ type: 0, chainId: 56, to: kind === 'cancel' ? pending.from : options.pool, nonce: pending.nonce,
+  try { raw = await signer.signTransaction({ type: 0, chainId: 56,
+    to: kind === 'cancel' ? pending.from : (options.transactionTarget ?? options.pool), nonce: pending.nonce,
     data: kind === 'cancel' ? '0x' : pending.data, value: 0n, gasLimit, gasPrice }); } catch { throw new Error('Local transaction signing failed; nothing was broadcast.'); }
   const attempt = { kind, raw, hash: keccak256(raw), gasLimit: gasLimit.toString(), gasPrice: gasPrice.toString(),
     createdAt: new Date().toISOString(), broadcastCount: 0 };
@@ -540,7 +544,7 @@ export async function reconcilePending(provider, options, journal) {
     if (receipt && !transaction && !attempt.raw) throw new Error('Cannot authenticate a legacy receipt without its transaction.');
     if (!receipt) return { attempt, transaction, receipt: null };
     if (!same(receipt.hash ?? '', attempt.hash) || !same(receipt.from ?? '', pending.from)
-      || !same(receipt.to ?? '', attempt.kind === 'cancel' ? pending.from : options.pool)) throw new Error('Receipt identity does not match signed transaction attempt.');
+      || !same(receipt.to ?? '', attempt.kind === 'cancel' ? pending.from : (options.transactionTarget ?? options.pool))) throw new Error('Receipt identity does not match signed transaction attempt.');
     if (![0, 1].includes(receipt.status) || !/^0x[0-9a-f]{64}$/i.test(receipt.blockHash ?? '')) throw new Error('Receipt is missing a final status or canonical block identity.');
     const block = await provider.getBlock(receipt.blockNumber);
     return { attempt, transaction, receipt, canonical: !!block && same(block.hash ?? '', receipt.blockHash) };
@@ -623,7 +627,9 @@ export async function recoverPending(provider, options, signer, journal, diagnos
   // an empty self-transfer; no target can change while this nonce is unresolved.
   const kind = options.cancelPending ? 'cancel' : 'purchase';
   let gasLimit;
-  try { gasLimit = (await provider.estimateGas({ from: pending.from, to: kind === 'cancel' ? pending.from : options.pool, data: kind === 'cancel' ? '0x' : pending.data, value: 0n }) * 120n + 99n) / 100n; }
+  try { gasLimit = (await provider.estimateGas({ from: pending.from,
+    to: kind === 'cancel' ? pending.from : (options.transactionTarget ?? options.pool),
+    data: kind === 'cancel' ? '0x' : pending.data, value: 0n }) * 120n + 99n) / 100n; }
   catch { return { status: kind === 'cancel' ? 'cancel-simulation-failed' : 'speed-up-purchase-no-longer-executable', terminal: false, hash: pending.hash }; }
   if (kind === (previous.kind ?? 'purchase') && gasLimit < BigInt(previous.gasLimit)) gasLimit = BigInt(previous.gasLimit);
   const budget = gasBudget(journal, gasLimit, gasPrice, options.maxGasWei);

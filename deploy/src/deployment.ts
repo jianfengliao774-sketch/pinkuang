@@ -136,7 +136,7 @@ export interface DeploymentCallbacks {
 }
 
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
-const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
+const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const isAborted = (snapshot: DeploymentSnapshot): boolean => snapshot.status === 'aborted';

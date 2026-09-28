@@ -14,6 +14,10 @@ const poolAbi = new Interface([
   'function mine(bytes data) returns(bytes)',
 ]);
 const factoryAbi = ['function isPool(address) view returns(bool)', 'function operator() view returns(address)'];
+const authorityAbi = new Interface([
+  'function coreFactory() view returns(address)', 'function gasWallet() view returns(address)',
+  'function executeOperation(address target,bytes data) returns(bytes)',
+]);
 const miningAbi = new Interface([
   'function minerKey(address,uint256) view returns(bytes32)',
   'function getMiner(bytes32) view returns(tuple(address circuits,uint64 circuitId,uint32 taskId,uint32 gateCount,uint32 stateCount,uint32 depth,uint64 area,uint32 mult,uint64 since,uint8 status,address registrant,uint32 nandBurn,uint32 latchBurn,uint64 bstar,uint64 bonus,bool optimal,uint64 commitBlock,uint64 firstUnusedId,uint64 stopBlock,uint128 verifWeight,uint128 unverWeight,uint256 debt))',
@@ -30,7 +34,7 @@ const json = value => JSON.stringify(value, (_key, item) => typeof item === 'big
 export function parseMiningArguments(args) {
   const values = {};
   const flags = new Set(['send', 'once', 'help']);
-  const keys = new Set(['factory', 'pool', 'rpc', 'journal', 'interval', 'max-gas-bnb', 'max-gas-price-gwei']);
+  const keys = new Set(['factory', 'pool', 'authority', 'rpc', 'journal', 'interval', 'max-gas-bnb', 'max-gas-price-gwei']);
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i].startsWith('--') ? args[i].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[i]}`);
@@ -51,7 +55,8 @@ export function parseMiningArguments(args) {
   const maxGasWei = parseEther(values['max-gas-bnb'] ?? '0.02');
   const maxGasPrice = parseUnits(values['max-gas-price-gwei'] ?? '1', 'gwei');
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
-  return { factory, pool, rpc, send: values.send === true, once: values.once === true, interval,
+  const authority = values.authority ? getAddress(values.authority) : undefined;
+  return { factory, pool, authority, transactionTarget: authority ?? pool, rpc, send: values.send === true, once: values.once === true, interval,
     journal: resolve(values.journal ?? `keeper-journal/mining-${pool.toLowerCase()}.json`), maxGasWei, maxGasPrice };
 }
 
@@ -109,10 +114,19 @@ export function assertStage(journal, options) {
   const tx = journal.transaction;
   if (!tx) return;
   if (!['arming', 'starting', 'monitoring'].includes(journal.miningStage)) throw new Error('Mining journal has an unknown stage.');
-  const parsed = poolAbi.parseTransaction({ data: tx.data });
-  if (parsed?.name !== 'mine' || !tx.to || !same(tx.to, options.pool) || tx.value !== '0') {
+  if (!tx.to || !same(tx.to, options.transactionTarget ?? options.pool) || tx.value !== '0') {
     throw new Error('Mining journal targets a different action.');
   }
+  let data = tx.data;
+  if (options.authority) {
+    const wrapper = authorityAbi.parseTransaction({ data });
+    if (wrapper?.name !== 'executeOperation' || !same(wrapper.args[0], options.pool)) {
+      throw new Error('Mining journal has an invalid authority wrapper.');
+    }
+    data = wrapper.args[1];
+  }
+  const parsed = poolAbi.parseTransaction({ data });
+  if (parsed?.name !== 'mine') throw new Error('Mining journal targets a different action.');
   const inner = miningAbi.parseTransaction({ data: parsed.args[0] });
   if (journal.miningStage === 'monitoring' ? !['arm', 'start'].includes(inner?.name)
     : inner?.name !== (journal.miningStage === 'arming' ? 'arm' : 'start')) {
@@ -137,11 +151,12 @@ async function submitAction(provider, options, signer, journal, stage, data, gas
   const budget = gasBudget(journal, gasLimit, gasPrice, options.maxGasWei);
   if (!budget.allowed || balance < budget.reservedFee) return { status: 'gas-budget-or-balance-exceeded' };
   if (options.shouldStop?.()) return { status: 'stopped-before-signing' };
-  const raw = await signer.signTransaction({ type: 0, chainId: 56, to: options.pool, data,
+  const to = options.transactionTarget ?? options.pool;
+  const raw = await signer.signTransaction({ type: 0, chainId: 56, to, data,
     value: 0n, nonce: pendingNonce, gasLimit, gasPrice });
   const hash = keccak256(raw);
   if (journal.transaction) journal.previousTransaction = journal.transaction;
-  journal.transaction = { phase: 'signed', from, nonce: pendingNonce, to: options.pool, data, value: '0',
+  journal.transaction = { phase: 'signed', from, nonce: pendingNonce, to, data, value: '0',
     createdAt: new Date().toISOString(), hash, speedUps: 0, attempts: [{ kind: 'purchase', raw, hash,
       gasLimit: gasLimit.toString(), gasPrice: gasPrice.toString(), createdAt: new Date().toISOString(), broadcastCount: 0 }] };
   journal.miningStage = stage;
@@ -173,7 +188,18 @@ export async function runMiningCycle(provider, options, signer = null, fetcher =
     || journal.transaction?.phase === 'cancel-reverted') return { status: 'previous-mining-transaction-failed-review-required' };
   const state = await readMiningState(provider, options);
   if (state.status === 'pool-not-active') return state;
-  if (options.send && !same(await signer.getAddress(), state.operator)) throw new Error('Keeper key is not the current Factory operator.');
+  let caller = state.operator;
+  if (options.authority) {
+    if (!same(state.operator, options.authority)) throw new Error('Factory operator is not the configured authority.');
+    const authority = new Contract(options.authority, authorityAbi, provider);
+    const [code, boundFactory, gasWallet] = await Promise.all([
+      provider.getCode(options.authority, state.blockNumber),
+      authority.coreFactory({ blockTag: state.blockNumber }), authority.gasWallet({ blockTag: state.blockNumber }),
+    ]);
+    if (code === '0x' || !same(boundFactory, options.factory)) throw new Error('Authority is not bound to this Factory.');
+    caller = gasWallet;
+  }
+  if (options.send && !same(await signer.getAddress(), caller)) throw new Error('Keeper key is not the current Gas wallet / Factory operator.');
   if (state.status === 'mining-active') {
     if (state.miner.optimal || state.miner.verifWeight === 0n || state.miner.unverWeight !== 0n) {
       return { status: 'mining-active-but-quality-changed-review-required', circuitId: state.circuitId,
@@ -211,10 +237,11 @@ export async function runMiningCycle(provider, options, signer = null, fetcher =
     const samples = startSamples(tree, block.hash, state.circuits, state.circuitId, count);
     const inner = miningAbi.encodeFunctionData('start', [state.circuits, state.circuitId, state.miner.taskId,
       anchor, samples.inputs, samples.outputs, samples.proofs, '0x' + '00'.repeat(32)]);
-    const data = poolAbi.encodeFunctionData('mine', [inner]);
+    const poolData = poolAbi.encodeFunctionData('mine', [inner]);
+    const data = options.authority ? authorityAbi.encodeFunctionData('executeOperation', [options.pool, poolData]) : poolData;
     // Full protocol proof, ownership and Vault permission are checked in the simulation.
     let gasEstimate;
-    try { gasEstimate = await provider.estimateGas({ from: state.operator, to: options.pool, data, value: 0n }); }
+    try { gasEstimate = await provider.estimateGas({ from: caller, to: options.transactionTarget ?? options.pool, data, value: 0n }); }
     catch { return { status: 'start-proof-simulation-failed-review-required', anchor, taskId: state.miner.taskId }; }
     return submitAction(provider, options, signer, journal, 'starting', data, gasEstimate);
   }
@@ -224,9 +251,10 @@ export async function runMiningCycle(provider, options, signer = null, fetcher =
   }
   // Fetch and validate the full proof bank before spending gas on the anchor.
   await fetchTaskVectors(state.miner.taskId, fetcher);
-  const data = poolAbi.encodeFunctionData('mine', [miningAbi.encodeFunctionData('arm', [state.circuits, state.circuitId])]);
+  const poolData = poolAbi.encodeFunctionData('mine', [miningAbi.encodeFunctionData('arm', [state.circuits, state.circuitId])]);
+  const data = options.authority ? authorityAbi.encodeFunctionData('executeOperation', [options.pool, poolData]) : poolData;
   let gasEstimate;
-  try { gasEstimate = await provider.estimateGas({ from: state.operator, to: options.pool, data, value: 0n }); }
+  try { gasEstimate = await provider.estimateGas({ from: caller, to: options.transactionTarget ?? options.pool, data, value: 0n }); }
   catch { return { status: 'arm-simulation-failed-review-required', circuitId: state.circuitId }; }
   return submitAction(provider, options, signer, journal, 'arming', data, gasEstimate);
 }
@@ -236,6 +264,7 @@ export async function main(args = process.argv.slice(2)) {
   if (options.help) {
     console.log('Mining keeper: node scripts/mining-keeper.mjs --factory 0x... --pool 0x... [--rpc HTTPS] [--once]\n' +
       'Default is read-only. To enable automatic transactions use --journal /private/path/mining.json --send and a systemd keeper-private-key credential or KEEPER_PRIVATE_KEY.\n' +
+      'When Factory operator is PlatformAuthority, add --authority 0x... and use a new journal path bound to that route.\n' +
       'Use one service per pool and one operator wallet executor. The private journal must be preserved for ambiguous transactions.');
     return;
   }

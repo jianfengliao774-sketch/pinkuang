@@ -16,7 +16,7 @@ export const libraryNames = Object.freeze([
 ]);
 export const requiredContracts = Object.freeze([
   ...libraryNames, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket',
-  'BudgetPortfolioFactory', 'BudgetPortfolioVault',
+  'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority',
   'PoolBeacon', 'PoolTimelock', 'ERC1967Proxy', 'PoolLens',
 ]);
 export const compilerSettings = Object.freeze({

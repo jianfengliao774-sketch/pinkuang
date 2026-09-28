@@ -29,6 +29,7 @@ contract BudgetPortfolioFactory is OwnableUpgradeable, UUPSUpgradeable, Reentran
     event PortfolioCreated(address indexed portfolio, uint256 budgetWei, uint256 absoluteCapWei, uint256 unitCapWei);
     event ShareMarketRegistered(address indexed market);
     event OperatorChanged(address indexed previous, address indexed next);
+    event TreasuryChanged(address indexed previous, address indexed next);
     event CreationPauseChanged(bool paused);
 
     address public operator;
@@ -141,6 +142,13 @@ contract BudgetPortfolioFactory is OwnableUpgradeable, UUPSUpgradeable, Reentran
         if (next == address(0)) revert InvalidAddress();
         emit OperatorChanged(operator, next);
         operator = next;
+    }
+
+    /// @notice Changes the fee recipient of future projects. Existing portfolios keep their immutable treasury.
+    function setTreasury(address next) external onlyOwner {
+        if (next == address(0)) revert InvalidAddress();
+        emit TreasuryChanged(treasury, next);
+        treasury = next;
     }
 
     function pauseCreation(bool paused) external onlyOwner {

@@ -27,7 +27,7 @@ export function prioritizePools(pools, journalFor, cursor, batch = 10) {
 
 export function parseSupervisorArguments(args) {
   const values = {};
-  const keys = new Set(['factory', 'rpc', 'journal-dir', 'interval', 'batch', 'max-pools', 'max-gas-bnb', 'max-gas-price-gwei']);
+  const keys = new Set(['factory', 'authority', 'rpc', 'journal-dir', 'interval', 'batch', 'max-pools', 'max-gas-bnb', 'max-gas-price-gwei']);
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i].startsWith('--') ? args[i].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[i]}`);
@@ -48,7 +48,8 @@ export function parseSupervisorArguments(args) {
   const maxGasWei = parseEther(values['max-gas-bnb'] ?? '0.02');
   const maxGasPrice = parseUnits(values['max-gas-price-gwei'] ?? '1', 'gwei');
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
-  return { factory: getAddress(values.factory), rpc, interval, batch, maxPools, send: values.send === true,
+  return { factory: getAddress(values.factory), authority: values.authority ? getAddress(values.authority) : undefined,
+    rpc, interval, batch, maxPools, send: values.send === true,
     once: values.once === true, journalDir: resolve(values['journal-dir'] ?? 'keeper-journal/mining'), maxGasWei, maxGasPrice };
 }
 
@@ -67,7 +68,8 @@ async function refreshPools(provider, options, known) {
 export async function runSupervisorCycle(provider, options, signer, state) {
   const pools = await refreshPools(provider, options, state.pools);
   const journalPath = pool => resolve(options.journalDir, `${pool.toLowerCase()}.json`);
-  const journalFor = pool => readJournal(journalPath(pool), { factory: options.factory, pool });
+  const journalFor = pool => readJournal(journalPath(pool), { factory: options.factory, pool,
+    transactionTarget: options.authority ?? pool });
   const { selected, nextCursor } = prioritizePools(pools, journalFor, state.cursor, options.batch);
   state.cursor = nextCursor;
   if (!selected.length) return { status: 'no-registered-pools', poolCount: 0 };
@@ -81,7 +83,8 @@ export async function runSupervisorCycle(provider, options, signer, state) {
         releaseWallet = acquireWalletLock(signer.address, journal);
         if (!existsSync(journal)) writeJournal(journal, journalFor(pool));
       }
-      const result = await runMiningCycle(provider, { ...options, pool, journal }, signer);
+      const result = await runMiningCycle(provider, { ...options, pool, journal,
+        transactionTarget: options.authority ?? pool }, signer);
       results.push({ pool, ...result });
       if (options.send && (unresolved(journalFor(pool)) || followup(journalFor(pool)) || failed(journalFor(pool))
         || /review-required|unknown|nonce-or-chain-changed/.test(result.status))) break;
@@ -94,7 +97,8 @@ export async function main(args = process.argv.slice(2)) {
   const options = parseSupervisorArguments(args);
   if (options.help) {
     console.log('Automatic mining supervisor: node scripts/mining-supervisor.mjs --factory 0x... [--once]\n' +
-      'Default is read-only. Use --journal-dir /private/path --send with a systemd keeper-private-key credential or KEEPER_PRIVATE_KEY to monitor existing and newly created pools.');
+      'Default is read-only. Use --journal-dir /private/path --send with a systemd keeper-private-key credential or KEEPER_PRIVATE_KEY to monitor existing and newly created pools.\n' +
+      'When Factory operator is PlatformAuthority, add --authority 0x... and use a fresh journal directory.');
     return;
   }
   const releaseFactory = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'mining-factories', `56-${options.factory.toLowerCase()}`));
