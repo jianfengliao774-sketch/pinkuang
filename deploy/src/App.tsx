@@ -4,6 +4,7 @@ import MarketPage from './MarketPage';
 import PricingPanel from './PricingPanel';
 import WalletQrChoice from './WalletQrChoice';
 import LegacyCutover from './LegacyCutover';
+import UpgradeConsole from './UpgradeConsole';
 import { displayDecimal, displayUnits } from './display';
 import { DeploymentEngine, LIBRARY_NAMES, INTEGRATED_TRANSACTION_COUNT, preflight, validateArtifacts, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
 import { migrateLegacyDeployment } from './legacy-deployment';
@@ -323,7 +324,9 @@ export default function App() {
             {item.status === 'complete' && <button className="small-button" disabled={!bundle || !!busy || !onBsc} onClick={() => void exportManifest(item)}><ArrowDownToLine size={14}/>核验并导出合约清单</button>}
           </div>)}</div>{archiveCursor && <button className="small-button" disabled={!!busy} onClick={() => void loadMoreArchives()}>{busy || '读取更早部署'}<ArrowRight size={14}/></button>}<p className="field-help">每次部署的交易哈希、合约地址和实际 Gas 均留在服务器。清单导出前会重新核对当前链上合约；前端接入时仍须按链复核。</p></div>
         </section>}
-        {tab === 'governance' && <div className="governance-page"><section className="card"><div className="card-heading"><div><ShieldCheck size={22}/><h2>谁可以升级合约</h2></div><span className="subtle-tag">单钱包管理</span></div><div className="governance-content"><div className="governance-banner"><KeyRound size={28}/><div><b>你的管理钱包发起升级</b><p>提案需要经过至少 48 小时等待。管理钱包可以在执行前取消；等待结束后，任何账户都可执行已批准的操作。</p></div></div><table><thead><tr><th>合约</th><th>升级方式</th><th>授权执行者</th></tr></thead><tbody><tr><td>PoolFactory</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>ShareMarket</td><td>UUPS 代理</td><td>固定时间锁</td></tr><tr><td>所有 PoolVault</td><td>单机 Beacon</td><td>时间锁持有 Beacon</td></tr><tr><td>BudgetPortfolioFactory / 多机份额市场</td><td>UUPS 代理</td><td>同一固定时间锁</td></tr><tr><td>所有 BudgetPortfolioVault</td><td>独立多机 Beacon</td><td>同一时间锁持有 Beacon</td></tr></tbody></table><div className="governance-points"><div><LockKeyhole size={19}/><b>48 小时等待下限</b><p>当前时间锁不允许将调度等待降到 48 小时以下。</p></div><div><Blocks size={19}/><b>同时初始化单机与多机项目</b><p>代理创建与初始化在同一笔交易完成，避免未初始化代理暴露。</p></div><div><GitBranch size={19}/><b>保持资金池绑定</b><p>Beacon 新实现必须保持同一个官方 Factory 地址。</p></div></div><div className="alert alert-warning"><OctagonAlert size={21}/><div><strong>升级能力不等于安全保证</strong><p>有权限的钱包仍可提议恶意实现。时间锁提供反应时间；每次升级仍需审查代码、验证存储布局，并执行完整业务回归测试。</p></div></div><p className="governance-disclaimer">部署台核验的是部署图与权限配置，不能替代对业务逻辑、外部协议和未来实现的独立审计。修改实现时须继续保留当前的时间锁授权限制。</p></div></section></div>}
+        {tab === 'governance' && <UpgradeConsole wallet={selected?.provider || null} account={wallet?.address || null}
+          chainId={wallet?.chainId || null} currentBundle={bundle} currentRecord={latestCompleted}
+          onConnect={() => void requestConnection()}/>}
         <footer className="page-footer"><span><span className="tiny-brand">◆</span>拼矿协议<span className="footer-divider">/</span>部署工作台</span>{bundle && <a href={`https://github.com/jianfengliao774-sketch/pinkuang/blob/${bundle.sourceCommit}/deploy/README.md`} target="_blank" rel="noreferrer">构建时部署说明<ExternalLink size={13}/></a>}</footer>
       </main>
     </div>
