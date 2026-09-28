@@ -27,7 +27,7 @@ const appBytes = readFileSync(new URL(`../../web/out/${appRelative.slice('/bemin
 
 function fixture() {
   const graph = {
-    status: 'verified', chainId: 56, stage: 'genesis', operationalReady: false, operationId: null,
+    status: 'verified', chainId: 56, stage: 'genesis', operationId: null,
     artifactDigest: trustedGenesisManifest.artifactDigest,
     genesisArtifactDigest: trustedGenesisManifest.artifactDigest, upgradeArtifactDigest: digest,
     reviewedUpgradeOperationId: planId, reviewedBootstrapOperationId: bootstrapId,
@@ -98,7 +98,10 @@ test('missing or mismatched server-reviewed operation IDs and old runtime errors
   }
 });
 
-test('old product JS, changed genesis manifest, and wrong candidate runtime all block Stage4', async () => {
+test('changed product bytes, genesis manifest, and candidate runtime all block Stage4', async () => {
+  const home=fixture();home.responses.get(`${origin}/bemine-v2/`)!.body=
+    Buffer.concat([homeBytes,Buffer.from('<!-- changed -->')]);
+  assert.match((await checkUpgradeExecutionRelease(home.input)).reason,/产品首页/);
   const old=fixture();old.responses.get(appScript)!.body=`const genesis='${trustedGenesisManifest.artifactDigest}'`;
   assert.match((await checkUpgradeExecutionRelease(old.input)).reason,/应用脚本/);
   const changed=fixture();changed.responses.get(`${origin}/bemine-v2/data/frontend-manifest.json`)!.body='{}';
