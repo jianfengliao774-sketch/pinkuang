@@ -57,6 +57,7 @@ const en = {
   '该项目尚未购入矿机。':'This portfolio has not purchased any miners.','读取本项目挂单':'Load portfolio orders','读取项目收益与记录':'Load portfolio rewards and records',
   '赞成':'Support','转移':'Transfer','转移项目份额':'Transfer portfolio shares','返回':'Back',
   '这里仅统计进入本预算项目的 BEM，避免与子矿池重复计入；个人未领取权益以项目当前读数为准。':'Only BEM received by this parent portfolio is counted here, without adding child-pool harvests again. Current on-chain balances determine personal unclaimed rights.',
+  '卖款结算后仍可归集已售子矿池的 BEM；未归集的 BEM 随项目份额转移。':'BEM from a sold miner can still be collected after its sale proceeds settle. Uncollected BEM follows portfolio shares when they move.',
   '连接钱包查看项目权益':'Connect wallet to view portfolio rights','采购来源 / 成本':'Purchase source / cost',
   '金额按精确链上整数发送；发送前重新核对内容，并先保存交易意图。':'Amounts use exact on-chain integers. Details are rechecked and the transaction intent is saved before requesting a wallet confirmation.',
   '链上凭证':'On-chain proof','项目内矿机':'Portfolio miners','项目收益与公开记录':'Portfolio rewards and public records','项目详情':'Portfolio details',

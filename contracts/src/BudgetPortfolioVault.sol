@@ -496,7 +496,9 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         address child = proposals[proposalId].child;
         IBudgetChild pool = IBudgetChild(child);
         if (pool.state() != IPoolVault.State.Closed || childInfo[child].sold) revert WrongState();
-        _collectChildBem(pool);
+        // Sale proceeds can settle while a child's booked BEM claim is unavailable.
+        // The project still holds every child share; collectChildBem can retry later,
+        // and uncollected BEM continues to follow project shares when they move.
         uint256 beforeBalance = address(this).balance;
         // The child was registered at purchase and this entry point holds nonReentrant.
         // slither-disable-next-line reentrancy-no-eth

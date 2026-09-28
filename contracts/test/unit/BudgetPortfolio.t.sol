@@ -190,6 +190,24 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.stopPrank();
     }
 
+    function _completeChildSale(IFundingVault child, uint256 price) private {
+        vm.prank(ALICE);
+        uint256 proposalId = project.proposeChildSale(address(child), price, price, uint64(block.timestamp));
+        vm.prank(ALICE);
+        project.voteChildSale(proposalId, true);
+        vm.prank(BOB);
+        project.voteChildSale(proposalId, true);
+        vm.prank(OPERATOR);
+        coreShareMarket.setSaleReference(
+            address(child), uint128(price), uint64(block.timestamp), keccak256("child-sale-claim-retry")
+        );
+        project.executeChildSale(proposalId);
+        uint256 childProposalId = PoolVault(payable(address(child))).listedProposalId();
+        vm.deal(CAROL, price);
+        vm.prank(CAROL);
+        PoolVault(payable(address(child))).completeFirstoSale{value: price}(childProposalId, price, 0, 1);
+    }
+
     function test_twoMachinesOneHundredSharesAndExactRefunds() public {
         _subscribe(ALICE, 60);
         _subscribe(BOB, 40);
@@ -476,6 +494,87 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.prank(TREASURY);
         assertEq(project.withdrawBnb(), 0.05 ether);
         assertEq(address(project).balance, 0);
+    }
+
+    function test_closedChildClaimFailureDoesNotBlockSaleProceedsAndCanRetry() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        _completeChildSale(pool, 4 ether);
+
+        uint256 childBem = PoolVault(payable(address(pool))).claimable(address(project));
+        assertGt(childBem, 0);
+        vm.mockCallRevert(
+            address(pool), abi.encodeWithSelector(IPoolVault.claim.selector), "child BEM claim unavailable"
+        );
+        vm.expectRevert();
+        project.collectChildBem(address(pool));
+
+        assertEq(project.settleChildSale(), 3.96 ether);
+        assertEq(project.activeProposalId(), 0);
+        assertEq(project.activeChildCount(), 0);
+        assertEq(uint256(project.state()), uint256(IPoolVault.State.Closed));
+        assertEq(project.claimableBem(ALICE), 0, "unreceived BEM cannot become a parent liability");
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 7.146 ether);
+        vm.prank(BOB);
+        assertEq(project.withdrawBnb(), 4.764 ether);
+
+        vm.clearMockedCalls();
+        uint256 collected = project.collectChildBem(address(pool));
+        assertEq(collected, childBem);
+        assertEq(project.claimableBem(ALICE), collected * 60 / 100);
+        assertEq(project.claimableBem(BOB), collected * 40 / 100);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), collected * 60 / 100);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), collected * 40 / 100);
+    }
+
+    function test_soldChildDelayedBemFollowsTransferredSharesWithAnotherChildActive() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        IFundingVault second = _buyTwo();
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        mining.configure(address(nft), defaultParams.circuitId + 1, 2_000_000, 0);
+        _completeChildSale(pool, 4 ether);
+
+        vm.mockCallRevert(
+            address(pool), abi.encodeWithSelector(IPoolVault.claim.selector), "child BEM claim unavailable"
+        );
+        assertEq(project.settleChildSale(), 3.96 ether);
+        assertEq(project.activeChildCount(), 1);
+        assertEq(uint256(project.state()), uint256(IPoolVault.State.Active));
+        assertTrue(project.shareTradingAllowed());
+        vm.expectRevert();
+        project.collectChildBem(address(pool));
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 3.813 ether);
+        vm.prank(BOB);
+        assertEq(project.withdrawBnb(), 2.542 ether);
+
+        vm.prank(ALICE);
+        project.transfer(BOB, 10);
+        assertEq(project.balanceOf(ALICE), 50);
+        assertEq(project.balanceOf(BOB), 50);
+        vm.clearMockedCalls();
+        uint256 soldBem = project.collectChildBem(address(pool));
+        assertEq(project.claimableBem(ALICE), soldBem / 2);
+        assertEq(project.claimableBem(BOB), soldBem / 2);
+        uint256 activeBem = project.collectChildBem(address(second));
+        assertEq(project.claimableBem(ALICE), (soldBem + activeBem) / 2);
+        assertEq(project.claimableBem(BOB), (soldBem + activeBem) / 2);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), (soldBem + activeBem) / 2);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), (soldBem + activeBem) / 2);
     }
 
     function test_shareMarketChargesBothSidesAndMovesUnclaimedBemToBuyer() public {
