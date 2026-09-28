@@ -26,15 +26,14 @@ library SaleSettlement {
         uint256 gross,
         uint256 settledBem
     ) external {
-        // Revalidate legacy listings at payment time: upgrading an already Listed
-        // pool cannot bypass the new zero-price and below-cost vote requirements.
+        // Revalidate historical listings at payment time using the same dual
+        // majority rule that permits a new listing; zero-price remains invalid.
         PoolSaleState.Proposal storage proposal = s.proposals[s.listedProposalId];
         if (gross == 0) revert IPoolVault.InvalidSalePrice();
-        bool sharesPassed =
-            gross < v.purchaseCost ? proposal.yesShares >= 60 : proposal.yesShares * 2 > proposal.snapshotTotalShares;
         if (
             !proposal.executed || proposal.price != gross || proposal.snapshotTotalShares != TOTAL_SHARES
-                || proposal.yesCount * 2 <= proposal.snapshotMemberCount || !sharesPassed
+                || proposal.yesCount * 2 <= proposal.snapshotMemberCount
+                || proposal.yesShares * 2 <= proposal.snapshotTotalShares
         ) revert IPoolVault.ProposalNotPassed();
         address roundingRecipient = _roundingRecipient(v);
         uint256 fee = _prepare(s, buyer, gross, v.params.circuits, v.params.circuitId, roundingRecipient);

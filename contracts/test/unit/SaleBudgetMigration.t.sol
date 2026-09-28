@@ -124,19 +124,18 @@ contract LegacyListedSaleMigrationTest is SaleTestBase {
         assertEq(nft.ownerOf(rewardId), address(pool));
     }
 
-    function test_legacyDiscountListingWithFiftyOneSharesCannotComplete() public {
+    function test_legacyDiscountListingWithFiftyOneSharesAndAddressMajorityCanComplete() public {
         legacy.fixtureLegacyListing(1, 51, 2);
-        vm.expectRevert(IPoolVault.ProposalNotPassed.selector);
         _complete(NFT_BUYER, 1);
-        _stateIs(IPoolVault.State.Listed);
-        assertEq(nft.ownerOf(rewardId), address(pool));
+        _stateIs(IPoolVault.State.Closed);
+        assertEq(nft.ownerOf(rewardId), NFT_BUYER);
     }
 
-    function test_discountRequiresBothSixtySharesAndAddressMajority() public {
-        legacy.fixtureLegacyListing(1, 60, 1);
+    function test_discountRequiresBothShareAndAddressMajority() public {
+        legacy.fixtureLegacyListing(1, 51, 1);
         vm.expectRevert(IPoolVault.ProposalNotPassed.selector);
         _complete(NFT_BUYER, 1);
-        legacy.fixtureLegacyListing(1, 60, 2);
+        legacy.fixtureLegacyListing(1, 51, 2);
         _complete(NFT_BUYER, 1);
         _stateIs(IPoolVault.State.Closed);
         assertEq(sale.pendingSaleProceeds(CAROL), 1);
