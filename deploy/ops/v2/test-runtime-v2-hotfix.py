@@ -13,10 +13,12 @@ class HotfixConfiguration(unittest.TestCase):
     def test_defaults_and_allowed_explicit_limits(self):
         self.assertEqual(self.ns['hotfix_options'](self.plan),(12000,120,'v2-hotfix-attempt-1'))
         self.assertEqual(self.ns['hotfix_options']({**self.plan,'logsTimeoutMs':30000,'catchupSeconds':1200}),(30000,1200,'v2-hotfix-attempt-1'))
+        self.assertEqual(self.ns['hotfix_options']({**self.plan,'logsRpcUrl':'https://bsc-rpc.blockreq.com/v1/rpc/public','fallbackLogsRpcUrl':'https://bsc.publicnode.com'}),(12000,120,'v2-hotfix-attempt-1'))
     def test_invalid_input_or_same_release_rejected(self):
         for k,v in [('logsTimeoutMs',30001),('logsTimeoutMs',11999),('logsTimeoutMs',True),('catchupSeconds',1201),('catchupSeconds','120'),('runtimeSourceHead','TBD'),('runtimeReleaseId','v2-old-runtime'),('operationId','../backup')]:
             with self.subTest(k=k,v=v),self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,k:v})
         with self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,'legacy':{'services':{'old':{}}}})
+        with self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,'logsRpcUrl':'https://bsc.publicnode.com','fallbackLogsRpcUrl':'https://bsc.publicnode.com'})
     def test_adds_only_exact_price_route_and_is_idempotent(self):
         original=b'location ^~ /bemine-v2/api/ { proxy_pass http://127.0.0.1:4174/api/; }\nlocation ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
         candidate=self.ns['candidate_snippet'](original);addition=self.ns['quote_location']()
@@ -44,6 +46,14 @@ class UnitPaths(unittest.TestCase):
         old=self.fixture(True);new=self.ns['candidate_service'](old,True)
         self.assertEqual(new.replace(b'Environment=CHAIN_INDEX_LOGS_TIMEOUT_MS=30000\n',b''),old.replace(b'/srv/old',b'/srv/new'))
         self.assertIn(b'CHAIN_INDEX_DB=/private-index/index.sqlite',new)
+    def test_index_can_replace_logs_rpc_and_add_fallback(self):
+        self.ns['CONFIG']['logsRpcUrl']='https://bsc-rpc.blockreq.com/v1/rpc/public'
+        self.ns['CONFIG']['fallbackLogsRpcUrl']='https://bsc.publicnode.com'
+        old=self.fixture(True)+b'Environment=CHAIN_INDEX_LOGS_RPC_URL=https://bsc.publicnode.com\n'
+        new=self.ns['candidate_service'](old,True)
+        self.assertIn(b'Environment=CHAIN_INDEX_LOGS_RPC_URL=https://bsc-rpc.blockreq.com/v1/rpc/public\n',new)
+        self.assertIn(b'Environment=CHAIN_INDEX_LOGS_FALLBACK_RPC_URL=https://bsc.publicnode.com\n',new)
+        self.assertEqual(new.count(b'Environment=CHAIN_INDEX_LOGS_RPC_URL='),1)
     def test_wrong_database_or_unknown_old_path_rejected(self):
         for old,index in [(self.fixture(True).replace(b'/private-index/index.sqlite',b'/new.sqlite'),True),(self.fixture(False).replace(b'/srv/old',b'/srv/unknown'),False),(self.fixture(False)+b'EnvironmentFile=/etc/secret\n',False)]:
             with self.assertRaises(AssertionError):self.ns['candidate_service'](old,index)

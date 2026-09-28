@@ -203,7 +203,7 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     }
     if (method === 'list') {
       row = await readPortfolio(context, address(pool), owner, { includeChildren: false });
-      const shares = shareQuantity(action.quantity), price = exactPrice(action.price, { allowZero: true });
+      const shares = shareQuantity(action.quantity), price = exactPrice(action.price);
       requireValue(row.shareTradingAllowed && shares <= row.availableShares, '项目份额正在冻结或可售数量不足。');
       args = [row.pool, shares, price];
       marketTrade = { baseWei: uint(price * shares), buyerFeeWei: price * shares / 100n, sellerFeeWei: price * shares / 100n };

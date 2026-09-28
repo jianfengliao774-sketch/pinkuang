@@ -140,6 +140,11 @@ def hotfix_options(config):
     timeout=config.get('logsTimeoutMs',12000);seconds=config.get('catchupSeconds',120)
     assert type(timeout) is int and 12000<=timeout<=30000,'logsTimeoutMs outside reviewed bounds'
     assert type(seconds) is int and 120<=seconds<=1200,'catchupSeconds outside reviewed bounds'
+    primary_logs=config.get('logsRpcUrl')
+    fallback_logs=config.get('fallbackLogsRpcUrl')
+    for url in [primary_logs,fallback_logs]:
+        if url is not None:assert url in ['https://bsc.publicnode.com','https://bsc-rpc.blockreq.com/v1/rpc/public'],'Use reviewed public logs RPC endpoints'
+    if fallback_logs:assert primary_logs and fallback_logs!=primary_logs,'Fallback logs RPC must differ from primary'
     assert set(config['legacy']['services'])==set(legacy_names),'Include all six legacy services, including bemine-price'
     return timeout,seconds,config['operationId']
 
@@ -159,6 +164,11 @@ def candidate_service(old,is_index):
         assert re.findall(r'(?m)^TimeoutStopSec=(.*)$',text)==['45'],'Review changed shutdown timeout'
         key='CHAIN_INDEX_LOGS_TIMEOUT_MS';text,count=re.subn(r'(?m)^Environment='+key+r'=.*$','Environment='+key+'='+str(logs_timeout_ms),text);assert count<=1
         if not count:text=text.replace('\nUMask=0077','\nEnvironment='+key+'='+str(logs_timeout_ms)+'\nUMask=0077',1)
+        for config_key,env_key in [('logsRpcUrl','CHAIN_INDEX_LOGS_RPC_URL'),('fallbackLogsRpcUrl','CHAIN_INDEX_LOGS_FALLBACK_RPC_URL')]:
+            value=CONFIG.get(config_key)
+            if value:
+                text,count=re.subn(r'(?m)^Environment='+env_key+r'=.*$','Environment='+env_key+'='+value,text);assert count<=1
+                if not count:text=text.replace('\nUMask=0077','\nEnvironment='+env_key+'='+value+'\nUMask=0077',1)
     else:
         env={'DEPLOYMENT_JOURNAL_DB':str(journal),'PORT':'4174','BEMINE_INDEX_URL':'http://127.0.0.1:4181',
           'BEMINE_JOURNAL_FACTORIES':CONFIG['manifest']['factory']+','+CONFIG['manifest']['portfolioFactory'],

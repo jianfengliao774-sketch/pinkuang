@@ -20,12 +20,12 @@ export function shareQuantity(value) {
 }
 
 /** Prices are decimal BNB strings (or whole-BNB bigint), never binary floating-point Numbers. */
-export function exactPrice(value, { allowZero = false } = {}) {
+export function exactPrice(value) {
   assert(typeof value === 'string' || typeof value === 'bigint', '金额须使用精确十进制字符串 / Use an exact decimal amount.');
   const text = String(value);
   assert(text === text.trim() && /^(0|[1-9]\d{0,77})(\.\d{1,18})?$/.test(text), '请输入精确 BNB 金额，最多 18 位小数 / Enter an exact BNB amount.');
   const result = parseEther(text);
-  assert(result < 2n ** 256n && (allowZero ? result >= 0n : result > 0n), '价格超出范围 / Price is outside the allowed range.');
+  assert(result < 2n ** 256n && result > 0n, '价格必须大于零 / Price must be greater than zero.');
   return result;
 }
 
@@ -160,7 +160,7 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     const qty = shareQuantity(quantity);
     assert(row.state === 2n && row.shareTradingAllowed === true && row.availableShares !== null && row.availableShares >= qty,
       '可售份额不足或当前暂停转让 / Shares unavailable or trading paused.');
-    const priceWei = exactPrice(price, { allowZero: true });
+    const priceWei = exactPrice(price);
     const listingGross = priceWei * qty;
     assert(listingGross + listingGross / 100n < 2n ** 256n,
       '挂牌金额加买方手续费超出合约范围 / Listing plus buyer fee overflows the market.');

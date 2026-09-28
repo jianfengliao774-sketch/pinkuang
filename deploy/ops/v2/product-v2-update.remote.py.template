@@ -15,8 +15,11 @@ public_current=pathlib.Path('/var/www/bemine-v2/current')
 old_factory='0xcB24E7F96D81037086A268d6ea63c53f91D412A2'
 def release_options(config):
     primary=config.get('primaryRpcUrl','https://bsc-dataseed.bnbchain.org')
-    for url in [primary,config['logsRpcUrl']]:
-        assert isinstance(url,str) and re.fullmatch(r'https://[a-zA-Z0-9.-]+(?::[0-9]+)?/?',url),'Use reviewed public HTTPS RPC endpoints without credentials or query strings'
+    for url in [primary,config['logsRpcUrl'],config.get('fallbackLogsRpcUrl')]:
+        if url is None:continue
+        assert isinstance(url,str) and (re.fullmatch(r'https://[a-zA-Z0-9.-]+(?::[0-9]+)?/?',url)
+            or url=='https://bsc-rpc.blockreq.com/v1/rpc/public'),'Use reviewed public HTTPS RPC endpoints without credentials or query strings'
+    assert config.get('fallbackLogsRpcUrl')!=config['logsRpcUrl'],'Fallback logs RPC must differ'
     seconds=config.get('catchupSeconds',120)
     assert type(seconds) is int and 120<=seconds<=1200,'catchupSeconds must be an integer between 120 and 1200'
     operation=config.get('operationId',config['productReleaseId']+'-product')
@@ -110,6 +113,7 @@ def index_text():
       'CHAIN_INDEX_FACTORY':m['factory'],'CHAIN_INDEX_MARKET':m['shareMarket'],
       'CHAIN_INDEX_PORTFOLIO_FACTORY':m['portfolioFactory'],'CHAIN_INDEX_PORTFOLIO_MARKET':m['portfolioMarket'],
       'CHAIN_INDEX_START_BLOCK':str(m['deployment']['blockNumber'])}
+    if CONFIG.get('fallbackLogsRpcUrl'):env['CHAIN_INDEX_LOGS_FALLBACK_RPC_URL']=CONFIG['fallbackLogsRpcUrl']
     assert re.fullmatch(r'https://[a-zA-Z0-9.-]+(?::[0-9]+)?/?',CONFIG['logsRpcUrl']),'Use reviewed public HTTPS logs endpoint'
     return ('[Unit]\nDescription=BEMine v2 independent dual-factory index\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v2\nGroup=pinkuang-v2\nWorkingDirectory='+str(runtime)+'\nExecStart=/usr/bin/node '+str(runtime)+'/server/chain-index/server.mjs\n'+''.join('Environment='+k+'='+v+'\n' for k,v in env.items())+'UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-index-v2\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n').encode()
 def nginx_text():

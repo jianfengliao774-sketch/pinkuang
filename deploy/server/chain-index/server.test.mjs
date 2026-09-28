@@ -31,15 +31,18 @@ test('production configuration keeps HTTPS and loopback requirements', () => {
   for (const scanRange of ['', '0', '501', '-1', '1.5', '50abc', ' 50', '050', '1e2', '9007199254740992'])
     assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_SCAN_RANGE: scanRange }), /scan range|Scan range/);
   assert.equal(serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'https://public.1rpc.io/bnb' }).logsRpc, 'https://public.1rpc.io/bnb');
+  assert.equal(serverConfiguration({ ...env, CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'https://bsc.publicnode.com' }).fallbackLogsRpc, 'https://bsc.publicnode.com');
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_HOST: '0.0.0.0' }), /loopback/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
+  assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
+  assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'https://bsc.publicnode.com', CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'https://bsc.publicnode.com' }), /differ/);
 });
 
 const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',
   'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
 const hex = number => `0x${number.toString(16).padStart(64, '0')}`;
-function rpcFixture({ logs = false, logsFailure = false, chainId = '0x38', firstLogsDelayMs = 0 } = {}) {
+function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', firstLogsDelayMs = 0 } = {}) {
   const calls = [];
   let delayed = false;
   const server = createServer(async (request, response) => {
@@ -50,6 +53,12 @@ function rpcFixture({ logs = false, logsFailure = false, chainId = '0x38', first
       if (payload.method === 'eth_chainId') result = chainId;
       else if (payload.method === 'eth_getLogs') {
         assert(logs, 'logs must never reach the header RPC'); result = [];
+      } else if (payload.method === 'eth_getBlockByNumber' && logs) {
+        const number = Number(BigInt(payload.params[0]));
+        result = logsBehind ? null : { number: toQuantity(number), hash: hex(number + (logsFork ? 100 : 0)),
+          parentHash: hex(number - 1), timestamp: toQuantity(1_800_000_000 + number),
+          nonce: '0x0000000000000000', difficulty: '0x0', gasLimit: '0x1c9c380', gasUsed: '0x0',
+          extraData: '0x', miner: ZeroAddress, transactions: [] };
       } else {
         assert.equal(logs, false, 'header/call/code request reached the logs-only RPC');
         if (payload.method === 'eth_getBlockByNumber') {
@@ -93,9 +102,35 @@ test('separate RPC routes headers/calls to primary and only logs to its verified
     assert(primary.calls.some(row => row.method === 'eth_call'));
     assert(primary.calls.every(row => row.method !== 'eth_getLogs'));
     assert(logs.calls.some(row => row.method === 'eth_getLogs'));
-    assert(logs.calls.every(row => ['eth_chainId', 'eth_getLogs'].includes(row.method)));
+    assert(logs.calls.every(row => ['eth_chainId', 'eth_getLogs', 'eth_getBlockByNumber'].includes(row.method)));
     assert(logs.calls.findIndex(row => row.method === 'eth_chainId') < logs.calls.findIndex(row => row.method === 'eth_getLogs'));
   } finally { await service?.close(); await stop(primary.server); await stop(logs.server); }
+});
+
+test('a lagging or forked logs RPC cannot silently commit empty event ranges', async () => {
+  for (const options of [{ logsBehind: true }, { logsFork: true }]) {
+    const primary = rpcFixture(), logs = rpcFixture({ logs: true, ...options }); let service;
+    try {
+      const rpc = await listen(primary.server), logsRpc = await listen(logs.server);
+      service = await startChainIndex({ ...config(rpc), logsRpc });
+      await until(() => service.index.status().unknownReason === 'sync_failed');
+      assert.equal(service.index.indexedThrough, 0);
+      assert.equal(logs.calls.filter(row => row.method === 'eth_getLogs').length, 0);
+    } finally { await service?.close(); await stop(primary.server); await stop(logs.server); }
+  }
+});
+
+test('an independently verified fallback logs RPC recovers a failed primary logs request', async () => {
+  const primary = rpcFixture(), logs = rpcFixture({ logs: true, logsFailure: true }), fallback = rpcFixture({ logs: true }); let service;
+  try {
+    const rpc = await listen(primary.server), logsRpc = await listen(logs.server), fallbackLogsRpc = await listen(fallback.server);
+    service = await startChainIndex({ ...config(rpc), logsRpc, fallbackLogsRpc });
+    await until(() => service.index.status().complete);
+    assert.equal(service.index.indexedThrough, 2);
+    assert(logs.calls.some(row => row.method === 'eth_getLogs'));
+    assert(fallback.calls.some(row => row.method === 'eth_getLogs'));
+    assert(fallback.calls.some(row => row.method === 'eth_getBlockByNumber'));
+  } finally { await service?.close(); await stop(primary.server); await stop(logs.server); await stop(fallback.server); }
 });
 
 test('an explicitly extended logs deadline accepts a valid response beyond the primary 12-second deadline', { timeout: 20_000 }, async () => {

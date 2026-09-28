@@ -60,6 +60,7 @@ test('budget subscriptions, transfers and creation encode exact reviewed amounts
 });
 test('budget market quotes both fees, refuses reprice, wrong parent, frozen or old markets',async()=>{
   const f=portfolioFixture(),input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],action:{kind:'marketFill',orderId:'1',quantity:'2'}};
+  await assert.rejects(preparePortfolioAction({...input,action:{kind:'marketList',quantity:'1',price:'0'}}),/greater than zero/);
   const orders=await readPortfolioOrders(f.config,f.provider,PORTFOLIOS[0],{fetcher:f.fetcher});assert.equal(orders.items[0].remaining,5n);
   const fill=await preparePortfolioAction(input);assert.equal(fill.transaction.value,'0xca');assert.equal(fill.action.targetType,'portfolioMarket');
   assert.equal(fill.marketTrade.baseWei,200n);assert.equal(fill.marketTrade.buyerFeeWei,2n);assert.equal(fill.marketTrade.sellerFeeWei,2n);

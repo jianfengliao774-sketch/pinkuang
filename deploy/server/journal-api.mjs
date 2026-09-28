@@ -718,7 +718,9 @@ export function createBoundedOfficialProvider(url, timeoutMs = OFFICIAL_RPC_TIME
 /** The signing RPC must not batch independent graph checks: some BSC endpoints
  * return incomplete batch responses, which otherwise reject valid intents. */
 export function createProductVerifierProvider(url) {
-  return new JsonRpcProvider(url, undefined, { cacheTimeout: -1, batchMaxCount: 1 });
+  // The chain is checked explicitly in verifyProductIntent; avoid ethers'
+  // separate eth_chainId bootstrap before every read against this fixed RPC.
+  return new JsonRpcProvider(url, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
 }
 
 export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,

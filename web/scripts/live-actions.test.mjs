@@ -108,7 +108,7 @@ test('BNB prices preserve every wei and reject floating-point rounding or uint o
   for (const value of [0.1, 1, NaN, Infinity, null, undefined, '01', '1.', '.1', ' 1', '1e3', '-1',
     '0', '1.0000000000000000001', formatEther(1n << 256n), '1'.repeat(1000), { toString: () => '1' }])
     assert.throws(() => exactPrice(value));
-  assert.equal(exactPrice('0', { allowZero: true }), 0n);
+  assert.throws(() => exactPrice('0'), /greater than zero/);
 });
 
 test('deposit binds exact total, sender, pool and one block without transaction simulation', async () => {
@@ -167,15 +167,14 @@ test('withdrawal and failure finalization follow exact state and deadline bounda
   await assert.rejects(prepare(mock({ row: { state: 5n } }), { kind: 'finalizeFailure' }));
 });
 
-test('market ABI tuple, price multiplication, gift listing and withdrawal action name match contracts', async () => {
+test('market ABI tuple, price multiplication, positive listing and withdrawal action name match contracts', async () => {
   const fill = await prepare(mock(), { kind: 'fill', orderId: '7', quantity: '3' });
   const gross = 2702159776422297937035n;
   assert.equal(BigInt(fill.transaction.value), gross + gross / 100n);
   assert.deepEqual(fill.marketTrade, { grossWei: gross, buyerFeeWei: gross / 100n, sellerFeeWei: gross / 100n,
     buyerPaymentWei: gross + gross / 100n, sellerNetWei: gross - gross / 100n });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(fill.transaction).args], [7n, 3n]);
-  const listing = await prepare(mock(), { kind: 'list', quantity: '4', price: '0' });
-  assert.deepEqual([...abi.ShareMarket.parseTransaction(listing.transaction).args], [pool, 4n, 0n]);
+  await assert.rejects(prepare(mock(), { kind: 'list', quantity: '4', price: '0' }), /greater than zero/);
   const paidListing = await prepare(mock({ row: { shares: 99n, availableShares: 99n } }), { kind: 'list', quantity: '99', price: '0.005' });
   assert.equal(paidListing.listingGrossWei, 495000000000000000n);
   assert.equal(BigInt(paidListing.transaction.value), 0n);
