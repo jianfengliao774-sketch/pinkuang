@@ -37,12 +37,13 @@ const factoryAbi = new Interface(['function upgradeToAndCall(address,bytes)', 'f
   'function operator() view returns(address)', 'function treasury() view returns(address)',
   'function setOperator(address)', 'function setTreasury(address)', 'function transferOwnership(address)',
   'function poolCount() view returns(uint256)', 'function allPools(uint256) view returns(address)',
-  'function creationPaused() view returns(bool)',
+  'function creationPaused() view returns(bool)', 'function pauseCreation(bool)',
   'function machineRegistryStatus() view returns(bool initialized,bool ready,uint256 cursor,uint256 cutoff)',
   'event Upgraded(address indexed implementation)']);
 const portfolioFactoryAbi = new Interface(['function owner() view returns(address)',
   'function portfolioCount() view returns(uint256)', 'function portfolioAt(uint256) view returns(address)',
-  'function creationPaused() view returns(bool)', 'function timelock() view returns(address)',
+  'function creationPaused() view returns(bool)', 'function pauseCreation(bool)',
+  'function timelock() view returns(address)',
   'function operator() view returns(address)', 'function treasury() view returns(address)',
   'function setOperator(address)', 'function setTreasury(address)', 'function transferOwnership(address)']);
 const vaultAbi = new Interface(['function treasury() view returns(address)',
