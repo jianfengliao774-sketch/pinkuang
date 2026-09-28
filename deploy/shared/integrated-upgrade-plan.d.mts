@@ -141,3 +141,36 @@ export declare function validateIntegratedUpgradeResultAgainstChain(
     executeTxHash: string;
   },
 ): Promise<IntegratedUpgradeResult>;
+export interface IntegratedTreasuryMigrationOperation {
+  target: string;
+  expectedOld: string;
+  next: string;
+  data: string;
+  value: '0';
+  predecessor: string;
+  salt: string;
+  delaySeconds: number;
+  operationId: string;
+  scheduleData: string;
+  executeData: string;
+}
+export interface IntegratedTreasuryMigrationPlan {
+  kind: 'integrated-v2-historical-treasury-migration-v1';
+  codeResultDigest: string;
+  codeUpgradeOperationId: string;
+  authorityAddress: string;
+  timelock: string;
+  saltSeed: string;
+  delaySeconds: number;
+  operations: IntegratedTreasuryMigrationOperation[];
+  roleMigrationComplete: false;
+  historicalBnbAndBemOwedRemainWithOldTreasury: true;
+}
+/** One independent Timelock schedule/execute pair per existing core pool. */
+export declare function buildIntegratedTreasuryMigrationPlan(input: {
+  genesisRecord: any;
+  codeResult: IntegratedUpgradeResult;
+  authorityAddress: string;
+  saltSeed: string;
+  delaySeconds: number;
+}): IntegratedTreasuryMigrationPlan;
