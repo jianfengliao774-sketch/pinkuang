@@ -10,7 +10,7 @@ const pageInt = (value, label, fallback, max = 50) => {
 
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
 export function createChainIndexServer(index) {
-  return createServer((req, res) => {
+  return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -30,7 +30,18 @@ export function createChainIndexServer(index) {
     if (!source.complete) return send(503, { source, data: null, error: 'Index is not verified through the observed safe head.' });
     try {
       let data;
-      if (url.pathname === '/v1/pools') {
+      if (url.pathname === '/v1/notifications' || url.pathname === '/v1/community') {
+        const optionalInt = name => url.searchParams.has(name)
+          ? pageInt(url.searchParams.get(name), name, 0, Number.MAX_SAFE_INTEGER) : undefined;
+        const method = url.pathname === '/v1/community' ? 'community' : 'notifications';
+        data = await index[method]({ cursor: pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER),
+          limit: pageInt(url.searchParams.get('limit'), 'limit', 5, 10), atBlock: optionalInt('atBlock'),
+          atHash: url.searchParams.get('atHash') ?? undefined, anchorBlock: optionalInt('anchorBlock'),
+          anchorHash: url.searchParams.get('anchorHash') ?? undefined });
+        const current = index.status();
+        if (!current.complete || current.indexedThrough !== source.indexedThrough || current.indexedBlockHash !== source.indexedBlockHash)
+          throw new Error('Snapshot source changed.');
+      } else if (url.pathname === '/v1/pools') {
         data = index.pools({ cursor: pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER),
           limit: pageInt(url.searchParams.get('limit'), 'limit', 20) });
       } else if (url.pathname === '/v1/stats') {
@@ -56,6 +67,9 @@ export function createChainIndexServer(index) {
           days: pageInt(url.searchParams.get('days'), 'days', 30, 90) });
       } else return send(404, { error: 'Unknown route.' });
       return send(200, { source, data });
-    } catch { return send(400, { source, error: 'Invalid query.' }); }
+    } catch {
+      const snapshot = url.pathname === '/v1/notifications' || url.pathname === '/v1/community';
+      return send(snapshot ? 503 : 400, { source, error: snapshot ? 'Snapshot unavailable or changed.' : 'Invalid query.' });
+    }
   });
 }

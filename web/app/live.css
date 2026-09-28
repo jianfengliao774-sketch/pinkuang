@@ -455,7 +455,9 @@
   min-height: 44px;
   font-size: 15px;
   padding: 10px 14px;
+  min-width: 0;
 }
+.live-wallet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-platform .top-actions > .appearance-toggle {
   width: 38px;
   min-width: 38px;

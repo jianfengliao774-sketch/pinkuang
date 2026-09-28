@@ -683,7 +683,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productGraphVerifier,
   officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch,
-  officialScanTimeoutMs = OFFICIAL_SCAN_MS, now = Date.now,
+  officialScanTimeoutMs = OFFICIAL_SCAN_MS, now = Date.now, notificationService,
   genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
@@ -922,7 +922,19 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const url = new URL(req.url, origin), path = url.pathname;
       const method = req.method;
       if (!['GET','POST','PUT','DELETE'].includes(method)) fail(405, 'Method is not allowed.');
+      // Telegram authenticates with its configured secret header, never a wallet
+      // cookie. This narrow endpoint is the sole exception to browser Origin checks.
+      if (path === '/api/journal/notifications/telegram/webhook') {
+        if (method !== 'POST') fail(405, 'Method is not allowed.');
+        if (!notificationService) fail(503, 'Notifications are not configured.');
+        if (!notificationService.acceptsWebhook(req.headers['x-telegram-bot-api-secret-token']))
+          fail(403, 'Invalid notification webhook.');
+        await notificationService.handleTelegramUpdate(await readJson(req));
+        return send(200, { ok: true });
+      }
       if (method !== 'GET' && req.headers.origin !== origin) fail(403, 'Request origin is not allowed.');
+      if (method === 'GET' && path === '/api/journal/notifications/capabilities')
+        return send(200, notificationService?.capabilities() ?? { enabled: false, botUsername: 'BEMineNotifyBot' });
       if (method === 'GET' && path === '/api/journal/official-candidates')
         return send(200, await officialCandidates(url));
       if (method === 'POST' && path === '/api/journal/challenge') {
@@ -956,6 +968,14 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const expectedAccount = req.headers['x-pinkuang-account'];
       if (expectedAccount !== undefined && identity(expectedAccount) !== account)
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
+      if (path.startsWith('/api/journal/notifications/')) {
+        if (!expectedAccount) fail(400, 'The selected wallet is required.');
+        if (!notificationService) fail(503, 'Notifications are not configured.');
+        const result = await notificationService.handleWallet({ account, method,
+          path: path.slice('/api/journal/notifications'.length),
+          body: method === 'GET' ? undefined : await readJson(req) });
+        return send(result.status, result.body);
+      }
       if (method === 'GET' && path === '/api/journal/session') return send(200, { account });
       if (method === 'GET' && path === '/api/journal/build') return send(200, { artifactDigest: signingBuildDigest() });
       if (method === 'GET' && path === '/api/journal/deployment') return send(200, store.deployment(account));

@@ -28,10 +28,12 @@ import {
   SlidersHorizontal,
   Download,
   ExternalLink,
+  Bell,
 } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import MoreServicesNotice from "./MoreServicesNotice";
+import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
@@ -210,8 +212,10 @@ export default function LivePlatform() {
   const [yieldData, setYieldData] = useState(null),
     [yieldDays, setYieldDays] = useState(30);
   const [loadedRoute, setLoadedRoute] = useState("");
+  const [loadedAccount, setLoadedAccount] = useState(null);
   const [operator, setOperator] = useState(null);
   const [positionsLoaded, setPositionsLoaded] = useState(false);
+  const [notificationClaim, setNotificationClaim] = useState(null);
   const [loading, setLoading] = useState(false),
     [busy, setBusy] = useState(false),
     [transactionStage, setTransactionStage] = useState(null),
@@ -440,11 +444,16 @@ export default function LivePlatform() {
 
   useEffect(() => {
     if (!client) return;
+    if (route.route === 'notifications') {
+      setLoadedRoute('notifications'); setLoading(false); setError('');
+      return;
+    }
     let cancelled = false;
     const revision = ++epoch.current;
     const current = () => !cancelled && revision === epoch.current;
     const clearRound = () => {
       setLoadedRoute("");
+      setLoadedAccount(null);
       setPositionsLoaded(false);
       setPools([]);
       setPositions([]);
@@ -491,6 +500,7 @@ export default function LivePlatform() {
           setActivity(result.activity.items);
           setActivityCursor(result.activity.nextCursor);
         }
+        setLoadedAccount(account);
       })
       .catch((e) => {
         if (current()) {
@@ -695,6 +705,8 @@ export default function LivePlatform() {
     setPrepared(null);
     setModal(null);
     setRefresh((v) => v + 1);
+    if (result.status === "confirmed" && result.finalized === true && result.action === "claim")
+      setNotificationClaim(result);
     setMessage(
       result.status === "confirmed"
         ? L("交易已在链上确认。", "Transaction confirmed on chain.")
@@ -1239,7 +1251,7 @@ export default function LivePlatform() {
             <span>{L("工作台", "Workspace")}</span>
             <ChevronRight size={13} />
             <strong>
-              {route.route === "detail"
+              {route.route === "notifications" ? L("通知中心", "Notifications") : route.route === "detail"
                 ? L("矿机详情", "Miner details")
                 : L(
                     ...(navigation
@@ -1249,6 +1261,7 @@ export default function LivePlatform() {
             </strong>
           </div>
           <div className="top-actions">
+            <button className="appearance-toggle" aria-label={L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/></button>
             <button
               className="appearance-toggle"
               aria-label={L("切换外观", "Change appearance")}
@@ -1275,14 +1288,19 @@ export default function LivePlatform() {
               }
             >
               {account && walletInfo ? <WalletIcon wallet={walletInfo} size={19} /> : <Wallet size={17} />}
-              {account
+              <span className="live-wallet-label">{account
                 ? shortAddress(account)
-                : L("连接钱包", "Connect wallet")}
+                : L("连接钱包", "Connect wallet")}</span>
               <ChevronDown size={14} />
             </Button>
           </div>
         </header>
         <main aria-busy={loading} data-ready-route={loadedRoute}>
+          <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
+            account={account} wallet={wallet} config={config} locale={locale} route={route.route}
+            positions={same(loadedAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
+            blocked={busy || !!modal || loading} onConnect={connect} onOpen={() => go('notifications')}
+            isCurrent={() => connectedWallet.current === wallet && walletEpoch.current === walletRevision}/>
           {boot.status !== "ready" && (
             <div className="live-service-note" role="status">
               <ShieldCheck size={20} />
@@ -2373,14 +2391,14 @@ export default function LivePlatform() {
                 "Public rules · Clear ownership · Verifiable records",
               )}
             </span>
-            <span>
+            {route.route !== 'notifications' && <span>
               {source
                 ? L("数据区块", "Data block") +
                   ` ${source.indexedBlock ?? source.indexedThrough ?? source.blockNumber ?? "—"}`
                 : boot.status === 'loading' || loading
                   ? L("正在核对链上数据", "Checking on-chain data")
                   : L("数据暂不可用", "Data temporarily unavailable")}
-            </span>
+            </span>}
           </footer>
         </main>
       </div>

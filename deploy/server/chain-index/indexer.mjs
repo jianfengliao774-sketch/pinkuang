@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
+import { notificationPage } from './notifications.mjs';
+import { communityPage } from './community.mjs';
 
 const artifactPath = fileURLToPath(new URL('../../public/deployment-artifacts.json', import.meta.url));
 const artifacts = JSON.parse(await readFile(artifactPath, 'utf8'));
@@ -22,7 +24,7 @@ const indexedEvents = Object.freeze({
   market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn']),
   pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'FirstoPurchased', 'AlternativeMinerSelected',
     'PurchaseSurplusSettled', 'Harvested', 'BemClaimed', 'BnbWithdrawn', 'Transfer', 'SaleProposed', 'Voted',
-    'SaleListed', 'SaleCompleted', 'SaleExpired', 'SaleProceedsSettled', 'LockedSharesChanged',
+    'SaleListed', 'SaleCompleted', 'SaleExpired', 'SaleSnapshotRecorded', 'SaleProceedsSettled', 'LockedSharesChanged',
     'FlexiblePurchaseConfigured', 'PurchaseModelLocked', 'PurchaseReferenceWeightLocked']),
 });
 const topicSets = Object.freeze(Object.fromEntries(Object.entries(interfaces).map(([kind, iface]) =>
@@ -320,6 +322,10 @@ export class ChainIndex {
     if (!this.db.prepare('SELECT 1 FROM pools WHERE address = ?').get(pool)) throw new Error('Pool is not registered in this indexed Factory.');
     return pool;
   }
+
+  notifications(options = {}) { return notificationPage(this, interfaces.pool, options); }
+
+  community(options = {}) { return communityPage(this, interfaces.pool, options); }
 
   pools({ cursor = 0, limit = 20 } = {}) {
     integer(cursor, 'cursor'); integer(limit, 'limit', 1);

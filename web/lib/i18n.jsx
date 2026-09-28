@@ -8,7 +8,7 @@ const interpolate=(text,params={})=>String(text).replace(/\{(\w+)\}/g,(all,key)=
 const I18nContext=createContext({locale:'zh',setLocale:()=>{},t:interpolate});
 export function I18nProvider({children}){
  const [locale,setLanguage]=useState('zh');
- useEffect(()=>{try{const saved=localStorage.getItem('bemine-language');if(saved==='en'||saved==='zh')setLanguage(saved)}catch{}},[]);
+ useEffect(()=>{const requested=new URLSearchParams(window.location.search).get('lang');if(['en','zh'].includes(requested)){setLanguage(requested);return}try{const saved=localStorage.getItem('bemine-language');if(['en','zh'].includes(saved))setLanguage(saved)}catch{}},[]);
  useEffect(()=>{document.documentElement.lang=locale==='en'?'en':'zh-CN'},[locale]);
  const setLocale=useCallback(value=>{if(!['zh','en'].includes(value))return;setLanguage(value);try{localStorage.setItem('bemine-language',value)}catch{}},[]);
  const t=useCallback((source,params)=>interpolate(locale==='en'?(en[source]??source):source,params),[locale]);

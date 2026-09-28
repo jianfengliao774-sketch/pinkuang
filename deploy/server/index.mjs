@@ -5,6 +5,7 @@ import { resolve, extname, sep } from 'node:path';
 import { proxyFirsto } from './firsto-proxy.mjs';
 import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { servedArtifactDigest } from './artifact-digest.mjs';
+import { startOptionalNotifications } from './notifications/runtime.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -49,7 +50,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { host, port } = serverConfiguration();
   // `npm start` serves real wallet actions, regardless of NODE_ENV. Only the
   // explicit Vite development integration may use local defaults.
-  const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }),
+  const notifications = await startOptionalNotifications({ ...process.env, NODE_ENV: 'production' }, {
+    onStatus: status => {
+      if (['source_or_delivery_unavailable', 'startup_unavailable'].includes(status.status))
+        console.error('Notification service unavailable; wallet actions remain independent.');
+      if (['community_configuration_unavailable', 'community_source_or_delivery_unavailable', 'community_delivery_blocked'].includes(status.status))
+        console.error(`Community announcements: ${status.status}. Personal notifications and wallet actions remain independent.`);
+      else if (status.status === 'community_baselined' || status.status === 'community_ok' && (status.sent || status.edited || status.retried))
+        console.log(JSON.stringify({service:'community',status:status.status,sourceBlock:status.sourceBlock,
+          sent:status.sent??0,edited:status.edited??0,retried:status.retried??0}));
+    },
+  });
+  const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
   const server = createDeploymentServer({ journalService, liveDataProxy });
@@ -57,6 +69,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.log(`拼矿部署台：http://${host}:${port}`);
   });
   for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => {
-    server.close(() => { void journalService.close().then(() => process.exit(0)); });
+    server.close(() => { void Promise.all([journalService.close(), notifications?.close()]).then(() => process.exit(0)); });
   });
 }
