@@ -98,7 +98,12 @@ export async function startChainIndex(config) {
   async function tick() {
     if (stopped) return;
     try { await index.sync(); consecutiveFailures = 0; }
-    catch { consecutiveFailures = Math.min(consecutiveFailures + 1, 5); console.error(`Chain index unavailable: ${index.status().unknownReason}`); }
+    catch (error) {
+      consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
+      const code = typeof error?.code === 'string' && /^[A-Z_]{2,30}$/.test(error.code) ? error.code : 'unknown';
+      const rpcCode = Number.isSafeInteger(error?.error?.code) ? error.error.code : 'unknown';
+      console.error(`Chain index unavailable: ${index.status().unknownReason}; stage=${index.lastFailureStage ?? 'unknown'}; code=${code}; rpcCode=${rpcCode}`);
+    }
     const delay = consecutiveFailures ? Math.min(60_000, 4_000 * 2 ** (consecutiveFailures - 1))
       : index.status().complete ? 10_000 : 1_000;
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);

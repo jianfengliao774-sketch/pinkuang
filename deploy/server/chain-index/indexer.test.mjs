@@ -350,6 +350,10 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal(saved.data.registeredPoolCount, '1');
     assert.equal(saved.data.childPoolCount, '0');
     assert.equal((await (await fetch(`${url}/v1/snapshot/stats`)).json()).data.purchasedCostWei, '500');
+    const savedPortfolios = await (await fetch(`${url}/v1/snapshot/portfolios`)).json();
+    assert.equal(savedPortfolios.source.readMode, 'verified_snapshot');
+    assert.equal(savedPortfolios.source.portfolioCount, '0');
+    assert.deepEqual(savedPortfolios.data.items, []);
     const stats = (await (await fetch(`${url}/v1/stats`)).json()).data;
     assert.equal(stats.purchasedCostWei, '500');
     assert.equal(stats.estimatedDailyBemAtomic, null);

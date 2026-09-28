@@ -27,7 +27,7 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
     catch { return send(400, { error: 'Invalid URL.' }); }
     let source = index.status();
     if (url.pathname === '/health') return send(200, { source });
-    if (url.pathname === '/v1/snapshot/pools' || url.pathname === '/v1/snapshot/stats') {
+    if (['/v1/snapshot/pools', '/v1/snapshot/portfolios', '/v1/snapshot/stats'].includes(url.pathname)) {
       const snapshot = index.verifiedDisplaySnapshot();
       if (!snapshot) return send(503, { source, data: null, error: 'No recent canonical verified display snapshot.' });
       try {
@@ -37,9 +37,12 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
         }
         const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
         const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
-        const items = snapshot.pools.slice(cursor, cursor + limit);
+        const portfolio = url.pathname.endsWith('/portfolios');
+        const directory = portfolio ? snapshot.portfolios : snapshot.pools;
+        if (!directory) return send(503, { source: snapshot.source, data: null, error: 'Verified directory snapshot is unavailable.' });
+        const items = directory.slice(cursor, cursor + limit);
         return send(200, { source: snapshot.source,
-          data: { items, nextCursor: cursor + limit < snapshot.pools.length ? cursor + limit : null,
+          data: { items, nextCursor: cursor + limit < directory.length ? cursor + limit : null,
             registeredPoolCount: snapshot.source.registeredPoolCount,
             childPoolCount: snapshot.source.childPoolCount,
             standalonePoolCount: snapshot.source.standalonePoolCount } });

@@ -107,6 +107,8 @@ export class ChainIndex {
       CREATE TABLE IF NOT EXISTS portfolios (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL,budget TEXT NOT NULL,absolute_cap TEXT NOT NULL,unit_cap TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolio_children (address TEXT PRIMARY KEY,portfolio TEXT NOT NULL,purchased_block INTEGER NOT NULL,collection TEXT NOT NULL,token_id TEXT NOT NULL,cost TEXT NOT NULL,official INTEGER NOT NULL);`);
     this.db.exec('CREATE TABLE IF NOT EXISTS verified_display_snapshot (id INTEGER PRIMARY KEY CHECK(id = 1), source TEXT NOT NULL, pools TEXT NOT NULL, stats TEXT)');
+    if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'portfolios'))
+      this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN portfolios TEXT');
     const identity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
@@ -121,6 +123,7 @@ export class ChainIndex {
     this.checkedAt = null;
     this.syncing = false;
     this.syncSettled = null;
+    this.lastFailureStage = null;
     this.cachedStats = null;
     this.snapshotTrusted = false;
   }
@@ -382,16 +385,19 @@ export class ChainIndex {
     this.syncing = true;
     let resolveSync;
     this.syncSettled = new Promise(resolve => { resolveSync = resolve; });
+    let stage = 'latest_header';
     this.ready = false;
     try {
       const latest = normalizeBlock(await this.provider.getBlock('latest'));
       const safeHead = latest.number - this.confirmations;
       if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
       this.observedSafeHead = safeHead;
+      stage = 'deployment';
       await this._verifyDeployment(safeHead);
       // A shorter replacement chain cannot supply our old tip by number. Drop
       // that tail first, then compare the remaining stored headers normally.
       if (this.indexedThrough > safeHead) this._rollback(safeHead);
+      stage = 'reconcile';
       await this._reconcile();
       const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
       if (saved && !this.snapshotTrusted) {
@@ -401,9 +407,11 @@ export class ChainIndex {
         if (!this.snapshotTrusted) this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
       }
       const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync);
+      stage = 'scan';
       for (let from = this.indexedThrough + 1; from <= until; from += this.scanRange) {
         await this._scanChunk(from, Math.min(until, from + this.scanRange - 1));
       }
+      stage = 'canonical_tip';
       if (this.indexedThrough >= this.startBlock) {
         const stored = this._header(this.indexedThrough);
         if (stored.hash !== normalizeBlock(await this.provider.getBlock(this.indexedThrough)).hash) {
@@ -411,13 +419,17 @@ export class ChainIndex {
           throw new Error('Chain changed after index commit; retry sync.');
         }
       }
+      stage = 'history_complete';
       if (this.indexedThrough === safeHead) await this._verifyHistoryComplete(safeHead);
       this.lastError = null;
       this.checkedAt = new Date().toISOString();
       this.ready = this.indexedThrough === safeHead;
+      stage = 'snapshot';
       if (this.ready) this._captureVerifiedSnapshot();
+      this.lastFailureStage = null;
       return this.status();
     } catch (error) {
+      this.lastFailureStage = stage;
       // Status is public. Never echo provider errors, which may contain an RPC
       // URL with credentials or an upstream response body.
       this.lastError = error instanceof Error && error.message === 'RPC is not BSC mainnet (56).'
@@ -432,26 +444,31 @@ export class ChainIndex {
     const source = this.status();
     if (!source.complete) throw new Error('Only a fully verified source can be saved.');
     const pools = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT 501').all();
-    if (pools.length > 500) return;
+    const portfolios = this.db.prepare('SELECT address,created_block AS createdBlock,budget AS budgetWei,absolute_cap AS absoluteCapWei,unit_cap AS unitCapWei FROM portfolios ORDER BY created_block,address LIMIT 501').all()
+      .map(row => ({ ...row, kind: 'portfolio', factory: this.portfolioFactory }));
+    if (pools.length > 500 || portfolios.length > 500) return;
     const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
     const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    const portfolioCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
     if (pools.length !== registeredPoolCount - childPoolCount) throw new Error('Verified pool directory is incomplete.');
+    if (portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
     const logCount = this.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
     const stats = logCount <= 10_000 ? this.stats() : null;
     const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
-      childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length) };
-    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats')
-      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null);
+      childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length), portfolioCount: String(portfolioCount) };
+    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios) VALUES(1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios')
+      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null, JSON.stringify(portfolios));
     this.snapshotTrusted = true;
   }
 
   verifiedDisplaySnapshot() {
     if (!this.snapshotTrusted) return null;
-    const saved = this.db.prepare('SELECT source,pools,stats FROM verified_display_snapshot WHERE id = 1').get();
+    const saved = this.db.prepare('SELECT source,pools,stats,portfolios FROM verified_display_snapshot WHERE id = 1').get();
     if (!saved) return null;
     const source = JSON.parse(saved.source);
     if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
-    return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null };
+    return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
+      portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null };
   }
 
   _allLogs({ kind, address, names, fromTimestamp } = {}) {

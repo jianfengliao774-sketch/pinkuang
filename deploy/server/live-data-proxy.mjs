@@ -56,6 +56,8 @@ export function validateIndexRequest(url) {
   const route = url.pathname.slice('/api/chain-index'.length);
   const routes = {
     '/health': [], '/v1/stats': [], '/v1/pools': ['cursor', 'limit'], '/v1/portfolios':['cursor','limit'],
+    '/v1/snapshot/pools': ['cursor', 'limit'], '/v1/snapshot/portfolios': ['cursor', 'limit'],
+    '/v1/snapshot/stats': [],
     '/v1/orders': ['pool', 'seller', 'active', 'cursor', 'limit'],
     '/v1/portfolio-orders':['pool','seller','active','cursor','limit'],
     '/v1/activity': ['pool', 'account', 'cursor', 'limit'],

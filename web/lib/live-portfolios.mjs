@@ -5,6 +5,7 @@ import { validateIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
+import { isRetryableReadError } from './read-retry.mjs';
 
 const identity = new Interface(['function implementation() view returns(address)', 'function owner() view returns(address)']);
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -123,8 +124,15 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
   const manifest = validateManifest(config.manifest), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
   const path = mine ? `/v1/accounts/${address(account)}/portfolios` : '/v1/portfolios';
-  const reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}${path}?cursor=${cursor}&limit=20`, { fetcher });
-  const source = validateIndexSource(reply.source, manifest);
+  let reply;
+  try { reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}${path}?cursor=${cursor}&limit=20`, { fetcher }); }
+  catch (error) {
+    if (mine || !isRetryableReadError(error)) throw error;
+    reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}/v1/snapshot/portfolios?cursor=${cursor}&limit=20`, { fetcher });
+    requireValue(reply?.source?.readMode === 'verified_snapshot', '预算项目快照来源无效。');
+  }
+  const source = validateIndexSource(reply.source, manifest,
+    reply.source?.readMode === 'verified_snapshot' ? { maxAgeMs: 30 * 60 * 1000 } : undefined);
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算项目索引身份或分页无效。');
   const nextCursor = reply.data.nextCursor;
@@ -132,6 +140,10 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
   const context = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
   requireValue(context.block.hash.toLowerCase() === source.indexedBlockHash
     && context.timestamp === BigInt(source.indexedTimestamp), '预算项目索引区块已变化。');
+  if (source.readMode === 'verified_snapshot') {
+    const count = (await context.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
+    requireValue(typeof source.portfolioCount === 'string' && count === BigInt(source.portfolioCount), '预算项目快照数量与链上不一致。');
+  }
   const items = [], seen = new Set();
   for (const entry of reply.data.items) {
     const pool = address(entry.address);

@@ -1169,6 +1169,32 @@ export default function LivePlatform() {
       }
     }
   }
+  // A returned transaction hash is recovery evidence, never permission to send
+  // again. Poll the read-only journal until its canonical receipt is final.
+  useEffect(() => {
+    const hash = pending?.hash || pending?.recoveryHashes?.at(-1);
+    if (!hash || !account || !config) return;
+    const owner = account, context = walletEpoch.current, started = Date.now();
+    let cancelled = false, timer;
+    const poll = async () => {
+      if (cancelled || context !== walletEpoch.current) return;
+      if (submissionLock.current || busy) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      try {
+        const result = await recoverPending({ config, account: owner, hash });
+        if (cancelled || context !== walletEpoch.current) return;
+        if (result.status !== 'pending') {
+          await handleResult(result, context);
+          return;
+        }
+      } catch { /* Keep the saved hash available for manual recovery. */ }
+      if (Date.now() - started < 90_000) timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [pending?.hash, pending?.recoveryHashes?.at(-1), account, config, busy]);
   async function sendPortfolio(confirmed, input) {
     if (busy || submissionLock.current || !wallet || !account) throw new Error('请等待当前操作完成。');
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
