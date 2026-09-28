@@ -20,6 +20,9 @@ interface IRegisteredShareMarket {
 /// @dev Test-only exact pre-registry source snapshot from be9e48f (contract name/import paths adapted).
 /// @notice Creates independently funded BNB pools. Daily administration and upgrade authority are separate.
 contract LegacyMachineFactory is OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, IPoolFactoryRoles {
+    function designatedSubscriber(address) external pure returns (address) {
+        return address(0);
+    }
     uint256 public constant TOTAL_SHARES = 100;
     uint256 public constant MINIMUM_UPGRADE_DELAY = 48 hours;
     address public constant TAPEOUT_CIRCUITS = 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C;

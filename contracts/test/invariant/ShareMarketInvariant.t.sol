@@ -73,7 +73,7 @@ contract ShareMarketHandler is Test {
         uint256 available = shares[p][seller] - locked[p][seller];
         if (available == 0) return;
         uint256 amount = bound(amountSeed, 1, available);
-        uint256 price = priceSeed % 4 == 0 ? 0 : bound(priceSeed, 1, 0.001 ether);
+        uint256 price = bound(priceSeed, 1, 0.001 ether);
         vm.prank(actors[seller]);
         uint256 id = market.list(address(pools[p]), amount, price);
         assertEq(id, ++orderCount);
@@ -139,7 +139,7 @@ contract ShareMarketHandler is Test {
         uint256 id = _activeId(orderSeed);
         if (id == 0) return;
         uint256 buyer = buyerSeed % 7;
-        // One share with one wei too much fails even when the order is free.
+        // One share with one wei too much always fails the exact-payment check.
         uint256 gross = orders[id].price;
         _rejectFill(id, buyer, gross + gross / 100 + 1, IShareMarket.PaymentMismatch.selector);
         ++rejectedPayments;

@@ -1,3 +1,5 @@
+import { createRequestLimiter } from './request-limiter.mjs';
+
 const ADDRESS = /^0x[\da-f]{40}$/i;
 const QUANTITY = /^0x(?:0|[1-9a-f][\da-f]{0,63})$/i;
 const DATA = /^0x(?:[\da-f]{2})*$/i;
@@ -168,6 +170,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       !Number.isFinite(Date.parse(source.checkedAt))) return;
     publicSource = { body: { source }, until: now() + publicSourceTtlMs };
   };
+  const allowRpc = createRequestLimiter({ perClient: 300 });
   return Object.freeze({ async handle(req, res) {
     const send = (status, value) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -178,6 +181,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       const url = new URL(req.url, 'http://localhost');
       requireValue(concurrent < maxConcurrent, 503, 'Read-only data service is busy.'); concurrent++; acquired = true;
       if (url.pathname === '/api/rpc') {
+        requireValue(allowRpc(req), 429, 'RPC request rate exceeded; retry shortly.');
         requireValue(req.method === 'POST', 405, 'RPC requires POST.');
         requireValue(!url.search && !url.hash, 400, 'RPC does not accept URL parameters.');
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');

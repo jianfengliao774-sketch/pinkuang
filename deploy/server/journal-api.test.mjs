@@ -451,6 +451,19 @@ test('saved quote plans are paged newest first and never leak across wallet sess
   } finally { await f.close(); }
 });
 
+test('quote writes reject oversized records and stop repeated writes before SQLite fills', async () => {
+  const f = await fixture();
+  try {
+    const { cookie } = await f.login(wallet);
+    assert.equal((await f.request('/api/journal/quote', 'POST',
+      { record: { payload: 'x'.repeat(4200) } }, cookie)).status, 409);
+    for (let i = 1; i < 40; i++) {
+      assert.equal((await f.request('/api/journal/quote', 'POST', { record: { marker: i } }, cookie)).status, 200);
+    }
+    assert.equal((await f.request('/api/journal/quote', 'POST', { record: { marker: 40 } }, cookie)).status, 429);
+  } finally { await f.close(); }
+});
+
 test('archive verifies every prior deployment nonce and rejects a forged confirmed step', async () => {
   const firstHash = hex(66), firstBlock = hex(99), firstData = '0x6001';
   const base = chainProof();

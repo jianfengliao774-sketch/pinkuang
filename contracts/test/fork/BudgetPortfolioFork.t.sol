@@ -112,6 +112,10 @@ contract BudgetPortfolioForkTest is Test {
         uint256 proposalId = portfolio.proposeChildSale(address(officialChild), SALE_PRICE, 0, 0);
         vm.prank(ALICE);
         portfolio.voteChildSale(proposalId, true);
+        ShareMarket(payable(factory.shareMarket()))
+            .setSaleReference(
+                address(officialChild), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+            );
         portfolio.executeChildSale(proposalId);
         uint256 payment = SALE_PRICE + SALE_PRICE / 100;
         vm.deal(BUYER, payment);
@@ -142,7 +146,7 @@ contract BudgetPortfolioForkTest is Test {
 
     function _child(uint256 tokenId, uint256 cost) private returns (PoolVault) {
         return PoolVault(
-            payable(factory.createPool(
+            payable(factory.createBudgetChildPool(
                     IPoolVault.PoolParams({
                         circuits: Addresses.TAPEOUT_CIRCUITS,
                         circuitId: tokenId,
@@ -152,7 +156,8 @@ contract BudgetPortfolioForkTest is Test {
                         directPrice: 0,
                         fundingDeadline: uint64(block.timestamp + 1 days),
                         purchaseDeadline: uint64(block.timestamp + 2 days)
-                    })
+                    }),
+                    address(portfolio)
                 ))
         );
     }

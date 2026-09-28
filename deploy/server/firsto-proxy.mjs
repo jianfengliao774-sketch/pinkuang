@@ -59,7 +59,7 @@ export function upstreamUrl(requestPath) {
   return url;
 }
 
-/** Bounded fixed-window limiter. The v2 nginx listener overwrites X-Real-IP. */
+/** Bounded fixed-window per-client limiter; only loopback nginx may identify a public IP. */
 export function createQuoteRateLimiter({ limit = 30, windowMs = 60_000, maxClients = 512, now = Date.now } = {}) {
   const clients = new Map();
   return {

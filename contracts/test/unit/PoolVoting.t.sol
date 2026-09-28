@@ -5,6 +5,7 @@ import {ShareTransferTestBase, ShareTransferVaultHarness} from "../utils/ShareTr
 import {RewardsVaultHarness} from "../utils/RewardsTestBase.sol";
 import {IFundingVault} from "../utils/FundingTestBase.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
 import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
@@ -160,7 +161,7 @@ contract PoolVotingTest is ShareTransferTestBase {
             _vote(BOB, candidate, true);
             assertTrue(voting.proposalPassed(candidate));
         }
-        voting.executeSale(second);
+        _execute(second);
         assertEq(voting.listedProposalId(), second);
         assertEq(voting.salePrice(), purchaseCost + 1);
         vm.expectRevert(IPoolVault.WrongState.selector);
@@ -180,7 +181,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _vote(BOB, alternative, true);
         _assertTally(alternative, 2, 60, true);
         assertFalse(voting.proposalPassed(opener));
-        voting.executeSale(alternative);
+        _execute(alternative);
         assertEq(voting.listedProposalId(), alternative);
     }
 
@@ -373,7 +374,7 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() public {
         vm.prank(ALICE);
-        uint256 orderId = shareMarket.list(address(pool), 49, 0);
+        uint256 orderId = shareMarket.list(address(pool), 49, 1);
         _ready();
         uint256 id = _propose(BOB);
         assertEq(_shareVault().lockedShares(ALICE), 49);
@@ -413,7 +414,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertFalse(voting.proposalPassed(id));
         _vote(BOB, id, true);
         _assertTally(id, 2, 60, true);
-        voting.executeSale(id);
+        _execute(id);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
 
@@ -425,8 +426,57 @@ contract PoolVotingTest is ShareTransferTestBase {
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
         _assertTally(id, 2, 51, true);
+        _execute(id);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_belowFreshMarketReferenceRequiresPlatformApproval() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
+        voting.executeSale(id);
+        vm.prank(OPERATOR);
+        shareMarket.reviewSale(address(pool), id, 3 ether, true);
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
+        voting.executeSale(id);
+        vm.prank(OPERATOR);
+        shareMarket.reviewSale(address(pool), id, 4 ether, true);
         voting.executeSale(id);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_platformCanFinallyRejectBelowMarketProposal() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        vm.startPrank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        shareMarket.reviewSale(address(pool), id, 4 ether, false);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), id, 4 ether, true);
+        vm.stopPrank();
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
+        voting.executeSale(id);
+    }
+
+    function test_singleOwnerCannotBypassBelowMarketPlatformReview() public {
+        _transfer(BOB, ALICE, 26);
+        _transfer(CAROL, ALICE, 25);
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        _vote(ALICE, id, true);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
+        voting.executeSale(id);
     }
 
     function test_minorityCannotMonopolizeRoundPriceOrOpenAnotherRound() public {
@@ -477,26 +527,25 @@ contract PoolVotingTest is ShareTransferTestBase {
         }
         _assertTally(majorityId, 10, 93, true);
         assertFalse(voting.proposalPassed(opener));
-        voting.executeSale(majorityId);
+        _execute(majorityId);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
         assertEq(voting.listedProposalId(), majorityId);
         vm.expectRevert(IPoolVault.WrongState.selector);
         voting.executeSale(opener);
     }
 
-    function testFuzz_discountWithFiftyOneThroughFiftyNineSharesCannotExecute(uint8 yesShares) public {
+    function testFuzz_fiftyOneThroughFiftyNineSharesPassDoubleMajority(uint8 yesShares) public {
         yesShares = uint8(bound(yesShares, 51, 59));
         _transfer(BOB, CAROL, 26 - (yesShares - 49));
         _ready();
         vm.prank(ALICE);
-        // An arbitrary displayed reference cannot weaken the on-chain cost floor.
+        // The platform reference is checked at execution, not taken from the proposal.
         uint256 id = voting.propose(1, type(uint256).max, type(uint64).max);
         _vote(ALICE, id, true);
         _vote(BOB, id, true);
-        _assertTally(id, 2, yesShares, false);
-        vm.expectRevert(IPoolVault.ProposalNotPassed.selector);
-        voting.executeSale(id);
-        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Active));
+        _assertTally(id, 2, yesShares, true);
+        _execute(id);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
 
     function testFuzz_referenceAndPriceAreRecordedWithoutOracleValidation(uint256 price, uint256 refPrice, uint64 refAt)
@@ -610,6 +659,12 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.warp(uint256(voting.activatedAt()) + 7 days);
     }
 
+    function _execute(uint256 proposalId) internal {
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 1, uint64(block.timestamp), keccak256("test-firsto-reference"));
+        voting.executeSale(proposalId);
+    }
+
     function _propose(address proposer) internal returns (uint256 id) {
         vm.prank(proposer);
         id = voting.propose(5 ether, 6 ether, 1);
@@ -633,7 +688,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         uint256 orderId;
         if (route == 2) {
             vm.prank(ALICE);
-            orderId = shareMarket.list(address(pool), 49, 0);
+            orderId = shareMarket.list(address(pool), 49, 1);
         }
         uint256 id = _propose(ALICE);
         if (route == 0) {

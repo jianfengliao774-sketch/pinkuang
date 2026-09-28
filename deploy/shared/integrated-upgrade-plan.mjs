@@ -61,6 +61,7 @@ const timelockAbi = new Interface([
   'function getMinDelay() view returns(uint256)',
   'function hasRole(bytes32,address) view returns(bool)',
   'function PROPOSER_ROLE() view returns(bytes32)',
+  'function EXECUTOR_ROLE() view returns(bytes32)',
   'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
   'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
 ]);
@@ -244,6 +245,11 @@ function genesisRuntime(name,record,bundle) {
   })[name] ?? null;
   return expectedRuntime(artifact,old,old[name],immutable && address(immutable,`${name} immutable`));
 }
+function upgradeImmutable(name,old,deployed) {
+  return name === 'PoolVault' ? old.factory
+    : name === 'BudgetPortfolioVault' ? old.portfolioFactory
+      : ['PoolFactory','ShareMarket','BudgetPortfolioFactory'].includes(name) ? deployed : null;
+}
 function slotAddress(raw) {
   requireThat(/^0x0{24}[\da-f]{40}$/i.test(raw), 'Invalid implementation slot encoding.');
   return getAddress(`0x${raw.slice(-40)}`);
@@ -370,8 +376,7 @@ export async function validateIntegratedUpgradePartialReplacementsAgainstChain(p
     replacements[name] = deployed;
     const observed = await provider.getCode(deployed,block.number);
     requireThat(observed !== '0x' && same(observed,expectedRuntime(upgradeBundle.artifacts[name],
-      {...old,...replacements},deployed,
-      name === 'PoolVault' ? old.factory : name === 'BudgetPortfolioVault' ? old.portfolioFactory : null)),
+      {...old,...replacements},deployed,upgradeImmutable(name,old,deployed))),
     `Replacement runtime differs: ${name}.`);
     checks.push({label:`Replacement runtime matches reviewed artifact: ${name}`,passed:true});
   }
@@ -404,7 +409,7 @@ async function validatePlanAtChain(provider,plan,input,phase) {
   for (const name of integratedUpgradeDeploymentOrder) {
     const observed = await provider.getCode(plan.replacements[name],block.number);
     const expected = expectedRuntime(upgradeBundle.artifacts[name],addresses,plan.replacements[name],
-      name === 'PoolVault' ? old.factory : name === 'BudgetPortfolioVault' ? old.portfolioFactory : null);
+      upgradeImmutable(name,old,plan.replacements[name]));
     checked(observed !== '0x' && same(observed,expected), `Replacement runtime differs: ${name}.`);
     replacementCodehash[name] = keccak256(observed);
   }
@@ -431,6 +436,15 @@ async function validatePlanAtChain(provider,plan,input,phase) {
   }
   checked(await call(provider,old.timelock,timelockAbi,'hasRole',[proposerRole,signer],tag) === true,
     'Connected wallet is not a Timelock proposer.');
+  if (phase === 'scheduled') {
+    const executorRole = await call(provider,old.timelock,timelockAbi,'EXECUTOR_ROLE',[],tag);
+    const [direct,open] = await Promise.all([
+      call(provider,old.timelock,timelockAbi,'hasRole',[executorRole,signer],tag),
+      call(provider,old.timelock,timelockAbi,'hasRole',[executorRole,ZERO_ADDRESS],tag),
+    ]);
+    checked(direct === true || open === true,
+      'Connected wallet cannot execute the ready Timelock operation.');
+  }
   const [again,againChain] = await Promise.all([provider.getBlock(block.number),provider.send('eth_chainId',[])]);
   checked(again?.number === block.number && same(again.hash,block.hash) && BigInt(againChain) === 56n,
     'Finalized block changed during preflight.');
@@ -550,8 +564,7 @@ export async function validateIntegratedUpgradeResultAgainstChain(provider,plan,
   for (const name of integratedUpgradeDeploymentOrder) {
     const code = await provider.getCode(plan.replacements[name],finalized.number);
     checked(code !== '0x' && same(code,expectedRuntime(upgradeBundle.artifacts[name],addresses,
-      plan.replacements[name],name === 'PoolVault' ? old.factory
-        : name === 'BudgetPortfolioVault' ? old.portfolioFactory : null)),
+      plan.replacements[name],upgradeImmutable(name,old,plan.replacements[name]))),
     `Replacement runtime changed after execution: ${name}.`);
   }
   const genesisBlock = await provider.getBlock(trustedGenesisManifest.deployment.blockNumber);

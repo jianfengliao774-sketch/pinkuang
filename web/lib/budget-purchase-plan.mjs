@@ -142,13 +142,13 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
     const params={circuits:item.collection,circuitId:item.tokenId,targetRaiseWei:item.targetRaiseWei,priceCapWei:item.maxCostWei,
       fundingDeadline:(row.purchaseDeadline-1n).toString(),purchaseDeadline:row.purchaseDeadline.toString()};
     need(row.timestamp<row.purchaseDeadline-1n,'Purchase deadline is too close');
-    prepared=await prepareCreate({config,provider,account,kind:'createPool',params});phase='create';
-    prepared={...prepared,action:{kind:'createPool',targetType:'factory'}};
+    prepared=await prepareCreate({config,provider,account,kind:'createBudgetChildPool',params,subscriber:parent});phase='create';
+    prepared={...prepared,action:{kind:'createBudgetChildPool',targetType:'factory'}};
   }else{
     need(item.child&&same(miner.registry.pool,item.child),'Child reservation differs from the confirmed creation');
     const params=(await context.read(item.child,abi.PoolVault,'params'))[0];
-    const [supply,state,binding]=await Promise.all([context.read(item.child,abi.PoolVault,'totalSupply'),context.read(item.child,abi.PoolVault,'state'),context.read(item.child,abi.PoolVault,'factory')]);
-    need(supply[0]===0n&&state[0]===0n&&same(binding[0],plan.factory),'子池已有认购或状态改变，暂停采购 / Child is no longer empty');
+    const [supply,state,binding,subscriber]=await Promise.all([context.read(item.child,abi.PoolVault,'totalSupply'),context.read(item.child,abi.PoolVault,'state'),context.read(item.child,abi.PoolVault,'factory'),context.read(plan.factory,abi.PoolFactory,'designatedSubscriber',[item.child])]);
+    need(supply[0]===0n&&state[0]===0n&&same(binding[0],plan.factory)&&same(subscriber[0],parent),'子池未锁定给预算项目或状态改变，暂停采购 / Child is not reserved for this portfolio');
     need(same(params.circuits,item.collection)&&params.circuitId===exact(item.tokenId)&&params.targetRaise===exact(item.targetRaiseWei)
       &&params.priceCap===exact(item.maxCostWei)&&params.directSeller===ZeroAddress&&params.directPrice===0n
       &&params.fundingDeadline===exact(plan.purchaseDeadline)-1n&&params.purchaseDeadline===exact(plan.purchaseDeadline),'Child parameters differ from approved plan');

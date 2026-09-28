@@ -16,11 +16,11 @@ export const libraryNames = Object.freeze([
 ]);
 export const requiredContracts = Object.freeze([
   ...libraryNames, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket',
-  'BudgetPortfolioFactory', 'BudgetPortfolioVault',
+  'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority',
   'PoolBeacon', 'PoolTimelock', 'ERC1967Proxy', 'PoolLens',
 ]);
 export const compilerSettings = Object.freeze({
-  optimizer: { enabled: true, runs: 200 },
+  optimizer: { enabled: true, runs: 1 },
   evmVersion: 'shanghai',
   viaIR: false,
   outputSelection: {
@@ -53,7 +53,7 @@ export function verifyBuildConfiguration(root = repositoryRoot) {
   assert(defaultProfile, 'Missing [profile.default] in contracts/foundry.toml.');
   const expected = {
     solc_version: '"0.8.24"', evm_version: '"shanghai"', optimizer: 'true',
-    optimizer_runs: '200', via_ir: 'false',
+    optimizer_runs: '1', via_ir: 'false',
   };
   for (const [key, value] of Object.entries(expected)) {
     const matches = [...defaultProfile.matchAll(new RegExp(`^${key}\\s*=\\s*([^#\\r\\n]+)`, 'gm'))];

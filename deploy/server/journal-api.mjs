@@ -12,6 +12,7 @@ import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
+import { createRequestLimiter } from './request-limiter.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -63,6 +64,7 @@ const PARAMS = '(address circuits,uint256 circuitId,uint256 targetRaise,uint256 
 const FLEXIBLE = '(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
 export const PRODUCT_FACTORY_ABI = new Interface([
   `function createPool(${PARAMS} params)`,
+  `function createBudgetChildPool(${PARAMS} params,address subscriber)`,
   `function createFlexiblePoolChecked(${PARAMS} params,${FLEXIBLE} config,uint32 expectedTaskId,uint128 expectedReferenceWeight)`,
   'event PoolCreated(address indexed pool,address indexed circuits,uint256 indexed circuitId,uint256 targetRaise,uint256 priceCap,address treasury)',
 ]);
@@ -74,6 +76,7 @@ const IDENTITY_ABI = new Interface([
 
   'function isPool(address) view returns(bool)', 'function shareMarket() view returns(address)',
   'function factory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
+  'function legacyFactory() view returns(address)',
   'function unitPriceWei() view returns(uint256)', 'function salePrice() view returns(uint256)',
   'function feeBps() view returns(uint16)', 'function buyerFeeBps() view returns(uint16)',
   'function orders(uint256) view returns(tuple(address seller,address pool,uint256 remaining,uint256 pricePerUnit,bool active))',
@@ -291,6 +294,14 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
         {to:record.factory,data:MACHINE_REGISTRY_ABI.encodeFunctionData('machinePool',[params.circuits,params.circuitId])},tag]))[0];
       if (identity(occupied)!=='0x0000000000000000000000000000000000000000')
         fail(409,`This machine already has a project: ${occupied}.`);
+      if (decoded.name === 'createBudgetChildPool') {
+        const subscriber = identity(decoded.args[1]);
+        await code(subscriber);
+        const budgetFactory = identity(await call(subscriber, 'OFFICIAL_FACTORY'));
+        if (!allowedFactories.has(budgetFactory) || !await call(budgetFactory, 'isPool', [subscriber])
+          || identity(await call(subscriber, 'legacyFactory')) !== identity(record.factory))
+          fail(409, 'Budget child subscriber is not a registered project of this Factory.');
+      }
     } else if (record.targetType === 'pool') {
       await registeredPool(record.target);
       if (['buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine'].includes(decoded.name)
@@ -741,6 +752,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const cookieSecure = secureCookies || parsedOrigin.protocol === 'https:';
   legacyFactory = legacyFactoryConfiguration(legacyFactory);
   const store = new JournalStore(dbPath);
+  const allowChallenge = createRequestLimiter({ perClient: 120 });
+  const allowQuote = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 40 });
+  const allowArchive = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 300 });
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
   const officialProvider = suppliedProvider ? suppliedProvider : rpcUrl ? createBoundedOfficialProvider(rpcUrl) : null;
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
@@ -1066,6 +1080,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(response.status,response.body);
       }
       if (method === 'POST' && path === '/api/journal/challenge') {
+        if (!allowChallenge(req)) fail(429, 'Too many wallet challenges; retry shortly.');
         const body = await readJson(req), account = identity(body.account);
         const nonce = randomBytes(24).toString('base64url');
         const expires = Date.now() + CHALLENGE_MS;
@@ -1154,6 +1169,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200, { revision: store.putDeployment(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'POST' && path === '/api/journal/deployment/archive') {
+        if (!allowArchive(req)) fail(429, 'Too many archive writes; retry later.');
         const body = await readJson(req);
         if (typeof body.id !== 'string' || !body.id || body.id.length > 160) fail(400, 'Invalid deployment ID.');
         const current = store.deployment(account);
@@ -1165,6 +1181,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200, store.archiveDeployment(account, body.id, exactRevision(body.expectedRevision)));
       }
       if (method === 'POST' && path === '/api/journal/deployment/import-archive') {
+        if (!allowArchive(req)) fail(429, 'Too many archive writes; retry later.');
         const body = await readJson(req);
         return send(200, { id: store.importArchive(account, validateDeployment(body.record, account)) });
       }
@@ -1234,6 +1251,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200, { revision: store.deleteMarket(account, expectedRevision, result), result });
       }
       if (method === 'POST' && path === '/api/journal/quote') {
+        if (!allowQuote(req)) fail(429, 'Too many quote writes; retry later.');
         const body = await readJson(req);
         if (!isRecord(body.record)) fail(400, 'Invalid quote record.');
         const id = randomUUID(); store.saveQuote(account, id, body.record);

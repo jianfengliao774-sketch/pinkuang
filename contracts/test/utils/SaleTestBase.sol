@@ -121,8 +121,16 @@ abstract contract SaleTestBase is ShareTransferTestBase {
         if (block.timestamp < firstAllowed) vm.warp(firstAllowed);
     }
 
+    function _publishSaleReference(uint256 price) internal {
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(pool), uint128(price), uint64(block.timestamp), keccak256("test-firsto-reference")
+        );
+    }
+
     function _passSaleProposal(uint256 price) internal returns (uint256 id) {
         _readyForSale();
+        _publishSaleReference(price);
         address proposer = pool.balanceOf(ALICE) != 0 ? ALICE : BOB;
         vm.prank(proposer);
         id = saleVault.propose(price, 0, 0);

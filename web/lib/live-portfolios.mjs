@@ -74,7 +74,7 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
     '此预算项目未在工厂登记。');
   const names = ['OFFICIAL_FACTORY', 'legacyFactory', 'state', 'budgetWei', 'absoluteCapWei', 'unitCapWei', 'spentWei',
     'totalSupply', 'memberCount', 'childCount', 'activeChildCount', 'fundingDeadline', 'purchaseDeadline', 'fundingFailed',
-    'refundPerShareWei', 'salePerShareWei', 'activeProposalId', 'shareTradingAllowed', 'nextRoundAt'];
+    'refundPerShareWei', 'salePerShareWei', 'activeProposalId', 'nextProposalId', 'shareTradingAllowed', 'nextRoundAt'];
   const memberNames = ['balanceOf', 'claimableBem', 'bnbOwed', 'refundSettled', 'saleDebt', 'lockedShares'];
   const values = await Promise.all([...names.map(name => read(target, contract, name)),
     ...memberNames.map(name => read(target, contract, name, [owner]))]);
@@ -84,15 +84,20 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
     && row.budgetWei % 100n === 0n && row.lockedShares <= row.balanceOf, '预算项目状态不一致。');
   Object.assign(row, { kind: 'portfolio', pool: target, account: owner, shares: row.balanceOf,
     unitPriceWei: row.budgetWei / 100n, availableShares: row.balanceOf - row.lockedShares, timestamp,
-    blockNumber: BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null });
+    blockNumber: BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null, proposals: [] });
   row.withdrawableBnb = portfolioBnbEntitlement(row);
   if (row.activeProposalId > 0n) {
-    const [p, voted] = await Promise.all([read(target, contract, 'proposals', [row.activeProposalId]),
-      read(target, contract, 'hasVoted', [row.activeProposalId, owner])]);
-    const child = await read(target, contract, 'childInfo', [p.child]);
-    row.proposal = { id: row.activeProposalId, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
-      referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
-      yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0], threshold: p.price < child.purchaseCost ? 60n : 51n };
+    requireValue(row.nextProposalId > row.activeProposalId && row.nextProposalId - row.activeProposalId <= 16n,
+      '预算项目出售候选数量超出可核验范围。');
+    const entries = await Promise.all(Array.from({ length: Number(row.nextProposalId - row.activeProposalId) }, (_, offset) => {
+      const id = row.activeProposalId + BigInt(offset);
+      return Promise.all([read(target, contract, 'proposals', [id]), read(target, contract, 'hasVoted', [id, owner])])
+        .then(([p, voted]) => ({ id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
+          referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
+          yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0], threshold: 51n }));
+    }));
+    row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt);
+    row.proposal = row.proposals[0];
   }
   // Display at most 100 children per page; the adapter accepts a cursor for further batches below.
   if (includeChildren) row.children = await readPortfolioChildren(context, target, row.childCount);
@@ -276,8 +281,9 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     else if (method === 'collectChildBem') args = [address(action.child)];
     else if (method === 'proposeChildSale') args = [address(action.child), exactPrice(action.price), exactPrice(action.reference), uint(action.referenceAt, 64)];
     else if (method === 'voteChildSale' || method === 'executeChildSale') {
-      requireValue(uint(action.proposalId) === row.activeProposalId && row.activeProposalId > 0n, '子矿机提案已改变。');
-      args = method === 'voteChildSale' ? [row.activeProposalId, action.support] : [row.activeProposalId];
+      const candidate = row.proposals.find(item => item.id === uint(action.proposalId));
+      requireValue(candidate && !row.proposal?.executed && !candidate.executed, '子矿机提案已改变。');
+      args = method === 'voteChildSale' ? [candidate.id, action.support] : [candidate.id];
       if (method === 'voteChildSale') requireValue(typeof action.support === 'boolean', '投票选项无效。');
     } else if (method === 'buyOfficial') args = [address(action.child), uint(action.listingId)];
     else if (method === 'buyFirsto') args = [address(action.child), action.encodedOrder];

@@ -368,7 +368,7 @@ contract PoolLens {
         bool validSnapshot = uint256(g.proposal.snapshotTs) + 1 days == g.proposal.endsAt;
         if (_valid(g.status, 1 << uint256(GovernanceField.PurchaseCost))) {
             g.discounted = g.proposal.price < g.purchaseCost;
-            g.requiredYesShares = g.discounted ? 60 : g.proposal.snapshotTotalShares / 2 + 1;
+            g.requiredYesShares = g.proposal.snapshotTotalShares / 2 + 1;
             g.requiredYesCount = g.proposal.snapshotMemberCount / 2 + 1;
             g.passed = validSnapshot && g.proposal.price != 0 && g.proposal.yesShares >= g.requiredYesShares
                 && g.proposal.yesCount >= g.requiredYesCount;

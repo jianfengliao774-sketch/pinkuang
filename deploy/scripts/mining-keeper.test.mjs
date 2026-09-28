@@ -65,4 +65,22 @@ test('mining journal cannot be mistaken for purchase or a different mining stage
   assert.doesNotThrow(() => assertStage({ miningStage: 'arming', transaction: { to: pool, data: arm, value: '0' } }, { pool }));
   assert.throws(() => assertStage({ miningStage: 'starting', transaction: { to: pool, data: arm, value: '0' } }, { pool }), /disagree/);
   assert.throws(() => assertStage({ miningStage: 'arming', transaction: { to: pool, data: '0x12345678', value: '0' } }, { pool }));
+  const authority = '0x0000000000000000000000000000000000000003';
+  const wrapper = new Interface(['function executeOperation(address,bytes)']);
+  const wrapped = wrapper.encodeFunctionData('executeOperation', [pool, arm]);
+  assert.doesNotThrow(() => assertStage({ miningStage: 'arming', transaction: { to: authority, data: wrapped, value: '0' } },
+    { pool, authority, transactionTarget: authority }));
+  assert.throws(() => assertStage({ miningStage: 'arming', transaction: { to: authority, data: wrapped, value: '0' } },
+    { pool, transactionTarget: authority }), /different action/);
+  assert.throws(() => assertStage({ miningStage: 'arming', transaction: { to: authority,
+    data: wrapper.encodeFunctionData('executeOperation', [authority, arm]), value: '0' } },
+  { pool, authority, transactionTarget: authority }), /invalid authority wrapper/);
+});
+
+test('authority mode binds a new transaction target and preserves the original pool identity', () => {
+  const parsed = parseMiningArguments(['--factory', '0x0000000000000000000000000000000000000001',
+    '--pool', '0x0000000000000000000000000000000000000002',
+    '--authority', '0x0000000000000000000000000000000000000003']);
+  assert.equal(parsed.transactionTarget, parsed.authority);
+  assert.notEqual(parsed.transactionTarget, parsed.pool);
 });

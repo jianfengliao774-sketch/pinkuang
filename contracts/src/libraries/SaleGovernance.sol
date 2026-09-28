@@ -5,6 +5,18 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolSaleState} from "../PoolSaleState.sol";
 
+interface IFirstoSaleReference {
+    function saleReference(address pool)
+        external
+        view
+        returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
+    function saleReview(address pool, uint256 proposalId) external view returns (uint8 status, uint128 priceWei);
+}
+
+interface ISaleReferenceFactory {
+    function shareMarket() external view returns (address);
+}
+
 /// @notice Beneficial-owner voting, executed in the PoolVault storage context.
 /// @dev Vault checks the required Active/Listed state and provides its current
 /// balance and activation time. This library never calls out or changes assets.
@@ -34,6 +46,7 @@ library SaleGovernance {
     error ProposalNotPassed();
     error InvalidListing();
     error InvalidSalePrice();
+    error SaleNotApproved();
 
     event SaleProposed(
         uint256 indexed proposalId,
@@ -151,11 +164,19 @@ library SaleGovernance {
     }
 
     /// @notice Opens only the Vault's controlled listing; no external market receives an approval.
-    function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost) external {
+    function execute(PoolSaleState.SaleStorage storage s, uint256 proposalId, uint256 purchaseCost, address factory)
+        external
+    {
         PoolSaleState.Proposal storage p = _proposal(s, proposalId);
         if (!_inActiveRound(s, proposalId, p) || p.executed) revert InvalidProposal();
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
+        address market = ISaleReferenceFactory(factory).shareMarket();
+        uint256 marketPrice = _marketPrice(market);
+        if (p.price < marketPrice) {
+            (uint8 status, uint128 approvedPrice) = IFirstoSaleReference(market).saleReview(address(this), proposalId);
+            if (status != 1 || approvedPrice != p.price) revert SaleNotApproved();
+        }
         p.executed = true;
         s.listedProposalId = proposalId;
         s.listedAt = SafeCast.toUint64(block.timestamp);
@@ -178,9 +199,18 @@ library SaleGovernance {
 
     function _passed(PoolSaleState.Proposal storage p, uint256 purchaseCost) private view returns (bool) {
         if (!_currentSnapshot(p) || p.price == 0 || p.snapshotTotalShares != TOTAL_SHARES) return false;
-        // Only the actual on-chain acquisition cost sets the floor. refPrice is disclosure, never authority.
-        bool sharesPassed = p.price < purchaseCost ? p.yesShares >= 60 : p.yesShares * 2 > p.snapshotTotalShares;
-        return p.yesCount * 2 > p.snapshotMemberCount && sharesPassed;
+        purchaseCost; // Kept in the ABI for storage-compatible linked-library upgrades.
+        return p.yesCount * 2 > p.snapshotMemberCount && p.yesShares * 2 > p.snapshotTotalShares;
+    }
+
+    function _marketPrice(address market) private view returns (uint256 price) {
+        uint64 observedAt;
+        bytes32 digest;
+        (price, observedAt, digest) = IFirstoSaleReference(market).saleReference(address(this));
+        if (
+            price == 0 || digest == bytes32(0) || observedAt > block.timestamp
+                || block.timestamp - observedAt > 15 minutes
+        ) revert SaleNotApproved();
     }
 
     /// @dev Refuse proposals created by the former timestamp-1 implementation after an upgrade.

@@ -62,6 +62,7 @@ contract PoolFactory is
         uint256 cutoff;
         bool initialized;
         bool ready;
+        mapping(address => address) subscriber;
     }
 
     bytes32 private constant MACHINE_REGISTRY_STORAGE =
@@ -158,6 +159,17 @@ contract PoolFactory is
 
     function createPool(IPoolVault.PoolParams calldata params) external nonReentrant returns (address pool) {
         return _createPool(params, true);
+    }
+
+    /// @notice Reserve a child miner while allowing only its budget project to subscribe.
+    function createBudgetChildPool(IPoolVault.PoolParams calldata params, address subscriber)
+        external
+        nonReentrant
+        returns (address pool)
+    {
+        if (subscriber == address(0)) revert InvalidAddress();
+        pool = _createPool(params, true);
+        _machineRegistry().subscriber[pool] = subscriber;
     }
 
     function createPoolWithExpiry(IPoolVault.PoolParams calldata params, bool expiryEnabled)
@@ -316,6 +328,10 @@ contract PoolFactory is
         return _machineRegistry().reservedPool[keccak256(abi.encode(circuits, circuitId))];
     }
 
+    function designatedSubscriber(address pool) external view returns (address) {
+        return _machineRegistry().subscriber[pool];
+    }
+
     function machineRegistryStatus()
         external
         view
@@ -386,7 +402,7 @@ contract PoolFactory is
     }
 
     function _registeredPoolParams(address pool) private view returns (IPoolVault.PoolParams memory) {
-        if (!_factoryStorage().isPool[pool] || IRegisteredMachinePool(pool).factory() != address(this)) {
+        if (!_factoryStorage().isPool[pool]) {
             revert Unauthorized();
         }
         return IRegisteredMachinePool(pool).params();

@@ -15,7 +15,7 @@ test('browser artifacts compile the complete source graph with the reviewed comp
   assert.equal(document.schemaVersion, 1);
   assert.match(document.compilerVersion, /^0\.8\.24\+commit\.e11b9ed9\./);
   assert.equal(document.settings.evmVersion, 'shanghai');
-  assert.deepEqual(document.settings.optimizer, { enabled: true, runs: 200 });
+  assert.deepEqual(document.settings.optimizer, { enabled: true, runs: 1 });
   assert.equal(document.settings.viaIR, false);
   assert.deepEqual(Object.keys(document.artifacts).sort(), [...requiredContracts].sort());
   assert(document.sourceHashes['src/PoolVault.sol']);

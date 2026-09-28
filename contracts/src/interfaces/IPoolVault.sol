@@ -202,4 +202,5 @@ interface IPoolVault {
 interface IPoolFactoryRoles {
     function operator() external view returns (address);
     function shareMarket() external view returns (address);
+    function designatedSubscriber(address pool) external view returns (address);
 }

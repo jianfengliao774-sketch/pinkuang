@@ -9,6 +9,7 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {IWbnb} from "../../src/interfaces/IPancakeBurnRouter.sol";
 import {Addresses} from "../../script/Addresses.sol";
@@ -60,6 +61,16 @@ contract PoolBurnForkTest is Test {
                 )
             )
         );
+        ShareMarket shareMarket = ShareMarket(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(new ShareMarket()),
+                        abi.encodeCall(ShareMarket.initialize, (address(factory), address(timelock)))
+                    )
+                ))
+        );
+        vm.prank(address(timelock));
+        factory.registerShareMarket(address(shareMarket));
         IPoolVault.PoolParams memory p = IPoolVault.PoolParams({
             circuits: Addresses.TAPEOUT_CIRCUITS,
             circuitId: TOKEN_ID,
@@ -86,6 +97,10 @@ contract PoolBurnForkTest is Test {
         vault.vote(proposal, true);
         vm.prank(BOB);
         vault.vote(proposal, true);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vault.executeSale(proposal);
         vm.deal(BUYER, BUYER_PAYMENT);
         vm.prank(BUYER);

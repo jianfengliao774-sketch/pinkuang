@@ -147,14 +147,14 @@ export async function readOperatorStatus({ provider, config, account }) {
 
 /** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */
 export async function prepareAdminAction(input) {
-  const { provider, config, account, kind, params = {}, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
+  const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
   need(status.isOperator, '仅当前运营钱包可操作。');
   let transaction, normalizedParams, frozenFirstoOrder, details = {}, resolvedKind = kind;
   let selectedListingId = listingId;
   const tx = (to, contract, name, args) => Object.freeze({ chainId: '0x38', from, to,
     data: contract.encodeFunctionData(name, args), value: '0x0' });
-  if (kind === 'createPool' || kind === 'createFlexiblePoolChecked') {
+  if (kind === 'createPool' || kind === 'createFlexiblePoolChecked' || kind === 'createBudgetChildPool') {
     need(!status.creationPaused, '当前已暂停创建矿池。');
     const circuits = addr(params.circuits);
     need(OFFICIAL_COLLECTIONS.some(a => same(a, circuits)), '请选择官方矿机合约。');
@@ -172,6 +172,7 @@ export async function prepareAdminAction(input) {
     normalizedParams = Object.freeze({ circuits, circuitId: uint(params.circuitId), targetRaise, priceCap,
       directSeller: ZeroAddress, directPrice: 0n, fundingDeadline, purchaseDeadline });
     transaction = kind === 'createPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams])
+      : kind === 'createBudgetChildPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams, addr(subscriber)])
       : checkedPoolCreation({ factory, from, params: normalizedParams, config: flexible, expectedTaskId, expectedReferenceWeight });
     details = { params: normalizedParams, unitPriceWei: targetRaise / 100n };
   } else {

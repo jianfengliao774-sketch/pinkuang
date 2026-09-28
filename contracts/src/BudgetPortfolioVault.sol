@@ -12,6 +12,7 @@ import {BudgetGovernanceState} from "./BudgetGovernanceState.sol";
 
 interface IBudgetLegacyFactory {
     function isPool(address pool) external view returns (bool);
+    function designatedSubscriber(address pool) external view returns (address);
 }
 
 interface IBudgetChild is IPoolVault, IERC20 {
@@ -31,6 +32,17 @@ interface IBudgetPortfolioFactoryRoles {
     function shareMarket() external view returns (address);
 }
 
+interface IBudgetSaleReference {
+    function saleReference(address pool)
+        external
+        view
+        returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
+}
+
+interface IBudgetLegacySaleMarket {
+    function shareMarket() external view returns (address);
+}
+
 /// @notice A 100-share project that atomically buys separate, existing single-NFT pools.
 /// @dev Every child keeps its NFT and existing source/sale protections. This project
 /// holds all child shares; unclaimed BEM follows project shares when they move.
@@ -42,6 +54,10 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     uint256 public constant TOTAL_SHARES = 100;
     uint256 public constant MAX_FUNDING_DURATION = 30 days;
     uint256 public constant MAX_PURCHASE_DURATION = 7 days;
+    uint256 public constant MAX_SALE_CANDIDATES = 16;
+    // At most ten distinct wallets can each hold this threshold in a 100-share project.
+    // Even splitting ownership cannot fill the sixteen candidate slots with one-share spam.
+    uint256 public constant MIN_PROPOSAL_SHARES = 10;
     address public constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address public constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
     address public constant TAPEOUT = 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C;
@@ -112,6 +128,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     event ChildSaleApproved(uint256 indexed proposalId, address indexed child);
     event ChildSaleSettled(address indexed child, uint256 netProceeds);
     event ChildSaleExpired(uint256 indexed proposalId);
+    event ChildSaleReviewed(uint256 indexed proposalId, bool approved, address indexed operator);
 
     address public legacyFactory;
     address public treasury;
@@ -241,14 +258,16 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         view
         returns (IBudgetChild pool, IPoolVault.PoolParams memory params)
     {
-        if (childInfo[child].collection != address(0) || !IBudgetLegacyFactory(legacyFactory).isPool(child)) {
+        if (
+            childInfo[child].collection != address(0) || !IBudgetLegacyFactory(legacyFactory).isPool(child)
+                || IBudgetLegacyFactory(legacyFactory).designatedSubscriber(child) != address(this)
+        ) {
             revert InvalidChild();
         }
         pool = IBudgetChild(child);
-        if (
-            pool.factory() != legacyFactory || pool.treasury() != treasury || pool.state() != IPoolVault.State.Funding
-                || pool.totalSupply() != 0
-        ) revert InvalidChild();
+        if (pool.factory() != legacyFactory || pool.state() != IPoolVault.State.Funding || pool.totalSupply() != 0) {
+            revert InvalidChild();
+        }
         params = pool.params();
         if (
             (params.circuits != TAPEOUT && params.circuits != BEHEMOTH) || params.directSeller != address(0)
@@ -381,28 +400,42 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         returns (uint256 proposalId)
     {
         if (state != IPoolVault.State.Active) revert WrongState();
-        if (_saleFrozen()) revert ProposalActive();
-        if (block.timestamp < nextRoundAt()) revert ProposeCooldown();
+        BudgetGovernanceStorage storage g = _budgetGovernanceStorage();
+        uint64 endsAt;
+        uint16 voters;
+        uint256 opener = activeProposalId;
+        if (opener != 0 && proposals[opener].executed) revert ProposalActive();
+        if (opener != 0 && block.timestamp < proposals[opener].endsAt) {
+            if (nextProposalId - opener >= MAX_SALE_CANDIDATES) revert ProposalActive();
+            endsAt = proposals[opener].endsAt;
+            voters = proposals[opener].memberCount;
+        } else {
+            if (block.timestamp < nextRoundAt()) revert ProposeCooldown();
+            endsAt = uint64(block.timestamp + 1 days);
+            voters = memberCount;
+            g.nextRoundAt = uint64(block.timestamp + 7 days);
+            if (opener != 0) emit ChildSaleExpired(opener);
+        }
+        if (g.lastProposed[msg.sender] != 0 && block.timestamp < uint256(g.lastProposed[msg.sender]) + 7 days) {
+            revert ProposeCooldown();
+        }
         if (
-            balanceOf(msg.sender) == 0 || childInfo[child].collection == address(0) || childInfo[child].sold
-                || price == 0 || IBudgetChild(child).state() != IPoolVault.State.Active
+            balanceOf(msg.sender) < MIN_PROPOSAL_SHARES || childInfo[child].collection == address(0)
+                || childInfo[child].sold || price == 0 || IBudgetChild(child).state() != IPoolVault.State.Active
                 || block.timestamp < uint256(IBudgetChild(child).activatedAt()) + 7 days
         ) revert InvalidProposal();
-        if (activeProposalId != 0) emit ChildSaleExpired(activeProposalId);
-        _budgetGovernanceStorage().nextRoundAt = uint64(block.timestamp + 7 days);
         proposalId = nextProposalId++;
-        proposals[proposalId] = SaleProposal(
-            child, price, referencePrice, referenceAt, uint64(block.timestamp + 1 days), memberCount, 0, 0, false
-        );
-        activeProposalId = proposalId;
-        emit ChildSaleProposed(proposalId, child, price, uint64(block.timestamp + 1 days));
+        proposals[proposalId] = SaleProposal(child, price, referencePrice, referenceAt, endsAt, voters, 0, 0, false);
+        if (opener == 0 || block.timestamp >= proposals[opener].endsAt) activeProposalId = proposalId;
+        g.lastProposed[msg.sender] = uint64(block.timestamp);
+        emit ChildSaleProposed(proposalId, child, price, endsAt);
     }
 
     function voteChildSale(uint256 proposalId, bool support) external nonReentrant {
         SaleProposal storage p = proposals[proposalId];
         if (
-            state != IPoolVault.State.Active || activeProposalId != proposalId || proposalId == 0
-                || block.timestamp >= p.endsAt || p.executed
+            state != IPoolVault.State.Active || !_currentSaleCandidate(proposalId) || block.timestamp >= p.endsAt
+                || p.executed
         ) revert InvalidProposal();
         if (hasVoted[proposalId][msg.sender]) revert AlreadyVoted();
         uint256 weight = balanceOf(msg.sender);
@@ -415,15 +448,41 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         emit ChildSaleVoted(proposalId, msg.sender, support, weight);
     }
 
+    function reviewChildSale(uint256 proposalId, bool approved) external nonReentrant {
+        if (msg.sender != IBudgetPortfolioFactoryRoles(OFFICIAL_FACTORY).operator()) revert Unauthorized();
+        SaleProposal storage p = proposals[proposalId];
+        BudgetGovernanceStorage storage g = _budgetGovernanceStorage();
+        if (!_currentSaleCandidate(proposalId) || p.executed || g.saleReviews[proposalId] == 2) {
+            revert InvalidProposal();
+        }
+        g.saleReviews[proposalId] = approved ? 1 : 2;
+        emit ChildSaleReviewed(proposalId, approved, msg.sender);
+    }
+
+    function childSaleReview(uint256 proposalId) external view returns (uint8) {
+        return _budgetGovernanceStorage().saleReviews[proposalId];
+    }
+
     function executeChildSale(uint256 proposalId) external nonReentrant {
         SaleProposal storage p = proposals[proposalId];
         if (
-            state != IPoolVault.State.Active || activeProposalId != proposalId || proposalId == 0
-                || block.timestamp >= p.endsAt || p.executed
+            state != IPoolVault.State.Active || !_currentSaleCandidate(proposalId) || block.timestamp >= p.endsAt
+                || p.executed
         ) revert InvalidProposal();
-        uint256 threshold = p.price < childInfo[p.child].purchaseCost ? 60 : 51;
-        if (uint256(p.yesMembers) * 2 <= p.memberCount || p.yesShares < threshold) revert ProposalNotPassed();
+        (uint128 marketPrice, uint64 observedAt, bytes32 digest) =
+            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket()).saleReference(p.child);
+        if (
+            marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
+                || block.timestamp - observedAt > 15 minutes
+        ) revert ProposalNotPassed();
+        if (p.price < marketPrice && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
+            revert ProposalNotPassed();
+        }
+        if (uint256(p.yesMembers) * 2 <= p.memberCount || uint256(p.yesShares) * 2 <= TOTAL_SHARES) {
+            revert ProposalNotPassed();
+        }
         p.executed = true;
+        activeProposalId = proposalId;
         IBudgetChild pool = IBudgetChild(p.child);
         uint256 childProposal = pool.propose(p.price, p.referencePrice, p.referenceAt);
         pool.vote(childProposal, true);
@@ -465,13 +524,18 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             if (block.timestamp < p.endsAt) revert DeadlineNotReached();
         } else {
             IBudgetChild pool = IBudgetChild(p.child);
-            if (pool.state() != IPoolVault.State.Listed || block.timestamp < pool.expiresAt()) {
-                revert DeadlineNotReached();
+            IPoolVault.State childState = pool.state();
+            // Another holder may already have cancelled the expired child listing.
+            // Its proposal still has to be cleared so project shares can move again.
+            if (childState == IPoolVault.State.Listed) {
+                if (block.timestamp < pool.expiresAt()) revert DeadlineNotReached();
+            } else if (childState != IPoolVault.State.Active) {
+                revert WrongState();
             }
         }
         // Invalidate before calling the child; a failed child call reverts this write.
         activeProposalId = 0;
-        if (executed) {
+        if (executed && IBudgetChild(p.child).state() == IPoolVault.State.Listed) {
             IBudgetChild pool = IBudgetChild(p.child);
             pool.cancelExpired();
         }
@@ -496,6 +560,15 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         if (activeProposalId == 0) return false;
         SaleProposal storage p = proposals[activeProposalId];
         return p.executed || block.timestamp < p.endsAt;
+    }
+
+    function _currentSaleCandidate(uint256 proposalId) private view returns (bool) {
+        uint256 opener = activeProposalId;
+        // An identical deadline identifies the candidate's exact voting round; this is not token accounting.
+        // slither-disable-next-line incorrect-equality
+        return opener != 0 && proposalId >= opener && proposalId < nextProposalId
+            && proposals[proposalId].endsAt == proposals[opener].endsAt
+            && (!proposals[opener].executed || proposalId == opener);
     }
 
     function lock(address member, uint256 amount) external nonReentrant {

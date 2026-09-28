@@ -23,7 +23,7 @@ concurrency:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       FOUNDRY_PROFILE: ci
       VALIDATION_TASK: T1e

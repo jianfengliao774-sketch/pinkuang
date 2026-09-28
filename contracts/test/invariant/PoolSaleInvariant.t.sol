@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {SaleTestBase, ISaleVault} from "../utils/SaleTestBase.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
@@ -13,6 +14,8 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 contract PoolSaleHandler is Test {
     PoolVault public immutable vault;
     ISaleVault public immutable sale;
+    ShareMarket public immutable shareMarket;
+    address public immutable operator;
     IERC721 public immutable nft;
     uint256 public immutable tokenId;
     uint256 public immutable initialBnb;
@@ -37,6 +40,8 @@ contract PoolSaleHandler is Test {
 
     constructor(
         PoolVault vault_,
+        ShareMarket shareMarket_,
+        address operator_,
         address nft_,
         uint256 id_,
         address[6] memory actors_,
@@ -45,6 +50,8 @@ contract PoolSaleHandler is Test {
     ) {
         vault = vault_;
         sale = ISaleVault(address(vault_));
+        shareMarket = shareMarket_;
+        operator = operator_;
         nft = IERC721(nft_);
         tokenId = id_;
         actors = actors_;
@@ -88,6 +95,10 @@ contract PoolSaleHandler is Test {
             vm.prank(actors[i]);
             vault.vote(id, true);
         }
+        vm.prank(operator);
+        shareMarket.setSaleReference(
+            address(vault), uint128(price), uint64(block.timestamp), keccak256("test-firsto-reference")
+        );
         sale.executeSale(id);
         deadline = block.timestamp + 7 days;
         phase = IPoolVault.State.Listed;
@@ -206,7 +217,9 @@ abstract contract PoolSaleInvariantBase is SaleTestBase {
         _directPoolWithRefund(5 ether + 17);
         _readyForSale();
         address[6] memory actors = [ALICE, BOB, CAROL, DAVE, NFT_BUYER, TREASURY];
-        handler = new PoolSaleHandler(saleVault, address(nft), rewardId, actors, UNIT_PRICE, 5 ether + 17);
+        handler = new PoolSaleHandler(
+            saleVault, shareMarket, OPERATOR, address(nft), rewardId, actors, UNIT_PRICE, 5 ether + 17
+        );
         handler.withdraw(0); // Old refund, direct-seller debt and purchase surplus are actually paid first.
         handler.moveShares(1, 5, 2);
         handler.moveShares(0, 3, 5);

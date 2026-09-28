@@ -28,7 +28,7 @@ node scripts/purchase-keeper.mjs \
 
 `firsto-signed` 保留显式单渠道只读诊断与旧 journal 恢复用途；CLI 和导出的运行入口都禁止用它发送新采购，避免跳过官网候选。Firsto 原目标约束属于这条 keeper 采购路线；链上另阻止原目标矿机在官网有合格挂单时绕路 Firsto，但无法在链上穷举**其他**官网候选。因此生产自动采购应使用 `auto`，并由单一 keeper 钱包和 journal 协调。扫描完成至交易打包期间，旧官网替代挂单仍可改变；官网挂单也能在合约允许的价格上限内提价。当前主网 Vault 未升级为本开发分支，不能把网页显示的 Firsto 订单当成已可购买；正式发送前仍需部署版本与 ABI 验收。
 
-实际启用需用户确认执行钱包与 Gas 总预算，再通过安全的服务环境提供 `KEEPER_PRIVATE_KEY`；不要放入命令参数、源码、日志或聊天。`--send` 要求显式 journal 路径；`--max-gas-bnb` 和 `--max-gas-price-gwei` 限制累计 Gas 支出及单价，程序默认值不是用户已授权的费用预算。采购资金来自已募集的池，keeper 交易附带 BNB 固定为零。
+实际启用需确认执行钱包与 Gas 总预算。systemd 服务优先用 `LoadCredential=keeper-private-key:/etc/pinkuang/keeper-private-key`，程序从 `$CREDENTIALS_DIRECTORY/keeper-private-key` 读取；兼容旧的 `KEEPER_PRIVATE_KEY` 环境变量，但两者同时存在时拒绝发送。凭据源文件由 root 保管，不要把私钥放入命令参数、源码、服务 `Environment=`、日志或聊天。`--send` 要求显式 journal 路径；`--max-gas-bnb` 和 `--max-gas-price-gwei` 限制累计 Gas 支出及单价，程序默认值不是用户已授权的费用预算。采购资金来自已募集的池，keeper 交易附带 BNB 固定为零。完整的服务配置及上线检查见 [keeper 凭据与入口安全复核](security-low-risk-review-2026-09-28.md)。
 
 本机钱包锁和池锁不能协调另一台服务器、浏览器钱包或后台 journal。执行钱包运行期间不得被其它执行器或人工交易并用；产品后台仅允许运营地址发起采购，独立 keeper 仍服从合约本身的调用权限。当前没有配置或启动自动采购服务。
 

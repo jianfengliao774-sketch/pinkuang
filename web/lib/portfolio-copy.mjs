@@ -1,4 +1,12 @@
 const en = {
+  '本轮子矿机出售候选':'Miner sale candidates in this round',
+  '持有至少 10 份的成员可在同一轮提出候选，大家逐项投票；每轮最多 16 项。提案期间项目份额冻结，其他矿机继续归集收益。':'Members with at least 10 shares may propose candidates in the same round. Everyone votes on each. Each round allows up to 16 candidates. Portfolio share transfers pause during the vote while other miners keep earning.',
+  '发起出售候选需持有至少 10 份；你仍可参与投票。':'At least 10 shares are required to propose a sale candidate. You can still vote.',
+  '我确认以 0 BNB 免费转出这些份额。':'I confirm that these shares may transfer for free at 0 BNB.',
+  ' 这是免费转出挂单，成交后不会收到 BNB。':' This is a free transfer listing. You will receive no BNB on fill.',
+  '人':'members','发起逐台出售候选':'Propose a miner sale candidate',
+  '正在投票的轮次允许其他持份人提出候选；下一轮最早':'Other holders may propose candidates during the current vote. The next round starts no earlier than',
+  '预览出售候选':'Preview sale candidate',
   '出售我的项目份额':'Sell my portfolio shares','已自动选择当前持仓项目，可售份额：':'Your holding is selected automatically. Available shares:',
   '/ 100 份':'/ 100 shares','/ 100 份。':'/ 100 shares.','BNB / 100 份；单机上限':'BNB / 100 shares; per-miner cap',
   'BNB · 合约价格上限':'BNB · Contract price cap','BNB · 已购机':'BNB · Spent on miners','BNB · 我的可转份额':'BNB · My transferable shares',

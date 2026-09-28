@@ -15,6 +15,7 @@ import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 /// Every transfer, market fill, proposal and vote uses a production entry point.
 contract PoolVotingHandler is Test {
     uint256 private constant MAX_PROPOSALS = 16;
+    uint256 private constant MARKET_PRICE_PER_SHARE = 100;
     PoolVault public immutable vault;
     ShareMarket public immutable market;
     uint256 public immutable acquisitionCost;
@@ -48,6 +49,9 @@ contract PoolVotingHandler is Test {
         acquisitionCost = acquisitionCost_;
         // FundingTestBase buys the NFT with these original beneficial holdings.
         balances = [uint256(49), 49, 2, 0, 0, 0];
+        for (uint256 i; i < actors.length; ++i) {
+            vm.deal(actors[i], 1 ether);
+        }
     }
 
     function advanceTime(uint256 seed) public {
@@ -92,14 +96,15 @@ contract PoolVotingHandler is Test {
             (ok, result) =
                 address(vault).call(abi.encodeCall(PoolVault.transferFrom, (actors[from], actors[to], amount)));
         } else {
-            // Zero-price orders exercise the real lock/fill path without inventing
-            // BNB credits in this voting-focused ownership model.
+            // A small positive price exercises the real lock/fill path; zero-price
+            // orders are rejected by the market after the security upgrade.
             vm.prank(actors[from]);
-            (ok, result) = address(market).call(abi.encodeCall(ShareMarket.list, (address(vault), amount, 0)));
+            (ok, result) = address(market)
+                .call(abi.encodeCall(ShareMarket.list, (address(vault), amount, MARKET_PRICE_PER_SHARE)));
             if (ok) {
                 uint256 orderId = abi.decode(result, (uint256));
                 vm.prank(actors[to]);
-                market.fill(orderId, amount);
+                market.fill{value: MARKET_PRICE_PER_SHARE * amount + amount}(orderId, amount);
                 assertFalse(market.orders(orderId).active);
             }
         }
@@ -243,7 +248,7 @@ contract PoolVotingHandler is Test {
             assertEq(actual.yesShares, yesShares);
             assertLe(yesMembers, members);
             assertLe(yesShares, 100);
-            uint256 requiredShares = p.price < acquisitionCost ? 60 : 51;
+            uint256 requiredShares = 51;
             assertEq(vault.proposalPassed(id), yesMembers > members / 2 && yesShares >= requiredShares);
         }
     }
@@ -265,7 +270,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         // Non-vacuous seed: a same-second exit precedes the proposal snapshot;
         // all three ownership routes then fail, including an already-listed market order.
         vm.prank(BOB);
-        uint256 priorOrder = shareMarket.list(address(pool), 10, 0);
+        uint256 priorOrder = shareMarket.list(address(pool), 10, 1);
         handler.moveShares(0, 3, 49, 0);
         handler.propose(1, 5 ether);
         handler.vote(0, 1, true);
@@ -307,13 +312,13 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         handler.vote(5, 3, true); // Three of five owners, 59 shares: preserve a positive historical result.
         assertTrue(PoolVault(payable(address(pool))).proposalPassed(3));
 
-        // The same 59-share majority cannot authorize a discount below the actual acquisition cost.
+        // A 59-share majority also passes for a low price; market review is checked at listing execution.
         handler.advanceTime(6);
         handler.propose(2, 1);
         handler.vote(3, 4, true);
         handler.vote(4, 4, true);
         handler.vote(5, 4, true);
-        assertFalse(PoolVault(payable(address(pool))).proposalPassed(4));
+        assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.vote(2, 4, true);
         assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.propose(3, 0); // Invalid prices cannot allocate an id or change a cooldown.
