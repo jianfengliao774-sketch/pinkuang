@@ -14,6 +14,7 @@ import {
 } from '../shared/integrated-upgrade-plan.mjs';
 import { artifactDigest, validateArtifacts, type ArtifactBundle, type DeploymentSnapshot } from './deployment';
 import { assertTrustedGenesis } from './upgrade-ui';
+import { authorityAdministrators, stageTwoAddresses } from './upgrade-stage2';
 import { newUpgradeJournal, parseUpgradeJournal, upgradeJournalKey, type UpgradeJournal, type UpgradeTransaction } from './upgrade-journal';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt } from './upgrade-transactions';
 import { messageOf, type WalletProvider } from './wallet';
@@ -68,6 +69,8 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const [genesisProof, setGenesisProof] = useState<IntegratedGenesisPreflight | null>(null);
   const [planProof, setPlanProof] = useState<IntegratedUpgradePreflight | null>(null);
   const [resultProof, setResultProof] = useState<IntegratedUpgradeResult | null>(null);
+  const [hardwareWalletInput, setHardwareWalletInput] = useState('');
+  const [gasWalletInput, setGasWalletInput] = useState('');
   const [authorityAddress, setAuthorityAddress] = useState('');
   const [migrationSalt, setMigrationSalt] = useState('');
   const [operation, setOperation] = useState<ChainOperation>('unknown');
@@ -387,16 +390,24 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const deployed = journal ? integratedUpgradeDeploymentOrder.filter(name => journal.deployments[name]?.status === 'confirmed').length : 0;
   const allDeployed = !!journal && deployed === integratedUpgradeDeploymentOrder.length;
   const canDeploy = onBsc && oldTrust.ok && upgradeTrust.ok && !!genesisProof && !!journal && !pendingName && !busy;
+  const stageTwoConfig = useMemo(() => {
+    if (!record || !hardwareWalletInput || !gasWalletInput) return {value:null,reason:''};
+    try { return {value:stageTwoAddresses(hardwareWalletInput,gasWalletInput,{
+      timelock:record.addresses.timelock,factory:record.addresses.factory,
+      portfolioFactory:record.addresses.portfolioFactory,oldOwner:record.input.ownerMultisig,
+    }),reason:''}; }
+    catch (problem) { return {value:null,reason:messageOf(problem)}; }
+  }, [record,hardwareWalletInput,gasWalletInput]);
   const treasuryPlan = useMemo(() => {
-    if (!resultProof || !record || !authorityAddress || !migrationSalt) return {plan:null,reason:''};
+    if (!resultProof || !record || !stageTwoConfig.value || !authorityAddress || !migrationSalt) return {plan:null,reason:''};
     try { return {plan:buildIntegratedTreasuryMigrationPlan({genesisRecord:record,codeResult:resultProof,
       authorityAddress,saltSeed:migrationSalt,delaySeconds:172800}),reason:''}; }
     catch (problem) { return {plan:null,reason:messageOf(problem)}; }
-  }, [record,resultProof,authorityAddress,migrationSalt]);
+  }, [record,resultProof,stageTwoConfig.value,authorityAddress,migrationSalt]);
 
   return <div className="upgrade-page">
     <section className="card upgrade-intro">
-      <div><h2>集成版合约升级</h2><p>页面按固定依赖顺序部署新库与实现，再提交一个不可拆分的 48 小时时间锁批次。所有操作均由连接的管理钱包在 BSC 主网签署；请在钱包设备上核对交易。本页不会请求私钥。</p><p className="upgrade-stage-warning">第二阶段 PlatformAuthority、角色和旧池金库迁移尚无完整链上预检与签名入口，当前明确阻断；代码升级完成也不能切换正式产品清单。</p></div>
+      <div><h2>集成版合约升级</h2><p>页面按固定依赖顺序部署新库与实现，再提交一个不可拆分的 48 小时时间锁批次。所有操作均由连接的管理钱包在 BSC 主网签署；请在钱包设备上核对交易。本页不会请求私钥。</p><p className="upgrade-stage-warning">第二阶段正在接入 PlatformAuthority、角色和旧池金库迁移的链上预检。核验接口完成前签署保持锁定；代码升级完成也不能切换正式产品清单。</p></div>
       <span className="upgrade-state"><LockKeyhole size={14}/>主网 · 单批次时间锁</span>
     </section>
     <section className="card">
@@ -448,13 +459,28 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
           <div><span>角色接线</span><b>待旧 owner / Timelock 授权迁移</b></div>
           <div><span>旧池金库</span><b>{resultProof ? `${resultProof.legacyTreasuryResidual.length} 个历史池待逐一处理` : '待后置图枚举'}</b></div>
         </div>
+        <div className="upgrade-migration-preview">
+          <b>第二阶段公开地址 · 待链上核验</b>
+          <p>硬件钱包只用于部署、升级权限；Gas 钱包只用于后台代付。这里仅填写公开地址，不接受私钥或助记词。Gas 地址须与受保护服务配置或你已核对的公开地址一致。</p>
+          <div className="upgrade-config-grid">
+            <label>目标硬件钱包地址<input className="upgrade-step-input" value={hardwareWalletInput} placeholder="0x…  · 新 owner / proposer / canceller" onChange={event => setHardwareWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label>
+            <label>后台 Gas 钱包公开地址<input className="upgrade-step-input" value={gasWalletInput} placeholder="0x…  · 代付钱包" onChange={event => setGasWalletInput(event.target.value)} autoComplete="off" spellCheck={false}/></label>
+          </div>
+          {stageTwoConfig.reason && <div className="upgrade-alert error">{stageTwoConfig.reason}</div>}
+          <div className="upgrade-meta">
+            <div><span>当前 Factory owner</span><b className="upgrade-code">{record?.input.ownerMultisig || '待核对旧图'}</b></div>
+            <div><span>管理员一</span><b className="upgrade-code">{authorityAdministrators[0]}</b></div>
+            <div><span>管理员二</span><b className="upgrade-code">{authorityAdministrators[1]}</b></div>
+          </div>
+          {stageTwoConfig.value && <div className="upgrade-alert note">公开地址格式已核对；Authority 构造参数、完整运行代码、服务 Gas 配置及当前链上角色尚未验证，不能据此发交易。</div>}
+        </div>
         {journal?.execute?.status === 'confirmed' && <div className="upgrade-actions"><button className="small-button" disabled={!!busy} onClick={() => void verifyResult()}><ShieldCheck size={14}/>核验最终链上图</button></div>}
         {resultProof && <div className="upgrade-alert ok">六个目标及十个新库/实现均已在最终确认区块核对；此证明只覆盖代码升级。</div>}
         <ol className="upgrade-handoff">
-          <li><b>部署并核验 PlatformAuthority</b><span>管理员 0x7674fa446D42b1f7f150DC5e678cc525d275Ea53 与 0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb；Gas 代付地址需从受保护服务配置只读核对。</span><em>待处理</em></li>
-          <li><b>迁移两套 Factory 权限</b><span>由当前 owner 分别设定 operator、treasury 并转移所有权；每笔签名前读取链上当前 owner。</span><em>待处理</em></li>
-          <li><b>迁移 Timelock 角色</b><span>链上核对新硬件钱包的 proposer/canceller 权限，再审查旧地址撤权。</span><em>待处理</em></li>
-          <li><b>单独迁移历史池金库</b><span>先结清原金库应收费用，再按已核验的 Timelock-only 入口逐池迁移，不追溯已归属收益。</span><em>待处理</em></li>
+          <li><b>部署并核验 PlatformAuthority</b><span>构造参数绑定两套 Factory、两位已指定管理员和公开 Gas 地址；部署回执、完整代码及构造后配置均须核验。</span><em>待预检</em></li>
+          <li><b>迁移两套 Factory 权限</b><span>由旧 owner 对两套 Factory 分别设置 operator、treasury 为 Authority，再转移 owner 到硬件钱包；每笔重新读取当前 owner 和目标。</span><em>待预检</em></li>
+          <li><b>迁移 Timelock 角色</b><span>先授予新硬件钱包 proposer/canceller，再撤旧地址；分别核对提案人、执行人和 Timelock 管理权限。</span><em>待预检</em></li>
+          <li><b>单独迁移历史池金库</b><span>逐池使用独立 48 小时 Timelock 提案；合约在迁移前结算挖矿收益，旧金库已入账欠款仍归旧地址。</span><em>待预检</em></li>
         </ol>
         {resultProof?.legacyTreasuryResidual.length ? <details className="upgrade-details"><summary>查看 {resultProof.legacyTreasuryResidual.length} 个历史池的旧金库</summary><pre>{JSON.stringify(resultProof.legacyTreasuryResidual,null,2)}</pre></details> : null}
         {resultProof && <div className="upgrade-migration-preview">

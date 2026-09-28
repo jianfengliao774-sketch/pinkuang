@@ -51,4 +51,8 @@
 .upgrade-migration-preview>p{font-size:11px;color:#718087;line-height:1.7;margin:8px 0 0}
 .upgrade-migration-preview .upgrade-actions{margin-top:12px}
 .upgrade-migration-preview .upgrade-step-input{flex:1;min-width:260px;width:auto;margin-top:0}
+.upgrade-config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:15px}
+.upgrade-config-grid label{font-size:11px;color:#718087}
+.upgrade-config-grid .upgrade-step-input{display:block;margin-top:7px;width:100%;min-width:0}
+@media(max-width:700px){.upgrade-config-grid{grid-template-columns:1fr}}
 @media(max-width:700px){.upgrade-intro{padding:20px;flex-direction:column}.upgrade-section{padding:0 18px 18px}.upgrade-meta{grid-template-columns:1fr}.upgrade-step{grid-template-columns:25px minmax(0,1fr)}.upgrade-step .small-button{grid-column:2;justify-self:start}.upgrade-batch>div{grid-template-columns:1fr}.upgrade-batch>div:first-child{display:none}}
