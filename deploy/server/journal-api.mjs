@@ -1238,6 +1238,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           const body={chainId:56,status:'verified',stage,
             artifactDigest:graph.artifactDigest,genesisArtifactDigest:trustedProduct.record.artifactDigest,
             upgradeArtifactDigest:trustedProduct.integratedUpgrade?.digest ?? null,
+            reviewedUpgradeOperationId:trustedProduct.integratedUpgrade?.plan.operationId ?? null,
+            reviewedBootstrapOperationId:trustedProduct.integratedUpgrade?.bootstrapPlan.operationId ?? null,
             operationId:graph.securityUpgrade?.operationId ?? null,
             verifiedBlockNumber:block.number,verifiedBlockHash:block.hash,
             stageActivationBlock:activation.number,stageActivationHash:activation.hash,

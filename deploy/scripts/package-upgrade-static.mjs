@@ -63,7 +63,12 @@ export function verifyUpgradeBuild() {
   const script = [...files].filter(([name]) => name.endsWith('.js')).map(([,bytes]) => bytes.toString('utf8')).join('\n');
   assert(script.includes(candidateDigest) && script.includes(genesisManifest.artifactDigest),
     'Candidate and genesis trust digests must both be embedded in the upgrade page.');
-  assert(!/\/?api\/journal(?:\/|\b)/.test(html + script), 'Standalone page must not contain journal signing API calls.');
+  // The public product graph is a GET-only release proof. No journal signing,
+  // mutation or session API belongs in the standalone hardware-wallet page.
+  const publicProductGraphPath = '/api/journal/product-graph';
+  assert(script.includes(publicProductGraphPath), 'Upgrade page must read the public product graph proof.');
+  assert(!/\/?api\/journal(?:\/|\b)/.test((html + script).replaceAll(publicProductGraphPath, '')),
+    'Standalone page must not contain journal signing API calls.');
   assert(!files.has('index.html') && ![...files].some(([name]) => /(?:server|node_modules|\.env|\.sqlite)/i.test(name)),
     'Standalone build contains server or private runtime files.');
   return { files, candidateDigest, genesisDigest: genesisManifest.artifactDigest,

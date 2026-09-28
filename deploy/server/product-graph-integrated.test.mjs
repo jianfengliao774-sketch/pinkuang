@@ -93,6 +93,7 @@ test('unknown Factory implementation fails before any other product read', async
 
 test('public product-graph response is pinned to a verified block and never falls back to an unreviewed digest', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'product-graph-api-'));
+  const { evidence } = fixture();
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const block = { number: initial.receipt.blockNumber+100, hash: salt('6'), timestamp: 1_700_000_100 };
   let clock=1_000_000;
@@ -109,6 +110,7 @@ test('public product-graph response is pinned to a verified block and never fall
     origin: 'http://127.0.0.1:4173', provider, now:()=>clock,
     currentArtifactDigest: () => genesisRecord.artifactDigest,
     productDeploymentRecord: genesisRecord, productArtifactBundle: genesisBundle,
+    integratedUpgradeEvidence: evidence, integratedUpgradeArtifact: candidateBundle, genesisManifest,
     allowedProductFactories: [addresses.factory, addresses.portfolioFactory],
     productGraphVerifier: async (_provider, factory, confirmedBlock) => {
       assert.equal(factory, addresses.factory);
@@ -125,6 +127,10 @@ test('public product-graph response is pinned to a verified block and never fall
     assert.equal(valid.status, 200);
     const payload = await valid.json();
     assert.equal(payload.stage, 'genesis');
+    assert.equal(payload.upgradeArtifactDigest, buildDigest(candidateBundle));
+    assert.equal(payload.reviewedUpgradeOperationId, evidence.plan.operationId);
+    assert.equal(payload.reviewedBootstrapOperationId, evidence.bootstrapPlan.operationId);
+    assert.equal(payload.operationId, null);
     assert.equal(payload.manifest.artifactDigest, genesisRecord.artifactDigest);
     assert.equal(payload.manifest.deployment.txHash,
       genesisRecord.steps.find(step => step.id === 'initialize').txHash);

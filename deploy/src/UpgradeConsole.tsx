@@ -28,7 +28,8 @@ import { assertTrustedGenesis } from './upgrade-ui';
 import { inspectPauseTargets, pauseCreationData, pauseFactoryNames, type PauseFactoryName,
   type PauseTargetProof } from './upgrade-pause';
 import { authorityAdministrators, stageTwoAddresses } from './upgrade-stage2';
-import {requireUpgradeExecutionRelease,upgradeExecutionRelease} from './upgrade-release';
+import {checkUpgradeExecutionRelease,initialUpgradeExecutionRelease,requireUpgradeExecutionRelease,
+  type UpgradeExecutionRelease,type UpgradeReleaseInputs} from './upgrade-release';
 import { newUpgradeJournal, parseUpgradeJournal, upgradeJournalKey, type UpgradeJournal, type UpgradeTransaction } from './upgrade-journal';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt } from './upgrade-transactions';
 import { messageOf, type WalletProvider } from './wallet';
@@ -98,6 +99,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [reviewed, setReviewed] = useState(false);
+  const [releaseGate, setReleaseGate] = useState<UpgradeExecutionRelease>(initialUpgradeExecutionRelease);
   const [recoveryHash, setRecoveryHash] = useState('');
   const [pauseRecoveryHash, setPauseRecoveryHash] = useState('');
   const [stageTwoRecoveryHash, setStageTwoRecoveryHash] = useState('');
@@ -198,6 +200,24 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     } catch (problem) { return {plan: null, reason: messageOf(problem)}; }
   }, [record, oldBundle, upgradeBundle, journal, completeAddresses, oldTrust.ok, upgradeTrust.ok]);
   const plan = planState.plan;
+  const releaseInputs = useMemo<UpgradeReleaseInputs | null>(() => plan && bootstrapPlan && upgradeBundle
+    && wallet && account && chainId === 56 && oldTrust.ok && upgradeTrust.ok ? {candidateBundle:upgradeBundle,
+      candidateDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,plan,bootstrapPlan,wallet} : null,
+  [plan,bootstrapPlan,upgradeBundle,wallet,account,chainId,oldTrust.ok,upgradeTrust.ok]);
+  useEffect(() => {
+    setReleaseGate(initialUpgradeExecutionRelease);
+    if (!releaseInputs) return;
+    let active=true;
+    void checkUpgradeExecutionRelease(releaseInputs).then(result => {
+      if (active) setReleaseGate(result);
+    });
+    return () => { active=false; };
+  }, [releaseInputs]);
+  async function refreshReleaseGate() {
+    if (!releaseInputs) { setReleaseGate(initialUpgradeExecutionRelease); return; }
+    setReleaseGate(initialUpgradeExecutionRelease);
+    setReleaseGate(await checkUpgradeExecutionRelease(releaseInputs));
+  }
   const nextName = integratedUpgradeDeploymentOrder.find(name => journal?.deployments[name]?.status !== 'confirmed');
   const pendingName = integratedUpgradeDeploymentOrder.find(name => journal?.deployments[name]?.status === 'submitted'
     || journal?.deployments[name]?.status === 'uncertain');
@@ -499,7 +519,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     await run(which === 'schedule' ? '提交 48 小时提案' : '执行已等待的升级', async () => {
       // The Timelock executor is open: once scheduled, anyone can execute the
       // batch at maturity. Lock scheduling as well as this page's execute button.
-      requireUpgradeExecutionRelease();
+      if (!releaseInputs) throw new Error('生产双图发布尚未核验，禁止签署升级批次。');
       if (!wallet || !account || !onBsc || !plan || !record || !oldBundle || !upgradeBundle || !journal || !bootstrapPlan
         || !reviewed || (which === 'schedule' && !planProof)
         || (which === 'execute' && journal.schedule?.status !== 'confirmed')
@@ -525,6 +545,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       const tx: UpgradeTransaction = {status:'uncertain',from:account,dataHash:keccak256(data)};
       const currentJournal = scheduledProof ? {...journal,preExecutionPreflight:scheduledProof} : journal;
       await exclusiveSend(async () => {
+        await requireUpgradeExecutionRelease(releaseInputs);
         save({...currentJournal,[which]:tx});
         let hash: string;
         try { hash = await sendUpgradeTransaction(wallet,{from:account,to:record.addresses.timelock,data}); }
@@ -924,10 +945,14 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         {planState.reason && <div className="upgrade-alert error">{planState.reason}</div>}
         <div className="upgrade-actions"><button className="small-button" disabled={!allDeployed || !onBsc || !!busy} onClick={() => void verifyPlan()}><ShieldCheck size={14}/>{busy || '核验新实现与完整批次'}</button>{plan && <button className="small-button" disabled={!!busy} onClick={() => void run('读取时间锁状态', async () => { await refreshOperation(); })}><RefreshCw size={14}/>刷新时间锁状态</button>}</div>
         {planProof && <div className="upgrade-alert ok">链上代码、绑定关系、提案人角色、批次 ID 已在最终确认区块 #{planProof.blockNumber} 核验。</div>}
-        {!upgradeExecutionRelease.ready && <div className="upgrade-alert error">升级排程与执行暂不可用：{upgradeExecutionRelease.reason} 当前仍可完成旧池暂停、角色授权和新实现部署。</div>}
+        <div className={`upgrade-alert ${releaseGate.ready ? 'ok' : 'error'}`}>{releaseGate.ready
+          ? `正式部署台、产品页面及 BSC 区块 #${releaseGate.verifiedBlockNumber} 已核验；签名前会重新检查。`
+          : `升级排程与执行暂不可用：${releaseGate.reason}`}</div>
+        {plan && <div className="upgrade-actions"><button className="small-button" disabled={!!busy}
+          onClick={() => void refreshReleaseGate()}><RefreshCw size={14}/>重新核验正式发布</button></div>}
         {plan && <div className="upgrade-meta"><div><span>批次状态</span><b>{operation === 'unknown' ? '尚未读取' : operation === 'unscheduled' ? '未提交' : operation === 'waiting' ? '等待中' : operation === 'ready' ? '可执行' : '已执行'}</b></div><div><span>最早执行</span><b>{readyAt ? new Date(readyAt * 1000).toLocaleString('zh-CN') : '—'}</b></div><div><span>批次交易</span><b>{journal?.schedule?.txHash ? short(journal.schedule.txHash) : '—'}</b></div></div>}
         <label className="upgrade-ack"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/><span>我已核对六笔调用目标、新实现、0 BNB 金额、salt 与 operation ID；明白代码升级和后续权限迁移是两个阶段。</span></label>
-        <div className="upgrade-actions"><button className="primary-button" disabled={!upgradeExecutionRelease.ready || !plan || !planProof || !onBsc || !reviewed || !!journal?.schedule || operation !== 'unscheduled' || !!busy} onClick={() => void sendBatch('schedule')}>提交 48 小时提案</button><button className="primary-button" disabled={!upgradeExecutionRelease.ready || !plan || !onBsc || !reviewed || journal?.schedule?.status !== 'confirmed' || !!journal?.execute || operation !== 'ready' || !!busy} onClick={() => void sendBatch('execute')}>等待结束后执行批次</button></div>
+        <div className="upgrade-actions"><button className="primary-button" disabled={!releaseGate.ready || !plan || !planProof || !onBsc || !reviewed || !!journal?.schedule || operation !== 'unscheduled' || !!busy} onClick={() => void sendBatch('schedule')}>提交 48 小时提案</button><button className="primary-button" disabled={!releaseGate.ready || !plan || !onBsc || !reviewed || journal?.schedule?.status !== 'confirmed' || !!journal?.execute || operation !== 'ready' || !!busy} onClick={() => void sendBatch('execute')}>等待结束后执行批次</button></div>
         {journal?.schedule && journal.schedule.status !== 'confirmed' && <div className="upgrade-actions"><input className="upgrade-step-input" value={recoveryHash} placeholder="如未收到哈希，请输入钱包中的原交易哈希" onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy} onClick={() => void recoverBatch('schedule')}>核对提案交易</button></div>}
         {journal?.execute && journal.execute.status !== 'confirmed' && <div className="upgrade-actions"><input className="upgrade-step-input" value={recoveryHash} placeholder="如未收到哈希，请输入钱包中的原交易哈希" onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy} onClick={() => void recoverBatch('execute')}>核对执行交易</button></div>}
         {journal?.execute?.status === 'confirmed' && <div className="upgrade-alert note">升级交易已确认，仍须核验后置合约图与全部角色迁移；当前不能标记正式开放。</div>}
