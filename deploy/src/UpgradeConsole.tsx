@@ -853,7 +853,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
 
   return <div className="upgrade-page">
     <section className="card upgrade-intro">
-      <div><h2>集成版合约升级</h2><p>先由旧 owner 暂停建池并安排硬件钱包权限；硬件钱包部署候选实现，安排并执行原子升级；随后逐笔迁移 Authority、Factory、Timelock 和历史池金库。每笔交易由对应钱包签署，并先核对链上身份和精确 calldata。本页不接收私钥。</p><p className="upgrade-stage-warning">链上迁移完成不代表后台 Gas 代付服务已经接线。正式产品清单与两套 Factory 的建池权限保持锁定，直到运营服务也有独立核验证据。</p></div>
+      <div><h2>集成版合约升级</h2><p>先由旧 owner 暂停建池并安排硬件钱包权限；硬件钱包部署候选实现，安排并执行原子升级；随后逐笔迁移 Authority、Factory、Timelock 和历史池金库。每笔交易由对应钱包签署，并先核对链上身份和精确 calldata。本页不接收私钥。</p><p className="upgrade-stage-warning">链上迁移完成不代表后台 Gas 代付服务已经接线。正式产品清单的切换和两套 Factory 的恢复建池必须等待运营服务的独立核验证据。</p></div>
       <span className="upgrade-state"><LockKeyhole size={14}/>主网 · 单批次时间锁</span>
     </section>
     <section className="card">
