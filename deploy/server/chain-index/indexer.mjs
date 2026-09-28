@@ -126,6 +126,7 @@ export class ChainIndex {
     this.syncing = false;
     this.syncSettled = null;
     this.lastFailureStage = null;
+    this.lastScanPhase = null;
     this.cachedStats = null;
     this.snapshotTrusted = false;
   }
@@ -275,6 +276,7 @@ export class ChainIndex {
   }
 
   async _scanChunk(fromBlock, toBlock) {
+    this.lastScanPhase = 'headers';
     // Global event queries need only the numeric range. Overlap them with
     // header reads, then drain both sides before validating or committing.
     const globalReadsPromise = Promise.allSettled([
@@ -309,11 +311,15 @@ export class ChainIndex {
     // Even a failed header scan must drain started log reads before unlocking sync.
     const globalReads = await globalReadsPromise;
     if (headerFailure) throw headerFailure;
-    const failedGlobal = globalReads.find(result => result.status === 'rejected');
-    if (failedGlobal) throw failedGlobal.reason;
+    const failedGlobal = globalReads.findIndex(result => result.status === 'rejected');
+    if (failedGlobal >= 0) {
+      this.lastScanPhase = ['factory_logs', 'market_logs', 'portfolio_factory_logs', 'portfolio_market_logs'][failedGlobal];
+      throw globalReads[failedGlobal].reason;
+    }
     const [factoryLogs, marketLogs, portfolioFactoryLogs, portfolioMarketLogs] = globalReads.map(result => result.value);
     const existing = this.db.prepare('SELECT address FROM pools').all().map(row => row.address);
     const created = [];
+    this.lastScanPhase = 'registration';
     for (const log of factoryLogs.filter(log => log.name === 'PoolCreated')) {
       const pool = exactAddress(log.args.pool);
       if (!existing.includes(pool) && !created.some(entry => entry.address === pool)) {
@@ -321,9 +327,11 @@ export class ChainIndex {
         created.push({ address: pool, createdBlock: log.blockNumber, collection: exactAddress(log.args.circuits), circuitId: log.args.circuitId });
       }
     }
+    this.lastScanPhase = 'pool_logs';
     const poolLogs = await this._logs('pool', [...new Set([...existing, ...created.map(entry => entry.address)])], fromBlock, toBlock);
     const portfolioLogs=[],newPortfolios=[],newChildren=[];
     if (this.portfolioFactory) {
+      this.lastScanPhase = 'portfolio_registration';
       const factoryEvents=portfolioFactoryLogs;
       const known=this.db.prepare('SELECT address FROM portfolios').all().map(row=>row.address);
       for (const log of factoryEvents) {
@@ -335,6 +343,7 @@ export class ChainIndex {
           throw new Error('Budget project is not registered to the configured graph.');
         newPortfolios.push({address,createdBlock:log.blockNumber,...log.args});
       }
+      this.lastScanPhase = 'portfolio_logs';
       const events=await this._logs('portfolio',[...known,...newPortfolios.map(row=>row.address)],fromBlock,toBlock);
       const corePools=new Set([...existing,...created.map(row=>row.address)]);
       for (const log of events.filter(row=>row.name==='ChildPurchased')) {
@@ -361,6 +370,7 @@ export class ChainIndex {
       if (seen.has(key)) throw new Error('RPC returned duplicate log identity.');
       seen.add(key);
     }
+    this.lastScanPhase = 'tip_header';
     const canonicalTip = normalizeBlock(await this.provider.getBlock(toBlock));
     if (canonicalTip.number !== toBlock || canonicalTip.hash !== headers.at(-1).hash) {
       throw new Error('Chain changed before index commit.');
@@ -388,6 +398,7 @@ export class ChainIndex {
     let resolveSync;
     this.syncSettled = new Promise(resolve => { resolveSync = resolve; });
     let stage = 'latest_header';
+    this.lastScanPhase = null;
     this.ready = false;
     try {
       const latest = normalizeBlock(await this.provider.getBlock('latest'));
@@ -431,7 +442,7 @@ export class ChainIndex {
       this.lastFailureStage = null;
       return this.status();
     } catch (error) {
-      this.lastFailureStage = stage;
+      this.lastFailureStage = stage === 'scan' && this.lastScanPhase ? `scan_${this.lastScanPhase}` : stage;
       // Status is public. Never echo provider errors, which may contain an RPC
       // URL with credentials or an upstream response body.
       this.lastError = error instanceof Error && error.message === 'RPC is not BSC mainnet (56).'
