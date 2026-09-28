@@ -123,6 +123,16 @@ test('per-peer quote limit ignores spoofed forwarding headers and expires withou
   assert.equal(limiter.size, 1);
 });
 
+test('loopback nginx clients have separate Firsto quotas but remote peers cannot spoof them', () => {
+  const limiter = createQuoteRateLimiter({ limit: 1, maxClients: 3 });
+  const request = (peer, realIp) => ({ socket: { remoteAddress: peer }, headers: { 'x-real-ip': realIp } });
+  assert.equal(limiter.consume(request('127.0.0.1', '203.0.113.7')).allowed, true);
+  assert.equal(limiter.consume(request('127.0.0.1', '203.0.113.8')).allowed, true);
+  assert.equal(limiter.consume(request('127.0.0.1', '203.0.113.7')).allowed, false);
+  assert.equal(limiter.consume(request('192.0.2.7', '203.0.113.9')).allowed, true);
+  assert.equal(limiter.consume(request('192.0.2.7', '203.0.113.10')).allowed, false);
+});
+
 test('rate-limited requests return 429 before upstream IO; successful responses keep same-origin no-store policy', async () => {
   const limiter = createQuoteRateLimiter({ limit: 1 }); let upstreamCalls = 0;
   const options = { limiter, fetcher: async (_url, init) => {

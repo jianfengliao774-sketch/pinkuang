@@ -4,7 +4,7 @@ import { Interface, formatEther, parseEther, type Provider } from 'ethers';
 import {
   FACTORY_ABI, MARKET_ABI, MARKET_PAGE_SIZE, address, pageIds, readMarketIdentity,
   requireFill, requireList, requireWallet, parseMarketPending, migrateLegacyMarketPending, recordMarketBroadcast,
-  sameMarketIntent, shareAmount, tradeAmounts, unitPrice, withObservedMarketHash, recoverMarketReceipt, sendMarketAction,
+  sameMarketIntent, shareAmount, tradeAmounts, unitPrice, bnb, withObservedMarketHash, recoverMarketReceipt, sendMarketAction,
   verifyMarketQuoteForSend, type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
   withMarketTransactionLock,
 } from './market';
@@ -17,6 +17,13 @@ const factory = '0x4444444444444444444444444444444444444444';
 const market = '0x5555555555555555555555555555555555555555';
 const timelock = '0x6666666666666666666666666666666666666666';
 const order: MarketOrder = { id: 1n, seller, pool, remaining: 17n, pricePerUnit: 101n, active: true, expiresAt: 2n ** 63n };
+
+test('confirmation displays tiny nonzero buyer fees without rounding them to zero', () => {
+  const trade = tradeAmounts(1n, parseEther('0.001'));
+  assert.equal(bnb(trade.buyerFee), '0.00001');
+  assert.equal(bnb(1n), '0.000000000000000001');
+  assert.equal(bnb(0n), '0.000');
+});
 
 test('shares are whole units 1–100, never ether-denominated or fractional', () => {
   for (const [input, expected] of [['1', 1n], ['49', 49n], ['100', 100n]] as const) assert.equal(shareAmount(input), expected);

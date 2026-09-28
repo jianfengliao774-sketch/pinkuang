@@ -1,3 +1,5 @@
+import { clientAddress } from './request-limiter.mjs';
+
 const API_ORIGIN = 'https://api-tapeout.firsto.ai';
 const OFFICIAL = new Set(['0xb1024b89886b9a34aa4ff5f31c411d708b20a14c', '0x1f5cb4aeaE1807bf60c3b9c0d8adbcc14e91f12c'.toLowerCase()]);
 const HEADERS = ['x-tapeout-as-of', 'x-tapeout-generation-id', 'x-tapeout-source-block', 'x-tapeout-source-blocks', 'x-tapeout-source-age-ms', 'x-tapeout-market-refreshed-at', 'x-tapeout-market-delivery-age-ms', 'x-tapeout-market-delivery-status'];
@@ -53,15 +55,14 @@ export function upstreamUrl(requestPath) {
   return url;
 }
 
-/** Bounded fixed-window per-peer limiter; only the TCP peer is authoritative. */
+/** Bounded fixed-window per-client limiter; only loopback nginx may identify a public IP. */
 export function createQuoteRateLimiter({ limit = 30, windowMs = 60_000, maxClients = 512, now = Date.now } = {}) {
   const clients = new Map();
   return {
     consume(request) {
       const timestamp = now();
       for (const [key, client] of clients) if (client.expiresAt <= timestamp) clients.delete(key);
-      // X-Forwarded-For is deliberately ignored; a reverse proxy shares its own quota.
-      const peer = String(request.socket?.remoteAddress ?? 'unknown').toLowerCase().replace(/^::ffff:/, '');
+      const peer = clientAddress(request).toLowerCase().replace(/^::ffff:/, '');
       let client = clients.get(peer);
       if (!client) {
         if (clients.size >= maxClients) return { allowed: false, retryAfter: Math.ceil(windowMs / 1000) };

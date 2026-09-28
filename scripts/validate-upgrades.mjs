@@ -76,7 +76,8 @@ function validateDeliveredBaselines() {
   const budgetLayout = getStorageLayout(budgetCompilations[0].data, getContractVersion(budgetCompilations[0].data, budgetName));
   const budgetTiming = budgetLayout.namespaces?.['erc7201:tapeout.storage.BudgetGovernance'];
   assert.deepEqual(budgetTiming?.map(field => [field.label, field.type]), [
-    ['nextRoundAt', 't_uint64'], ['saleReviews', 't_mapping(t_uint256,t_uint8)']],
+    ['nextRoundAt', 't_uint64'], ['saleReviews', 't_mapping(t_uint256,t_uint8)'],
+    ['lastProposed', 't_mapping(t_address,t_uint64)']],
     'Budget governance timing must remain in its isolated namespace');
   for (const [name, fieldCount] of [['BudgetPortfolioFactory', 9], ['BudgetPortfolioVault', 30]]) {
     const contract = `src/${name}.sol:${name}`;

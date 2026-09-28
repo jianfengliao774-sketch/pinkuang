@@ -97,6 +97,13 @@ contract BudgetPortfolioTest is FundingTestBase {
                     13 ether, 6 ether, 3 ether, uint64(block.timestamp + 7 days), uint64(block.timestamp + 10 days)
                 ))
         );
+        defaultParams.circuitId += 1;
+        pool = _createBudgetPool(defaultParams);
+    }
+
+    function _createBudgetPool(IPoolVault.PoolParams memory params) private returns (IFundingVault child) {
+        vm.prank(OPERATOR);
+        child = IFundingVault(poolFactory.createBudgetChildPool(params, address(project)));
     }
 
     function _subscribe(address member, uint8 shares) private {
@@ -104,6 +111,36 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.deal(member, member.balance + cost);
         vm.prank(member);
         project.deposit{value: cost}(shares);
+    }
+
+    function test_onlyPortfolioCanSubscribeToReservedChildAcrossTransactions() public {
+        assertEq(poolFactory.designatedSubscriber(address(pool)), address(project));
+        vm.deal(ALICE, UNIT_PRICE);
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.Unauthorized.selector);
+        pool.deposit{value: UNIT_PRICE}(1);
+        assertEq(pool.totalSupply(), 0);
+        _subscribe(ALICE, 100);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        assertEq(project.childCount(), 1);
+        assertEq(pool.balanceOf(address(project)), 100);
+    }
+
+    function test_factoryTreasuryChangeDoesNotBlockFundedPortfolioPurchase() public {
+        _subscribe(ALICE, 100);
+        address updatedTreasury = address(0xBEEF);
+        vm.prank(OWNER);
+        poolFactory.setTreasury(updatedTreasury);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId += 20;
+        IFundingVault child = _createBudgetPool(params);
+        assertEq(child.treasury(), updatedTreasury);
+        uint256 listing = _list(params.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(child), listing);
+        assertEq(project.childCount(), 1);
     }
 
     function _list(uint256 id, uint96 price) private returns (uint256 listingId) {
@@ -124,7 +161,7 @@ contract BudgetPortfolioTest is FundingTestBase {
     function _buyTwo() private returns (IFundingVault second) {
         IPoolVault.PoolParams memory secondParams = defaultParams;
         secondParams.circuitId += 1;
-        second = _createPool(secondParams);
+        second = _createBudgetPool(secondParams);
         uint256 firstListing = _list(defaultParams.circuitId, 5 ether);
         uint256 secondListing = _list(secondParams.circuitId, 5.5 ether);
         vm.startPrank(OPERATOR);
@@ -166,7 +203,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         params.circuitId += 10;
         params.targetRaise = 5 ether;
         params.priceCap = 5 ether;
-        IFundingVault child = _createPool(params);
+        IFundingVault child = _createBudgetPool(params);
         uint256 listingId = _list(params.circuitId, 5 ether);
         vm.prank(OPERATOR);
         project.buyOfficial(address(child), listingId);
@@ -183,7 +220,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         params.circuitId += 10;
         params.targetRaise = 5.05 ether;
         params.priceCap = 5.05 ether;
-        IFundingVault child = _createPool(params);
+        IFundingVault child = _createBudgetPool(params);
         address maker = vm.addr(0xBEEF);
         nft.mint(maker, params.circuitId);
         mining.configure(address(nft), params.circuitId, 1_000, 100);
@@ -247,7 +284,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.buyOfficial(address(pool), firstListing);
         IPoolVault.PoolParams memory secondParams = defaultParams;
         secondParams.circuitId += 1;
-        IFundingVault second = _createPool(secondParams);
+        IFundingVault second = _createBudgetPool(secondParams);
         uint256 secondListing = _list(secondParams.circuitId, 5.5 ether);
         market.setBuyFault(4);
         vm.prank(OPERATOR);
@@ -455,15 +492,46 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
     }
 
-    function test_oneShareCannotContinuouslyFreezeExpiredRoundsAndOldVotesStayInvalid() public {
-        BudgetRoundAttacker attacker = new BudgetRoundAttacker();
-        _subscribe(address(attacker), 1);
-        _subscribe(ALICE, 99);
+    function test_minorityOpenerCannotBlockCompetingCandidateInSameRound() public {
+        _subscribe(ALICE, 10);
+        _subscribe(BOB, 40);
+        _subscribe(CAROL, 50);
         uint256 listing = _list(defaultParams.circuitId, 5 ether);
         vm.prank(OPERATOR);
         project.buyOfficial(address(pool), listing);
         vm.warp(block.timestamp + 10 days);
         project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 spam = project.proposeChildSale(address(pool), 1, 0, 0);
+        vm.prank(BOB);
+        uint256 candidate = project.proposeChildSale(address(pool), 6 ether, 0, 0);
+        assertEq(candidate, spam + 1);
+        assertEq(project.activeProposalId(), spam);
+        vm.prank(BOB);
+        project.voteChildSale(candidate, true);
+        vm.prank(CAROL);
+        project.voteChildSale(candidate, true);
+        _saleReference(5 ether);
+        project.executeChildSale(candidate);
+        assertEq(project.activeProposalId(), candidate);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+        vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
+        project.executeChildSale(spam);
+    }
+
+    function test_oneShareCannotProposeAndExpiredRoundsCannotFreezeAgain() public {
+        BudgetRoundAttacker attacker = new BudgetRoundAttacker();
+        _subscribe(address(attacker), 10);
+        _subscribe(ALICE, 89);
+        _subscribe(BOB, 1);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(BOB);
+        vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
+        project.proposeChildSale(address(pool), 1, 0, 0);
         uint256 openedAt = block.timestamp;
         vm.prank(address(attacker));
         uint256 first = project.proposeChildSale(address(pool), 1, 0, 0);
@@ -479,7 +547,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertTrue(project.shareTradingAllowed());
         vm.prank(ALICE);
         project.transfer(BOB, 1);
-        assertEq(project.balanceOf(BOB), 1);
+        assertEq(project.balanceOf(BOB), 2);
         vm.prank(ALICE);
         vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
         project.voteChildSale(first, true);

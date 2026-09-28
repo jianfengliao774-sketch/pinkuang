@@ -170,8 +170,7 @@ def quote_location():
     return b'''location = /bemine-v2/data/bem-price.json {
     alias /var/www/bemine-preview/data/bem-price.json;
     default_type application/json;
-    add_header Cache-Control "no-store" always;
-    add_header X-Content-Type-Options nosniff always;
+    expires -1;
 }
 '''
 

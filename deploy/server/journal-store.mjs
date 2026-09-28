@@ -36,6 +36,7 @@ export class JournalStore {
       CREATE TABLE IF NOT EXISTS budget_queues (account TEXT NOT NULL, parent TEXT NOT NULL, revision INTEGER NOT NULL,
         record TEXT NOT NULL, PRIMARY KEY(account,parent));
       CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, account TEXT NOT NULL, record TEXT NOT NULL, created_at INTEGER NOT NULL);`);
+    this.db.exec('CREATE INDEX IF NOT EXISTS quotes_account_recent ON quotes(account,created_at DESC);');
   }
 
   close() { this.db.close(); }
@@ -46,12 +47,16 @@ export class JournalStore {
   }
 
   issueChallenge(account, nonce, message, expires) {
+    const now = Date.now();
+    const existing = this.db.prepare('SELECT nonce,message,expires FROM challenges WHERE account=? AND expires>=? ORDER BY expires DESC LIMIT 1')
+      .get(account, now);
+    if (existing) return existing;
     return this.transaction(() => {
-      this.db.prepare('DELETE FROM challenges WHERE expires < ?').run(Date.now());
-      this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
-      const active = this.db.prepare('SELECT nonce,message,expires FROM challenges WHERE account=? AND expires>=? ORDER BY expires DESC LIMIT 1')
-        .get(account, Date.now());
-      if (active) return active;
+      if (!this.lastChallengePrune || now - this.lastChallengePrune >= 60_000) {
+        this.db.prepare('DELETE FROM challenges WHERE expires < ?').run(now);
+        this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
+        this.lastChallengePrune = now;
+      }
       this.db.prepare('INSERT INTO challenges(nonce,account,message,expires) VALUES(?,?,?,?)')
         .run(nonce, account, message, expires);
       return { nonce, message, expires };
@@ -239,8 +244,15 @@ export class JournalStore {
     });
   }
   saveQuote(account, id, record) {
-    this.db.prepare('INSERT INTO quotes(id,account,record,created_at) VALUES(?,?,?,?)')
-      .run(id, account, canonical(record), Date.now());
+    const serialized = canonical(record);
+    if (Buffer.byteLength(serialized) > 4096) throw new JournalConflict('Quote exceeds the saved record limit.');
+    this.transaction(() => {
+      this.db.prepare('INSERT INTO quotes(id,account,record,created_at) VALUES(?,?,?,?)')
+        .run(id, account, serialized, Date.now());
+      this.db.prepare(`DELETE FROM quotes WHERE account=? AND id NOT IN
+        (SELECT id FROM quotes WHERE account=? ORDER BY created_at DESC,rowid DESC LIMIT 200)`)
+        .run(account, account);
+    });
   }
   quotes(account, cursor, limit) {
     const rows = this.db.prepare('SELECT id,record,created_at FROM quotes WHERE account=? ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?')

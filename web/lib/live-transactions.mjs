@@ -6,7 +6,7 @@ import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
 const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeFirstoSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
-const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked']);
+const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createBudgetChildPool']);
 const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
 const active = new Set();
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();

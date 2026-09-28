@@ -1,4 +1,5 @@
 import { readControlledFirstoSale } from '../lib/firsto-sale.mjs';
+import { createRequestLimiter } from './request-limiter.mjs';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { lstatSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
@@ -148,6 +149,8 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
   const factory = getAddress(config.factory);
   const db = privateDatabase(config.dbPath);
   const challenges = new Map(), sessions = new Map();
+  const allowChallenge = createRequestLimiter({ perClient: 120, now });
+  const allowSession = createRequestLimiter({ perClient: 60, now });
   const registry = new Contract(factory, abi.PoolFactory, provider);
   const marketAddress = getAddress(config.expected.code.shareMarket.address);
   const marketContract = new Contract(marketAddress, abi.ShareMarket, provider);
@@ -364,15 +367,19 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
         return json(res, 200, result);
       }
       if (method === 'POST' && url.pathname === '/api/live/challenge') {
+        if (!allowChallenge(req)) fail(429, 'Wallet challenge rate exceeded.');
         const input = await body(req), account = lower(input.account);
         for (const [key, item] of challenges) if (item.expires <= now()) challenges.delete(key);
-        if (challenges.size >= MAX_CHALLENGES) fail(429, 'Too many pending wallet challenges.');
+        const active = [...challenges].find(([, item]) => item.account === account);
+        if (active) return json(res, 200, { nonce: active[0], message: active[1].message });
+        if (challenges.size >= MAX_CHALLENGES) challenges.delete(challenges.keys().next().value);
         const nonce = randomBytes(24).toString('hex'), expires = now() + CHALLENGE_MS;
         const message = `BEMine live journal login\nOrigin: ${config.origin}\nChain ID: 56\nAccount: ${getAddress(account)}\nNonce: ${nonce}\nExpires At: ${new Date(expires).toISOString()}`;
         challenges.set(nonce, { account, message, expires });
         return json(res, 200, { nonce, message });
       }
       if (method === 'POST' && url.pathname === '/api/live/session') {
+        if (!allowSession(req)) fail(429, 'Wallet session rate exceeded.');
         const input = await body(req), account = lower(input.account), challenge = challenges.get(input.nonce);
         challenges.delete(input.nonce);
         let recovered = null;
@@ -380,7 +387,7 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
         if (!challenge || challenge.account !== account || challenge.expires <= now() ||
             !recovered || lower(recovered) !== account) fail(401, 'Invalid or expired wallet challenge.');
         for (const [key, item] of sessions) if (item.expires <= now()) sessions.delete(key);
-        if (sessions.size >= MAX_SESSIONS) fail(429, 'Too many wallet sessions.');
+        if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
         const token = randomBytes(32).toString('hex');
         sessions.set(token, { account, expires: now() + SESSION_MS });
         res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=${config.cookiePath ?? '/api/live'}; Max-Age=${SESSION_MS / 1000}${config.origin.startsWith('https:') ? '; Secure' : ''}`);

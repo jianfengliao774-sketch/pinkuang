@@ -76,6 +76,8 @@ contract PoolVault is
         VaultStorage storage s = _vaultStorage();
         if (s.state != State.Funding) revert WrongState();
         if (s.depositPaused) revert DepositPaused();
+        address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));
+        if (subscriber != address(0) && msg.sender != subscriber) revert Unauthorized();
         if (block.timestamp >= s.params.fundingDeadline) revert DeadlinePassed();
         if (shares == 0) revert InvalidShareCount();
         if (shares > maxShares || balanceOf(msg.sender) + shares > maxShares) revert ShareOutOfRange();

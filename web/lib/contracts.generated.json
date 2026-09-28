@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xeabd2323e22f306359a173040cee4de7f650aa3038e0eef149084aa071164b4b",
+  "artifactDigest": "0x631e100ef2a58dec64313083b0a84fc5f559f63624894d6e12804b481c1a473c",
   "abis": {
     "PoolFactory": [
       {
@@ -580,6 +580,72 @@
             "type": "tuple"
           },
           {
+            "internalType": "address",
+            "name": "subscriber",
+            "type": "address"
+          }
+        ],
+        "name": "createBudgetChildPool",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "circuits",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "circuitId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "targetRaise",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "priceCap",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "directSeller",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "directPrice",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint64",
+                "name": "fundingDeadline",
+                "type": "uint64"
+              },
+              {
+                "internalType": "uint64",
+                "name": "purchaseDeadline",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct IPoolVault.PoolParams",
+            "name": "params",
+            "type": "tuple"
+          },
+          {
             "components": [
               {
                 "internalType": "uint128",
@@ -881,6 +947,25 @@
             "internalType": "bool",
             "name": "",
             "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          }
+        ],
+        "name": "designatedSubscriber",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
           }
         ],
         "stateMutability": "view",
@@ -7674,12 +7759,38 @@
       },
       {
         "inputs": [],
+        "name": "MAX_SALE_CANDIDATES",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
         "name": "MINING",
         "outputs": [
           {
             "internalType": "address",
             "name": "",
             "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "MIN_PROPOSAL_SHARES",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
           }
         ],
         "stateMutability": "view",

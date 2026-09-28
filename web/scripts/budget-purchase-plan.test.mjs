@@ -19,16 +19,17 @@ function fixture(candidates=[candidate(1),candidate(2)]){
   const snapshot={complete:true,blockNumber:10,blockHash:H,observedAt:Date.now()};
   const context={block:{number:'0xa',hash:H},tag:'0xa',manifest:config,canonical:async()=>{},read:async(_to,_abi,name)=>{
     if(name==='params')return [{circuits:C,circuitId:1n,targetRaise:200n,priceCap:200n,directSeller:ZeroAddress,directPrice:0n,fundingDeadline:1999n,purchaseDeadline:2000n}];
+    if(name==='designatedSubscriber')return [parent];
     return [{factory, state:0n,totalSupply:0n}[name]];
   }};
   const readParent=async()=>({row,context}),readOfficial=async()=>({...config,parent,budgetWei:'1000',spentWei:'0',absoluteCapWei:'500',unitCapWei:'100',snapshot,candidates});
   const discover=()=>discoverBudgetPurchasePlan({config,provider:{},account,parent,limitWei:600n,readParent,readOfficial,quotePage:()=>{throw Error('Firsto must not run');}});
   const readMiner=async()=>({blockHash:H,verifiedWeight:'10',registry:{ready:true,pool:ZeroAddress},official:{priceWei:'200',id:'1'}});
-  const prepareCreate=async()=>({transaction:{from:account,to:factory,data:'0x1234',chainId:'0x38',value:'0x0'},kind:'createPool'});
+  const prepareCreate=async input=>{assert.equal(input.kind,'createBudgetChildPool');assert.equal(input.subscriber,parent);return {transaction:{from:account,to:factory,data:'0x1234',chainId:'0x38',value:'0x0'},kind:input.kind};};
   return {row,context,readParent,readOfficial,discover,readMiner,prepareCreate};
 }
 function final(phase,overrides={}){return{status:'confirmed',finalized:true,account,target:phase==='create'?factory:parent,
-  factory:phase==='create'?factory:portfolioFactory,action:phase==='create'?'createPool':'buyOfficial',hash:H,nonce:4,poolAddress:child,
+  factory:phase==='create'?factory:portfolioFactory,action:phase==='create'?'createBudgetChildPool':'buyOfficial',hash:H,nonce:4,poolAddress:child,
   receipt:{transactionHash:H,status:1},...overrides};}
 
 test('candidate selection respects exact temporary funding and deduplicates permanent NFT identity',()=>{
@@ -108,7 +109,7 @@ test('created child is checked empty and exact before parent purchase; purchase 
       procurement:{route:'official',priceWei:200n}};}};
   const preview=await prepareBudgetQueueStep(input);assert.equal(preview.phase,'purchase');
   const read=f.context.read;f.context.read=async(...args)=>args[2]==='totalSupply'?[1n]:read(...args);
-  await assert.rejects(prepareBudgetQueueStep(input),/已有认购/);assert.equal(purchases,1);
+  await assert.rejects(prepareBudgetQueueStep(input),/状态改变/);assert.equal(purchases,1);
   const started=beginBudgetQueueStep(created,preview);
   assert.throws(()=>applyBudgetQueueResult(started,0,final('purchase',{factory:factory})),/identity/);
   const failed=applyBudgetQueueResult(started,0,final('purchase',{status:'reverted',receipt:{transactionHash:H,status:0}}));
