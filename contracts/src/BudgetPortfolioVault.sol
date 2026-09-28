@@ -404,8 +404,9 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         uint64 endsAt;
         uint16 voters;
         uint256 opener = activeProposalId;
+        if (opener != 0 && proposals[opener].executed) revert ProposalActive();
         if (opener != 0 && block.timestamp < proposals[opener].endsAt) {
-            if (proposals[opener].executed || nextProposalId - opener >= MAX_SALE_CANDIDATES) revert ProposalActive();
+            if (nextProposalId - opener >= MAX_SALE_CANDIDATES) revert ProposalActive();
             endsAt = proposals[opener].endsAt;
             voters = proposals[opener].memberCount;
         } else {

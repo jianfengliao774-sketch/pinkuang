@@ -610,6 +610,26 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.transfer(BOB, 1);
     }
 
+    function test_executedChildSaleCannotBeOverwrittenAfterRoundCooldown() public {
+        _subscribe(ALICE, 100);
+        IFundingVault second = _buyTwo();
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 proposal = project.proposeChildSale(address(pool), 6 ether, 0, 0);
+        vm.prank(ALICE);
+        project.voteChildSale(proposal, true);
+        _saleReference(6 ether);
+        project.executeChildSale(proposal);
+
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.ProposalActive.selector);
+        project.proposeChildSale(address(second), 6 ether, 0, 0);
+        assertEq(project.activeProposalId(), proposal);
+        assertFalse(project.shareTradingAllowed());
+    }
+
     function test_externalChildCancellationCannotFreezePortfolioForever() public {
         _subscribe(ALICE, 100);
         uint256 listing = _list(defaultParams.circuitId, 5 ether);
