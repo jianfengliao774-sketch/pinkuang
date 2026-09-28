@@ -480,8 +480,7 @@ export default function LivePlatform() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const openAction = (kind, pool, extra = {}) => {
-    if (busy || (loading && !['overview', 'rewards', 'market'].includes(route.route)) || (route.route === 'market'
-      && ['fill', 'cancel', 'expire'].includes(kind) && (marketOrdersLoading || !!marketOrdersError))
+    if (busy || (loading && !['overview', 'rewards', 'market'].includes(route.route))
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
@@ -2721,7 +2720,12 @@ export default function LivePlatform() {
                             <td>{o.remaining?.toString() ?? "—"}</td>
                             <td>{amount(o.pricePerUnitWei)} BNB</td>
                             <td>{capacityCell(o)}</td>
-                            <td>{shortAddress(o.seller)}</td>
+                            <td>
+                              {shortAddress(o.seller)}
+                              {same(o.seller, account) && <small className="live-order-state">
+                                {L("这是你的挂单；购买请切换买家钱包", "Your order; switch to a buyer wallet to purchase")}
+                              </small>}
+                            </td>
                             <td>
                               {date(o.expiresAt)}
                               {o.active !== true ? (
@@ -2741,12 +2745,9 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={marketOrdersLoading || !!marketOrdersError ||
-                                  !account ||
+                                disabled={!account ||
                                   busy ||
-                                  o.active !== true ||
-                                  (!same(o.seller, account) &&
-                                    o.shareTradingAllowed !== true)
+                                  o.active !== true
                                 }
                                 onClick={() =>
                                   openAction(
