@@ -563,6 +563,8 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
 
     function _currentSaleCandidate(uint256 proposalId) private view returns (bool) {
         uint256 opener = activeProposalId;
+        // An identical deadline identifies the candidate's exact voting round; this is not token accounting.
+        // slither-disable-next-line incorrect-equality
         return opener != 0 && proposalId >= opener && proposalId < nextProposalId
             && proposals[proposalId].endsAt == proposals[opener].endsAt
             && (!proposals[opener].executed || proposalId == opener);

@@ -3,9 +3,9 @@
   "destination": "/private/tmp/pinkuang-official-first/contracts/out/upgrade-build-info",
   "files": [
     {
-      "file": "65c9cccf13592a76.json",
-      "originalFileSha256": "bf234bd8947ff87ceac3a8dc9c11c0f36d19e7f8b1401726d5abfe67e3aa025c",
-      "unchangedCompilerOutputSha256": "71683cc6c7d05ae46fdcf7a6b0d26854b74edc5c13ca0d487283b53d925211ed",
+      "file": "cca62ab0f49dde14.json",
+      "originalFileSha256": "57783a36689446bf515ba41b3bfc13657c06e2e0ff3f12994f695046fe3ff4c1",
+      "unchangedCompilerOutputSha256": "8de6ebf38cbd50f1ae5fd70b4a3a84b9337f48f48e9a11b84cf9a0bb0d088ea7",
       "originalInputSourceCount": 195,
       "preparedInputSourceCount": 241,
       "outputSourceCount": 241,

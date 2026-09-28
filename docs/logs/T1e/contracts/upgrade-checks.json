@@ -52,7 +52,7 @@
     "baselinePath": "docs/storage/Budget-v1-BudgetPortfolioVault.json",
     "baselineCommit": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
     "baselineFileSha256": "9a608cda28d3f1efd03238c78461eb577f687c84adc2703ccf36e233a38b5492",
-    "currentSourceSha256": "f8ed9096fa5282ae010cd3ee2aebf4c2728481f3f7ef46bcb9d753c344075053",
+    "currentSourceSha256": "834b4cdfd5f16c0ee56a56692fbcc291d797f0648eb5afb204d2510788d9217c",
     "previousFieldCount": 30,
     "currentFieldCount": 30,
     "storageLayoutOk": true,
