@@ -85,7 +85,7 @@ function apiFixture(data, { referenceFails = false, invalidJson = false } = {}) 
   return { requests, fetcher: async (input, init) => {
     requests.push({ input, init }); assert.equal(init.method, 'GET'); assert.equal(init.credentials, 'omit');
     const path = new URL(input, 'https://local.example').pathname;
-    assert(path.startsWith(QUOTE_BASE + '/v1/'));
+    assert(path.startsWith(QUOTE_BASE + '/v1/'), `Unexpected quote path ${path}; expected ${QUOTE_BASE}/v1/`);
     if (path.endsWith('/circuit-holders') && referenceFails) return new Response('Unavailable', { status: 503 });
     const value = path.endsWith('/circuits') ? data.page : path.endsWith('/circuit-holders') ? data.referenceRaw : data.detail;
     return new Response(invalidJson && path.endsWith('/circuits') ? '{"rows":' : JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });

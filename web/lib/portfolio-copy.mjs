@@ -4,6 +4,8 @@ const en = {
   'BNB · 合约价格上限':'BNB · Contract price cap','BNB · 已购机':'BNB · Spent on miners','BNB · 我的可转份额':'BNB · My transferable shares',
   'BNB · 赞成':'BNB · Yes votes','BNB。募集截至':'BNB. Funding deadline','BNB。款项来自项目预算，本钱包只付 Gas。':'BNB. Paid from the portfolio budget; this wallet pays Gas only.',
   'BNB；买卖双方各收成交价的 1%。':'BNB; buyer and seller each pay 1% of the base price.','BNB；买方另付':'BNB; additional buyer fee','BNB；卖方扣除':'BNB; seller fee withheld',
+  'BNB；全部成交基价':'BNB; total asking price',
+  'BNB；挂牌时本钱包仅支付 Gas，买卖双方在成交时各承担基价的 1%。':'BNB; this wallet pays only Gas when listing. The buyer and seller each pay 1% of the base price when the shares sell.',
   'BNB；参考价':'BNB; reference price','BNB；每单位核验算力上限':'BNB; cap per verified weight unit','BNB；观察时间':'BNB; observed at',
   '· 区块 #':'· Block #','· 本次含来源费报价':'· Quote including source fee',
   '。提案发起后本轮项目份额暂时冻结。':'. Starting the proposal temporarily freezes portfolio share trading for this round.',

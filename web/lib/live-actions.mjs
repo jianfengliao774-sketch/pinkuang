@@ -170,7 +170,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     const listingGross = priceWei * qty;
     assert(listingGross + listingGross / 100n < 2n ** 256n,
       '挂牌金额加买方手续费超出合约范围 / Listing plus buyer fee overflows the market.');
-    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, priceWei]), { ...details, quantity: qty });
+    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, priceWei]),
+      { ...details, quantity: qty, listingGrossWei: listingGross });
   }
   if (kind === 'withdrawDeposit') {
     assert(row.state === 0n && row.shares !== null && row.shares > 0n, '当前不可撤回认购 / Subscription cannot be withdrawn now.');

@@ -1,33 +1,25 @@
-/** Display only: round half away from zero to three places using integers.
+/** Display only: round half away from zero to five places using integers.
  * Never use these strings to construct calldata, quotes or transaction values. */
-export function displayAmount(value, decimals = 18) {
+export function displayAmount(value, decimals = 18, places = 5) {
   if (value === null || value === undefined) return '—';
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 80) throw new Error('Invalid display decimals');
+  if (!Number.isInteger(places) || places < 1 || places > 18) throw new Error('Invalid display precision');
   const integer = BigInt(value), negative = integer < 0n, absolute = negative ? -integer : integer;
-  const milli = decimals > 3 ? (absolute + 10n ** BigInt(decimals - 3) / 2n) / 10n ** BigInt(decimals - 3)
-    : absolute * 10n ** BigInt(3 - decimals);
-  const whole = (milli / 1000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${negative && milli !== 0n ? '-' : ''}${whole}.${(milli % 1000n).toString().padStart(3, '0')}`;
+  const unit = decimals > places ? 10n ** BigInt(decimals - places) : 1n;
+  const rounded = decimals > places ? (absolute + unit / 2n) / unit
+    : absolute * 10n ** BigInt(places - decimals);
+  if (absolute > 0n && rounded === 0n) return `${negative ? '>' : '<'}${negative ? '-' : ''}0.${'0'.repeat(places - 1)}1`;
+  const scale = 10n ** BigInt(places);
+  const whole = (rounded / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${whole}.${(rounded % scale).toString().padStart(places, '0')}`;
 }
 
 /** Keep small, positive subscription prices visible without changing their wei value. */
 export function displayPreciseAmount(value, decimals = 18, places = 5) {
   if (value === null || value === undefined) return '—';
-  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 80 ||
-      !Number.isInteger(places) || places < 1 || places > 18) throw new Error('Invalid display precision');
   const atomic = BigInt(value);
   if (atomic < 0n) throw new Error('Invalid positive amount');
-  const scale = 10n ** BigInt(decimals);
-  const whole = atomic / scale;
-  const fraction = atomic % scale;
-  if (fraction === 0n) return `${whole}.${'0'.repeat(places)}`;
-  if (decimals <= places) return `${whole}.${fraction.toString().padStart(decimals, '0').padEnd(places, '0')}`;
-  const unit = 10n ** BigInt(decimals - places);
-  const rounded = (atomic + unit / 2n) / unit;
-  if (rounded === 0n) return `<0.${'0'.repeat(places - 1)}1`;
-  const displayScale = 10n ** BigInt(places);
-  const roundedFraction = rounded % displayScale;
-  return `${rounded / displayScale}.${roundedFraction.toString().padStart(places, '0')}`;
+  return displayAmount(atomic, decimals, places);
 }
 
 /** Round the maximum payable Gas upward, so a positive cost never displays as zero. */

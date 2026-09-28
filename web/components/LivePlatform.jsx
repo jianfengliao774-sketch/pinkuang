@@ -518,7 +518,7 @@ export default function LivePlatform() {
   const capacityCell = (order) => {
     const capacity = orderCapacity[order.pool?.toLowerCase()];
     if (capacity?.available && capacity.validUntil > capacityNow) return <>
-      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic), 18, 6)}</strong>
+      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic))}</strong>
       <small>Firsto · {new Date(capacity.observedAt).toLocaleString(locale === "en" ? "en-GB" : "zh-CN")}</small>
     </>;
     if (capacity?.loading) return L("计算中…", "Loading…");
@@ -1619,9 +1619,9 @@ export default function LivePlatform() {
                   <td>{row.blockNumber}</td>
                   <td>{eventName(row.event ?? row.name, L)}</td>
                   <td>{(row.event ?? row.name) === 'OrderFilled'
-                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross, 18, 8)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee, 18, 8)} BNB`
+                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee)} BNB`
                     : (row.event ?? row.name) === 'BuyerFeeCharged'
-                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee, 18, 8)} BNB`
+                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee)} BNB`
                       : '—'}</td>
                   <td>
                     {shortAddress(row.contract ?? row.address ?? row.pool)}
@@ -3214,28 +3214,25 @@ export default function LivePlatform() {
                             {modal.kind === 'list' && <>
                               <div><span>{L('挂牌份数', 'Listed shares')}</span><strong>{quantity}</strong></div>
                               <div><span>{L('每份挂牌价', 'Ask per share')}</span><strong title={`${price} BNB`}>{displayDecimal(price)} BNB</strong></div>
+                              <div><span>{L('全部成交基价', 'Total asking price')}</span><strong>{amount(prepared.listingGrossWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'fill' && prepared.marketTrade && <>
-                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei)} BNB</strong></div>
+                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'completeFirstoSale' && prepared.quote && <>
-                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei)} BNB</strong></div>
+                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei)} BNB</strong></div>
+                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei)} BNB</strong></div>
+                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei)} BNB</strong></div>
                               <p>{L('同笔完成收益结清与 Firsto 成交；暂不向 Firsto 外部页面发布挂单。', 'Rewards settle in the same Firsto trade. External Firsto website listings are not enabled.')}</p>
                             </>}
                             <div>
-                              <span>{L("支付金额", "Payment")}</span>
+                              <span>{modal.kind === 'list' ? L("本次钱包支付（另付 Gas）", "Wallet payment (plus Gas)") : L("支付金额", "Payment")}</span>
                               <strong>
-                                {amount(
-                                  BigInt(prepared.transaction.value),
-                                  18,
-                                  18,
-                                )}{" "}
+                                {amount(BigInt(prepared.transaction.value))}{" "}
                                 BNB
                               </strong>
                             </div>
@@ -3256,8 +3253,8 @@ export default function LivePlatform() {
                           </div>
                           <p className="inline-note">
                             {L(
-                              "金额显示四舍五入至三位小数，交易仍使用原始精确值。请在钱包核对金额与 Gas；以链上确认为准。",
-                              "Amounts are displayed rounded to three decimals; transactions retain their exact original values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
+                              "金额显示至五位小数；不足 0.00001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
+                              "Amounts are displayed to five decimals; positive amounts below 0.00001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
                             )}
                           </p>
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">

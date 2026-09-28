@@ -177,6 +177,9 @@ test('market ABI tuple, price multiplication, gift listing and withdrawal action
   assert.deepEqual([...abi.ShareMarket.parseTransaction(fill.transaction).args], [7n, 3n]);
   const listing = await prepare(mock(), { kind: 'list', quantity: '4', price: '0' });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(listing.transaction).args], [pool, 4n, 0n]);
+  const paidListing = await prepare(mock({ row: { shares: 99n, availableShares: 99n } }), { kind: 'list', quantity: '99', price: '0.005' });
+  assert.equal(paidListing.listingGrossWei, 495000000000000000n);
+  assert.equal(BigInt(paidListing.transaction.value), 0n);
   await assert.rejects(prepare(mock({ row: { availableShares: 100n } }), { kind: 'list', quantity: '100',
     price: formatEther(((1n << 256n) - 1n) / 100n) }), /buyer fee overflows/);
   const withdrawn = await prepare(mock(), { kind: 'marketWithdraw' });

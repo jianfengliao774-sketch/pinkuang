@@ -41,10 +41,9 @@ async function preparePage() {
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
   await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
   await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
-  await page.getByRole('button', { name: '浏览 Firsto 候选', exact: true }).click();
-  await page.locator('.operator-quote-table').getByRole('button', { name: '先查官网并选择', exact: true }).waitFor();
+  await page.locator('.operator-quote-table').getByRole('button', { name: '链上核对并选择', exact: true }).waitFor();
   const select = async () => {
-    await page.locator('.operator-quote-table').getByRole('button', { name: '先查官网并选择', exact: true }).click();
+    await page.locator('.operator-quote-table').getByRole('button', { name: '链上核对并选择', exact: true }).click();
     await page.getByRole('button', { name: '填入建池表单', exact: true }).waitFor();
     await page.getByRole('button', { name: '填入建池表单', exact: true }).click();
   };
@@ -57,9 +56,9 @@ try {
     assert.equal(await page.getByLabel('矿机编号', { exact: true }).inputValue(), '16480');
     assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '2.000000000000000001');
     const funding = page.getByLabel('募集总额（BNB）', { exact: true });
-    assert.equal(await funding.inputValue(), '≈ 2.200');
+    assert.equal(await funding.inputValue(), '≈ 2.20000');
     await funding.focus(); assert.equal(await funding.inputValue(), '2.2000000000000001');
-    await funding.blur(); assert.equal(await funding.inputValue(), '≈ 2.200');
+    await funding.blur(); assert.equal(await funding.inputValue(), '≈ 2.20000');
     await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
     await page.getByRole('dialog', { name: '确认运营操作' }).waitFor();
     const previews = fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector));
@@ -68,12 +67,12 @@ try {
     assert.equal(params.circuitId, 16480n); assert.equal(params.priceCap, 2000000000000000001n); assert.equal(params.targetRaise, 2200000000000000100n);
     assert.equal(BigInt(previews[0].params[0].value), 0n); assert.equal(fixture.controls.sentTransactions.length, 0);
     const modal = page.getByRole('dialog', { name: '确认运营操作' });
-    assert.match(await modal.innerText(), /≈ 2\.200 BNB/);
+    assert.match(await modal.innerText(), /≈ 2\.20000 BNB/);
     await modal.getByText('查看精确金额', { exact: true }).click();
     assert.match(await modal.innerText(), /2\.2000000000000001 BNB/);
     await page.screenshot({ path: join(output, 'automatic-quote-preview.png'), animations: 'disabled' });
     checks.push('verified quote -> exact official price and 100-share target -> zero-value unsigned createPool preview');
-    checks.push('automatic fundraising total displays three decimals, focus/blur preserves raw Wei, and preview reveals exact amount');
+    checks.push('automatic fundraising total displays five decimals, focus/blur preserves raw Wei, and preview reveals exact amount');
     await modal.getByRole('button', { name: '返回修改', exact: true }).click();
     await page.getByLabel('矿机编号', { exact: true }).fill('16481'); // Clears automatic mode, not the saved exact fundraising amount.
     await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
@@ -92,8 +91,9 @@ try {
   try {
     const funding = manual.page.getByLabel('募集总额（BNB）', { exact: true });
     assert.equal(await funding.getAttribute('placeholder'), '例如 0.005');
-    await funding.fill('0.0054'); await funding.blur(); assert.equal(await funding.inputValue(), '0.005');
-    await funding.fill('0.0055'); await funding.blur(); assert.equal(await funding.inputValue(), '0.006');
+    await funding.fill('0.0054'); await funding.blur(); assert.equal(await funding.inputValue(), '0.00500');
+    await funding.focus(); await manual.page.waitForFunction(() => document.activeElement?.value === '0.005');
+    await funding.fill('0.0055'); await funding.blur(); assert.equal(await funding.inputValue(), '0.00600');
     await manual.page.getByLabel('矿机编号', { exact: true }).fill('7');
     await manual.page.getByLabel('购机价格上限（BNB）', { exact: true }).fill('0.001234567890123456');
     await manual.page.getByRole('button', { name: '预览创建矿池', exact: true }).click();

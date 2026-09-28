@@ -72,7 +72,9 @@ try {
     if (kind === 'list') await page.getByLabel('每份价格 · BNB', { exact: true }).fill('0.075500000000000001');
     await page.getByRole('button', { name: '核对交易金额', exact: true }).click();
     await page.getByRole('button', { name: '确认并前往钱包', exact: true }).waitFor();
-    assert.match(await page.locator('.confirm-lines').filter({hasText:'支付金额'}).innerText(), kind === 'fill' ? /0\.245 BNB/ : /0\.000 BNB/);
+    const confirmation = await page.locator('.confirm-lines').filter({hasText:kind === 'fill' ? '支付金额' : '全部成交基价'}).innerText();
+    assert.match(confirmation, kind === 'fill' ? /0\.24543 BNB/ : /0\.22650 BNB/);
+    if (kind === 'list') assert.match(confirmation, /本次钱包支付（另付 Gas）\s*0\.00000 BNB/);
     assert.equal(sends.length, 0, 'preview cannot send');
     await page.getByRole('button', { name: '确认并前往钱包', exact: true }).click();
     await page.getByText('有一笔交易等待核对', { exact: true }).waitFor();

@@ -3,7 +3,7 @@ import { displayAmount } from '../lib/amount-display.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { ZeroAddress } from 'ethers';
 import { Search, RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { listOperatorQuotes, loadOperatorQuote, loadVerifiedCapacityHint, listingDailyCapacityPrice, operatorQuoteDraft, operatorQuoteError, QUOTE_SOURCE } from '../lib/operator-quotes.mjs';
+import { listOperatorQuotes, loadOperatorQuote, loadVerifiedCapacityHint, listingDailyCapacityPrice, operatorQuoteDraft, operatorQuoteError, QUOTE_BASE, QUOTE_SOURCE } from '../lib/operator-quotes.mjs';
 import { OFFICIAL_COLLECTIONS, fetchCapacityReference, referenceIssue } from '../../deploy/src/pricing.ts';
 
 const amount = (value, decimals = 18) => value == null ? '—' : displayAmount(value, decimals);
@@ -46,7 +46,7 @@ export default function OperatorQuotePicker({ config, mode, disabled, onApply })
           .then(hint => { if (sequence === request.current.sequence) setCapacityHint(hint); })
           .catch(problem => { if (sequence === request.current.sequence) setCapacityError(operatorQuoteError(problem)); });
         if (result.reference) setMarketReference(result.reference);
-        else void fetchCapacityReference({ signal: abort.signal })
+        else void fetchCapacityReference({ signal: abort.signal, baseUrl: QUOTE_BASE })
           .then(reference => { if (sequence === request.current.sequence) setMarketReference(reference); })
           .catch(problem => { if (sequence === request.current.sequence) setMarketReferenceError(operatorQuoteError(problem)); });
       }

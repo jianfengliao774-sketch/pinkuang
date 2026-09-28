@@ -7,12 +7,12 @@ const checkMinerOnchain = (provider, quote) => checkMiner(provider, quote, { con
 const loadOperatorQuote = input => loadQuote({ config, ...input });
 
 test('listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic', () => {
-  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.130');
-  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.123');
-  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.333');
-  assert.equal(listingDailyCapacityPrice('1', '1'), '0.000');
-  assert.equal(listingDailyCapacityPrice('123499999999999999', '100000000'), '0.123');
-  assert.equal(listingDailyCapacityPrice('123500000000000000', '100000000'), '0.124');
+  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.13000');
+  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.12346');
+  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.33333');
+  assert.equal(listingDailyCapacityPrice('1', '1'), '<0.00001');
+  assert.equal(listingDailyCapacityPrice('123499999999999999', '100000000'), '0.12350');
+  assert.equal(listingDailyCapacityPrice('123500000000000000', '100000000'), '0.12350');
   for (const [ask, daily] of [[null, '100000000'], ['1000000000000000000', null], ['0', '100000000'], ['1000000000000000000', '0']])
     assert.equal(listingDailyCapacityPrice(ask, daily), null);
   assert.throws(() => listingDailyCapacityPrice('-1', '100000000'));

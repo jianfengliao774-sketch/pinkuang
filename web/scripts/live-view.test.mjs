@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {amount,viewPool,parseProductRoute,sumKnown,exportActivityCsv,explorerTransaction} from '../lib/live-view.mjs';
 test('display preserves large integer digits and distinguishes unavailable from zero',()=>{
- assert.equal(amount(null),'—');assert.equal(amount(0n),'0.000');assert.equal(amount(1n),'0.000');
- assert.equal(amount(900719925474099312345000000000000001n,18,18),'900,719,925,474,099,312.345');
- assert.equal(amount(123456789n,8,8),'1.235');
+ assert.equal(amount(null),'—');assert.equal(amount(0n),'0.00000');assert.equal(amount(1n),'<0.00001');
+ assert.equal(amount(900719925474099312345000000000000001n,18,18),'900,719,925,474,099,312.345000000000000001');
+ assert.equal(amount(123456789n,8,8),'1.23456789');
  assert.equal(sumKnown([{shares:10n},{shares:null}],'shares'),null);
 });
 test('share route only accepts a pool address, with no fallback to a demo miner',()=>{
