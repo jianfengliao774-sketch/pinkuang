@@ -49,7 +49,8 @@ function provider(options = {}) {
     if (method === 'eth_getCode') return options.badCode ? '0x6001' : code;
     assert.equal(method, 'eth_call'); assert.equal(args[1], toQuantity(options.blockNumber ?? 10n));
     const { to, data } = args[0];
-    let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket : bindings;
+    let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
+      : to === pool ? abi.PoolVault : bindings;
     let parsed = iface.parseTransaction({ data });
     if (!parsed) { iface = bindings; parsed = iface.parseTransaction({ data }); }
     const name = parsed.name; let value;
@@ -72,6 +73,7 @@ function provider(options = {}) {
       pricePerUnit: 123456789012345678901234n, active: true };
     else if (name === 'orderExpiresAt') value = BigInt(timestamp + 500);
     else if (name === 'governance') value = governance(options.governance ?? {});
+    else if (name === 'proposalPassed') value = options.proposalPassed ?? true;
     else throw new Error(`unexpected call ${name}`);
     return iface.encodeFunctionResult(name, [value]);
   } };
@@ -411,6 +413,17 @@ test('governance reads masks, so unknown eligibility cannot silently be treated 
   assert.equal(result.data.canVote, true); assert.equal(result.data.canExecute, true); assert.equal(result.data.requiredYesCount, 2n);
   const unknown = await client({}, { governance: { status: { validMask: 1n, errorMask: 1n << 11n, trustError: 0n } } }).readGovernance({ pool, account });
   assert.equal(unknown.data.canVote, null); assert.equal(unknown.data.proposal, null);
+});
+
+test('governance ignores the fixed old Lens sale threshold after the dual-majority Vault upgrade', async () => {
+  const discounted = { ...proposal, price: 9000n, yesShares: 51n };
+  const result = await client({}, { governance: { proposal: discounted, discounted: true,
+    requiredYesShares: 60n, passed: false, canExecute: false } }).readGovernance({ pool, account });
+  assert.equal(result.data.requiredYesShares, 51n);
+  assert.equal(result.data.passed, true);
+  assert.equal(result.data.canExecute, true);
+  await assert.rejects(client({}, { governance: { proposal: discounted }, proposalPassed: false })
+    .readGovernance({ pool, account }), { code: 'governance_mismatch' });
 });
 
 test('activity pagination validates tuple order and keeps event amounts as exact strings', async () => {

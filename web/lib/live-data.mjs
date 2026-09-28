@@ -374,6 +374,26 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       listedProposalId: 7, expiresAt: 8, salePrice: 9, requiredYesCount: 10, requiredYesShares: 10, discounted: 10, passed: 10,
       canVote: 11, canCancelExpired: 12, canExecute: 13 };
     for (const [key, bit] of Object.entries(bits)) result[key] = good(g.status, bit) ? g[key] : null;
+    // The factory's original Lens is immutable and still applies the former 60-share
+    // discounted-sale threshold. Read the upgraded Vault's actual vote result at
+    // the same canonical block instead of trusting those derived Lens fields.
+    if (result.activeProposalId > 0n && result.proposal !== null) {
+      const p = result.proposal;
+      insist(p.snapshotTotalShares === 100n && p.snapshotMemberCount > 0n && p.snapshotMemberCount <= 100n
+        && p.yesCount <= p.snapshotMemberCount && p.yesShares <= p.snapshotTotalShares,
+      'governance_mismatch', '治理投票快照无效。');
+      const requiredYesCount = p.snapshotMemberCount / 2n + 1n;
+      const requiredYesShares = p.snapshotTotalShares / 2n + 1n;
+      const expectedPassed = p.snapshotTs + 86400n === p.endsAt && p.price > 0n
+        && p.yesCount >= requiredYesCount && p.yesShares >= requiredYesShares;
+      const passed = (await call(pool, abi.PoolVault, 'proposalPassed', [result.activeProposalId], BigInt(source.indexedThrough)))[0];
+      insist(passed === expectedPassed, 'governance_mismatch', '链上提案门槛与双过半规则不一致。');
+      result.requiredYesCount = requiredYesCount;
+      result.requiredYesShares = requiredYesShares;
+      result.passed = passed;
+      result.canExecute = result.state === null ? null : result.state === 2n && !p.executed
+        && BigInt(source.indexedTimestamp) < p.endsAt && passed;
+    }
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });
   }
   async function readActivity({ pool, account, cursor, limit = 20, source: expected } = {}) {
