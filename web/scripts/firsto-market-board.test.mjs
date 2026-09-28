@@ -79,3 +79,10 @@ test('board reads only current public server-proxy quotes and leaves failed refe
   await assert.rejects(readFirstoMarketBoard({ fetcher: api.fetcher, viewId: 'different-view', now: data.now }),
     /快照已变化/);
 });
+
+
+test('market BNB amounts use five decimal places while BEM output keeps its own precision', () => {
+  assert.equal(formatMarketAmount(40000000000000000n), '0.04000');
+  assert.equal(formatMarketAmount(1n), '<0.00001');
+  assert.equal(formatMarketAmount(123456789n, 8), '1.235');
+});

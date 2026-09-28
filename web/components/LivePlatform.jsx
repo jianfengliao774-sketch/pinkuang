@@ -1,5 +1,6 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
+import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
 import {
@@ -25,13 +26,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Search,
-  SlidersHorizontal,
   Download,
   ExternalLink,
   Bell,
 } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
+import PoolSortMenu from "./PoolSortMenu";
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
@@ -67,7 +68,7 @@ import {
 } from "../lib/live-transactions.mjs";
 import { prepareProductAction } from "../lib/live-actions.mjs";
 import { shareListingView } from "../lib/share-listing-view.mjs";
-import { displayDecimal, displayGasFee, displayPreciseAmount } from "../lib/amount-display.mjs";
+import { displayBnb, displayBnbDecimal, displayGasFee, displayPreciseAmount } from "../lib/amount-display.mjs";
 import { abi, readPoolSnapshot } from "../lib/chain-client.mjs";
 import {
   amount,
@@ -155,7 +156,11 @@ function Button({ children, secondary = false, ...props }) {
 function Chip({ pool }) {
   return (
     <span className={`chip ${pool?.color || "blue"}`}>
-      <Layers3 size={24} />
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+        <rect x="5" y="5" width="14" height="14" rx="2"/>
+        <path d="M8 1v4m4-4v4m4-4v4M8 19v4m4-4v4m4-4v4M1 8h4m-4 4h4m-4 4h4M19 8h4m-4 4h4m-4 4h4"/>
+        <text x="12" y="15.5" textAnchor="middle" fontSize="10" fontWeight="700" fill="currentColor" stroke="none">{pool?.name === "Behemoth" ? "B" : "T"}</text>
+      </svg>
     </span>
   );
 }
@@ -184,7 +189,7 @@ function Metric({ title, value, unit, note, primary = false }) {
         {value}
         <small>{unit}</small>
       </div>
-      <div className="metric-note">{note}</div>
+      {note && <div className="metric-note">{note}</div>}
     </div>
   );
 }
@@ -262,9 +267,8 @@ export default function LivePlatform() {
     [pending, setPending] = useState(null),
     [recoveryHash, setRecoveryHash] = useState("");
   const [query, setQuery] = useState(""),
-    [filter, setFilter] = useState("all"),
+    [filter, setFilter] = useState("Funding"),
     [sort, setSort] = useState("funded"),
-    [filtersOpen, setFiltersOpen] = useState(false),
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares");
   const epoch = useRef(0),
@@ -504,7 +508,7 @@ export default function LivePlatform() {
   const capacityCell = (order) => {
     const capacity = orderCapacity[order.pool?.toLowerCase()];
     if (capacity?.available && capacity.validUntil > capacityNow) return <>
-      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic), 18, 6)}</strong>
+      <strong>{displayBnb(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic))}</strong>
       <small>Firsto · {new Date(capacity.observedAt).toLocaleString(locale === "en" ? "en-GB" : "zh-CN")}</small>
     </>;
     if (capacity?.loading) return L("计算中…", "Loading…");
@@ -791,23 +795,23 @@ export default function LivePlatform() {
   }, [client, account, route.route, route.pool, detail, loading, refresh]);
 
   useEffect(() => {
-    if (route.route !== "market") return;
+    if (!["market", "pools", "detail", "overview"].includes(route.route)) return;
     setCapacityNow(Date.now());
     const timer = setInterval(() => setCapacityNow(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, [route.route]);
 
   useEffect(() => {
-    if (!['pools', 'detail'].includes(route.route)) return;
+    if (!['pools', 'detail', 'overview'].includes(route.route)) return;
     const timer = setInterval(() => setPoolQuoteRevision(value => value + 1), 120_000);
     return () => clearInterval(timer);
   }, [route.route]);
 
   useEffect(() => {
     let cancelled = false;
-    setPoolCapacity({});
-    if (!client || !config || loading || !['pools', 'detail'].includes(route.route)) return;
-    const rows = route.route === 'detail' ? (detail ? [detail] : []) : pools;
+    if (!client || !config) { setPoolCapacity({}); return; }
+    if (loading || !['pools', 'detail', 'overview'].includes(route.route)) return;
+    const rows = route.route === 'detail' ? (detail ? [detail] : []) : route.route === 'overview' ? positions : pools;
     if (!rows.length) return;
     const provider = createReadOnlyHttpProvider(config);
     let next = 0;
@@ -815,6 +819,8 @@ export default function LivePlatform() {
       while (!cancelled && next < rows.length) {
         const row = rows[next++];
         if (!row?.trusted || !row.params || row.unitPriceWei === null) continue;
+        const key = row.pool.toLowerCase();
+        setPoolCapacity(previous => ({ ...previous, [key]: { ...previous[key], loading: true } }));
         const quote = await readShareDailyCapacityPrice(provider, {
           factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
           allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
@@ -824,7 +830,7 @@ export default function LivePlatform() {
     };
     void Promise.all(Array.from({ length: Math.min(2, rows.length) }, worker));
     return () => { cancelled = true; };
-  }, [client, route.route, pools, detail, boot, refresh, poolQuoteRevision, loading]);
+  }, [client, route.route, pools, positions, detail, boot, refresh, poolQuoteRevision, loading]);
 
   useEffect(() => {
     const revision = ++capacityEpoch.current;
@@ -1421,6 +1427,18 @@ export default function LivePlatform() {
       ? sumKnown(positions, "claimableBEM")
       : null,
     poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const currentPoolQuote = p => {
+    const quote = p && poolCapacity[p.pool.toLowerCase()];
+    return quote?.available && quote.validUntil > capacityNow
+      && quote.collection.toLowerCase() === p.params?.circuits?.toLowerCase()
+      && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
+  };
+  const poolQuotePlaceholder = p => !["pools", "detail", "overview"].includes(route.route)
+    || poolCapacity[p.pool.toLowerCase()]?.reason === "unverified_output" ? "—" : poolCapacity[p.pool.toLowerCase()]?.loading
+    ? L("读取中…", "Loading…")
+    : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
+      {L("重新读取", "Retry")}
+    </button>;
   const filtered = pools
     .filter(
       (p) =>
@@ -1432,7 +1450,10 @@ export default function LivePlatform() {
           .includes(query.toLowerCase()),
     )
     .sort((a, b) =>
-      sort === "price"
+      sort === "capacity"
+        ? compare(currentPoolQuote(a)?.marketReferencePriceWei,
+          currentPoolQuote(b)?.marketReferencePriceWei)
+        : sort === "price"
         ? compare(a.unitPriceWei, b.unitPriceWei)
         : sort === "id"
           ? compareToken(a.tokenId, b.tokenId)
@@ -1456,62 +1477,60 @@ export default function LivePlatform() {
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false) => (
-    <div className="table-wrap">
+  const currentPoolMetadata = p => {
+    const quote = p && poolCapacity[p.pool.toLowerCase()];
+    return quote?.metadataAvailable && quote.validUntil > capacityNow
+      && quote.collection?.toLowerCase() === p.params?.circuits?.toLowerCase()
+      && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
+  };
+  const poolTable = (rows, holdings = false) => {
+    const catalog = route.route === "pools" && !holdings;
+    const columns = !catalog ? ["miner", "status", "shares", "unit", "daily", "capacity", "actions"]
+      : filter === "Active" ? ["miner", "classification", "hash", "shares", "members", "purchase", "daily", "actions"]
+        : filter === "Funding" ? ["miner", "classification", "hash", "shares", "unit", "daily", "capacity", "actions"]
+          : filter === "Listed" ? ["miner", "classification", "hash", "unit", "daily", "capacity", "actions"]
+            : ["miner", "status", "classification", "hash", "shares", "unit", "daily", "capacity", "actions"];
+    const titles = {
+      miner: L("矿机 / 项目", "Miner / pool"), status: L("状态", "Status"),
+      classification: L("矿机归类", "Miner classification"), hash: L("算力 H", "Hash power H"),
+      shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
+      members: L("参与人数", "Participants"), purchase: L("购机金额", "Purchase amount"),
+      unit: L("每份金额", "Price per share"), daily: L("预计日产", "Estimated daily output"),
+      capacity: L("日产能价", "Daily capacity price"), actions: "",
+    };
+    return <div className="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>{L("矿机 / 项目", "Miner / pool")}</th>
-            <th>{L("状态", "Status")}</th>
-            <th>
-              {holdings ? L("我的份额", "My shares") : L("已募集", "Funded")}
-            </th>
-            <th>{L("每份金额", "Price per share")}</th>
-            <th>{L("预计日产 BEM", "Estimated BEM / day")}</th>
-            <th>{L("Firsto 日产能价", "Firsto daily capacity price")}</th>
-            <th />
-          </tr>
-        </thead>
+        <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.pool}>
-              <td>
-                <button className="asset-cell" onClick={() => openDetails(p)}>
-                  <Chip pool={p} />
-                  <span>
-                    <strong>
-                      {p.name} #{p.tokenId}
-                    </strong>
-                    <small>{shortAddress(p.pool)}</small>
-                  </span>
-                </button>
-              </td>
-              <td>
-                <StateBadge state={p.status} L={L} />
-              </td>
-              <td>
-                {holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} /
-                100
-              </td>
-              <td className="num">{displayPreciseAmount(p.unitPriceWei)} BNB</td>
-              <td>{poolCapacity[p.pool.toLowerCase()]?.available
-                ? `${displayPreciseAmount(poolCapacity[p.pool.toLowerCase()].estimated24hAtomic, 8)} BEM`
-                : '—'}</td>
-              <td className="num" title={L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{poolCapacity[p.pool.toLowerCase()]?.available && poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei !== null
-                ? displayPreciseAmount(poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei)
-                : '—'}</td>
-              <td>
+          {rows.map(p => {
+            const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+            const cells = {
+              miner: <button className="asset-cell" onClick={() => openDetails(p)}>
+                <Chip pool={p}/><span><strong>{p.name} #{p.tokenId}</strong>
+                  <small>Task {metadata?.taskId ?? "—"}</small></span>
+              </button>,
+              status: <StateBadge state={p.status} L={L}/>,
+              classification: metadata?.miningClassification === "verified" ? L("已验证", "Verified")
+                : metadata?.miningClassification === "unverified" ? L("未验证", "Unverified") : "—",
+              hash: metadata?.hashPower ?? "—",
+              shares: <>{holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} / 100</>,
+              members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
+              purchase: <>{displayBnb(p.purchaseCost)} BNB</>,
+              unit: <>{displayBnb(p.unitPriceWei)} BNB</>,
+              daily: quote ? `${displayPreciseAmount(quote.estimated24hAtomic, 8)} BEM` : poolQuotePlaceholder(p),
+              capacity: quote?.marketReferencePriceWei != null ? displayBnb(quote.marketReferencePriceWei) : poolQuotePlaceholder(p),
+              actions: <div className="live-pool-row-actions">
                 {holdings && p.shares > 0n && <button className="btn secondary" disabled={loading || positionsReadLoading || !!positionsReadError || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   {L('挂单出售', 'List shares')}
                 </button>}
                 <button className="text-button" onClick={() => openDetails(p)}>
-                  {L("查看矿机", "View miner")}
-                  <ArrowRight size={16} />
+                  {L("查看矿机", "View miner")}<ArrowRight size={16}/>
                 </button>
-              </td>
-            </tr>
-          ))}
+              </div>,
+            };
+            return <tr key={p.pool}>{columns.map(column => <td key={column} className={["purchase", "unit", "capacity", "hash"].includes(column) ? "num" : undefined}>{cells[column]}</td>)}</tr>;
+          })}
         </tbody>
       </table>
       {rows.length === 0 && (
@@ -1533,8 +1552,8 @@ export default function LivePlatform() {
           </>}
         </Empty>
       )}
-    </div>
-  );
+    </div>;
+  };
   const activityTable = () => (
     <>
       <div className="table-wrap">
@@ -1549,17 +1568,18 @@ export default function LivePlatform() {
             </tr>
           </thead>
           <tbody>
-            {activity.map((row, i) => {
+            {(route.route === "overview" ? summarizeOverviewActivity(activity) : activity).map((row, i) => {
               const hash = row.transactionHash ?? row.txHash;
               return (
                 <tr key={`${hash}-${row.logIndex ?? i}`}>
                   <td>{row.blockNumber}</td>
                   <td>{eventName(row.event ?? row.name, L)}</td>
-                  <td>{(row.event ?? row.name) === 'OrderFilled'
-                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross, 18, 8)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee, 18, 8)} BNB`
-                    : (row.event ?? row.name) === 'BuyerFeeCharged'
-                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee, 18, 8)} BNB`
-                      : '—'}</td>
+                  <td>{activityAmounts(row).length ? activityAmounts(row).map((item, index) => {
+                    const labels = { amount: ["金额", "Amount"], gross: ["成交基价", "Base price"],
+                      sellerFee: ["卖方费用", "Seller fee"], buyerFee: ["买方费用", "Buyer fee"] };
+                    return <span key={item.kind}>{index > 0 ? " · " : ""}{L(...labels[item.kind])}{" "}
+                      {item.symbol === "BNB" ? displayBnb(item.amount) : displayPreciseAmount(item.amount, item.decimals, 8)} {item.symbol}</span>;
+                  }) : "—"}</td>
                   <td>
                     {shortAddress(row.contract ?? row.address ?? row.pool)}
                   </td>
@@ -1595,7 +1615,7 @@ export default function LivePlatform() {
   function renderGovernance() {
     return <section className="panel"><LiveGovernance
       key={`${detail?.pool || ''}:${account || ''}`}
-      selectedPool={detail?.pool} config={config} account={account} wallet={wallet}
+      selectedPool={detail?.pool} capacityQuote={currentPoolQuote(detail)} config={config} account={account} wallet={wallet}
       readProvider={client?.provider} disabled={loading || busy || !!pending}
       onConnect={connect} onError={problem => setError(textError(problem))}
       onAction={sendGovernanceAction} /></section>;
@@ -1893,22 +1913,17 @@ export default function LivePlatform() {
                 ),
                 refreshButton,
               )}
-              <div className="metrics">
+              <div className="metrics live-overview-metrics">
                 <Metric
                   primary
                   title={L("当前可领取", "Claimable BEM")}
                   value={amount(claimable, 8)}
                   unit="BEM"
-                  note={L("本页矿池 · 已入账", "Loaded pools · booked rewards")}
                 />
                 <Metric
                   title={L("矿池待领取", "Pool proceeds")}
-                  value={amount(poolBnb)}
+                  value={displayBnb(poolBnb)}
                   unit="BNB"
-                  note={L(
-                    "包含余款与售款，不重复计数",
-                    "Includes surplus and sale proceeds once",
-                  )}
                 />
                 <Metric
                   title={L("持有矿机", "Miners held")}
@@ -1918,7 +1933,6 @@ export default function LivePlatform() {
                       : "—"
                   }
                   unit={L("台", "miners")}
-                  note={L("本页持仓", "Loaded positions")}
                 />
                 <Metric
                   title={L("持有份额", "Shares held")}
@@ -1928,10 +1942,6 @@ export default function LivePlatform() {
                       : "—"
                   }
                   unit={L("份", "shares")}
-                  note={L(
-                    "已售完份额的历史权益仍可领取",
-                    "Former holders can still claim owed rewards",
-                  )}
                 />
               </div>
               <section className="panel holdings">
@@ -1986,14 +1996,14 @@ export default function LivePlatform() {
                   </button>
                 ))}
               </div>
-              <section className="panel">
+              <section className="panel live-pool-directory">
                 <div className="live-toolbar">
                   <div className="tabs">
                     {[
-                      ["all", "项目总览", "Overview"],
                       ["Funding", "募集中", "Funding"],
                       ["Active", "挖矿中", "Operating"],
                       ["Listed", "整机出售中", "For sale"],
+                      ["all", "项目总览", "Overview"],
                     ].map(([id, zh, en]) => (
                       <button
                         key={id}
@@ -2019,44 +2029,9 @@ export default function LivePlatform() {
                       onChange={(e) => setQuery(e.target.value)}
                     />
                   </div>
-                  <Button
-                    secondary
-                    onClick={() => setFiltersOpen((v) => !v)}
-                    aria-expanded={filtersOpen}
-                  >
-                    <SlidersHorizontal size={16} />
-                    {L("筛选排序", "Sort & filter")}
-                  </Button>
+                  <PoolSortMenu value={sort} onChange={setSort} locale={locale}/>
                 </div>
-                {filtersOpen && (
-                  <div className="live-filters">
-                    <label>
-                      {L("排序", "Sort")}
-                      <select
-                        value={sort}
-                        onChange={(e) => setSort(e.target.value)}
-                      >
-                        <option value="funded">
-                          {L("募集份额最多", "Most shares funded")}
-                        </option>
-                        <option value="price">
-                          {L("每份金额从低到高", "Lowest price per share")}
-                        </option>
-                        <option value="id">
-                          {L("矿机编号从低到高", "Lowest miner ID")}
-                        </option>
-                      </select>
-                    </label>
-                    <small>
-                      {L(
-                        "搜索与排序作用于已加载项目。",
-                        "Search and sort apply to loaded pools.",
-                      )}
-                    </small>
-                  </div>
-                )}
                 {poolTable(filtered)}
-                <p className="subtle-note">{L('Firsto 日产能价单位：BNB / (BEM/天)，随市场变化；无有效报价时显示 —。', 'Firsto daily capacity price is in BNB / (BEM/day) and changes with the market; unavailable quotes show —.')}</p>
                 {moreButton(poolCursor, "pools")}
               </section>
             </>
@@ -2074,11 +2049,11 @@ export default function LivePlatform() {
                 <section className="panel detail-summary" aria-label={L('上次核对的矿池资料', 'Previously verified pool information')}>
                   <div className="detail-heading">
                     <Chip pool={detailPreview}/>
-                    <div><h1>{detailPreview.name} <span>#{detailPreview.tokenId}</span></h1><small>{shortAddress(detailPreview.pool)}</small></div>
+                    <div><h1>{detailPreview.name} <span>#{detailPreview.tokenId}</span></h1><small>Task {currentPoolMetadata(detailPreview)?.taskId ?? "—"}</small></div>
                     <StateBadge state={detailPreview.status} L={L}/>
                   </div>
                   <p>{L('上次核对的每份金额', 'Previously verified price per share')}：
-                    <strong>{displayPreciseAmount(detailPreview.unitPriceWei)} BNB</strong></p>
+                    <strong>{displayBnb(detailPreview.unitPriceWei)} BNB</strong></p>
                   <p className="subtle-note">{loading
                     ? L('正在更新链上资料；更新完成后才能认购。', 'Refreshing on-chain data; subscription opens after verification.')
                     : L('最新资料暂不可用，请刷新后认购。', 'Current data is unavailable; refresh before subscribing.')}</p>
@@ -2101,7 +2076,7 @@ export default function LivePlatform() {
                     <h1>
                       {detail.name} <span>#{detail.tokenId}</span>
                     </h1>
-                    <small>{shortAddress(detail.pool)}</small>
+                    <small>Task {currentPoolMetadata(detail)?.taskId ?? "—"}</small>
                   </div>
                   <StateBadge state={detail.status} L={L} />
                   {refreshButton}
@@ -2120,7 +2095,7 @@ export default function LivePlatform() {
                         <div>
                           <span>{L("购机募集金额", "Funding target")}</span>
                           <strong>
-                            {amount(detail.params?.targetRaise)}{" "}
+                            {displayBnb(detail.params?.targetRaise)}{" "}
                             <small>BNB</small>
                           </strong>
                         </div>
@@ -2148,8 +2123,8 @@ export default function LivePlatform() {
                             : L(...statuses[detail.status])}
                         </span>
                         <span>
-                          {L("预计日产", "Estimated daily output")}：{poolCapacity[detail.pool.toLowerCase()]?.available
-                            ? displayPreciseAmount(poolCapacity[detail.pool.toLowerCase()].estimated24hAtomic, 8)
+                          {L("预计日产", "Estimated daily output")}：{currentPoolQuote(detail)
+                            ? displayPreciseAmount(currentPoolQuote(detail).estimated24hAtomic, 8)
                             : '—'} BEM
                         </span>
                       </div>
@@ -2203,7 +2178,7 @@ export default function LivePlatform() {
                             ],
                             [
                               L("实际购机成本", "Acquisition cost"),
-                              `${amount(detail.purchaseCost)} BNB`,
+                              `${displayBnb(detail.purchaseCost)} BNB`,
                             ],
                             [
                               ["Funding", "Funded"].includes(detail.status)
@@ -2352,13 +2327,12 @@ export default function LivePlatform() {
                       )}
                     </h2>
                     <div className="unit-price">
-                      {displayPreciseAmount(detail.unitPriceWei)}{" "}
+                      {displayBnb(detail.unitPriceWei)}{" "}
                       <small>BNB / {L("份", "share")}</small>
                     </div>
                     <p className="order-rule purchase-explanation">
-                      {L('Firsto 日产能参考价', 'Firsto daily capacity reference')}：{poolCapacity[detail.pool.toLowerCase()]?.available
-                        && poolCapacity[detail.pool.toLowerCase()].marketReferencePriceWei !== null
-                        ? `${displayPreciseAmount(poolCapacity[detail.pool.toLowerCase()].marketReferencePriceWei)} BNB / (BEM/${L('天', 'day')})`
+                      {L('日产能参考价', 'Daily capacity reference')}：{currentPoolQuote(detail)?.marketReferencePriceWei != null
+                        ? `${displayBnb(currentPoolQuote(detail).marketReferencePriceWei)} BNB / (BEM/${L('天', 'day')})`
                         : '—'}
                     </p>
                     <p className="order-rule purchase-explanation">
@@ -2372,8 +2346,8 @@ export default function LivePlatform() {
                         "为确保购机成功，用户会按矿机出售价格额外预付 10%；购机成功后余款按照份额等比退还",
                         "To help complete the miner purchase, subscribers prepay an extra 10% of its sale price. After a successful purchase, the remaining funds are refunded in proportion to their shares.",
                       ) : L(
-                        `本池募集总额 ${amount(detail.params?.targetRaise)} BNB，购机价格上限 ${amount(detail.params?.priceCap)} BNB；购机后的余款按份额记入可领取余额。`,
-                        `This pool raises ${amount(detail.params?.targetRaise)} BNB with a ${amount(detail.params?.priceCap)} BNB purchase cap. Remaining funds after purchase are credited to holders proportionally.`,
+                        `本池募集总额 ${displayBnb(detail.params?.targetRaise)} BNB，购机价格上限 ${displayBnb(detail.params?.priceCap)} BNB；购机后的余款按份额记入可领取余额。`,
+                        `This pool raises ${displayBnb(detail.params?.targetRaise)} BNB with a ${displayBnb(detail.params?.priceCap)} BNB purchase cap. Remaining funds after purchase are credited to holders proportionally.`,
                       )}
                     </p>
                     {detail.status === "Funding" ? (
@@ -2406,7 +2380,7 @@ export default function LivePlatform() {
                       <>
                         <div className="ownership">
                           <span>{L("整机售价", "Miner sale price")}</span>
-                          <strong>{amount(governance?.salePrice)} BNB</strong>
+                          <strong>{displayBnb(governance?.salePrice)} BNB</strong>
                         </div>
                         <Button
                           disabled={loading ||
@@ -2445,7 +2419,7 @@ export default function LivePlatform() {
                         onClick={() => openAction("withdrawBnb", detail)}
                       >
                         {L("领取", "Claim")}{" "}
-                        {amount(account ? detail.bnbOwed : null)} BNB
+                        {displayBnb(account ? detail.bnbOwed : null)} BNB
                       </Button>
                       {detail.status === "Active" && (
                         <Button
@@ -2507,13 +2481,13 @@ export default function LivePlatform() {
                 />
                 <Metric
                   title={L("矿池 BNB", "Pool BNB")}
-                  value={amount(poolBnb)}
+                  value={displayBnb(poolBnb)}
                   unit="BNB"
                   note={L("按矿池分别领取", "Withdraw from each pool")}
                 />
                 <Metric
                   title={L("市场 BNB", "Market BNB")}
-                  value={amount(marketCredit)}
+                  value={displayBnb(marketCredit)}
                   unit="BNB"
                   note={
                     <button
@@ -2552,7 +2526,7 @@ export default function LivePlatform() {
                             </button>
                           </td>
                           <td>{amount(p.claimableBEM, 8)}</td>
-                          <td>{amount(p.bnbOwed)}</td>
+                          <td>{displayBnb(p.bnbOwed)}</td>
                           <td>
                             <div className="live-actions">
                               <Button
@@ -2669,7 +2643,7 @@ export default function LivePlatform() {
                               </button>
                             </td>
                             <td>{o.remaining?.toString() ?? "—"}</td>
-                            <td>{amount(o.pricePerUnitWei)} BNB</td>
+                            <td>{displayBnb(o.pricePerUnitWei)} BNB</td>
                             <td>{capacityCell(o)}</td>
                             <td>{shortAddress(o.seller)}</td>
                             <td>
@@ -3010,8 +2984,8 @@ export default function LivePlatform() {
                 </h2>
                 <p>
                   {L(
-                    "这会请求钱包发送一笔同序号、0 BNB 的自转交易，用于取消尚未上链的原操作。取消也需要支付 Gas；如果原交易已经确认，请先核对最终结果。",
-                    "This asks your wallet to send a zero-BNB self-transfer with the same nonce to replace an unconfirmed operation. Cancellation costs gas. If the original transaction is already confirmed, check its final outcome first.",
+                    "这会请求钱包发送一笔同序号、0.00000 BNB 的自转交易，用于取消尚未上链的原操作。取消也需要支付 Gas；如果原交易已经确认，请先核对最终结果。",
+                    "This asks your wallet to send a 0.00000 BNB self-transfer with the same nonce to replace an unconfirmed operation. Cancellation costs gas. If the original transaction is already confirmed, check its final outcome first.",
                   )}
                 </p>
                 <p>
@@ -3149,29 +3123,25 @@ export default function LivePlatform() {
                           <div className="confirm-lines">
                             {modal.kind === 'list' && <>
                               <div><span>{L('挂牌份数', 'Listed shares')}</span><strong>{quantity}</strong></div>
-                              <div><span>{L('每份挂牌价', 'Ask per share')}</span><strong title={`${price} BNB`}>{displayDecimal(price)} BNB</strong></div>
+                              <div><span>{L('每份挂牌价', 'Ask per share')}</span><strong title={`${price} BNB`}>{displayBnbDecimal(price)} BNB</strong></div>
                             </>}
                             {modal.kind === 'fill' && prepared.marketTrade && <>
-                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('成交基价', 'Base price')}</span><strong>{displayBnb(prepared.marketTrade.grossWei)} BNB</strong></div>
+                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{displayBnb(prepared.marketTrade.buyerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{displayBnb(prepared.marketTrade.sellerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{displayBnb(prepared.marketTrade.sellerNetWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'completeFirstoSale' && prepared.quote && <>
-                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{displayBnb(prepared.quote.priceWei)} BNB</strong></div>
+                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{displayBnb(prepared.quote.sourceFeeWei)} BNB</strong></div>
+                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{displayBnb(prepared.quote.feeWei)} BNB</strong></div>
+                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{displayBnb(prepared.quote.holderNetWei)} BNB</strong></div>
                               <p>{L('同笔完成收益结清与 Firsto 成交；暂不向 Firsto 外部页面发布挂单。', 'Rewards settle in the same Firsto trade. External Firsto website listings are not enabled.')}</p>
                             </>}
                             <div>
                               <span>{L("支付金额", "Payment")}</span>
                               <strong>
-                                {amount(
-                                  BigInt(prepared.transaction.value),
-                                  18,
-                                  18,
-                                )}{" "}
+                                {displayBnb(BigInt(prepared.transaction.value))}{" "}
                                 BNB
                               </strong>
                             </div>
@@ -3192,8 +3162,8 @@ export default function LivePlatform() {
                           </div>
                           <p className="inline-note">
                             {L(
-                              "金额显示四舍五入至三位小数，交易仍使用原始精确值。请在钱包核对金额与 Gas；以链上确认为准。",
-                              "Amounts are displayed rounded to three decimals; transactions retain their exact original values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
+                              "BNB 金额显示至小数点后五位，实际支付以钱包确认为准；Gas 按上限向上取整。",
+                              "BNB amounts are displayed to five decimal places. Confirm the actual payment in your wallet; the maximum Gas fee is rounded up.",
                             )}
                           </p>
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">
@@ -3247,6 +3217,7 @@ export default function LivePlatform() {
   );
 }
 function compare(a, b) {
+  if (a == null && b == null) return 0;
   if (a == null) return 1;
   if (b == null) return -1;
   return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;

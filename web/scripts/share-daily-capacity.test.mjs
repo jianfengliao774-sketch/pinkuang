@@ -181,3 +181,70 @@ test('rejects invalid pool, NFT ownership, chain and reorg before exposing a pri
   }
   assert.deepEqual(await input(rpc(), { blockNumber: '11' }), { available: false, reason: 'invalid_block' });
 });
+
+test('live capacity read repins and rechecks identity when the quote overtakes its first block', async () => {
+  const base = rpc(); let latestReads = 0; const identityTags = [];
+  const advanced = { number: '0xb', hash: `0x${'12'.repeat(32)}`, timestamp: toQuantity(BigInt(now / 1000)) };
+  const provider = { async request({ method, params = [] }) {
+    if (method === 'eth_getBlockByNumber' && ((params[0] === 'latest' && ++latestReads > 1) || params[0] === '0xb')) return advanced;
+    if (method === 'eth_call' && params[1] === '0xb') {
+      identityTags.push(params[0].to);
+      return base.request({ method, params: [params[0], '0xa'] });
+    }
+    return base.request({ method, params });
+  } };
+  const result = await input(provider, { quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.equal(result.available, true);
+  assert.equal(result.sourceBlock, 11n);
+  assert.equal(result.miningSourceBlock, 11n);
+  assert.equal(result.observedAt, now);
+  assert.equal(identityTags.length, 4, 'registration, factory, target and ownership are rechecked');
+});
+
+test('a historical read never advances to a newer external quote', async () => {
+  const result = await input(rpc(), { blockNumber: '10',
+    quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.deepEqual(result, { available: false, reason: 'stale_quote' });
+});
+
+test('repinning rejects a changed owner instead of attaching capacity to an outdated miner', async () => {
+  const base = rpc(); let latestReads = 0;
+  const advanced = { number: '0xb', hash: `0x${'12'.repeat(32)}`, timestamp: toQuantity(BigInt(now / 1000)) };
+  const provider = { async request({ method, params = [] }) {
+    if (method === 'eth_getBlockByNumber' && params[0] === 'latest' && ++latestReads > 1) return advanced;
+    if (method === 'eth_call' && params[1] === '0xb') {
+      if (getAddress(params[0].to) === collection) return NFT.encodeFunctionResult('ownerOf', [address(20)]);
+      return base.request({ method, params: [params[0], '0xa'] });
+    }
+    return base.request({ method, params });
+  } };
+  const result = await input(provider, { quoteLoader: async () => detail({ mining: { sourceBlock: '11' } }) });
+  assert.deepEqual(result, { available: false, reason: 'quote_identity' });
+});
+
+test('identity-checked display metadata uses explicit classification and official active H', async () => {
+  const { parseMinerDisplayMetadata } = await import('../lib/share-daily-capacity.mjs');
+  assert.deepEqual(parseMinerDisplayMetadata({ status: 'verified', taskId: '4', weight: '12', verifiedWeight: '12', unverifiedWeight: '0' }),
+    { taskId: '4', miningClassification: 'verified', hashPower: '12' });
+  assert.deepEqual(parseMinerDisplayMetadata({ status: 'unverified', taskId: '0', weight: '6', verifiedWeight: '0', unverifiedWeight: '6' }),
+    { taskId: '0', miningClassification: 'unverified', hashPower: '6' });
+  for (const changes of [{ status: 'unknown' }, { weight: '13' }, { unverifiedWeight: '1' }, { verifiedWeight: null }, { taskId: '0' }, { taskId: '4294967296' }]) {
+    const value = parseMinerDisplayMetadata({ status: 'verified', taskId: '4', weight: '12', verifiedWeight: '12', unverifiedWeight: '0', ...changes });
+    assert.equal(value.miningClassification, null); assert.equal(value.hashPower, null);
+  }
+  const data = detail({ mining: { taskId: '4', weight: '12', verifiedWeight: '12', unverifiedWeight: '0' } });
+  const result = await input(rpc(), { quoteLoader: async () => data });
+  assert.equal(result.metadataAvailable, true); assert.equal(result.taskId, '4'); assert.equal(result.hashPower, '12');
+  const stale = await input(rpc({ sourceTimestamp: toQuantity(BigInt((now - 301_000) / 1000)) }), { quoteLoader: async () => data });
+  assert.equal(stale.metadataAvailable, undefined);
+});
+
+test('unverified metadata does not manufacture a verified capacity estimate', async () => {
+  const result = await input(rpc(), { quoteLoader: async () => detail({ mining: {
+    status: 'unverified', taskId: '0', weight: '1', verifiedWeight: '0', unverifiedWeight: '1', estimated24hAtomic: null,
+  } }) });
+  assert.equal(result.available, false); assert.equal(result.reason, 'unverified_output');
+  assert.equal(result.metadataAvailable, true); assert.equal(result.miningClassification, 'unverified');
+  assert.equal(result.hashPower, '1'); assert.equal(result.estimated24hAtomic, undefined);
+  assert.equal(result.validUntil, sourceAt + 300_000);
+});

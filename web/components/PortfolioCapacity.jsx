@@ -1,4 +1,5 @@
 'use client';
+import { displayBnb } from '../lib/amount-display.mjs';
 import {useEffect,useRef,useState} from 'react';
 import {readPortfolioDailyCapacity} from '../lib/portfolio-capacity.mjs';
 import {amount} from '../lib/live-view.mjs';
@@ -24,7 +25,7 @@ export default function PortfolioCapacity({config,provider,portfolio,locale}){
       <p>{L('项目参考日产','Portfolio estimated daily output')}: <strong>{amount(quote.estimated24hAtomic,8)} BEM</strong> · {L('仍持有','Retained')}: {quote.retainedChildren.toString()} · {L('已售剔除','Sold excluded')}: {(quote.soldChildren+quote.pendingSaleChildren).toString()}</p>
       {quote.priceWeiPerDailyBem===null?<p>{L('当前没有仍持有的矿机，不计算日产能价格。','No miners are currently retained, so no daily-output price is calculated.')}</p>:<>
         <p>{L('每份参考日产','Estimated daily output per share')}: {amount(quote.estimated24hPerShareNumerator,10)} BEM</p>
-        <p>{L('募集预算 / 参考日产 1 BEM 的价格','Original funding budget per 1 BEM of estimated daily output')}: <strong>{amount(quote.priceWeiPerDailyBem,18,8)} BNB</strong></p>
+        <p>{L('募集预算 / 参考日产 1 BEM 的价格','Original funding budget per 1 BEM of estimated daily output')}: <strong>{displayBnb(quote.priceWeiPerDailyBem)} BNB</strong></p>
       </>}
       <p>{L('按项目原募集预算折算，非当前份额挂牌价，未加份额交易手续费；为税前产能估计，不等于实时收益或收益承诺。','Based on the original funding budget, not a current share ask; share-trading fees are excluded. This is a gross output estimate, not current earnings or a return promise.')}</p>
       <small>{L('核验区块','Verified block')} #{quote.sourceBlock.toString()} · {L('有效至','Valid until')} {new Date(quote.validUntil).toLocaleString(en?'en-GB':'zh-CN')}</small>

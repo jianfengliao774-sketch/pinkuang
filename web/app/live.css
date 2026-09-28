@@ -644,6 +644,20 @@
   }
 }
 
+/* Supporting text on the pool and decision pages uses the normal body size. */
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .subtle-note,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters select,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-filters small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .asset-cell small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-project-summary small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .live-governance-list small,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .table-wrap th,
+.live-platform main:is([data-ready-route="pools"], [data-ready-route="governance"]) .table-wrap td {
+  font-size: 16px;
+  line-height: 1.65;
+}
+
 .live-order-state {
   display: block;
   font-size: 12px;
@@ -951,4 +965,19 @@ body:has(.preview-banner) .page-footer {
     position: static;
     order: -1;
   }
+}
+
+.live-platform .live-overview-metrics .metric { min-height: 0; padding-top: 20px; padding-bottom: 20px; }
+.live-platform .live-overview-metrics .metric-value { margin-top: 12px; margin-bottom: 0; }
+.live-pool-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+.live-pool-row-actions > button { flex-shrink: 0; white-space: nowrap; }
+.live-platform .live-pool-directory { overflow: visible; }
+.live-platform .live-pool-directory .table-wrap { border-radius: 0 0 var(--radius, 14px) var(--radius, 14px); }
+@media (min-width: 1100px) {
+  .live-platform .live-pool-directory table th,
+  .live-platform .live-pool-directory table td { padding-left: 12px; padding-right: 12px; }
+  .live-platform .live-pool-directory table th:first-child,
+  .live-platform .live-pool-directory table td:first-child { padding-left: 22px; }
+  .live-platform .live-pool-directory table th:last-child,
+  .live-platform .live-pool-directory table td:last-child { padding-right: 22px; }
 }

@@ -18,6 +18,27 @@ function blockTime(header, number) {
   return millis > 0n && millis <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(millis) : null;
 }
 
+/** Official PoD H is the active pool weight: verified H=(b*+bonus)*P,
+ * unverified H=b*P. The exact Firsto detail exposes this as weight. Never
+ * reinterpret missing verification data as an unverified miner.
+ * Official UI: https://tapeout.net/pod/assets/main-C1q9aWV9.js
+ */
+export function parseMinerDisplayMetadata(mining) {
+  const rawTask = exactDecimal(mining?.taskId);
+  const task = rawTask !== null && rawTask < 2n ** 32n ? rawTask : null;
+  const verified = exactDecimal(mining?.verifiedWeight);
+  const unverified = exactDecimal(mining?.unverifiedWeight);
+  const weight = exactDecimal(mining?.weight);
+  const validWeights = verified !== null && unverified !== null && weight !== null
+    && weight === verified + unverified && weight > 0n;
+  const classification = validWeights && task !== null
+    ? mining.status === 'verified' && task > 0n && verified > 0n && unverified === 0n ? 'verified'
+      : mining.status === 'unverified' && task === 0n && verified === 0n && unverified > 0n ? 'unverified' : null
+    : null;
+  return Object.freeze({ taskId: task !== null ? task.toString() : null,
+    miningClassification: classification, hashPower: classification ? weight.toString() : null });
+}
+
 /** Buyer price per one whole BEM of estimated daily output, rounded up by at most one wei. */
 export function shareDailyCapacityPriceWei(pricePerUnitWei, estimated24hAtomic) {
   const price = uint(pricePerUnitWei), daily = uint(estimated24hAtomic);
@@ -47,12 +68,12 @@ export async function readShareDailyCapacityPrice(provider, {
     const request = (method, params = []) => provider.request({ method, params });
     if (BigInt(await request('eth_chainId')) !== CHAIN_ID) return unavailable('wrong_chain');
     const requestedTag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
-    const block = await request('eth_getBlockByNumber', [requestedTag, false]);
-    const pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
-    const pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
+    let block = await request('eth_getBlockByNumber', [requestedTag, false]);
+    let pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
+    let pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
     if (pinnedAt === null || (blockNumber !== undefined && pinnedNumber !== uint(blockNumber)) ||
         pinnedAt > now + 30_000 || now - pinnedAt > MAX_QUOTE_AGE_MS) return unavailable('invalid_block');
-    const tag = toQuantity(pinnedNumber);
+    let tag = toQuantity(pinnedNumber);
     const call = async (address, iface, name, args = []) => {
       const result = await request('eth_call', [{ to: address, data: iface.encodeFunctionData(name, args) }, tag]);
       return iface.decodeFunctionResult(name, result)[0];
@@ -75,13 +96,31 @@ export async function readShareDailyCapacityPrice(provider, {
     if (!asset || !mining || getAddress(asset.collection) !== collection ||
         exactDecimal(asset.tokenId)?.toString() !== tokenId || getAddress(asset.owner) !== getAddress(owner) ||
         asset.category !== 'official_mining' || asset.classification !== 'official_mining' ||
-        mining.tokenSymbol !== 'BEM' || mining.tokenDecimals !== 8 || mining.status !== 'verified') {
+        mining.tokenSymbol !== 'BEM' || mining.tokenDecimals !== 8 || !['verified', 'unverified'].includes(mining.status)) {
       return unavailable('quote_identity');
     }
     const dailyAtomic = exactDecimal(mining.estimated24hAtomic);
-    if (dailyAtomic === null || dailyAtomic === 0n) return unavailable('missing_output');
     const miningSourceBlock = exactDecimal(mining.sourceBlock);
-    if (miningSourceBlock === null || miningSourceBlock > pinnedNumber) return unavailable('stale_quote');
+    if (miningSourceBlock === null) return unavailable('stale_quote');
+    // The external request can finish after the initially pinned block. For a
+    // live read only, pin again and recheck every identity at the newer block.
+    // Explicit historical reads never advance beyond the requested snapshot.
+    if (miningSourceBlock > pinnedNumber) {
+      if (blockNumber !== undefined) return unavailable('stale_quote');
+      block = await request('eth_getBlockByNumber', ['latest', false]);
+      pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
+      pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
+      if (pinnedAt === null || pinnedNumber < miningSourceBlock || pinnedAt > now + 30_000 ||
+          now - pinnedAt > MAX_QUOTE_AGE_MS) return unavailable('stale_quote');
+      tag = toQuantity(pinnedNumber);
+      const [registeredNow, backlinkNow, paramsNow, ownerNow] = await Promise.all([
+        call(factory, abi.PoolFactory, 'isPool', [pool]), call(pool, abi.PoolVault, 'factory'),
+        call(pool, abi.PoolVault, 'params'), call(collection, NFT, 'ownerOf', [tokenId]),
+      ]);
+      if (!registeredNow || getAddress(backlinkNow) !== factory) return unavailable('untrusted_pool');
+      if (getAddress(paramsNow.circuits) !== collection || uint(paramsNow.circuitId).toString() !== tokenId ||
+          getAddress(ownerNow) !== getAddress(owner)) return unavailable('quote_identity');
+    }
     const sourceTag = toQuantity(miningSourceBlock);
     const sourceHeader = sourceTag === tag ? block : await request('eth_getBlockByNumber', [sourceTag, false]);
     const observedAt = blockTime(sourceHeader, miningSourceBlock);
@@ -94,8 +133,15 @@ export async function readShareDailyCapacityPrice(provider, {
         BigInt(await request('eth_chainId')) !== CHAIN_ID) {
       return unavailable('chain_changed');
     }
-    return Object.freeze({ available: true, pool, collection, tokenId, sourceBlock: pinnedNumber,
-      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS,
+    const metadata = parseMinerDisplayMetadata(mining);
+    const context = { pool, collection, tokenId, sourceBlock: pinnedNumber,
+      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS };
+    if (mining.status !== 'verified' || dailyAtomic === null || dailyAtomic === 0n) {
+      const missing = unavailable(mining.status !== 'verified' ? 'unverified_output' : 'missing_output');
+      return metadata.miningClassification ? Object.freeze({ ...missing, ...context, ...metadata,
+        metadataAvailable: true }) : missing;
+    }
+    return Object.freeze({ available: true, ...context, ...metadata, metadataAvailable: true,
       estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
       priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
       marketReferencePriceWei: (() => {

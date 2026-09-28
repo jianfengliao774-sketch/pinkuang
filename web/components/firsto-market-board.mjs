@@ -1,4 +1,4 @@
-import { displayAmount } from '../lib/amount-display.mjs';
+import { displayAmount, displayBnb } from '../lib/amount-display.mjs';
 import { formatUnits } from 'ethers';
 import {
   fetchQuotePage,
@@ -67,7 +67,7 @@ export function marketReferenceView(raw, now = Date.now()) {
 }
 
 export function formatMarketAmount(value, decimals = 18) {
-  return value == null ? '暂不可用' : displayAmount(value, decimals);
+  return value == null ? '暂不可用' : decimals === 18 ? displayBnb(value) : displayAmount(value, decimals);
 }
 
 async function fetchMarketReference({ fetcher, signal, baseUrl }) {

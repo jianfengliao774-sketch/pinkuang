@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Copy, Link2, Send, Share2, X } from 'lucide-react';
 import { createDemoShare } from '../lib/demo-share.mjs';
+import { commonSharePreview } from '../lib/share-preview.mjs';
 import ShareArtwork from './ShareArtwork';
 import ShareCopyControls from './ShareCopyControls';
 import useShareVariation from './useShareVariation';
@@ -36,7 +37,6 @@ const copy = {
 export default function DemoProjectShare({ project, locale = 'zh', simulationComplete = false, onDismiss }) {
   const labels = copy[locale === 'en' ? 'en' : 'zh'];
   const { posterId, mottoIndex, ready, changeVariation } = useShareVariation();
-  const [channel, setChannel] = useState('telegram');
   const model = createDemoShare({ project, locale, mottoIndex, posterId });
   const textRef = useRef(null);
   const linkRef = useRef(null);
@@ -54,7 +54,8 @@ export default function DemoProjectShare({ project, locale = 'zh', simulationCom
     }
   }
 
-  const selectedText = model ? channel === 'x' ? model.xText : model.text : '';
+  const preview = commonSharePreview(model);
+  const selectedText = preview?.text ?? '';
 
   return <section className={styles.card}>
     <div className={styles.top}>
@@ -69,13 +70,13 @@ export default function DemoProjectShare({ project, locale = 'zh', simulationCom
         <div className={styles.brand}>拼矿 <span>BEMine</span></div>
         <strong className={styles.project}>{model.title}</strong>
         <label className={styles.label} htmlFor="demo-share-text">{labels.label}</label>
-        <ShareCopyControls locale={locale} channel={channel} onChannelChange={setChannel} ready={ready} onNextVariation={() => { changeVariation(); setNotice(''); }} />
+        <ShareCopyControls locale={locale} ready={ready} onNextVariation={() => { changeVariation(); setNotice(''); }} />
         <textarea id="demo-share-text" ref={textRef} readOnly value={selectedText} rows={4} />
         <label className={styles.label} htmlFor="demo-share-link">{labels.project}</label>
         <input id="demo-share-link" ref={linkRef} readOnly value={model.url} />
       </div>
       <div className={styles.actions}>
-        <a href={model.telegramUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(labels.opened)}><Send size={17} aria-hidden="true" />Telegram</a>
+        <a href={preview.telegramUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(labels.opened)}><Send size={17} aria-hidden="true" />Telegram</a>
         <a href={model.xUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" onClick={() => setNotice(labels.opened)}><span className={styles.xMark} aria-hidden="true">𝕏</span>X</a>
         <button type="button" onClick={() => copyValue(model.url, linkRef)}><Link2 size={17} aria-hidden="true" />{labels.link}</button>
         <button type="button" onClick={() => copyValue(`${selectedText}\n${model.url}`, textRef)}><Copy size={17} aria-hidden="true" />{labels.text}</button>

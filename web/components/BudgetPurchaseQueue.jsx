@@ -7,11 +7,11 @@ import { discoverBudgetPurchasePlan, prepareBudgetQueueStep, beginBudgetQueueSte
   restoreBudgetQueueBeforeSubmission } from '../lib/budget-purchase-plan.mjs';
 import { readBudgetQueue, writeBudgetQueue } from '../lib/budget-queue-journal.mjs';
 import { shortAddress, explorerAddress, explorerTransaction } from '../lib/live-view.mjs';
-import { fundingAmount } from '../lib/funding-amount.mjs';
+import { displayBnb } from '../lib/amount-display.mjs';
 import './BudgetPurchaseQueue.css';
 
 const brief=error=>error?.shortMessage||error?.message||'Purchase queue unavailable';
-const bnb=value=>fundingAmount(formatEther(BigInt(value))).display;
+const bnb=displayBnb;
 const statuses={ready:['待建子池','Ready to create'],creating:['建池结果待核对','Creation needs reconciliation'],created:['子池已建成','Child created'],
   buying:['采购结果待核对','Purchase needs reconciliation'],pending:['等待核对交易','Awaiting reconciliation'],completed:['已购入','Purchased'],failed:['本台已停止','Stopped'],skipped:['已跳过','Skipped']};
 
@@ -122,7 +122,7 @@ export default function BudgetPurchaseQueue({config,provider,wallet,account,port
     {item&&!unresolved&&<div className="budget-queue-controls"><button className="btn" disabled={frozen} onClick={()=>void prepare()}><ArrowRight size={16}/>{item.status==='ready'?L('预览创建下一台子矿池','Preview next child creation'):L('预览由项目购买这台矿机','Preview project purchase')}</button><button className="btn secondary" disabled={frozen} onClick={()=>void skip()}>{L('跳过本台','Skip this miner')}</button></div>}
     {unresolved&&<div className="budget-queue-recovery"><p>{L('先核对原交易，不会自动重发。可填写原交易、同 nonce 加速或取消交易哈希。','Reconcile the original transaction first. No automatic resend. Enter the original, speed-up or cancellation hash if needed.')}</p><input aria-label={L('交易哈希','Transaction hash')} value={recoveryHash} onChange={e=>setRecoveryHash(e.target.value)} placeholder="0x…"/><button className="btn secondary" disabled={busy||!wallet} onClick={()=>void reconcile()}>{L('只读核对并恢复','Reconcile and recover')}</button></div>}
     {preview&&current(preview.ticket)&&<div className="budget-queue-confirm" role="dialog" aria-modal="true" aria-label={L('确认本笔采购步骤','Confirm purchase step')}><h4>{preview.result.phase==='create'?L('第 1 笔：创建子矿池','Step 1: create child pool'):L('第 2 笔：项目合约采购','Step 2: project contract purchase')}</h4>
-      <p>{L('项目','Project')}: {shortAddress(parent)} · #{item?.tokenId}</p><p>{L('本钱包支付','Your wallet pays')}: 0 BNB + Gas</p>
+      <p>{L('项目','Project')}: {shortAddress(parent)} · #{item?.tokenId}</p><p>{L('本钱包支付','Your wallet pays')}: 0.00000 BNB + Gas</p>
       {preview.result.procurement&&<p title={`${formatEther(BigInt(preview.result.procurement.priceWei))} BNB`}>{L('项目本次含来源费支付','Project cost including source fee')}: {bnb(preview.result.procurement.priceWei)} BNB</p>}
       <p>{L('官网购机服务费为实际官网购机价的 1%，仅从购机期结束后的余款扣除；Firsto 没有额外本项目采购费。','Official purchases charge a 1% service fee, capped by the project’s remaining funds at acquisition settlement. Firsto purchases have no additional project purchase fee.')}</p>
       <div className="budget-queue-controls"><button className="btn secondary" disabled={busy} onClick={()=>setPreview(null)}>{L('返回','Back')}</button><button className="btn" disabled={frozen} onClick={()=>void submit()}>{L('发送这一笔到钱包','Send this step to wallet')}</button></div>

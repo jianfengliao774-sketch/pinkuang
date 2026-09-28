@@ -40,7 +40,7 @@ export function displayGasFee(wei) {
 }
 
 /** Decimal input is a presentation source only; preserve its original elsewhere. */
-export function displayDecimal(value) {
+function decimalSource(value) {
   if (value === null || value === undefined || value === '') return '—';
   const match = String(value).trim().match(/^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i);
   if (!match) return '—';
@@ -49,5 +49,30 @@ export function displayDecimal(value) {
   let atomic = BigInt(`${match[1]}${match[2]}${fraction}`), decimals = fraction.length - exponent;
   if (decimals < 0) { atomic *= 10n ** BigInt(-decimals); decimals = 0; }
   if (decimals > 80) return '—';
-  return displayAmount(atomic, decimals);
+  return { atomic, decimals };
+}
+
+export function displayDecimal(value) {
+  const source = decimalSource(value);
+  return typeof source === 'object' ? displayAmount(source.atomic, source.decimals) : source;
+}
+
+/** BNB display only. Preserve exact wei separately for every transaction. */
+export function displayBnb(wei) {
+  return displayPreciseAmount(wei, 18, 5);
+}
+
+/** Format a decimal BNB quote without a floating-point round trip. */
+export function displayBnbDecimal(value) {
+  const source = decimalSource(value);
+  return typeof source === 'object' && source.atomic >= 0n
+    ? displayPreciseAmount(source.atomic, source.decimals, 5) : '—';
+}
+
+
+/** USDT price has its own fixed three-place display, independent of BNB formatting. */
+export function displayUsdt(value) {
+  const source = decimalSource(value);
+  return typeof source === 'object' && source.atomic >= 0n
+    ? displayAmount(source.atomic, source.decimals) : '—';
 }
