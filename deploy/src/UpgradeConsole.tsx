@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Contract, JsonRpcProvider, getAddress, keccak256 } from 'ethers';
+import { BrowserProvider, Contract, JsonRpcProvider, getAddress, keccak256, type Provider } from 'ethers';
 import { ArrowDownToLine, ArrowUpRight, Check, ExternalLink, LockKeyhole, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import trustedGenesisManifest from '../../web/public/data/frontend-manifest.json';
 import {
@@ -164,6 +164,16 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const pendingName = integratedUpgradeDeploymentOrder.find(name => journal?.deployments[name]?.status === 'submitted'
     || journal?.deployments[name]?.status === 'uncertain');
   const onBsc = !!wallet && !!account && chainId === 56;
+  function receiptProvider(): Provider {
+    if (!wallet || !onBsc) throw new Error('请先连接 BSC 主网钱包，以读取交易及回执。');
+    const read = rpcProvider(), walletRead = new BrowserProvider(wallet);
+    return {
+      send: read.send.bind(read), getBlock: read.getBlock.bind(read),
+      getCode: read.getCode.bind(read), getStorage: read.getStorage.bind(read),
+      getTransaction: walletRead.getTransaction.bind(walletRead),
+      getTransactionReceipt: walletRead.getTransactionReceipt.bind(walletRead),
+    } as unknown as Provider;
+  }
 
   async function run(task: string, action: () => Promise<void>) {
     if (busy) return;
@@ -208,7 +218,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     if (tx.dataHash.toLowerCase() !== keccak256(data).toLowerCase()) {
       throw new Error('保存的交易字节码与当前候选合约产物不同。');
     }
-    const receipt = await verifyUpgradeReceipt(rpcProvider(), hash, {from: tx.from, dataHash: tx.dataHash});
+    const receipt = await verifyUpgradeReceipt(receiptProvider(), hash, {from: tx.from, dataHash: tx.dataHash});
     if (!receipt) { setMessage('交易尚未确认；记录已保存。稍后使用“核对回执”继续。'); return; }
     if (!receipt.contractAddress) throw new Error('部署回执缺少合约地址。');
     if (!oldBundle) throw new Error('旧编译产物不可用。');
@@ -345,7 +355,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
       const hash = tx.txHash || recoveryHash.trim();
       if (!hash) throw new Error('请输入钱包中的完整交易哈希。');
       const data = which === 'schedule' ? plan.scheduleData : plan.executeData;
-      const receipt = await verifyUpgradeReceipt(rpcProvider(),hash,
+      const receipt = await verifyUpgradeReceipt(receiptProvider(),hash,
         {from:tx.from,to:record.addresses.timelock,dataHash:keccak256(data)});
       if (!receipt) { setMessage('时间锁交易尚未在规范链确认，请稍后核对。'); return; }
       const current = {...journal,[which]:{...tx,status:'confirmed' as const,txHash:hash}};
@@ -362,7 +372,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         || journal.execute?.status !== 'confirmed' || !journal.schedule.txHash || !journal.execute.txHash) {
         throw new Error('需先保存升级前快照及最终确认的 schedule/execute 交易。');
       }
-      const proof = await validateIntegratedUpgradeResultAgainstChain(rpcProvider(),plan,{
+      const proof = await validateIntegratedUpgradeResultAgainstChain(receiptProvider(),plan,{
         genesisRecord:record,genesisBundle:oldBundle,trustedGenesisManifest,upgradeBundle,
         trustedUpgradeArtifactDigest:__DEPLOYMENT_ARTIFACT_DIGEST__,
         preExecutionPreflight:journal.preExecutionPreflight,
