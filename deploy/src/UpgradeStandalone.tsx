@@ -168,8 +168,8 @@ function UpgradeStandalone() {
           <p className="upgrade-entry-status">{record ? `已读取记录 ${record.id}；仍须核验链上状态。` : '固定记录不可用时，可选择从原部署台导出的完整记录。'}</p>
           {recordError && <p role="alert" className="upgrade-entry-error">{recordError}</p>}
         </div>
-        <div id="upgrade-wallets"><label>硬件钱包连接</label>
-          <p>请在浏览器钱包扩展中选择已连接的硬件钱包账户。本站不接收私钥。</p>
+        <div id="upgrade-wallets"><label>连接当前步骤的钱包</label>
+          <p>暂停旧版建池及授权阶段需连接旧 owner；新合约部署和时间锁操作按下方步骤切换到指定硬件钱包。本站不接收私钥。</p>
           {wallets.length ? wallets.map(option => <button key={option.id} onClick={() => void connect(option)}>
             连接 {option.name}</button>) : <p className="upgrade-entry-status">未发现浏览器钱包；请先打开支持硬件钱包的扩展。</p>}
           {walletState && <p className="upgrade-entry-status">当前账户 <span className="mono">{walletState.address}</span> · {walletState.chainId === 56 ? 'BSC 主网' : `当前链 ${walletState.chainId}`}</p>}
