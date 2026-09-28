@@ -299,7 +299,7 @@ contract PoolLensTest is ShareTransferTestBase {
         assertEq(g.activeProposalId, id);
         assertEq(abi.encode(g.proposal), abi.encode(vault.getProposal(id)));
         assertTrue(g.discounted);
-        assertEq(g.requiredYesShares, 60);
+        assertEq(g.requiredYesShares, 51);
         assertEq(g.requiredYesCount, 2);
         assertEq(g.snapshotShares, 49);
         assertTrue(g.canVote);
@@ -311,7 +311,7 @@ contract PoolLensTest is ShareTransferTestBase {
         pool.vote(id, true);
         g = lens.governance(address(pool), BOB);
         assertEq(g.proposal.yesShares, 51);
-        assertFalse(g.passed);
+        assertTrue(g.passed);
         assertFalse(g.canVote);
         vm.prank(ALICE);
         pool.vote(id, true);
@@ -321,6 +321,10 @@ contract PoolLensTest is ShareTransferTestBase {
         assertTrue(g.passed);
         assertTrue(g.canExecute);
         assertEq(g.passed, vault.proposalPassed(id));
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(pool), uint128(g.proposal.price), uint64(block.timestamp), keccak256("test-firsto-reference")
+        );
         pool.executeSale(id);
         g = lens.governance(address(pool), ALICE);
         assertEq(g.state, 3);

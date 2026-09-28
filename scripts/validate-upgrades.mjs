@@ -68,14 +68,15 @@ function validateDeliveredBaselines() {
   const markets = compilations.filter(({ data }) => data[marketContract]);
   assert.equal(markets.length, 1, 'Expected exactly one compiled ShareMarket layout');
   const marketLayout = getStorageLayout(markets[0].data, getContractVersion(markets[0].data, marketContract));
-  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 7, 'Unexpected initial market field count');
-  console.log('ShareMarket: seven business fields and nonempty inherited namespaces extracted.');
+  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 9, 'Unexpected market field count');
+  console.log('ShareMarket: nine business fields and nonempty inherited namespaces extracted.');
   const budgetName = 'src/BudgetPortfolioVault.sol:BudgetPortfolioVault';
   const budgetCompilations = compilations.filter(({ data }) => data[budgetName]);
   assert.equal(budgetCompilations.length, 1, 'Expected exactly one compiled BudgetPortfolioVault layout');
   const budgetLayout = getStorageLayout(budgetCompilations[0].data, getContractVersion(budgetCompilations[0].data, budgetName));
   const budgetTiming = budgetLayout.namespaces?.['erc7201:tapeout.storage.BudgetGovernance'];
-  assert.deepEqual(budgetTiming?.map(field => [field.label, field.type]), [['nextRoundAt', 't_uint64']],
+  assert.deepEqual(budgetTiming?.map(field => [field.label, field.type]), [
+    ['nextRoundAt', 't_uint64'], ['saleReviews', 't_mapping(t_uint256,t_uint8)']],
     'Budget governance timing must remain in its isolated namespace');
   for (const [name, fieldCount] of [['BudgetPortfolioFactory', 9], ['BudgetPortfolioVault', 30]]) {
     const contract = `src/${name}.sol:${name}`;

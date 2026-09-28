@@ -38,6 +38,7 @@ contract AuditGovernance is SaleTestBase {
         saleVault.vote(id, true);
         vm.prank(BOB);
         saleVault.vote(id, true);
+        _publishSaleReference(SALE_PRICE);
         saleVault.executeSale(id);
         uint64 expiry = saleVault.expiresAt();
         _recordOldSnapshot(id);

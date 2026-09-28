@@ -6,6 +6,7 @@ import {FundingTestBase, IFundingVault} from "../utils/FundingTestBase.sol";
 import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {BudgetPortfolioFactory} from "../../src/BudgetPortfolioFactory.sol";
 import {BudgetPortfolioVault} from "../../src/BudgetPortfolioVault.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {PurchaseMockBem, PurchaseMockNft, PurchaseMockMining, PurchaseMockMarket} from "../utils/PurchaseMocks.sol";
@@ -25,6 +26,7 @@ contract BudgetPortfolioTest is FundingTestBase {
     BudgetPortfolioFactory private portfolios;
     BudgetPortfolioVault private project;
     ShareMarket private shareMarket;
+    ShareMarket private coreShareMarket;
     PurchaseMockNft private nft;
     PurchaseMockBem private bem;
     PurchaseMockMining private mining;
@@ -44,6 +46,22 @@ contract BudgetPortfolioTest is FundingTestBase {
         bem = PurchaseMockBem(Addresses.BEM);
         mining = PurchaseMockMining(payable(Addresses.MINING));
         market = PurchaseMockMarket(Addresses.CIRCUIT_MARKET);
+
+        ShareMarket coreImplementation = new ShareMarket();
+        coreShareMarket = ShareMarket(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(coreImplementation),
+                        abi.encodeCall(ShareMarket.initialize, (address(poolFactory), address(timelock)))
+                    )
+                ))
+        );
+        bytes memory registration = abi.encodeCall(poolFactory.registerShareMarket, (address(coreShareMarket)));
+        bytes32 registrationSalt = keccak256("budget-core-market-registration");
+        vm.prank(OWNER);
+        timelock.schedule(address(poolFactory), 0, registration, bytes32(0), registrationSalt, 48 hours);
+        vm.warp(block.timestamp + 48 hours);
+        timelock.execute(address(poolFactory), 0, registration, bytes32(0), registrationSalt);
 
         address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         BudgetPortfolioVault implementation = new BudgetPortfolioVault(predictedFactory);
@@ -94,6 +112,13 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.prank(SELLER);
         nft.approve(address(market), id);
         listingId = market.createListing(SELLER, address(nft), id, price);
+    }
+
+    function _saleReference(uint256 price) private {
+        vm.prank(OPERATOR);
+        coreShareMarket.setSaleReference(
+            address(pool), uint128(price), uint64(block.timestamp), keccak256("test-firsto-reference")
+        );
     }
 
     function _buyTwo() private returns (IFundingVault second) {
@@ -356,6 +381,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.executeChildSale(proposalId);
         vm.prank(BOB);
         project.voteChildSale(proposalId, true);
+        _saleReference(4 ether);
         project.executeChildSale(proposalId);
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
 
@@ -399,7 +425,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
     }
 
-    function test_belowCostSaleNeedsSixtySharesEvenWithAddressMajority() public {
+    function test_belowMarketSaleNeedsPlatformReviewAfterDoubleMajority() public {
         _subscribe(ALICE, 29);
         _subscribe(BOB, 30);
         _subscribe(CAROL, 41);
@@ -414,10 +440,17 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.voteChildSale(id, true);
         vm.prank(BOB);
         project.voteChildSale(id, true);
+        _saleReference(5 ether);
         vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
         project.executeChildSale(id);
-        vm.prank(CAROL);
-        project.voteChildSale(id, true);
+        vm.prank(OPERATOR);
+        project.reviewChildSale(id, true);
+        // The child vault enforces the same platform review, even with the
+        // portfolio holding all of its shares. Its next proposal ID is stable
+        // because the portfolio is the sole child holder.
+        uint256 childProposalId = PoolVault(payable(address(pool))).nextProposalId();
+        vm.prank(OPERATOR);
+        coreShareMarket.reviewSale(address(pool), childProposalId, 4 ether, true);
         project.executeChildSale(id);
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
     }
@@ -480,11 +513,36 @@ contract BudgetPortfolioTest is FundingTestBase {
         uint256 proposal = project.proposeChildSale(address(pool), 6 ether, 0, 0);
         vm.prank(ALICE);
         project.voteChildSale(proposal, true);
+        _saleReference(6 ether);
         project.executeChildSale(proposal);
         vm.warp(block.timestamp + 1 days);
         assertFalse(project.shareTradingAllowed());
         vm.prank(ALICE);
         vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
         project.transfer(BOB, 1);
+    }
+
+    function test_externalChildCancellationCannotFreezePortfolioForever() public {
+        _subscribe(ALICE, 100);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 proposal = project.proposeChildSale(address(pool), 6 ether, 0, 0);
+        vm.prank(ALICE);
+        project.voteChildSale(proposal, true);
+        _saleReference(6 ether);
+        project.executeChildSale(proposal);
+        vm.warp(PoolVault(payable(address(pool))).expiresAt());
+        PoolVault(payable(address(pool))).cancelExpired();
+        assertFalse(project.shareTradingAllowed());
+        project.expireChildSale();
+        assertEq(project.activeProposalId(), 0);
+        assertTrue(project.shareTradingAllowed());
+        vm.prank(ALICE);
+        project.transfer(BOB, 1);
+        assertEq(project.balanceOf(BOB), 1);
     }
 }

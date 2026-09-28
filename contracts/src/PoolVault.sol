@@ -270,7 +270,7 @@ contract PoolVault is
     function _executeSale(uint256 proposalId) private {
         VaultStorage storage s = _vaultStorage();
         if (s.state != State.Active) revert WrongState();
-        SaleGovernance.execute(_saleStorage(), proposalId, s.purchaseCost);
+        SaleGovernance.execute(_saleStorage(), proposalId, s.purchaseCost, s.factory);
         s.state = State.Listed;
     }
 

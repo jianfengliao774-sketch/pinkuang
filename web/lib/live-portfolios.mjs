@@ -88,10 +88,9 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
   if (row.activeProposalId > 0n) {
     const [p, voted] = await Promise.all([read(target, contract, 'proposals', [row.activeProposalId]),
       read(target, contract, 'hasVoted', [row.activeProposalId, owner])]);
-    const child = await read(target, contract, 'childInfo', [p.child]);
     row.proposal = { id: row.activeProposalId, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
       referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
-      yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0], threshold: p.price < child.purchaseCost ? 60n : 51n };
+      yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0], threshold: 51n };
   }
   // Display at most 100 children per page; the adapter accepts a cursor for further batches below.
   if (includeChildren) row.children = await readPortfolioChildren(context, target, row.childCount);

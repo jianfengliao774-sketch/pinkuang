@@ -60,7 +60,7 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
       call(pool, abi.PoolVault, 'hasVoted', [id, owner]),
     ]);
     const discounted = proposal.price < purchaseCost;
-    const requiredYesShares = discounted ? 60n : 51n;
+    const requiredYesShares = 51n;
     const requiredYesCount = proposal.snapshotMemberCount / 2n + 1n;
     requireGovernance(proposal.price > 0n && proposal.snapshotMemberCount >= 1n
       && proposal.snapshotMemberCount <= 100n && proposal.yesCount <= proposal.snapshotMemberCount

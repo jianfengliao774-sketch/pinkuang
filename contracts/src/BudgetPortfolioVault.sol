@@ -31,6 +31,17 @@ interface IBudgetPortfolioFactoryRoles {
     function shareMarket() external view returns (address);
 }
 
+interface IBudgetSaleReference {
+    function saleReference(address pool)
+        external
+        view
+        returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
+}
+
+interface IBudgetLegacySaleMarket {
+    function shareMarket() external view returns (address);
+}
+
 /// @notice A 100-share project that atomically buys separate, existing single-NFT pools.
 /// @dev Every child keeps its NFT and existing source/sale protections. This project
 /// holds all child shares; unclaimed BEM follows project shares when they move.
@@ -112,6 +123,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     event ChildSaleApproved(uint256 indexed proposalId, address indexed child);
     event ChildSaleSettled(address indexed child, uint256 netProceeds);
     event ChildSaleExpired(uint256 indexed proposalId);
+    event ChildSaleReviewed(uint256 indexed proposalId, bool approved, address indexed operator);
 
     address public legacyFactory;
     address public treasury;
@@ -415,14 +427,39 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         emit ChildSaleVoted(proposalId, msg.sender, support, weight);
     }
 
+    function reviewChildSale(uint256 proposalId, bool approved) external nonReentrant {
+        if (msg.sender != IBudgetPortfolioFactoryRoles(OFFICIAL_FACTORY).operator()) revert Unauthorized();
+        SaleProposal storage p = proposals[proposalId];
+        BudgetGovernanceStorage storage g = _budgetGovernanceStorage();
+        if (activeProposalId != proposalId || proposalId == 0 || p.executed || g.saleReviews[proposalId] == 2) {
+            revert InvalidProposal();
+        }
+        g.saleReviews[proposalId] = approved ? 1 : 2;
+        emit ChildSaleReviewed(proposalId, approved, msg.sender);
+    }
+
+    function childSaleReview(uint256 proposalId) external view returns (uint8) {
+        return _budgetGovernanceStorage().saleReviews[proposalId];
+    }
+
     function executeChildSale(uint256 proposalId) external nonReentrant {
         SaleProposal storage p = proposals[proposalId];
         if (
             state != IPoolVault.State.Active || activeProposalId != proposalId || proposalId == 0
                 || block.timestamp >= p.endsAt || p.executed
         ) revert InvalidProposal();
-        uint256 threshold = p.price < childInfo[p.child].purchaseCost ? 60 : 51;
-        if (uint256(p.yesMembers) * 2 <= p.memberCount || p.yesShares < threshold) revert ProposalNotPassed();
+        (uint128 marketPrice, uint64 observedAt, bytes32 digest) =
+            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket()).saleReference(p.child);
+        if (
+            marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
+                || block.timestamp - observedAt > 15 minutes
+        ) revert ProposalNotPassed();
+        if (p.price < marketPrice && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
+            revert ProposalNotPassed();
+        }
+        if (uint256(p.yesMembers) * 2 <= p.memberCount || uint256(p.yesShares) * 2 <= TOTAL_SHARES) {
+            revert ProposalNotPassed();
+        }
         p.executed = true;
         IBudgetChild pool = IBudgetChild(p.child);
         uint256 childProposal = pool.propose(p.price, p.referencePrice, p.referenceAt);
@@ -465,13 +502,18 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             if (block.timestamp < p.endsAt) revert DeadlineNotReached();
         } else {
             IBudgetChild pool = IBudgetChild(p.child);
-            if (pool.state() != IPoolVault.State.Listed || block.timestamp < pool.expiresAt()) {
-                revert DeadlineNotReached();
+            IPoolVault.State childState = pool.state();
+            // Another holder may already have cancelled the expired child listing.
+            // Its proposal still has to be cleared so project shares can move again.
+            if (childState == IPoolVault.State.Listed) {
+                if (block.timestamp < pool.expiresAt()) revert DeadlineNotReached();
+            } else if (childState != IPoolVault.State.Active) {
+                revert WrongState();
             }
         }
         // Invalidate before calling the child; a failed child call reverts this write.
         activeProposalId = 0;
-        if (executed) {
+        if (executed && IBudgetChild(p.child).state() == IPoolVault.State.Listed) {
             IBudgetChild pool = IBudgetChild(p.child);
             pool.cancelExpired();
         }

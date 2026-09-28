@@ -46,8 +46,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
     if (parsed.name === 'getProposal') values.getProposal = proposals[Number(parsed.args[0] - activeId)];
     if (parsed.name === 'proposalPassed') {
       const p = proposals[Number(parsed.args[0] - activeId)];
-      values.proposalPassed = p.yesCount * 2n > p.snapshotMemberCount
-        && (p.price < purchased ? p.yesShares >= 60n : p.yesShares > 50n);
+      values.proposalPassed = p.yesCount * 2n > p.snapshotMemberCount && p.yesShares > 50n;
     }
     if (!(parsed.name in values)) throw new Error(`Unmocked ${parsed.name}`);
     return iface.encodeFunctionResult(parsed.name, [values[parsed.name]]);
@@ -58,7 +57,7 @@ test('enumerates competing prices in one frozen round and permits voting for eit
   const snap = await readGovernanceSnapshot(rpc(), { factory, pool, account });
   assert.deepEqual(snap.candidates.map(item => item.id), [1n, 2n]);
   assert.equal(snap.candidates[1].discounted, true);
-  assert.equal(snap.candidates[1].requiredYesShares, 60n);
+  assert.equal(snap.candidates[1].requiredYesShares, 51n);
   assert.equal(snap.candidates[1].requiredYesCount, 2n);
   assert.equal(snap.candidates[1].passed, true);
   const vote = governanceAction(snap, account, { kind: 'vote', proposalId: '2', support: true });

@@ -243,7 +243,7 @@ contract PoolVotingHandler is Test {
             assertEq(actual.yesShares, yesShares);
             assertLe(yesMembers, members);
             assertLe(yesShares, 100);
-            uint256 requiredShares = p.price < acquisitionCost ? 60 : 51;
+            uint256 requiredShares = 51;
             assertEq(vault.proposalPassed(id), yesMembers > members / 2 && yesShares >= requiredShares);
         }
     }
@@ -307,13 +307,13 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         handler.vote(5, 3, true); // Three of five owners, 59 shares: preserve a positive historical result.
         assertTrue(PoolVault(payable(address(pool))).proposalPassed(3));
 
-        // The same 59-share majority cannot authorize a discount below the actual acquisition cost.
+        // A 59-share majority also passes for a low price; market review is checked at listing execution.
         handler.advanceTime(6);
         handler.propose(2, 1);
         handler.vote(3, 4, true);
         handler.vote(4, 4, true);
         handler.vote(5, 4, true);
-        assertFalse(PoolVault(payable(address(pool))).proposalPassed(4));
+        assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.vote(2, 4, true);
         assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.propose(3, 0); // Invalid prices cannot allocate an id or change a cooldown.

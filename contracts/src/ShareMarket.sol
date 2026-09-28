@@ -28,7 +28,26 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         uint256 totalBnbOwed;
         // Zero-expiry legacy orders can be cancelled but cannot be filled after upgrade.
         mapping(uint256 => uint64) orderExpiries;
+        mapping(address => SaleReference) saleReferences;
+        mapping(address => mapping(uint256 => SaleReview)) saleReviews;
     }
+
+    struct SaleReference {
+        uint128 marketPriceWei;
+        uint64 observedAt;
+        bytes32 sourceDigest;
+    }
+
+    struct SaleReview {
+        uint128 priceWei;
+        uint8 status;
+    }
+
+    error InvalidSaleReference();
+    event SaleReferenceUpdated(address indexed pool, uint256 marketPriceWei, uint64 observedAt, bytes32 sourceDigest);
+    event SaleReviewed(
+        address indexed pool, uint256 indexed proposalId, uint128 priceWei, bool approved, address indexed operator
+    );
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.ShareMarket")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MARKET_STORAGE_LOCATION =
@@ -134,6 +153,48 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
 
     function factory() external view returns (address) {
         return _marketStorage().factory;
+    }
+
+    /// @notice Operator attests Firsto reference daily price × verified daily BEM for one miner.
+    /// @dev The digest identifies evidence, but BSC cannot independently verify a website API.
+    function setSaleReference(address pool, uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest) external {
+        MarketStorage storage s = _marketStorage();
+        if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
+        if (
+            !IShareMarketFactory(s.factory).isPool(pool) || marketPriceWei == 0 || sourceDigest == bytes32(0)
+                || observedAt > block.timestamp || block.timestamp - observedAt > 5 minutes
+        ) revert InvalidSaleReference();
+        s.saleReferences[pool] = SaleReference(marketPriceWei, observedAt, sourceDigest);
+        emit SaleReferenceUpdated(pool, marketPriceWei, observedAt, sourceDigest);
+    }
+
+    function saleReference(address pool)
+        external
+        view
+        returns (uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest)
+    {
+        SaleReference storage quote = _marketStorage().saleReferences[pool];
+        return (quote.marketPriceWei, quote.observedAt, quote.sourceDigest);
+    }
+
+    /// @notice Platform review is required only when a passed sale lists below the fresh market reference.
+    /// @dev Rejection is final for this proposal, so a new vote is needed to propose a different price.
+    function reviewSale(address pool, uint256 proposalId, uint128 priceWei, bool approved) external {
+        MarketStorage storage s = _marketStorage();
+        if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
+        if (
+            !IShareMarketFactory(s.factory).isPool(pool) || proposalId == 0 || priceWei == 0
+                || s.saleReviews[pool][proposalId].status == 2
+        ) {
+            revert InvalidSaleReference();
+        }
+        s.saleReviews[pool][proposalId] = SaleReview(priceWei, approved ? 1 : 2);
+        emit SaleReviewed(pool, proposalId, priceWei, approved, msg.sender);
+    }
+
+    function saleReview(address pool, uint256 proposalId) external view returns (uint8 status, uint128 priceWei) {
+        SaleReview storage review = _marketStorage().saleReviews[pool][proposalId];
+        return (review.status, review.priceWei);
     }
 
     function timelock() external view returns (address) {

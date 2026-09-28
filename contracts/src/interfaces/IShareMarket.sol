@@ -53,6 +53,7 @@ interface IShareMarket {
 
 interface IShareMarketFactory {
     function timelock() external view returns (address);
+    function operator() external view returns (address);
     function shareMarket() external view returns (address);
     function isPool(address pool) external view returns (bool);
 }

@@ -61,6 +61,16 @@ contract FirstoSaleTest is SaleTestBase {
         assertFalse(paid);
     }
 
+    function test_prefundedPredictableExecutorCannotBlockTheSale() public {
+        _listSale(SALE_PRICE);
+        address predicted = vm.computeCreateAddress(address(pool), vm.getNonce(address(pool)));
+        vm.deal(predicted, 1);
+        _buy();
+        assertEq(predicted.balance, 1, "unrelated forced wei remains untouched");
+        assertEq(nft.ownerOf(rewardId), NFT_BUYER);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Closed));
+    }
+
     function test_externalNativeFillAndLegacyDirectEntryCannotBypassSettlement() public {
         _listSale(SALE_PRICE);
         IFirstoSignedAskExchange.SignedAsk memory ask = IFirstoSignedAskExchange.SignedAsk({

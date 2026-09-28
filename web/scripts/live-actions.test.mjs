@@ -81,7 +81,7 @@ function mock(options = {}) {
     else if (name === 'nextProposalId') value = governance.activeProposalId === 0n ? 1n : governance.activeProposalId + BigInt(options.proposals?.length ?? 1);
     else if (name === 'getProposal') value = options.proposals?.[Number(decoded.args[0]-1n)] ?? governance.proposal;
     else if (name === 'proposalPassed') { const p = options.proposals?.[Number(decoded.args[0]-1n)] ?? governance.proposal;
-      value = p.yesCount*2n>p.snapshotMemberCount && (p.price<raw.purchaseCost ? p.yesShares>=60n : p.yesShares>50n); }
+      value = p.yesCount*2n>p.snapshotMemberCount && p.yesShares>50n; }
 
     else if (name === 'lastProposed') value = options.lastProposed ?? 0n;
     else if (name === 'bnbOwed') value = options.marketOwed ?? 123n;

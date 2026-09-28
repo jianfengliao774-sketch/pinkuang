@@ -6,6 +6,7 @@ abstract contract BudgetGovernanceState {
     /// @custom:storage-location erc7201:tapeout.storage.BudgetGovernance
     struct BudgetGovernanceStorage {
         uint64 nextRoundAt;
+        mapping(uint256 => uint8) saleReviews;
     }
 
     function _budgetGovernanceStorage() internal pure returns (BudgetGovernanceStorage storage s) {

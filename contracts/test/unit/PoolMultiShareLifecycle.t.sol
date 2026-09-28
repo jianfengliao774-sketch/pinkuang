@@ -168,6 +168,7 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
         assertEq(saleVault.getProposal(proposalId).yesCount, 1);
         assertEq(saleVault.getProposal(proposalId).yesShares, 100);
         assertTrue(saleVault.proposalPassed(proposalId));
+        _publishSaleReference(discountPrice);
         sale.executeSale(proposalId);
         lastPassedSaleProposal = proposalId;
         _complete(NFT_BUYER, discountPrice);
