@@ -28,6 +28,7 @@ import { assertTrustedGenesis } from './upgrade-ui';
 import { inspectPauseTargets, pauseCreationData, pauseFactoryNames, type PauseFactoryName,
   type PauseTargetProof } from './upgrade-pause';
 import { authorityAdministrators, stageTwoAddresses } from './upgrade-stage2';
+import {requireUpgradeExecutionRelease,upgradeExecutionRelease} from './upgrade-release';
 import { newUpgradeJournal, parseUpgradeJournal, upgradeJournalKey, type UpgradeJournal, type UpgradeTransaction } from './upgrade-journal';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt } from './upgrade-transactions';
 import { messageOf, type WalletProvider } from './wallet';
@@ -47,9 +48,6 @@ type Props = {
 
 type ChainOperation = 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done';
 const explorer = 'https://bscscan.com';
-// No published, independently checked proof yet that the live API accepts both genesis and upgraded graphs.
-// A Timelock operation may be scheduled, but executing it would strand the current product runtime.
-const runtimeCutoverReady = false;
 const timelockAbi = [
   'function isOperation(bytes32) view returns(bool)',
   'function isOperationReady(bytes32) view returns(bool)',
@@ -475,9 +473,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   }
   async function sendBatch(which: 'schedule' | 'execute') {
     await run(which === 'schedule' ? '提交 48 小时提案' : '执行已等待的升级', async () => {
-      if (which === 'execute' && !runtimeCutoverReady) {
-        throw new Error('当前产品服务仍只识别旧合约图。后端双版本兼容及过渡静态页面尚无发布证明，禁止执行升级批次。');
-      }
+      if (which === 'execute') requireUpgradeExecutionRelease();
       if (!wallet || !account || !onBsc || !plan || !record || !oldBundle || !upgradeBundle || !journal || !bootstrapPlan
         || !reviewed || (which === 'schedule' && !planProof)
         || (which === 'execute' && journal.schedule?.status !== 'confirmed')
@@ -902,10 +898,10 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         {planState.reason && <div className="upgrade-alert error">{planState.reason}</div>}
         <div className="upgrade-actions"><button className="small-button" disabled={!allDeployed || !onBsc || !!busy} onClick={() => void verifyPlan()}><ShieldCheck size={14}/>{busy || '核验新实现与完整批次'}</button>{plan && <button className="small-button" disabled={!!busy} onClick={() => void run('读取时间锁状态', async () => { await refreshOperation(); })}><RefreshCw size={14}/>刷新时间锁状态</button>}</div>
         {planProof && <div className="upgrade-alert ok">链上代码、绑定关系、提案人角色、批次 ID 已在最终确认区块 #{planProof.blockNumber} 核验。</div>}
-        {!runtimeCutoverReady && <div className="upgrade-alert error">执行升级暂不可用：现网产品 API 仍只接受旧合约图和旧产物摘要。需先发布可核验的后端双版本兼容与产品过渡静态版本，再开放 executeBatch；现阶段可完成旧池暂停、角色授权、新实现部署和时间锁排程。</div>}
+        {!upgradeExecutionRelease.ready && <div className="upgrade-alert error">执行升级暂不可用：{upgradeExecutionRelease.reason}现阶段可完成旧池暂停、角色授权、新实现部署和时间锁排程。</div>}
         {plan && <div className="upgrade-meta"><div><span>批次状态</span><b>{operation === 'unknown' ? '尚未读取' : operation === 'unscheduled' ? '未提交' : operation === 'waiting' ? '等待中' : operation === 'ready' ? '可执行' : '已执行'}</b></div><div><span>最早执行</span><b>{readyAt ? new Date(readyAt * 1000).toLocaleString('zh-CN') : '—'}</b></div><div><span>批次交易</span><b>{journal?.schedule?.txHash ? short(journal.schedule.txHash) : '—'}</b></div></div>}
         <label className="upgrade-ack"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)}/><span>我已核对六笔调用目标、新实现、0 BNB 金额、salt 与 operation ID；明白代码升级和后续权限迁移是两个阶段。</span></label>
-        <div className="upgrade-actions"><button className="primary-button" disabled={!plan || !planProof || !onBsc || !reviewed || !!journal?.schedule || operation !== 'unscheduled' || !!busy} onClick={() => void sendBatch('schedule')}>提交 48 小时提案</button><button className="primary-button" disabled={!runtimeCutoverReady || !plan || !onBsc || !reviewed || journal?.schedule?.status !== 'confirmed' || !!journal?.execute || operation !== 'ready' || !!busy} onClick={() => void sendBatch('execute')}>等待结束后执行批次</button></div>
+        <div className="upgrade-actions"><button className="primary-button" disabled={!plan || !planProof || !onBsc || !reviewed || !!journal?.schedule || operation !== 'unscheduled' || !!busy} onClick={() => void sendBatch('schedule')}>提交 48 小时提案</button><button className="primary-button" disabled={!upgradeExecutionRelease.ready || !plan || !onBsc || !reviewed || journal?.schedule?.status !== 'confirmed' || !!journal?.execute || operation !== 'ready' || !!busy} onClick={() => void sendBatch('execute')}>等待结束后执行批次</button></div>
         {journal?.schedule && journal.schedule.status !== 'confirmed' && <div className="upgrade-actions"><input className="upgrade-step-input" value={recoveryHash} placeholder="如未收到哈希，请输入钱包中的原交易哈希" onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy} onClick={() => void recoverBatch('schedule')}>核对提案交易</button></div>}
         {journal?.execute && journal.execute.status !== 'confirmed' && <div className="upgrade-actions"><input className="upgrade-step-input" value={recoveryHash} placeholder="如未收到哈希，请输入钱包中的原交易哈希" onChange={event => setRecoveryHash(event.target.value)}/><button className="small-button" disabled={!!busy} onClick={() => void recoverBatch('execute')}>核对执行交易</button></div>}
         {journal?.execute?.status === 'confirmed' && <div className="upgrade-alert note">升级交易已确认，仍须核验后置合约图与全部角色迁移；当前不能标记正式开放。</div>}
