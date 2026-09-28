@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0x2925b47c44129f054b6e4bd06d49be62d1fe2b261824e0bc4dcacf165900ec58",
+  "artifactDigest": "0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84",
   "abis": {
     "PoolFactory": [
       {
@@ -3404,6 +3404,25 @@
         "inputs": [
           {
             "indexed": true,
+            "internalType": "address",
+            "name": "previousTreasury",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "nextTreasury",
+            "type": "address"
+          }
+        ],
+        "name": "TreasuryMigrated",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
             "internalType": "uint256",
             "name": "proposalId",
             "type": "uint256"
@@ -4708,6 +4727,24 @@
         "type": "function"
       },
       {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "expectedOld",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "next",
+            "type": "address"
+          }
+        ],
+        "name": "migrateTreasury",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
         "inputs": [],
         "name": "minMembers",
         "outputs": [
@@ -5663,6 +5700,11 @@
       {
         "inputs": [],
         "name": "InvalidPool",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "InvalidPrice",
         "type": "error"
       },
       {
