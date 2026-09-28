@@ -51,12 +51,12 @@ Gas relay 的私有命令文件还必须携带 `expectedCodehash`，取自部署
 node deploy/scripts/rehearse-integrated-upgrade.mjs \
   --genesis-record /private/tmp/pinkuang-integrated-genesis-record.json \
   --genesis-bundle /private/tmp/pinkuang-integrated-genesis-bundle.json \
-  --upgrade-bundle /private/tmp/pinkuang-final-upgrade-bundle.json \
+  --upgrade-bundle deploy/public/deployment-artifacts.json \
   --trusted-manifest web/public/data/frontend-manifest.json
 ```
 
 该脚本在两笔暂停前做完整旧图校验；随后证明 Stage0、十个新 runtime、Stage1 六调用及后置图、Stage2 Authority 与权限、每个旧池的独立手续费迁移，再独立安排/执行 48 小时恢复建池 batch 并重查解除暂停后的完整链上图。它逐字节比较旧订单、池 state/params、份额总量和旧 owner 余额、募集金额、旧 treasury 的 BNB 欠款在代码升级和手续费迁移前后的值。终态输出包括 `roleMigrationComplete=true` 和本地 fork 中两套 Factory 已解除暂停的断言；由于真实 keeper 切换未在 fork 中验证，`deploymentComplete=false`。
 
-2026-09-29 的真实 BSC 单池 fork 结果保存在 `docs/storage/Integrated-v2-fork-rehearsal.jsonl`。起点区块 `124584261`、哈希 `0x35602fcb6213b115847b8ec16e80bf6849e3819c4c9fa784572f4c8ace6f2aec`；已有 1 池、0 预算项目、2 个历史订单。Stage0、十个替换实现、Stage1、Authority/角色迁移、历史池独立 treasury 迁移及恢复建池 batch 均在**本地 fork**成功；旧池仍有 100 份、旧 owner 99 份、旧 BNB 欠款 0 wei，订单原字节不变，treasury 转向 fork 中的 Authority 地址，两套 Factory owner 均变为 48 小时 Timelock。该次演练使用修复预算子池 BEM 结算卡死之前的候选产物，摘要为 `0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84`；新版 `0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c` 尚需重跑 fork。`keeperCutoverVerified` 和 `deploymentComplete` 仍为 false，不能据本地演练宣称主网上线。
+2026-09-29 的真实 BSC 单池 fork 结果保存在 `docs/storage/Integrated-v2-fork-rehearsal-cb7b.jsonl`。Anvil 从主网区块 `124584261` 分叉，两笔本地暂停交易后，校验快照为 `124584263`，哈希 `0xd0ae60f130e55f76ac60315e6e53b5347c9e072d5ef104daabc76e4f72b09272`；已有 1 池、0 预算项目、2 个历史订单。候选产物摘要为 `0xcb7bb22596c33558a3f3060fffeb8b3f6c63521e9195f59eaa6a6df7618d116c`，演练日志 SHA-256 为 `7da5a60ddb92a7b8d081e9a70306f1e03e9ccb8496a7112bb6cf5c0d1cdb0b30`。Stage0、十个替换实现、Stage1、Authority/角色迁移、历史池独立 treasury 迁移及恢复建池 batch 均在**本地 fork**成功；旧池仍有 100 份、旧 owner 99 份、旧 BNB 欠款 0 wei，订单原字节不变，treasury 转向 fork 中的 Authority 地址，两套 Factory owner 均变为 48 小时 Timelock。此前摘要为 `0x98ed53dbb171c960aa6423c45f51bc563ffae0ebe614ccb9e1a80c3d57c6de84` 的演练另存 `docs/storage/Integrated-v2-fork-rehearsal.jsonl`，不能替代新候选证据。`keeperCutoverVerified` 和 `deploymentComplete` 仍为 false，不能据本地演练宣称主网上线。
 
 正式部署若签名/发送结果不明，先按 operationId、tx hash、nonce 和链上状态恢复；不得盲目重发。每次签署前重新校验最新已终结区块，不靠浏览器保存的旧 preflight 直接授权。

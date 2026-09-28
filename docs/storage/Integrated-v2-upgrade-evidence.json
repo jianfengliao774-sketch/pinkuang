@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "integrated-v2-deployed-storage-validation",
-  "checkedAt": "2026-09-28T19:46:53.666Z",
+  "checkedAt": "2026-09-28T20:18:14.777Z",
   "buildRoot": ".",
   "results": [
     {
@@ -13,28 +13,7 @@
       "deployedImplementation": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
       "deployedCodehash": "0xf999264ca7a38b74598703684f2ada762fd48274e6b3f1ca7a3ebbb17126fbe3",
       "currentBuildInfoFiles": [
-        "03eed94a35eda2cd.json",
-        "0583e553aea30931.json",
-        "0afada4e62754f7a.json",
-        "0e125ba2389c1aed.json",
-        "19e4395d4c340bf7.json",
-        "2284b2d3ee8375b4.json",
-        "2405ff001c9b7d3b.json",
-        "28238e3999683f66.json",
-        "2cfa72312a1938df.json",
-        "52f51f70d65ad16a.json",
-        "654039a1ec921c06.json",
-        "6c9f082aff51703b.json",
-        "81abfde757f270e4.json",
-        "a6a25bc51f7a337f.json",
-        "d10d1cc6885d4d82.json",
-        "d70adf81e73e6355.json",
-        "d85070d91905d937.json",
-        "dedb25b3d9130599.json",
-        "ed6a17a3846e0c05.json",
-        "eeb98cf656a96d68.json",
-        "fa543ef0d41fa13b.json",
-        "fbe7161c5f4a4635.json"
+        "4f098cda7bc35a68.json"
       ],
       "currentSourceSha256": "d232eeec147777f3ad6e5d2d991842846e89fea418a470345ca8c426c2f7fbfd",
       "priorFields": 0,
@@ -64,10 +43,7 @@
       "deployedImplementation": "0x5425b74570612B9828c3A4EdaABA8Bbd440c39F8",
       "deployedCodehash": "0xd3c3c5c90473c651e73536488cfe4be1b5bebd77fb2a6c324b37e0b7fb8494b7",
       "currentBuildInfoFiles": [
-        "2405ff001c9b7d3b.json",
-        "52f51f70d65ad16a.json",
-        "654039a1ec921c06.json",
-        "d85070d91905d937.json"
+        "4f098cda7bc35a68.json"
       ],
       "currentSourceSha256": "296b94cc73c42dc4d3816e154e5459de1dc096c8c82f23368ca4fae1f1976565",
       "priorFields": 0,
@@ -103,20 +79,7 @@
       "deployedImplementation": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
       "deployedCodehash": "0x358eaf0b82facb8475375687de1ae017de816e297eda8f9708ee3179948099e5",
       "currentBuildInfoFiles": [
-        "03eed94a35eda2cd.json",
-        "0583e553aea30931.json",
-        "0afada4e62754f7a.json",
-        "19e4395d4c340bf7.json",
-        "2284b2d3ee8375b4.json",
-        "2405ff001c9b7d3b.json",
-        "28238e3999683f66.json",
-        "52f51f70d65ad16a.json",
-        "654039a1ec921c06.json",
-        "a6a25bc51f7a337f.json",
-        "d85070d91905d937.json",
-        "dedb25b3d9130599.json",
-        "ed6a17a3846e0c05.json",
-        "fa543ef0d41fa13b.json"
+        "4f098cda7bc35a68.json"
       ],
       "currentSourceSha256": "784cffbe940d6c8750904bfdb2c0689875edb6a799c79054b8bbe718a438944c",
       "priorFields": 0,
@@ -142,16 +105,7 @@
       "deployedImplementation": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
       "deployedCodehash": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7",
       "currentBuildInfoFiles": [
-        "0583e553aea30931.json",
-        "2284b2d3ee8375b4.json",
-        "2405ff001c9b7d3b.json",
-        "28238e3999683f66.json",
-        "2cfa72312a1938df.json",
-        "6c9f082aff51703b.json",
-        "81abfde757f270e4.json",
-        "d10d1cc6885d4d82.json",
-        "eeb98cf656a96d68.json",
-        "fbe7161c5f4a4635.json"
+        "4f098cda7bc35a68.json"
       ],
       "currentSourceSha256": "e848efac857a99c0d16a621dbea3000b405ac37d5606e7542a1786845a4bf390",
       "priorFields": 9,
@@ -177,17 +131,9 @@
       "deployedImplementation": "0x9b88441B6C9b961cb4Fd81b216724D08b95C4273",
       "deployedCodehash": "0x50fb9b100a8724453a2baaa84136574de5dd247194fbe02bc054b89482fb44a2",
       "currentBuildInfoFiles": [
-        "0583e553aea30931.json",
-        "2284b2d3ee8375b4.json",
-        "2405ff001c9b7d3b.json",
-        "28238e3999683f66.json",
-        "2cfa72312a1938df.json",
-        "6c9f082aff51703b.json",
-        "81abfde757f270e4.json",
-        "d10d1cc6885d4d82.json",
-        "eeb98cf656a96d68.json"
+        "4f098cda7bc35a68.json"
       ],
-      "currentSourceSha256": "656a8f089f47f540665e4e1e874da08a934ec9ae0496667c3b66cc8a1eec6aca",
+      "currentSourceSha256": "0e0c8ece8451c4318ed3d3f1df84fb5a3607b5c86c78b1227217d53edafa2efe",
       "priorFields": 30,
       "currentFields": 30,
       "priorNamespaces": [
