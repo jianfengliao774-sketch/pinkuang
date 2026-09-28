@@ -19,8 +19,11 @@ test('genesis ABI is extracted from independently pinned original deployment art
     const original = new Interface(fragments);
     for (const fragment of original.fragments.filter(item => item.type === 'function')) {
       const current = abi[name].getFunction(fragment.format('sighash'));
-      assert.equal(current?.format('full'), fragment.format('full'),
-        `${name}.${fragment.name} cannot be decoded by the transitional frontend`);
+      assert.equal(current?.format('sighash'), fragment.format('sighash'),
+        `${name}.${fragment.name} cannot be called by the transitional frontend`);
+      assert.deepEqual(current?.outputs.map(output => output.format('sighash')),
+        fragment.outputs.map(output => output.format('sighash')),
+        `${name}.${fragment.name} return values cannot be decoded by the transitional frontend`);
     }
   }
 });

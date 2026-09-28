@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AbiCoder, Interface, Wallet, keccak256, toUtf8Bytes } from 'ethers';
-import { parseAuthorityArguments, prepareAuthorityCall } from './authority-relay.mjs';
+import { authorityGasLimit, parseAuthorityArguments, prepareAuthorityCall } from './authority-relay.mjs';
 
 const authority = '0x0000000000000000000000000000000000000011';
 const market = '0x0000000000000000000000000000000000000022';
@@ -16,6 +16,16 @@ const types = { Action: [
 const coder = AbiCoder.defaultAbiCoder();
 const kind = name => keccak256(toUtf8Bytes(name));
 const deadline = '9999999999';
+
+test('web relay fixed Gas bound skips eth_estimateGas entirely',async()=>{
+  let simulated=false;
+  const provider={estimateGas:async()=>{simulated=true;return 100n;}};
+  assert.equal(await authorityGasLimit(provider,{to:authority},650_000n),650_000n);
+  assert.equal(simulated,false);
+  assert.equal(await authorityGasLimit(provider,{to:authority}),120n);
+  assert.equal(simulated,true);
+  await assert.rejects(authorityGasLimit(provider,{to:authority},0n),/positive/);
+});
 
 test('relayed sale review binds the exact pool, price, decision, chain and authority', async () => {
   const args = { market, pool, proposalId: '7', priceWei: '100', approved: true };

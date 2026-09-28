@@ -734,6 +734,9 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
       createdAt: new Date().toISOString(), speedUps: 0 };
     const beforeSigning = stoppedResult(runtime, 'signing');
     if (beforeSigning) return beforeSigning;
+    // Fresh deployments can require a second canonical graph check immediately
+    // before signing. Existing v2 executions omit this optional callback.
+    if (options.verifyBeforeSend) await options.verifyBeforeSend(provider, options.pool);
     const attempt = await signAttempt(signer, pending, options, gasLimit, gasPrice);
     pending.attempts = [attempt]; pending.hash = attempt.hash;
     if (journal.transaction) journal.previousTransaction = journal.transaction;

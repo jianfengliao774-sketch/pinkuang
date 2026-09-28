@@ -124,7 +124,22 @@ async function context(provider, config, account) {
     call(factory, abi.PoolFactory, 'operator'), call(factory, abi.PoolFactory, 'creationPaused'), request('eth_getCode', [factory, tag]),
   ]);
   need(code && code !== '0x', '工厂合约不可用。');
-  const status = Object.freeze({ configured: true, isOperator: same(operator, from), operator, account: from,
+  let isAuthorityAdmin = false;
+  if (config.stage === 'fresh-active') {
+    const authority = configured(config, 'authority');
+    need(same(operator, authority), '新 Factory 尚未绑定平台权限合约。');
+    const [first, second, core, budget] = await Promise.all([
+      call(authority, abi.PlatformAuthority, 'administratorOne'),
+      call(authority, abi.PlatformAuthority, 'administratorTwo'),
+      call(authority, abi.PlatformAuthority, 'coreFactory'),
+      call(authority, abi.PlatformAuthority, 'budgetFactory'),
+    ]);
+    need(same(core, factory) && same(budget, configured(config, 'portfolioFactory')),
+      '平台权限合约绑定的 Factory 与本页不一致。');
+    isAuthorityAdmin = same(first, from) || same(second, from);
+  }
+  const status = Object.freeze({ configured: true, isOperator: isAuthorityAdmin || same(operator, from),
+    isAuthorityAdmin, operator, account: from,
     creationPaused, factory, blockNumber, timestamp, blockHash: block.hash });
   const verify = async () => {
     const after = await request('eth_getBlockByNumber', [tag, false]);
@@ -144,7 +159,8 @@ export async function readOperatorStatus({ provider, config, account }) {
     } catch { /* An unavailable budget deployment cannot grant extra operator access. */ }
   }
   await ctx.verify(); return Object.freeze({ ...ctx.status, machineRegistry, portfolioOperator,
-    isPortfolioOperator: portfolioOperator !== null && same(portfolioOperator, ctx.from) });
+    isPortfolioOperator: portfolioOperator !== null && (same(portfolioOperator, ctx.from)
+      || ctx.status.isAuthorityAdmin && same(portfolioOperator, configured(config, 'authority'))) });
 }
 
 /** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */

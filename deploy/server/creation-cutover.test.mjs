@@ -53,6 +53,20 @@ test('legacy RPC failures, absent bytecode and a mistaken new-Factory address ne
   await assert.rejects(f.check('factory', 'createPool', current), /迁移中/);
 });
 
+test('a verified fresh graph can coexist with old pools only after old creation is paused', async () => {
+  const f = fixture(); f.state.count = 1n;
+  await verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
+    { name:'createPool' }, block, old, fail, { freshGraphVerified:true });
+  f.state.paused = false;
+  await assert.rejects(verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
+    { name:'createPool' }, block, old, fail, { freshGraphVerified:true }),
+  error => error.status === 409 && /尚未停建/.test(error.message));
+  f.state.paused = true;
+  await assert.rejects(verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
+    { name:'createPool' }, block, old, fail, { freshGraphVerified:false }),
+  error => error.status === 409 && /已有项目/.test(error.message));
+});
+
 test('cutover errors leave user exit, orders, harvesting and recovery paths independent of the legacy RPC', async () => {
   const f = fixture(); f.state.failMethod = 'poolCount'; f.state.paused = false;
   for (const [kind, name] of [['pool', 'claim'], ['pool', 'withdrawBnb'], ['pool', 'withdrawDeposit'],

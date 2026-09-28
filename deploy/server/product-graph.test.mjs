@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
-import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
+import { productGraphConfiguration, verifyProductGraph, verifyFreshAuthority } from './product-graph.mjs';
 import { createPinnedSigningGraphVerifier } from './journal-api.mjs';
-const bundle=JSON.parse(readFileSync(new URL('../public/deployment-artifacts.json',import.meta.url),'utf8'));
+const freshBundle=JSON.parse(readFileSync(new URL('../public/deployment-artifacts.json',import.meta.url),'utf8'));
+const bundle=structuredClone(freshBundle);
+delete bundle.artifacts.FreshPoolFactory;
 const libraries=['FlexiblePurchase','MiningOperations','PoolFunds','PurchaseValidation','RewardAccounting','SaleGovernance','SaleSettlement','ShareCheckpoints','FirstoSale'];
 const names=[...libraries,'AtomicDeployment','PoolVault','PoolFactory','ShareMarket','BudgetPortfolioFactory','BudgetPortfolioVault','factory','shareMarket','lens','beacon','timelock','portfolioFactory','portfolioShareMarket','portfolioBeacon'];
 const artifacts={factory:'ERC1967Proxy',shareMarket:'ERC1967Proxy',lens:'PoolLens',beacon:'PoolBeacon',timelock:'PoolTimelock',portfolioFactory:'ERC1967Proxy',portfolioShareMarket:'ERC1967Proxy',portfolioBeacon:'PoolBeacon'};
@@ -59,6 +61,94 @@ test('trusted complete record is bound to the served artifact digest and all cod
     const record=structuredClone(f.record);mutate(record);assert.throws(()=>productGraphConfiguration({record,bundle}));
   }
   const original=f.trusted.record.addresses.factory;f.record.addresses.factory=addr(99);assert.equal(f.trusted.record.addresses.factory,original);
+});
+test('fresh genesis aliases only the reviewed FreshPoolFactory and requires exact Gas address evidence',()=>{
+  const f=fixture();
+  const record=structuredClone(f.record);
+  record.id='fresh-graph-test';
+  record.steps=record.steps.map(step=>step.id==='PoolFactory'?{...step,id:'FreshPoolFactory'}:step);
+  record.addresses.FreshPoolFactory=record.addresses.PoolFactory;
+  record.verification.code.FreshPoolFactory=record.verification.code.PoolFactory;
+  delete record.addresses.PoolFactory;
+  delete record.verification.code.PoolFactory;
+  const {sourceCommit:_source,...content}=freshBundle;
+  record.artifactDigest=keccak256(toUtf8Bytes(JSON.stringify(canonical(content))));
+  const gasWallet=addr(91),authority=addr(92);
+  const activation={schemaVersion:1,kind:'fresh-authority',chainId:56,
+    deploymentId:record.id,genesisArtifactDigest:record.artifactDigest,
+    verifiedAt:new Date().toISOString(),authority:{address:authority,deploymentTxHash:hash(201),
+      administratorOne:'0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',
+      administratorTwo:'0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb',gasWallet},
+    steps:['deployAuthority','coreOperator','coreTreasury','budgetOperator','budgetTreasury',
+      'coreOwner','budgetOwner'].map((id,index)=>({id,txHash:hash(201+index),
+        blockNumber:200+index,blockHash:hash(301+index)}))};
+  const trusted=productGraphConfiguration({record,bundle:freshBundle,
+    productActivation:activation,expectedGasWallet:gasWallet});
+  assert.equal(trusted.record.addresses.PoolFactory,record.addresses.FreshPoolFactory);
+  assert.equal(trusted.freshAuthority.authority.address,authority);
+  assert.throws(()=>productGraphConfiguration({record,bundle:freshBundle,productActivation:activation}),/Gas wallet/);
+  assert.throws(()=>productGraphConfiguration({record,bundle:freshBundle,productActivation:activation,
+    expectedGasWallet:addr(93)}),/seven ordered transactions/);
+  assert.throws(()=>productGraphConfiguration({record:{...record,steps:f.record.steps},bundle:freshBundle}),/Fresh deployment/);
+});
+test('seven hardware-wallet Authority actions must match exact calldata, order, canonical receipts and state',async()=>{
+  const account=addr(90), gasWallet=addr(91), authority=addr(92);
+  const addresses={factory:addr(50),portfolioFactory:addr(51),timelock:addr(52)};
+  const core=new Interface(freshBundle.artifacts.PoolFactory.abi);
+  const budget=new Interface(freshBundle.artifacts.BudgetPortfolioFactory.abi);
+  const authorityAbi=new Interface(freshBundle.artifacts.PlatformAuthority.abi);
+  const admins=['0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',
+    '0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb'];
+  const data=[freshBundle.artifacts.PlatformAuthority.bytecode
+    +AbiCoder.defaultAbiCoder().encode(['address','address','address','address','address'],
+      [addresses.factory,addresses.portfolioFactory,...admins,gasWallet]).slice(2),
+  core.encodeFunctionData('setOperator',[authority]),core.encodeFunctionData('setTreasury',[authority]),
+  budget.encodeFunctionData('setOperator',[authority]),budget.encodeFunctionData('setTreasury',[authority]),
+  core.encodeFunctionData('transferOwnership',[addresses.timelock]),
+  budget.encodeFunctionData('transferOwnership',[addresses.timelock])];
+  const tos=[null,addresses.factory,addresses.factory,addresses.portfolioFactory,
+    addresses.portfolioFactory,addresses.factory,addresses.portfolioFactory];
+  const steps=['deployAuthority','coreOperator','coreTreasury','budgetOperator','budgetTreasury',
+    'coreOwner','budgetOwner'].map((id,index)=>({id,txHash:hash(200+index),
+      blockNumber:100+index,blockHash:hash(300+index)}));
+  const evidence={authority:{address:authority,deploymentTxHash:steps[0].txHash,
+    administratorOne:admins[0],administratorTwo:admins[1],gasWallet},steps};
+  const state={badData:false,badReceipt:false,badOwner:false};
+  const txs=steps.map((step,index)=>({hash:step.txHash,from:account,to:tos[index],
+    data:data[index],value:0n,nonce:index,index:0}));
+  const receipts=steps.map((step,index)=>({status:1,blockNumber:step.blockNumber,
+    blockHash:step.blockHash,contractAddress:index===0?authority:null}));
+  const values={owner:()=>state.badOwner?addr(99):addresses.timelock,
+    coreFactory:()=>addresses.factory,budgetFactory:()=>addresses.portfolioFactory,
+    administratorOne:()=>admins[0],administratorTwo:()=>admins[1],gasWallet:()=>gasWallet};
+  const provider={
+    getTransaction:async txHash=>{
+      const index=steps.findIndex(step=>step.txHash===txHash);
+      return index<0?null:{...txs[index],data:state.badData&&index===3?'0x12345678':txs[index].data};
+    },
+    getTransactionReceipt:async txHash=>{
+      const index=steps.findIndex(step=>step.txHash===txHash);
+      return index<0?null:{...receipts[index],status:state.badReceipt&&index===4?0:1};
+    },
+    getBlock:async number=>({number,hash:steps.find(step=>step.blockNumber===number)?.blockHash}),
+    getCode:async()=>freshBundle.artifacts.PlatformAuthority.deployedBytecode,
+    send:async(method,[tx,tag])=>{
+      assert.equal(method,'eth_call');assert.equal(tag,'0x78');
+      const parsed=authorityAbi.parseTransaction(tx),name=parsed.name;
+      if(name==='eip712Domain') return authorityAbi.encodeFunctionResult(name,[
+        '0x0f','BEMine Platform Authority','1',56n,authority,hash(0),[]]);
+      return authorityAbi.encodeFunctionResult(name,[values[name]()]);
+    },
+  };
+  const record={account,addresses};
+  const verified=await verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120});
+  assert.equal(verified.current.coreOperator,authority);
+  assert.equal(verified.current.budgetOwner,addresses.timelock);
+  for(const key of ['badData','badReceipt','badOwner']){
+    state[key]=true;
+    await assert.rejects(verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120}));
+    state[key]=false;
+  }
 });
 test('fresh pinned graph accepts all compiled runtime, roles and slots then detects each changed binding',async()=>{
   const f=fixture();await verifyProductGraph(f.provider,f.addresses.factory,f.trusted,f.block);

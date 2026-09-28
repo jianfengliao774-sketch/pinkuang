@@ -353,7 +353,7 @@ contract PoolFactory is
 
     /// @notice Include this call with Factory and Beacon upgrades in one timelock batch.
     /// Existing registries cannot be cleared or reinitialized, including by the timelock.
-    function beginMachineRegistryMigration() external {
+    function beginMachineRegistryMigration() external virtual {
         if (msg.sender != _factoryStorage().timelock) revert Unauthorized();
         MachineRegistryStorage storage s = _machineRegistry();
         if (s.initialized) revert MachineRegistryAlreadyInitialized();
@@ -366,7 +366,7 @@ contract PoolFactory is
 
     /// @notice Bounded, permissionless backfill from the factory's own registry; no caller-provided pool list.
     /// Conflicting historical pools revert with the exact occupied key and cannot silently overwrite it.
-    function migrateMachineRegistry(uint256 maxPools) external nonReentrant {
+    function migrateMachineRegistry(uint256 maxPools) external virtual nonReentrant {
         MachineRegistryStorage storage s = _machineRegistry();
         if (!s.initialized) revert MachineRegistryNotReady();
         if (maxPools == 0 || maxPools > 64) revert InvalidMigrationBatch();
@@ -392,6 +392,7 @@ contract PoolFactory is
     }
 
     function _reserveMachine(address circuits, uint256 circuitId, address pool) private {
+        _beforeReserveMachine(circuits, circuitId);
         bytes32 key = keccak256(abi.encode(circuits, circuitId));
         MachineRegistryStorage storage s = _machineRegistry();
         address existing = s.reservedPool[key];
@@ -400,6 +401,8 @@ contract PoolFactory is
         s.reservedPool[key] = pool;
         emit MachineReserved(circuits, circuitId, pool);
     }
+
+    function _beforeReserveMachine(address, uint256) internal view virtual {}
 
     function _registeredPoolParams(address pool) private view returns (IPoolVault.PoolParams memory) {
         if (!_factoryStorage().isPool[pool]) {

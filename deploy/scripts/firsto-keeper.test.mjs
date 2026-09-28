@@ -146,6 +146,23 @@ test('automatic send signs only the official purchase when both venues can sell 
   assert.equal(firstoReads, 0);
 });
 
+test('fresh graph callback can stop an otherwise executable purchase before signature', async t => {
+  const journal = temporary(t), { provider, state, signer } = simulatedChain();
+  state.officialListing = true;
+  let checks = 0;
+  await assert.rejects(runKeeperCycle(provider, { ...options(journal), venue: 'auto', send: true,
+    verifyBeforeSend: async (_provider, selectedPool) => {
+      checks += 1;
+      assert.equal(selectedPool, pool);
+      throw new Error('Fresh graph changed');
+    } }, signer, feed()), /Fresh graph changed/);
+  assert.equal(checks, 1);
+  assert.equal(state.estimates.length, 1);
+  assert.equal(state.signed, 0);
+  assert.equal(state.broadcasts.length, 0);
+  assert.equal(readJournal(journal, { factory, pool }).transaction, null);
+});
+
 test('automatic fixed-pool route checks the official target, then its exact Firsto signed order', async t => {
   const journal = temporary(t), { provider, state } = simulatedChain();
   const result = await runKeeperCycle(provider, { ...options(journal), venue: 'auto' }, null, feed());

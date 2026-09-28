@@ -182,6 +182,29 @@ test('upgraded graph chooses candidate ABI without rewriting the pinned genesis 
     ? response(pinnedGenesis) : response({}, 503) }), { code: 'http_unavailable' });
 });
 
+test('fresh graph activates only with complete Authority proof and both previous Factories paused', async () => {
+  const authority=addr(200), gasWallet=addr(201), administratorOne=addr(202), administratorTwo=addr(203);
+  const proof={address:authority,gasWallet,administratorOne,administratorTwo,
+    codehash:blockHash,deploymentTxHash:txHash};
+  const v3Genesis={...pinnedGenesis,artifactDigest:ARTIFACT_DIGEST,
+    authority,gasWallet,freshAuthority:proof};
+  const active = verifiedGraph({ stage:'fresh-active', artifactDigest:ARTIFACT_DIGEST,
+    genesisArtifactDigest:ARTIFACT_DIGEST,
+    upgradeArtifactDigest:null, operationId:null, creationPaused:undefined,
+    operationalReady:true, previousFactoriesPaused:true,
+    freshAuthority:{...proof,activationBlock:v3Genesis.verifiedBlockNumber+1,activationHash:blockHash},
+    manifest:{...v3Genesis,verifiedBlockNumber:v3Genesis.verifiedBlockNumber+1} });
+  const accepted=validateProductGraph(active,v3Genesis);
+  assert.equal(accepted.stage,'fresh-active');
+  assert.equal(accepted.freshAuthority.address,authority);
+  for (const change of [{operationalReady:false},{previousFactoriesPaused:false},
+    {freshAuthority:null},{freshAuthority:{...active.freshAuthority,activationHash:deploymentHash}},
+    {operationId:blockHash},{upgradeArtifactDigest:blockHash},
+    {manifest:{...active.manifest,gasWallet:addr(204)}},
+    {manifest:{...active.manifest,freshAuthority:{...proof,codehash:deploymentHash}}}])
+    assert.throws(()=>validateProductGraph({...active,...change},v3Genesis));
+});
+
 test('HTTP provider never requests wallet permission or signs/sends, and checks response ID', async () => {
   let count = 0;
   const rpc = createReadProvider(config, { fetcher: async (url, options) => { count++; assert.equal(url, config.rpcUrl);

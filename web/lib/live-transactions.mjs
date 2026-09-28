@@ -183,7 +183,11 @@ async function requireCurrentProductStage(config, fetcher) {
     && graph.stageActivationBlock === config.stageActivationBlock
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
-    && graph.operationalReady === config.operationalReady,
+    && graph.operationalReady === config.operationalReady
+    && (config.stage !== 'fresh-active' || graph.previousFactoriesPaused === true
+      && same(graph.freshAuthority?.address, config.freshAuthority?.address)
+      && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
+      && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),
   '链上产品阶段已变化，请刷新页面后重新确认交易。');
 }
 function validateResult(result, account, record, hash) {

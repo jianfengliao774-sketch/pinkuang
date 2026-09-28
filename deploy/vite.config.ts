@@ -25,6 +25,7 @@ const fileHash = (path: string) => createHash('sha256').update(readFileSync(path
 
 export default defineConfig(({ mode }) => {
   const standaloneUpgrade = mode === 'upgrade';
+  const freshDeployment = mode === 'fresh';
   const digest = verifiedBuildDigest();
   const builderHash = fileHash(builderPath);
   const configHash = fileHash(configPath);
@@ -78,11 +79,15 @@ export default defineConfig(({ mode }) => {
   },
 }];
   return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest) },
+    // Fresh releases copy only their reviewed public files after bundling.
+    // Vite's normal publicDir also contains retired upgrade genesis records.
+    publicDir: freshDeployment ? false : undefined,
     plugins: [react(), ...(standaloneUpgrade ? [] : runtimePlugins)], base: './', build: {
     chunkSizeWarningLimit: 800,
     outDir: standaloneUpgrade ? 'dist-upgrade' : 'dist',
     rollupOptions: { input: standaloneUpgrade
       ? resolve(deployDir, 'upgrade.html')
-      : { main: resolve(deployDir, 'index.html'), upgrade: resolve(deployDir, 'upgrade.html') } },
+      : freshDeployment ? resolve(deployDir, 'index.html')
+        : { main: resolve(deployDir, 'index.html'), upgrade: resolve(deployDir, 'upgrade.html') } },
   } };
 });

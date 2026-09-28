@@ -3,7 +3,7 @@ import { ARTIFACT_DIGEST } from './chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 
 export const GENESIS_ARTIFACT_DIGEST = pinnedGenesis.artifactDigest;
-export const PRODUCT_STAGES = Object.freeze(['genesis', 'code-upgraded', 'role-migrating', 'role-wired']);
+export const PRODUCT_STAGES = Object.freeze(['genesis', 'fresh-active', 'code-upgraded', 'role-migrating', 'role-wired']);
 
 export class LiveDataError extends Error {
   constructor(code, message, details = {}) { super(message); this.name = 'LiveDataError'; this.code = code; this.details = details; }
@@ -40,15 +40,31 @@ export function validateManifest(input, expectedDigest = ARTIFACT_DIGEST) {
     insist(hash(input.codehash?.[name]), 'manifest_schema', `${name} 缺少运行代码摘要。`);
     codehash[name] = input.codehash[name].toLowerCase();
   }
+  let freshAuthority;
+  if (input.authority !== undefined || input.gasWallet !== undefined || input.freshAuthority !== undefined) {
+    const proof=input.freshAuthority;
+    insist(proof && typeof proof==='object' && hash(proof.codehash) && hash(proof.deploymentTxHash),
+      'manifest_schema', '新部署管理员合约缺少代码或部署交易核验。');
+    const authority=liveAddress(input.authority), gasWallet=liveAddress(input.gasWallet);
+    const first=liveAddress(proof.administratorOne), second=liveAddress(proof.administratorTwo);
+    insist(sameAddress(proof.address,authority) && sameAddress(proof.gasWallet,gasWallet)
+      && new Set([authority,gasWallet,first,second].map(value=>value.toLowerCase())).size===4,
+    'manifest_schema', '新部署管理员和 Gas 钱包地址不一致或重复。');
+    freshAuthority=Object.freeze({address:authority,codehash:proof.codehash.toLowerCase(),
+      deploymentTxHash:proof.deploymentTxHash.toLowerCase(),administratorOne:first,
+      administratorTwo:second,gasWallet});
+  }
   insist(new Set(Object.values(addresses)).size === MANIFEST_KEYS.length + (hasPortfolio ? PORTFOLIO_MANIFEST_KEYS.length : 0), 'manifest_schema', '部署合约地址不能重复。');
   return Object.freeze({ schemaVersion: 1, chainId: 56, ...(hasPortfolio ? { kind: 'integrated-v2' } : {}), ...addresses, deployment: Object.freeze({ ...d }),
     artifactDigest: input.artifactDigest.toLowerCase(), sourceCommit: input.sourceCommit, verifiedAt: input.verifiedAt,
-    verifiedBlockNumber: input.verifiedBlockNumber, codehash: Object.freeze(codehash) });
+    verifiedBlockNumber: input.verifiedBlockNumber, codehash: Object.freeze(codehash),
+    ...(freshAuthority ? {authority:freshAuthority.address,gasWallet:freshAuthority.gasWallet,freshAuthority} : {}) });
 }
 
 const unchangedRootKeys = Object.freeze(['factory', 'shareMarket', 'lens', 'beacon', 'timelock',
   'portfolioFactory', 'portfolioMarket', 'portfolioBeacon']);
 const same = (left, right) => typeof left === 'string' && typeof right === 'string' && left.toLowerCase() === right.toLowerCase();
+const sameAddress = same;
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 
@@ -64,10 +80,13 @@ export function validatePinnedGenesis(input) {
 export function validateProductGraph(input, genesis = pinnedGenesis) {
   insist(input && input.status === 'verified' && input.chainId === 56 && PRODUCT_STAGES.includes(input.stage),
     'product_graph', '链上产品阶段未通过核验。');
-  insist(hash(input.genesisArtifactDigest) && same(input.genesisArtifactDigest, GENESIS_ARTIFACT_DIGEST),
+  insist(hash(input.genesisArtifactDigest) && same(input.genesisArtifactDigest, genesis.artifactDigest),
     'product_graph', '旧版合约摘要与页面不一致。');
-  const upgraded = input.stage !== 'genesis';
-  const expectedDigest = upgraded ? ARTIFACT_DIGEST : GENESIS_ARTIFACT_DIGEST;
+  const fresh = input.stage === 'fresh-active';
+  const upgraded = input.stage !== 'genesis' && !fresh;
+  const expectedDigest = upgraded || fresh ? ARTIFACT_DIGEST : genesis.artifactDigest;
+  if (fresh) insist(same(genesis.artifactDigest, ARTIFACT_DIGEST),
+    'product_graph', '新部署页面必须由同一份合约产物构建。');
   insist(hash(input.artifactDigest) && same(input.artifactDigest, expectedDigest)
     && (!upgraded || hash(input.upgradeArtifactDigest) && same(input.upgradeArtifactDigest, ARTIFACT_DIGEST))
     && (input.upgradeArtifactDigest == null || same(input.upgradeArtifactDigest, ARTIFACT_DIGEST)),
@@ -77,15 +96,30 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
   insist(Number.isSafeInteger(input.stageActivationBlock)
     && input.stageActivationBlock >= genesis.deployment.blockNumber
     && input.stageActivationBlock <= input.verifiedBlockNumber && hash(input.stageActivationHash)
-    && (upgraded || input.stageActivationBlock === genesis.deployment.blockNumber
+    && (upgraded || fresh || input.stageActivationBlock === genesis.deployment.blockNumber
       && same(input.stageActivationHash, genesis.deployment.blockHash)),
   'product_graph', '产品阶段生效区块未通过核验。');
   insist(!upgraded || hash(input.operationId) && input.creationPaused === true,
     'product_graph', '升级批次或建池暂停状态未核验。');
+  if (fresh) insist(input.operationId == null && input.upgradeArtifactDigest == null
+    && input.operationalReady === true && input.previousFactoriesPaused === true
+    && input.freshAuthority && liveAddress(input.freshAuthority.address)
+    && hash(input.freshAuthority.codehash) && hash(input.freshAuthority.deploymentTxHash)
+    && input.freshAuthority.activationBlock === input.stageActivationBlock
+    && same(input.freshAuthority.activationHash, input.stageActivationHash),
+  'product_graph', '新部署的管理员接线或旧版停建尚未完成链上核验。');
   insist(typeof input.operationalReady === 'boolean', 'product_graph', '运营接线状态未通过核验。');
   insist(same(input.factory, genesis.factory) && same(input.portfolioFactory, genesis.portfolioFactory),
     'product_graph', 'Factory 与旧版可信部署不一致。');
   const manifest = validateManifest(input.manifest, expectedDigest);
+  if (fresh) {
+    const pinned=validateManifest(genesis, expectedDigest).freshAuthority;
+    insist(pinned && manifest.freshAuthority && input.freshAuthority
+      && ['address','codehash','deploymentTxHash','administratorOne','administratorTwo','gasWallet']
+        .every(key=>same(pinned[key],manifest.freshAuthority[key])
+          && same(pinned[key],input.freshAuthority[key])),
+    'product_graph', '管理员合约、签名钱包或 Gas 钱包与页面固定清单不一致。');
+  }
   insist(manifest.verifiedBlockNumber === input.stageActivationBlock
     && manifest.deployment.blockNumber === genesis.deployment.blockNumber
     && same(manifest.deployment.blockHash, genesis.deployment.blockHash)
@@ -101,7 +135,8 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
   return Object.freeze({ stage: input.stage, manifest, artifactDigest: expectedDigest,
     operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
     verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
-    stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase() });
+    stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase(),
+    ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),previousFactoriesPaused:true} : {}) });
 }
 
 /** Bounded JSON fetch; redirects and credentials to other origins are never followed. */
@@ -166,6 +201,7 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
     artifactDigest: graph.artifactDigest, operationId: graph.operationId,
     productGraphUrl, verifiedBlockHash: graph.verifiedBlockHash, operationalReady: graph.operationalReady,
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
+    ...(graph.freshAuthority ? {freshAuthority:graph.freshAuthority,previousFactoriesPaused:true} : {}),
     origin, basePath: base, manifestUrl,
     indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }

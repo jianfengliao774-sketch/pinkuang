@@ -50,7 +50,8 @@ export function verifyInitializationExecution({ record, step, tx, receipt }) {
     operator: address(record.input.operator),
     treasury: address(record.input.treasury),
     vaultImplementation: address(record.addresses.PoolVault),
-    factoryImplementation: address(record.addresses.PoolFactory),
+    factoryImplementation: address(record.addresses[integrated && record.addresses.FreshPoolFactory
+      ? 'FreshPoolFactory' : 'PoolFactory']),
     marketImplementation: address(record.addresses.ShareMarket),
   };
   if (mode === 'single') requireProof(same(config.ownerMultisig, account), 'single owner differs from deployment account.');
@@ -96,7 +97,8 @@ export function verifyInitializationExecution({ record, step, tx, receipt }) {
   requireProof(!same(outerTo, coordinator), 'coordinator calldata differs from the planned initialization.');
   requireProof(Array.isArray(record.steps), 'missing confirmed prerequisite steps.');
   const prerequisites = {};
-  for (const id of ['AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket',
+  for (const id of ['AtomicDeployment', 'PoolVault',
+    integrated && record.addresses.FreshPoolFactory ? 'FreshPoolFactory' : 'PoolFactory', 'ShareMarket',
     ...(integrated ? ['BudgetPortfolioFactory','BudgetPortfolioVault'] : [])]) {
     const matches = record.steps.filter(item => item.id === id);
     requireProof(matches.length === 1 && matches[0].status === 'confirmed'
@@ -122,7 +124,8 @@ export function verifyInitializationExecution({ record, step, tx, receipt }) {
     ['DeploymentCompleted', [addresses.factory, addresses.beacon, addresses.shareMarket, addresses.timelock,
       config.ownerMultisig, config.operator, config.treasury]],
     ['ImplementationsRecorded', [config.vaultImplementation, prerequisites.PoolVault.codehash,
-      config.factoryImplementation, prerequisites.PoolFactory.codehash,
+      config.factoryImplementation, prerequisites[integrated && record.addresses.FreshPoolFactory
+        ? 'FreshPoolFactory' : 'PoolFactory'].codehash,
       config.marketImplementation, prerequisites.ShareMarket.codehash]],
     ['SingleOwnerDeployment', [config.ownerMultisig, addresses.factory]],
   ];

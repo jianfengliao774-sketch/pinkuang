@@ -84,10 +84,12 @@ function completedProof(owner = account, id = 'completed') {
   return { record, provider, transactions, receipts, blockHashes };
 }
 
-async function fixture(provider = chainProof(), currentArtifactDigest = () => hex(5), assertSigningInputsCurrent = () => {}) {
+async function fixture(provider = chainProof(), currentArtifactDigest = () => hex(5),
+  assertSigningInputsCurrent = () => {}, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-journal-'));
   const dbPath = join(directory, 'private', 'journal.sqlite');
-  const service = createJournalService({ dbPath, origin, provider, currentArtifactDigest, assertSigningInputsCurrent });
+  const service = createJournalService({ dbPath, origin, provider, currentArtifactDigest,
+    assertSigningInputsCurrent, ...options });
   const server = createServer((req, res) => service.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -109,6 +111,133 @@ async function fixture(provider = chainProof(), currentArtifactDigest = () => he
   return { directory, dbPath, service, server, request, login,
     async close() { await new Promise(resolve => server.close(resolve)); await service.close(); await rm(directory, { recursive: true, force: true }); } };
 }
+
+test('fresh activation reports only a Gas public address derived from the reviewed credential', async () => {
+  const expected=Wallet.createRandom().address;
+  const f=await fixture(chainProof(),()=>hex(5),()=>{},
+    {expectedGasWallet:expected,gasWalletAddressReader:()=>expected});
+  try {
+    const session=await f.login(wallet);
+    const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
+    assert.deepEqual(config.body,{credentialVerified:true,gasWallet:expected});
+    const missing=await f.request('/api/journal/fresh-activation','PUT',
+      {record:{},expectedRevision:0},session.cookie);
+    assert.equal(missing.status,400,'valid credential still requires a complete Stage2 record');
+  } finally {await f.close();}
+  const mismatch=await fixture(chainProof(),()=>hex(5),()=>{},
+    {expectedGasWallet:expected,gasWalletAddressReader:()=>Wallet.createRandom().address});
+  try {
+    const session=await mismatch.login(wallet);
+    const config=await mismatch.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
+    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:null});
+    const denied=await mismatch.request('/api/journal/fresh-activation','PUT',
+      {record:{},expectedRevision:0},session.cookie);
+    assert.equal(denied.status,503);
+  } finally {await mismatch.close();}
+});
+
+test('journal API permits only documented no-send rejection and same-intent manual retry', async () => {
+  const gasWallet = Wallet.createRandom().address;
+  const f = await fixture(chainProof(), () => hex(5), () => {},
+    { expectedGasWallet: gasWallet, gasWalletAddressReader: () => gasWallet });
+  try {
+    const { cookie } = await f.login(wallet);
+    const core = deployment();
+    let revision = 0;
+    const putDeployment = async record => {
+      const result = await f.request('/api/journal/deployment', 'PUT', { record, expectedRevision: revision }, cookie);
+      if (result.status === 200) revision = result.body.revision;
+      return result;
+    };
+    assert.equal((await putDeployment(core)).status, 200);
+    const signing = structuredClone(core);
+    signing.status = 'paused';
+    signing.steps[0] = { id: 'PoolVault', status: 'signing', nonce: 7, dataHash: hex(77) };
+    assert.equal((await putDeployment(signing)).status, 200);
+    const erased = structuredClone(signing); erased.steps[0].status = 'waiting';
+    assert.equal((await putDeployment(erased)).status, 409);
+    const undocumented = structuredClone(signing); undocumented.steps[0].status = 'rejected';
+    assert.equal((await putDeployment(undocumented)).status, 409);
+    const rejected = structuredClone(undocumented); rejected.steps[0].rejectionKind = 'wallet-rejected';
+    assert.equal((await putDeployment(rejected)).status, 200);
+    assert.equal((await putDeployment(signing)).status, 200, 'same nonce and payload can be retried explicitly');
+    const uncertain = structuredClone(signing); uncertain.steps[0].status = 'uncertain';
+    assert.equal((await putDeployment(uncertain)).status, 200);
+    assert.equal((await putDeployment(rejected)).status, 409, 'ambiguous send cannot claim a definite rejection');
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.steps[0].status,
+      'uncertain');
+
+    const genesis = deployment(account, 'fresh-graph');
+    genesis.kind = 'integrated-v2'; genesis.status = 'complete';
+    const factoryAddress = Wallet.createRandom().address, portfolioFactory = Wallet.createRandom().address;
+    const timelock = Wallet.createRandom().address, shareMarket = Wallet.createRandom().address;
+    const portfolioMarket = Wallet.createRandom().address;
+    genesis.addresses = { factory: factoryAddress, portfolioFactory, timelock, shareMarket, portfolioShareMarket: portfolioMarket };
+    genesis.verification = { code: Object.fromEntries([
+      ['factory',hex(1)], ['portfolioFactory',hex(2)], ['shareMarket',hex(3)],
+      ['portfolioShareMarket',hex(4)], ['timelock',hex(5)],
+    ].map(([name,codehash]) => [name,{codehash}])) };
+    // A fresh graph occupies a distinct hardware wallet's single deployment slot.
+    const freshWallet = Wallet.createRandom(), freshAccount = freshWallet.address.toLowerCase();
+    genesis.account = freshAccount;
+    genesis.input.ownerMultisig = genesis.input.operator = genesis.input.treasury = freshAccount;
+    const freshSession = await f.login(freshWallet);
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: genesis, expectedRevision: 0 }, freshSession.cookie)).status, 200);
+    const ids = ['deployAuthority','coreOperator','coreTreasury','budgetOperator',
+      'budgetTreasury','coreOwner','budgetOwner'];
+    const stage = { schemaVersion: 1, kind: 'fresh-authority', chainId: 56,
+      account: freshAccount, deploymentId: genesis.id, genesisArtifactDigest: genesis.artifactDigest,
+      genesis: { factory: factoryAddress, portfolioFactory, timelock, shareMarket, portfolioMarket,
+        codehash: { factory:hex(1),portfolioFactory:hex(2),shareMarket:hex(3),portfolioMarket:hex(4),timelock:hex(5) } },
+      administratorOne: '0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',
+      administratorTwo: '0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb', gasWallet,
+      createdAt: '2026-09-29T00:00:00Z', updatedAt: '2026-09-29T00:00:00Z',
+      maxGasBudgetBnb: '0.05', gasPriceCapGwei: '3', spentWei: '0', status: 'ready',
+      steps: ids.map(id => ({ id, status: 'waiting' })) };
+    let stageRevision = 0;
+    const putStage = async record => {
+      const result = await f.request('/api/journal/fresh-activation', 'PUT',
+        { record, expectedRevision: stageRevision }, freshSession.cookie);
+      if (result.status === 200) stageRevision = result.body.revision;
+      return result;
+    };
+    assert.equal((await putStage(stage)).status, 200);
+    const stageSigning = structuredClone(stage);
+    stageSigning.status = 'paused';
+    stageSigning.steps[0] = { id: ids[0], status: 'signing', nonce: 8, dataHash: hex(88),
+      gasLimit: '4000000', gasPriceWei: '1000000000', maxFeeWei: '4000000000000000' };
+    assert.equal((await putStage(stageSigning)).status, 200);
+    const stageRejected = structuredClone(stageSigning);
+    stageRejected.steps[0].status = 'rejected'; stageRejected.steps[0].rejectionKind = 'pre-send';
+    assert.equal((await putStage(stageRejected)).status, 200);
+    const changed = structuredClone(stageSigning); changed.steps[0].nonce = 9;
+    assert.equal((await putStage(changed)).status, 409);
+    assert.equal((await putStage(stageSigning)).status, 200);
+    const stageUncertain = structuredClone(stageSigning); stageUncertain.steps[0].status = 'uncertain';
+    assert.equal((await putStage(stageUncertain)).status, 200);
+    assert.equal((await putStage(stageRejected)).status, 409);
+  } finally { await f.close(); }
+});
+
+test('fresh genesis cannot be archived without losing its activation recovery anchor', async () => {
+  const f=await fixture();
+  try {
+    const {cookie}=await f.login(wallet);
+    const fresh=deployment(account,'fresh-genesis');
+    fresh.kind='integrated-v2'; fresh.status='complete';
+    fresh.steps=[{id:'FreshPoolFactory',status:'confirmed'}];
+    assert.equal((await f.request('/api/journal/deployment','PUT',
+      {record:fresh,expectedRevision:0},cookie)).status,200);
+    const archive=await f.request('/api/journal/deployment/archive','POST',
+      {id:fresh.id,expectedRevision:1},cookie);
+    assert.equal(archive.status,409);
+    assert.match(archive.body.error,/Fresh genesis/);
+    const saved=await f.request('/api/journal/deployment','GET',undefined,cookie);
+    assert.equal(saved.body.record.id,fresh.id);
+    assert.equal(saved.body.revision,1);
+  } finally {await f.close();}
+});
 
 test('wallet challenge is one-use, origin-bound and sessions are wallet-isolated', async () => {
   const f = await fixture();

@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { Wallet } from 'ethers';
 
 /** Read a systemd LoadCredential file, with the legacy process environment as a fallback. */
 export function readKeeperPrivateKey(env = process.env) {
@@ -19,4 +20,12 @@ export function readKeeperPrivateKey(env = process.env) {
   }
   if (!/^0x[0-9a-f]{64}$/i.test(key ?? '')) throw new Error('A valid keeper private key is required for --send.');
   return key;
+}
+
+/** Derive only the public sender from a systemd credential; fail closed without it. */
+export function readKeeperPublicAddress(env = process.env) {
+  if (!env.CREDENTIALS_DIRECTORY || env.KEEPER_PRIVATE_KEY)
+    throw new Error('A systemd Gas-wallet credential is required.');
+  try { return new Wallet(readKeeperPrivateKey(env)).address; }
+  catch { throw new Error('Gas-wallet credential is unavailable or invalid.'); }
 }

@@ -1,9 +1,10 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, createKeeperRuntime, KEEPER_STATE_ROOT,
   readJournal, runKeeperCycle, writeJournal } from './purchase-keeper.mjs';
+import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
 const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function allPools(uint256) view returns(address)'];
 const POOL_ABI = ['function state() view returns(uint8)'];
@@ -16,7 +17,7 @@ export function parseSupervisorArguments(args) {
   for (let index = 0; index < args.length; index += 1) {
     const key = args[index].startsWith('--') ? args[index].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[index]}`);
-    if (['send', 'once', 'help'].includes(key)) values[key] = true;
+    if (['send', 'once', 'help', 'fresh-graph'].includes(key)) values[key] = true;
     else if (keys.has(key) && args[index + 1] && !args[index + 1].startsWith('--')) values[key] = args[++index];
     else throw new Error(`Unknown option or missing value: --${key}`);
   }
@@ -34,6 +35,8 @@ export function parseSupervisorArguments(args) {
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
   return { factory: getAddress(values.factory), rpc, interval, maxPools, pages, sort,
     send: values.send === true, once: values.once === true, from: values.from ? getAddress(values.from) : null,
+    freshGraph: values['fresh-graph'] === true,
+    journalDirExplicitAbsolute: Boolean(values['journal-dir'] && isAbsolute(values['journal-dir'])),
     journalDir: resolve(values['journal-dir'] ?? 'keeper-journal/purchase'),
     maxGasWei, maxGasPrice };
 }
@@ -106,9 +109,11 @@ export async function runSupervisorCycle(provider, options, signer, state) {
 export async function main(args = process.argv.slice(2)) {
   const options = parseSupervisorArguments(args);
   if (options.help) {
-    console.log('Automatic purchase supervisor: --factory 0x... [--once]. Read-only by default. --send requires --journal-dir and KEEPER_PRIVATE_KEY_FILE.');
+    console.log('Automatic purchase supervisor: --factory 0x... [--once]. Read-only by default. Legacy --send requires --journal-dir and KEEPER_PRIVATE_KEY_FILE. Fresh --send requires --fresh-graph, FRESH_PURCHASE_ENABLED=1, a systemd keeper-private-key credential and reviewed deployment evidence.');
     return;
   }
+  if (options.send && process.env.BEMINE_PRODUCT_ACTIVATION_PATH && !options.freshGraph)
+    throw new Error('Fresh product runtime requires --fresh-graph before automatic purchases.');
   const releaseFactory = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'purchase-factories', `56-${options.factory.toLowerCase()}`));
   let stopping = false;
   const state = { pools: [], cursor: 0, runtimes: new Map() };
@@ -126,8 +131,18 @@ export async function main(args = process.argv.slice(2)) {
   const provider = new JsonRpcProvider(request);
   try {
     let signer = null;
+    let freshGuard = null;
+    if (options.freshGraph) {
+      const fresh = await import('./fresh-purchase-guard.mjs');
+      freshGuard = fresh.configureFreshPurchase(options);
+      await fresh.verifyFreshPurchaseGraph(provider, options, freshGuard);
+      options.verifyBeforeSend = (currentProvider, pool) =>
+        fresh.verifyFreshPurchasePool(currentProvider, options, freshGuard, pool);
+    }
     if (options.send) {
-      signer = loadSigner(provider);
+      signer = options.freshGraph ? new Wallet(readKeeperPrivateKey(), provider) : loadSigner(provider);
+      if (freshGuard && getAddress(await signer.getAddress()) !== freshGuard.gasWallet)
+        throw new Error('Fresh purchase signer differs from the reviewed Gas wallet.');
       mkdirSync(options.journalDir, { recursive: true, mode: 0o700 });
       if ((statSync(options.journalDir).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
     }
@@ -141,7 +156,7 @@ export async function main(args = process.argv.slice(2)) {
           .replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]')
           .split(signer?.privateKey ?? '\0').join('[redacted]');
         console.error(serial({ at: new Date().toISOString(), status: 'supervisor-error', message: message.slice(0, 300) }));
-        if (options.once) { process.exitCode = 1; break; }
+        if (options.once || options.freshGraph) { process.exitCode = 1; break; }
       }
       if (options.once || stopping) break;
       await new Promise(done => setTimeout(done, options.interval * 1000));

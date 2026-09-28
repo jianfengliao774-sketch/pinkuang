@@ -197,6 +197,18 @@ export async function readPortfolioOrders(config, provider, pool, { cursor, fetc
 
 export async function preparePortfolioAction({ config, provider, account, pool, action }) {
   const context = await readPortfolioContext(config, provider), owner = address(account), { manifest, read } = context;
+  const operatorAllowed = async () => {
+    if (same(owner, context.operator)) return true;
+    if (config?.stage !== 'fresh-active' || !config.authority || !same(context.operator, config.authority)) return false;
+    const [first, second, core, budget] = await Promise.all([
+      read(config.authority, abi.PlatformAuthority, 'administratorOne'),
+      read(config.authority, abi.PlatformAuthority, 'administratorTwo'),
+      read(config.authority, abi.PlatformAuthority, 'coreFactory'),
+      read(config.authority, abi.PlatformAuthority, 'budgetFactory'),
+    ]);
+    return (same(owner, first[0]) || same(owner, second[0]))
+      && same(core[0], manifest.factory) && same(budget[0], manifest.portfolioFactory);
+  };
   let target = pool && address(pool), contract = abi.BudgetPortfolioVault, method = action.kind, args = [], value = 0n, row = null, procurement = null;
   let targetType = 'portfolio', marketTrade = null;
   if (['marketList', 'marketFill', 'marketCancel', 'marketExpire', 'marketWithdraw'].includes(method)) {
@@ -233,7 +245,7 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     }
   } else if (method === 'createPortfolio') {
     targetType = 'portfolioFactory';
-    requireValue(same(owner, context.operator), '仅预算项目运营钱包可创建项目。');
+    requireValue(await operatorAllowed(), '仅链上登记的预算项目管理员可创建项目。');
     target = manifest.portfolioFactory; contract = abi.BudgetPortfolioFactory;
     const budget = exactPrice(action.budget), absoluteCap = exactPrice(action.absoluteCap), unitCap = exactPrice(action.unitCap);
     const funding = uint(action.fundingDeadline, 64), purchase = uint(action.purchaseDeadline, 64);
@@ -247,7 +259,7 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     if (method === 'claimBem') requireValue(row.lockedShares === 0n,
       '份额挂单仍在锁定；请先撤单或等待成交、到期解锁后再领取 BEM。');
     if (method === 'autoPurchase') {
-      requireValue(same(owner, context.operator) && row.state === 1n, '预算项目未募满或当前钱包不是运营钱包。');
+      requireValue(await operatorAllowed() && row.state === 1n, '预算项目未募满或当前钱包不是运营钱包。');
       const child = address(action.child);
       requireValue((await read(manifest.factory, abi.PoolFactory, 'isPool', [child]))[0], '子矿池未登记。');
       const [paramsResult, childState, supply, childFactory] = await Promise.all([

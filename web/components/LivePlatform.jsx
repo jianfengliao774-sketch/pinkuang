@@ -40,6 +40,7 @@ import SiteOverview from "./SiteOverview";
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
+import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios from "./LivePortfolios";
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
@@ -51,6 +52,7 @@ import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-disc
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
+import { approvedOperatorCall, authorityActionStatus, signAuthorityAction, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
@@ -320,10 +322,14 @@ export default function LivePlatform() {
     && operator.deployment === boot && same(operator.account, account)
     && same(operator.factory, config.factory);
   const isOperator = operatorContextCurrent && operator.status === 'verified'
-    && operator.configured === true && operator.isOperator === true && same(operator.operator, account)
+    && operator.configured === true && operator.isOperator === true
+    && (same(operator.operator, account) || config.stage === 'fresh-active'
+      && operator.isAuthorityAdmin === true && same(operator.operator, config.authority))
     && !connectingId && !connectionLock.current;
   const isPortfolioOperator = operatorContextCurrent && operator.status === 'verified' && operator.isPortfolioOperator === true
-    && same(operator.portfolioOperator, account) && !connectingId && !connectionLock.current;
+    && (same(operator.portfolioOperator, account) || config.stage === 'fresh-active'
+      && operator.isAuthorityAdmin === true && same(operator.portfolioOperator, config.authority))
+    && !connectingId && !connectionLock.current;
   const hasOperatorAccess = isOperator || isPortfolioOperator;
   const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
     : hasOperatorAccess ? 'verified' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
@@ -1206,6 +1212,46 @@ export default function LivePlatform() {
     timer = setTimeout(poll, 3000);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [pending?.hash, pending?.recoveryHashes?.at(-1), account, config, busy]);
+  async function submitFreshAuthority(kind, args, current) {
+    if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account)
+      throw new Error('当前钱包没有新合约管理员权限。');
+    const previous = await authorityActionStatus(config, account);
+    if (previous?.status && !['idle', 'confirmed', 'failed'].includes(previous.status))
+      throw new Error('已有管理员代付交易待确认；先核对状态，不能重复发送。');
+    if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
+    const command = await signAuthorityAction({ provider: wallet, config, account, kind, args });
+    if (!current()) throw new Error('签名期间页面或钱包已改变；请先核对管理员代付状态。');
+    // A network error after submission is ambiguous. The relay journal is the
+    // source of truth; never resend the same signed command automatically.
+    let result;
+    try { result = await submitAuthorityAction(config, account, command); }
+    catch (problem) {
+      const status = await authorityActionStatus(config, account).catch(() => null);
+      if (status?.status && status.status !== 'idle') result = status;
+      else throw problem;
+    }
+    if (current()) {
+      setMessage(result.hash ? `Gas 钱包交易已提交：${result.hash}。请等待链上确认。`
+        : '管理员签名已提交，请在运营工作台核对代付状态。');
+      setOperatorRefresh(value => value + 1);
+      setRefresh(value => value + 1);
+    }
+    return result;
+  }
+  async function sendFreshAuthority(kind, args) {
+    if (busy || submissionLock.current || !isOperator || !wallet || !account)
+      throw new Error('管理员权限或交易状态已变化，请重新读取。');
+    const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
+    submissionLock.current = ticket; setBusy(true); setError('');
+    const current = () => revision === walletEpoch.current && page === routeIdentity.current;
+    try {
+      await connectJournal({ inspect: false });
+      return await submitFreshAuthority(kind, args, current);
+    } finally {
+      if (submissionLock.current === ticket) submissionLock.current = null;
+      setBusy(false);
+    }
+  }
   async function sendPortfolio(confirmed, input) {
     if (busy || submissionLock.current || !wallet || !account) throw new Error('请等待当前操作完成。');
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
@@ -1216,6 +1262,8 @@ export default function LivePlatform() {
       if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
       const checked = await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
+      if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
       const result = await sendProductTransaction({ provider: wallet, config, transaction: checked.transaction,
         action: checked.action, onState: state => { if (current()) showTransactionProgress(state); } });
       if (revision === walletEpoch.current) await handleResult(result, revision);
@@ -1327,6 +1375,11 @@ export default function LivePlatform() {
       if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction)
         || !sameAdminPurchasePreview(preview, checked))
         throw new Error(L("运营操作参数已变化，请重新预览。", "Operation changed. Preview again."));
+      if (config?.stage === 'fresh-active') {
+        if (!['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(checked.kind))
+          throw new Error('新管理员 Gas 代付购机功能尚未启用；建池可先签名提交。');
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
+      }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
         onState: state => { if (current()) showTransactionProgress(state); } });
@@ -2967,9 +3020,11 @@ export default function LivePlatform() {
               operator={operator} disabled={loading || busy || !!pending} onSend={sendAdminAction}
               gasFeeWei={transactionGasWei}
               onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
+            {isOperator && config?.stage === 'fresh-active' && <FreshAuthorityConsole config={config} account={account}
+              wallet={wallet} disabled={loading || busy || !!pending} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={loading || busy || !!pending} onConnect={connect} onSend={sendPortfolio}
-              onSendQueue={sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
+              onSendQueue={config?.stage === 'fresh-active' ? undefined : sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
           </> : <section className="panel" data-operator-access={operatorAccess}>
             <Empty title={operatorAccess === 'checking'

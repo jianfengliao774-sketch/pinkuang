@@ -96,6 +96,8 @@ export interface StepRecord {
   receipt?: { blockNumber: number; blockHash: string; status: number; gasUsed: string; gasPrice: string; feeWei: string };
   codehash?: string;
   error?: string;
+  /** A definite pre-broadcast stop or explicit EIP-1193 user rejection. */
+  rejectionKind?: 'pre-send' | 'wallet-rejected';
 }
 export interface VerificationCheck { label: string; passed: boolean; actual: string; expected: string }
 export interface DeploymentVerification {
@@ -136,7 +138,7 @@ export interface DeploymentCallbacks {
 }
 
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
-const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
+const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const isAborted = (snapshot: DeploymentSnapshot): boolean => snapshot.status === 'aborted';
@@ -630,7 +632,7 @@ export class DeploymentEngine {
   private stepIds(kind?: DeploymentSnapshot['kind']): string[] {
     assert(kind === undefined || kind === 'integrated-v2', '部署版本不支持。');
     const libraries = libraryDeploymentOrder(this.bundle).filter(name => kind === 'integrated-v2' || name !== 'FirstoSale');
-    return [...libraries, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket',
+    return [...libraries, 'AtomicDeployment', 'PoolVault', kind === 'integrated-v2' ? 'FreshPoolFactory' : 'PoolFactory', 'ShareMarket',
       ...(kind === 'integrated-v2' ? ['BudgetPortfolioFactory', 'BudgetPortfolioVault'] : []), 'initialize'];
   }
 
@@ -732,7 +734,9 @@ export class DeploymentEngine {
       const iface = new Interface(this.bundle.artifacts.AtomicDeployment.abi);
       const core = {
         ownerMultisig: snapshot.input.ownerMultisig, operator: snapshot.input.operator, treasury: snapshot.input.treasury,
-        vaultImplementation: snapshot.addresses.PoolVault, factoryImplementation: snapshot.addresses.PoolFactory, marketImplementation: snapshot.addresses.ShareMarket,
+        vaultImplementation: snapshot.addresses.PoolVault,
+        factoryImplementation: snapshot.addresses[snapshot.kind === 'integrated-v2' ? 'FreshPoolFactory' : 'PoolFactory'],
+        marketImplementation: snapshot.addresses.ShareMarket,
       };
       const integrated = snapshot.kind === 'integrated-v2';
       if (integrated) assert(snapshot.input.governanceMode === 'single', '集成部署的治理模式与已确认方案不同。');
@@ -800,8 +804,13 @@ export class DeploymentEngine {
     const maxFee = gasLimit * fee.gasPrice;
     assert(BigInt(snapshot.spentWei) + maxFee <= parseEther(snapshot.input.maxGasBudgetBnb), '下一笔交易可能超过总 Gas 预算，已停止。');
     assert(balance >= maxFee, '余额不足以支付下一笔交易 Gas。');
+    if (step.status === 'rejected') {
+      assert(step.nonce === nonce && step.dataHash === keccak256(transaction.data as string),
+        '上次拒签后 nonce 或部署交易内容已变化；不能按原写前记录重新签名，请先核对链上交易。');
+    }
     transaction.gasLimit = gasLimit; transaction.gasPrice = fee.gasPrice; transaction.nonce = nonce; transaction.type = 0;
     Object.assign(step, { status: 'signing', nonce, gasEstimate: estimated.toString(), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
+    delete step.rejectionKind;
     delete step.error;
     // Write-ahead intent makes a reload between wallet acceptance and hash delivery fail closed.
     await this.save(snapshot);
@@ -833,10 +842,15 @@ export class DeploymentEngine {
     } catch (error) {
       if (!step.txHash) {
         const failure = error as { code?: string | number; info?: { error?: { code?: number } } };
-        // An artifact check failed after the signing intent was saved. Preserve
-        // that durable intent; the old page must not make it retryable.
-        step.status = artifactCheckFailed || nonceCheckFailed ? 'signing' : !attemptedBroadcast ? 'waiting'
-          : failure.code === 'ACTION_REJECTED' || failure.code === 4001 || failure.info?.error?.code === 4001 ? 'rejected' : 'uncertain';
+        // The wallet was never called for a pre-send artifact or identity
+        // failure. A changed nonce remains unresolved because another page
+        // could have consumed the planned CREATE address. An explicit 4001
+        // rejection is also definite; all other send failures stay uncertain.
+        const walletRejected = attemptedBroadcast && (failure.code === 'ACTION_REJECTED'
+          || failure.code === 4001 || failure.info?.error?.code === 4001);
+        step.status = nonceCheckFailed ? 'signing'
+          : !attemptedBroadcast || walletRejected ? 'rejected' : 'uncertain';
+        if (step.status === 'rejected') step.rejectionKind = walletRejected ? 'wallet-rejected' : 'pre-send';
       }
       step.error = artifactCheckFailed
         ? `发送前服务器产物核对失败；本页尚未请求钱包签名。请先核对是否有其他页面或钱包使用了同一 nonce：${errorMessage(error)}`
@@ -887,7 +901,7 @@ export class DeploymentEngine {
         const coordinator = new Contract(snapshot.addresses.AtomicDeployment, this.bundle.artifacts.AtomicDeployment.abi, this.provider);
         assert(sameAddress(await contract.OFFICIAL_FACTORY(), await coordinator[step.id === 'PoolVault' ? 'predictedFactory' : 'predictedPortfolioFactory']()), 'Vault immutable 工厂绑定不匹配。');
       }
-      if (['PoolFactory', 'ShareMarket', 'BudgetPortfolioFactory'].includes(step.id)) assert((await contract.proxiableUUID()).toLowerCase() === IMPLEMENTATION_SLOT, '实现不是预期 UUPS 存储槽。');
+      if (['PoolFactory', 'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory'].includes(step.id)) assert((await contract.proxiableUUID()).toLowerCase() === IMPLEMENTATION_SLOT, '实现不是预期 UUPS 存储槽。');
     }
     if (initializationExecution?.kind === 'wrapped') {
       await this.finalizedReplacement(snapshot, step, receipt.hash);
@@ -930,7 +944,7 @@ export class DeploymentEngine {
         portfolioVaultImplementation: snapshot.addresses.BudgetPortfolioVault,
       });
     }
-    const factory = new Contract(addresses.factory, this.bundle.artifacts.PoolFactory.abi, this.provider);
+    const factory = new Contract(addresses.factory, this.bundle.artifacts[snapshot.kind === 'integrated-v2' ? 'FreshPoolFactory' : 'PoolFactory'].abi, this.provider);
     const lensAddress = getAddress(await factory.lens(atBlock));
     assert(lensAddress !== ZeroAddress, 'Factory 尚未创建 Lens。');
     snapshot.addresses.lens = lensAddress;
@@ -992,7 +1006,16 @@ export class DeploymentEngine {
     const roleLabels = ['管理地址提案权', '管理地址取消权', '到期公开执行', 'Timelock 自管理', '部署者没有 Timelock admin', '协调器没有 Timelock admin'];
     roleChecks.forEach((actual, index) => check(roleLabels[index], actual, index < 4));
     const slotAddress = (slot: string) => getAddress(`0x${slot.slice(-40)}`);
-    check('Factory UUPS 实现槽', slotAddress(slots[0]), snapshot.addresses.PoolFactory);
+    check('Factory UUPS 实现槽', slotAddress(slots[0]), snapshot.addresses[snapshot.kind === 'integrated-v2' ? 'FreshPoolFactory' : 'PoolFactory']);
+    if (snapshot.kind === 'integrated-v2') {
+      const previous = await Promise.all([
+        factory.FIRST_MAINNET_FACTORY(atBlock), factory.PREVIOUS_MAINNET_FACTORY(atBlock),
+        factory.PREVIOUS_POOL_13043(atBlock),
+      ]);
+      check('FreshFactory 第一版工厂绑定', previous[0], '0xcB24E7F96D81037086A268d6ea63c53f91D412A2');
+      check('FreshFactory 当前旧工厂绑定', previous[1], '0x2995B10d19056c8C24C57b281C22562a603C571F');
+      check('FreshFactory 旧矿机池绑定', previous[2], '0x575F3D44aE9cFfF5A5584E7F1dbE056f3e63d792');
+    }
     check('Market UUPS 实现槽', slotAddress(slots[1]), snapshot.addresses.ShareMarket);
     if (requireInitialEmpty) check('初始池子数量', poolCount, 0);
     else checks.push({ label: '当前池子数量', passed: true, actual: poolCount.toString(), expected: '部署完成后允许创建资金池' });

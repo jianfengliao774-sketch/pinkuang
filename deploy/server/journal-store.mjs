@@ -2,6 +2,7 @@ import { mkdirSync, chmodSync, existsSync, lstatSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { parseEther, parseUnits } from 'ethers';
+import { validateFreshActivationProgress } from './fresh-activation-journal.mjs';
 
 export class JournalConflict extends Error {}
 
@@ -26,6 +27,7 @@ export class JournalStore {
       CREATE INDEX IF NOT EXISTS challenges_account ON challenges(account);
       CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, account TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS deployment (account TEXT PRIMARY KEY, revision INTEGER NOT NULL, record TEXT);
+      CREATE TABLE IF NOT EXISTS fresh_activation (account TEXT PRIMARY KEY, revision INTEGER NOT NULL, record TEXT);
       CREATE TABLE IF NOT EXISTS deployment_archives (account TEXT NOT NULL, id TEXT NOT NULL, record TEXT NOT NULL,
         PRIMARY KEY(account,id));
       CREATE TABLE IF NOT EXISTS market (account TEXT PRIMARY KEY, revision INTEGER NOT NULL, record TEXT);
@@ -88,6 +90,30 @@ export class JournalStore {
       archives: archivePage.items, archiveNextCursor: archivePage.nextCursor,
       latestCompleted: read(completed?.record ?? null) };
   }
+  freshActivation(account) {
+    const row = this.db.prepare('SELECT revision,record FROM fresh_activation WHERE account=?').get(account);
+    return { record: read(row?.record ?? null), revision: row?.revision ?? 0 };
+  }
+  putFreshActivation(account, record, expectedRevision) {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT revision,record FROM fresh_activation WHERE account=?').get(account);
+      const revision = row?.revision ?? 0;
+      if (revision !== expectedRevision) throw new JournalConflict('Fresh activation revision changed.');
+      const previous = read(row?.record ?? null);
+      if (previous) {
+        try { validateFreshActivationProgress(previous, record); }
+        catch (error) { throw new JournalConflict(error.message); }
+      }
+      if (record.steps.some((step, i) => step.status === 'signing' && previous?.steps[i]?.status !== 'signing')
+        && this.db.prepare('SELECT 1 FROM market WHERE account=? AND record IS NOT NULL').get(account))
+        throw new JournalConflict('This wallet has an unresolved product or market transaction.');
+      const next = revision + 1;
+      this.db.prepare(`INSERT INTO fresh_activation(account,revision,record) VALUES(?,?,?)
+        ON CONFLICT(account) DO UPDATE SET revision=excluded.revision,record=excluded.record`)
+        .run(account, next, canonical(record));
+      return next;
+    });
+  }
   archives(account, cursor, limit) {
     const sql = cursor === null
       ? 'SELECT CAST(rowid AS TEXT) AS cursor,record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT ?'
@@ -128,6 +154,8 @@ export class JournalStore {
       const record = read(current.record);
       if (!record || record.id !== id || !['aborted','complete'].includes(record.status))
         throw new JournalConflict('Only the matching completed or aborted deployment can be archived.');
+      if (record.status === 'complete' && record.steps.some(step => step.id === 'FreshPoolFactory'))
+        throw new JournalConflict('Fresh genesis must remain active with its Authority activation journal.');
       this.db.prepare('INSERT INTO deployment_archives(account,id,record) VALUES(?,?,?)').run(account, id, canonical(record));
       this.db.prepare('UPDATE deployment SET revision=?,record=NULL WHERE account=?').run(current.revision + 1, account);
       const state = this.deployment(account);
@@ -342,7 +370,11 @@ function validateDeploymentProgress(previous, next) {
     if (old.status === 'confirmed' && item.status !== 'confirmed') throw new JournalConflict('Confirmed step cannot regress.');
     if (['cancelled','replaced','failed'].includes(old.status) && !['cancelled','replaced','failed'].includes(item.status))
       throw new JournalConflict('Terminal deployment step cannot become retryable.');
-    if (['signing','submitted','uncertain'].includes(old.status) && ['waiting','rejected'].includes(item.status))
+    const definiteNoSend = old.status === 'signing' && item.status === 'rejected'
+      && ['pre-send','wallet-rejected'].includes(item.rejectionKind)
+      && !old.txHash && !item.txHash && !old.receipt && !item.receipt;
+    if (['signing','submitted','uncertain'].includes(old.status) && ['waiting','rejected'].includes(item.status)
+      && !definiteNoSend)
       throw new JournalConflict('Unknown transaction cannot become retryable without chain proof.');
     const before = old.previousTxHashes ?? [], after = item.previousTxHashes ?? [];
     if (!Array.isArray(after) || before.some((hash, index) => after[index] !== hash))
