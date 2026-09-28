@@ -686,7 +686,19 @@ export function integratedAuthorityDeploymentData(input) {
   return authorityDeploymentData(input).creationData;
 }
 
-async function postCodeGraphAt(provider,codePlan,input,block) {
+async function boundedReads(items,read,limit=6) {
+  const values=[];
+  for (let index=0;index<items.length;index+=limit) {
+    const outcomes=await Promise.allSettled(items.slice(index,index+limit).map(read));
+    for (const outcome of outcomes) {
+      if (outcome.status==='rejected') throw outcome.reason;
+      values.push(outcome.value);
+    }
+  }
+  return values;
+}
+
+async function postCodeGraphAt(provider,codePlan,input,block,expectedPaused=true) {
   const {genesisRecord,genesisBundle,trustedGenesisManifest,upgradeBundle,trustedUpgradeArtifactDigest} = input;
   const rebuilt = buildIntegratedUpgradePlan({...input,replacements:codePlan?.replacements,
     salt:codePlan?.salt,delaySeconds:codePlan?.delaySeconds});
@@ -698,14 +710,17 @@ async function postCodeGraphAt(provider,codePlan,input,block) {
   const old=genesisRecord.addresses, tag=`0x${block.number.toString(16)}`;
   const checks=[];
   const checked=(condition,label)=>{requireThat(condition,label);checks.push({label,passed:true});};
-  for (const name of oldRuntimeNames) {
-    const observed=await provider.getCode(old[name],block.number);
+  const oldRuntimes=await boundedReads(oldRuntimeNames,name=>provider.getCode(old[name],block.number));
+  for (const [index,name] of oldRuntimeNames.entries()) {
+    const observed=oldRuntimes[index];
     checked(observed!=='0x' && same(observed,genesisRuntime(name,genesisRecord,genesisBundle)),
       `Preserved genesis runtime changed: ${name}.`);
   }
   const addresses={...old,...codePlan.replacements};
-  for (const name of integratedUpgradeDeploymentOrder) {
-    const observed=await provider.getCode(codePlan.replacements[name],block.number);
+  const replacements=await boundedReads(integratedUpgradeDeploymentOrder,
+    name=>provider.getCode(codePlan.replacements[name],block.number));
+  for (const [index,name] of integratedUpgradeDeploymentOrder.entries()) {
+    const observed=replacements[index];
     checked(observed!=='0x' && same(observed,expectedRuntime(upgradeBundle.artifacts[name],addresses,
       codePlan.replacements[name],upgradeImmutable(name,old,codePlan.replacements[name]))),
     `Reviewed replacement runtime changed: ${name}.`);
@@ -732,8 +747,9 @@ async function postCodeGraphAt(provider,codePlan,input,block) {
     provider.send('eth_call',[{to:old.factory,data:factoryAbi.encodeFunctionData('machineRegistryStatus')},tag]),
   ]);
   const [initialized,ready,cursor,cutoff]=factoryAbi.decodeFunctionResult('machineRegistryStatus',registryRaw);
-  checked(corePaused===true && budgetPaused===true,
-    'Both factories must remain paused during role and historical-pool migration.');
+  checked(corePaused===expectedPaused && budgetPaused===expectedPaused,
+    expectedPaused?'Both factories must remain paused during role and historical-pool migration.'
+      :'Both factories must be resumed by the reviewed Timelock batch.');
   checked(initialized===true && ready===true && cursor===cutoff,
     'Machine registry is not fully ready.');
   const historical=await historicalTreasuries(provider,old,poolCount,portfolioCount,tag);
@@ -772,17 +788,14 @@ function authorityRuntimeShape(artifact,observed) {
     'PlatformAuthority runtime differs outside compiler-declared constructor immutables.');
 }
 
-/** Proves the direct creation transaction, runtime shape, immutable getters and EIP-712 domain. */
-export async function validateIntegratedAuthorityAgainstChain(provider,input) {
+async function authorityAt(provider,input,graph,block) {
   const {codePlan,genesisRecord,upgradeBundle,authorityAddress,deploymentTxHash,
     administratorOne,administratorTwo,gasWallet} = input;
-  const graph=await validateIntegratedPostCodeGraphAgainstChain(provider,codePlan,input);
   const authority=address(authorityAddress,'PlatformAuthority');
   const {constructorArgs,creationData}=authorityDeploymentData(input);
   requireThat(!Object.values(genesisRecord.addresses).some(value=>same(value,authority))
     && !Object.values(codePlan.replacements).some(value=>same(value,authority)),
   'PlatformAuthority reuses a genesis or replacement address.');
-  const block=await provider.getBlock(graph.blockNumber);
   const deployment=await finalizedTransaction(provider,deploymentTxHash,block);
   requireThat(deployment.tx.to===null && same(deployment.tx.data,creationData)
     && same(deployment.receipt.contractAddress,authority),
@@ -807,12 +820,20 @@ export async function validateIntegratedAuthorityAgainstChain(provider,input) {
     && eip712.name==='BEMine Platform Authority' && eip712.version==='1'
     && eip712.chainId===56n && same(eip712.verifyingContract,authority),
   'PlatformAuthority owner, constructor state or signing domain differs.');
-  const again=await provider.getBlock(block.number);
-  requireThat(same(again?.hash,block.hash),'PlatformAuthority proof block changed.');
   return {...graph,authorityAddress:authority,authorityCodehash:keccak256(code),deploymentTxHash,
     administratorOne:first,administratorTwo:second,gasWallet:gas,
     checks:[...graph.checks,{label:'Exact direct PlatformAuthority creation transaction',passed:true},
       {label:'Authority runtime and EIP-712 domain',passed:true}]};
+}
+
+/** Proves the direct creation transaction, runtime shape, immutable getters and EIP-712 domain. */
+export async function validateIntegratedAuthorityAgainstChain(provider,input) {
+  const graph=await validateIntegratedPostCodeGraphAgainstChain(provider,input.codePlan,input);
+  const block=await provider.getBlock(graph.blockNumber);
+  const result=await authorityAt(provider,input,graph,block);
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'PlatformAuthority proof block changed.');
+  return result;
 }
 
 /** Stage zero: the old proposer schedules hardware-wallet proposer and canceller grants. */
@@ -901,7 +922,7 @@ export async function validateIntegratedProposerBootstrapAgainstChain(provider,p
     checks:[...genesis.checks,{label:`Stage-zero Timelock ${phase}`,passed:true}]};
 }
 
-/** Four old-owner setters, one self-administered 48-hour revocation batch, then two ownership transfers. */
+/** Four old-owner setters, one self-administered 48-hour revocation batch, then transfer both Factory owners to Timelock. */
 export function buildIntegratedRoleMigrationPlan(input) {
   const {genesisRecord,codePlan,authorityAddress,hardwareWallet,salt,delaySeconds,bootstrapPlan} = input;
   const old=genesisRecord?.addresses;
@@ -924,8 +945,8 @@ export function buildIntegratedRoleMigrationPlan(input) {
     {name:'Core treasury',target:old.factory,abi:factoryAbi,method:'setTreasury',next:authority},
     {name:'Budget operator',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'setOperator',next:authority},
     {name:'Budget treasury',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'setTreasury',next:authority},
-    {name:'Core owner',target:old.factory,abi:factoryAbi,method:'transferOwnership',next:hardware},
-    {name:'Budget owner',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'transferOwnership',next:hardware},
+    {name:'Core owner',target:old.factory,abi:factoryAbi,method:'transferOwnership',next:address(old.timelock,'Timelock')},
+    {name:'Budget owner',target:old.portfolioFactory,abi:portfolioFactoryAbi,method:'transferOwnership',next:address(old.timelock,'Timelock')},
   ].map(({name,target,abi,method,next},index)=>({name,index,target:address(target,`${name} target`),
     signer:owner,method,next,data:abi.encodeFunctionData(method,[next]),value:'0',
     after:index<4?'code-upgrade':'role-batch'}));
@@ -1304,4 +1325,145 @@ export async function validateIntegratedOnChainMigrationCompleteAgainstChain(pro
     onChainMigrationComplete:true,keeperCutoverVerified:false,deploymentComplete:false,
     previousAccruedFeesAreNotRedirected:true,
     checks:[...proof.checks,{label:'Every historical treasury and Timelock migration',passed:true}]};
+}
+
+/** Separate 48-hour Timelock batch for reopening both factories after the keeper is ready. */
+export function buildIntegratedCreationResumePlan(input) {
+  const {genesisRecord,rolePlan,migrationPlan,salt,delaySeconds}=input;
+  const old=genesisRecord?.addresses;
+  requireThat(old?.factory && old?.portfolioFactory && old?.timelock
+    && same(rolePlan?.timelock,old.timelock)
+    && same(migrationPlan?.timelock,old.timelock)
+    && same(rolePlan?.authorityAddress,migrationPlan?.authorityAddress),
+  'Completed role and historical-treasury plans are required to resume creation.');
+  requireThat(HASH.test(salt) && BigInt(salt)!==0n
+    && Number.isSafeInteger(delaySeconds) && delaySeconds>=MIN_DELAY,
+  'A unique nonzero resume salt and at least 48-hour delay are required.');
+  const targets=[address(old.factory,'core factory'),address(old.portfolioFactory,'budget factory')];
+  const values=['0','0'];
+  const payloads=[factoryAbi.encodeFunctionData('pauseCreation',[false]),
+    portfolioFactoryAbi.encodeFunctionData('pauseCreation',[false])];
+  const args=[targets,values.map(BigInt),payloads,ZeroHash,salt];
+  const operationId=keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address[]','uint256[]','bytes[]','bytes32','bytes32'],args));
+  return {kind:'integrated-v2-resume-creation-v1',timelock:address(old.timelock,'Timelock'),
+    hardwareWallet:address(rolePlan.hardwareWallet,'hardware wallet'),
+    rolePlanDigest:evidenceDigest(rolePlan),migrationPlanDigest:evidenceDigest(migrationPlan),
+    targets,values,payloads,predecessor:ZeroHash,salt,delaySeconds,operationId,
+    scheduleData:timelockAbi.encodeFunctionData('scheduleBatch',[...args,delaySeconds]),
+    executeData:timelockAbi.encodeFunctionData('executeBatch',args),
+    keeperCutoverVerified:false,deploymentComplete:false};
+}
+
+/** Chain-only signing preflight; backend keeper readiness remains an independent release gate. */
+export async function validateIntegratedCreationResumeActionAgainstChain(provider,resumePlan,input) {
+  const {migrationPlan,rolePlan,phase,signer}=input;
+  requireThat(phase==='unscheduled' || phase==='ready','Unknown creation-resume signing phase.');
+  const expected=buildIntegratedCreationResumePlan({...input,salt:resumePlan?.salt,
+    delaySeconds:resumePlan?.delaySeconds});
+  requireThat(same(evidenceDigest(expected),evidenceDigest(resumePlan)),
+    'Creation-resume batch differs from reviewed calldata.');
+  const proof=await validateIntegratedOnChainMigrationCompleteAgainstChain(provider,migrationPlan,input);
+  const wallet=address(signer,'connected signing wallet');
+  const tag=`0x${proof.blockNumber.toString(16)}`;
+  const [minDelay,chainId,isOperation,isReady,isDone,readyAt,chainOperationId,
+    proposerRole,executorRole]=await Promise.all([
+      call(provider,resumePlan.timelock,timelockAbi,'getMinDelay',[],tag),
+      provider.send('eth_chainId',[]),
+      call(provider,resumePlan.timelock,timelockAbi,'isOperation',[resumePlan.operationId],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'isOperationReady',[resumePlan.operationId],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'isOperationDone',[resumePlan.operationId],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'getTimestamp',[resumePlan.operationId],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'hashOperationBatch',[
+        resumePlan.targets,resumePlan.values.map(BigInt),resumePlan.payloads,
+        resumePlan.predecessor,resumePlan.salt],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'PROPOSER_ROLE',[],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'EXECUTOR_ROLE',[],tag),
+    ]);
+  requireThat(BigInt(chainId)===56n && same(chainOperationId,resumePlan.operationId)
+    && BigInt(resumePlan.delaySeconds)>=minDelay && minDelay>=BigInt(MIN_DELAY),
+  'Creation-resume Timelock identity or delay changed.');
+  if (phase==='unscheduled') {
+    requireThat(!isOperation && !isReady && !isDone && readyAt===0n
+      && same(wallet,rolePlan.hardwareWallet)
+      && await call(provider,resumePlan.timelock,timelockAbi,'hasRole',[proposerRole,wallet],tag),
+    'Creation resume is already arranged or wallet lacks PROPOSER_ROLE.');
+  } else {
+    const [directExecutor,openExecutor]=await Promise.all([
+      call(provider,resumePlan.timelock,timelockAbi,'hasRole',[executorRole,wallet],tag),
+      call(provider,resumePlan.timelock,timelockAbi,'hasRole',[executorRole,ZERO_ADDRESS],tag),
+    ]);
+    requireThat(isOperation && isReady && !isDone && readyAt>0n
+      && (directExecutor || openExecutor),
+    'Creation-resume batch is not ready or connected wallet cannot execute it.');
+  }
+  const again=await provider.getBlock(proof.blockNumber);
+  requireThat(same(again?.hash,proof.blockHash),'Creation-resume preflight block changed.');
+  return {...proof,phase,operationId:resumePlan.operationId,readyAt:readyAt.toString(),
+    transactionTarget:resumePlan.timelock,
+    calldata:phase==='unscheduled'?resumePlan.scheduleData:resumePlan.executeData,
+    keeperCutoverVerified:false,deploymentComplete:false,
+    operationalGate:'Verify keeper signer, admin-signature queue, publish and RPC health before scheduling.'};
+}
+
+/** Post-unpause verifier: complete code/runtime/role graph plus exact delayed Timelock receipts. */
+export async function validateIntegratedCreationResumeResultAgainstChain(provider,resumePlan,input) {
+  const {genesisRecord,codePlan,rolePlan,migrationPlan,codeResult,scheduleTxHash,executeTxHash}=input;
+  const expected=buildIntegratedCreationResumePlan({...input,salt:resumePlan?.salt,
+    delaySeconds:resumePlan?.delaySeconds});
+  requireThat(same(evidenceDigest(expected),evidenceDigest(resumePlan))
+    && HASH.test(scheduleTxHash) && HASH.test(executeTxHash)
+    && !same(scheduleTxHash,executeTxHash),
+  'Creation-resume operation or transaction hashes differ from reviewed plan.');
+  const [chain,block]=await Promise.all([provider.send('eth_chainId',[]),provider.getBlock('finalized')]);
+  requireThat(BigInt(chain)===56n && Number.isSafeInteger(block?.number) && HASH.test(block?.hash),
+    'A finalized BSC block is required after creation resume.');
+  const [scheduled,executed,codeGraph]=await Promise.all([
+    finalizedTransaction(provider,scheduleTxHash,block),
+    finalizedTransaction(provider,executeTxHash,block),
+    postCodeGraphAt(provider,codePlan,input,block,false),
+  ]);
+  requireThat(executed.receipt.blockNumber>scheduled.receipt.blockNumber
+    && BigInt(executed.block.timestamp)>=BigInt(scheduled.block.timestamp)
+      +BigInt(resumePlan.delaySeconds),
+  'Creation-resume batch was not executed after its full Timelock delay.');
+  for (const [proof,event] of [[scheduled,'CallScheduled'],[executed,'CallExecuted']]) {
+    const events=logsOf(proof,resumePlan.timelock,timelockAbi,event);
+    requireThat(events.length===2,`Creation-resume ${event} call count differs.`);
+    for (let index=0;index<2;index++) {
+      const args=events[index].args;
+      requireThat(same(args.id,resumePlan.operationId) && args.index===BigInt(index)
+        && same(args.target,resumePlan.targets[index]) && args.value===0n
+        && same(args.data,resumePlan.payloads[index])
+        && (event!=='CallScheduled' || same(args.predecessor,ZeroHash)
+          && args.delay===BigInt(resumePlan.delaySeconds)),
+      `Creation-resume ${event} ${index} differs from reviewed calldata.`);
+    }
+  }
+  const authority=await authorityAt(provider,input,{...codeGraph,blockNumber:block.number,
+    blockHash:block.hash,checkedAt:new Date().toISOString()},block);
+  const roleState=await roleStateAt(provider,rolePlan,input,block);
+  requireThat(roleState.roleWiringComplete===true
+    && same(roleState.current.coreOwner,resumePlan.timelock)
+    && same(roleState.current.budgetOwner,resumePlan.timelock),
+  'Factory owners or administrator roles drifted after creation resumed.');
+  const regeneratedMigration=buildIntegratedTreasuryMigrationPlan({genesisRecord,codeResult,
+    authorityAddress:migrationPlan?.authorityAddress,saltSeed:migrationPlan?.saltSeed,
+    delaySeconds:migrationPlan?.delaySeconds});
+  requireThat(same(evidenceDigest(regeneratedMigration),evidenceDigest(migrationPlan))
+    && codeGraph.historical.every(item=>same(item.treasury,rolePlan.authorityAddress)),
+  'Historical treasuries or their reviewed migration operations changed.');
+  const tag=`0x${block.number.toString(16)}`;
+  const done=await Promise.all([resumePlan.operationId,...migrationPlan.operations.map(op=>op.operationId)]
+    .map(id=>call(provider,resumePlan.timelock,timelockAbi,'isOperationDone',[id],tag)));
+  requireThat(done.every(Boolean),'A creation-resume or historical-treasury operation is incomplete.');
+  const again=await provider.getBlock(block.number);
+  requireThat(same(again?.hash,block.hash),'Post-unpause finalized block changed.');
+  return {...authority,...roleState,blockNumber:block.number,blockHash:block.hash,
+    checkedAt:new Date().toISOString(),operationId:resumePlan.operationId,
+    scheduleTxHash,executeTxHash,codeUpgradeComplete:true,roleMigrationComplete:true,
+    historicalTreasuryComplete:true,bothFactoriesUnpaused:true,
+    keeperCutoverVerified:false,deploymentComplete:false,
+    checks:[...authority.checks,{label:'Both factories unpaused by exact 48-hour Timelock batch',passed:true},
+      {label:'All Factory owners, roles and historical treasuries remain migrated',passed:true}]};
 }

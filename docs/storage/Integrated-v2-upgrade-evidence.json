@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "integrated-v2-deployed-storage-validation",
-  "checkedAt": "2026-09-28T19:38:53.884Z",
+  "checkedAt": "2026-09-28T19:46:53.666Z",
   "buildRoot": ".",
   "results": [
     {
@@ -29,6 +29,7 @@
         "a6a25bc51f7a337f.json",
         "d10d1cc6885d4d82.json",
         "d70adf81e73e6355.json",
+        "d85070d91905d937.json",
         "dedb25b3d9130599.json",
         "ed6a17a3846e0c05.json",
         "eeb98cf656a96d68.json",
@@ -65,7 +66,8 @@
       "currentBuildInfoFiles": [
         "2405ff001c9b7d3b.json",
         "52f51f70d65ad16a.json",
-        "654039a1ec921c06.json"
+        "654039a1ec921c06.json",
+        "d85070d91905d937.json"
       ],
       "currentSourceSha256": "296b94cc73c42dc4d3816e154e5459de1dc096c8c82f23368ca4fae1f1976565",
       "priorFields": 0,
@@ -111,6 +113,7 @@
         "52f51f70d65ad16a.json",
         "654039a1ec921c06.json",
         "a6a25bc51f7a337f.json",
+        "d85070d91905d937.json",
         "dedb25b3d9130599.json",
         "ed6a17a3846e0c05.json",
         "fa543ef0d41fa13b.json"

@@ -17,6 +17,8 @@ import {
   validateIntegratedTreasuryMigrationActionAgainstChain,
   validateIntegratedTreasuryMigrationResultAgainstChain,
   validateIntegratedOnChainMigrationCompleteAgainstChain,
+  buildIntegratedCreationResumePlan, validateIntegratedCreationResumeActionAgainstChain,
+  validateIntegratedCreationResumeResultAgainstChain,
 } from '../shared/integrated-upgrade-plan.mjs';
 
 // This script sends transactions only to a local, explicitly identified Anvil
@@ -48,7 +50,7 @@ const oldOwner = genesisRecord.input.ownerMultisig;
 await provider.send('anvil_impersonateAccount',[oldOwner]);
 await provider.send('anvil_setBalance',[oldOwner,'0x8ac7230489e80000']);
 const owner = await provider.getSigner(oldOwner);
-const pause = new Interface(['function pauseCreation(bool)']);
+const pause = new Interface(['function pauseCreation(bool)','function creationPaused() view returns(bool)']);
 const baseInput={genesisRecord,genesisBundle,trustedGenesisManifest};
 for (const [nextPause,factory] of [['core',old.factory],['budget',old.portfolioFactory]]) {
   const checked=await validateIntegratedUpgradePreparationAgainstChain(view,
@@ -187,6 +189,10 @@ for(let index=4;index<6;index++){
 }
 const roleState=await validateIntegratedRoleMigrationStateAgainstChain(view,rolePlan,proofInput);
 assert.equal(roleState.roleWiringComplete,true);
+assert.equal(roleState.current.coreOwner.toLowerCase(),old.timelock.toLowerCase(),
+  'Core Factory must be owned by the 48-hour Timelock.');
+assert.equal(roleState.current.budgetOwner.toLowerCase(),old.timelock.toLowerCase(),
+  'Budget Factory must be owned by the 48-hour Timelock.');
 console.log(JSON.stringify({phase:'authority-and-roles',authority,roleOperationId:rolePlan.roleBatch.operationId}));
 const migration=buildIntegratedTreasuryMigrationPlan({genesisRecord,codeResult:result,
   authorityAddress:authority,saltSeed:keccak256(toUtf8Bytes('integrated-v2-local-fork-treasury')),
@@ -235,3 +241,29 @@ console.log(JSON.stringify({phase:'historical-treasury-migration',authority,
   roleMigrationComplete:complete.roleMigrationComplete,
   keeperCutoverVerified:complete.keeperCutoverVerified,
   deploymentComplete:complete.deploymentComplete}));
+const resumePlan=buildIntegratedCreationResumePlan({genesisRecord,rolePlan,migrationPlan:migration,
+  salt:keccak256(toUtf8Bytes('integrated-v2-local-fork-resume')),delaySeconds:172800});
+const resumeInput={...proofInput,rolePlan,migrationPlan:migration,codeResult:result};
+const resumeSchedule=await validateIntegratedCreationResumeActionAgainstChain(view,resumePlan,
+  {...resumeInput,phase:'unscheduled',signer:hardwareWallet});
+assert.equal(resumeSchedule.roleMigrationComplete,true);
+assert.equal(resumeSchedule.keeperCutoverVerified,false);
+const resumeScheduleTx=await signer.sendTransaction({to:resumeSchedule.transactionTarget,
+  data:resumeSchedule.calldata,gasLimit:1000000n});
+assert.equal((await resumeScheduleTx.wait()).status,1,'Creation resume schedule failed.');
+await provider.send('evm_increaseTime',[172801]);await provider.send('evm_mine',[]);
+const resumeExecute=await validateIntegratedCreationResumeActionAgainstChain(view,resumePlan,
+  {...resumeInput,phase:'ready',signer:hardwareWallet});
+const resumeExecuteTx=await signer.sendTransaction({to:resumeExecute.transactionTarget,
+  data:resumeExecute.calldata,gasLimit:1000000n});
+assert.equal((await resumeExecuteTx.wait()).status,1,'Creation resume execution failed.');
+assert.equal(await raw(old.factory,pause,'creationPaused'),pause.encodeFunctionResult('creationPaused',[false]));
+assert.equal(await raw(old.portfolioFactory,pause,'creationPaused'),
+  pause.encodeFunctionResult('creationPaused',[false]));
+const resumed=await validateIntegratedCreationResumeResultAgainstChain(view,resumePlan,
+  {...resumeInput,scheduleTxHash:resumeScheduleTx.hash,executeTxHash:resumeExecuteTx.hash});
+assert.equal(resumed.bothFactoriesUnpaused,true);
+assert.equal(resumed.roleMigrationComplete,true);
+console.log(JSON.stringify({phase:'creation-resume',operationId:resumePlan.operationId,
+  timelockOwner:old.timelock,bothFactoriesUnpausedOnLocalFork:true,
+  keeperCutoverVerified:false,deploymentComplete:false}));

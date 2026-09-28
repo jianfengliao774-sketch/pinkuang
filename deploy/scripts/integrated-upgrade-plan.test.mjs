@@ -3,6 +3,7 @@ import test from 'node:test';
 import { AbiCoder, Interface, ZeroHash, keccak256, toUtf8Bytes } from 'ethers';
 import {
   buildIntegratedRoleMigrationPlan, buildIntegratedTreasuryMigrationPlan,
+  buildIntegratedCreationResumePlan,
 } from '../shared/integrated-upgrade-plan.mjs';
 
 const old='0x1111111111111111111111111111111111111111';
@@ -30,7 +31,7 @@ test('role migration wires four Authority setters before independently scheduled
   assert.deepEqual(plan.directSteps.slice(0,4).map(step=>step.next),Array(4).fill(authority));
   assert.deepEqual(plan.directSteps.slice(4).map(step=>step.method),
     ['transferOwnership','transferOwnership']);
-  assert.deepEqual(plan.directSteps.slice(4).map(step=>step.next),Array(2).fill(hardware));
+  assert.deepEqual(plan.directSteps.slice(4).map(step=>step.next),Array(2).fill(timelock));
   const iface=new Interface(['function revokeRole(bytes32,address)','function grantRole(bytes32,address)',
     'function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)']);
   assert.deepEqual(plan.roleBatch.payloads.map(data=>iface.parseTransaction({data}).name),
@@ -41,6 +42,27 @@ test('role migration wires four Authority setters before independently scheduled
     ['address[]','uint256[]','bytes[]','bytes32','bytes32'],[
       plan.roleBatch.targets,plan.roleBatch.values.map(BigInt),plan.roleBatch.payloads,ZeroHash,roleSalt])));
   assert.equal(plan.roleMigrationComplete,false);
+});
+
+test('creation resumes only through a separate 48-hour Timelock batch',()=>{
+  const rolePlan=buildIntegratedRoleMigrationPlan({genesisRecord,codePlan,bootstrapPlan,
+    authorityAddress:authority,hardwareWallet:hardware,salt:roleSalt,delaySeconds:172800});
+  const codeResult={codeUpgradeComplete:true,roleMigrationComplete:false,
+    operationId:codeOperationId,historical:[{kind:'pool',index:0,address:pool,treasury:old}]};
+  const migrationPlan=buildIntegratedTreasuryMigrationPlan({genesisRecord,codeResult,
+    authorityAddress:authority,saltSeed:keccak256(toUtf8Bytes('reviewed-treasury')),
+    delaySeconds:172800});
+  const salt=keccak256(toUtf8Bytes('reviewed-creation-resume'));
+  const plan=buildIntegratedCreationResumePlan({genesisRecord,rolePlan,migrationPlan,
+    salt,delaySeconds:172800});
+  const factory=new Interface(['function pauseCreation(bool)']);
+  assert.deepEqual(plan.targets,[core,budget]);
+  assert(plan.payloads.every(data=>factory.decodeFunctionData('pauseCreation',data)[0]===false));
+  assert.equal(plan.operationId,keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address[]','uint256[]','bytes[]','bytes32','bytes32'],[
+      plan.targets,[0n,0n],plan.payloads,ZeroHash,salt])));
+  assert.equal(plan.keeperCutoverVerified,false);
+  assert.equal(plan.deploymentComplete,false);
 });
 
 test('historical treasury migration is separate per old pool and preserves prior claims',()=>{

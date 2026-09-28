@@ -297,3 +297,36 @@ export declare function validateIntegratedOnChainMigrationCompleteAgainstChain(p
   roleMigrationComplete: true; onChainMigrationComplete: true;
   keeperCutoverVerified: false; deploymentComplete: false;
   previousAccruedFeesAreNotRedirected: true}>;
+
+export interface IntegratedCreationResumePlan {
+  kind: 'integrated-v2-resume-creation-v1';
+  timelock: string; hardwareWallet: string;
+  rolePlanDigest: string; migrationPlanDigest: string;
+  targets: string[]; values: string[]; payloads: string[];
+  predecessor: string; salt: string; delaySeconds: number; operationId: string;
+  scheduleData: string; executeData: string;
+  keeperCutoverVerified: false; deploymentComplete: false;
+}
+export declare function buildIntegratedCreationResumePlan(input: {
+  genesisRecord: any; rolePlan: IntegratedRoleMigrationPlan;
+  migrationPlan: IntegratedTreasuryMigrationPlan; salt: string; delaySeconds: number;
+}): IntegratedCreationResumePlan;
+export declare function validateIntegratedCreationResumeActionAgainstChain(provider: any,
+  resumePlan: IntegratedCreationResumePlan,
+  input: IntegratedRoleProofInput & {rolePlan: IntegratedRoleMigrationPlan;
+    migrationPlan: IntegratedTreasuryMigrationPlan;
+    codeResult: IntegratedUpgradeResult;
+    phase: 'unscheduled' | 'ready'; signer: string},
+): Promise<Awaited<ReturnType<typeof validateIntegratedOnChainMigrationCompleteAgainstChain>> & {
+  phase: 'unscheduled' | 'ready'; operationId: string;
+  readyAt: string; transactionTarget: string; calldata: string;
+  keeperCutoverVerified: false; deploymentComplete: false; operationalGate: string}>;
+export declare function validateIntegratedCreationResumeResultAgainstChain(provider: any,
+  resumePlan: IntegratedCreationResumePlan,
+  input: IntegratedRoleProofInput & {rolePlan: IntegratedRoleMigrationPlan;
+    migrationPlan: IntegratedTreasuryMigrationPlan; codeResult: IntegratedUpgradeResult;
+    scheduleTxHash: string; executeTxHash: string},
+): Promise<Omit<IntegratedAuthorityProof,'roleMigrationComplete'> & {operationId: string; scheduleTxHash: string;
+  executeTxHash: string; codeUpgradeComplete: true; roleMigrationComplete: true;
+  historicalTreasuryComplete: true; bothFactoriesUnpaused: true;
+  keeperCutoverVerified: false; deploymentComplete: false}>;
