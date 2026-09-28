@@ -165,6 +165,10 @@ contract AuditMiningSettlementForkTest is Test {
             vm.prank(voters[i]);
             vault.vote(proposal, true);
         }
+        vm.prank(OPERATOR);
+        market.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vault.executeSale(proposal);
         vm.deal(BUYER, SALE_PRICE + SALE_PRICE / 100);
         vm.prank(BUYER);

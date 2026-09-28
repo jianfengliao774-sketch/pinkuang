@@ -11,6 +11,7 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "../../src/interfaces/ITapeoutMining.sol";
@@ -69,6 +70,7 @@ contract PoolSaleForkTest is Test {
     }
 
     PoolVault private vault;
+    ShareMarket private shareMarket;
     bytes32 private key;
     uint256 private sellerBemAfterPurchase;
 
@@ -98,6 +100,16 @@ contract PoolSaleForkTest is Test {
                 )
             )
         );
+        shareMarket = ShareMarket(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(new ShareMarket()),
+                        abi.encodeCall(ShareMarket.initialize, (address(factory), address(timelock)))
+                    )
+                ))
+        );
+        vm.prank(address(timelock));
+        factory.registerShareMarket(address(shareMarket));
         IPoolVault.PoolParams memory p = IPoolVault.PoolParams({
             circuits: Addresses.TAPEOUT_CIRCUITS,
             circuitId: TOKEN_ID,
@@ -248,6 +260,10 @@ contract PoolSaleForkTest is Test {
         vm.prank(BOB);
         vault.vote(proposalId, true);
         assertTrue(vault.proposalPassed(proposalId));
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vault.executeSale(proposalId);
         assertTrue(vault.getProposal(proposalId).executed);
         assertEq(uint256(vault.state()), uint256(IPoolVault.State.Listed));

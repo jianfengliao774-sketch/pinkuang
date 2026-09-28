@@ -112,6 +112,10 @@ contract BudgetPortfolioForkTest is Test {
         uint256 proposalId = portfolio.proposeChildSale(address(officialChild), SALE_PRICE, 0, 0);
         vm.prank(ALICE);
         portfolio.voteChildSale(proposalId, true);
+        ShareMarket(payable(factory.shareMarket()))
+            .setSaleReference(
+                address(officialChild), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+            );
         portfolio.executeChildSale(proposalId);
         uint256 payment = SALE_PRICE + SALE_PRICE / 100;
         vm.deal(BUYER, payment);
