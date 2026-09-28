@@ -2,6 +2,16 @@
 
 状态：后端脚本已增加**默认只读**的 BNB 佣金发现和 opt-in 提款入口；没有配置私钥、启动后台服务或发送主网交易。用户计划在服务器部署一个私钥钱包，为未挖矿矿机的恢复及其他运营交易支付 Gas，并领取平台手续费。私钥只能由用户在服务器私有进程环境中提供，不能写进仓库、网页、浏览器缓存、公开 API、日志或此文档。
 
+## 统一 Gas 钱包的适用范围
+
+2026-09-28 再次只读查询当前 v2 部署清单中的 `PoolFactory 0x2995B10d19056c8C24C57b281C22562a603C571F` 和 `BudgetPortfolioFactory 0x07FC0b1118529bA3c7C406058699b9B57Dd9e360`：两者的 `owner`、`operator`、`treasury` 均为 `0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E`。保存私钥后先在服务器本地**只推导地址、不输出私钥、不签名**，确认它是否为此地址；若是新地址，需由现有有权钱包另行执行并核验角色迁移，不能仅改服务环境变量。已有池的 `treasury` 在池创建时固定，新 Factory 的地址变更也不会自动迁移既有池的手续费权利。
+
+当前后台脚本可由同一执行钱包支付购机、恢复挖矿和平台 BNB 提现的 Gas，但都默认只读，只有显式 `--send` 才广播。建池和运营工作台其余动作仍走浏览器钱包，定时 `harvest`、预算项目手续费归集也尚无统一后台发送队列。不能把“共用私钥”误写成这些操作已经自动化。上线同一个钱包时需把采购、挖矿、建池、收款等所有发送方接入**同一持久 nonce/journal 队列**，避免多个进程或浏览器同时抢 nonce；后台只执行已授权的操作，逐笔核对目标合约、金额、Gas 预算和最终回执。
+
+用户认购、撤资、投票、份额买卖及本人领取按合约 `msg.sender` 识别权益。若由平台钱包直接发起，合约会把它视为平台操作，无法替用户付款而保留用户身份。要让用户“免 Gas”，需另外设计用户签名请求及合约认可的转发器或受限代付机制，并重新审计、升级合约与页面；不能用运营私钥直接代替用户签名。参考 [OpenZeppelin ERC-2771 文档](https://docs.openzeppelin.com/contracts/5.x/api/metatx)。
+
+凭据交付优先使用 systemd `LoadCredential=keeper-private-key:/etc/pinkuang/keeper-private-key`；四个 keeper 已支持从 `$CREDENTIALS_DIRECTORY/keeper-private-key` 读取，并拒绝它与旧 `KEEPER_PRIVATE_KEY` 同时配置。凭据文件仍需由用户在服务器私有位置建立；仓库、浏览器和聊天均不接收私钥。程序未见到该文件前维持只读，不自动启用发送。
+
 ## 当前链上身份与费用去向
 
 2026-09-28 只读查询 BSC 区块 `124417640`：既有 Factory `0xcB24E7F96D81037086A268d6ea63c53f91D412A2` 的 owner、operator、treasury 均为 `0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E`，`poolCount()=0`。这是当时状态，不证明后台已经持有该私钥。如果后台改用新地址，须先由有权钱包在链上设置 `setOperator` 和 `setTreasury`，然后重新核验；对未来新池生效，已创建池的 treasury 不随 Factory 更新。新地址只需放在后台，不需要把 owner 升级权放进无人值守服务。多矿机 BudgetPortfolioFactory 的 treasury 在初始化时设置，没有当前 Factory 的直接 `setTreasury` 入口；启用前单独核对。下表的双边份额费与多机服务费描述的是本开发分支；主网原 ShareMarket 在 2026-09-27 核对时尚不支持 `buyerFeeBps()`，不能把新版费率当成已上线。
