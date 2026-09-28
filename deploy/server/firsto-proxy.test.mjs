@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {serverConfiguration} from './index.mjs';
-import {upstreamUrl, proxyFirsto, createQuoteRateLimiter, verifiedQuotePage} from './firsto-proxy.mjs';
+import {upstreamUrl, proxyFirsto, createQuoteRateLimiter, createQuoteCache, verifiedQuotePage} from './firsto-proxy.mjs';
 
 test('quote proxy pins the origin, read-only paths and official collections', () => {
   assert.equal(upstreamUrl('/firsto-api/v1/circuits?page=1&pageSize=20').searchParams.get('category'),'official_mining');
@@ -135,6 +135,25 @@ test('rate-limited requests return 429 before upstream IO; successful responses 
   assert.equal(first.statusCode, 200); assert.equal(first.headers['cache-control'], 'no-store'); assert.equal(first.headers['access-control-allow-origin'], undefined);
   const blocked = response(); await proxyFirsto(req, blocked, options);
   assert.equal(blocked.statusCode, 429); assert.equal(blocked.headers['retry-after'], '60'); assert.equal(upstreamCalls, 1);
+});
+
+test('recent public list quote is returned from a bounded cache before spending another upstream quota', async () => {
+  let now = 1000, calls = 0;
+  const cache = createQuoteCache({ ttlMs: 3000, now: () => now });
+  const limiter = createQuoteRateLimiter({ limit: 1, now: () => now });
+  const fetcher = async () => { calls++; return Response.json({ rows: [] }, { headers: { 'x-tapeout-source-block': '123' } }); };
+  const req = { method: 'GET', url: '/firsto-api/v1/circuits?page=1', socket: { remoteAddress: '127.0.0.1' } };
+  const make = () => ({ headers: {}, setHeader(key, value) { this.headers[key.toLowerCase()] = value; }, end(value) { this.body = value; } });
+  const first = make(); await proxyFirsto(req, first, { limiter, cache, fetcher });
+  const second = make(); await proxyFirsto(req, second, { limiter, cache, fetcher });
+  assert.equal(calls, 1);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.headers['x-firsto-cache'], 'HIT');
+  assert.equal(second.headers['x-tapeout-source-block'], '123');
+  assert.deepEqual(JSON.parse(second.body), JSON.parse(first.body));
+  now += 3001;
+  const expired = make(); await proxyFirsto(req, expired, { limiter, cache, fetcher });
+  assert.equal(expired.statusCode, 429, 'expired quote cannot bypass the normal quota');
 });
 
 test('proxy bounds simultaneous upstream work and releases slots after completion', async () => {

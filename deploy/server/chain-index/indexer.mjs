@@ -106,6 +106,7 @@ export class ChainIndex {
       CREATE TABLE IF NOT EXISTS pools (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL, collection TEXT NOT NULL, circuit_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolios (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL,budget TEXT NOT NULL,absolute_cap TEXT NOT NULL,unit_cap TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolio_children (address TEXT PRIMARY KEY,portfolio TEXT NOT NULL,purchased_block INTEGER NOT NULL,collection TEXT NOT NULL,token_id TEXT NOT NULL,cost TEXT NOT NULL,official INTEGER NOT NULL);`);
+    this.db.exec('CREATE TABLE IF NOT EXISTS verified_display_snapshot (id INTEGER PRIMARY KEY CHECK(id = 1), source TEXT NOT NULL, pools TEXT NOT NULL, stats TEXT)');
     const identity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
@@ -121,6 +122,7 @@ export class ChainIndex {
     this.syncing = false;
     this.syncSettled = null;
     this.cachedStats = null;
+    this.snapshotTrusted = false;
   }
 
   close() { this.db.close(); }
@@ -192,6 +194,8 @@ export class ChainIndex {
       throw new Error('Event history is incomplete for the configured deployment start block.');
     }
     if (this.portfolioFactory) {
+      if (this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children c LEFT JOIN pools p ON p.address = c.address WHERE p.address IS NULL').get().n !== 0)
+        throw new Error('Event history is incomplete for budget child registration.');
       const count=await this._call(this.portfolioFactory,'portfolioCount',[],blockNumber);
       const orders=await this._call(this.portfolioMarket,'nextOrderId',[],blockNumber);
       if (count!==BigInt(this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n)
@@ -213,6 +217,11 @@ export class ChainIndex {
       this.db.prepare('DELETE FROM portfolio_children WHERE purchased_block > ?').run(number);
       this.db.prepare('DELETE FROM headers WHERE number > ?').run(number);
       this._setIndexedThrough(number);
+      const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
+      if (saved && JSON.parse(saved.source).indexedThrough > number) {
+        this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+        this.snapshotTrusted = false;
+      }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -384,6 +393,13 @@ export class ChainIndex {
       // that tail first, then compare the remaining stored headers normally.
       if (this.indexedThrough > safeHead) this._rollback(safeHead);
       await this._reconcile();
+      const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
+      if (saved && !this.snapshotTrusted) {
+        const source = JSON.parse(saved.source);
+        this.snapshotTrusted = source.indexedThrough <= this.indexedThrough
+          && normalizeBlock(await this.provider.getBlock(source.indexedThrough)).hash === source.indexedBlockHash;
+        if (!this.snapshotTrusted) this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+      }
       const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync);
       for (let from = this.indexedThrough + 1; from <= until; from += this.scanRange) {
         await this._scanChunk(from, Math.min(until, from + this.scanRange - 1));
@@ -399,6 +415,7 @@ export class ChainIndex {
       this.lastError = null;
       this.checkedAt = new Date().toISOString();
       this.ready = this.indexedThrough === safeHead;
+      if (this.ready) this._captureVerifiedSnapshot();
       return this.status();
     } catch (error) {
       // Status is public. Never echo provider errors, which may contain an RPC
@@ -409,6 +426,32 @@ export class ChainIndex {
       this.checkedAt = new Date().toISOString();
       throw error;
     } finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
+  }
+
+  _captureVerifiedSnapshot() {
+    const source = this.status();
+    if (!source.complete) throw new Error('Only a fully verified source can be saved.');
+    const pools = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT 501').all();
+    if (pools.length > 500) return;
+    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
+    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    if (pools.length !== registeredPoolCount - childPoolCount) throw new Error('Verified pool directory is incomplete.');
+    const logCount = this.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
+    const stats = logCount <= 10_000 ? this.stats() : null;
+    const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
+      childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length) };
+    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats')
+      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null);
+    this.snapshotTrusted = true;
+  }
+
+  verifiedDisplaySnapshot() {
+    if (!this.snapshotTrusted) return null;
+    const saved = this.db.prepare('SELECT source,pools,stats FROM verified_display_snapshot WHERE id = 1').get();
+    if (!saved) return null;
+    const source = JSON.parse(saved.source);
+    if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
+    return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null };
   }
 
   _allLogs({ kind, address, names, fromTimestamp } = {}) {
@@ -440,7 +483,11 @@ export class ChainIndex {
     integer(cursor, 'cursor'); integer(limit, 'limit', 1);
     if (limit > 50) throw new Error('Page limit exceeds 50.');
     const rows = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT ? OFFSET ?').all(limit + 1, cursor);
-    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? cursor + limit : null };
+    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
+    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? cursor + limit : null,
+      registeredPoolCount: String(registeredPoolCount), childPoolCount: String(childPoolCount),
+      standalonePoolCount: String(registeredPoolCount - childPoolCount) };
   }
 
   portfolios({cursor=0,limit=20,account}={}) {

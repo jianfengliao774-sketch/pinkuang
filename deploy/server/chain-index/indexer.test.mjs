@@ -165,6 +165,9 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
     const status = await index.sync();
     assert.equal(status.complete, true);
     assert.equal(status.indexedThrough, 6);
+    assert.equal(index.verifiedDisplaySnapshot().source.indexedBlockHash, chain.blocks.get(6).hash);
+    assert.equal(index.verifiedDisplaySnapshot().source.registeredPoolCount, '1');
+    assert.equal(index.verifiedDisplaySnapshot().source.standalonePoolCount, '1');
     assert.equal(index.pools().items[0].circuitId, '16210');
     assert.deepEqual(index.accountPools(alice).items, [pool]);
     assert.deepEqual(index.accountPools(bob).items, [pool]);
@@ -186,7 +189,9 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
     chain.reorg();
     index = new ChainIndex(chain, config);
     assert.equal(index.status().complete, false); // Unverified disk is never served after restart.
+    assert.equal(index.verifiedDisplaySnapshot(), null);
     await index.sync();
+    assert.equal(index.verifiedDisplaySnapshot().source.indexedBlockHash, chain.blocks.get(6).hash);
     assert.equal(index.orders({ active: true }).items[0].remaining, '5');
     assert.deepEqual(index.accountPools(bob).items, []);
     assert.equal(index.activity({ account: bob }).items.length, 0);
@@ -339,6 +344,12 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     const body = await response.json();
     assert.equal(body.source.indexedBlockHash, chain.blocks.get(6).hash);
     assert.equal(body.data.items[0].address, pool);
+    const saved = await (await fetch(`${url}/v1/snapshot/pools?limit=1`)).json();
+    assert.equal(saved.source.readMode, 'verified_snapshot');
+    assert.equal(saved.data.items[0].address, pool);
+    assert.equal(saved.data.registeredPoolCount, '1');
+    assert.equal(saved.data.childPoolCount, '0');
+    assert.equal((await (await fetch(`${url}/v1/snapshot/stats`)).json()).data.purchasedCostWei, '500');
     const stats = (await (await fetch(`${url}/v1/stats`)).json()).data;
     assert.equal(stats.purchasedCostWei, '500');
     assert.equal(stats.estimatedDailyBemAtomic, null);
@@ -382,6 +393,9 @@ test('HTTP waits briefly for an active sync but still fails closed on timeout or
     chain.send = async (...args) => { await slow; return originalSend(...args); };
     const delayed = index.sync();
     assert.equal((await fetch(url)).status, 503);
+    const duringSync = await (await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).json();
+    assert.equal(duringSync.source.indexedBlockHash, chain.blocks.get(6).hash);
+    assert.equal(duringSync.data.items[0].address, pool);
     releaseSlow(); await delayed;
 
     chain.send = async () => { throw new Error('upstream failure'); };
@@ -390,6 +404,7 @@ test('HTTP waits briefly for an active sync but still fails closed on timeout or
     await failed;
     assert.equal(failedResponse.status, 503);
     assert.equal((await failedResponse.json()).source.unknownReason, 'sync_failed');
+    assert.equal((await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).status, 200);
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();

@@ -27,10 +27,29 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
     catch { return send(400, { error: 'Invalid URL.' }); }
     let source = index.status();
     if (url.pathname === '/health') return send(200, { source });
+    if (url.pathname === '/v1/snapshot/pools' || url.pathname === '/v1/snapshot/stats') {
+      const snapshot = index.verifiedDisplaySnapshot();
+      if (!snapshot) return send(503, { source, data: null, error: 'No recent canonical verified display snapshot.' });
+      try {
+        if (url.pathname.endsWith('/stats')) {
+          if (!snapshot.stats) return send(503, { source, data: null, error: 'Verified statistics snapshot is unavailable.' });
+          return send(200, { source: snapshot.source, data: snapshot.stats });
+        }
+        const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
+        const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
+        const items = snapshot.pools.slice(cursor, cursor + limit);
+        return send(200, { source: snapshot.source,
+          data: { items, nextCursor: cursor + limit < snapshot.pools.length ? cursor + limit : null,
+            registeredPoolCount: snapshot.source.registeredPoolCount,
+            childPoolCount: snapshot.source.childPoolCount,
+            standalonePoolCount: snapshot.source.standalonePoolCount } });
+      } catch { return send(400, { source: snapshot.source, error: 'Invalid snapshot query.' }); }
+    }
     // A normal sync makes the snapshot temporarily incomplete. Let that cycle
-    // finish before answering instead of forcing the browser into a full retry.
+    // finish briefly. Once a saved verified snapshot exists, return promptly
+    // so the browser can use it instead of waiting for a slow RPC sync.
     if (!source.complete && index.syncing) {
-      await index.waitForSync(syncWaitMs);
+      await index.waitForSync(index.verifiedDisplaySnapshot() ? Math.min(syncWaitMs, 250) : syncWaitMs);
       source = index.status();
     }
     if (!source.complete) return send(503, { source, data: null, error: 'Index is not verified through the observed safe head.' });

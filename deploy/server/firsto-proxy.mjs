@@ -74,11 +74,28 @@ export function createQuoteRateLimiter({ limit = 30, windowMs = 60_000, maxClien
   };
 }
 const defaultLimiter = createQuoteRateLimiter();
+export function createQuoteCache({ ttlMs = 3000, maxEntries = 128, now = Date.now } = {}) {
+  const entries = new Map();
+  return {
+    get(key) {
+      const entry = entries.get(key);
+      if (!entry) return null;
+      if (entry.until <= now()) { entries.delete(key); return null; }
+      entries.delete(key); entries.set(key, entry);
+      return entry.value;
+    },
+    set(key, value) {
+      entries.delete(key); entries.set(key, { until: now() + ttlMs, value });
+      while (entries.size > maxEntries) entries.delete(entries.keys().next().value);
+    },
+  };
+}
+const defaultQuoteCache = createQuoteCache();
 let activeRequests = 0;
 const MAX_ACTIVE_REQUESTS = 8;
 
 /** Read-only, fixed-origin proxy. Never forwards cookies, credentials, signatures or client headers. */
-export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher = fetch } = {}) {
+export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher = fetch, cache } = {}) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -86,6 +103,16 @@ export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher 
   let url;
   try { url = upstreamUrl(req.url); }
   catch { res.statusCode = 400; res.end(JSON.stringify({error: '不支持的报价查询。'})); return; }
+  // A very short display cache reduces duplicate public list requests. Signed
+  // order execution still requires a fresh independent chain verification.
+  const quoteCache = cache === undefined ? (fetcher === fetch ? defaultQuoteCache : null) : cache;
+  const cacheKey = url.pathname === '/v1/circuits' || url.pathname === '/v1/circuit-holders' ? url.href : null;
+  const cached = cacheKey && quoteCache?.get(cacheKey);
+  if (cached) {
+    for (const [name, value] of Object.entries(cached.headers)) res.setHeader(name, value);
+    res.setHeader('X-Firsto-Cache', 'HIT');
+    res.statusCode = 200; res.end(cached.body); return;
+  }
   const quota = limiter.consume(req);
   if (!quota.allowed || activeRequests >= MAX_ACTIVE_REQUESTS) {
     res.statusCode = 429; res.setHeader('Retry-After', String(quota.allowed ? 2 : quota.retryAfter));
@@ -102,9 +129,12 @@ export async function proxyFirsto(req, res, { limiter = defaultLimiter, fetcher 
     let body = Buffer.concat(chunks);
     const value = JSON.parse(body.toString('utf8'));
     if (url.pathname === '/v1/circuits') body = Buffer.from(JSON.stringify(verifiedQuotePage(value)));
-    for (const header of HEADERS) { const value = upstream.headers.get(header); if (value) res.setHeader(header, value); }
-    res.setHeader('X-Firsto-Fetched-At', new Date().toISOString());
-    if (upstream.headers.get('date')) res.setHeader('X-Firsto-Response-Date', upstream.headers.get('date'));
+    const savedHeaders = {};
+    for (const header of HEADERS) { const value = upstream.headers.get(header); if (value) savedHeaders[header] = value; }
+    savedHeaders['X-Firsto-Fetched-At'] = new Date().toISOString();
+    if (upstream.headers.get('date')) savedHeaders['X-Firsto-Response-Date'] = upstream.headers.get('date');
+    for (const [name, value] of Object.entries(savedHeaders)) res.setHeader(name, value);
+    if (cacheKey) quoteCache?.set(cacheKey, { body, headers: savedHeaders });
     res.statusCode = 200; res.end(body);
   } catch { res.statusCode = 502; res.end(JSON.stringify({error: '无法获取 Firsto 实时报价，请稍后重试或打开来源页面。'})); }
   finally { activeRequests -= 1; }

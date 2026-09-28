@@ -108,8 +108,12 @@ export function governanceAction(snapshot, from, action) {
   let method, args = [], value = 0n, chosen = null;
   if (action?.kind === 'propose') {
     const price = uint(action.priceWei), reference = uint(action.refPriceWei), refAt = uint(action.refAt, 64);
-    requireGovernance(open && snapshot.shares > 0n && price > 0n && reference > 0n && refAt <= snapshot.timestamp,
-      'An active member must disclose a positive price and an observed reference.');
+    requireGovernance(snapshot.state === 2n, '矿池目前不在挖矿运行状态，不能发起整机出售提案。');
+    requireGovernance(snapshot.timestamp >= snapshot.activatedAt + WEEK,
+      `矿机激活满 7 天后才能发起整机出售提案；开放时间：${new Date(Number(snapshot.activatedAt + WEEK) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。`);
+    requireGovernance(snapshot.shares > 0n, '当前钱包没有该矿池份额，不能发起出售提案。');
+    requireGovernance(price > 0n && reference > 0n, '出售价格和参考价都必须大于 0 BNB。');
+    requireGovernance(refAt <= snapshot.timestamp, '参考价观察时间晚于链上快照，请重新预览。');
     requireGovernance(snapshot.lastProposed === 0n || snapshot.timestamp >= snapshot.lastProposed + WEEK,
       'This wallet must wait seven days before proposing again.');
     const opener = snapshot.roundAnchor;

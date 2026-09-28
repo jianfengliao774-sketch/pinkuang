@@ -87,6 +87,16 @@ test('rejects legacy timestamp-minus-one proposals and foreign pool bindings', a
   await assert.rejects(readGovernanceSnapshot(rpc({ chain: '0x1' }), { factory, pool, account }), /BSC mainnet/);
 });
 
+test('reports the seven-day activation lock separately from valid sale prices', async () => {
+  const fresh = await readGovernanceSnapshot(rpc({ timestamp: 1699000100n, activeId: 0n,
+    proposals: [] }), { factory, pool, account });
+  assert.equal(fresh.state, 2n);
+  assert.equal(fresh.shares, 30n);
+  assert.throws(() => governanceAction(fresh, account, { kind: 'propose',
+    priceWei: '40000000000000000', refPriceWei: '40000000000000000',
+    refAt: fresh.timestamp.toString() }), /激活满 7 天/);
+});
+
 test('sale payment uses the current listed price and never a UI-supplied amount', async () => {
   const live = await readGovernanceSnapshot(rpc({ state: 3n, proposals: [proposal({ price: 1000n, executed: true })],
     listedId: 1n, salePrice: 1000n, expiresAt: 1700000200n }), { factory, pool, account });

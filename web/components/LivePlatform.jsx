@@ -1,5 +1,6 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
+import { readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
 import {
@@ -81,6 +82,7 @@ import {
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
   process.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL,
 );
@@ -468,7 +470,9 @@ export default function LivePlatform() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const openAction = (kind, pool, extra = {}) => {
-    if (loading || busy || (['overview', 'rewards', 'market'].includes(route.route)
+    if (busy || (loading && !['overview', 'rewards', 'market'].includes(route.route)) || (route.route === 'market'
+      && ['fill', 'cancel', 'expire'].includes(kind) && (marketOrdersLoading || !!marketOrdersError))
+      || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
     setError("");
@@ -528,11 +532,12 @@ export default function LivePlatform() {
     const cache = pageCache.current.get(client);
     const saved = cache?.get(pageKey);
     const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
+    const persisted = recent(saved) ? null : readDisplaySnapshot(displayStorage(), client.manifest, pageKey);
     const needsCatalog = ['home', 'pools', 'market'].includes(route.route) || (route.route === 'governance' && !account);
-    const shared = needsCatalog && !recent(saved)
+    const shared = needsCatalog && !recent(saved) && !persisted
       ? [...(cache?.values() || [])].reverse().find(entry => recent(entry) && entry.account === accountKey && entry.result.catalog)
       : null;
-    const cached = recent(saved) ? saved.result : shared ? { catalog: shared.result.catalog } : null;
+    const cached = recent(saved) ? saved.result : persisted || (shared ? { catalog: shared.result.catalog } : null);
     const showResult = result => {
       if (result.catalog) {
         setPools(result.catalog.items.map(viewPool));
@@ -582,6 +587,7 @@ export default function LivePlatform() {
           entries.delete(pageKey);
           entries.set(pageKey, { savedAt: Date.now(), account: accountKey, result });
           if (entries.size > 8) entries.delete(entries.keys().next().value);
+          writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
         }
         showResult(result);
         if (result.detail) setDetailPreview(null);
@@ -1448,7 +1454,7 @@ export default function LivePlatform() {
   const moreButton = (cursor, kind) =>
     cursor !== null && cursor !== undefined ? (
       <div className="live-more">
-        <Button secondary disabled={loading || busy || (
+        <Button secondary disabled={busy || (kind === 'pools' && loading) || (
           kind === 'positions' ? positionsReadLoading || !!positionsReadError
             : kind === 'orders' ? marketOrdersLoading || !!marketOrdersError
               : kind === 'activity' && route.route !== 'detail' ? activityReadLoading || !!activityReadError : false)} onClick={() => more(kind)}>
@@ -1501,10 +1507,17 @@ export default function LivePlatform() {
                 ? displayPreciseAmount(poolCapacity[p.pool.toLowerCase()].marketReferencePriceWei)
                 : '—'}</td>
               <td>
-                {holdings && p.shares > 0n && <button className="btn secondary" disabled={loading || positionsReadLoading || !!positionsReadError || busy || !!pending || !shareListingView(p).allowed}
+                {holdings && p.shares > 0n && <button className="btn secondary" disabled={positionsReadLoading || !!positionsReadError || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   {L('挂单出售', 'List shares')}
                 </button>}
+                {holdings && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
+                  {p.status === 'Funding' || p.status === 'Funded'
+                    ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
+                    : p.status === 'Active' && p.availableShares === 0n
+                      ? L('份额已锁定', 'Shares are locked')
+                      : L('当前状态不可挂牌', 'Listing unavailable in this state')}
+                </small>}
                 <button className="text-button" onClick={() => openDetails(p)}>
                   {L("查看矿机", "View miner")}
                   <ArrowRight size={16} />
@@ -1517,14 +1530,16 @@ export default function LivePlatform() {
       {rows.length === 0 && (
         <Empty
           title={
-            (holdings ? positionsReadLoading : loading) || boot.status === 'loading'
+            (holdings ? positionsReadLoading : loading || boot.status === 'loading')
               ? L("正在核对合约和链上项目，请稍候…", "Checking contracts and on-chain pools…")
               : holdings && positionsReadError
                 ? L("份额读取失败，请刷新重试", "Could not read shares. Please refresh.")
               : !(holdings ? positionsReadSource : source) ? L("项目数据暂不可用", "Project data is unavailable")
                 : !holdings && pools.length === 0 ? L("尚未创建拼矿项目", "No pools have been created yet")
                   : holdings ? L("暂无持仓和待领取权益", "No positions or outstanding entitlements")
-                    : L("暂无匹配项目", "No matching pools")
+                    : route.route === 'market' && marketTab === 'whole'
+                      ? L('暂无整机在售；募集中和挖矿中的项目不在此列', 'No whole miners for sale; funding and operating pools are not listed here')
+                      : L("暂无匹配项目", "No matching pools")
           }
         >
           {!loading && source && !holdings && pools.length === 0 && <>
@@ -2691,7 +2706,7 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={loading || marketOrdersLoading || !!marketOrdersError ||
+                                disabled={marketOrdersLoading || !!marketOrdersError ||
                                   !account ||
                                   busy ||
                                   o.active !== true ||
@@ -2758,7 +2773,7 @@ export default function LivePlatform() {
                   </div>
                 </div>
                 {account ? (
-                  poolTable(positions.filter((p) => p.status === "Active"), true)
+                  poolTable(positions, true)
                 ) : (
                   <Empty
                     title={L(

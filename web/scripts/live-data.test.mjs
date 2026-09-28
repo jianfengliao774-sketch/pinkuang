@@ -42,7 +42,7 @@ function provider(options = {}) {
     calls.push(request); const { method, params: args = [] } = request;
     if (method === 'eth_chainId') return options.wrongChain ? '0x1' : '0x38';
     if (method === 'eth_getBlockByNumber') {
-      const n = args[0] === 'latest' ? 10n : BigInt(args[0]);
+      const n = args[0] === 'latest' ? BigInt(options.latestBlockNumber ?? 10) : BigInt(args[0]);
       return { number: toQuantity(n), timestamp: toQuantity(n === 8n ? timestamp - 2 : timestamp),
         hash: n === 8n ? (options.deploymentReorg ? blockHash : deploymentHash) : options.reorg ? deploymentHash : blockHash };
     }
@@ -60,9 +60,13 @@ function provider(options = {}) {
     else if (name === 'beacon') value = beacon;
     else if (name === 'VERSION') value = options.lensVersion ?? 1n;
     else if (name === 'poolCount') value = BigInt(options.totalPools ?? rows.length);
+    else if (name === 'nextOrderId') value = 2n;
     else if (name === 'positions') value = { blockNumber: 10n, timestamp: BigInt(timestamp),
       totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
       pools: parsed.args[0].map(address => rows.find(r => r.pool === address) ?? row({ pool: address })) };
+    else if (name === 'poolPage') value = { blockNumber: 10n, timestamp: BigInt(timestamp),
+      totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
+      pools: rows.slice(Number(parsed.args[0]), Number(parsed.args[0] + parsed.args[1])) };
     else if (name === 'bnbOwed') value = 123456789012345678901234n;
     else if (name === 'orders') value = { seller: account, pool, remaining: options.wrongOrder ? 3n : 5n,
       pricePerUnit: 123456789012345678901234n, active: true };
@@ -308,6 +312,66 @@ test('positions retain zero-share rewards and unknown balances, separating marke
   assert.equal(result.items[0].bnbOwed, 0n); assert.equal(result.marketBnbOwed, 123456789012345678901234n);
   const unknown = await client(route, { rows: [row({ status: { validMask: 1n, errorMask: 1n << 14n, trustError: 0n } })] }).readPositions({ account });
   assert.equal(unknown.items.length, 1); assert.equal(unknown.items[0].claimableBEM, null);
+});
+
+test('temporary index 503 reads confirmed Factory/Lens for pools and wallet shares without inventing an empty page', async () => {
+  const unavailable = async () => response({ error: 'index unavailable' }, 503);
+  const rpc = provider({ latestBlockNumber: 22n, rows: [row({ shares: 99n, lockedShares: 99n, availableShares: 0n })] });
+  const c = createLiveDataClient(config, { provider: rpc, fetcher: unavailable, now: () => now });
+  const catalog = await c.readPools({ account });
+  assert.equal(catalog.source.readMode, 'direct_chain');
+  assert.equal(catalog.items[0].pool, pool);
+  const positions = await c.readPositions({ account });
+  assert.equal(positions.source.readMode, 'direct_chain');
+  assert.equal(positions.items[0].shares, 99n);
+  assert.equal(positions.items[0].lockedShares, 99n);
+  assert.equal(positions.items[0].availableShares, 0n);
+  assert.equal(positions.marketBnbOwed, 123456789012345678901234n);
+  const detail = await c.readPool({ pool, account });
+  assert.equal(detail.item.shares, 99n);
+  const myOrders = await c.readOrders({ seller: account });
+  assert.equal(myOrders.source.readMode, 'direct_chain');
+  assert.equal(myOrders.items[0].orderId, 1n);
+  assert.equal(myOrders.items[0].remaining, 5n);
+  assert(rpc.calls.every(call => !/send|sign/i.test(call.method)));
+  await assert.rejects(c.readPools({ account, cursor: 1 }), { code: 'http_unavailable' });
+});
+
+test('a recent saved index snapshot discovers pools during sync, but Lens still verifies the pinned block', async () => {
+  const snapshotSource = { ...source, readMode: 'verified_snapshot' };
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/snapshot/pools')
+    ? response({ source: snapshotSource, data: poolsData }) : response({ error: 'syncing' }, 503);
+  const c = createLiveDataClient(config, { provider: provider(), fetcher, now: () => now });
+  const catalog = await c.readPools({ account });
+  assert.equal(catalog.source.readMode, 'verified_snapshot');
+  assert.equal(catalog.items[0].pool, pool);
+  const wrong = createLiveDataClient(config, { provider: provider(), fetcher: async url =>
+    new URL(url).pathname.endsWith('/v1/snapshot/pools')
+      ? response({ source: { ...snapshotSource, indexedBlockHash: deploymentHash }, data: poolsData })
+      : response({ error: 'syncing' }, 503), now: () => now });
+  await assert.rejects(wrong.readPools({ account }), { code: 'source_reorg' });
+});
+
+test('an older index without the snapshot route falls through to confirmed direct reads', async () => {
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/snapshot/pools')
+    ? response({ error: 'route missing' }, 404) : response({ error: 'syncing' }, 503);
+  const result = await createLiveDataClient(config, { provider: provider({ latestBlockNumber: 22n }), fetcher, now: () => now }).readPools({ account });
+  assert.equal(result.source.readMode, 'direct_chain');
+  assert.equal(result.items[0].pool, pool);
+});
+
+test('pool directory counts exclude portfolio children without reporting missing Factory registrations', async () => {
+  const directory = { ...poolsData, registeredPoolCount: '2', childPoolCount: '1', standalonePoolCount: '1' };
+  const result = await client({ '/v1/pools': directory }, { totalPools: 2 }).readPools({ account });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].pool, pool);
+  await assert.rejects(client({ '/v1/pools': { ...directory, childPoolCount: '0' } }, { totalPools: 2 }).readPools({ account }),
+    { code: 'index_coverage' });
+});
+
+test('index identity mismatch cannot trigger direct chain fallback', async () => {
+  const wrong = client({ '/v1/pools': poolsData }, { latestBlockNumber: 22n }, { ...source, factory: addr(99) });
+  await assert.rejects(wrong.readPools({ account }), { code: 'index_identity' });
 });
 
 test('statistics preserve the indexed history definition and check on-chain registration count', async () => {
