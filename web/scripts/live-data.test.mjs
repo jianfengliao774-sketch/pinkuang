@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS } from '../lib/live-config.mjs';
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
+import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS,
+  GENESIS_ARTIFACT_DIGEST,
+  validateProductGraph } from '../lib/live-config.mjs';
 import { createLiveDataClient, validateIndexSource } from '../lib/live-data.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
@@ -94,6 +97,26 @@ function provider(options = {}) {
   } };
 }
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+function verifiedGraph(changes = {}) {
+  const upgraded = changes.stage && changes.stage !== 'genesis';
+  const liveManifest = upgraded ? { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST,
+    portfolioImplementation: addr(101), portfolioFactoryImplementation: addr(102),
+    codehash: { ...pinnedGenesis.codehash, portfolioImplementation: blockHash, portfolioFactoryImplementation: blockHash } }
+    : pinnedGenesis;
+  return { chainId: 56, status: 'verified', stage: upgraded ? changes.stage : 'genesis',
+    artifactDigest: upgraded ? ARTIFACT_DIGEST : pinnedGenesis.artifactDigest,
+    genesisArtifactDigest: pinnedGenesis.artifactDigest, upgradeArtifactDigest: ARTIFACT_DIGEST,
+    operationId: upgraded ? blockHash : null, verifiedBlockNumber: pinnedGenesis.verifiedBlockNumber + 2,
+    verifiedBlockHash: blockHash, factory: pinnedGenesis.factory, portfolioFactory: pinnedGenesis.portfolioFactory,
+    stageActivationBlock: upgraded ? pinnedGenesis.verifiedBlockNumber + 1 : pinnedGenesis.deployment.blockNumber,
+    stageActivationHash: upgraded ? blockHash : pinnedGenesis.deployment.blockHash,
+    creationPaused: upgraded ? true : undefined,
+    operationalReady: false,
+    manifest: { ...liveManifest, verifiedBlockNumber: upgraded ? pinnedGenesis.verifiedBlockNumber + 1 : pinnedGenesis.deployment.blockNumber }, ...changes };
+}
+function configFetcher(graph = verifiedGraph()) {
+  return async url => response(url.endsWith('/data/frontend-manifest.json') ? pinnedGenesis : graph);
+}
 function indexFetcher(routes = {}, inputSource = source) {
   return async url => { const u = new URL(url); assert.equal(u.origin, origin); assert(u.pathname.startsWith('/api/chain-index/'));
     return response({ source: inputSource, data: routes[u.pathname.slice('/api/chain-index'.length)] }); };
@@ -104,10 +127,12 @@ const ordersData = { items: [{ orderId: '7', seller: account, pool, remaining: '
 const client = (routes, options, inputSource = source) => createLiveDataClient(config,
   { provider: provider(options), fetcher: indexFetcher(routes, inputSource), now: () => now });
 
-test('standard manifest loads only from same-origin file; prefixed API paths and no demo fallback', async () => {
+test('page boots only after same-origin genesis and verified product graph agree', async () => {
   const urls = [];
-  const ready = await loadLiveConfig({ origin, basePath: '/bemine/', fetcher: async url => { urls.push(url); return response(manifest); } });
-  assert.deepEqual(urls, [`${origin}/bemine/data/frontend-manifest.json`]);
+  const trustedFetch = configFetcher();
+  const ready = await loadLiveConfig({ origin, basePath: '/bemine/', fetcher: async url => { urls.push(url); return trustedFetch(url); } });
+  assert.deepEqual(urls, [`${origin}/bemine/data/frontend-manifest.json`, `${origin}/bemine/api/journal/product-graph`]);
+  assert.equal(ready.stage, 'genesis'); assert.equal(ready.manifest.artifactDigest, pinnedGenesis.artifactDigest);
   assert.equal(ready.status, 'ready'); assert.equal(ready.rpcUrl, `${origin}/bemine/api/rpc`); assert.equal(ready.indexBaseUrl, `${origin}/bemine/api/chain-index`); assert.equal(ready.journalBase, '/bemine/api/journal');
   const empty = await loadLiveConfig({ origin, fetcher: async () => response({}, 404) });
   assert.equal(empty.status, 'unconfigured'); assert.equal(empty.manifest, undefined);
@@ -117,11 +142,29 @@ test('standard manifest loads only from same-origin file; prefixed API paths and
 test('manifest identity, artifact, blocks, addresses and RPC allowlist fail closed', async () => {
   for (const change of [{ chainId: 1 }, { schemaVersion: 2 }, { sourceCommit: '' }, { verifiedBlockNumber: 7 },
     { artifactDigest: blockHash }, { codehash: {} }, { lens: factory }]) assert.throws(() => validateManifest({ ...manifest, ...change }));
-  const args = { origin, fetcher: async () => response(manifest), rpcUrl: 'https://unapproved.test/rpc' };
+  const args = { origin, fetcher: configFetcher(), rpcUrl: 'https://unapproved.test/rpc' };
   await assert.rejects(loadLiveConfig(args), { code: 'rpc_not_allowed' });
   const allowed = await loadLiveConfig({ ...args, allowedRpcOrigins: ['https://unapproved.test'] });
   assert.equal(allowed.rpcUrl, args.rpcUrl);
   await assert.rejects(loadLiveConfig({ ...args, rpcUrl: 'http://unapproved.test/rpc', allowedRpcOrigins: ['http://unapproved.test'] }), { code: 'rpc_not_allowed' });
+});
+
+test('upgraded graph chooses candidate ABI without rewriting the pinned genesis file', async () => {
+  const candidate = verifiedGraph({ stage: 'code-upgraded' });
+  const ready = await loadLiveConfig({ origin, fetcher: configFetcher(candidate) });
+  assert.equal(ready.stage, 'code-upgraded');
+  assert.equal(ready.manifest.artifactDigest, ARTIFACT_DIGEST);
+  assert.equal(ready.manifest.portfolioImplementation, candidate.manifest.portfolioImplementation);
+  for (const change of [
+    { stage: 'unknown' }, { status: 'unverified' }, { genesisArtifactDigest: blockHash },
+    { artifactDigest: blockHash }, { operationId: null }, { creationPaused: false },
+    { stageActivationBlock: 0 },
+    { factory: addr(200) }, { manifest: { ...candidate.manifest, lens: addr(201) } },
+  ]) assert.throws(() => validateProductGraph({ ...candidate, ...change }));
+  await assert.rejects(loadLiveConfig({ origin, fetcher: configFetcher({ ...candidate, status: 'unverified' }) }),
+    { code: 'product_graph' });
+  await assert.rejects(loadLiveConfig({ origin, fetcher: async url => url.endsWith('frontend-manifest.json')
+    ? response(pinnedGenesis) : response({}, 503) }), { code: 'http_unavailable' });
 });
 
 test('HTTP provider never requests wallet permission or signs/sends, and checks response ID', async () => {
@@ -447,6 +490,19 @@ test('governance ignores the fixed old Lens sale threshold after the dual-majori
   assert.equal(result.data.canExecute, true);
   await assert.rejects(client({}, { governance: { proposal: discounted }, proposalPassed: false })
     .readGovernance({ pool, account }), { code: 'governance_mismatch' });
+});
+
+test('genesis governance retains its on-chain 60-share discount rule until activation', async () => {
+  const oldConfig = { ...config, stage: 'genesis', manifest: { ...manifest, artifactDigest: GENESIS_ARTIFACT_DIGEST } };
+  const discounted = { ...proposal, price: 9000n, yesShares: 55n };
+  const c = createLiveDataClient(oldConfig, { provider: provider({ proposalPassed: false,
+    governance: { proposal: discounted, discounted: true, requiredYesShares: 60n,
+      passed: false, canExecute: false } }), fetcher: indexFetcher(), now: () => now });
+  const result = await c.readGovernance({ pool, account });
+  assert.equal(result.data.requiredYesShares, 60n);
+  assert.equal(result.data.passed, false);
+  assert.equal(result.data.canExecute, false);
+  assert.equal(result.data.saleReference, null);
 });
 
 test('governance never carries Lens canExecute through a missing reference or mismatched review', async () => {

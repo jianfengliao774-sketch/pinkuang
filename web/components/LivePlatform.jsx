@@ -54,7 +54,7 @@ import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from
 import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
-import { createReadOnlyHttpProvider, loadLiveConfig } from "../lib/live-config.mjs";
+import { createReadOnlyHttpProvider, fetchLiveJson, loadLiveConfig, validateProductGraph } from "../lib/live-config.mjs";
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
@@ -1476,6 +1476,16 @@ export default function LivePlatform() {
         const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
         lastPageRefresh.current.set(page, Date.now());
         setRefresh(v => v + 1);
+        // Refresh page data immediately; only rebootstrap the page if the
+        // independently verified contract stage actually changed.
+        void fetchLiveJson(boot.productGraphUrl, { maxBytes: 65536 })
+          .then(validateProductGraph)
+          .then(graph => {
+            if (graph.stage !== boot.stage || graph.artifactDigest !== boot.artifactDigest
+              || graph.stageActivationBlock !== boot.stageActivationBlock
+              || graph.operationalReady !== boot.operationalReady) setBootAttempt(v => v + 1);
+          })
+          .catch(error => setError(textError(error)));
       }}
       disabled={loading || busy || boot.status === "loading"}
     >

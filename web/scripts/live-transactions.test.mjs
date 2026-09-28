@@ -2,10 +2,45 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
-import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce, productGasLimit } from '../lib/live-transactions.mjs';
+import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce,
+  productGasLimit, validateProductTransactionStage } from '../lib/live-transactions.mjs';
+import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
 const account=addr(1),factory=addr(2),pool=addr(3),market=addr(4);
 const config={status:'ready',chainId:56,factory,shareMarket:market,journalBase:'/api/journal',origin:'https://bemine.example'};
+test('genesis stage accepts old selectors but rejects candidate-only Factory methods', () => {
+  const base = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    manifest: pinnedGenesis, stage: 'genesis', artifactDigest: pinnedGenesis.artifactDigest };
+  const oldCall = { from: account, to: pool, chainId: '0x38', value: '0',
+    data: abi.PoolVault.encodeFunctionData('claim') };
+  assert.equal(validateProductTransactionStage(base, oldCall, 'claim').action.kind, 'claim');
+  const params = { circuits: addr(88), circuitId: 1n, targetRaise: 100n, priceCap: 100n,
+    directSeller: addr(89), directPrice: 0n, fundingDeadline: 1000n, purchaseDeadline: 2000n };
+  const newCall = { from: account, to: pinnedGenesis.factory, chainId: '0x38', value: '0',
+    data: abi.PoolFactory.encodeFunctionData('createBudgetChildPool', [params, account]) };
+  assert.throws(() => validateProductTransactionStage(base, newCall, 'createBudgetChildPool'));
+  const upgraded = { ...base, stage: 'code-upgraded', artifactDigest: ARTIFACT_DIGEST,
+    manifest: { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST } };
+  assert.throws(() => validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool'));
+  upgraded.operationalReady = true;
+  assert.equal(validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool').action.kind, 'createBudgetChildPool');
+  assert.throws(() => validateProductTransactionStage({ ...upgraded, artifactDigest: pinnedGenesis.artifactDigest }, oldCall, 'claim'));
+});
+
+test('a stale or unverified graph blocks before wallet access or intent persistence', async () => {
+  const secureConfig = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    portfolioFactory: pinnedGenesis.portfolioFactory, manifest: pinnedGenesis, stage: 'genesis',
+    artifactDigest: pinnedGenesis.artifactDigest, productGraphUrl: 'https://bemine.example/api/journal/product-graph' };
+  let walletCalls = 0, networkCalls = 0;
+  const provider = { request: async () => { walletCalls++; throw new Error('wallet must remain untouched'); } };
+  const fetcher = async () => { networkCalls++; return new Response(JSON.stringify({ status: 'unverified' }),
+    { status: 200, headers: { 'content-type': 'application/json' } }); };
+  await assert.rejects(sendProductTransaction({ provider, config: secureConfig,
+    transaction: { from: account, to: pool, chainId: '0x38', value: '0', data: abi.PoolVault.encodeFunctionData('claim') },
+    action: 'claim', fetcher }), { code: 'product_graph' });
+  assert.equal(networkCalls, 1); assert.equal(walletCalls, 0);
+});
 test('fixed Gas caps give simple market actions less reservation without running estimates',()=>{
   for(const kind of ['list','cancel','expire','withdrawBnb']) assert.equal(productGasLimit(kind,'market'),1_000_000n);
   assert.equal(productGasLimit('fill','market'),3_000_000n);

@@ -1,6 +1,6 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
-import { validateManifest, fetchLiveJson, PORTFOLIO_MANIFEST_KEYS } from './live-config.mjs';
+import { validateManifest, fetchLiveJson, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { validateIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
@@ -25,7 +25,7 @@ export function portfolioBnbEntitlement(row) {
 }
 
 export async function readPortfolioContext(config, provider, blockNumber) {
-  const manifest = validateManifest(config.manifest);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   requireValue(manifest.kind === 'integrated-v2', '预算项目尚未完成部署验收。');
   requireValue(abi.BudgetPortfolioFactory && abi.BudgetPortfolioVault, '当前页面缺少预算项目合约版本。');
   const request = (method, params = []) => provider.request({ method, params });
@@ -126,7 +126,7 @@ export async function readPortfolioChildren(context, portfolio, count, offset = 
 
 export async function readPortfolioPage(config, provider, { account, cursor = 0, mine = false, fetcher = globalThis.fetch } = {}) {
   requireValue(Number.isSafeInteger(cursor) && cursor >= 0, '项目分页游标无效。');
-  const manifest = validateManifest(config.manifest), base = new URL(config.indexBaseUrl);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
   const path = mine ? `/v1/accounts/${address(account)}/portfolios` : '/v1/portfolios';
   let reply;
@@ -168,7 +168,7 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
 }
 
 export async function readPortfolioOrders(config, provider, pool, { cursor, fetcher = globalThis.fetch } = {}) {
-  const manifest = validateManifest(config.manifest), target = address(pool), base = new URL(config.indexBaseUrl);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), target = address(pool), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '订单索引服务来源不一致。');
   const query = new URLSearchParams({ pool: target, limit: '20' });
   if (cursor !== undefined && cursor !== null) query.set('cursor', uint(String(cursor)).toString());

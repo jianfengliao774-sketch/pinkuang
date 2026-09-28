@@ -1,6 +1,6 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint, readPoolSnapshot, hasPosition, assetKey } from './chain-client.mjs';
-import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS } from './live-config.mjs';
+import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate } from './sale-governance-gate.mjs';
 
@@ -61,7 +61,7 @@ export function livePoolModel(row, snapshot) {
 /** Index discovers history; all balances/orders/eligibility are independently re-read at its canonical source block. */
 export function createLiveDataClient(config, { provider, fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   insist(config?.status === 'ready', 'unconfigured', '尚未配置已核验的正式合约。');
-  const manifest = validateManifest(config.manifest);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   const rpc = provider ?? createReadOnlyHttpProvider(config, { fetcher });
   const request = (method, params = []) => rpc.request({ method, params });
   const indexBase = new URL(config.indexBaseUrl);
@@ -385,7 +385,11 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         && p.yesCount <= p.snapshotMemberCount && p.yesShares <= p.snapshotTotalShares,
       'governance_mismatch', '治理投票快照无效。');
       const requiredYesCount = p.snapshotMemberCount / 2n + 1n;
-      const requiredYesShares = p.snapshotTotalShares / 2n + 1n;
+      // The still-active genesis Vault has a 60-share discount threshold. Once
+      // the Timelock batch executes, the new Vault always uses dual majority.
+      const oldDiscount = config.stage === 'genesis' && result.purchaseCost !== null
+        && p.price < result.purchaseCost;
+      const requiredYesShares = oldDiscount ? 60n : p.snapshotTotalShares / 2n + 1n;
       const expectedPassed = p.snapshotTs + 86400n === p.endsAt && p.price > 0n
         && p.yesCount >= requiredYesCount && p.yesShares >= requiredYesShares;
       const passed = (await call(pool, abi.PoolVault, 'proposalPassed', [result.activeProposalId], BigInt(source.indexedThrough)))[0];
@@ -393,6 +397,14 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       result.requiredYesCount = requiredYesCount;
       result.requiredYesShares = requiredYesShares;
       result.passed = passed;
+      if (config.stage === 'genesis') {
+        result.discounted = oldDiscount;
+        result.canExecute = passed && result.state === 2n && !p.executed
+          && BigInt(source.indexedTimestamp) < p.endsAt;
+        // Genesis ShareMarket has no review interface; do not display a review proof.
+        await ensureCanonical(source);
+        return Object.freeze({ source, data: Object.freeze(result) });
+      }
       try {
         result.saleReference = await readSaleReference(request, manifest.shareMarket, pool,
           BigInt(source.indexedThrough), BigInt(source.indexedTimestamp));

@@ -1,5 +1,7 @@
-import { getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
-import { abi } from './chain-client.mjs';
+import { Interface, getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
+import { abi, ARTIFACT_DIGEST } from './chain-client.mjs';
+import genesisContracts from './contracts.genesis.json' with { type: 'json' };
+import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson, validateProductGraph } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
@@ -8,8 +10,11 @@ const ZERO = `0x${'0'.repeat(40)}`;
 const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeFirstoSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
 const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createBudgetChildPool']);
 const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
+const genesisAbi = Object.freeze(Object.fromEntries(Object.entries(genesisContracts.abis)
+  .map(([name, fragments]) => [name, new Interface(fragments)])));
 const active = new Set();
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+const sameNullable = (a, b) => a == null && b == null || same(a, b);
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const address = value => { const result = getAddress(value); requireValue(result !== ZERO, '不能使用零地址。'); return result; };
 const exact = (value, label = '交易金额') => {
@@ -122,6 +127,11 @@ export async function abandonPrepared({ account, config = {}, fetcher = globalTh
 }
 function normalize(config, transaction, action) {
   requireValue(config?.status === 'ready' && Number(config.chainId) === 56, '当前尚未配置已验证的 BSC 部署。');
+  if (config.manifest) {
+    const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
+    requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
+      && same(config.artifactDigest, expected), '产品阶段或合约摘要已变化，请刷新页面。');
+  }
   const budgetTarget = typeof action === 'object' && ['portfolioFactory', 'portfolio', 'portfolioMarket'].includes(action?.targetType);
   requireValue(!budgetTarget || config.kind === 'integrated-v2' && config.portfolioFactory && config.portfolioMarket, '预算部署尚未核验。');
   const factory = address(budgetTarget ? config.portfolioFactory : config.factory), target = address(transaction.to), account = address(transaction.from);
@@ -129,8 +139,9 @@ function normalize(config, transaction, action) {
   const targetType = budgetTarget ? same(target, factory) ? 'portfolioFactory' : same(target, config.portfolioMarket) ? 'portfolioMarket' : 'portfolio'
     : same(target, factory) ? 'factory' : config.shareMarket && same(target, config.shareMarket) ? 'market' : 'pool';
   requireValue(!budgetTarget || targetType === action.targetType, '预算操作目标类型不一致。');
-  const contract = targetType === 'portfolioFactory' ? abi.BudgetPortfolioFactory : targetType === 'portfolio' ? abi.BudgetPortfolioVault
-    : targetType === 'factory' ? abi.PoolFactory : targetType === 'pool' ? abi.PoolVault : abi.ShareMarket;
+  const interfaces = config.stage === 'genesis' ? genesisAbi : abi;
+  const contract = targetType === 'portfolioFactory' ? interfaces.BudgetPortfolioFactory : targetType === 'portfolio' ? interfaces.BudgetPortfolioVault
+    : targetType === 'factory' ? interfaces.PoolFactory : targetType === 'pool' ? interfaces.PoolVault : interfaces.ShareMarket;
   const allowed = targetType === 'portfolioFactory' ? new Set(['createPortfolio']) : targetType === 'portfolio' ? PORTFOLIO_ACTIONS
     : targetType === 'factory' ? FACTORY_ACTIONS : targetType === 'pool' ? POOL_ACTIONS : MARKET_ACTIONS;
   const value = exact(transaction.value ?? '0', '交易金额'), data = transaction.data;
@@ -139,11 +150,41 @@ function normalize(config, transaction, action) {
   const kind = typeof action === 'string' ? action : action?.kind;
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
+  if (config.manifest && config.stage !== 'genesis') {
+    const oldContract = targetType === 'portfolioFactory' ? genesisAbi.BudgetPortfolioFactory
+      : targetType === 'portfolio' ? genesisAbi.BudgetPortfolioVault : targetType === 'factory' ? genesisAbi.PoolFactory
+        : targetType === 'pool' ? genesisAbi.PoolVault : genesisAbi.ShareMarket;
+    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true,
+      '新合约操作须等待权限、Gas 服务和产品接线全部核验完成。');
+  }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
   if (decoded.name === 'buyFromFirsto') {
     requireValue(decoded.args[0] === 0n, 'Firsto 批量挂单尚未开放。'); decodeFirstoOrder(decoded.args[1]);
   }
   return { factory, target, targetType, account, value, data: data.toLowerCase(), action: { kind: decoded.name } };
+}
+export function validateProductTransactionStage(config, transaction, action) {
+  return normalize(config, transaction, action);
+}
+
+async function requireCurrentProductStage(config, fetcher) {
+  if (!config.manifest) return; // Legacy isolated test fixtures never reach production boot.
+  requireValue(typeof config.productGraphUrl === 'string' && typeof config.origin === 'string',
+    '缺少已核验的产品阶段，请刷新页面。');
+  const url = new URL(config.productGraphUrl);
+  requireValue(url.origin === config.origin && url.pathname.endsWith('/api/journal/product-graph')
+    && !url.search && !url.hash, '产品阶段必须由本站核验服务提供。');
+  const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
+  requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
+    && same(graph.manifest.factory, config.factory)
+    && same(graph.manifest.shareMarket, config.shareMarket)
+    && same(graph.manifest.portfolioFactory, config.portfolioFactory)
+    && graph.verifiedBlockNumber >= config.manifest.verifiedBlockNumber
+    && graph.stageActivationBlock === config.stageActivationBlock
+    && same(graph.stageActivationHash, config.stageActivationHash)
+    && sameNullable(graph.operationId, config.operationId)
+    && graph.operationalReady === config.operationalReady,
+  '链上产品阶段已变化，请刷新页面后重新确认交易。');
 }
 function validateResult(result, account, record, hash) {
   requireValue(result?.finalized === true && ['confirmed','reverted','cancelled','replaced'].includes(result.status)
@@ -278,6 +319,7 @@ export async function sendProductTransaction({ provider, config, transaction, ac
   let record, hash, revision;
   try {
     emit(onState, { status: 'preparing' });
+    await requireCurrentProductStage(config, fetcher);
     // Independent reads overlap, but every started read settles before an intent can be saved.
     const { session, view } = await settleReadRound({
       wallet: () => requireWallet(provider, account),

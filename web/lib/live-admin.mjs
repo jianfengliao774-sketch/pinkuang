@@ -1,5 +1,6 @@
 import { Interface, getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST, uint, checkedPoolCreation, readPoolSnapshot } from './chain-client.mjs';
+import { GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
@@ -48,9 +49,10 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     if (error?.details?.status === 429) throw new Error('官网候选扫描繁忙，请稍后重试。');
     throw error;
   }
+  const expectedDigest = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
   need(result?.complete === true && result.chainId === 56 && same(result.factory, config.factory ?? config.manifest?.factory)
-    && result.artifactDigest?.toLowerCase() === ARTIFACT_DIGEST.toLowerCase()
-    && (config.manifest?.artifactDigest === undefined || config.manifest.artifactDigest.toLowerCase() === ARTIFACT_DIGEST.toLowerCase())
+    && result.artifactDigest?.toLowerCase() === expectedDigest.toLowerCase()
+    && (config.manifest?.artifactDigest === undefined || config.manifest.artifactDigest.toLowerCase() === expectedDigest.toLowerCase())
     && same(result.pool, pool) && BigInt(result.blockNumber) === status.blockNumber
     && result.blockHash === status.blockHash && result.flexible === true,
   '官网候选扫描不完整或不属于当前链上矿池与区块。');

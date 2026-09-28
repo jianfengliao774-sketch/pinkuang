@@ -1,5 +1,9 @@
 import { getAddress, ZeroAddress } from 'ethers';
 import { ARTIFACT_DIGEST } from './chain-client.mjs';
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
+
+export const GENESIS_ARTIFACT_DIGEST = pinnedGenesis.artifactDigest;
+export const PRODUCT_STAGES = Object.freeze(['genesis', 'code-upgraded', 'role-migrating', 'role-wired']);
 
 export class LiveDataError extends Error {
   constructor(code, message, details = {}) { super(message); this.name = 'LiveDataError'; this.code = code; this.details = details; }
@@ -15,9 +19,9 @@ export const PORTFOLIO_MANIFEST_KEYS = Object.freeze(['portfolioFactory', 'portf
 export const MANIFEST_KEYS = Object.freeze(['factory', 'shareMarket', 'lens', 'beacon', 'timelock']);
 
 /** No permissive parsing or demo fallback. The same-origin file is an operator-reviewed public trust root. */
-export function validateManifest(input) {
+export function validateManifest(input, expectedDigest = ARTIFACT_DIGEST) {
   insist(input && input.schemaVersion === 1 && input.chainId === 56, 'manifest_schema', '不支持的部署清单或网络。');
-  insist(hash(input.artifactDigest) && input.artifactDigest.toLowerCase() === ARTIFACT_DIGEST.toLowerCase(), 'artifact_mismatch', '部署清单与当前页面合约版本不一致。');
+  insist(hash(expectedDigest) && hash(input.artifactDigest) && input.artifactDigest.toLowerCase() === expectedDigest.toLowerCase(), 'artifact_mismatch', '部署清单与当前页面合约版本不一致。');
   insist(typeof input.sourceCommit === 'string' && /^[\da-f]{40}$/i.test(input.sourceCommit), 'manifest_schema', '部署清单缺少源码版本。');
   insist(Number.isFinite(Date.parse(input.verifiedAt)), 'manifest_schema', '部署清单缺少核验时间。');
   const d = input.deployment;
@@ -40,6 +44,64 @@ export function validateManifest(input) {
   return Object.freeze({ schemaVersion: 1, chainId: 56, ...(hasPortfolio ? { kind: 'integrated-v2' } : {}), ...addresses, deployment: Object.freeze({ ...d }),
     artifactDigest: input.artifactDigest.toLowerCase(), sourceCommit: input.sourceCommit, verifiedAt: input.verifiedAt,
     verifiedBlockNumber: input.verifiedBlockNumber, codehash: Object.freeze(codehash) });
+}
+
+const unchangedRootKeys = Object.freeze(['factory', 'shareMarket', 'lens', 'beacon', 'timelock',
+  'portfolioFactory', 'portfolioMarket', 'portfolioBeacon']);
+const same = (left, right) => typeof left === 'string' && typeof right === 'string' && left.toLowerCase() === right.toLowerCase();
+const canonical = value => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+
+/** A served genesis file may be missing, but may never silently replace the build-pinned root. */
+export function validatePinnedGenesis(input) {
+  const manifest = validateManifest(input, GENESIS_ARTIFACT_DIGEST);
+  insist(JSON.stringify(canonical(input)) === JSON.stringify(canonical(pinnedGenesis)), 'genesis_mismatch',
+    '旧版部署清单与页面固定的链上记录不一致。');
+  return manifest;
+}
+
+/** The product service verifies the chain; the browser also binds its result to both compiled ABIs. */
+export function validateProductGraph(input, genesis = pinnedGenesis) {
+  insist(input && input.status === 'verified' && input.chainId === 56 && PRODUCT_STAGES.includes(input.stage),
+    'product_graph', '链上产品阶段未通过核验。');
+  insist(hash(input.genesisArtifactDigest) && same(input.genesisArtifactDigest, GENESIS_ARTIFACT_DIGEST),
+    'product_graph', '旧版合约摘要与页面不一致。');
+  const upgraded = input.stage !== 'genesis';
+  const expectedDigest = upgraded ? ARTIFACT_DIGEST : GENESIS_ARTIFACT_DIGEST;
+  insist(hash(input.artifactDigest) && same(input.artifactDigest, expectedDigest)
+    && (!upgraded || hash(input.upgradeArtifactDigest) && same(input.upgradeArtifactDigest, ARTIFACT_DIGEST))
+    && (input.upgradeArtifactDigest == null || same(input.upgradeArtifactDigest, ARTIFACT_DIGEST)),
+  'product_graph', '链上阶段与页面合约产物不一致。');
+  insist(Number.isSafeInteger(input.verifiedBlockNumber) && input.verifiedBlockNumber >= genesis.verifiedBlockNumber
+    && hash(input.verifiedBlockHash), 'product_graph', '链上核验区块无效。');
+  insist(Number.isSafeInteger(input.stageActivationBlock)
+    && input.stageActivationBlock >= genesis.deployment.blockNumber
+    && input.stageActivationBlock <= input.verifiedBlockNumber && hash(input.stageActivationHash)
+    && (upgraded || input.stageActivationBlock === genesis.deployment.blockNumber
+      && same(input.stageActivationHash, genesis.deployment.blockHash)),
+  'product_graph', '产品阶段生效区块未通过核验。');
+  insist(!upgraded || hash(input.operationId) && input.creationPaused === true,
+    'product_graph', '升级批次或建池暂停状态未核验。');
+  insist(typeof input.operationalReady === 'boolean', 'product_graph', '运营接线状态未通过核验。');
+  insist(same(input.factory, genesis.factory) && same(input.portfolioFactory, genesis.portfolioFactory),
+    'product_graph', 'Factory 与旧版可信部署不一致。');
+  const manifest = validateManifest(input.manifest, expectedDigest);
+  insist(manifest.verifiedBlockNumber === input.stageActivationBlock
+    && manifest.deployment.blockNumber === genesis.deployment.blockNumber
+    && same(manifest.deployment.blockHash, genesis.deployment.blockHash)
+    && same(manifest.deployment.txHash, genesis.deployment.txHash), 'product_graph', '部署交易或核验区块不一致。');
+  for (const key of unchangedRootKeys) {
+    insist(same(manifest[key], genesis[key]) && same(manifest.codehash[key], genesis.codehash[key]),
+      'product_graph', `${key} 与已发布的原始部署不一致。`);
+  }
+  if (!upgraded) for (const key of PORTFOLIO_MANIFEST_KEYS) {
+    insist(same(manifest[key], genesis[key]) && same(manifest.codehash[key], genesis.codehash[key]),
+      'product_graph', `${key} 与已发布的原始部署不一致。`);
+  }
+  return Object.freeze({ stage: input.stage, manifest, artifactDigest: expectedDigest,
+    operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
+    verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
+    stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase() });
 }
 
 /** Bounded JSON fetch; redirects and credentials to other origins are never followed. */
@@ -86,11 +148,17 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
   const manifestUrl = `${origin}${base}/data/frontend-manifest.json`;
   const input = await fetchLiveJson(manifestUrl, { fetcher, allow404: true, maxBytes: 65536 });
   if (input === null) return Object.freeze({ status: 'unconfigured', reason: '尚未配置已核验的正式合约。', manifestUrl });
-  const manifest = validateManifest(input);
+  const genesis = validatePinnedGenesis(input);
+  const productGraphUrl = `${origin}${base}/api/journal/product-graph`;
+  const graph = validateProductGraph(await fetchLiveJson(productGraphUrl, { fetcher, maxBytes: 65536 }), genesis);
   const rpc = new URL(rpcUrl ?? `${base}/api/rpc`, origin);
   insist(!rpc.username && !rpc.password && !rpc.hash, 'invalid_config', '只读 RPC 配置无效。');
   insist(rpc.origin === origin || (rpc.protocol === 'https:' && allowedRpcOrigins.includes(rpc.origin)), 'rpc_not_allowed', 'RPC 来源未获配置授权。');
-  return Object.freeze({ status: 'ready', manifest, origin, basePath: base, manifestUrl,
+  return Object.freeze({ status: 'ready', manifest: graph.manifest, stage: graph.stage,
+    artifactDigest: graph.artifactDigest, operationId: graph.operationId,
+    productGraphUrl, verifiedBlockHash: graph.verifiedBlockHash, operationalReady: graph.operationalReady,
+    stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
+    origin, basePath: base, manifestUrl,
     indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }
 
