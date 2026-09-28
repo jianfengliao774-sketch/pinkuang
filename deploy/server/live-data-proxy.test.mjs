@@ -63,6 +63,7 @@ test('index allows only known GET endpoints and bounded unique query parameters'
   const f = await fixture(t);
   for (const path of ['/health', '/v1/stats', '/v1/pools?cursor=0&limit=20', `/v1/accounts/${address}/pools`,
     '/v1/snapshot/pools?cursor=0&limit=20', '/v1/snapshot/portfolios?limit=20', '/v1/snapshot/stats',
+    `/v1/snapshot/orders?active=true&seller=${address}&limit=20`,
     `/v1/orders?pool=${address}&seller=${address}&active=true&cursor=8`, `/v1/activity?cursor=10:2:1&account=${address}`,
     `/v1/yield?pool=${address}&days=30`]) assert.equal((await f.get(`/api/chain-index${path}`)).status, 200);
   assert(f.calls.every(call => call.url.startsWith('http://127.0.0.1:4180/') && call.init.method === 'GET'));

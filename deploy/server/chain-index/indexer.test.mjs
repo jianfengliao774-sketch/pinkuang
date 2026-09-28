@@ -168,6 +168,7 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
     assert.equal(index.verifiedDisplaySnapshot().source.indexedBlockHash, chain.blocks.get(6).hash);
     assert.equal(index.verifiedDisplaySnapshot().source.registeredPoolCount, '1');
     assert.equal(index.verifiedDisplaySnapshot().source.standalonePoolCount, '1');
+    assert.equal(index.verifiedDisplaySnapshot().orders[0].remaining, '3');
     assert.equal(index.pools().items[0].circuitId, '16210');
     assert.deepEqual(index.accountPools(alice).items, [pool]);
     assert.deepEqual(index.accountPools(bob).items, [pool]);
@@ -354,6 +355,10 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal(savedPortfolios.source.readMode, 'verified_snapshot');
     assert.equal(savedPortfolios.source.portfolioCount, '0');
     assert.deepEqual(savedPortfolios.data.items, []);
+    const savedOrders = await (await fetch(`${url}/v1/snapshot/orders?active=true&seller=${alice}`)).json();
+    assert.equal(savedOrders.source.readMode, 'verified_snapshot');
+    assert.equal(savedOrders.data.items[0].remaining, '3');
+    assert.equal((await (await fetch(`${url}/v1/snapshot/orders?active=false`)).json()).data.items.length, 0);
     const stats = (await (await fetch(`${url}/v1/stats`)).json()).data;
     assert.equal(stats.purchasedCostWei, '500');
     assert.equal(stats.estimatedDailyBemAtomic, null);

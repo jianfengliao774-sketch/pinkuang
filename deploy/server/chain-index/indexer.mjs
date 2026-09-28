@@ -109,6 +109,8 @@ export class ChainIndex {
     this.db.exec('CREATE TABLE IF NOT EXISTS verified_display_snapshot (id INTEGER PRIMARY KEY CHECK(id = 1), source TEXT NOT NULL, pools TEXT NOT NULL, stats TEXT)');
     if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'portfolios'))
       this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN portfolios TEXT');
+    if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'orders'))
+      this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN orders TEXT');
     const identity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
@@ -452,23 +454,32 @@ export class ChainIndex {
     const portfolioCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
     if (pools.length !== registeredPoolCount - childPoolCount) throw new Error('Verified pool directory is incomplete.');
     if (portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
+    const orderCount = this.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'market' AND name = 'OrderListed'").get().n;
+    let orders = null;
+    if (orderCount <= 500) {
+      const page = this.orders({ limit: 500, allowSnapshotLimit: true });
+      orders = page.items;
+      if (page.nextCursor !== null || orders.length !== orderCount) throw new Error('Verified order directory is incomplete.');
+    }
     const logCount = this.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
     const stats = logCount <= 10_000 ? this.stats() : null;
     const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
       childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length), portfolioCount: String(portfolioCount) };
-    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios) VALUES(1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios')
-      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null, JSON.stringify(portfolios));
+    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
+      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null,
+        JSON.stringify(portfolios), orders ? JSON.stringify(orders) : null);
     this.snapshotTrusted = true;
   }
 
   verifiedDisplaySnapshot() {
     if (!this.snapshotTrusted) return null;
-    const saved = this.db.prepare('SELECT source,pools,stats,portfolios FROM verified_display_snapshot WHERE id = 1').get();
+    const saved = this.db.prepare('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot WHERE id = 1').get();
     if (!saved) return null;
     const source = JSON.parse(saved.source);
     if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
     return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
-      portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null };
+      portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null,
+      orders: saved.orders ? JSON.parse(saved.orders) : null };
   }
 
   _allLogs({ kind, address, names, fromTimestamp } = {}) {
@@ -591,12 +602,12 @@ export class ChainIndex {
     return { items: sorted.slice(cursor, cursor + limit), nextCursor: cursor + limit < sorted.length ? cursor + limit : null };
   }
 
-  orders({ pool, seller, active, cursor, limit = 20, portfolio = false } = {}) {
+  orders({ pool, seller, active, cursor, limit = 20, portfolio = false, allowSnapshotLimit = false } = {}) {
     const targetPool = pool === undefined ? null : exactAddress(pool);
     const targetSeller = seller === undefined ? null : exactAddress(seller);
     if (active !== undefined && typeof active !== 'boolean') throw new Error('Invalid active filter.');
     if (cursor !== undefined && !/^[1-9]\d*$/.test(String(cursor))) throw new Error('Invalid order cursor.');
-    integer(limit, 'limit', 1); if (limit > 50) throw new Error('Page limit exceeds 50.');
+    integer(limit, 'limit', 1); if (limit > (allowSnapshotLimit === true ? 500 : 50)) throw new Error('Page limit exceeds 50.');
     const orders = new Map();
     for (const event of this._allLogs({ kind: portfolio ? 'portfolioMarket' : 'market', names: ['OrderListed', 'OrderExpirySet', 'OrderFilled', 'OrderCancelled'] })) {
       const a = event.args;

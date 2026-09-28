@@ -137,6 +137,17 @@ location ^~ /bemine-v2/firsto-api/ {
     proxy_hide_header Set-Cookie;
     '''+proxy+'''
 }
+location ^~ /bemine-v2/_next/static/ {
+    root /var/www/bemine-v2/current/public;
+    try_files $uri =404;
+    limit_except GET { deny all; }
+    gzip on;
+    gzip_vary on;
+    gzip_types application/javascript text/javascript text/css;
+    gzip_min_length 1024;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
 location ^~ /bemine-v2/ {
     root /var/www/bemine-v2/current/public;
     index index.html;

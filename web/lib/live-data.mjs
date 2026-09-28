@@ -301,7 +301,16 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     let indexed;
     try { indexed = await indexRead('/v1/orders', { pool, seller, active, cursor, limit }, expected); }
     catch (error) {
-      if (!canReadDirect(error, expected, cursor === undefined ? 0 : 1)) throw error;
+      if (!isRetryableReadError(error)) throw error;
+      try {
+        indexed = await savedSnapshotRead('/orders', { pool, seller, active, cursor, limit });
+        if (expected) insist(sameSource(indexed.source, expected), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
+      } catch (snapshotError) {
+        if (!canReadDirect(error, expected, cursor === undefined ? 0 : 1)
+          || !isRetryableReadError(snapshotError)
+            && !(snapshotError?.code === 'http_unavailable' && snapshotError.details?.status === 404)) throw snapshotError;
+      }
+      if (!indexed) {
       const source = await directSource();
       const nextId = (await call(manifest.shareMarket, abi.ShareMarket, 'nextOrderId', [], BigInt(source.indexedThrough)))[0];
       insist(nextId <= 501n, 'direct_scan_limit', '订单数量超出直读上限，请等待索引恢复。');
@@ -327,6 +336,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       });
       await ensureCanonical(source);
       return Object.freeze({ source, items, nextCursor: null, snapshot });
+      }
     }
     const { source, data } = indexed; page(data, limit);
     const seen = new Set(); let last = cursor === undefined ? null : uint(String(cursor));

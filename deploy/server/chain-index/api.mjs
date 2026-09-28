@@ -27,13 +27,29 @@ export function createChainIndexServer(index, { syncWaitMs = 9000 } = {}) {
     catch { return send(400, { error: 'Invalid URL.' }); }
     let source = index.status();
     if (url.pathname === '/health') return send(200, { source });
-    if (['/v1/snapshot/pools', '/v1/snapshot/portfolios', '/v1/snapshot/stats'].includes(url.pathname)) {
+    if (['/v1/snapshot/pools', '/v1/snapshot/portfolios', '/v1/snapshot/stats', '/v1/snapshot/orders'].includes(url.pathname)) {
       const snapshot = index.verifiedDisplaySnapshot();
       if (!snapshot) return send(503, { source, data: null, error: 'No recent canonical verified display snapshot.' });
       try {
         if (url.pathname.endsWith('/stats')) {
           if (!snapshot.stats) return send(503, { source, data: null, error: 'Verified statistics snapshot is unavailable.' });
           return send(200, { source: snapshot.source, data: snapshot.stats });
+        }
+        if (url.pathname.endsWith('/orders')) {
+          if (!snapshot.orders) return send(503, { source: snapshot.source, data: null, error: 'Verified order snapshot is unavailable.' });
+          const pool = url.searchParams.get('pool'), seller = url.searchParams.get('seller');
+          if ([pool, seller].some(value => value !== null && !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new Error('Invalid address filter.');
+          const active = url.searchParams.get('active'), cursor = url.searchParams.get('cursor');
+          if (active !== null && active !== 'true' && active !== 'false') throw new Error('Invalid active filter.');
+          if (cursor !== null && !/^[1-9]\d*$/.test(cursor)) throw new Error('Invalid order cursor.');
+          const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
+          const filtered = snapshot.orders.filter(order => (!pool || order.pool.toLowerCase() === pool.toLowerCase())
+            && (!seller || order.seller.toLowerCase() === seller.toLowerCase())
+            && (active === null || order.openAtSourceBlock === (active === 'true'))
+            && (cursor === null || BigInt(order.orderId) < BigInt(cursor)));
+          const items = filtered.slice(0, limit);
+          return send(200, { source: snapshot.source, data: { items,
+            nextCursor: filtered.length > limit ? items.at(-1).orderId : null } });
         }
         const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
         const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
