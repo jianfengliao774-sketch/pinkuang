@@ -1,5 +1,6 @@
 import { getAddress } from 'ethers';
 import type { IntegratedUpgradePreflight, IntegratedUpgradeResult } from '../shared/integrated-upgrade-plan.mjs';
+import type { PauseFactoryName } from './upgrade-pause';
 
 export type UpgradeTransaction = {
   status: 'submitted' | 'confirmed' | 'uncertain';
@@ -16,6 +17,7 @@ export type UpgradeJournal = {
   factory: string;
   salt: string;
   delaySeconds: number;
+  pauses?: Partial<Record<PauseFactoryName, UpgradeTransaction>>;
   deployments: Record<string, UpgradeTransaction>;
   schedule?: UpgradeTransaction;
   execute?: UpgradeTransaction;
@@ -42,7 +44,12 @@ export function parseUpgradeJournal(value: unknown, expected: {
       || Number(record.delaySeconds) < 172800 || !record.deployments || typeof record.deployments !== 'object') {
     throw new Error('本机升级记录与当前部署不匹配，不能据此继续签名。');
   }
-  for (const tx of [...Object.values(record.deployments), record.schedule, record.execute].filter(Boolean) as UpgradeTransaction[]) {
+  if (record.pauses && (typeof record.pauses !== 'object' || Array.isArray(record.pauses)
+      || Object.keys(record.pauses).some(name => name !== 'factory' && name !== 'portfolioFactory'))) {
+    throw new Error('本机升级记录中的暂停步骤无效。');
+  }
+  for (const tx of [...Object.values(record.pauses || {}), ...Object.values(record.deployments),
+    record.schedule, record.execute].filter(Boolean) as UpgradeTransaction[]) {
     if (!['submitted', 'confirmed', 'uncertain'].includes(tx.status)
         || !hash(tx.dataHash) || !tx.from
         || (tx.txHash !== undefined && !hash(tx.txHash))
@@ -65,6 +72,7 @@ export function newUpgradeJournal(expected: {
     upgradeArtifactDigest: expected.upgradeArtifactDigest.toLowerCase(),
     salt: salt.toLowerCase(),
     delaySeconds: 172800,
+    pauses: {},
     deployments: {},
   };
 }

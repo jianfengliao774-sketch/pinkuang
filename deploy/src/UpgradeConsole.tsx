@@ -14,6 +14,8 @@ import {
 } from '../shared/integrated-upgrade-plan.mjs';
 import { artifactDigest, validateArtifacts, type ArtifactBundle, type DeploymentSnapshot } from './deployment';
 import { assertTrustedGenesis } from './upgrade-ui';
+import { inspectPauseTargets, pauseCreationData, pauseFactoryNames, type PauseFactoryName,
+  type PauseTargetProof } from './upgrade-pause';
 import { authorityAdministrators, stageTwoAddresses } from './upgrade-stage2';
 import { newUpgradeJournal, parseUpgradeJournal, upgradeJournalKey, type UpgradeJournal, type UpgradeTransaction } from './upgrade-journal';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt } from './upgrade-transactions';
@@ -66,6 +68,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const [uploadedRecord, setUploadedRecord] = useState<DeploymentSnapshot | null>(null);
   const [uploadedGenesisBundle, setUploadedGenesisBundle] = useState<ArtifactBundle | null>(null);
   const [journal, setJournal] = useState<UpgradeJournal | null>(null);
+  const [pauseProof, setPauseProof] = useState<PauseTargetProof | null>(null);
   const [genesisProof, setGenesisProof] = useState<IntegratedGenesisPreflight | null>(null);
   const [planProof, setPlanProof] = useState<IntegratedUpgradePreflight | null>(null);
   const [resultProof, setResultProof] = useState<IntegratedUpgradeResult | null>(null);
@@ -80,6 +83,7 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
   const [message, setMessage] = useState('');
   const [reviewed, setReviewed] = useState(false);
   const [recoveryHash, setRecoveryHash] = useState('');
+  const [pauseRecoveryHash, setPauseRecoveryHash] = useState('');
 
   const record = uploadedRecord || currentRecord;
   const oldBundle = uploadedGenesisBundle || (currentBundle && record
@@ -117,14 +121,14 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     return {expected, key: upgradeJournalKey(expected.factory, expected.genesisArtifactDigest, expected.upgradeArtifactDigest)};
   }, [record, upgradeBundle, oldTrust.ok, upgradeTrust.ok]);
   useEffect(() => {
-    setGenesisProof(null); setPlanProof(null); setResultProof(null); setOperation('unknown'); setReviewed(false);
+    setPauseProof(null); setGenesisProof(null); setPlanProof(null); setResultProof(null); setOperation('unknown'); setReviewed(false);
     if (!context) { setJournal(null); return; }
     try {
       const raw = localStorage.getItem(context.key);
       setJournal(raw ? parseUpgradeJournal(JSON.parse(raw), context.expected) : null);
     } catch (problem) { setJournal(null); setError(messageOf(problem)); }
   }, [context]);
-  useEffect(() => { setGenesisProof(null); setPlanProof(null); setReviewed(false); }, [account, chainId]);
+  useEffect(() => { setPauseProof(null); setGenesisProof(null); setPlanProof(null); setReviewed(false); }, [account, chainId]);
 
   const save = (next: UpgradeJournal, invalidatePlanProof = true) => {
     if (!context) throw new Error('旧部署或新产物尚未通过核验。');
@@ -209,9 +213,68 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
     });
   }
   function createJournal() {
-    if (!context || !oldTrust.ok || !upgradeTrust.ok || !genesisProof) return;
+    if (!context || !oldTrust.ok || !upgradeTrust.ok) return;
     try { save(newUpgradeJournal(context.expected, newSalt())); }
     catch (problem) { setError(messageOf(problem)); }
+  }
+  async function readPauseTargets() {
+    await run('读取建池暂停状态', async () => {
+      if (!record || !oldBundle || !oldTrust.ok) throw new Error('旧部署记录尚未匹配已发布清单。');
+      const trusted = assertTrustedGenesis(record,oldBundle,trustedGenesisManifest as never);
+      const proof = await inspectPauseTargets(rpcProvider(),trusted,record.input.ownerMultisig);
+      setPauseProof(proof);
+      setMessage(`两套 Factory 已在最终确认区块 #${proof.blockNumber} 核对 owner、代码与建池状态。`);
+    });
+  }
+  async function sendPause(name: PauseFactoryName) {
+    await run(`暂停 ${name} 建池`, async () => {
+      // The full old implementation graph must be proved before any proxy call.
+      // A proxy codehash and owner read alone do not authenticate its UUPS implementation.
+      if (!pausePreparationVerified) throw new Error('暂停前完整旧实现图预检尚未就绪，签署保持锁定。');
+      if (!wallet || !account || !onBsc || !record || !oldBundle || !journal || !oldTrust.ok
+        || !upgradeTrust.ok || pendingPause) throw new Error('旧 owner 钱包、部署记录或暂停交易尚未就绪。');
+      const trusted = assertTrustedGenesis(record,oldBundle,trustedGenesisManifest as never);
+      const proof = await inspectPauseTargets(rpcProvider(),trusted,record.input.ownerMultisig);
+      setPauseProof(proof);
+      const target = proof.targets[name];
+      if (getAddress(account) !== getAddress(target.owner)) throw new Error('只有链上当前旧 owner 钱包可以暂停建池。');
+      if (target.paused) throw new Error(`${name} 已暂停，无须再次交易。`);
+      const data = pauseCreationData();
+      const tx: UpgradeTransaction = {status:'uncertain',from:account,dataHash:keccak256(data)};
+      await exclusiveSend(async () => {
+        save({...journal,pauses:{...journal.pauses,[name]:tx}});
+        setGenesisProof(null);
+        let hash: string;
+        try { hash = await sendUpgradeTransaction(wallet,{from:account,to:target.address,data}); }
+        catch (problem) {
+          if (!(problem instanceof UncertainUpgradeSubmission)) {
+            save({...journal,pauses:{...journal.pauses,[name]:undefined}});
+          }
+          throw problem;
+        }
+        save({...journal,pauses:{...journal.pauses,[name]:{...tx,status:'submitted',txHash:hash}}});
+        setMessage(`${name} 暂停交易已记录；请核对最终确认回执。`);
+      });
+    });
+  }
+  async function recoverPause(name: PauseFactoryName) {
+    await run(`核对 ${name} 暂停交易`, async () => {
+      if (!journal || !record || !oldBundle) throw new Error('旧部署记录不可用。');
+      const tx = journal.pauses?.[name];
+      if (!tx || tx.status === 'confirmed') throw new Error('没有待核对的暂停交易。');
+      const hash = tx.txHash || pauseRecoveryHash.trim();
+      if (!hash) throw new Error('请输入钱包中该笔暂停交易的完整哈希。');
+      const trusted = assertTrustedGenesis(record,oldBundle,trustedGenesisManifest as never);
+      const target = getAddress(trusted[name] || '');
+      const receipt = await verifyUpgradeReceipt(receiptProvider(),hash,
+        {from:tx.from,to:target,dataHash:keccak256(pauseCreationData())});
+      if (!receipt) { setMessage('暂停交易尚未最终确认，请稍后核对。'); return; }
+      const proof = await inspectPauseTargets(rpcProvider(),trusted,record.input.ownerMultisig);
+      if (!proof.targets[name].paused) throw new Error('交易已确认，但 Factory 当前仍未暂停；请检查链上状态。');
+      save({...journal,pauses:{...journal.pauses,[name]:{...tx,status:'confirmed',txHash:hash}}});
+      setPauseProof(proof); setPauseRecoveryHash(''); setGenesisProof(null);
+      setMessage(`${name} 已在链上暂停建池。`);
+    });
   }
   async function confirmDeployment(name: IntegratedReplacementName, tx: UpgradeTransaction, hash: string) {
     if (!record || !upgradeBundle || !journal) throw new Error('升级记录不可用。');
@@ -389,7 +452,11 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
 
   const deployed = journal ? integratedUpgradeDeploymentOrder.filter(name => journal.deployments[name]?.status === 'confirmed').length : 0;
   const allDeployed = !!journal && deployed === integratedUpgradeDeploymentOrder.length;
-  const canDeploy = onBsc && oldTrust.ok && upgradeTrust.ok && !!genesisProof && !!journal && !pendingName && !busy;
+  const pendingPause = pauseFactoryNames.some(name => journal?.pauses?.[name]?.status === 'submitted'
+    || journal?.pauses?.[name]?.status === 'uncertain');
+  const pausePreparationVerified = false;
+  const canDeploy = onBsc && oldTrust.ok && upgradeTrust.ok && !!genesisProof && !!journal
+    && !pendingPause && !pendingName && !busy;
   const stageTwoConfig = useMemo(() => {
     if (!record || !hardwareWalletInput || !gasWalletInput) return {value:null,reason:''};
     try { return {value:stageTwoAddresses(hardwareWalletInput,gasWalletInput,{
@@ -417,7 +484,31 @@ export default function UpgradeConsole({wallet, account, chainId, currentBundle,
         <div className="upgrade-file-row"><div><b>旧部署完整记录</b><small>{record ? `记录 ${record.id} · ${record.status} · ${record.addresses.factory || '地址缺失'}` : '从原部署台导出的完整记录 JSON'}</small><input type="file" accept=".json,application/json" aria-label="导入旧部署完整记录" onChange={event => void readOldRecord(event.target.files?.[0])}/></div><span className="upgrade-state">{record ? '已读取' : '待导入'}</span></div>
         <div className="upgrade-file-row"><div><b>旧部署编译产物</b><small>{oldBundle ? artifactDigest(oldBundle) : '导入原版本 deployment-artifacts.json'}</small><input type="file" accept=".json,application/json" aria-label="导入旧部署编译产物" onChange={event => void readOldBundle(event.target.files?.[0])}/></div><span className="upgrade-state">{oldBundle ? '已读取' : '待导入'}</span></div>
         <div className="upgrade-meta"><div><span>旧图与已发布清单</span><b>{oldTrust.ok ? '地址、交易、源码、代码哈希一致' : oldTrust.reason}</b></div><div><span>候选产物</span><b>{upgradeTrust.ok ? '独立构建摘要一致' : upgradeTrust.reason}</b></div><div><span>旧链上图</span><b>{genesisProof ? `已核验 #${genesisProof.blockNumber}` : '尚未核验'}</b></div></div>
-        <div className="upgrade-actions"><button className="small-button" disabled={!oldTrust.ok || !upgradeTrust.ok || !!busy} onClick={() => void verifyGenesis()}><RefreshCw size={14}/>{busy || '读取并核验旧链上图'}</button>{genesisProof && !journal && <button className="small-button" onClick={createJournal}>建立本机升级记录</button>}</div>
+        <div className="upgrade-actions">
+          {oldTrust.ok && upgradeTrust.ok && !journal && <button className="small-button" disabled={!!busy} onClick={createJournal}>建立本机升级记录</button>}
+          <button className="small-button" disabled={!oldTrust.ok || !upgradeTrust.ok || !!busy} onClick={() => void readPauseTargets()}><RefreshCw size={14}/>读取两套建池状态</button>
+        </div>
+        <div className="upgrade-migration-preview">
+          <b>升级前先暂停两套 Factory 建池</b>
+          <p>当前旧 owner 钱包各签一笔 <code>pauseCreation(true)</code>。每笔只校验已发布的代理代码、Timelock 绑定、当前 owner 和最终确认区块，不做交易模拟。两套暂停后再核验完整旧图。</p>
+          {!wallet && <div className="upgrade-actions"><button className="small-button" onClick={onConnect}><Wallet size={14}/>连接旧 owner 钱包</button></div>}
+          <ol className="upgrade-step-list">{pauseFactoryNames.map((name,index) => {
+            const tx = journal?.pauses?.[name], target = pauseProof?.targets[name];
+            const canPause = pausePreparationVerified && !!journal && !!target && !target.paused && !tx && !pendingPause && onBsc
+              && !!account && getAddress(account) === getAddress(target.owner) && !busy;
+            return <li className="upgrade-step" key={name}>
+              <span className="upgrade-step-index">{target?.paused ? <Check size={15}/> : index + 1}</span>
+              <div><b>{name === 'factory' ? '单机 Factory' : '预算项目 Factory'}</b>
+                <small>{target ? `当前 owner ${target.owner} · ${target.paused ? '链上已暂停' : '链上未暂停'}` : '先读取最终确认状态'}{tx?.status === 'uncertain' ? ' · 发送结果不确定，禁止重发' : tx?.status === 'submitted' ? ' · 等待回执' : ''}</small>
+                {tx?.txHash && <a className="upgrade-code" href={`${explorer}/tx/${tx.txHash}`} target="_blank" rel="noreferrer">{short(tx.txHash)} <ArrowUpRight size={12}/></a>}
+                {tx?.status === 'uncertain' && !tx.txHash && <input className="upgrade-step-input" value={pauseRecoveryHash} placeholder="输入钱包中该笔暂停交易哈希" onChange={event => setPauseRecoveryHash(event.target.value)}/>}</div>
+              {tx && tx.status !== 'confirmed' ? <button className="small-button" disabled={!!busy || !onBsc} onClick={() => void recoverPause(name)}>核对回执</button>
+                : <button className="small-button" disabled={!canPause} onClick={() => void sendPause(name)}>{target?.paused ? '已暂停' : '由旧 owner 暂停'}</button>}
+            </li>;
+          })}</ol>
+          <div className="upgrade-alert note">暂停交易需要完整旧实现图预检，包含 Factory 代理的实现槽和原运行代码；该验证接口接入前按钮保持锁定。</div>
+          <div className="upgrade-actions"><button className="small-button" disabled={!oldTrust.ok || !upgradeTrust.ok || pendingPause || !!busy || !pauseProof || pauseFactoryNames.some(name => !pauseProof.targets[name].paused)} onClick={() => void verifyGenesis()}><ShieldCheck size={14}/>核验完整旧链上图</button></div>
+        </div>
       </div>
     </section>
     <section className="card">

@@ -19,4 +19,6 @@ test('journal rejects a changed build, invalid delay and corrupted transaction',
   assert.throws(() => parseUpgradeJournal(journal,{...expected,upgradeArtifactDigest:oldDigest}),/不匹配/);
   assert.throws(() => parseUpgradeJournal({...journal,delaySeconds:60},expected),/不匹配/);
   assert.throws(() => parseUpgradeJournal({...journal,deployments:{PoolFunds:{status:'confirmed',from:factory,dataHash:'0x00'}}},expected),/字段无效/);
+  assert.throws(() => parseUpgradeJournal({...journal,pauses:{factory:{status:'submitted',from:factory,dataHash:'0x00'}}},expected),/字段无效/);
+  assert.throws(() => parseUpgradeJournal({...journal,pauses:{otherFactory:{status:'submitted',from:factory,dataHash:oldDigest}}},expected),/暂停步骤/);
 });
