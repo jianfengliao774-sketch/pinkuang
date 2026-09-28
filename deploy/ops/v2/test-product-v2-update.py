@@ -1,5 +1,5 @@
 """Execute only extracted pure/configuration and mocked rollback functions; no SSH/systemctl."""
-import ast,hashlib,json,pathlib,re,tempfile,types,unittest
+import ast,hashlib,json,pathlib,re,stat,subprocess,sys,tempfile,types,unittest
 HERE=pathlib.Path(__file__).resolve().parent
 tree=ast.parse((HERE/'product-v2-update.remote.py.template').read_text(encoding='utf8'))
 def functions(names,namespace):
@@ -9,6 +9,9 @@ def functions(names,namespace):
 class Configuration(unittest.TestCase):
  def setUp(self):
   self.ns={'re':re,'CONFIG':{'manifest':{'factory':'0x11','portfolioFactory':'0x22'}},'runtime':pathlib.PurePosixPath('/srv/new-runtime'),
+   'product':pathlib.PurePosixPath('/var/www/bemine-v2/releases/v2-product'),
+   'upgrade_evidence_path':pathlib.PurePosixPath('/etc/pinkuang-deploy-v2/integrated-upgrade-evidence.json'),
+   'dual_graph':False,
    'record_path':pathlib.PurePosixPath('/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json'),
    'journal':pathlib.PurePosixPath('/var/lib/pinkuang-deploy-v2/journal.sqlite'),'old_factory':'0xOLD'}
   functions(['candidate_unit','nginx_text'],self.ns)
@@ -21,6 +24,17 @@ class Configuration(unittest.TestCase):
   with self.assertRaises(AssertionError):self.ns['candidate_unit'](self.original.replace(b'/journal.sqlite',b'/reset.sqlite'))
  def test_unreviewed_environment_file_rejected(self):
   with self.assertRaises(AssertionError):self.ns['candidate_unit'](self.original+b'EnvironmentFile=/etc/other\n')
+ def test_dual_graph_uses_separate_immutable_bundles_and_read_only_evidence(self):
+  self.ns['dual_graph']=True
+  result=self.ns['candidate_unit'](self.original+b'ProtectSystem=strict\n').decode()
+  for expected in [
+   'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH=/srv/new-runtime/public/upgrade-genesis/genesis-artifacts.json',
+   'BEMINE_INTEGRATED_UPGRADE_ARTIFACT_PATH=/srv/new-runtime/public/deployment-artifacts.json',
+   'BEMINE_INTEGRATED_UPGRADE_EVIDENCE_PATH=/etc/pinkuang-deploy-v2/integrated-upgrade-evidence.json',
+   'BEMINE_GENESIS_MANIFEST_PATH=/var/www/bemine-v2/releases/v2-product/public/bemine-v2/data/frontend-manifest.json']:
+   self.assertIn('Environment='+expected+'\n',result)
+  with self.assertRaisesRegex(AssertionError,'read only'):
+   self.ns['candidate_unit'](self.original)
  def test_nginx_scope_base_and_cookie(self):
   text=self.ns['nginx_text']().decode()
   self.assertIn('root /var/www/bemine-v2/current/public;',text)
@@ -92,7 +106,7 @@ class Rollback(unittest.TestCase):
    elif index_exists:path.write_bytes(data)
   journal=root/'journal.sqlite';journal.write_bytes(b'PRIVATE JOURNAL MUST REMAIN UNCHANGED')
   calls=[]
-  ns={'sha':lambda data:hashlib.sha256(data).hexdigest(),'no_links':lambda path:None,'regular':lambda path:path.read_bytes(),
+  ns={'sha':lambda data:hashlib.sha256(data).hexdigest(),'no_links':lambda path:None,'regular':lambda path:path.read_bytes(),'stat':stat,
       'unit':targets['unit'],'index_unit':targets['index-unit'],'site':targets['nginx'],'snippet':targets['snippet'],'record_path':targets['record'],
       'backup':backup,'product':root/'new-product','public_current':root/'current','journal':journal,
       'link_target':lambda:None,'set_link':lambda value:self.fail('Must not create a new product link while rolling back'),
@@ -138,5 +152,82 @@ class ReleaseFiles(unittest.TestCase):
  def test_path_traversal_manifest_is_rejected(self):
   root,path,manifest,ns=self.fixture();manifest['files']['../outside.js']={'bytes':1,'sha256':'0'*64};path.write_text(json.dumps(manifest))
   with self.assertRaises(AssertionError):ns['verify_files'](root,path.name,ns['sha'](path.read_bytes()),manifest['sourceHead'])
+ def test_candidate_digest_is_distinct_from_genesis(self):
+  root,path,manifest,ns=self.fixture();ns['CONFIG']['artifactDigest']='0x'+'a'*64
+  ns['CONFIG']['candidateArtifactDigest']=manifest['artifactDigest']
+  self.assertEqual(ns['verify_files'](root,path.name,ns['sha'](path.read_bytes()),manifest['sourceHead']),manifest)
+  ns['CONFIG']['candidateArtifactDigest']='0x'+'c'*64
+  with self.assertRaises(AssertionError):ns['verify_files'](root,path.name,ns['sha'](path.read_bytes()),manifest['sourceHead'])
+
+class DualGraphEvidence(unittest.TestCase):
+ def test_existing_genesis_record_is_preserved_byte_for_byte(self):
+  original=b'{\n  "artifactDigest": "genesis", "extra": true\n}\n'
+  ns={'dual_graph':True,'json':json,'CONFIG':{'record':json.loads(original)},'record_path':'fixed',
+      'regular':lambda path:original}
+  functions(['candidate_record'],ns)
+  self.assertEqual(ns['candidate_record'](),original)
+  ns['CONFIG']['record']['artifactDigest']='candidate'
+  with self.assertRaisesRegex(AssertionError,'genesis record'):ns['candidate_record']()
+ def test_stage_zero_accepts_only_pinned_genesis_with_candidate_digest(self):
+  old={'factory':'0x11','portfolioFactory':'0x22','artifactDigest':'0x'+'a'*64,
+       'deployment':{'blockNumber':100,'blockHash':'0x'+'1'*64},'verifiedAt':'original','verifiedBlockNumber':110,'codehash':{'factory':'hash'}}
+  ns={'json':json,'re':re,'CONFIG':{'manifest':old,'candidateArtifactDigest':'0x'+'b'*64}}
+  functions(['verified_stage_zero'],ns)
+  graph={'status':'verified','chainId':56,'stage':'genesis','artifactDigest':old['artifactDigest'],
+         'genesisArtifactDigest':old['artifactDigest'],'upgradeArtifactDigest':ns['CONFIG']['candidateArtifactDigest'],
+         'manifest':{**old,'verifiedAt':'activation','verifiedBlockNumber':100},'operationalReady':False,
+         'stageActivationBlock':100,'stageActivationHash':old['deployment']['blockHash'],
+         'verifiedBlockNumber':150,'verifiedBlockHash':'0x'+'2'*64,
+         'factory':'0x11','portfolioFactory':'0x22'}
+  self.assertTrue(ns['verified_stage_zero'](json.dumps(graph).encode()))
+  for change in [{'stage':'code-upgraded'},{'operationalReady':True},{'upgradeArtifactDigest':'0x'+'c'*64},
+                 {'manifest':{**graph['manifest'],'factory':'0x33'}},
+                 {'stageActivationHash':'0x'+'3'*64}]:
+   with self.subTest(change=change),self.assertRaises(AssertionError):ns['verified_stage_zero'](json.dumps({**graph,**change}).encode())
+ def test_evidence_must_be_pinned_root_owned_group_read_only_and_pre_execution(self):
+  content=json.dumps({'plan':{},'bootstrapPlan':{}}).encode();state={'dir_mode':0o750,'file_mode':0o640,'dir_uid':0,'file_uid':0,'file_gid':44,'body':content}
+  class FakePath:
+   def __init__(self,is_dir=False):self.is_dir=is_dir
+   @property
+   def parent(self):return FakePath(True)
+   def stat(self):return types.SimpleNamespace(st_uid=state['dir_uid' if self.is_dir else 'file_uid'],
+    st_gid=44,st_mode=state['dir_mode' if self.is_dir else 'file_mode'])
+   def read_bytes(self):return state['body']
+  ns={'dual_graph':True,'pwd':types.SimpleNamespace(getpwnam=lambda name:types.SimpleNamespace(pw_gid=44)),
+      'upgrade_evidence_path':FakePath(),'no_links':lambda path:None,'stat':stat,'json':json,
+      'CONFIG':{'integratedUpgradeEvidenceSha256':hashlib.sha256(content).hexdigest()},
+      'sha':lambda body:hashlib.sha256(body).hexdigest()}
+  functions(['upgrade_evidence_ready'],ns);ns['upgrade_evidence_ready']()
+  for key,value in [('dir_mode',0o770),('file_mode',0o660),('file_uid',1000)]:
+   with self.subTest(key=key),self.assertRaises(AssertionError):
+    original=state[key];state[key]=value
+    try:ns['upgrade_evidence_ready']()
+    finally:state[key]=original
+  state['body']=json.dumps({'plan':{},'bootstrapPlan':{},'codeExecuteTxHash':'0x'+'9'*64}).encode()
+  ns['CONFIG']['integratedUpgradeEvidenceSha256']=hashlib.sha256(state['body']).hexdigest()
+  with self.assertRaisesRegex(AssertionError,'Stage0'):ns['upgrade_evidence_ready']()
+
+class RenderDualGraph(unittest.TestCase):
+ def test_renderer_rejects_unpinned_manifest_and_equal_candidate_digest(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=pathlib.Path(tmp);manifest={'artifactDigest':'0x'+'a'*64};record={'artifactDigest':manifest['artifactDigest']}
+   manifest_path=root/'manifest.json';manifest_path.write_text(json.dumps(manifest));record_path=root/'record.json';record_path.write_text(json.dumps(record))
+   plan={k:'a'*64 for k in ['runtimeManifestSha256','productManifestSha256','nginxSha256','deployUnitSha256',
+     'genesisBundleSha256','genesisManifestSha256','integratedUpgradeEvidenceSha256',
+     'productSnippetSha256','indexUnitSha256','trustedRecordSha256']}
+   plan.update(runtimeReleaseId='v2-runtime-test',productReleaseId='v2-product-test',runtimeSourceHead='b'*40,
+     productSourceHead='c'*40,artifactDigest=manifest['artifactDigest'],candidateArtifactDigest='0x'+'b'*64,
+     logsRpcUrl='https://bsc.publicnode.com')
+   def render():
+    input_path=root/'plan.json';input_path.write_text(json.dumps(plan))
+    return subprocess.run([sys.executable,str(HERE/'render-product-v2-update.py'),'--plan',str(input_path),
+      '--record',str(record_path),'--manifest',str(manifest_path),'--out',str(root/'out')],capture_output=True,text=True)
+   self.assertNotEqual(render().returncode,0)
+   plan['genesisManifestSha256']=hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+   plan['candidateArtifactDigest']=plan['artifactDigest'];self.assertNotEqual(render().returncode,0)
+   plan['candidateArtifactDigest']='0x'+'b'*64;result=render()
+   self.assertEqual(result.returncode,0,result.stderr)
+   reviewed=json.loads((root/'out/reviewed-plan.json').read_text())
+   self.assertEqual(reviewed['record'],record);self.assertEqual(reviewed['manifest'],manifest)
 
 if __name__=='__main__':unittest.main()

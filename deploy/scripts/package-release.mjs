@@ -11,7 +11,10 @@ const TREES = ['dist', 'server', 'shared'];
 // journal-api statically imports this read-only helper. Never include keeper CLIs.
 const RUNTIME_SCRIPTS = ['scripts/official-market-discovery.mjs', 'scripts/budget-official-discovery.mjs', 'scripts/budget-multicall-read.mjs'];
 const RUNTIME_SOURCES = ['src/firsto-purchase.mjs'];
-const EXACT_FILES = ['package.json', 'package-lock.json', 'public/deployment-artifacts.json', ...RUNTIME_SCRIPTS, ...RUNTIME_SOURCES];
+// Preserve the original verified graph independently of the candidate served
+// artifact. The product API must be able to prove either side of the upgrade.
+const EXACT_FILES = ['package.json', 'package-lock.json', 'public/deployment-artifacts.json',
+  'public/upgrade-genesis/genesis-artifacts.json', ...RUNTIME_SCRIPTS, ...RUNTIME_SOURCES];
 const SOURCE_EXTENSIONS = new Set(['.mjs', '.mts', '.json', '.md']);
 const DIST_EXTENSIONS = new Set(['.html', '.js', '.css', '.json', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.txt']);
 const HASH = /^[a-f\d]{40,64}$/i;
@@ -79,6 +82,8 @@ export function packageRelease({ deployDir = DEPLOY, outDir, sourceHead } = {}) 
   const files = new Map();
   for (const folder of TREES) collectTree(source, folder, files);
   for (const name of EXACT_FILES) files.set(name, regularFile(join(source, name), name));
+  assert(!files.get('public/upgrade-genesis/genesis-artifacts.json')?.equals(files.get('public/deployment-artifacts.json')),
+    'The genesis bundle must be preserved separately from the candidate artifact.');
   assert(files.get('dist/deployment-artifacts.json')?.equals(files.get('public/deployment-artifacts.json')),
     'Served dist artifact must match public artifact byte for byte. Build first.');
   const artifact = JSON.parse(files.get('public/deployment-artifacts.json').toString('utf8'));
@@ -109,7 +114,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     assert(args.length === 2 && args[0] === '--out', 'Usage: node scripts/package-release.mjs --out <absolute-new-directory>');
     const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: DEPLOY, encoding: 'utf8' }).trim();
     const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', 'src', 'server', 'shared',
-      ...RUNTIME_SCRIPTS, 'package.json', 'package-lock.json', '../contracts/src', '../contracts/foundry.toml', 'vite.config.ts', 'scripts/build-artifacts.mjs'], { cwd: DEPLOY, encoding: 'utf8' });
+      ...RUNTIME_SCRIPTS, 'package.json', 'package-lock.json', 'public/upgrade-genesis',
+      '../contracts/src', '../contracts/foundry.toml', 'vite.config.ts', 'scripts/build-artifacts.mjs'], { cwd: DEPLOY, encoding: 'utf8' });
     assert(!dirty.trim(), 'Commit the reviewed runtime and contract sources before packaging. Generated artifact/dist may differ.');
     console.log(JSON.stringify(packageRelease({ outDir: args[1], sourceHead }), null, 2));
   } catch (error) { console.error(error.message); process.exitCode = 1; }

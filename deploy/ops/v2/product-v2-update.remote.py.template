@@ -10,9 +10,17 @@ snippet=pathlib.Path('/etc/nginx/snippets/bemine-v2.conf')
 unit=pathlib.Path('/etc/systemd/system/pinkuang-deploy-v2.service')
 index_unit=pathlib.Path('/etc/systemd/system/pinkuang-index-v2.service')
 record_path=pathlib.Path('/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json')
+upgrade_evidence_path=pathlib.Path('/etc/pinkuang-deploy-v2/integrated-upgrade-evidence.json')
 journal=pathlib.Path('/var/lib/pinkuang-deploy-v2/journal.sqlite')
 public_current=pathlib.Path('/var/www/bemine-v2/current')
 old_factory='0xcB24E7F96D81037086A268d6ea63c53f91D412A2'
+dual_graph=bool(CONFIG.get('candidateArtifactDigest'))
+if dual_graph:
+    assert re.fullmatch(r'0x[0-9a-fA-F]{64}',CONFIG['candidateArtifactDigest'])
+    assert CONFIG['candidateArtifactDigest'].lower()!=CONFIG['artifactDigest'].lower()
+    for key in ['genesisBundleSha256','genesisManifestSha256','integratedUpgradeEvidenceSha256',
+                'productSnippetSha256','indexUnitSha256','trustedRecordSha256']:
+        assert re.fullmatch(r'[0-9a-f]{64}',CONFIG[key]),'Missing reviewed dual-graph hash: '+key
 def release_options(config):
     primary=config.get('primaryRpcUrl','https://bsc-dataseed.bnbchain.org')
     for url in [primary,config['logsRpcUrl'],config.get('fallbackLogsRpcUrl')]:
@@ -74,9 +82,29 @@ def journal_ready():
             saved=json.loads(body);assert saved['status']=='complete' and all(s['status']=='confirmed' for s in saved['steps']),'Unresolved deployment'
         return (s.st_dev,s.st_ino)
     finally:db.close()
+def upgrade_evidence_ready():
+    if not dual_graph:return
+    # Evidence is operator provisioned, outside the web/runtime releases, and
+    # readable by the service without being writable by that service.
+    user=pwd.getpwnam('pinkuang-v2');directory=upgrade_evidence_path.parent
+    no_links(directory);parent=directory.stat()
+    assert parent.st_uid==0 and parent.st_gid==user.pw_gid and stat.S_IMODE(parent.st_mode)==0o750
+    no_links(upgrade_evidence_path);file=upgrade_evidence_path.stat()
+    assert file.st_uid==0 and file.st_gid==user.pw_gid and stat.S_IMODE(file.st_mode)==0o640
+    body=upgrade_evidence_path.read_bytes()
+    assert sha(body)==CONFIG['integratedUpgradeEvidenceSha256'],'Reviewed integrated upgrade evidence differs'
+    evidence=json.loads(body)
+    assert isinstance(evidence.get('plan'),dict) and isinstance(evidence.get('bootstrapPlan'),dict)
+    assert evidence.get('codeExecuteTxHash') is None,'Stage0 release must precede code execution'
+def candidate_record():
+    if dual_graph:
+        original=regular(record_path)
+        assert json.loads(original)==CONFIG['record'],'Existing genesis record differs from reviewed original'
+        return original
+    return (json.dumps(CONFIG['record'],indent=2)+'\n').encode()
 def verify_files(root,manifest_name,expected_hash,source_head):
     manifest=regular(root/manifest_name);assert sha(manifest)==expected_hash
-    value=json.loads(manifest);assert value['sourceHead']==source_head and value['artifactDigest']==CONFIG['artifactDigest']
+    value=json.loads(manifest);assert value['sourceHead']==source_head and value['artifactDigest']==CONFIG.get('candidateArtifactDigest',CONFIG['artifactDigest'])
     if root==runtime:
         modules=root/'node_modules';no_links(modules);assert modules.is_dir() and modules.stat().st_uid==0 and not modules.stat().st_mode&0o022
     actual=set()
@@ -95,11 +123,18 @@ def candidate_unit(old):
     text=old.decode();assert 'User=pinkuang-v2\n' in text and 'Group=pinkuang-v2\n' in text
     assert 'Environment=DEPLOYMENT_JOURNAL_DB='+str(journal)+'\n' in text and 'Environment=PORT=4174\n' in text
     assert 'EnvironmentFile=' not in text,'Review any new environment-file dependency'
+    if dual_graph:
+        assert 'ProtectSystem=strict\n' in text and 'ReadWritePaths=/etc' not in text, 'Evidence must be mounted read only'
     for key,value in [('WorkingDirectory',str(runtime)),('ExecStart','/usr/bin/node '+str(runtime)+'/server/index.mjs')]:
         text,count=re.subn(r'(?m)^'+key+r'=.*$',key+'='+value,text);assert count==1
     env={'BEMINE_JOURNAL_FACTORIES':CONFIG['manifest']['factory']+','+CONFIG['manifest']['portfolioFactory'],
          'BEMINE_DEPLOYMENT_RECORD_PATH':str(record_path),'BEMINE_LEGACY_FACTORY':old_factory,
          'BEMINE_INDEX_URL':'http://127.0.0.1:4181','BEMINE_NOTIFICATIONS_ENABLED':'0'}
+    if dual_graph:env.update({
+        'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH':str(runtime/'public/upgrade-genesis/genesis-artifacts.json'),
+        'BEMINE_INTEGRATED_UPGRADE_ARTIFACT_PATH':str(runtime/'public/deployment-artifacts.json'),
+        'BEMINE_INTEGRATED_UPGRADE_EVIDENCE_PATH':str(upgrade_evidence_path),
+        'BEMINE_GENESIS_MANIFEST_PATH':str(product/'public/bemine-v2/data/frontend-manifest.json')})
     for key,value in env.items():
         text,count=re.subn(r'(?m)^Environment='+key+r'=.*$','Environment='+key+'='+value,text)
         assert count<=1
@@ -187,6 +222,26 @@ def verified_index(body,deadline=None):
     assert pinned['hash'].lower()==source['indexedBlockHash'].lower() and int(pinned['timestamp'],16)==source['indexedTimestamp']
     assert 12<=int(latest['number'],16)-source['indexedThrough']<=132,'Index has not reached the recent safe head'
     return True
+def verified_stage_zero(body):
+    graph=json.loads(body);old=CONFIG['manifest'];candidate=CONFIG['candidateArtifactDigest']
+    assert graph.get('status')=='verified' and graph.get('chainId')==56 and graph.get('stage')=='genesis'
+    assert graph.get('artifactDigest','').lower()==old['artifactDigest'].lower()
+    assert graph.get('genesisArtifactDigest','').lower()==old['artifactDigest'].lower()
+    assert graph.get('upgradeArtifactDigest','').lower()==candidate.lower()
+    live=graph.get('manifest');assert isinstance(live,dict)
+    # The original publication block is history. This endpoint reports the
+    # stage activation block, so these two timestamps intentionally differ.
+    assert {k:v for k,v in live.items() if k not in ['verifiedAt','verifiedBlockNumber']}=={
+        k:v for k,v in old.items() if k not in ['verifiedAt','verifiedBlockNumber']}
+    assert live.get('verifiedBlockNumber')==graph.get('stageActivationBlock')
+    assert graph.get('operationalReady') is False
+    assert graph.get('stageActivationBlock')==old['deployment']['blockNumber']
+    assert graph.get('stageActivationHash','').lower()==old['deployment']['blockHash'].lower()
+    assert graph.get('verifiedBlockNumber',0)>=graph['stageActivationBlock']
+    assert re.fullmatch(r'0x[0-9a-fA-F]{64}',graph.get('verifiedBlockHash',''))
+    assert graph.get('factory','').lower()==old['factory'].lower()
+    assert graph.get('portfolioFactory','').lower()==old['portfolioFactory'].lower()
+    return True
 def wait_for_index():
     started=time.monotonic();deadline=started+catchup_seconds;next_progress=0
     while time.monotonic()<deadline:
@@ -221,7 +276,9 @@ def restore(state):
             if state['beforeHashes'].get(name)==sha(path.read_bytes()):continue
             raise RuntimeError('Concurrent edit blocks rollback: '+str(path))
         saved=backup/(name+'.before')
-        if saved.exists():replace(path,saved.read_bytes(),state['beforeModes'][name])
+        if saved.exists():
+            if not path.exists() or path.read_bytes()!=saved.read_bytes() or stat.S_IMODE(path.stat().st_mode)!=state['beforeModes'][name]:
+                replace(path,saved.read_bytes(),state['beforeModes'][name])
         elif path.exists():path.unlink()
     if link_target()==str(product):
         if state['priorProductLink'] is None:public_current.unlink()
@@ -239,20 +296,33 @@ def main():
     assert legacy()==CONFIG['legacy'],'Refresh legacy snapshot; do not override'
     assert sha(regular(site))==CONFIG['nginxSha256'] and sha(regular(unit))==CONFIG['deployUnitSha256']
     assert service('pinkuang-deploy-v2.service')['ActiveState']=='active'
-    assert service('pinkuang-index-v2.service')['ActiveState']=='inactive','Review index restart separately'
-    inode=journal_ready();runtime_manifest=verify_files(runtime,'release-manifest.json',CONFIG['runtimeManifestSha256'],CONFIG['runtimeSourceHead'])
+    index_before=service('pinkuang-index-v2.service');assert index_before['ActiveState'] in ['active','inactive']
+    if dual_graph:
+        assert index_before['ActiveState']=='active' and index_before['LoadState']=='loaded','Review live index before Stage0 update'
+        assert sha(regular(index_unit))==CONFIG['indexUnitSha256']
+        assert sha(regular(snippet))==CONFIG['productSnippetSha256']
+        assert sha(regular(record_path))==CONFIG['trustedRecordSha256']
+        assert link_target() is not None,'Review existing product link before Stage0 update'
+    inode=journal_ready();upgrade_evidence_ready();runtime_manifest=verify_files(runtime,'release-manifest.json',CONFIG['runtimeManifestSha256'],CONFIG['runtimeSourceHead'])
     product_manifest=verify_files(product,'product-release-manifest.json',CONFIG['productManifestSha256'],CONFIG['productSourceHead'])
     assert runtime_manifest['transactionCount']==16 and runtime_manifest['kind']=='integrated-v2'
     assert product_manifest['basePath']=='/bemine-v2'
     assert json.loads(regular(product/'public/bemine-v2/data/frontend-manifest.json'))==CONFIG['manifest']
     assert CONFIG['record']['status']=='complete' and CONFIG['record']['kind']=='integrated-v2' and CONFIG['record']['artifactDigest']==CONFIG['artifactDigest']
     assert len(CONFIG['record']['steps'])==16 and all(x['status']=='confirmed' for x in CONFIG['record']['steps'])
-    original=regular(site);assert original.decode().count(anchor)==1 and b'/bemine-v2' not in original and insert.encode() not in original
+    if dual_graph:
+        assert sha(regular(runtime/'public/upgrade-genesis/genesis-artifacts.json'))==CONFIG['genesisBundleSha256']
+        assert sha(regular(product/'public/bemine-v2/data/frontend-manifest.json'))==CONFIG['genesisManifestSha256']
+        assert sha(regular(runtime/'public/deployment-artifacts.json'))==runtime_manifest['files']['public/deployment-artifacts.json']['sha256']
+    original=regular(site);assert original.decode().count(anchor)==1 and original.count(insert.encode()) in [0,1]
+    if dual_graph:assert original.count(insert.encode())==1,'Stage0 update requires the existing reviewed product route'
+    if insert.encode() not in original:assert b'/bemine-v2' not in original,'Unreviewed product route'
     # Only add the dedicated product include; preserve all existing route bytes.
-    nginx=original.replace(anchor.encode(),insert.encode()+anchor.encode(),1)
-    assert nginx.replace(insert.encode(),b'',1)==original
-    candidates={'unit':candidate_unit(regular(unit)),'index-unit':index_text(),'nginx':nginx,'snippet':nginx_text(),
-                'record':(json.dumps(CONFIG['record'],indent=2)+'\n').encode()}
+    nginx=original if insert.encode() in original else original.replace(anchor.encode(),insert.encode()+anchor.encode(),1)
+    assert nginx==original or nginx.replace(insert.encode(),b'',1)==original
+    candidates={'unit':candidate_unit(regular(unit)),'index-unit':index_text(),'nginx':nginx,
+                'snippet':regular(snippet) if insert.encode() in original else nginx_text(),
+                'record':candidate_record()}
     targets={'unit':unit,'index-unit':index_unit,'nginx':site,'snippet':snippet,'record':record_path}
     digest=sha(json.dumps(CONFIG,sort_keys=True).encode())
     if PHASE=='prepare':
@@ -261,7 +331,7 @@ def main():
             if not path.exists():path.mkdir(mode=0o700)
             assert path.stat().st_uid==0 and stat.S_IMODE(path.stat().st_mode)==0o700
         state={'configDigest':digest,'legacy':CONFIG['legacy'],'priorProductLink':link_target(),'journalInode':inode,
-               'beforeHashes':{},'beforeModes':{},'candidateHashes':{},'indexWasActive':False,
+               'beforeHashes':{},'beforeModes':{},'candidateHashes':{},'indexWasActive':index_before['ActiveState']=='active',
                'indexWasEnabled':subprocess.run(['systemctl','is-enabled','--quiet','pinkuang-index-v2.service']).returncode==0}
         for name,path in targets.items():
             if path.exists():
@@ -270,20 +340,27 @@ def main():
         exclusive(backup/'prepared.json',json.dumps(state,sort_keys=True,indent=2).encode())
         assert legacy()==state['legacy'];print(json.dumps({'prepared':True,'activated':False,'backup':str(backup),'journalPreserved':True}));return
     state=json.loads(regular(backup/'prepared.json'));assert state['configDigest']==digest and tuple(state['journalInode'])==inode
+    assert state['indexWasActive']==(index_before['ActiveState']=='active'),'Index service changed since prepare'
     for name,path in targets.items():
         if name in state['beforeHashes']:assert sha(regular(path))==state['beforeHashes'][name]
         else:assert not path.exists()
     assert link_target()==state['priorProductLink'];attempted=False
     try:
         # Stop only v2; graceful shutdown drains server reads. The SQLite file and WAL are never copied or replaced.
-        attempted=True;run(['systemctl','stop','pinkuang-deploy-v2.service'],timeout=60);assert journal_ready()==inode
-        for name,path in targets.items():replace(path,candidates[name],0o644)
+        attempted=True;run(['systemctl','stop','pinkuang-deploy-v2.service'],timeout=60)
+        if state['indexWasActive']:run(['systemctl','stop','pinkuang-index-v2.service'],timeout=60)
+        assert journal_ready()==inode and upgrade_evidence_ready() is None
+        for name,path in targets.items():
+            if not path.exists() or regular(path)!=candidates[name]:replace(path,candidates[name],0o644)
         set_link(str(product));run(['systemd-analyze','verify',str(unit),str(index_unit)])
         run(['systemctl','daemon-reload']);run(['nginx','-t'])
         run(['systemctl','start','pinkuang-deploy-v2.service']);run(['systemctl','start','pinkuang-index-v2.service'])
         wait_for_index()
         for path,name in [('/','dist/index.html'),('/deployment-artifacts.json','dist/deployment-artifacts.json')]:
             code,body=http('http://127.0.0.1:4174'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256'],'Runtime HTTP file mismatch: '+name
+        if dual_graph:
+            code,body=http('http://127.0.0.1:4174/api/journal/product-graph',timeout_s=30)
+            assert code==200 and verified_stage_zero(body),'Stage0 genesis/candidate graph was not verified'
         assert http('http://127.0.0.1:4174/api/journal/build')[0]==401
         code,body=http('http://127.0.0.1:4174/api/rpc',{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]});assert code==200 and json.loads(body).get('result')=='0x38'
         run(['systemctl','reload','nginx'])

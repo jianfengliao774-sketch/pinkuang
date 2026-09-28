@@ -1,5 +1,5 @@
 """Render local review scripts only. Never opens SSH or alters a server."""
-import argparse,ast,json,re
+import argparse,ast,hashlib,json,re
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
 ap=argparse.ArgumentParser();ap.add_argument('--plan',type=Path,required=True);ap.add_argument('--record',type=Path,required=True);ap.add_argument('--manifest',type=Path,required=True);ap.add_argument('--out',type=Path,required=True);args=ap.parse_args()
@@ -12,7 +12,19 @@ for key in ['runtimeManifestSha256','productManifestSha256','nginxSha256','deplo
  if not re.fullmatch(r'[a-f0-9]{64}',plan[key]):raise ValueError('Fill actual checked SHA256: '+key)
 record=json.loads(args.record.read_text(encoding='utf8'))
 manifest=json.loads(args.manifest.read_text(encoding='utf8'))
-if record['artifactDigest']!=manifest['artifactDigest'] or plan['artifactDigest']!=manifest['artifactDigest']:raise ValueError('Artifact digest mismatch')
+if record['artifactDigest']!=manifest['artifactDigest'] or plan['artifactDigest']!=manifest['artifactDigest']:raise ValueError('Genesis artifact digest mismatch')
+dual=plan.get('candidateArtifactDigest') is not None
+if dual:
+ for key in ['candidateArtifactDigest']:
+  if not re.fullmatch(r'0x[a-fA-F0-9]{64}',plan.get(key,'')):raise ValueError('Fill reviewed '+key)
+ if plan['candidateArtifactDigest'].lower()==plan['artifactDigest'].lower():raise ValueError('Candidate must differ from genesis')
+ for key in ['genesisBundleSha256','genesisManifestSha256','integratedUpgradeEvidenceSha256',
+             'productSnippetSha256','indexUnitSha256','trustedRecordSha256']:
+  if not re.fullmatch(r'[a-f0-9]{64}',plan.get(key,'')):raise ValueError('Fill reviewed '+key)
+ if hashlib.sha256(args.manifest.read_bytes()).hexdigest()!=plan['genesisManifestSha256']:
+  raise ValueError('Preserved genesis manifest bytes differ from reviewed SHA256')
+elif any(key in plan for key in ['genesisBundleSha256','genesisManifestSha256','integratedUpgradeEvidenceSha256']):
+ raise ValueError('Dual-graph evidence requires candidateArtifactDigest')
 plan.update(record=record,manifest=manifest)
 template=(HERE/'product-v2-update.remote.py.template').read_text(encoding='utf8')
 options=next(node for node in ast.parse(template).body if isinstance(node,ast.FunctionDef) and node.name=='release_options')
