@@ -14,6 +14,18 @@ const factory = addr(1), market = addr(2), pool = addr(3), collection = addr(4),
 const hex = n => `0x${n.toString(16).padStart(64, '0')}`;
 const binding = new Interface(['function shareMarket() view returns(address)', 'function isPool(address) view returns(bool)',
   'function factory() view returns(address)', 'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
+const displayRoutes = ['/v1/pools', '/v1/portfolios', '/v1/stats', '/v1/orders'];
+async function assertDisplayUnavailable(base, index) {
+  assert.equal(index.snapshotTrusted, false);
+  assert.equal(index.verifiedDisplaySnapshot(), null);
+  assert.equal(index.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 0,
+    'invalidated display proof must not survive a restart');
+  for (const route of displayRoutes) {
+    assert.equal((await fetch(`${base}${route}`)).status, 503, `${route} must fail closed`);
+    assert.equal((await fetch(`${base}${route.replace('/v1/', '/v1/snapshot/')}`)).status, 503,
+      `explicit ${route} snapshot must fail closed`);
+  }
+}
 
 class MockChain {
   constructor() { this.version = 1; this.events = []; this._makeBlocks(); }
@@ -511,8 +523,8 @@ test('v2 reorg and wrong-chain proof invalidate display history, while a lagging
     syncing = index.sync();
     while (index.indexedThrough !== 4) await new Promise(resolve => setTimeout(resolve, 1));
     assert.equal(index.verifiedReadView, null);
+    await assertDisplayUnavailable(base, index);
     assert.equal((await fetch(`${base}/v1/activity`)).status, 503);
-    assert.equal((await fetch(`${base}/v1/snapshot/pools`)).status, 503);
     release(); await syncing; syncing = null;
     assert.equal(index.status().complete, true);
 
@@ -520,10 +532,42 @@ test('v2 reorg and wrong-chain proof invalidate display history, while a lagging
     await assert.rejects(index.sync(), /BSC mainnet/);
     assert.equal(index.status().unknownReason, 'wrong_chain');
     assert.equal(index.verifiedReadView, null);
+    await assertDisplayUnavailable(base, index);
     assert.equal((await fetch(`${base}/v1/activity`)).status, 503);
   } finally {
     release();
     if (syncing) await syncing.catch(() => {});
+    await new Promise(resolve => server.close(resolve));
+    index.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('an incomplete event history erases every persisted display route, including after reopening the database', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-v2-index-incomplete-'));
+  const dbPath = join(directory, 'index.sqlite');
+  const chain = new MockChain(); fixture(chain);
+  const config = { dbPath, factory, market, startBlock: 1, confirmations: 2 };
+  const index = new ChainIndex(chain, config);
+  const server = createChainIndexServer(index, { syncWaitMs: 20 });
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    await index.sync();
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 1);
+    const call = chain.call.bind(chain);
+    chain.call = input => binding.parseTransaction({ data: input.data }).name === 'poolCount'
+      ? Promise.resolve(binding.encodeFunctionResult('poolCount', [2n])) : call(input);
+    await assert.rejects(index.sync(), /Event history is incomplete/);
+    assert.equal(index.status().unknownReason, 'incomplete_history');
+    await assertDisplayUnavailable(base, index);
+    assert.equal((await fetch(`${base}/v1/activity`)).status, 503);
+    const reopened = new ChainIndex(chain, config);
+    try {
+      assert.equal(reopened.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 0);
+      assert.equal(reopened.verifiedDisplaySnapshot(), null);
+    } finally { reopened.close(); }
+  } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();
     await rm(directory, { recursive: true, force: true });

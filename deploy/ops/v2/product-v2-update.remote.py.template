@@ -171,6 +171,7 @@ def public(path):
 def verified_index(body,deadline=None):
     source=json.loads(body).get('source',{});m=CONFIG['manifest']
     if source.get('complete') is not True:return False
+    if source.get('readMode') not in (None,'current') or source.get('stale') not in (None,False) or source.get('transactionReady') not in (None,True):return False
     assert source.get('chainId')==56 and source.get('unknownReason') is None
     for key,expected in [('factory',m['factory']),('market',m['shareMarket']),('portfolioFactory',m['portfolioFactory']),('portfolioMarket',m['portfolioMarket'])]:
         assert str(source.get(key,'')).lower()==expected.lower(),'Wrong index graph: '+key

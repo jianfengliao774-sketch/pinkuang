@@ -6,6 +6,12 @@ def functions(names,namespace):
  nodes=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
  exec(compile(ast.Module(body=nodes,type_ignores=[]),'reviewed-functions','exec'),namespace)
  return namespace
+class IndexSnapshotGuard(unittest.TestCase):
+ def test_display_metadata_cannot_pass_cutover_health(self):
+  ns={'json':json,'CONFIG':{'manifest':{}}};functions(['verified_index'],ns)
+  for marker in [{'readMode':'verified_snapshot'},{'stale':True},{'transactionReady':False}]:
+   with self.subTest(marker=marker):
+    self.assertFalse(ns['verified_index'](json.dumps({'source':{'complete':True,**marker}})))
 class Configuration(unittest.TestCase):
  def setUp(self):
   self.ns={'re':re,'CONFIG':{'manifest':{'factory':'0x11','portfolioFactory':'0x22'}},'runtime':pathlib.PurePosixPath('/srv/new-runtime'),

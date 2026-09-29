@@ -4,6 +4,12 @@ HERE=pathlib.Path(__file__).resolve().parent;tree=ast.parse((HERE/'runtime-v2-ho
 def functions(names,ns):
     nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names]
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'hotfix-functions','exec'),ns);return ns
+class IndexSnapshotGuard(unittest.TestCase):
+    def test_display_metadata_cannot_pass_cutover_health(self):
+        ns={'json':json,'CONFIG':{'manifest':{}}};functions(['verified_index'],ns)
+        for marker in [{'readMode':'verified_snapshot'},{'stale':True},{'transactionReady':False}]:
+            with self.subTest(marker=marker):
+                self.assertFalse(ns['verified_index'](json.dumps({'source':{'complete':True,**marker}})))
 class HotfixConfiguration(unittest.TestCase):
     def setUp(self):
         self.ns={'re':re,'legacy_names':['old','price']};functions(['hotfix_options','candidate_snippet','quote_location'],self.ns)

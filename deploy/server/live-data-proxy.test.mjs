@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { Interface } from 'ethers';
 import { createLiveDataProxy, liveDataProxyConfiguration, validateReadRpc } from './live-data-proxy.mjs';
 import { createDeploymentServer } from './index.mjs';
+import { ChainIndex } from './chain-index/indexer.mjs';
+import { createChainIndexServer } from './chain-index/api.mjs';
 
 const address = `0x${'11'.repeat(20)}`;
 const rpc = (method = 'eth_chainId', params = []) => ({ jsonrpc: '2.0', id: 1, method, params });
@@ -87,27 +93,81 @@ test('proxy preserves incomplete index 503 and refuses redirected/HTML/mismatche
   }
 });
 
-test('server reuses only a recent complete public source; browser and private reads stay uncached', async t => {
-  let clock = Date.now(), indexCalls = 0;
+test('health always relays the current index status after an earlier complete response', async t => {
+  let indexCalls = 0;
   const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
-    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date(clock).toISOString() };
-  const f = await fixture(t, { now: () => clock, publicSourceTtlMs: 30000,
+    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date().toISOString() };
+  const f = await fixture(t, {
     upstream: (_url, init) => {
       if (init.method === 'POST') return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
       indexCalls++;
       return indexCalls === 1 ? json({ source, data: { items: [] } })
-        : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' }, data: null }, 503);
+        : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' }, data: null },
+          _url.endsWith('/health') ? 200 : 503);
     } });
   assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
-  const cached = await f.get('/api/chain-index/health');
-  assert.equal(cached.status, 200);
-  assert.equal(cached.headers.get('x-bemine-server-cache'), 'hit');
-  assert.deepEqual(await cached.json(), { source });
-  assert.equal(indexCalls, 1, 'the server answers health from its own cache');
-  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 503, 'catalog is never served stale');
+  const health = await f.get('/api/chain-index/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-bemine-server-cache'), null);
+  assert.equal((await health.json()).source.complete, false);
+  assert.equal(indexCalls, 2, 'health must query the index after a prior complete response');
+  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 503);
   assert.equal((await f.post(rpc())).status, 200, 'RPC is never served stale');
-  clock += 30000;
-  assert.equal((await f.get('/api/chain-index/health')).status, 503, 'expired source is not served');
+  assert.equal((await (await f.get('/api/chain-index/health')).json()).source.complete, false);
+  assert.equal(indexCalls, 4);
+});
+
+test('a verified display response cannot make public health appear complete after index failure', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-v2-index-proxy-'));
+  const factory = `0x${'11'.repeat(20)}`, market = `0x${'22'.repeat(20)}`;
+  const hash = number => `0x${number.toString(16).padStart(64, '0')}`;
+  const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',
+    'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
+  const chain = {
+    send: async () => '0x38', getCode: async () => '0x6001', getLogs: async () => [],
+    getBlock: async number => {
+      const n = number === 'latest' ? 3 : number;
+      return { number: n, hash: hash(n + 100), parentHash: hash(n + 99), timestamp: 1_700_000_000 + n };
+    },
+    call: async ({ to, data }) => {
+      const name = binding.parseTransaction({ data }).name;
+      const result = name === 'shareMarket' ? market : name === 'factory' ? factory
+        : name === 'poolCount' ? 0n : name === 'nextOrderId' ? 1n : null;
+      assert.notEqual(result, null);
+      assert(['shareMarket', 'poolCount'].includes(name) ? to.toLowerCase() === factory.toLowerCase()
+        : to.toLowerCase() === market.toLowerCase());
+      return binding.encodeFunctionResult(name, [result]);
+    },
+  };
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
+    startBlock: 1, confirmations: 2 });
+  const indexServer = createChainIndexServer(index, { syncWaitMs: 20 });
+  await new Promise(resolve => indexServer.listen(0, '127.0.0.1', resolve));
+  const upstream = `http://127.0.0.1:${indexServer.address().port}`;
+  const proxy = createLiveDataProxy({ rpcUrl: 'https://operator-rpc.test', indexUrl: upstream });
+  const server = createDeploymentServer({ liveDataProxy: proxy, journalService: { handle(req, res) { res.end('journal-ok'); } } });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    await new Promise(resolve => { server.closeAllConnections(); server.close(resolve); });
+    await new Promise(resolve => indexServer.close(resolve));
+    index.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  const base = `http://127.0.0.1:${server.address().port}/api/chain-index`;
+  await index.sync();
+  assert.equal((await (await fetch(`${base}/health`)).json()).source.complete, true);
+  chain.send = async () => { throw new Error('temporary RPC timeout'); };
+  await assert.rejects(index.sync(), /temporary RPC timeout/);
+  const display = await (await fetch(`${base}/v1/pools`)).json();
+  assert.equal(display.source.readMode, 'verified_snapshot');
+  assert.equal(display.source.transactionReady, false);
+  const health = await fetch(`${base}/health`);
+  assert.equal(health.headers.get('x-bemine-server-cache'), null);
+  assert.equal((await health.json()).source.complete, false);
+  chain.send = async () => '0x1';
+  await assert.rejects(index.sync(), /BSC mainnet/);
+  assert.equal((await fetch(`${base}/v1/pools`)).status, 503);
+  assert.equal((await (await fetch(`${base}/health`)).json()).source.unknownReason, 'wrong_chain');
 });
 
 test('server reuses exact pinned reads while live headers and latest simulations stay fresh', async t => {

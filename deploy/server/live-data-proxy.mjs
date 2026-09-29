@@ -129,9 +129,9 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
 
 export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
-  publicSourceTtlMs = 30000, pinnedRpcTtlMs = 60000, now = Date.now } = {}) {
+  pinnedRpcTtlMs = 60000, now = Date.now } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
-  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, publicSourceTtlMs, pinnedRpcTtlMs }))
+  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, pinnedRpcTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
   let concurrent = 0;
   const pinnedRpc = new Map(), pendingRpc = new Map();
@@ -158,16 +158,8 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       return value;
     } finally { if (key && pendingRpc.get(key) === pending) pendingRpc.delete(key); }
   };
-  // Only the public index source is cached. The client rechecks its block hash
-  // against BSC; account balances, quotes and transaction reads are never cached.
-  let publicSource = null;
-  const rememberSource = value => {
-    const source = value?.source;
-    if (source?.complete !== true || source.unknownReason !== null || source.chainId !== 56 ||
-      !Number.isSafeInteger(source.indexedThrough) || !/^0x[\da-f]{64}$/i.test(source.indexedBlockHash ?? '') ||
-      !Number.isFinite(Date.parse(source.checkedAt))) return;
-    publicSource = { body: { source }, until: now() + publicSourceTtlMs };
-  };
+  // Health is a live readiness proof. A display-only verified snapshot may
+  // claim its historical source was complete, but must never mask current lag.
   return Object.freeze({ async handle(req, res) {
     const send = (status, value) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -193,14 +185,9 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       requireValue(req.method === 'GET', 405, 'Index requires GET.');
       const route = validateIndexRequest(url);
       requireValue(indexUrl, 503, 'Read-only index is not configured.');
-      if (route === '/health' && publicSource && now() < publicSource.until) {
-        res.setHeader('X-Bemine-Server-Cache', 'hit');
-        return send(200, publicSource.body);
-      }
       const upstream = new URL(`${indexUrl.replace(/\/$/, '')}${route}`); upstream.search = url.search;
       const { status, value } = await fetchJson(upstream.href, { method: 'GET' }, { fetcher, timeoutMs, maxResponseBytes });
       requireValue([200, 400, 503].includes(status), 502, 'Read-only index is unavailable.');
-      if (status === 200) rememberSource(value);
       return send(status, value);
     } catch (error) { if (!res.destroyed && !res.writableEnded) send(error instanceof ProxyError ? error.status : 502,
       { error: error instanceof ProxyError ? error.message : 'Read-only data service is unavailable.' }); }
