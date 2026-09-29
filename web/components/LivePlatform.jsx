@@ -61,7 +61,7 @@ import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
 import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
-import { publicPreviewFresh, publicPreviewNeedsRefresh, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
+import { publicPreviewFresh, publicPreviewNeedsRefresh, publicPreviewRemaining, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
@@ -476,7 +476,7 @@ export default function LivePlatform() {
         setPublicDisplay(previous => previous.key === key
           ? { key, sections: { ...previous.sections, [section]: result } } : previous);
         clearTimeout(expiryTimers.get(section));
-        const remaining = Date.parse(result.source.checkedAt) + 30 * 60_000 - Date.now();
+        const remaining = publicPreviewRemaining(result.source);
         expiryTimers.set(section, setTimeout(() => {
           if (cancelled) return;
           if (publicDisplayCache.current.get(cacheKey) === result) publicDisplayCache.current.delete(cacheKey);

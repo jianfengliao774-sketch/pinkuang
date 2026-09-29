@@ -47,7 +47,7 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/api\/journal\/fresh-activation \{ return 404; \}/);
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/api\/ \{[^}]*proxy_read_timeout 90s;/,
     'the product API proxy must outwait the 45-second authority IPC timeout');
-  assert.match(result.nginxSnippet,/location \^~ \/pinkuang-deploy-v4\/ \{[^}]*proxy_read_timeout 30s;/,
+  assert.match(result.nginxSnippet,/location \^~ \/pinkuang-deploy-v4\/ \{[^}]*proxy_read_timeout 90s;/,
     'the longer proxy wait remains scoped to the product API');
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/firsto-api\/ \{[^}]*proxy_set_header X-Real-IP \$remote_addr;/);
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/ \{[^}]*alias \/var\/www\/bemine-v4\/current\/public\//);

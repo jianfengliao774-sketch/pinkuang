@@ -6,7 +6,8 @@ import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: '
 import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS,
   GENESIS_ARTIFACT_DIGEST,
   validateProductGraph } from '../lib/live-config.mjs';
-import { createLiveDataClient, requireRecentSnapshotState, validateIndexSource } from '../lib/live-data.mjs';
+import { createLiveDataClient, fetchLiveJsonWithClock, requireRecentSnapshotState,
+  validateIndexSource } from '../lib/live-data.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = addr(1), shareMarket = addr(2), lens = addr(3), beacon = addr(4), timelock = addr(5);
@@ -464,6 +465,41 @@ test('pools combine index discovery and same-block Lens; exact amounts and unkno
   assert.equal(snapshot.blockNumber, BigInt(seen.indexedThrough));
   await assert.rejects(client({ '/v1/pools': { items: [], nextCursor: null } }).readPools(), { code: 'index_coverage' });
   await assert.rejects(client({ '/v1/pools': poolsData }, { reorg: true }).readPools(), { code: 'source_reorg' });
+});
+
+test('same-origin HTTP Date permits current index reads with a slow or fast client clock', async () => {
+  const fetcher = async () => new Response(JSON.stringify({ source, data: poolsData }), {
+    headers: { 'content-type': 'application/json', Date: new Date(now).toUTCString() },
+  });
+  for (const localNow of [now - 120_000, now + 10 * 60_000]) {
+    const catalog = await createLiveDataClient(config, { provider: provider(), fetcher,
+      now: () => localNow }).readPools();
+    assert.equal(catalog.source.readMode, undefined);
+    assert.equal(catalog.items[0].pool, pool);
+  }
+});
+
+test('server time cannot make a future timestamp or stale canonical block look current', () => {
+  const timeProof = { serverNow: now, localReceivedAt: now - 120_000 };
+  const localNow = timeProof.localReceivedAt;
+  assert.equal(validateIndexSource(source, manifest, { now: localNow, timeProof }).indexedThrough, 10);
+  assert.throws(() => validateIndexSource({ ...source,
+    checkedAt: new Date(now + 30_001).toISOString() }, manifest, { now: localNow, timeProof }),
+  { code: 'index_stale' });
+  assert.throws(() => validateIndexSource({ ...source,
+    indexedTimestamp: timestamp - 300 }, manifest, { now: localNow, timeProof }),
+  { code: 'index_stale' });
+  assert.throws(() => validateIndexSource(source, manifest, { now: localNow - 1, timeProof }),
+  { code: 'index_stale' }, 'a backward client clock change must not extend the proof lifetime');
+});
+
+test('missing server Date falls back to local time and cannot bypass freshness', async () => {
+  const fetcher = async () => response({ source, data: poolsData });
+  const result = await fetchLiveJsonWithClock(`${origin}/api/chain-index/v1/pools`, {
+    fetcher, now: () => now - 120_000 });
+  assert.equal(result.serverNow, null);
+  assert.throws(() => validateIndexSource(result.body.source, manifest, { now: now - 120_000 }),
+  { code: 'index_stale' });
 });
 
 test('shared pool can be resolved directly without enumerating a project page; unregistered pool rejected', async () => {

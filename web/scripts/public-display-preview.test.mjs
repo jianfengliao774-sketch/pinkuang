@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublicDisplaySection, publicPreviewFresh, publicPreviewNeedsRefresh,
+import { parsePublicDisplaySection, publicPreviewFresh, publicPreviewRemaining, publicPreviewNeedsRefresh,
   readPublicDisplaySection } from '../lib/public-display-preview.mjs';
 
 const addr = byte => `0x${byte.repeat(20)}`;
@@ -149,6 +149,42 @@ test('snapshot display validity advances with its original proof clock', () => {
   assert.equal(publicPreviewFresh(source, now + 30 * 60_000 - 60_000), true);
   assert.equal(publicPreviewFresh(source, now + 30 * 60_000 - 60_000 + 1), false);
   assert.equal(publicPreviewFresh({ ...source, checkedAt: new Date(now + 30_001).toISOString() }, now), false);
+});
+
+test('same-origin response Date keeps a verified preview usable when the local clock is two minutes slow', async () => {
+  const localNow = now - 120_000;
+  const fresh = reply('pools');
+  fresh.source.indexedTimestamp = Math.floor(now / 1000) - 20;
+  fresh.block.timestamp = fresh.source.indexedTimestamp;
+  const fetcher = async () => new Response(JSON.stringify(fresh), {
+    headers: { 'Content-Type': 'application/json', Date: new Date(now).toUTCString() },
+  });
+  const preview = await readPublicDisplaySection({ origin: 'https://example.test', manifest,
+    section: 'pools', fetcher, now: () => localNow });
+  assert.equal(publicPreviewFresh(preview.source, localNow), true);
+  assert.equal(publicPreviewRemaining(preview.source, localNow), 29 * 60_000);
+  assert.equal(publicPreviewFresh(preview.source, localNow + 29 * 60_000 + 1), false);
+  assert.equal(publicPreviewRemaining(preview.source, localNow + 29 * 60_000 + 1), 0);
+});
+
+test('server Date never licenses future, expired, or block-inconsistent preview proofs', async () => {
+  const good = reply('pools');
+  good.source.indexedTimestamp = Math.floor(now / 1000) - 20;
+  good.block.timestamp = good.source.indexedTimestamp;
+  const read = async value => readPublicDisplaySection({ origin: 'https://example.test', manifest,
+    section: 'pools', now: () => now - 120_000,
+    fetcher: async () => new Response(JSON.stringify(value), {
+      headers: { 'Content-Type': 'application/json', Date: new Date(now).toUTCString() },
+    }) });
+  for (const checkedAt of [now + 30_001, now - 30 * 60_000 - 1]) {
+    const bad = structuredClone(good);
+    bad.source.checkedAt = new Date(checkedAt).toISOString();
+    await assert.rejects(read(bad), { code: 'index_stale' });
+  }
+  const oldBlock = structuredClone(good);
+  oldBlock.source.indexedTimestamp = Math.floor(now / 1000) - 60 * 60;
+  oldBlock.block.timestamp = oldBlock.source.indexedTimestamp;
+  await assert.rejects(read(oldBlock), { code: 'index_stale' });
 });
 
 test('preview retries stop per resolved section and resume if that section loses current data', () => {

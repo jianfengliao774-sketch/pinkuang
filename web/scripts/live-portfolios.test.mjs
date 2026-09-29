@@ -58,6 +58,55 @@ test('portfolio discovery uses parent registration and does not multiply 100 sha
     const broken=portfolioFixture(option);await assert.rejects(readPortfolioPage(broken.config,broken.provider,{fetcher:broken.fetcher}));
   }
 });
+test('fresh v4 display pages reuse a canonical fixed-block graph proof but action reads do not',async()=>{
+  const f=portfolioFixture(),config={...f.config,productFamily:'fresh-v4'};
+  await readPortfolioPage(config,f.provider,{account:f.account,fetcher:f.fetcher});
+  const codeReads=()=>f.calls.filter(call=>call.method==='eth_getCode').length;
+  const first=codeReads();
+  assert(first>0);
+  await readPortfolioOrders(config,f.provider,PORTFOLIOS[0],{fetcher:f.fetcher});
+  assert.equal(codeReads(),first,'same pinned block should reuse the verified display graph');
+  await readPortfolioContext(config,f.provider);
+  assert(codeReads()>first,'the action path must verify the graph independently');
+});
+test('budget directory and orders use the index response clock with slow and fast client clocks',async()=>{
+  for(const offset of [-5*60_000,5*60_000]){
+    const f=portfolioFixture(),serverNow=Date.now(),clientNow=serverNow+offset;
+    const fetcher=async url=>new Response(JSON.stringify(f.index(url)),
+      {headers:{'content-type':'application/json',Date:new Date(serverNow).toUTCString()}});
+    const page=await readPortfolioPage(f.config,f.provider,
+      {account:f.account,fetcher,now:()=>clientNow});
+    assert.equal(page.items.length,2);
+    const orders=await readPortfolioOrders(f.config,f.provider,PORTFOLIOS[0],
+      {fetcher,now:()=>clientNow});
+    assert.equal(orders.items.length,1);
+  }
+});
+test('budget fallback snapshot uses its own response Date rather than the failed live response',async()=>{
+  const f=portfolioFixture(),serverNow=Date.now(),clientNow=serverNow-5*60_000;
+  const snapshotSource={...f.source(),checkedAt:new Date(serverNow-60_000).toISOString(),
+    readMode:'verified_snapshot',stale:true,refreshing:true,transactionReady:false,portfolioCount:'2'};
+  const fetcher=async url=>new URL(url).pathname.endsWith('/v1/portfolios')
+    ? new Response(JSON.stringify({error:'syncing'}),{status:503,headers:{'content-type':'application/json'}})
+    : new Response(JSON.stringify({...f.index(url),source:snapshotSource}),
+      {headers:{'content-type':'application/json',Date:new Date(serverNow).toUTCString()}});
+  const page=await readPortfolioPage(f.config,f.provider,
+    {fetcher,now:()=>clientNow});
+  assert.equal(page.source.readMode,'verified_snapshot');
+  assert.equal(page.source.transactionReady,false);
+  assert.equal(page.items.length,2);
+});
+test('budget server Date does not accept future proofs, stale blocks, or absent Date with wrong local time',async()=>{
+  const f=portfolioFixture(),serverNow=Date.now(),clientNow=serverNow-5*60_000;
+  const read=async(changes,includeDate=true)=>readPortfolioOrders(f.config,f.provider,PORTFOLIOS[0],{
+    now:()=>clientNow,fetcher:async url=>new Response(JSON.stringify({...f.index(url),
+      source:{...f.source(),...changes}}),{headers:{'content-type':'application/json',
+        ...(includeDate?{Date:new Date(serverNow).toUTCString()}:{})}})});
+  await assert.rejects(read({checkedAt:new Date(serverNow+31_000).toISOString()}),{code:'index_stale'});
+  await assert.rejects(read({indexedTimestamp:f.source().indexedTimestamp-300}),{code:'index_stale'});
+  await assert.rejects(read({},false),{code:'index_stale'});
+  assert.equal(f.calls.length,0,'failed clock proofs must stop before historical RPC reads');
+});
 test('budget index block mismatch is tagged as a reorg so stale display caches are retired',async()=>{
   const f=portfolioFixture();
   const fetcher=async url=>new Response(JSON.stringify({...f.index(url),

@@ -1,4 +1,4 @@
-import { openSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync, renameSync, mkdirSync, fsyncSync, statSync, fstatSync, ftruncateSync, chmodSync, constants } from 'node:fs';
+import { openSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync, renameSync, mkdirSync, fsyncSync, statSync, fstatSync, ftruncateSync, chmodSync, lstatSync, realpathSync, unlinkSync, constants } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -11,6 +11,7 @@ import { readKeeperPrivateKey } from './keeper-credential.mjs';
 const configuredStateRoot = process.env.PINKUANG_KEEPER_STATE_ROOT;
 if (configuredStateRoot && !isAbsolute(configuredStateRoot)) throw new Error('Keeper state root must be absolute.');
 export const KEEPER_STATE_ROOT = configuredStateRoot || resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
+const V4_KEEPER_STATE_ROOT = '/var/lib/pinkuang-v4-signer/keeper';
 
 export const OFFICIAL_MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 export const OFFICIAL_COLLECTIONS = ['0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', '0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C'];
@@ -419,8 +420,63 @@ export function writeJournal(path, journal) {
   try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
-export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT, 'locks')) {
-  mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
+function durableV4LockMetadata(path, record) {
+  const temporary = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  const fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try { writeFileSync(fd, `${JSON.stringify(record)}\n`); fsyncSync(fd); }
+  catch (error) { closeSync(fd); unlinkSync(temporary); throw error; }
+  closeSync(fd);
+  try {
+    // The .lock inode is the synchronization primitive and must never be
+    // renamed. Its separate diagnostic record may be replaced atomically.
+    renameSync(temporary, path);
+    const directory = openSync(dirname(path), 'r');
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+  } catch (error) {
+    try { unlinkSync(temporary); } catch { /* The rename may already have succeeded. */ }
+    throw error;
+  }
+}
+
+function v4LockSidecar(path, info, resource) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const sidecar = fstatSync(fd);
+    if (!sidecar.isFile() || sidecar.nlink !== 1 || (sidecar.mode & 0o077) !== 0
+      || sidecar.uid !== process.getuid()) throw new Error('V4 keeper lock metadata must be private and owned by this process.');
+    let record;
+    try { record = JSON.parse(readFileSync(fd, 'utf8')); }
+    catch { throw new Error('V4 keeper lock metadata is unreadable; reconcile it manually before signing.'); }
+    if (record?.lockProtocol !== 'flock-v1-sidecar' || record.resource !== resource
+      || record.lockDev !== String(info.dev) || record.lockIno !== String(info.ino)
+      || !Number.isSafeInteger(record.pid) || record.pid <= 0
+      || typeof record.createdAt !== 'string' || !Number.isFinite(Date.parse(record.createdAt))
+      || Date.parse(record.createdAt) > Date.now())
+      throw new Error('V4 keeper lock metadata identity is invalid; reconcile it manually before signing.');
+    return record;
+  } finally { closeSync(fd); }
+}
+
+function requireDeadV4LockOwner(record) {
+  try { process.kill(record.pid, 0); }
+  catch (error) {
+    if (error.code === 'ESRCH') return;
+    throw new Error('V4 keeper lock owner liveness is uncertain; reconcile it manually before signing.');
+  }
+  throw new Error('V4 keeper lock owner is still running; reconcile it manually before signing.');
+}
+
+export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT, 'locks'),
+  { v4StateRoot = V4_KEEPER_STATE_ROOT } = {}) {
+  const v4Sidecar = KEEPER_STATE_ROOT === v4StateRoot
+    && (root === v4StateRoot || root.startsWith(`${v4StateRoot}/`));
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  if (v4Sidecar) {
+    const directory = lstatSync(root);
+    if (!directory.isDirectory() || directory.uid !== process.getuid()
+      || (directory.mode & 0o777) !== 0o700 || realpathSync(root) !== root)
+      throw new Error('V4 keeper lock directory must be a real private 0700 directory.');
+  } else chmodSync(root, 0o700);
   const identity = keccak256(new TextEncoder().encode(resolve(resourcePath))).slice(2);
   const lock = resolve(root, `${identity}.lock`);
   // Never unlink a lock file: unlinking after a crash can race another signer
@@ -449,22 +505,49 @@ export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT
       : spawnSync('/usr/bin/flock', ['-n', '-E', '75', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
     if (result.status === 75) throw new Error(`Keeper lock already exists: ${lock}. Another process holds it.`);
     if (result.error || result.status !== 0) throw new Error('OS file-lock helper failed; signing remains disabled.');
+    if (v4Sidecar) {
+      const current = lstatSync(lock);
+      if (current.dev !== info.dev || current.ino !== info.ino)
+        throw new Error('V4 keeper lock inode changed during acquisition; signing remains disabled.');
+    }
+    const resource = resolve(resourcePath), sidecarPath = `${lock}.meta`;
+    let sidecar = null;
+    if (v4Sidecar && lstatSync(sidecarPath, { throwIfNoEntry: false }))
+      sidecar = v4LockSidecar(sidecarPath, info, resource);
     if (!created) {
       // A rolling upgrade may encounter an O_EXCL file from the older keeper,
       // whose live process does not own an OS flock. Do not sign alongside it.
       let previous;
       try { previous = JSON.parse(readFileSync(fd, 'utf8')); }
-      catch { throw new Error('Existing keeper lock has no readable owner. Reconcile it manually before signing.'); }
-      if (previous.lockProtocol !== 'flock-v1') {
+      catch {
+        if (!v4Sidecar || !sidecar) throw new Error('Existing keeper lock has no readable owner. Reconcile it manually before signing.');
+        // A prior v4 owner created the durable sidecar before writing this
+        // inode. Flock, inode identity and a dead owner jointly prove that a
+        // torn diagnostic record can be rebuilt without losing exclusivity.
+        requireDeadV4LockOwner(sidecar);
+      }
+      if (previous !== undefined && (!previous || typeof previous !== 'object' || Array.isArray(previous)))
+        throw new Error('Existing keeper lock has no valid owner record. Reconcile it manually before signing.');
+      if (previous && previous.lockProtocol !== 'flock-v1') {
         if (!Number.isSafeInteger(previous.pid) || previous.pid <= 0) throw new Error('Legacy keeper lock has no valid PID. Reconcile it manually before signing.');
         try { process.kill(previous.pid, 0); throw new Error('Legacy keeper lock owner may still be running; stop and reconcile it before signing.'); }
         catch (error) { if (error.code !== 'ESRCH') throw error; }
       }
+      if (previous?.lockProtocol === 'flock-v1' && previous.resource !== resource)
+        throw new Error('Existing keeper lock resource does not match; reconcile it manually before signing.');
+      if (previous && previous.lockProtocol !== 'flock-v1' && sidecar)
+        throw new Error('Legacy keeper lock conflicts with v4 metadata; reconcile it manually before signing.');
+    } else if (sidecar) {
+      throw new Error('New v4 keeper lock conflicts with existing metadata; reconcile it manually before signing.');
     }
+    if (v4Sidecar) durableV4LockMetadata(sidecarPath, { lockProtocol: 'flock-v1-sidecar',
+      pid: process.pid, resource, lockDev: String(info.dev), lockIno: String(info.ino),
+      createdAt: new Date().toISOString() });
     ftruncateSync(fd, 0);
-    writeSync(fd, `${serial({ lockProtocol: 'flock-v1', pid: process.pid, resource: resolve(resourcePath), createdAt: new Date().toISOString() })}\n`, 0, 'utf8');
+    writeSync(fd, `${serial({ lockProtocol: 'flock-v1', pid: process.pid, resource, createdAt: new Date().toISOString() })}\n`, 0, 'utf8');
+    if (v4Sidecar) fsyncSync(fd);
     // This metadata is diagnostic only; the kernel lock, not these bytes,
-    // decides ownership. Avoid an unnecessary disk fsync on every pool scan.
+    // decides ownership. Legacy keepers avoid an fsync on every pool scan.
   } catch (error) { closeSync(fd); throw error; }
   let released = false;
   return () => { if (!released) { released = true; closeSync(fd); } };

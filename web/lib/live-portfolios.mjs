@@ -1,7 +1,7 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
-import { validateManifest, fetchLiveJson, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
-import { requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
+import { validateManifest, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
+import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
@@ -153,6 +153,23 @@ export async function readPortfolioContext(config, provider, blockNumber) {
   return { manifest, stage: config.stage, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
 }
 
+// A fixed historical block has immutable code and bindings once its hash is
+// canonical. Share that expensive proof between display pages only; transaction
+// preparation still calls readPortfolioContext directly against the latest head.
+const displayContexts = new WeakMap();
+function readPortfolioDisplayContext(config, provider, blockNumber) {
+  if (config?.productFamily !== 'fresh-v4') return readPortfolioContext(config, provider, blockNumber);
+  let entries = displayContexts.get(provider);
+  if (!entries) { entries = new Map(); displayContexts.set(provider, entries); }
+  const key = JSON.stringify([config.stage, config.manifest, String(blockNumber)]);
+  if (entries.has(key)) return entries.get(key);
+  const pending = readPortfolioContext(config, provider, blockNumber);
+  entries.set(key, pending);
+  if (entries.size > 4) entries.delete(entries.keys().next().value);
+  void pending.catch(() => { if (entries.get(key) === pending) entries.delete(key); });
+  return pending;
+}
+
 export async function readPortfolio(context, pool, account = ZeroAddress, { includeChildren = true } = {}) {
   const { manifest, read, timestamp } = context, target = address(pool), owner = getAddress(account), contract = abi.BudgetPortfolioVault;
   requireValue((await read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'isPool', [target]))[0] === true,
@@ -231,26 +248,29 @@ export async function readPortfolioChildren(context, portfolio, count, offset = 
   return result;
 }
 
-export async function readPortfolioPage(config, provider, { account, cursor = 0, mine = false, fetcher = globalThis.fetch } = {}) {
+export async function readPortfolioPage(config, provider, { account, cursor = 0, mine = false,
+  fetcher = globalThis.fetch, now = Date.now } = {}) {
   requireValue(Number.isSafeInteger(cursor) && cursor >= 0, '项目分页游标无效。');
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
   const path = mine ? `/v1/accounts/${address(account)}/portfolios` : '/v1/portfolios';
-  let reply;
-  try { reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}${path}?cursor=${cursor}&limit=20`, { fetcher }); }
+  let result;
+  try { result = await fetchLiveJsonWithClock(`${base.href.replace(/\/$/, '')}${path}?cursor=${cursor}&limit=20`, { fetcher, now }); }
   catch (error) {
     if (mine || !isRetryableReadError(error)) throw error;
-    reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}/v1/snapshot/portfolios?cursor=${cursor}&limit=20`, { fetcher });
-    requireValue(reply?.source?.readMode === 'verified_snapshot', '预算项目快照来源无效。');
+    result = await fetchLiveJsonWithClock(`${base.href.replace(/\/$/, '')}/v1/snapshot/portfolios?cursor=${cursor}&limit=20`, { fetcher, now });
+    requireValue(result.body?.source?.readMode === 'verified_snapshot', '预算项目快照来源无效。');
   }
-  const source = validateIndexSource(reply.source, manifest,
-    reply.source?.readMode === 'verified_snapshot' ? { maxAgeMs: 30 * 60 * 1000 } : undefined);
+  const { body: reply, serverNow, localReceivedAt } = result;
+  const source = validateIndexSource(reply.source, manifest, { now: now(),
+    ...(reply.source?.readMode === 'verified_snapshot' ? { maxAgeMs: 30 * 60 * 1000 } : {}),
+    ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算项目索引身份或分页无效。');
   const nextCursor = reply.data.nextCursor;
   requireValue(nextCursor === null || Number.isSafeInteger(nextCursor) && nextCursor > cursor, '索引返回重复游标。');
   await requireRecentSnapshotState(provider, source);
-  const context = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
+  const context = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
   insist(context.block.hash.toLowerCase() === source.indexedBlockHash
     && context.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '预算项目索引区块已变化。');
   if (source.readMode === 'verified_snapshot') {
@@ -278,16 +298,19 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
   return { items, nextCursor, source, operator: context.operator };
 }
 
-export async function readPortfolioOrders(config, provider, pool, { cursor, fetcher = globalThis.fetch } = {}) {
+export async function readPortfolioOrders(config, provider, pool, { cursor,
+  fetcher = globalThis.fetch, now = Date.now } = {}) {
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), target = address(pool), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '订单索引服务来源不一致。');
   const query = new URLSearchParams({ pool: target, limit: '20' });
   if (cursor !== undefined && cursor !== null) query.set('cursor', uint(String(cursor)).toString());
-  const reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}/v1/portfolio-orders?${query}`, { fetcher });
-  const source = validateIndexSource(reply.source, manifest);
+  const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(
+    `${base.href.replace(/\/$/, '')}/v1/portfolio-orders?${query}`, { fetcher, now });
+  const source = validateIndexSource(reply.source, manifest, { now: now(),
+    ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算订单索引身份无效。');
-  const ctx = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
+  const ctx = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
   insist(ctx.block.hash.toLowerCase() === source.indexedBlockHash, 'source_reorg', '预算订单索引区块已变化。');
   await readPortfolio(ctx, target, ZeroAddress, { includeChildren: false });
   const items = []; let last = cursor ? uint(String(cursor)) : null;

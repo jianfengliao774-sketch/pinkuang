@@ -1,8 +1,9 @@
-import { fetchLiveJson, insist, liveAddress } from './live-config.mjs';
-import { validateIndexSource } from './live-data.mjs';
+import { insist, liveAddress } from './live-config.mjs';
+import { fetchLiveJsonWithClock, validateIndexSource } from './live-data.mjs';
 
 const UINT256_MAX = (1n << 256n) - 1n;
 const SECTIONS = new Set(['pools', 'portfolios', 'stats', 'orders']);
+const previewClocks = new WeakMap();
 const decimal = (value, label) => {
   insist(typeof value === 'string' && /^(0|[1-9]\d{0,77})$/.test(value)
     && BigInt(value) <= UINT256_MAX, 'invalid_data', `${label} 必须是 uint256 精确整数。`);
@@ -13,11 +14,26 @@ const blockNumber = (value, label) => {
   return value;
 };
 
+function previewNow(source, localNow) {
+  const proof = source && previewClocks.get(source);
+  if (!proof) return localNow;
+  const elapsed = localNow - proof.localReceivedAt;
+  return elapsed >= 0 ? proof.serverNow + elapsed : NaN;
+}
+
 export function publicPreviewFresh(source, now = Date.now()) {
   const checkedAt = Date.parse(source?.checkedAt);
+  const current = previewNow(source, now);
   return source?.readMode === 'verified_snapshot' && source.stale === true
     && source.transactionReady === false && Number.isFinite(checkedAt)
-    && checkedAt <= now + 30_000 && now - checkedAt <= 30 * 60_000;
+    && Number.isFinite(current) && checkedAt <= current + 30_000
+    && current - checkedAt <= 30 * 60_000;
+}
+
+/** Use the response's elapsed server clock for the preview expiry timer too. */
+export function publicPreviewRemaining(source, now = Date.now()) {
+  return publicPreviewFresh(source, now)
+    ? Math.max(0, Date.parse(source.checkedAt) + 30 * 60_000 - previewNow(source, now)) : 0;
 }
 
 /** A preview is useful only until this route's authoritative section is current. */
@@ -37,12 +53,12 @@ const sanitizeSource = source => Object.freeze({
 
 /** A section has its own proof and age. Never copy account or action fields. */
 export function parsePublicDisplaySection(reply, manifest, section, { now = Date.now(), cursor = 0,
-  limit = 50, activeOrders = true, lookupAddress = null } = {}) {
+  limit = 50, activeOrders = true, lookupAddress = null, timeProof } = {}) {
   insist(SECTIONS.has(section), 'invalid_config', '未知公共展示分区。');
   insist(reply?.source?.readMode === 'verified_snapshot' && reply.source.stale === true
     && reply.source.transactionReady === false && typeof reply.source.refreshing === 'boolean',
   'index_stale', '公共展示快照必须明确标记为历史只读资料。');
-  const source = validateIndexSource(reply.source, manifest, { now, maxAgeMs: 30 * 60_000 });
+  const source = validateIndexSource(reply.source, manifest, { now, maxAgeMs: 30 * 60_000, timeProof });
   insist(liveAddress(source.portfolioFactory) === liveAddress(manifest.portfolioFactory)
     && liveAddress(source.portfolioMarket) === liveAddress(manifest.portfolioMarket),
   'index_identity', '预算索引与正式版部署清单不一致。');
@@ -151,9 +167,13 @@ export async function readPublicDisplaySection({ origin, manifest, section, addr
   if (target && section === 'pools') {
     const url = new URL(`${origin}/bemine-v4/api/chain-index/v1/snapshot/pools/${target}`);
     try {
-      const reply = await fetchLiveJson(url.href, { fetcher, maxBytes: 1_000_000 });
-      return parsePublicDisplaySection(reply, manifest, section,
-        { now: now(), lookupAddress: target });
+      const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(url.href,
+        { fetcher, now, maxBytes: 1_000_000 });
+      const proof = serverNow === null ? null : { serverNow, localReceivedAt };
+      const preview = parsePublicDisplaySection(reply, manifest, section,
+        { now: now(), lookupAddress: target, ...(proof ? { timeProof: proof } : {}) });
+      if (proof) previewClocks.set(preview.source, proof);
+      return preview;
     } catch (error) {
       // Allow the frontend and index proxy to roll out independently. A 200
       // reply with an invalid proof must fail closed instead of scanning pages.
@@ -167,8 +187,12 @@ export async function readPublicDisplaySection({ origin, manifest, section, addr
     if (section !== 'stats') url.searchParams.set('limit', '50');
     if (section === 'orders') url.searchParams.set('active', 'true');
     if (cursor) url.searchParams.set('cursor', String(cursor));
-    const reply = await fetchLiveJson(url.href, { fetcher, maxBytes: 1_000_000 });
-    const preview = parsePublicDisplaySection(reply, manifest, section, { now: now(), cursor });
+    const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(url.href,
+      { fetcher, now, maxBytes: 1_000_000 });
+    const proof = serverNow === null ? null : { serverNow, localReceivedAt };
+    const preview = parsePublicDisplaySection(reply, manifest, section,
+      { now: now(), cursor, ...(proof ? { timeProof: proof } : {}) });
+    if (proof) previewClocks.set(preview.source, proof);
     lastPreview = preview;
     if (firstSource) insist(preview.source.indexedThrough === firstSource.indexedThrough
       && preview.source.indexedBlockHash === firstSource.indexedBlockHash

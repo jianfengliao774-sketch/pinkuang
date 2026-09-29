@@ -21,10 +21,41 @@ const sameSource = (a, b) => a.chainId === b.chainId && a.factory === b.factory 
 // because its later read used the live endpoint for the same canonical block.
 const conservativeSource = (source, earlier) => earlier?.readMode === 'verified_snapshot'
   || source.readMode === 'verified_snapshot'
-  ? Object.freeze({ ...(earlier?.readMode === 'verified_snapshot' ? earlier : source),
+  ? withSourceClock(Object.freeze({ ...(earlier?.readMode === 'verified_snapshot' ? earlier : source),
     readMode: 'verified_snapshot', stale: true, transactionReady: false,
-    refreshing: earlier?.refreshing === true || source.refreshing === true })
+    refreshing: earlier?.refreshing === true || source.refreshing === true }),
+    sourceClocks.get(earlier?.readMode === 'verified_snapshot' ? earlier : source))
   : source;
+const sourceClocks = new WeakMap();
+const withSourceClock = (source, proof) => {
+  if (proof) sourceClocks.set(source, proof);
+  return source;
+};
+/** HTTP Date is from the same-origin index response. Its rounded seconds and
+ * Age header provide an elapsed server clock when the user's clock is wrong. */
+export async function fetchLiveJsonWithClock(url, { fetcher = globalThis.fetch, now = Date.now, ...options } = {}) {
+  let serverNow = null, localReceivedAt = null;
+  const body = await fetchLiveJson(url, { ...options, fetcher: async (...args) => {
+    const response = await fetcher(...args);
+    localReceivedAt = now();
+    const rawDate = response?.headers?.get?.('date');
+    const parsed = typeof rawDate === 'string' ? Date.parse(rawDate) : NaN;
+    const age = response?.headers?.get?.('age') ?? null;
+    if (Number.isFinite(parsed) && parsed >= 0
+      && (age === null || /^(0|[1-9]\d{0,3})$/.test(age))) {
+      const candidate = parsed + (age === null ? 0 : Number(age) * 1000);
+      if (Number.isSafeInteger(candidate)) serverNow = candidate;
+    }
+    return response;
+  } });
+  return { body, serverNow, localReceivedAt };
+}
+function proofNow(proof, localNow) {
+  if (!proof) return localNow;
+  const elapsed = localNow - proof.localReceivedAt;
+  insist(Number.isFinite(elapsed) && elapsed >= 0, 'index_stale', '本机时钟在读取期间变化，请重新读取。');
+  return proof.serverNow + elapsed;
+}
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const sessionStorageSafe = () => { try { return typeof window === 'undefined' ? null : window.sessionStorage; } catch { return null; } };
 
@@ -58,7 +89,7 @@ async function mapReadBounded(items, concurrency, read) {
   return values;
 }
 
-export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs } = {}) {
+export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs, timeProof } = {}) {
   insist(input && input.chainId === 56 && sameAddress(input.factory, manifest.factory)
     && sameAddress(input.market, manifest.shareMarket), 'index_identity', '索引合约身份与部署清单不一致。');
   const displaySnapshot = input.readMode === 'verified_snapshot';
@@ -71,8 +102,13 @@ export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeM
     && input.indexedThrough === input.observedSafeHead && input.confirmations >= 1 && hash(input.indexedBlockHash), 'index_coverage', '索引覆盖或安全区块无效。');
   const checkedAt = Date.parse(input.checkedAt);
   const allowedAge = Math.min(maxAgeMs ?? (displaySnapshot ? 30 * 60 * 1000 : 120000), displaySnapshot ? 30 * 60 * 1000 : 120000);
-  insist(Number.isFinite(checkedAt) && checkedAt <= now + 30000 && now - checkedAt <= allowedAge, 'index_stale', '索引核验已过期，请刷新。');
-  return Object.freeze({ ...input, factory: getAddress(input.factory), market: getAddress(input.market), indexedBlockHash: input.indexedBlockHash.toLowerCase() });
+  const proof = timeProof ?? sourceClocks.get(input);
+  const current = proofNow(proof, now);
+  if (proof) insist(current + 30_000 >= input.indexedTimestamp * 1000
+    && current - input.indexedTimestamp * 1000 <= allowedAge + 90_000,
+  'index_stale', '索引来源区块已落后于服务器时间。');
+  insist(Number.isFinite(checkedAt) && checkedAt <= current + 30000 && current - checkedAt <= allowedAge, 'index_stale', '索引核验已过期，请刷新。');
+  return withSourceClock(Object.freeze({ ...input, factory: getAddress(input.factory), market: getAddress(input.market), indexedBlockHash: input.indexedBlockHash.toLowerCase() }), proof);
 }
 
 /** Historical display snapshots are not an archive-node promise. Keep old-state
@@ -221,10 +257,11 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function indexRead(path, query = {}, expected) {
     const url = new URL(`${indexBase.href.replace(/\/$/, '')}${path}`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-    const response = await fetchLiveJson(url.href, { fetcher });
+    const { body: response, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(url.href, { fetcher, now });
     const displaySource = path === '/health' && response?.source?.complete !== true
       ? response?.displaySource : null;
-    let source = validateIndexSource(displaySource ?? response?.source, manifest, { now: now() });
+    let source = validateIndexSource(displaySource ?? response?.source, manifest, { now: now(),
+      ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
     if (expected) {
       const old = validateIndexSource(expected, manifest, { now: now() });
       insist(sameSource(source, old), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
@@ -240,9 +277,10 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function savedSnapshotRead(path, query = {}) {
     const url = new URL(`${indexBase.href.replace(/\/$/, '')}/v1/snapshot${path}`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-    const response = await fetchLiveJson(url.href, { fetcher });
+    const { body: response, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(url.href, { fetcher, now });
     insist(response?.source?.readMode === 'verified_snapshot', 'index_identity', '服务端快照来源无效。');
-    const source = validateIndexSource(response.source, manifest, { now: now(), maxAgeMs: 30 * 60 * 1000 });
+    const source = validateIndexSource(response.source, manifest, { now: now(), maxAgeMs: 30 * 60 * 1000,
+      ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
     await requireRecentSnapshotState(rpc, source);
     const header = await blockHeader(BigInt(source.indexedThrough));
     insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
