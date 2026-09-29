@@ -238,8 +238,10 @@ export class FreshActivationEngine {
 
   private async verifyPinnedState(record: FreshActivationRecord, completed: number) {
     await this.account();
-    const block = await this.provider.getBlock('latest');
-    requireThat(block?.hash, 'BSC 区块不可用。');
+    // Every role and code binding is read from a finalized block. A latest
+    // block may disappear after the next hardware-wallet signature.
+    const block = await this.provider.getBlock('finalized');
+    requireThat(block?.hash, 'BSC 最终确认区块不可用。');
     const at = { blockTag: block.number };
     const names = ['factory','portfolioFactory','shareMarket','portfolioMarket','timelock'];
     await Promise.all(names.map(async name => {
