@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { FetchRequest, Interface, JsonRpcProvider, getAddress, getCreateAddress, keccak256, toUtf8Bytes, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
-import { validateFreshActivation } from './fresh-activation-journal.mjs';
+import { validateFreshActivation, verifyFinalizedFreshAttempt } from './fresh-activation-journal.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
@@ -1553,6 +1553,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         try { record = validateFreshActivation(body.record, account, genesis,
           credential.gasWallet ?? previous?.gasWallet); }
         catch { fail(400, 'Invalid fresh activation record or genesis deployment.'); }
+        if (!previous && record.steps.some(step => step.attempts?.length))
+          fail(409, 'A new Stage 2 journal cannot import failed transaction attempts.');
         if (newSigningIntent && record.genesisArtifactDigest.toLowerCase() !== signingBuildDigest())
           fail(409, 'Deployment artifacts changed. Reload before another hardware-wallet signature.');
         return send(200, { revision: store.putFreshActivation(account, record, exactRevision(body.expectedRevision)) });
@@ -1573,6 +1575,21 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           fail(409, 'Deployment wallet nonce changed or has a pending transaction; recover its hash first.');
         return send(200, store.releaseUnusedFreshSigning(account, revision,
           body.stepId, body.nonce, body.dataHash));
+      }
+      if (method === 'POST' && path === '/api/journal/fresh-activation/recover-finalized-attempt') {
+        const body = await readJson(req);
+        const revision = exactRevision(body.expectedRevision);
+        const current = store.freshActivation(account);
+        if (current.revision !== revision || !provider || !expectedGasWallet)
+          fail(409, 'Fresh activation recovery state or independent chain reader is unavailable.');
+        const genesis = store.deployment(account).record;
+        try { validateFreshActivation(current.record, account, genesis, getAddress(expectedGasWallet)); }
+        catch { fail(409, 'Fresh activation or genesis record failed independent validation.'); }
+        let proof;
+        try { proof = await verifyFinalizedFreshAttempt(provider, current.record, account,
+          body.stepId, body.nonce, body.winnerHash); }
+        catch { fail(409, 'Finalized same-nonce winner or current Authority roles could not be proven.'); }
+        return send(200, store.recoverFinalizedFreshAttempt(account, revision, proof));
       }
       if (method === 'GET' && path === '/api/journal/deployment/nonce') {
         if (new URL(req.url, origin).search) fail(400, 'Nonce verification accepts only the authenticated wallet, with no query parameters.');

@@ -134,6 +134,23 @@ export class ServerJournal {
     return result.record;
   }
 
+  async recoverFinalizedFreshAttempt(stepId: string, nonce: number, winnerHash: string): Promise<FreshActivationRecord> {
+    if (!Number.isSafeInteger(nonce) || nonce < 0 || !/^0x[0-9a-fA-F]{64}$/.test(winnerHash))
+      throw new Error('新合约激活的失败交易证明无效。');
+    const result = await this.request<{ revision: number; record: FreshActivationRecord }>(
+      'fresh-activation/recover-finalized-attempt', 'POST',
+      { expectedRevision: this.freshActivationRevision, stepId, nonce, winnerHash });
+    const step = result.record?.steps.find(item => item.id === stepId);
+    const attempt = step?.attempts?.at(-1);
+    if (!Number.isSafeInteger(result.revision) || result.revision <= this.freshActivationRevision
+      || result.record?.account?.toLowerCase() !== this.account.toLowerCase()
+      || result.record.status !== 'paused' || step?.status !== 'waiting'
+      || attempt?.nonce !== nonce || attempt.recovery.winnerHash.toLowerCase() !== winnerHash.toLowerCase())
+      throw new Error('服务器的失败交易恢复结果无效。');
+    this.freshActivationRevision = result.revision;
+    return result.record;
+  }
+
   async readCurrentNonce(): Promise<{ latest: number; pending: number }> {
     const state = await this.request<{ latest: number; pending: number }>('deployment/nonce');
     if (!state || !Number.isSafeInteger(state.latest) || state.latest < 0

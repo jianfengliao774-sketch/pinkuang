@@ -62,8 +62,17 @@ function invalidEnvelopeError(error: unknown): boolean {
       && /\bmaxPriorityFeePerGas\b/.test(value) && /instead of/i.test(value));
 }
 
+export type FreshActivationAttempt = Omit<StepRecord, 'rejectionKind'> & {
+  status: 'failed' | 'replaced';
+  nonce: number;
+  dataHash: string;
+  receipt: NonNullable<StepRecord['receipt']>;
+  recovery: { winnerHash: string; finalizedBlockNumber: number; finalizedBlockHash: string };
+};
+
 type FreshActivationStepRecord = Omit<StepRecord, 'rejectionKind'> & {
   rejectionKind?: StepRecord['rejectionKind'] | 'nonce-witnessed';
+  attempts?: FreshActivationAttempt[];
 };
 
 export interface FreshActivationRecord {
@@ -99,6 +108,12 @@ export interface FreshActivationEvidence {
     administratorTwo: string; gasWallet: string };
   steps: { id: FreshActivationStepId; txHash: string; blockNumber: number; blockHash: string }[];
   verifiedAt: string;
+}
+
+function activationSpentWei(record: FreshActivationRecord): string {
+  return record.steps.reduce((total, step) => total
+    + BigInt(step.receipt?.feeWei ?? '0')
+    + (step.attempts ?? []).reduce((fees, attempt) => fees + BigInt(attempt.receipt.feeWei), 0n), 0n).toString();
 }
 
 /** Exact send plan; no amount of BNB is transferred by these seven calls. */
@@ -238,10 +253,14 @@ export class FreshActivationEngine {
 
   private async verifyPinnedState(record: FreshActivationRecord, completed: number) {
     await this.account();
-    // Every role and code binding is read from a finalized block. A latest
-    // block may disappear after the next hardware-wallet signature.
-    const block = await this.provider.getBlock('finalized');
-    requireThat(block?.hash, 'BSC 最终确认区块不可用。');
+    // A finalized anchor proves the completed prefix; checking the current
+    // head as well catches a newer role change before another signature.
+    const [finalized, head] = await Promise.all([
+      this.provider.getBlock('finalized'), this.provider.getBlock('latest'),
+    ]);
+    requireThat(finalized?.hash && head?.hash && head.number >= finalized.number,
+      'BSC 最终确认区块或最新区块不可用。');
+    for (const block of head.hash === finalized.hash ? [finalized] : [finalized, head]) {
     const at = { blockTag: block.number };
     const names = ['factory','portfolioFactory','shareMarket','portfolioMarket','timelock'];
     await Promise.all(names.map(async name => {
@@ -312,7 +331,8 @@ export class FreshActivationEngine {
     }
     requireThat((await this.provider.getBlock(block.number))?.hash === block.hash,
       '核验过程中区块发生重组。');
-    return block;
+    }
+    return finalized;
   }
 
   async verifiedManifest(saved: FreshActivationRecord): Promise<ActivatedDeploymentManifest> {
@@ -452,6 +472,7 @@ export class FreshActivationEngine {
           nonceConflict = true;
           throw new Error('签名前 nonce 变化；保留意图，必须核验。');
         }
+        await this.verifyPinnedState(record, index);
         await this.account();
         attemptedBroadcast = true;
         hash = await this.wallet.request({ method: 'eth_sendTransaction', params: [tx] }) as string;
@@ -559,6 +580,59 @@ export class FreshActivationEngine {
     return receipt;
   }
 
+  /** Archive one finalized failed attempt; the next nonce still needs a separate hardware-wallet click. */
+  async recoverFinalizedAttempt(saved: FreshActivationRecord): Promise<FreshActivationRecord> {
+    return this.exclusive(async () => {
+      const record = await this.latest(saved);
+      const index = record.steps.findIndex(step => step.status !== 'confirmed');
+      const step = record.steps[index];
+      requireThat(record.status === 'aborted' && index > 0 && step
+        && (step.status === 'failed' || step.status === 'replaced')
+        && Number.isSafeInteger(step.nonce) && step.receipt,
+      '只有已最终确认、且保留已上链前缀的失败或替换交易可恢复。');
+      const winnerHash = step.replacementHash ?? step.txHash;
+      requireThat(winnerHash && HASH.test(winnerHash), '同 nonce 获胜交易哈希未知；不能恢复。');
+      const [tx, receipt] = await Promise.all([
+        this.provider.getTransaction(winnerHash), this.finalizedReceipt(winnerHash),
+      ]);
+      requireThat(tx && receipt && tx.chainId === 56n && same(tx.from, record.account)
+        && tx.nonce === step.nonce && same(receipt.from, record.account)
+        && tx.blockHash === receipt.blockHash && tx.blockNumber === receipt.blockNumber
+        && receipt.blockHash === step.receipt.blockHash
+        && receipt.blockNumber === step.receipt.blockNumber
+        && receipt.status === step.receipt.status
+        && receipt.fee.toString() === step.receipt.feeWei
+        && receipt.gasUsed.toString() === step.receipt.gasUsed
+        && receipt.gasPrice.toString() === step.receipt.gasPrice
+        && (step.status !== 'failed' || receipt.status === 0)
+        && (step.status !== 'replaced' || receipt.status === 1),
+      '同 nonce 获胜交易或最终确认回执与不可变日志不一致。');
+      const proofBlock = await this.verifyPinnedState(record, index);
+      requireThat(proofBlock.number >= receipt.blockNumber,
+        '权限状态尚未最终确认到失败交易所在区块。');
+      const account = await this.account();
+      const [server, walletLatest, walletPending] = await Promise.all([
+        this.journal.readCurrentNonce(), this.provider.getTransactionCount(account, 'latest'),
+        this.provider.getTransactionCount(account, 'pending'),
+      ]);
+      requireThat(server.latest === server.pending && walletLatest === walletPending
+        && server.latest === walletLatest && server.latest > step.nonce,
+      '旧 nonce 尚未最终消费、存在待确认交易或两个节点的 nonce 不一致。');
+      const recovered = await this.journal.recoverFinalizedFreshAttempt(step.id, step.nonce, winnerHash);
+      const next = recovered.steps[index], prior = next?.attempts?.at(-1);
+      requireThat(recovered.deploymentId === record.deploymentId
+        && recovered.status === 'paused' && next.status === 'waiting'
+        && prior?.id === step.id && prior.status === step.status
+        && prior.nonce === step.nonce && prior.dataHash === step.dataHash
+        && same(prior.recovery.winnerHash, winnerHash)
+        && prior.receipt.blockHash === step.receipt.blockHash
+        && recovered.spentWei === record.spentWei,
+      '服务器返回的失败尝试恢复记录与原日志不一致。');
+      this.onUpdate?.(clone(recovered));
+      return recovered;
+    });
+  }
+
   async reconcile(saved: FreshActivationRecord, recoveryHash?: string): Promise<FreshActivationRecord> {
     return this.exclusive(async () => {
       const record = await this.latest(saved);
@@ -591,7 +665,7 @@ export class FreshActivationEngine {
         step.receipt = { blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
           status: receipt.status!, gasUsed: receipt.gasUsed.toString(),
           gasPrice: receipt.gasPrice.toString(), feeWei: receipt.fee.toString() };
-        record.spentWei = record.steps.reduce((sum, item) => sum + BigInt(item.receipt?.feeWei ?? '0'), 0n).toString();
+        record.spentWei = activationSpentWei(record);
         record.status = 'aborted'; record.error = '激活交易已被取消、替换或链上失败。此七步计划已终止，禁止重发。';
         await this.save(record);
         return record;
@@ -616,7 +690,7 @@ export class FreshActivationEngine {
       // Successful receipt is recorded even if an unrelated state mutation
       // makes the next step unsafe; the journal cannot erase a mined tx.
       step.status = 'confirmed';
-      record.spentWei = record.steps.reduce((sum, item) => sum + BigInt(item.receipt?.feeWei ?? '0'), 0n).toString();
+      record.spentWei = activationSpentWei(record);
       record.status = 'paused'; delete record.error;
       await this.save(record);
       await this.verifyPinnedState(record, index + 1);

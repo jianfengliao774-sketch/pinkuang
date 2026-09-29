@@ -295,3 +295,80 @@ test('restored Stage 2 roles and both administrator addresses are pinned before 
     assert.equal(sends, 0);
   }
 });
+
+test('a finalized third-step failure requires a separate same-action, new-nonce hardware confirmation', async () => {
+  let saved = record();
+  saved.genesisArtifactDigest = artifactDigest(bundle);
+  saved.status = 'aborted';
+  saved.steps[0].nonce = 0;
+  saved.steps[1] = { id: 'coreOperator', label: 'coreOperator', status: 'confirmed', nonce: 1 };
+  const original = await activationTransaction(saved, bundle, 'coreTreasury');
+  const fee = '100000000000000';
+  saved.steps[2] = { id: 'coreTreasury', label: 'coreTreasury', status: 'failed', nonce: 8,
+    dataHash: keccak256(original.data), txHash: hash('a'), gasLimit: original.gasLimit.toString(),
+    gasPriceWei: '1000000000', maxFeeWei: '150000000000000',
+    receipt: { blockNumber: 120, blockHash: hash('b'), status: 0,
+      gasUsed: '100000', gasPrice: '1000000000', feeWei: fee } };
+  saved.spentWei = fee;
+  let recoveries = 0;
+  const sent: Record<string, string>[] = [];
+  const wallet: Eip1193Provider = { request: async request => {
+    if (request.method !== 'eth_sendTransaction') throw new Error(`Unexpected wallet method ${request.method}`);
+    sent.push((request.params as Record<string, string>[])[0]);
+    return hash('c');
+  } };
+  const journal = {
+    loadFreshActivation: async () => structuredClone(saved),
+    saveFreshActivation: async (next: FreshActivationRecord) => { saved = structuredClone(next); },
+    readCurrentNonce: async () => ({ latest: 9, pending: 9 }),
+    freshActivationCredentialStatus: async () => ({ credentialVerified: true, gasWallet }),
+    assertCurrentArtifact: async () => {},
+    recoverFinalizedFreshAttempt: async (id: string, nonce: number, winnerHash: string) => {
+      recoveries++;
+      assert.equal(id, 'coreTreasury'); assert.equal(nonce, 8); assert.equal(winnerHash, hash('a'));
+      const failed = structuredClone(saved.steps[2]);
+      saved.steps[2] = { id: 'coreTreasury', label: 'coreTreasury', status: 'waiting',
+        attempts: [{ ...failed, status: 'failed', nonce: 8,
+          dataHash: failed.dataHash!, receipt: failed.receipt!,
+          recovery: { winnerHash, finalizedBlockNumber: 125,
+          finalizedBlockHash: hash('d') } }] };
+      saved.status = 'paused';
+      return structuredClone(saved);
+    },
+  } as unknown as ServerJournal;
+  const genesis = { id: saved.deploymentId, account: hardware, kind: 'integrated-v2', status: 'complete',
+    input: { ownerMultisig: hardware, operator: hardware, treasury: hardware } } as DeploymentSnapshot;
+  const engine = new FreshActivationEngine(wallet, bundle, journal, genesis);
+  const internals = engine as unknown as {
+    exclusive: (action: () => Promise<unknown>) => Promise<unknown>;
+    verifyPinnedState: () => Promise<unknown>;
+    finalizedReceipt: () => Promise<unknown>;
+    account: () => Promise<string>;
+    provider: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  };
+  internals.exclusive = action => action();
+  internals.account = async () => hardware;
+  internals.verifyPinnedState = async () => ({ number: 125, hash: hash('d') });
+  internals.finalizedReceipt = async () => ({ hash: hash('a'), from: hardware,
+    blockNumber: 120, blockHash: hash('b'), status: 0, gasUsed: 100000n,
+    gasPrice: 1000000000n, fee: 100000000000000n });
+  internals.provider = {
+    getTransaction: async () => ({ hash: hash('a'), chainId: 56n, from: hardware,
+      nonce: 8, blockNumber: 120, blockHash: hash('b') }),
+    getTransactionCount: async () => 9,
+    getFeeData: async () => ({ gasPrice: 1000000000n }),
+    getBalance: async () => 1_000_000_000_000_000_000n,
+    getBlock: async () => ({ gasLimit: 30_000_000n }),
+  };
+  const recovered = await engine.recoverFinalizedAttempt(saved);
+  assert.equal(recoveries, 1);
+  assert.equal(sent.length, 0, 'recovery must not ask the wallet to send');
+  assert.equal(recovered.steps[2].attempts?.[0].receipt.feeWei, fee);
+  const submitted = await engine.sendNext(recovered);
+  assert.equal(submitted.steps[2].status, 'submitted');
+  assert.equal(submitted.spentWei, fee, 'the failed attempt remains in the Gas budget');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].nonce, '0x9');
+  assert.equal(sent[0].to, factory);
+  assert.equal(sent[0].data, original.data);
+});

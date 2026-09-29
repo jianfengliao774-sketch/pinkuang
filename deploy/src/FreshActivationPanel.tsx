@@ -101,7 +101,13 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
         {record.authorityAddress && <>　<b>Authority：</b><a href={`${explorer}/address/${record.authorityAddress}`} target="_blank" rel="noreferrer">{record.authorityAddress}<ExternalLink size={12}/></a></>}</p>
         <ol className="transaction-list">{record.steps.map((step, index) => <li key={step.id} className={`tx-${step.status}`}>
           <span className="tx-icon">{step.status === 'confirmed' ? <Check size={15}/> : index + 1}</span>
-          <div><b>{step.label}</b><small>{activationStepStatusText(step.status)}</small></div>
+          <div><b>{step.label}</b><small>{activationStepStatusText(step.status)}</small>
+            {step.attempts?.map((attempt, attemptIndex) => <small key={`${attempt.nonce}-${attemptIndex}`}>
+              已归档失败尝试 {attemptIndex + 1} · nonce {attempt.nonce} ·
+              <a href={`${explorer}/tx/${attempt.recovery.winnerHash}`} target="_blank" rel="noreferrer">
+                最终确认交易</a> · 区块 {attempt.recovery.finalizedBlockNumber}
+            </small>)}
+          </div>
           {step.txHash && <a href={`${explorer}/tx/${step.txHash}`} target="_blank" rel="noreferrer">查看交易 <ExternalLink size={13}/></a>}
         </li>)}</ol></>}
       {error && <div className="alert alert-error" role="alert">{error}</div>}
@@ -126,6 +132,11 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
           disabled={stage2Held || !enabled || !!busy || loading}
           onClick={() => void act('双重 nonce 核对', () => engine().releaseUnusedSigning(record))}>
             <ShieldCheck size={15}/>核对未使用 nonce 并解除签名意图</button>}
+        {record?.status === 'aborted' && record.steps.indexOf(next!) > 0
+          && (next?.status === 'failed' || next?.status === 'replaced')
+          && <button className="small-button" disabled={stage2Held || !enabled || !!busy || loading}
+            onClick={() => void act('最终确认失败交易与权限前缀', () => engine().recoverFinalizedAttempt(record))}>
+              <RefreshCw size={15}/>核对并归档失败尝试</button>}
         {record?.status === 'complete' && <button className="small-button" onClick={() => download(`pinkuang-fresh-activation-${record.deploymentId}.json`, activationEvidence(record))}>
           <ArrowDownToLine size={15}/>导出七笔激活证据</button>}
         {record?.status === 'complete' && <button className="small-button" disabled={!enabled || !!busy || loading}

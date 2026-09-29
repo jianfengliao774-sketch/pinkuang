@@ -138,6 +138,37 @@ export class JournalStore {
       return { revision, record };
     });
   }
+  /** Called only after the API independently verifies the canonical winner and finalized prefix roles. */
+  recoverFinalizedFreshAttempt(account, expectedRevision, proof) {
+    return this.transaction(() => {
+      const current = this.db.prepare('SELECT revision,record FROM fresh_activation WHERE account=?').get(account);
+      if (!current || current.revision !== expectedRevision)
+        throw new JournalConflict('Fresh activation revision changed.');
+      const record = read(current.record);
+      const index = record?.steps?.findIndex(step => step.status !== 'confirmed') ?? -1;
+      const step = record?.steps?.[index];
+      if (record?.status !== 'aborted' || index < 1 || step?.id !== proof.stepId
+        || !['failed','replaced'].includes(step.status) || step.nonce !== proof.nonce
+        || (step.replacementHash ?? step.txHash)?.toLowerCase() !== proof.winnerHash.toLowerCase()
+        || !step.receipt || step.receipt.blockHash !== proof.receiptBlockHash
+        || step.receipt.blockNumber !== proof.receiptBlockNumber
+        || !record.steps.slice(0,index).every(item => item.status === 'confirmed')
+        || !record.steps.slice(index+1).every(item => item.status === 'waiting'))
+        throw new JournalConflict('Finalized failed attempt or revision changed.');
+      const {attempts = [], ...failedAttempt} = step;
+      record.steps[index] = {id:step.id,label:step.label,status:'waiting',attempts:[...attempts,
+        {...failedAttempt,recovery:{winnerHash:proof.winnerHash,
+          finalizedBlockNumber:proof.finalizedBlockNumber,
+          finalizedBlockHash:proof.finalizedBlockHash}}]};
+      record.status = 'paused';
+      record.error = '失败尝试及最终确认的同 nonce 赢家已永久保留；须再次人工确认同一动作的新 nonce。';
+      record.updatedAt = new Date().toISOString();
+      const revision = current.revision + 1;
+      this.db.prepare('UPDATE fresh_activation SET revision=?,record=? WHERE account=?')
+        .run(revision, canonical(record), account);
+      return {revision,record};
+    });
+  }
   archives(account, cursor, limit) {
     const sql = cursor === null
       ? 'SELECT CAST(rowid AS TEXT) AS cursor,record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT ?'

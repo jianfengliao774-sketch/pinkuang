@@ -1,0 +1,194 @@
+import assert from 'node:assert/strict';
+import { createHash, randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { Interface, keccak256 } from 'ethers';
+import { JournalStore } from './journal-store.mjs';
+import { createJournalService } from './journal-api.mjs';
+import { FRESH_ACTIVATION_STEPS, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
+  validateFreshActivation, validateFreshActivationProgress,
+  verifyFinalizedFreshAttempt } from './fresh-activation-journal.mjs';
+
+const address = digit => `0x${digit.repeat(40)}`;
+const hash = digit => `0x${digit.repeat(64)}`;
+const hardware=address('1'),gasWallet=address('2'),authority=address('8');
+const factory=address('3'),budget=address('4'),timelock=address('5');
+const shareMarket=address('6'),portfolioMarket=address('7');
+const code='0x6000', codehash=keccak256(code);
+const receipt={blockNumber:120,blockHash:hash('d'),status:0,gasUsed:'100000',
+  gasPrice:'1000000000',feeWei:'100000000000000'};
+const factoryAbi=new Interface(['function owner() view returns(address)',
+  'function operator() view returns(address)','function treasury() view returns(address)',
+  'function timelock() view returns(address)','function shareMarket() view returns(address)',
+  'function poolCount() view returns(uint256)','function portfolioCount() view returns(uint256)',
+  'function creationPaused() view returns(bool)']);
+const factoryWrite=new Interface(['function setOperator(address)',
+  'function setTreasury(address)','function transferOwnership(address)']);
+const timelockAbi=new Interface(['function getMinDelay() view returns(uint256)',
+  'function PROPOSER_ROLE() view returns(bytes32)','function CANCELLER_ROLE() view returns(bytes32)',
+  'function hasRole(bytes32,address) view returns(bool)']);
+const authorityAbi=new Interface(['function owner() view returns(address)',
+  'function coreFactory() view returns(address)','function budgetFactory() view returns(address)',
+  'function administratorOne() view returns(address)','function administratorTwo() view returns(address)',
+  'function gasWallet() view returns(address)']);
+
+function fixture(index,status='failed') {
+  const actions=[null,[factory,'setOperator',authority],[factory,'setTreasury',authority],
+    [budget,'setOperator',authority],[budget,'setTreasury',authority],
+    [factory,'transferOwnership',timelock],[budget,'transferOwnership',timelock]];
+  const [target,method,destination]=actions[index];
+  const data=factoryWrite.encodeFunctionData(method,[destination]);
+  const steps=FRESH_ACTIVATION_STEPS.map((id,i)=>({id,status:i<index?'confirmed':'waiting'}));
+  for(let i=0;i<index;i++){
+    steps[i].nonce=i;
+    steps[i].dataHash=hash('a');
+    steps[i].gasLimit='150000';
+    steps[i].gasPriceWei='0';
+    steps[i].maxFeeWei='0';
+    steps[i].txHash=hash(String(i+1));
+    steps[i].receipt={blockNumber:100+i,blockHash:hash('a'),status:1,
+      gasUsed:'0',gasPrice:'0',feeWei:'0'};
+  }
+  steps[index]={id:FRESH_ACTIVATION_STEPS[index],status,nonce:8,dataHash:keccak256(data),
+    txHash:hash('b'),...(status==='replaced'?{replacementHash:hash('c')}:{}),
+    gasLimit:'150000',gasPriceWei:'1000000000',maxFeeWei:'150000000000000',
+    receipt:{...receipt,status:status==='replaced'?1:0}};
+  const record={schemaVersion:1,kind:'fresh-authority',chainId:56,account:hardware,
+    deploymentId:'new-graph',genesisArtifactDigest:hash('f'),
+    genesis:{factory,portfolioFactory:budget,timelock,shareMarket,portfolioMarket,
+      codehash:{factory:codehash,portfolioFactory:codehash,shareMarket:codehash,
+        portfolioMarket:codehash,timelock:codehash}},
+    administratorOne:FRESH_ADMIN_ONE,administratorTwo:FRESH_ADMIN_TWO,gasWallet,
+    authorityAddress:authority,createdAt:'2026-09-29T00:00:00Z',updatedAt:'2026-09-29T00:00:00Z',
+    maxGasBudgetBnb:'0.05',gasPriceCapGwei:'3',spentWei:receipt.feeWei,
+    status:'aborted',steps};
+  const genesis={id:record.deploymentId,status:'complete',kind:'integrated-v2',account:hardware,
+    artifactDigest:record.genesisArtifactDigest,
+    input:{ownerMultisig:hardware,operator:hardware,treasury:hardware},
+    addresses:{factory,portfolioFactory:budget,timelock,shareMarket,
+      portfolioShareMarket:portfolioMarket},
+    verification:{code:Object.fromEntries([
+      ['factory','factory'],['portfolioFactory','portfolioFactory'],['shareMarket','shareMarket'],
+      ['portfolioMarket','portfolioShareMarket'],['timelock','timelock']]
+      .map(([key,name])=>[name,{codehash:record.genesis.codehash[key]}]))}};
+  return {record,genesis,winnerHash:status==='replaced'?hash('c'):hash('b'),target,data};
+}
+
+function chain(f,{record,winnerHash},index) {
+  const state={finalized:125,receiptHash:receipt.blockHash,txKnown:true,wrongRole:false,pending:9};
+  const chainReceipt={hash:winnerHash,from:hardware,blockNumber:120,blockHash:receipt.blockHash,
+    status:record.steps[index].receipt.status,gasUsed:100000n,gasPrice:1000000000n,
+    fee:100000000000000n};
+  const provider={
+    getNetwork:async()=>({chainId:56n}),
+    getTransaction:async()=>state.txKnown?{hash:winnerHash,chainId:56n,from:hardware,
+      nonce:8,blockNumber:120,blockHash:receipt.blockHash,
+      to:record.steps[index].status==='replaced'?hardware:f.target,
+      data:record.steps[index].status==='replaced'?'0x':f.data,value:0n}:null,
+    getTransactionReceipt:async()=>state.txKnown?chainReceipt:null,
+    getBlock:async tag=>tag==='finalized'?{number:state.finalized,hash:hash('f')}
+      :tag===120?{number:120,hash:state.receiptHash}
+      :tag===125?{number:125,hash:hash('f')}:null,
+    getCode:async()=>code,
+    getTransactionCount:async(_account,tag)=>tag==='pending'?state.pending:9,
+    call:async({to,data},block)=>{
+      assert.equal(block,125);
+      const abi=to===timelock?timelockAbi:to===authority?authorityAbi:factoryAbi;
+      const parsed=abi.parseTransaction({data});
+      assert(parsed);
+      const method=parsed.name;
+      let value;
+      if(to===timelock) value=method==='getMinDelay'?172800n
+        :method==='hasRole'?true:hash(method==='PROPOSER_ROLE'?'1':'2');
+      else if(to===authority) value={owner:timelock,coreFactory:factory,budgetFactory:budget,
+        administratorOne:FRESH_ADMIN_ONE,administratorTwo:FRESH_ADMIN_TWO,gasWallet}[method];
+      else {
+        const isBudget=to===budget;
+        const owner=isBudget?index>=7?timelock:hardware:index>=6?timelock:hardware;
+        const operator=isBudget?index>=4?authority:hardware:index>=2?authority:hardware;
+        const treasury=isBudget?index>=5?authority:hardware:index>=3?authority:hardware;
+        value={owner,operator:state.wrongRole?gasWallet:operator,treasury,timelock,
+          shareMarket:isBudget?portfolioMarket:shareMarket,poolCount:0n,
+          portfolioCount:0n,creationPaused:false}[method];
+      }
+      return abi.encodeFunctionResult(method,[value]);
+    },
+  };
+  return {provider,state};
+}
+
+for(const [index,status] of [[2,'failed'],[6,'replaced']]) {
+  test(`finalized Stage 2 ${status} at step ${index+1} archives the attempt and preserves fees`,async()=>{
+    const f=fixture(index,status),{provider}=chain(f,f,index);
+    assert.equal(validateFreshActivation(f.record,hardware,f.genesis,gasWallet),f.record);
+    const proof=await verifyFinalizedFreshAttempt(provider,f.record,hardware,
+      f.record.steps[index].id,8,f.winnerHash);
+    const dir=mkdtempSync(join(tmpdir(),'fresh-stage2-recovery-'));
+    const store=new JournalStore(join(dir,'journal.sqlite'));
+    try {
+      assert.equal(store.putFreshActivation(hardware,f.record,0),1);
+      const recovered=store.recoverFinalizedFreshAttempt(hardware,1,proof).record;
+      assert.equal(recovered.status,'paused');
+      assert.equal(recovered.steps[index].status,'waiting');
+      assert.equal(recovered.steps[index].attempts.length,1);
+      assert.equal(recovered.steps[index].attempts[0].recovery.winnerHash,f.winnerHash);
+      assert.equal(recovered.spentWei,receipt.feeWei);
+      assert.equal(validateFreshActivation(recovered,hardware,f.genesis,gasWallet),recovered);
+      assert.throws(()=>validateFreshActivationProgress(f.record,recovered),/progress changed/);
+      const tampered=structuredClone(recovered);
+      tampered.steps[index].attempts[0].receipt.feeWei='0';
+      assert.throws(()=>validateFreshActivationProgress(recovered,tampered),/progress changed/);
+      assert.throws(()=>store.recoverFinalizedFreshAttempt(hardware,1,proof),/revision changed/);
+    } finally {store.close();rmSync(dir,{recursive:true,force:true});}
+  });
+}
+
+test('unknown winner, unfinalized receipt, reorg, pending nonce and changed roles all fail closed',async()=>{
+  const f=fixture(2),{provider,state}=chain(f,f,2);
+  const run=()=>verifyFinalizedFreshAttempt(provider,f.record,hardware,'coreTreasury',8,f.winnerHash);
+  state.txKnown=false;await assert.rejects(run(),/proof failed/);state.txKnown=true;
+  state.finalized=119;await assert.rejects(run(),/proof failed/);state.finalized=125;
+  state.receiptHash=hash('e');await assert.rejects(run(),/proof failed/);state.receiptHash=receipt.blockHash;
+  state.pending=10;await assert.rejects(run(),/proof failed/);state.pending=9;
+  state.wrongRole=true;await assert.rejects(run(),/proof failed/);
+});
+
+test('authenticated recovery API checks the chain and journal revision before archiving',async()=>{
+  const f=fixture(2),{provider}=chain(f,f,2);
+  const dir=mkdtempSync(join(tmpdir(),'fresh-stage2-api-'));
+  const dbPath=join(dir,'journal.sqlite');
+  const origin='http://127.0.0.1:4173';
+  const service=createJournalService({dbPath,origin,provider,
+    currentArtifactDigest:()=>f.record.genesisArtifactDigest,
+    expectedGasWallet:gasWallet,freshStage2Hold:false});
+  const store=new JournalStore(dbPath);
+  const token=randomBytes(32).toString('base64url');
+  store.putDeployment(hardware,f.genesis,0);
+  store.putFreshActivation(hardware,f.record,0);
+  store.db.prepare('INSERT INTO sessions(token_hash,account,expires) VALUES(?,?,?)')
+    .run(createHash('sha256').update(token).digest('hex'),hardware.toLowerCase(),Date.now()+60_000);
+  store.close();
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const url=`http://127.0.0.1:${server.address().port}/api/journal/fresh-activation/recover-finalized-attempt`;
+  const request=async(expectedRevision,winnerHash=f.winnerHash)=>{
+    const response=await fetch(url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',
+      Cookie:`pinkuang_journal=${token}`},body:JSON.stringify({expectedRevision,
+      stepId:'coreTreasury',nonce:8,winnerHash})});
+    return {status:response.status,body:await response.json()};
+  };
+  try {
+    assert.equal((await request(1,hash('e'))).status,409);
+    const recovered=await request(1);
+    assert.equal(recovered.status,200);
+    assert.equal(recovered.body.record.steps[2].attempts[0].recovery.winnerHash,f.winnerHash);
+    assert.equal((await request(1)).status,409,'a stale tab cannot release the attempt again');
+  } finally {
+    await new Promise(resolve=>server.close(resolve));
+    await service.close();
+    rmSync(dir,{recursive:true,force:true});
+  }
+});
