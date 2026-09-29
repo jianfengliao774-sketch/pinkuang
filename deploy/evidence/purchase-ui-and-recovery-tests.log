@@ -1,0 +1,101 @@
+
+> pinkuang-deploy-console@0.1.0 test
+> tsx --test src/*.test.ts && node --test scripts/*.test.mjs server/*.test.mjs
+
+✔ build is deployable and every linked library resolves; corrupt code is rejected (165.42175ms)
+✔ read-only preflight permits unchecked review, but signing requires review (37.584792ms)
+✔ low gas budget pauses before any signature; rejection is persisted and uncertain broadcasts are never retried (129.158709ms)
+✔ failure to durably write intent prevents any wallet signature (33.393958ms)
+✔ resuming after rejection verifies and skips the already confirmed library (3174.304584ms)
+✔ complete single-wallet graph deploys, records receipts/runtime, and recovers without rebroadcast (46420.916125ms)
+✔ shares are whole units 1–49, never ether-denominated or fractional (0.632125ms)
+✔ BNB unit prices retain wei precision, accept free transfers, and reject ambiguous inputs (0.440375ms)
+✔ partial fill exact gross, 1% fee rounding and seller proceeds conserve every wei (0.636542ms)
+✔ listing requires Active and unlocked shares while buying checks remaining and total holdings (0.254ms)
+✔ orders paginate latest-first and never enumerate more than 20 ids per request (0.0905ms)
+✔ wallet validation rejects chain changes or account changes before creating a transaction (0.355625ms)
+✔ ABI encodes exact integer share quantity and zero-price list without allowances (4.372667ms)
+✔ unknown send intents survive reload and malformed stored records block another send (0.320291ms)
+✔ receipt recovery verifies original from/to/nonce/calldata/value and never broadcasts (0.219958ms)
+✔ manual factory verification requires a coded address on BSC, not only a valid hex string (0.184709ms)
+✔ cross-tab lock rejects concurrent market submission and releases after the first request (0.4655ms)
+✔ a persisted unknown intent blocks a subsequent tab before any wallet request or journal overwrite (1.169125ms)
+✔ Firsto price, buyer total, bid proceeds and BEM decimals remain independent exact integers (3.58675ms)
+✔ same-name fake official collection, wrong classification and incorrect units are excluded (0.366709ms)
+✔ stale, missing or future source timestamps prevent quote use without guessing (0.78025ms)
+✔ an expired or absent ask is never replaced with listingReference (0.222792ms)
+✔ reference requires positive precise data with a real asOf time and correct token units (0.121125ms)
+✔ detail must match the exact collection, token, owner, yield and actual ask amounts (0.36625ms)
+✔ funding uses capacity reference, adds 10 percent, and rounds upward to 100 integer-wei shares (0.648958ms)
+✔ unsafe eligibility, unverified detail, stale reference and out-of-bounds budget cannot generate a plan (0.280583ms)
+✔ fetches only bounded same-origin GET queries and cross-checks identity against detail (4.045458ms)
+✔ HTTP, invalid content and excessive query cannot silently reuse cached quotations (0.978708ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 50239.225458
+✔ browser artifacts compile the complete source graph with the reviewed compiler settings (0.692833ms)
+✔ all deployment templates fit chain code limits and every link maps to the correct Solidity placeholder (3.142125ms)
+✔ nested purchase dependencies and all nine libraries precede PoolVault in the compiler link graph (0.520959ms)
+✔ deployment ABI retains prediction, role validation, binding and post-deployment inspection methods (3.624083ms)
+✔ --check rejects source or artifact drift while permitting a later Git commit with identical source bytes (21.262625ms)
+✔ malformed link locations and oversized runtime code cannot enter a deployment bundle (2.962166ms)
+✔ keeper defaults to read-only 2-second polls and 30-second prewarming, with explicit send plus journal (2.176125ms)
+✔ NFT discovery requires official collection and verified capacity, without trusting Firsto execution venue (0.304875ms)
+✔ capacity ordering uses exact integer ratios and never treats indexer buyer cost as official price (0.13025ms)
+✔ Funded and pre-deadline gates are mandatory; Active/Listed/Closed and fixed pools stop (0.069625ms)
+✔ public feed uses bounded official_mining pages and retains signed-venue NFTs for official lookup (0.574417ms)
+✔ journal persists intent durably with protected permissions and rejects wrong pool binding (11.86225ms)
+✔ exclusive lock prevents another process from using the same journal and releases cleanly (0.793333ms)
+✔ unknown broadcast blocks all chain reads and all resends until a matching receipt is provided (9.777ms)
+✔ receipt recovery checks exact transaction identity and records confirmation without another send (23.734416ms)
+✔ failed transaction clears unknown phase only after a real status-0 receipt, never by timeout (20.886459ms)
+✔ Funding prewarms official listings including signed bestAsk; Funded fast path does not await or refetch API (47.4435ms)
+✔ a target sold during final simulation is skipped and the next prepared candidate is attempted immediately (12.214708ms)
+✔ background API failure retains hints but never substitutes cached capacity or listing checks for current chain simulation (7.227625ms)
+✔ an unknown intent blocks a fully prewarmed Funded queue without checking API or attempting another signature (17.81625ms)
+✔ a single confirmation keeps the purchase pending; gas receipt is counted exactly once after two confirmations (38.193542ms)
+✔ failed-transaction gas counts against the total keeper budget before another candidate can broadcast (15.499875ms)
+✔ known reference target remains immediately executable while the prewarm API request is hanging (4.6105ms)
+✔ cold-start Funded pool resolves the reference through listingFor before making any API request (2.991542ms)
+✔ recovery including cancellation is explicit, one-shot and bounded (0.452ms)
+✔ wallet lock serializes different pool journals and keeps unresolved nonce ownership after process exit (53.09775ms)
+✔ signed bytes and deterministic hash are durable before broadcast; RPC timeout cannot lose identity (40.674417ms)
+✔ explicit rebroadcast uses exactly the same signed bytes, hash and nonce without another signature (42.971333ms)
+✔ explicit speed-up signs only identical purchase payload and nonce; count, price and cumulative budget remain bounded (89.834709ms)
+✔ all same-nonce hashes remain tracked and original purchase can confirm after a replacement broadcast (86.349667ms)
+✔ orphaned receipt never confirms, spends no accounted gas and cannot trigger a fee replacement (34.317792ms)
+✔ nonce consumed by an unknown transaction stops instead of signing another purchase (35.189208ms)
+✔ missing RPC transaction plus advanced pending nonce never authorizes overwriting an unknown replacement (27.433209ms)
+✔ pending diagnostics become overdue without timing out the purchase or automatically increasing fees (38.873625ms)
+✔ broadcast boundary rejects chain or nonce races even after local signing (27.520792ms)
+✔ journal recovery rejects changed signer and tampered signed identity (42.884833ms)
+✔ speed-up refuses a sold original target and never substitutes the available second target (31.765167ms)
+✔ flexible pool without locked on-chain purchase model is rejected before signing (2.127584ms)
+✔ explicit cancel replaces only the same nonce with an estimated empty EOA self-transfer and stops after finalization (77.197792ms)
+✔ original purchase winning a cancellation race is recorded as a purchase, never a cancellation (75.130542ms)
+✔ cancellation obeys gas budget, price and attempt limits; accounts with code require wallet handling (43.434542ms)
+✔ failed cancellation is accounted as reverted and cannot cause an automatic next purchase (80.522666ms)
+✔ unknown consumed nonce blocks cancellation too; signed cancellation cannot become a new purchase speed-up (66.325042ms)
+✔ receipt hash, sender and target must each match the recorded signed attempt (38.431625ms)
+✔ two canonical confirmations stay pending until finalized and an unsupported finality RPC fails closed (50.396041ms)
+✔ persistent wallet ledger directory and pointer stay private (17.249292ms)
+✔ lower-cost cancellation cannot erase maximum gas exposure from an already signed purchase (33.874166ms)
+✔ legacy two-confirmation terminal journal cannot release its wallet or authorize another purchase (24.40325ms)
+✔ actual txpool replaces a purchase at the same nonce and accounts only its finalized receipt (1380.579583ms)
+✔ actual txpool cancellation consumes only the old nonce and permanently stops this journal (1129.917334ms)
+✔ the original winning during cancellation broadcast is recovered as a purchase, never as a cancellation (1096.948875ms)
+✔ quote proxy pins the origin, read-only paths and official collections (1.168667ms)
+✔ quote proxy rejects POST before any network call (0.167875ms)
+ℹ tests 53
+ℹ suites 0
+ℹ pass 53
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5614.027916

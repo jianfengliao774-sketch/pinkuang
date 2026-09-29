@@ -1,0 +1,55 @@
+{
+  "defaultRequestQueueSize": 5,
+  "verifiedRequestQueueSize": 128,
+  "productSourceChanged": false,
+  "assertionsChanged": false,
+  "failedScriptResponses": 0,
+  "refusedScriptExamples": [
+    {
+      "time": "2026-09-28T03:05:11.546Z",
+      "event": "requestfailed",
+      "url": "http://127.0.0.1:3199/_next/static/chunks/webpack-54cfceb67fc8c3e9.js",
+      "error": {
+        "errorText": "net::ERR_CONNECTION_REFUSED"
+      }
+    },
+    {
+      "time": "2026-09-28T03:05:11.55Z",
+      "event": "requestfailed",
+      "url": "http://127.0.0.1:3199/_next/static/chunks/86140783-ce318c0a24cc2656.js",
+      "error": {
+        "errorText": "net::ERR_CONNECTION_REFUSED"
+      }
+    },
+    {
+      "time": "2026-09-28T03:05:11.551Z",
+      "event": "requestfailed",
+      "url": "http://127.0.0.1:3199/_next/static/chunks/2802-cfcc8cb4bf55f930.js",
+      "error": {
+        "errorText": "net::ERR_CONNECTION_REFUSED"
+      }
+    }
+  ],
+  "verified": [
+    {
+      "script": "verified-operator-firsto-browser-check",
+      "pageErrors": 0,
+      "refused": 0
+    },
+    {
+      "script": "verified-portfolio-browser-check",
+      "pageErrors": 0,
+      "refused": 0
+    },
+    {
+      "script": "verified-wallet-connect-browser-check",
+      "pageErrors": 0,
+      "refused": 0
+    },
+    {
+      "script": "verified-wallet-hydration-browser-check",
+      "pageErrors": 0,
+      "refused": 0
+    }
+  ]
+}

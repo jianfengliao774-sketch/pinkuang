@@ -1,0 +1,13 @@
+{
+  "passed": 7,
+  "checks": [
+    "503 recovers beyond the old three-attempt limit with visible retry progress and entirely fresh rounds",
+    "source_reorg stops at its retry limit with the original error",
+    "403 stops at its retry limit with the original error",
+    "persistent_503 stops at its retry limit with the original error",
+    "budget catalog recovers on its fourth full verified round without a manual refresh",
+    "persistent budget 503 ends in an explicit error, never a false empty result; its manual retry restores verified data",
+    "leaving a budget retry cancels its next round and cannot publish into the new route"
+  ],
+  "pageErrors": []
+}

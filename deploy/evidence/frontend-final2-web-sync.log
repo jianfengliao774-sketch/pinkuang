@@ -1,0 +1,2 @@
+$ node scripts/sync-contracts.mjs
+Generated web ABI from verified sources (0xe27f45c13921ae5c616573e38d46cfbba63d4831824a94dd60859c0013d7479b).

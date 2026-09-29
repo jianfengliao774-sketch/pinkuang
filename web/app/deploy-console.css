@@ -1,0 +1,6 @@
+.sidebar{overflow-y:auto;scrollbar-width:thin}
+.deployment-console-link{display:flex;align-items:center;gap:10px;margin:13px 2px 0;padding:12px;border:1px solid #516d65;border-radius:8px;background:#24483f;color:#f6ebd6;text-decoration:none;transition:background .15s,border-color .15s}
+.deployment-console-link:hover{background:#315b50;border-color:#a6c1a9}
+.deployment-console-link>span{min-width:0;flex:1;line-height:1.4}
+.deployment-console-link strong{display:block;font-size:14px;font-weight:600}
+.deployment-console-link small{display:block;margin-top:3px;font-size:11px;color:#c5d9c7}

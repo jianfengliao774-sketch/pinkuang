@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/PoolFactory.sol:PoolFactory",
+  "provenance": {
+    "kind": "integrated-v2-mainnet-genesis",
+    "commit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "sourceSha256": "22b340fc7f31ef128c889117847622516fe9b3d0a17a3025f1c89216600feeb1",
+    "compiler": "0.8.24",
+    "optimizerRuns": 200,
+    "evmVersion": "shanghai",
+    "originalBuildInfoSha256": "1afbba2aaf96c6c9dd31e8bed94f8bdd39fc3750cdf020e14b85e2e7213a070f",
+    "preparedBuildInfoSha256": "09531580dd2709537bebe2df94bb986caf3f1cd59f9710f274c17a9ab885c3d1",
+    "deployedArtifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "deployedImplementation": "0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA",
+    "verifiedCodehash": "0xf999264ca7a38b74598703684f2ada762fd48274e6b3f1ca7a3ebbb17126fbe3"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]"
+      },
+      "t_mapping(t_bytes32,t_address)": {
+        "label": "mapping(bytes32 => address)"
+      },
+      "t_bytes32": {
+        "label": "bytes32"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.PoolFactory": [
+        {
+          "contract": "PoolFactory",
+          "label": "operator",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:44"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "treasury",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:45"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "timelock",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:46"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "beacon",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:47"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "creationPaused",
+          "type": "t_bool",
+          "src": "src/PoolFactory.sol:48"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "isPool",
+          "type": "t_mapping(t_address,t_bool)",
+          "src": "src/PoolFactory.sol:49"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "allPools",
+          "type": "t_array(t_address)dyn_storage",
+          "src": "src/PoolFactory.sol:50"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "shareMarket",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:51"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "lens",
+          "type": "t_address",
+          "src": "src/PoolFactory.sol:52"
+        }
+      ],
+      "erc7201:tapeout.storage.MachineRegistry": [
+        {
+          "contract": "PoolFactory",
+          "label": "reservedPool",
+          "type": "t_mapping(t_bytes32,t_address)",
+          "src": "src/PoolFactory.sol:60"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "cursor",
+          "type": "t_uint256",
+          "src": "src/PoolFactory.sol:61"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "cutoff",
+          "type": "t_uint256",
+          "src": "src/PoolFactory.sol:62"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "initialized",
+          "type": "t_bool",
+          "src": "src/PoolFactory.sol:63"
+        },
+        {
+          "contract": "PoolFactory",
+          "label": "ready",
+          "type": "t_bool",
+          "src": "src/PoolFactory.sol:64"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

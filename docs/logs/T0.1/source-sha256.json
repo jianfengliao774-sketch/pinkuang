@@ -1,0 +1,6 @@
+{
+  "foundry.toml": "3f269fe3669220791607ae54206b93ba4e5a035f3cf735309fe90151f9f0bf51",
+  "remappings.txt": "7f0f188cc80b555bc77bcb444dbe5ad368eb3defece09181612dd1931dde67ea",
+  "script/Addresses.sol": "7e5f184020dc5e0ba1cf6648d42ba782e33665da6c3fbd1b247b84e151549961",
+  "test/utils/DependencyImports.sol": "a6605ee375786775412cf71b9b25b62b5da04b8378aca0dc1491db3efd9e2eff"
+}

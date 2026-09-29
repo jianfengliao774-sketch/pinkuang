@@ -1,0 +1,9 @@
+{
+  "name": "pinkuang-purchase-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ethers": "6.17.0"
+  }
+}

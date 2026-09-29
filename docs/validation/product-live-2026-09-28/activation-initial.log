@@ -1,0 +1,16 @@
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460180, "unknownReason": "index_not_caught_up"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460180, "unknownReason": "index_not_caught_up"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460216, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460216, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460262, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460262, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460262, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124453750, "observedSafeHead": 124460262, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124454250, "observedSafeHead": 124460343, "unknownReason": "index_not_caught_up"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124454250, "observedSafeHead": 124460343, "unknownReason": "index_not_caught_up"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124454250, "observedSafeHead": 124460401, "unknownReason": "sync_failed"}}
+{"indexCatchup": {"complete": false, "indexedThrough": 124454250, "observedSafeHead": 124460401, "unknownReason": "sync_failed"}}
+Traceback (most recent call last):
+  File "<stdin>", line 285, in <module>
+  File "<stdin>", line 258, in main
+RuntimeError: New index is not complete; rollback and diagnose RPC/logs

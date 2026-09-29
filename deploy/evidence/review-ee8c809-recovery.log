@@ -1,0 +1,15 @@
+JsonRpcProvider failed to detect network and cannot start up; retry in 1s (perhaps the URL is wrong or the node is not started)
+{"finding":"deployment-lost-hash","mined":true,"actualFeeWei":"691896000000000","savedStatus":"paused","savedStepStatus":"uncertain","savedSpentWei":"0"}
+✔ AUDIT: mined deployment whose hash response is lost stays unrecoverable through UI engine methods (741.657208ms)
+{"finding":"market-finalized-cancel","originalReceipt":null,"cancellationFinalized":true,"newActionBlocked":true,"journalChanged":false}
+✔ AUDIT: same-nonce wallet cancellation is final but market journal still blocks all new transactions (913.645042ms)
+{"finding":"market-unfinalized-receipt","acceptedConfirmations":1,"receiptGoneAfterLocalReorg":true}
+✔ AUDIT: market recovery exposes a one-block receipt that can be orphaned, without checking finality (126.34125ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7955.486041

@@ -1,0 +1,28 @@
+.language-switch{border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:7px;min-height:38px;padding:7px 9px;font:inherit;font-size:13px;font-weight:600;max-width:125px;cursor:pointer}
+/* Purpose header follows the same section hierarchy as platform statistics. */
+.bemine-purpose{margin-top:36px}
+.bemine-vision{display:grid;grid-template-columns:230px minmax(0,1fr);align-items:center;gap:28px;padding:22px 26px 22px 22px;border:1px solid var(--border);border-top:2px solid #c7b17e;border-radius:12px;background:var(--surface)}
+.bemine-vision-art{overflow:hidden;border-radius:8px;background:#f5f3ed}
+.bemine-vision-art img{display:block;width:100%;height:auto;aspect-ratio:3/2;object-fit:cover}
+.bemine-vision-copy{min-width:0}
+.bemine-vision h3{font-size:22px;line-height:1.5;margin-bottom:10px;font-weight:600;color:#294b3b}
+.bemine-vision p{font-size:15px;line-height:1.75;color:#586854;margin-bottom:7px}
+.bemine-vision strong{display:block;font-size:14px;color:#886e39;margin-top:10px}
+@media(min-width:761px) and (max-width:1150px){.bemine-vision{grid-template-columns:180px minmax(0,1fr);gap:20px}.bemine-vision h3{font-size:20px}}
+.bemine-hero-copy>p{max-width:440px}.bemine-hero-copy{max-width:650px}
+html[lang=en] .brand>span:last-child{font-size:25px;letter-spacing:0}html[lang=en] .brand small{font-size:10px;letter-spacing:1px}
+html[lang=en] .nav-item{font-size:14px;gap:10px}html[lang=en] .nav-item em{white-space:normal;max-width:50px;font-size:10px}
+html[lang=en] .bemine-stat>strong{white-space:normal}html[lang=en] .bemine-stat strong small{display:block;margin-left:0;margin-top:4px}
+html[lang=en] .bemine-stat>div{min-height:36px}html[lang=en] .bemine-stat>p{min-height:34px;line-height:1.5}
+html[lang=en] .btn{white-space:normal}html[lang=en] .bemine-stage>footer{align-items:center}html[lang=en] .nav-caption{letter-spacing:.5px}
+html[lang=en] .table-wrap:after{content:'Swipe to view full details'}
+@media(max-width:1100px){.top-actions{gap:10px}.topbar{padding-left:24px;padding-right:24px}.top-actions .help-link{display:none}}
+@media(max-width:760px){.topbar{padding:0 15px;gap:8px}.top-actions{gap:7px}.top-actions .demo-pill{display:none}.language-switch{padding:7px 5px;max-width:98px;font-size:12px}.breadcrumb{gap:6px;min-width:0}.breadcrumb strong{font-size:12px}.wallet-button{font-size:12px;padding:8px;gap:5px}.wallet-button svg:last-child{display:none}.bemine-vision{grid-template-columns:1fr;padding:19px;gap:12px}.bemine-vision-art{width:100%;max-width:360px;justify-self:center}.bemine-vision-art img{aspect-ratio:3/2}.bemine-vision-copy{width:100%}.bemine-vision h3{font-size:19px}.bemine-vision p{font-size:14px}.bemine-vision strong{font-size:13px}html[lang=en] .bemine-hero h1{font-size:27px}html[lang=en] .bemine-hero-actions{gap:15px}html[lang=en] .bemine-hero{min-height:840px}html[lang=en] .bemine-scene{top:49%}html[lang=en] .bemine-hero-shade{background:linear-gradient(180deg,#17382c 0%,#17382c 46%,#17382c55 57%,transparent 70%)}html[lang=en] .bemine-stat:nth-child(5)>strong{text-align:right}html[lang=en] .breadcrumb strong{max-width:84px;line-height:1.5}}
+@media(max-width:600px){
+ .bemine-hero,html[lang=en] .bemine-hero{min-height:0;display:flex;flex-direction:column}
+ .bemine-hero-copy{order:0;padding-bottom:22px;z-index:1}
+ .bemine-scene,html[lang=en] .bemine-scene{position:relative;inset:auto;order:1;width:100%;height:370px;flex:none;z-index:0;overflow:hidden}
+ .bemine-hero-shade{display:none}
+ .bemine-scene:after{content:'';position:absolute;inset:0 0 auto;height:60px;background:linear-gradient(#17382c,transparent);pointer-events:none}
+ .scene-chip{top:0;width:82%;left:15%}.coin-left{top:47%}.coin-front{top:64%}.coin-back{top:36%}
+}

@@ -1,0 +1,34 @@
+Compiling 99 files with Solc 0.8.24
+Solc 0.8.24 finished in 11.99s
+Compiler run successful!
+
+Ran 20 tests for test/unit/PoolLens.t.sol:PoolLensTest
+[PASS] test_atCostMajorityThresholdAndVotingDeadlineBoundary() (gas: 861553)
+[PASS] test_badAbiShortEmptyLongAndInvalidBoolDoNotRevertWholeRead() (gas: 560942)
+[PASS] test_badParamsNarrowIntegerIsRejectedBeforeDecode() (gas: 166939)
+[PASS] test_badRegistryEntryFailsLocallyAndDoesNotSkipCursor() (gas: 171190)
+[PASS] test_closedAndRefundingRowsAreNotFiltered() (gas: 501761)
+[PASS] test_constructorOnlyRejectsZeroAndHasNoPayableEntry() (gas: 1873064)
+[PASS] test_duplicateNftPoolAddressesRemainSeparateAndParamsAreCurrent() (gas: 823347)
+[PASS] test_failedClaimableIsUnknownNotZeroAndOtherFieldsStillValid() (gas: 145943)
+[PASS] test_getterCannotWriteAndExhaustedGasDoesNotBlockFollowingPool() (gas: 2493856)
+[PASS] test_governanceMalformedProposalAndFailedVoteLookupRemainIsolated() (gas: 356338)
+[PASS] test_governanceUsesActualCostAndSnapshotVotingThenExpiry() (gas: 1093829)
+[PASS] test_inconsistentAvailableSharesNotAccepted() (gas: 161043)
+[PASS] test_realVaultFieldsMatchDirectReadsAndPreserveAtomicUnits() (gas: 493229)
+[PASS] test_referenceIndependentAndNarrowTypesValidated() (gas: 80904)
+[PASS] test_registrationAndBothFactoryBindingsRequired() (gas: 242490)
+[PASS] test_registryCountFailureDoesNotHideExplicitPositions() (gas: 166080)
+[PASS] test_snapshotPagesBoundedAndEndCursorSafeIncludingHugeOffset() (gas: 277786)
+[PASS] test_twentyDistinctColdPoolsStayWithinMeasuredReadBudget() (gas: 11972184)
+Logs:
+  20 distinct cold Funding-pool positions execution gas: 2243190
+
+[PASS] test_twentyRealRowsBoundedGasAndNeverMutateAccounting() (gas: 1598813)
+Logs:
+  20 warm repeated actual-vault positions execution gas: 1255597
+
+[PASS] test_zeroShareFormerHolderKeepsRewardsAndBnbRightsVisible() (gas: 796839)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 9.57ms (23.14ms CPU time)
+
+Ran 1 test suite in 10.51ms (9.57ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)

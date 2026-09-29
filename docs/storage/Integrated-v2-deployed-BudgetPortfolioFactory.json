@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/BudgetPortfolioFactory.sol:BudgetPortfolioFactory",
+  "provenance": {
+    "kind": "integrated-v2-mainnet-genesis",
+    "commit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "sourceSha256": "64a79a71ef8ea054cf0de12eaf54a8482b974f14442b7c32d058b381c145d8ff",
+    "compiler": "0.8.24",
+    "optimizerRuns": 200,
+    "evmVersion": "shanghai",
+    "originalBuildInfoSha256": "1afbba2aaf96c6c9dd31e8bed94f8bdd39fc3750cdf020e14b85e2e7213a070f",
+    "preparedBuildInfoSha256": "09531580dd2709537bebe2df94bb986caf3f1cd59f9710f274c17a9ab885c3d1",
+    "deployedArtifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "deployedImplementation": "0x4c95b06081B4a4F1C2d739Fb41970bb10d9848a8",
+    "verifiedCodehash": "0x84e1ae88da081d08ca39c267c7d82769bd748f736e2b5425becb8f91bb218cf7"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [
+      {
+        "label": "operator",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:34"
+      },
+      {
+        "label": "treasury",
+        "offset": 0,
+        "slot": "1",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:35"
+      },
+      {
+        "label": "timelock",
+        "offset": 0,
+        "slot": "2",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:36"
+      },
+      {
+        "label": "beacon",
+        "offset": 0,
+        "slot": "3",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:37"
+      },
+      {
+        "label": "legacyFactory",
+        "offset": 0,
+        "slot": "4",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:38"
+      },
+      {
+        "label": "shareMarket",
+        "offset": 0,
+        "slot": "5",
+        "type": "t_address",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:39"
+      },
+      {
+        "label": "creationPaused",
+        "offset": 20,
+        "slot": "5",
+        "type": "t_bool",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:40"
+      },
+      {
+        "label": "isPool",
+        "offset": 0,
+        "slot": "6",
+        "type": "t_mapping(t_address,t_bool)",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:41"
+      },
+      {
+        "label": "portfolios",
+        "offset": 0,
+        "slot": "7",
+        "type": "t_array(t_address)dyn_storage",
+        "contract": "BudgetPortfolioFactory",
+        "src": "src/BudgetPortfolioFactory.sol:42"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_address)dyn_storage": {
+        "label": "address[]",
+        "numberOfBytes": "32"
+      },
+      "t_bool": {
+        "label": "bool",
+        "numberOfBytes": "1"
+      },
+      "t_mapping(t_address,t_bool)": {
+        "label": "mapping(address => bool)",
+        "numberOfBytes": "32"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Ownable": [
+        {
+          "contract": "OwnableUpgradeable",
+          "label": "_owner",
+          "type": "t_address",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:24"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

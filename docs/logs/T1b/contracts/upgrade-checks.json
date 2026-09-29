@@ -1,0 +1,69 @@
+[
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1a-baseline",
+    "contract": "src/PoolFactory.sol:PoolFactory",
+    "baselinePath": "docs/storage/T1a-PoolFactory.json",
+    "baselineCommit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "baselineFileSha256": "4867b4e796fbdfce044a77ebc83d3cd0c064995074f21dd7b8811a6a69dca192",
+    "baselineSourceSha256": "5394efe4750da2b85769ae2d0478d26eed99c61af22a0ac6885788b057e937ed",
+    "currentSourceSha256": "5394efe4750da2b85769ae2d0478d26eed99c61af22a0ac6885788b057e937ed",
+    "previousFieldCount": 7,
+    "currentFieldCount": 7,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "T1a-baseline",
+    "contract": "src/PoolVault.sol:PoolVault",
+    "baselinePath": "docs/storage/T1a-PoolVault.json",
+    "baselineCommit": "339c034e4bf4b504dcd4a7479d272a7f662497fc",
+    "baselineFileSha256": "d836342a653eafdb3bf92c329d3268314797c10c932eedfa0f1ab884a0d2a7ba",
+    "baselineSourceSha256": "ee0b598caf5b5166bd9cfdf57abfed344b65a9cad9d733dfd2f5da492bee6334",
+    "currentSourceSha256": "fe34ea072da31ca8354c07835ef00bebfce3669b399cf8f18566a7bd13640b12",
+    "previousFieldCount": 15,
+    "currentFieldCount": 24,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture",
+    "reference": "src/PoolFactory.sol:PoolFactory",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": false,
+    "standaloneOk": true,
+    "storageLayoutOk": true,
+    "ok": true
+  },
+  {
+    "kind": "implementation-or-fixture",
+    "contract": "test/utils/InvalidVaultLayout.sol:InvalidVaultLayout",
+    "reference": "src/PoolVault.sol:PoolVault",
+    "negative": true,
+    "standaloneOk": true,
+    "storageLayoutOk": false,
+    "ok": false
+  }
+]

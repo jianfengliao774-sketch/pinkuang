@@ -1,0 +1,122 @@
+/* BEMine graphite appearance. Color-only overrides; all layouts stay shared. */
+.app-shell[data-appearance=dark]{
+  color-scheme:dark;
+  --navy:#1d2521;--canvas:#202623;--surface:#292f2b;--soft:#343c35;
+  --ink:#f1f0e8;--muted:#b8c2b8;--border:#444e45;
+  --blue:#e0c690;--blue-deep:#f0d9ab;--brand-gold:#ddc392;--gold-ink:#e4cc9e;
+  --nav-active:#38443a;--nav-text:#d2dbd0;--green:#a3d3ae;
+  background:var(--canvas);color:var(--ink);
+}
+.app-shell[data-appearance=dark] :is(button,a,input,select):focus-visible{outline-color:var(--brand-gold)}
+.app-shell[data-appearance=dark] ::selection{background:#776541;color:#fff9e9}
+.app-shell[data-appearance=dark] :is(input,select,option){color-scheme:dark}
+.app-shell[data-appearance=dark] :is(input,select)::placeholder{color:#a5b0a4}
+.app-shell[data-appearance=dark] :is(.sidebar,.modal){scrollbar-color:#687265 transparent}
+
+/* Navigation, toolbar and shared controls. */
+.app-shell[data-appearance=dark] .sidebar{background:var(--navy)}
+.app-shell[data-appearance=dark] .brand{color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.brand-mark,.brand small,.network-glyph){color:var(--brand-gold)}
+.app-shell[data-appearance=dark] :is(.nav-caption,.sidebar-foot,.network-panel small){color:var(--muted)}
+.app-shell[data-appearance=dark] .nav-item{color:var(--nav-text)}
+.app-shell[data-appearance=dark] .nav-item:hover,
+.app-shell[data-appearance=dark] .nav-item.active{background:var(--nav-active);color:#f4e4c5}
+.app-shell[data-appearance=dark] .nav-item b{background:#52604f;color:#f1ead8}
+.app-shell[data-appearance=dark] :is(.network-panel,.nav-item em){border-color:#56604e}
+.app-shell[data-appearance=dark] .nav-divider{background:var(--border)}
+.app-shell[data-appearance=dark] .topbar{background:var(--surface);border-color:var(--border)}
+.app-shell[data-appearance=dark] :is(.breadcrumb,.help-link,.icon-button){color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.icon-button:hover,.rules-link:hover){background:var(--soft);color:var(--brand-gold)}
+.app-shell[data-appearance=dark] :is(.demo-pill,.count-badge){background:var(--soft);color:var(--muted);border-color:var(--border)}
+.app-shell[data-appearance=dark] .btn{background:var(--brand-gold);border-color:var(--brand-gold);color:#242c24;box-shadow:none}
+.app-shell[data-appearance=dark] .btn:hover:not(:disabled){background:#efd8ac;border-color:#efd8ac;box-shadow:0 3px 12px #0002}
+.app-shell[data-appearance=dark] :is(.btn.secondary,.wallet-button){background:var(--surface);border-color:#63705d;color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.btn.secondary,.wallet-button):hover:not(:disabled){background:var(--soft);border-color:var(--brand-gold);color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.app-shell[data-appearance=dark] .btn.ghost:hover:not(:disabled){background:var(--soft);color:var(--ink);border-color:transparent}
+.app-shell[data-appearance=dark] .btn:disabled{background:#4e5549;border-color:#626a5a;color:#d0d4c7;box-shadow:none;opacity:1}
+.app-shell[data-appearance=dark] :is(.language-switch,.appearance-toggle){background:var(--surface);border-color:var(--border);color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.language-switch,.appearance-toggle):hover{border-color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .mobile-scrim{background:#080d0bc4}
+
+/* Homepage, vision and platform metrics. Hero art keeps its original palette. */
+.app-shell[data-appearance=dark] .bemine-kicker{color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .bemine-data-label{background:var(--soft);color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.bemine-stat>div,.bemine-stat strong small,.bemine-stat>p,.bemine-data-note,
+.bemine-stage>div,.bemine-stage strong small,.bemine-stage>p,.bemine-why>div>p,.bemine-benefits p,.bemine-vision p){color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.bemine-stat svg,.bemine-benefits article>svg,.bemine-stage>footer,.bemine-vision strong,.account-entry>svg){color:var(--brand-gold)}
+.app-shell[data-appearance=dark] :is(.bemine-stat-grid,.bemine-stage,.bemine-vision,.account-entry){background:var(--surface);border-color:var(--border)}
+.app-shell[data-appearance=dark] .bemine-stage:hover{background:#30392f;border-color:#b19a6d}
+.app-shell[data-appearance=dark] .bemine-why{background:#29322b;border-color:var(--border)}
+.app-shell[data-appearance=dark] .bemine-vision{border-top-color:#bfa475}
+.app-shell[data-appearance=dark] .bemine-vision h3{color:#eddfc2}
+.app-shell[data-appearance=dark] .bemine-life{background:#263c2f;box-shadow:inset 0 0 0 1px #4a6048}
+
+/* Tables, cards, row directory, filters and shared inputs. */
+.app-shell[data-appearance=dark] :is(.metric,.panel,.pool-card){background:var(--surface);border-color:var(--border);box-shadow:0 4px 18px #0000000d}
+.app-shell[data-appearance=dark] .metric.primary{background:linear-gradient(115deg,#263b30,#35473a);border-color:#526149;border-top-color:#b39a6b}
+.app-shell[data-appearance=dark] .primary .metric-value{color:#efd9ac}
+.app-shell[data-appearance=dark] :is(.primary .metric-label,.primary .metric-note,.primary .metric-value small){color:#d3dece}
+.app-shell[data-appearance=dark] .metric-value small{color:var(--muted)}
+.app-shell[data-appearance=dark] .metric-note-dot{background:var(--brand-gold)}
+.app-shell[data-appearance=dark] .pool-card:hover{border-color:#968564;box-shadow:0 7px 25px #0002}
+.app-shell[data-appearance=dark] :is(.chip,.chip.blue,.chip.teal,.task-icon.blue,.record-icon){background:#34473a;border-color:#53624d;color:#b9d1b0}
+.app-shell[data-appearance=dark] :is(.chip.violet,.catalog-chip.behemoth){background:#453f30;border-color:#706346;color:#ebd09c}
+.app-shell[data-appearance=dark] :is(.amber,.badge.funding,.badge.funded,.badge.listed,.status-tag.orange,.catalog-state.listed){background:#493f2b;color:#f0cd8b}
+.app-shell[data-appearance=dark] :is(.badge.active,.status-tag.green){background:#304936;color:#b8ddb2}
+.app-shell[data-appearance=dark] :is(.badge.closed,.badge.refunding,.status-tag.neutral){background:#3c463c;color:#cbd4c3}
+.app-shell[data-appearance=dark] :is(.segmented,.progress,.mini-bar,.catalog-progress){background:#3c463d;border-color:var(--border)}
+.app-shell[data-appearance=dark] .segmented button.selected{background:#52604c;color:#f4e5c8;box-shadow:0 1px 4px #0002}
+.app-shell[data-appearance=dark] :is(.tabs button.selected,.catalog-tabs button[aria-selected=true]){color:var(--brand-gold);border-bottom-color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .tabs button span{background:var(--soft);color:var(--brand-gold)}
+.app-shell[data-appearance=dark] :is(.search-box,.stepper,.field-label input,.catalog-filter-fields input,.catalog-filter-fields select){background:var(--surface);border-color:var(--border);color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.search-box,.catalog-search):focus-within{border-color:var(--brand-gold);box-shadow:0 0 0 2px #ddc39226}
+.app-shell[data-appearance=dark] :is(.search-box input,.stepper input,.field-label input){color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.search-box input,.catalog-search input)::placeholder{color:#a5b0a4}
+.app-shell[data-appearance=dark] :is(.catalog-sort select option,.language-switch option,.appearance-toggle option){background:var(--surface);color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.catalog-detail:hover,.catalog-filter-button:hover){background:var(--soft);border-color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .catalog-filter-button span{color:#242c24}
+.app-shell[data-appearance=dark] .catalog-summary:hover{background:#30392f;box-shadow:0 3px 15px #0002}
+.app-shell[data-appearance=dark] .catalog-summary.listed{border-top-color:#bdc5ad}
+.app-shell[data-appearance=dark] :is(.table-wrap:after,.catalog-scroll-hint){background:var(--canvas);color:var(--muted);border-color:var(--border)}
+.app-shell[data-appearance=dark] .yield-chart circle{stroke:var(--surface)}
+
+/* Detailed ownership, funding and trading states. */
+.app-shell[data-appearance=dark] :is(.card-progress>div:first-child,.card-progress em,.detail-heading h1 span,
+.detail-stats span,.detail-stats strong small,.funding-heading>span,.timeline>div,.demo-text,.order-eyebrow,
+.unit-price small,.quantity-label,.quantity-label span,.order-total,.ownership,.whole-sale p,.sale-split,
+.sale-buy>span,.sale-buy small,.rewards-summary>div:first-child>span,.rewards-summary strong small,
+.rewards-summary-side>span,.proposal-title small,.proposal-description,.proposal-prices span,.proposal-prices small,
+.vote-progress h3,.my-vote>div:first-child span,.record-stats span,.record-stats small,.field-label){color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.card-progress strong,.funding-heading,.allocation-labels b,.order-total strong,
+.sale-split b,.confirm-lines strong,.rule-items b,.empty h3,.two-notes h3,.governance-rules h2,.records-foot h3){color:var(--ink)}
+.app-shell[data-appearance=dark] :is(.funding-heading b,.ownership strong,.vote-progress h3 span,.my-vote strong,.dialog-icon){color:var(--brand-gold)}
+.app-shell[data-appearance=dark] :is(.timeline .current,.timeline .done){color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .timeline span{background:var(--soft);color:var(--muted)}
+.app-shell[data-appearance=dark] .timeline .current span{background:var(--brand-gold);color:#242c24}
+.app-shell[data-appearance=dark] .timeline .done span{background:#414a38;color:#e7d6b2}
+.app-shell[data-appearance=dark] :is(.details-list>div,.member-row,.order-foot,.rewards-summary-side,.confirm-lines>div){border-color:var(--border)}
+.app-shell[data-appearance=dark] :is(.allocation-bar i:nth-child(2),.allocation-labels>span:nth-child(2) i){background:#94b59b}
+.app-shell[data-appearance=dark] :is(.allocation-bar i:nth-child(3),.allocation-labels>span:nth-child(3) i){background:#7b8577}
+.app-shell[data-appearance=dark] .purchase-panel{border-top-color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .stepper button{background:var(--soft);color:var(--brand-gold)}
+.app-shell[data-appearance=dark] .stepper button:disabled{color:#b1baaa;background:#30382f;opacity:1}
+.app-shell[data-appearance=dark] .quick-amounts button{border-color:var(--border);color:var(--muted)}
+.app-shell[data-appearance=dark] .quick-amounts button:hover{background:var(--soft);border-color:#938365;color:var(--ink)}
+.app-shell[data-appearance=dark] .quick-amounts .selected{background:#48432f;border-color:#aa9361;color:#efd9ac}
+.app-shell[data-appearance=dark] .avatar{background:linear-gradient(135deg,#aec3a1,#657b61)}
+.app-shell[data-appearance=dark] :is(.back-link,.empty,.empty>svg,.task-item>svg,.tasks-bottom){color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.back-link:hover,.text-button:hover){color:#f0d9ab}
+
+/* Notices, records, governance and modal copy must remain legible in every flow. */
+.app-shell[data-appearance=dark] :is(.info-strip,.inline-note,.proposal-prices,.two-notes>div,.records-foot){background:#333d33;border-color:var(--border);color:var(--muted)}
+.app-shell[data-appearance=dark] :is(.two-notes p,.governance-rules,.governance-rules>p,.modal>p,.rule-items p,.confirm-lines>div,.modal-badge){color:var(--muted)}
+.app-shell[data-appearance=dark] .warning-strip{background:#403828;border-color:#756344;color:#efcf98}
+.app-shell[data-appearance=dark] :is(.passed-notice,.voted-result){color:#bddcb3}
+.app-shell[data-appearance=dark] .passed-notice{background:#304333}
+.app-shell[data-appearance=dark] .error-text{color:#ffb4a6}
+.app-shell[data-appearance=dark] .toast{background:#354032;border-color:#718064;color:#f3efdf;box-shadow:0 8px 30px #0006}
+.app-shell[data-appearance=dark] .toast>svg{color:#b8d8ac}
+.app-shell[data-appearance=dark] .toast button{color:#d6decd}
+.app-shell[data-appearance=dark] .modal-overlay{background:#070d0bbd}
+.app-shell[data-appearance=dark] .modal{background:#2d352e;color:var(--ink);border-color:#65705b;box-shadow:0 20px 80px #0007}

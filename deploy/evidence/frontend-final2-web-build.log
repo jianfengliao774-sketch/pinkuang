@@ -1,0 +1,29 @@
+$ pnpm contracts:check
+$ node scripts/sync-contracts.mjs --check
+Web ABI matches verified contract sources (0xe27f45c13921ae5c616573e38d46cfbba63d4831824a94dd60859c0013d7479b).
+$ next build
+▲ Next.js 16.2.1 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1326ms
+  Running TypeScript ...
+  Finished TypeScript in 78ms ...
+  Collecting page data using 8 workers ...
+  Generating static pages using 8 workers (0/7) ...
+  Generating static pages using 8 workers (1/7) 
+  Generating static pages using 8 workers (3/7) 
+  Generating static pages using 8 workers (5/7) 
+✓ Generating static pages using 8 workers (7/7) in 295ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /design
+├ ○ /icon.svg
+├ ○ /review
+└ ○ /review/frame
+
+
+○  (Static)  prerendered as static content
+

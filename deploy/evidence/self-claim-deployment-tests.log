@@ -1,0 +1,15 @@
+✔ build is deployable and every linked library resolves; corrupt code is rejected (281.228458ms)
+✔ read-only preflight permits unchecked review, but signing requires review (138.117125ms)
+✔ low gas budget pauses before any signature; rejection is persisted and uncertain broadcasts are never retried (455.170875ms)
+✔ failure to durably write intent prevents any wallet signature (108.718709ms)
+✔ resuming after rejection verifies and skips the already confirmed library (3388.134541ms)
+✔ complete single-wallet graph deploys, records receipts/runtime, and recovers without rebroadcast (45502.081625ms)
+✔ a fetched bundle cannot authorize itself by changing bytecode, ABI, source hashes or its own claimed digest (267.2415ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 59545.340542

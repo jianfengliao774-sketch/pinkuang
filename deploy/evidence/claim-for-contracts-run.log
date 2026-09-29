@@ -1,0 +1,25 @@
+::group::toolchain
+forge Version: 1.7.1
+Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+Build Timestamp: 2026-05-08T07:54:31.470926000Z (1778226871)
+Build Profile: dist
+
+toolchain: exit 0 — /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/claim-for-contracts/toolchain.log
+::endgroup::
+::group::forge-fmt
+
+forge-fmt: exit 0 — /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/claim-for-contracts/forge-fmt.log
+::endgroup::
+::group::forge-build-sizes
+Compiling 161 files with Solc 0.8.24
+Solc 0.8.24 finished in 29.41s
+Error: Compiler run failed:
+Error: Compiler error (/solidity/libsolidity/codegen/LValue.cpp:55):Stack too deep. Try compiling with `--via-ir` (cli) or the equivalent `viaIR: true` (standard JSON) while enabling the optimizer. Otherwise, try removing local variables.
+   --> test/fork/PoolRewardsFork.t.sol:191:41:
+    |
+191 |         assertEq(BEM.balanceOf(SELLER), sellerBemAfterPurchase - 10000);
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^
+
+forge-build-sizes: exit 1 — /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/claim-for-contracts/forge-build-sizes.log
+::endgroup::
+forge-build-sizes failed; inspect /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/deploy/evidence/claim-for-contracts/forge-build-sizes.log

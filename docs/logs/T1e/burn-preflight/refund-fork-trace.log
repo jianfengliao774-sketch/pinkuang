@@ -1,0 +1,387 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 10.87s
+Compiler run successful!
+
+Ran 1 test for test/fork/PoolBurnFork.t.sol:PoolBurnForkTest
+[PASS] test_Fork_PrefundedRouterRefundsWrappedInputThroughActualBeaconProxy2300GasReceive() (gas: 646446)
+Logs:
+  prefunded Router BNB retained (wei): 400000000000000
+  full WBNB input refunded into BeaconProxy (wei): 200000000000000
+  actual BEM burned with zero Vault budget spend (atoms): 242631
+
+Traces:
+  [722946] PoolBurnForkTest::test_Fork_PrefundedRouterRefundsWrappedInputThroughActualBeaconProxy2300GasReceive()
+    ├─ [0] VM::deal(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, 600000000000000 [6e14])
+    │   └─ ← [Return]
+    ├─ [2618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   └─ ← [Return] 6267900 [6.267e6]
+    ├─ [2618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(0x000000000000000000000000000000000000dEaD) [staticcall]
+    │   └─ ← [Return] 182635401018 [1.826e11]
+    ├─ [14816] BeaconProxy::fallback() [staticcall]
+    │   ├─ [2307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [6866] PoolVault::totalBnbOwed() [delegatecall]
+    │   │   └─ ← [Return] 69000000000000000 [6.9e16]
+    │   └─ ← [Return] 69000000000000000 [6.9e16]
+    ├─ [23371] BeaconProxy::fallback(0x00000000000000000000000000000000000A11cE) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [22418] PoolVault::bnbOwed(0x00000000000000000000000000000000000A11cE) [delegatecall]
+    │   │   ├─ [7051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x00000000000000000000000000000000000A11cE, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000538f50bd1e0000
+    │   │   └─ ← [Return] 28420000000000000 [2.842e16]
+    │   └─ ← [Return] 28420000000000000 [2.842e16]
+    ├─ [12871] BeaconProxy::fallback(0x0000000000000000000000000000000000000B0b) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [11918] PoolVault::bnbOwed(0x0000000000000000000000000000000000000B0b) [delegatecall]
+    │   │   ├─ [3051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x0000000000000000000000000000000000000B0b, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000538f50bd1e0000
+    │   │   └─ ← [Return] 28420000000000000 [2.842e16]
+    │   └─ ← [Return] 28420000000000000 [2.842e16]
+    ├─ [12871] BeaconProxy::fallback(0x00000000000000000000000000000000000cA201) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [11918] PoolVault::bnbOwed(0x00000000000000000000000000000000000cA201) [delegatecall]
+    │   │   ├─ [3051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x00000000000000000000000000000000000cA201, 2) [delegatecall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000003691d6afc0000
+    │   │   └─ ← [Return] 1160000000000000 [1.16e15]
+    │   └─ ← [Return] 1160000000000000 [1.16e15]
+    ├─ [12871] BeaconProxy::fallback(0x0000000000000000000000000000000000003333) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [11918] PoolVault::bnbOwed(0x0000000000000000000000000000000000003333) [delegatecall]
+    │   │   ├─ [3051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x0000000000000000000000000000000000003333, 0) [delegatecall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 1000000000000000 [1e15]
+    │   └─ ← [Return] 1000000000000000 [1e15]
+    ├─ [1431] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [481] PoolVault::saleOutstandingWei() [delegatecall]
+    │   │   └─ ← [Return] 48000000000000000 [4.8e16]
+    │   └─ ← [Return] 48000000000000000 [4.8e16]
+    ├─ [3407] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2457] PoolVault::saleRemainder() [delegatecall]
+    │   │   └─ ← [Return] 17
+    │   └─ ← [Return] 17
+    ├─ [3385] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2435] PoolVault::surplusRemainder() [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [3353] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2403] PoolVault::bemAccounted() [delegatecall]
+    │   │   └─ ← [Return] 6267883 [6.267e6]
+    │   └─ ← [Return] 6267883 [6.267e6]
+    ├─ [3415] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2465] PoolVault::accBemPerShare() [delegatecall]
+    │   │   └─ ← [Return] 62678830000000000000000000000000000000000 [6.267e40]
+    │   └─ ← [Return] 62678830000000000000000000000000000000000 [6.267e40]
+    ├─ [3518] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2565] PoolVault::epochNet(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 6267883 [6.267e6]
+    │   └─ ← [Return] 6267883 [6.267e6]
+    ├─ [3516] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2563] PoolVault::epochPaid(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [3562] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [2609] PoolVault::epochBurned(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [69504] BeaconProxy::fallback(0x00000000000000000000000000000000000A11cE) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [68551] PoolVault::claimable(0x00000000000000000000000000000000000A11cE) [delegatecall]
+    │   │   ├─ [64844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x00000000000000000000000000000000000A11cE, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000000000002edd1e
+    │   │   └─ ← [Return] 3071262 [3.071e6]
+    │   └─ ← [Return] 3071262 [3.071e6]
+    ├─ [45004] BeaconProxy::fallback(0x0000000000000000000000000000000000000B0b) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [44051] PoolVault::claimable(0x0000000000000000000000000000000000000B0b) [delegatecall]
+    │   │   ├─ [42844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x0000000000000000000000000000000000000B0b, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000000000002edd1e
+    │   │   └─ ← [Return] 3071262 [3.071e6]
+    │   └─ ← [Return] 3071262 [3.071e6]
+    ├─ [45004] BeaconProxy::fallback(0x00000000000000000000000000000000000cA201) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [44051] PoolVault::claimable(0x00000000000000000000000000000000000cA201) [delegatecall]
+    │   │   ├─ [42844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x00000000000000000000000000000000000cA201, 2) [delegatecall]
+    │   │   │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000001e9ad
+    │   │   └─ ← [Return] 125357 [1.253e5]
+    │   └─ ← [Return] 125357 [1.253e5]
+    ├─ [10582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(16210 [1.621e4]) [staticcall]
+    │   ├─ [2294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x8E1D125Def6d3826C278299273a0760D47626068
+    │   ├─ [2664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(16210 [1.621e4]) [delegatecall]
+    │   │   └─ ← [Return] 0x000000000000000000000000000000000000B0A7
+    │   └─ ← [Return] 0x000000000000000000000000000000000000B0A7
+    ├─ [4863] 0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2::slot0() [staticcall]
+    │   └─ ← [Return] 2263282842981213512165885004605528 [2.263e33], 205210 [2.052e5], 461, 512, 512, 209718400 [2.097e8], true
+    ├─ [0] VM::prank(0x0000000000000000000000000000000000002222)
+    │   └─ ← [Return]
+    ├─ [260703] BeaconProxy::fallback(240204 [2.402e5], 200000000000000 [2e14])
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [259744] PoolVault::executeBurn(240204 [2.402e5], 200000000000000 [2e14]) [delegatecall]
+    │   │   ├─ [7303] ERC1967Proxy::fallback() [staticcall]
+    │   │   │   ├─ [2419] PoolFactory::operator() [delegatecall]
+    │   │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000002222
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000002222
+    │   │   ├─ [238490] BurnOperations::execute(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 240204 [2.402e5], 200000000000000 [2e14]) [delegatecall]
+    │   │   │   ├─ [2534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   ├─ [618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 6267900 [6.267e6]
+    │   │   │   ├─ [4874] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::deposit{value: 200000000000000}()
+    │   │   │   │   ├─ emit Deposit(param0: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], param1: 200000000000000 [2e14])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 210000000000000 [2.1e14]
+    │   │   │   ├─ [24420] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::approve(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, 200000000000000 [2e14])
+    │   │   │   │   ├─ emit Approval(owner: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], spender: 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, amount: 200000000000000 [2e14])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [111490] 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4::exactInputSingle(ExactInputSingleParams({ tokenIn: 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c, tokenOut: 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a, fee: 10000 [1e4], recipient: 0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c, amountIn: 200000000000000 [2e14], amountOutMinimum: 240204 [2.402e5], sqrtPriceLimitX96: 0 }))
+    │   │   │   │   ├─ [1772] 0xdAecee3C08e953Bd5f89A5Cc90ac560413d709E3::getPool(0x41ff9AA7e16B8B1a8a8dc4f0eFacd93D02d071c9, 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c, 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a, 10000 [1e4]) [delegatecall]
+    │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000028b12792f9d81bd529bc5572434e861c9edbbbc2
+    │   │   │   │   ├─ [97193] 0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2::swap(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], false, 200000000000000 [2e14], 1461446703485210103287273052203988822378723970341 [1.461e48], 0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000040000000000000000000000000a38d17ef017a314ccd72b8f199c0e108ef7ca04c000000000000000000000000000000000000000000000000000000000000002bbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c0027105ce033b2bfca3af30b3e8c8457deaf776a8b695a000000000000000000000000000000000000000000)
+    │   │   │   │   │   ├─ [10621] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::transfer(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], 242631 [2.426e5])
+    │   │   │   │   │   │   ├─ emit Transfer(from: 0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2, to: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], amount: 242631 [2.426e5])
+    │   │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   │   ├─ [2534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 125802015296389713016 [1.258e20]
+    │   │   │   │   │   ├─ [42419] 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4::pancakeV3SwapCallback(-242631 [-2.426e5], 200000000000000 [2e14], 0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000040000000000000000000000000a38d17ef017a314ccd72b8f199c0e108ef7ca04c000000000000000000000000000000000000000000000000000000000000002bbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c0027105ce033b2bfca3af30b3e8c8457deaf776a8b695a000000000000000000000000000000000000000000)
+    │   │   │   │   │   │   ├─ [1992] 0xdAecee3C08e953Bd5f89A5Cc90ac560413d709E3::verifyCallback(0x41ff9AA7e16B8B1a8a8dc4f0eFacd93D02d071c9, 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c, 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a, 10000 [1e4]) [delegatecall]
+    │   │   │   │   │   │   │   └─ ← [Return] 0x00000000000000000000000028b12792f9d81bd529bc5572434e861c9edbbbc2
+    │   │   │   │   │   │   ├─ [23974] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::deposit{value: 200000000000000}()
+    │   │   │   │   │   │   │   ├─ emit Deposit(param0: 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, param1: 200000000000000 [2e14])
+    │   │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   │   ├─ [6062] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::transfer(0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2, 200000000000000 [2e14])
+    │   │   │   │   │   │   │   ├─ emit Transfer(from: 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, to: 0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2, amount: 200000000000000 [2e14])
+    │   │   │   │   │   │   │   └─ ← [Return] true
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   ├─ [534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(0x28B12792F9D81Bd529Bc5572434E861C9EDbBBC2) [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] 125802215296389713016 [1.258e20]
+    │   │   │   │   │   ├─ emit Swap(param0: 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, param1: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], param2: -242631 [-2.426e5], param3: 200000000000000 [2e14], param4: 2263283552492995846291670546852191 [2.263e33], param5: 22109817720316417 [2.21e16], param6: 205210 [2.052e5], param7: 0, param8: 640000000000 [6.4e11])
+    │   │   │   │   │   └─ ← [Return] 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc4c390000000000000000000000000000000000000000000000000000b5e620f48000
+    │   │   │   │   └─ ← [Return] 242631 [2.426e5]
+    │   │   │   ├─ [2420] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::approve(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, 0)
+    │   │   │   │   ├─ emit Approval(owner: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], spender: 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4, amount: 0)
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 210000000000000 [2.1e14]
+    │   │   │   ├─ [717] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::allowance(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4) [staticcall]
+    │   │   │   │   └─ ← [Return] 0
+    │   │   │   ├─ [10354] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::withdraw(200000000000000 [2e14])
+    │   │   │   │   ├─ [1214] BeaconProxy::fallback{value: 200000000000000}()
+    │   │   │   │   │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   │   │   │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   │   │   │   │   ├─ [270] PoolVault::receive{value: 200000000000000}() [delegatecall]
+    │   │   │   │   │   │   └─ ← [Stop]
+    │   │   │   │   │   └─ ← [Return]
+    │   │   │   │   ├─ emit Withdrawal(param0: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], param1: 200000000000000 [2e14])
+    │   │   │   │   └─ ← [Stop]
+    │   │   │   ├─ [534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 10000000000000 [1e13]
+    │   │   │   ├─ [618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 6510531 [6.51e6]
+    │   │   │   ├─ [5821] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::transfer(0x000000000000000000000000000000000000dEaD, 242631 [2.426e5])
+    │   │   │   │   ├─ emit Transfer(from: BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], to: 0x000000000000000000000000000000000000dEaD, amount: 242631 [2.426e5])
+    │   │   │   │   └─ ← [Return] true
+    │   │   │   ├─ [618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   │   │   │   └─ ← [Return] 6267900 [6.267e6]
+    │   │   │   ├─ emit BurnExecuted(bnbSpent: 0, bemBurned: 242631 [2.426e5])
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003b3c7
+    │   │   └─ ← [Return] 0, 242631 [2.426e5]
+    │   └─ ← [Return] 0, 242631 [2.426e5]
+    ├─ [0] VM::assertEq(0, 0, "SmartRouter pays from its pre-existing native balance before pulling WBNB") [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertGt(242631 [2.426e5], 0) [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(400000000000000 [4e14], 400000000000000 [4e14], "unused Router native funds must not be swept") [staticcall]
+    │   └─ ← [Return]
+    ├─ [0] VM::assertEq(70300000000000017 [7.03e16], 70300000000000017 [7.03e16], "real WBNB.transfer refund must reach the real BeaconProxy") [staticcall]
+    │   └─ ← [Return]
+    ├─ [534] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   └─ ← [Return] 10000000000000 [1e13]
+    ├─ [0] VM::assertEq(10000000000000 [1e13], 10000000000000 [1e13]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [717] 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c::allowance(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c], 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4) [staticcall]
+    │   └─ ← [Return] 0
+    ├─ [0] VM::assertEq(0, 0) [staticcall]
+    │   └─ ← [Return]
+    ├─ [618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(BeaconProxy: [0xa38D17ef017A314cCD72b8F199C0e108EF7Ca04c]) [staticcall]
+    │   └─ ← [Return] 6267900 [6.267e6]
+    ├─ [0] VM::assertEq(6267900 [6.267e6], 6267900 [6.267e6]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [618] 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a::balanceOf(0x000000000000000000000000000000000000dEaD) [staticcall]
+    │   └─ ← [Return] 182635643649 [1.826e11]
+    ├─ [0] VM::assertEq(242631 [2.426e5], 242631 [2.426e5]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1408] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [458] PoolVault::burnBudget() [delegatecall]
+    │   │   └─ ← [Return] 1000000000000000 [1e15]
+    │   └─ ← [Return] 1000000000000000 [1e15]
+    ├─ [0] VM::assertEq(1000000000000000 [1e15], 1000000000000000 [1e15]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1408] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [458] PoolVault::totalBurnBnbSpent() [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [0] VM::assertEq(0, 0) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1386] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [436] PoolVault::totalBurnBem() [delegatecall]
+    │   │   └─ ← [Return] 242631 [2.426e5]
+    │   └─ ← [Return] 242631 [2.426e5]
+    ├─ [0] VM::assertEq(242631 [2.426e5], 242631 [2.426e5]) [staticcall]
+    │   └─ ← [Return]
+    ├─ [1816] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [866] PoolVault::totalBnbOwed() [delegatecall]
+    │   │   └─ ← [Return] 69000000000000000 [6.9e16]
+    │   └─ ← [Return] 69000000000000000 [6.9e16]
+    ├─ [4871] BeaconProxy::fallback(0x00000000000000000000000000000000000A11cE) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [3918] PoolVault::bnbOwed(0x00000000000000000000000000000000000A11cE) [delegatecall]
+    │   │   ├─ [1051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x00000000000000000000000000000000000A11cE, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000538f50bd1e0000
+    │   │   └─ ← [Return] 28420000000000000 [2.842e16]
+    │   └─ ← [Return] 28420000000000000 [2.842e16]
+    ├─ [4871] BeaconProxy::fallback(0x0000000000000000000000000000000000000B0b) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [3918] PoolVault::bnbOwed(0x0000000000000000000000000000000000000B0b) [delegatecall]
+    │   │   ├─ [1051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x0000000000000000000000000000000000000B0b, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000538f50bd1e0000
+    │   │   └─ ← [Return] 28420000000000000 [2.842e16]
+    │   └─ ← [Return] 28420000000000000 [2.842e16]
+    ├─ [4871] BeaconProxy::fallback(0x00000000000000000000000000000000000cA201) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [3918] PoolVault::bnbOwed(0x00000000000000000000000000000000000cA201) [delegatecall]
+    │   │   ├─ [1051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x00000000000000000000000000000000000cA201, 2) [delegatecall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000003691d6afc0000
+    │   │   └─ ← [Return] 1160000000000000 [1.16e15]
+    │   └─ ← [Return] 1160000000000000 [1.16e15]
+    ├─ [4871] BeaconProxy::fallback(0x0000000000000000000000000000000000003333) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [3918] PoolVault::bnbOwed(0x0000000000000000000000000000000000003333) [delegatecall]
+    │   │   ├─ [1051] SaleSettlement::pending(21442606278069268592222275628234631408020473484490842826844995550341669508608 [2.144e76], 0x0000000000000000000000000000000000003333, 0) [delegatecall]
+    │   │   │   └─ ← [Return] 0x0000000000000000000000000000000000000000000000000000000000000000
+    │   │   └─ ← [Return] 1000000000000000 [1e15]
+    │   └─ ← [Return] 1000000000000000 [1e15]
+    ├─ [1431] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [481] PoolVault::saleOutstandingWei() [delegatecall]
+    │   │   └─ ← [Return] 48000000000000000 [4.8e16]
+    │   └─ ← [Return] 48000000000000000 [4.8e16]
+    ├─ [1407] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [457] PoolVault::saleRemainder() [delegatecall]
+    │   │   └─ ← [Return] 17
+    │   └─ ← [Return] 17
+    ├─ [1385] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [435] PoolVault::surplusRemainder() [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [1353] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [403] PoolVault::bemAccounted() [delegatecall]
+    │   │   └─ ← [Return] 6267883 [6.267e6]
+    │   └─ ← [Return] 6267883 [6.267e6]
+    ├─ [1415] BeaconProxy::fallback() [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [465] PoolVault::accBemPerShare() [delegatecall]
+    │   │   └─ ← [Return] 62678830000000000000000000000000000000000 [6.267e40]
+    │   └─ ← [Return] 62678830000000000000000000000000000000000 [6.267e40]
+    ├─ [1518] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [565] PoolVault::epochNet(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 6267883 [6.267e6]
+    │   └─ ← [Return] 6267883 [6.267e6]
+    ├─ [1516] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [563] PoolVault::epochPaid(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [1562] BeaconProxy::fallback(20727 [2.072e4]) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [609] PoolVault::epochBurned(20727 [2.072e4]) [delegatecall]
+    │   │   └─ ← [Return] 0
+    │   └─ ← [Return] 0
+    ├─ [27004] BeaconProxy::fallback(0x00000000000000000000000000000000000A11cE) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [26051] PoolVault::claimable(0x00000000000000000000000000000000000A11cE) [delegatecall]
+    │   │   ├─ [24844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x00000000000000000000000000000000000A11cE, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000000000002edd1e
+    │   │   └─ ← [Return] 3071262 [3.071e6]
+    │   └─ ← [Return] 3071262 [3.071e6]
+    ├─ [27004] BeaconProxy::fallback(0x0000000000000000000000000000000000000B0b) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [26051] PoolVault::claimable(0x0000000000000000000000000000000000000B0b) [delegatecall]
+    │   │   ├─ [24844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x0000000000000000000000000000000000000B0b, 49) [delegatecall]
+    │   │   │   └─ ← [Return] 0x00000000000000000000000000000000000000000000000000000000002edd1e
+    │   │   └─ ← [Return] 3071262 [3.071e6]
+    │   └─ ← [Return] 3071262 [3.071e6]
+    ├─ [27004] BeaconProxy::fallback(0x00000000000000000000000000000000000cA201) [staticcall]
+    │   ├─ [307] PoolBeacon::implementation() [staticcall]
+    │   │   └─ ← [Return] PoolVault: [0x2e234DAe75C793f67A35089C9d99245E1C58470b]
+    │   ├─ [26051] PoolVault::claimable(0x00000000000000000000000000000000000cA201) [delegatecall]
+    │   │   ├─ [24844] RewardAccounting::claimable(86021428874017376880472606983268709061762439872134018791209995933037553091840 [8.602e76], 0x00000000000000000000000000000000000cA201, 2) [delegatecall]
+    │   │   │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000001e9ad
+    │   │   └─ ← [Return] 125357 [1.253e5]
+    │   └─ ← [Return] 125357 [1.253e5]
+    ├─ [1582] 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C::ownerOf(16210 [1.621e4]) [staticcall]
+    │   ├─ [294] 0xf8D6d8EB894d6971c8976Ad8b4971cbEFE028156::implementation() [staticcall]
+    │   │   └─ ← [Return] 0x8E1D125Def6d3826C278299273a0760D47626068
+    │   ├─ [664] 0x8E1D125Def6d3826C278299273a0760D47626068::ownerOf(16210 [1.621e4]) [delegatecall]
+    │   │   └─ ← [Return] 0x000000000000000000000000000000000000B0A7
+    │   └─ ← [Return] 0x000000000000000000000000000000000000B0A7
+    ├─ [0] VM::assertEq(0x1cf90c807c607f24aa099399604f5e935d5a81e873b400dc6e0492a495f5e481, 0x1cf90c807c607f24aa099399604f5e935d5a81e873b400dc6e0492a495f5e481) [staticcall]
+    │   └─ ← [Return]
+    ├─ emit log_named_uint(key: "prefunded Router BNB retained (wei)", val: 400000000000000 [4e14])
+    ├─ emit log_named_uint(key: "full WBNB input refunded into BeaconProxy (wei)", val: 200000000000000 [2e14])
+    ├─ emit log_named_uint(key: "actual BEM burned with zero Vault budget spend (atoms)", val: 242631 [2.426e5])
+    └─ ← [Stop]
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 3.75ms (1.18ms CPU time)
+
+Ran 1 test suite in 12.79s (3.75ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

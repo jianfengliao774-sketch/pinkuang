@@ -1,0 +1,29 @@
+✔ purchase prompts require verified ownership after actual purchase, including escrowed shares (1.0393ms)
+✔ skip is wallet-scoped, subscription does not prompt, successful first claim reminds once (1.477ms)
+✔ Telegram links cannot navigate to arbitrary sites or bot accounts (0.3247ms)
+✔ API stays same-origin and binds authenticated reads to the selected wallet (0.9816ms)
+✔ inbox links use verified pool-shaped addresses, bilingual copy distinguishes votes, listings and actual sales (13.7871ms)
+✔ listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic (0.968ms)
+✔ quote selection uses exact official NFT/Mining/Market ABI and pins every read to one BSC block (13.9518ms)
+✔ wrong chain, final network change and canonical reorg invalidate quote verification (10.0172ms)
+✔ changed owner, task, weight, NFT identity, inactive/optimal/unverified miner cannot pass (15.6052ms)
+✔ ineligible miners report the exact chain condition without weakening the purchase gate (5.7103ms)
+✔ inactive or stale official listings remain reference-only and cannot create a fixed draft (8.623ms)
+✔ Firsto listing price/buyer total never replace the independently verified official purchase price (5.2408ms)
+✔ flexible draft uses capacity reference times atomic BEM yield, exact rounding and bound task/weight (2.6977ms)
+✔ stale/future quotes, expired asks and stale/future chain checks never become drafts (2.6033ms)
+✔ official fixed purchase survives a broken Firsto API; flexible reference still fails closed (5.325ms)
+✔ direct official lookup adds only the exact fresh Firsto capacity estimate after chain verification (5.0175ms)
+✔ stale Firsto mining status does not hide a valid official on-chain listing (1.9271ms)
+✔ non-official identities are excluded from discovery and cannot reach on-chain quote reads (0.896ms)
+✔ failed concurrent owner read drains pending market reads and never continues to getMiner (4.5325ms)
+✔ official market is queried before Firsto; stale or mismatched detail still fails closed (7.8988ms)
+✔ empty/truncated imports and malformed public JSON explain recovery in plain language (0.8462ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 426.6439

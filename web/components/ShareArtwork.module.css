@@ -1,0 +1,10 @@
+.artwork{margin:17px 0 16px;min-width:0;overflow:hidden;border-radius:9px;border:1px solid var(--border,#dedfd5);background:#173c30}
+.artwork img{display:block;width:100%;height:auto;aspect-ratio:1200/630;object-fit:cover}
+.artwork picture{display:block}
+.placeholder{display:flex;align-items:center;justify-content:center;aspect-ratio:1200/630;color:#eddfbc;font:inherit;font-size:14px}
+.artwork figcaption{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap;padding:7px 12px;color:#eddfbc;font-size:13px;font-weight:600;line-height:1.5}
+.artwork a{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;color:#eddfbc;font:inherit;text-decoration:none;white-space:nowrap}
+.artwork a:hover{text-decoration:underline;text-underline-offset:4px}
+.artwork a:focus-visible{outline:3px solid #cab17b;outline-offset:2px}
+.artwork figcaption p{flex-basis:100%;margin:0 0 6px;color:#e6dabb;font-size:12px;line-height:1.6;font-weight:500}
+@media(max-width:480px){.artwork figcaption{font-size:12px;padding:5px 9px;gap:4px}}

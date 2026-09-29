@@ -1,0 +1,38 @@
+{
+  "recordedAt": "2026-09-26T08:37:12.597363+00:00",
+  "unit": {
+    "passed": 70,
+    "failed": 0,
+    "command": "./deploy/node_modules/.bin/forge test --root contracts --out /tmp/pinkuang-reward-out --cache-path /tmp/pinkuang-reward-cache --match-contract \"PoolRewardsTest|RewardMigrationTest|PoolSaleTest|SaleBudgetMigrationTest|LegacyListedSaleMigrationTest|PoolBurnTest|PoolTransfersTest\" --skip \"fork/**\""
+  },
+  "invariant": {
+    "assertionsPassed": 12,
+    "runs": 128,
+    "depth": 64,
+    "failed": 0,
+    "additionalTransferUnitPassed": 16,
+    "command": "FOUNDRY_PROFILE=ci ./deploy/node_modules/.bin/forge test --root contracts --out /tmp/pinkuang-reward-out --cache-path /tmp/pinkuang-reward-cache --match-contract \"PoolTransfersTest|PoolRewardsInvariantTest|PoolRewardsNoExpiryInvariantTest|PoolTransfersInvariantTest|PoolTransfersNoExpiryInvariantTest|PoolSaleLifecycleInvariantTest|PoolSaleClosedInvariantTest\" --skip \"fork/**\""
+  },
+  "notes": [
+    "The 16 transfer unit tests also appear in the 70-test unit log and are not additional unique tests.",
+    "Invariant run preceded the additional payment-time legacy-listing quorum recheck; the final integrated regression is managed by the root agent.",
+    "Fork expectations were maintained but these two logs are local mock/fixture results, not evidence of a BSC fork run or mainnet deployment.",
+    "Post-test formatting does not change behavior.",
+    "Later line-scoped Slither explanatory comments change Solidity metadata but not behavior; release hashes come from the final integrated manifest."
+  ],
+  "businessSourceSha256": {
+    "contracts/src/PoolVault.sol": "7b601d2a04cdfb0524f343f74902f894cff4b2631233d0464898e14b8007f8a9",
+    "contracts/src/interfaces/IPoolVault.sol": "ff6e49dfe4ea4aaf5c47eb9cee5a1d7d881bd9f9a53a742a25a1c762c9fb2790",
+    "contracts/src/PoolRewardState.sol": "fdd9c5d7e71c1b19c6cb5275eff418a68ae397351213400f0c4af9ea7c1ed45c",
+    "contracts/src/PoolSaleState.sol": "76f978f432f1be53f4f45887b4f25ae2e81da0766ef1b483a9183bb4e91dcbda",
+    "contracts/src/libraries/RewardAccounting.sol": "dd0064e030205d405d615a69a02c4085c6382649782822210bfeac5a942ac447",
+    "contracts/src/libraries/SaleSettlement.sol": "8f4c15ad8b97c79e47cc84c6a8d801a3788938c74186440717564ae28536c579",
+    "contracts/src/libraries/BurnOperations.sol": "737a5a3b93ec5ca0cd162eb57e24c8a762b3d70ddf1f21a5e82ca8bdee71ea8b"
+  },
+  "additionalAuditMiningSettlement": {
+    "passed": 12,
+    "failed": 0,
+    "command": "./deploy/node_modules/.bin/forge test --root contracts --out /tmp/pinkuang-reward-out --cache-path /tmp/pinkuang-reward-cache --match-path test/unit/AuditMiningSettlement.t.sol",
+    "changes": "Expected net 29700 and Alice entitlement 14553; platform fee 300, zero burned."
+  }
+}

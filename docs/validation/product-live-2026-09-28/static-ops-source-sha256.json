@@ -1,0 +1,6 @@
+{
+  "deploy/ops/v2/product-static-update.remote.py.template": "763ea62111d10a7c4132b4414593c39fd23361f4892d1e99813801c4d1cecc07",
+  "deploy/ops/v2/render-product-static-update.py": "66557c9ad8aaccf99febf29e3722c3896f970f2b4921a1a10467f57b8ff1cfc2",
+  "deploy/ops/v2/test-product-static-update.py": "0af793c9de48eb3d5145402f65f39adb8733b8af410d41ce29b0fc093c0ab630",
+  "deploy/ops/v2/PRODUCT-STATIC-UPDATE.md": "c2d415261f58713d95734dbda91b49108b64098adf3481b45c031b95390fb9e8"
+}

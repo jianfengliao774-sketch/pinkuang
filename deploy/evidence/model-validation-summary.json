@@ -1,0 +1,54 @@
+{
+  "scope": "Local CI tests and compiler/upgrade checks only. No mainnet signing or broadcast.",
+  "profile": {
+    "name": "ci",
+    "fuzzRuns": 256,
+    "invariantRuns": 128,
+    "invariantDepth": 64,
+    "excluded": "test/fork/*"
+  },
+  "targeted": {
+    "passed": 35,
+    "failed": 0,
+    "log": "model-targeted.log"
+  },
+  "regression": {
+    "passed": 332,
+    "failed": 0,
+    "skipped": 0,
+    "suites": 25,
+    "wallSeconds": 35.87,
+    "log": "model-ci-regression.log"
+  },
+  "upgrades": {
+    "task": "T1e",
+    "startedAt": "2026-09-26T07:43:25.121Z",
+    "finishedAt": "2026-09-26T07:43:38.270Z",
+    "ok": true,
+    "checks": 21
+  },
+  "artifacts": {
+    "count": 16,
+    "sources": 61,
+    "matched": true,
+    "log": "model-artifacts.log"
+  },
+  "runtimeBytes": {
+    "PoolVault": 24208,
+    "FlexiblePurchase": 8268,
+    "PoolFactory": 11210
+  },
+  "localExecutionGas": {
+    "purchase100": 5831032,
+    "failure100": 3052347,
+    "measurement": "gasleft delta around the individual call; excludes funding/setup and transaction intrinsic gas; cold pool/beacon/implementation storage, plus cold market/NFT/mining/BEM for purchase; protocol mocks; not a live BSC estimate"
+  },
+  "constraints": [
+    "Model taskId read from the official on-chain reference miner at creation, never passed by frontend. Config ABI unchanged.",
+    "Append-only ERC-7201 fields; old flexible pools without initialized model cannot purchase and must use refund paths or a newly configured pool.",
+    "Original target priority checked on chain using official listingFor/listingView identity, owner, price cap and miner task/quality. A simulation failure does not mean unavailable.",
+    "Read failures fail closed; funding withdrawals and deadline refunds remain available independent of purchase-model and market reads.",
+    "Qualified alternative selection does not guarantee the global lowest price or a future yield.",
+    "Pull-payment refunds do not call receivers during procurement/finalization; a receiver that always rejects BNB only blocks its own withdrawal."
+  ]
+}

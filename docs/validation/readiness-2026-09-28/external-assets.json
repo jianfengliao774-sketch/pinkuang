@@ -1,0 +1,28 @@
+{
+  "sourceHead": "f64b36644a8de8fdfdbe1c72073a5c947a7f2d1d",
+  "checks": [
+    {
+      "asset": "favicon.svg",
+      "status": 200,
+      "sha256": "b0e784e690ddcad516246ae37997d16a527b591cd776926b4ac510a68f8da9bc",
+      "contentType": "image/svg+xml",
+      "cspPresent": true
+    },
+    {
+      "asset": "assets/index-CP0hCCp9.js",
+      "status": 200,
+      "sha256": "67ed2e5aa15f301af2acfdf165d30950953712f4d4dbfbffdf8bb434175a72c9",
+      "contentType": "text/javascript; charset=utf-8",
+      "cspPresent": true
+    },
+    {
+      "asset": "assets/index-CndTWcDo.css",
+      "status": 200,
+      "sha256": "6a1d5924d2000c4f844c8a88f986ae3e309d5ff9fff858930c248a4c0f24d8cf",
+      "contentType": "text/css; charset=utf-8",
+      "cspPresent": true
+    }
+  ],
+  "signatures": 0,
+  "transactions": 0
+}

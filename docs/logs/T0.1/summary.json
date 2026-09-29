@@ -1,0 +1,52 @@
+{
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-t01-IGtqoj",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "build",
+        "--sizes"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "executable": "C:\\Users\\Administrator\\Documents\\流片上链条\\tapeout-pool\\.tools\\forge\\package\\bin\\forge.exe",
+      "args": [
+        "test",
+        "--no-match-path",
+        "test/fork/**",
+        "-vv"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "upgrade-validation",
+      "executable": "C:\\Users\\Administrator\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe",
+      "args": [
+        "scripts/validate-upgrades.mjs"
+      ],
+      "exitCode": 0
+    }
+  ]
+}

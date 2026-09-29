@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-09-28T01:21:41.933Z",
+  "finishedAt": "2026-09-28T01:21:49.068Z",
+  "status": "passed",
+  "exitCode": 0,
+  "chainId": 56,
+  "forkBlock": 124308679,
+  "tests": [
+    "FirstoPoolForkTest",
+    "PoolSaleForkTest",
+    "PoolBurnForkTest",
+    "AuditMiningSettlementForkTest",
+    "BudgetPortfolioForkTest"
+  ],
+  "expected": {
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0
+  },
+  "source": "real public SignedAsk purchase and contract-maker strict settlement sales; local project deployment only"
+}

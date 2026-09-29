@@ -1,0 +1,465 @@
+import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
+import { abi, uint } from './chain-client.mjs';
+import { validateManifest, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
+import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
+import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
+import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { exactPrice, shareQuantity } from './live-actions.mjs';
+import { isRetryableReadError } from './read-retry.mjs';
+import { saleReferenceState } from './sale-governance-gate.mjs';
+
+const identity = new Interface(['function implementation() view returns(address)', 'function owner() view returns(address)']);
+const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
+const same = (a, b) => getAddress(a) === getAddress(b);
+const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
+/** A saved directory or local page can supply identities, never action eligibility. */
+export function portfolioConfigActionReady(config) {
+  const v4Ready = config?.productFamily !== 'fresh-v4'
+    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false;
+  return !!config && v4Ready;
+}
+export function portfolioCreateActionReady({ config, operatorVerified, operator, currentOperatorRead,
+  wallet, account }) {
+  const currentOperator = currentOperatorRead === true && typeof operator === 'string'
+    && typeof account === 'string' && same(operator, account);
+  return portfolioConfigActionReady(config) && !!wallet && !!account
+    && (operatorVerified === true || currentOperator);
+}
+export function portfolioPageActionReady({ config, freshRead, listingSource, initialPool }) {
+  return portfolioConfigActionReady(config) && freshRead === true
+    && (!!initialPool || !!listingSource && listingSource.stale !== true
+      && listingSource.readMode !== 'verified_snapshot');
+}
+export function portfolioSelectedActionReady({ config, selectedProofCurrent }) {
+  return portfolioConfigActionReady(config) && selectedProofCurrent === true;
+}
+export function portfolioOrderActionReady({ config, selectedProofCurrent, source, orderPool, selectedPool }) {
+  return portfolioSelectedActionReady({ config, selectedProofCurrent })
+    && !!source && source.stale !== true && source.readMode !== 'verified_snapshot'
+    && typeof orderPool === 'string' && typeof selectedPool === 'string'
+    && same(orderPool, selectedPool);
+}
+/** Genesis permits one candidate per round and any positive-share holder to propose it. */
+export function genesisPortfolioProposalGate(row) {
+  if (row?.state !== 2n) return { allowed: false, reason: '项目当前不在运行状态，不能发起出售。' };
+  if (row.shares === 0n) return { allowed: false, reason: '持有至少 1 份项目份额才能发起出售。' };
+  if (row.proposal && (row.proposal.executed || row.timestamp < row.proposal.endsAt))
+    return { allowed: false, reason: '本轮已有进行中的出售提案，请等待结算或投票结束。' };
+  if (row.timestamp < row.nextRoundAt)
+    return { allowed: false, reason: '下一轮出售提案尚未开放。' };
+  return { allowed: true, reason: null };
+}
+function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, stage }) {
+  const passed = candidate.yesShares >= candidate.threshold
+    && candidate.yesMembers * 2n > candidate.memberCount;
+  const open = state === 2n && !openerExecuted && !candidate.executed && timestamp < candidate.endsAt;
+  if (stage === 'genesis') return { passed, discounted: candidate.threshold === 60n,
+    reviewRequired: false, reviewApproved: null, canExecute: open && passed, executionBlockReason: null };
+  const { saleReference: reference, saleReview: review } = candidate;
+  const discounted = reference?.available ? candidate.price < reference.priceWei : null;
+  const reviewRequired = discounted;
+  const reviewApproved = discounted === true && review?.status === 1n;
+  let executionBlockReason = null;
+  if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
+  else if (discounted && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (discounted && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
+  else if (discounted && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价，尚待平台审核通过。';
+  return { passed, discounted, reviewRequired, reviewApproved,
+    canExecute: open && passed && executionBlockReason === null, executionBlockReason };
+}
+// Leave capacity for other page sections on the 24-active-request read proxy.
+const PORTFOLIO_PAGE_READ_LIMIT = 12;
+function boundedPortfolioReads(read) {
+  let active = 0;
+  const waiting = [], pending = new Set();
+  const limited = (...args) => {
+    const task = (async () => {
+      if (active < PORTFOLIO_PAGE_READ_LIMIT) active++;
+      else await new Promise(resolve => waiting.push(resolve));
+      try { return await read(...args); }
+      finally {
+        const next = waiting.shift();
+        if (next) next(); // Transfer the occupied slot to the next read.
+        else active--;
+      }
+    })();
+    pending.add(task);
+    void task.then(() => pending.delete(task), () => pending.delete(task));
+    return task;
+  };
+  return { read: limited, drain: () => Promise.allSettled([...pending]) };
+}
+export const PORTFOLIO_ACTIONS = new Set(['deposit', 'withdrawDeposit', 'finalizeFundingFailure', 'claimFailedFunding',
+  'finalizeAcquisition', 'collectChildBem', 'claimBem', 'withdrawBnb', 'transfer', 'proposeChildSale', 'voteChildSale',
+  'executeChildSale', 'settleChildSale', 'expireChildSale', 'buyOfficial', 'buyFirsto']);
+
+/** Settled historical credit survives share transfers; unpaid accrual is counted exactly once. */
+export function portfolioBnbEntitlement(row) {
+  const accrued = row.shares * row.salePerShareWei;
+  requireValue(accrued >= row.saleDebt, '预算项目卖款账本不一致。');
+  const refund = !row.refundSettled && row.state !== 0n && row.state !== 1n ? row.shares * row.refundPerShareWei : 0n;
+  return row.bnbOwed + refund + accrued - row.saleDebt;
+}
+
+export async function readPortfolioContext(config, provider, blockNumber) {
+  requireValue(['genesis','fresh-active','code-upgraded','role-migrating','role-wired'].includes(config?.stage),
+    '预算项目缺少已核验的产品阶段。');
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
+  requireValue(manifest.kind === 'integrated-v2', '预算项目尚未完成部署验收。');
+  requireValue(abi.BudgetPortfolioFactory && abi.BudgetPortfolioVault, '当前页面缺少预算项目合约版本。');
+  const request = (method, params = []) => provider.request({ method, params });
+  requireValue(BigInt(await request('eth_chainId')) === 56n, '请切换到 BSC 主网。');
+  const block = await request('eth_getBlockByNumber', [blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber)), false]);
+  requireValue(/^0x[\da-f]{64}$/i.test(block?.hash) && block.number && block.timestamp, '区块数据不可用。');
+  requireValue(BigInt(block.number) >= BigInt(manifest.verifiedBlockNumber), '预算项目读取区块早于部署核验。');
+  const tag = toQuantity(BigInt(block.number)), timestamp = BigInt(block.timestamp);
+  insist(blockNumber === undefined || BigInt(block.number) === uint(blockNumber),
+    'source_reorg', '读取区块不一致。');
+  const read = async (to, contract, method, args = []) => contract.decodeFunctionResult(method,
+    await request('eth_call', [{ to, data: contract.encodeFunctionData(method, args) }, tag]));
+  await Promise.all(PORTFOLIO_MANIFEST_KEYS.map(async key => {
+    const code = await request('eth_getCode', [manifest[key], tag]);
+    requireValue(code !== '0x' && keccak256(code) === manifest.codehash[key], '预算项目代码与核验清单不一致。');
+  }));
+  const pf = manifest.portfolioFactory, factoryAbi = abi.BudgetPortfolioFactory;
+  const [legacy, market, beacon, operator, impl, owner, marketFactory, legacyMarket, slot, marketSlot, coreMarketSlot, marketOwner, sellerFee, buyerFee] = await Promise.all([
+    read(pf, factoryAbi, 'legacyFactory'), read(pf, factoryAbi, 'shareMarket'), read(pf, factoryAbi, 'beacon'),
+    read(pf, factoryAbi, 'operator'), read(manifest.portfolioBeacon, identity, 'implementation'),
+    read(manifest.portfolioBeacon, identity, 'owner'), read(manifest.portfolioMarket, abi.ShareMarket, 'factory'),
+    read(manifest.factory, abi.PoolFactory, 'shareMarket'),
+    request('eth_getStorageAt', [pf, SLOT, tag]),
+    request('eth_getStorageAt', [manifest.portfolioMarket, SLOT, tag]),
+    request('eth_getStorageAt', [manifest.shareMarket, SLOT, tag]),
+    read(manifest.portfolioMarket, abi.ShareMarket, 'timelock'),
+    read(manifest.portfolioMarket, abi.ShareMarket, 'feeBps'), read(manifest.portfolioMarket, abi.ShareMarket, 'buyerFeeBps'),
+  ]);
+  requireValue(same(legacy[0], manifest.factory) && same(market[0], manifest.portfolioMarket)
+    && same(beacon[0], manifest.portfolioBeacon) && same(impl[0], manifest.portfolioImplementation)
+    && same(owner[0], manifest.timelock) && same(marketFactory[0], pf)
+    && same(legacyMarket[0], manifest.shareMarket)
+    && /^0x0{24}[a-f\d]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`, manifest.portfolioFactoryImplementation),
+  '预算工厂、市场或升级权限关联不一致。');
+  requireValue(/^0x0{24}[a-f\d]{40}$/i.test(marketSlot) && marketSlot.toLowerCase() === coreMarketSlot.toLowerCase()
+    && address(`0x${marketSlot.slice(-40)}`) && same(marketOwner[0], manifest.timelock)
+    && sellerFee[0] === 100n && buyerFee[0] === 100n, '预算市场实现、权限或双边费率不一致。');
+  const canonical = async () => {
+    const final = await request('eth_getBlockByNumber', [tag, false]);
+    insist(BigInt(await request('eth_chainId')) === 56n,
+      'wrong_chain', '读取期间网络已变化，请切回 BSC 主网。');
+    insist(final?.hash?.toLowerCase() === block.hash.toLowerCase(),
+      'source_reorg', '读取期间链上状态变化，请重新核对。');
+  };
+  return { manifest, stage: config.stage, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
+}
+
+// A fixed historical block has immutable code and bindings once its hash is
+// canonical. Share that expensive proof between display pages only; transaction
+// preparation still calls readPortfolioContext directly against the latest head.
+const displayContexts = new WeakMap();
+function readPortfolioDisplayContext(config, provider, blockNumber) {
+  if (config?.productFamily !== 'fresh-v4') return readPortfolioContext(config, provider, blockNumber);
+  let entries = displayContexts.get(provider);
+  if (!entries) { entries = new Map(); displayContexts.set(provider, entries); }
+  const key = JSON.stringify([config.stage, config.manifest, String(blockNumber)]);
+  if (entries.has(key)) return entries.get(key);
+  const pending = readPortfolioContext(config, provider, blockNumber);
+  entries.set(key, pending);
+  if (entries.size > 4) entries.delete(entries.keys().next().value);
+  void pending.catch(() => { if (entries.get(key) === pending) entries.delete(key); });
+  return pending;
+}
+
+export async function readPortfolio(context, pool, account = ZeroAddress, { includeChildren = true } = {}) {
+  const { manifest, read, timestamp } = context, target = address(pool), owner = getAddress(account), contract = abi.BudgetPortfolioVault;
+  requireValue((await read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'isPool', [target]))[0] === true,
+    '此预算项目未在工厂登记。');
+  const names = ['OFFICIAL_FACTORY', 'legacyFactory', 'state', 'budgetWei', 'absoluteCapWei', 'unitCapWei', 'spentWei',
+    'totalSupply', 'memberCount', 'childCount', 'activeChildCount', 'fundingDeadline', 'purchaseDeadline', 'fundingFailed',
+    'refundPerShareWei', 'salePerShareWei', 'activeProposalId', 'nextProposalId', 'shareTradingAllowed', 'nextRoundAt'];
+  const memberNames = ['balanceOf', 'claimableBem', 'bnbOwed', 'refundSettled', 'saleDebt', 'lockedShares'];
+  const values = await Promise.all([...names.map(name => read(target, contract, name)),
+    ...memberNames.map(name => read(target, contract, name, [owner]))]);
+  const row = Object.fromEntries([...names, ...memberNames].map((key, i) => [key, values[i][0]]));
+  requireValue(same(row.OFFICIAL_FACTORY, manifest.portfolioFactory) && same(row.legacyFactory, manifest.factory)
+    && row.state <= 5n && row.totalSupply <= 100n && row.balanceOf <= 100n && row.budgetWei > 0n
+    && row.budgetWei % 100n === 0n && row.lockedShares <= row.balanceOf, '预算项目状态不一致。');
+  Object.assign(row, { kind: 'portfolio', pool: target, account: owner, shares: row.balanceOf,
+    unitPriceWei: row.budgetWei / 100n, availableShares: row.balanceOf - row.lockedShares, timestamp,
+    blockNumber: BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null, proposals: [] });
+  row.withdrawableBnb = portfolioBnbEntitlement(row);
+  if (row.activeProposalId > 0n) {
+    requireValue(row.nextProposalId > row.activeProposalId && row.nextProposalId - row.activeProposalId <= 16n,
+      '预算项目出售候选数量超出可核验范围。');
+    const entries = await Promise.all(Array.from({ length: Number(row.nextProposalId - row.activeProposalId) }, (_, offset) => {
+      const id = row.activeProposalId + BigInt(offset);
+      return Promise.all([read(target, contract, 'proposals', [id]), read(target, contract, 'hasVoted', [id, owner])])
+        .then(async ([p, voted]) => {
+          const cost = context.stage === 'genesis'
+            ? (await read(target, contract, 'childInfo', [p.child]))[2] : null;
+          requireValue(cost === null || cost > 0n, '创世子矿机购机成本未通过链上核验。');
+          let saleReference = null, saleReview = null;
+          if (context.stage !== 'genesis') {
+            const [referenceResult, reviewResult] = await Promise.allSettled([
+              read(manifest.shareMarket, abi.ShareMarket, 'saleReference', [p.child]),
+              read(target, contract, 'childSaleReview', [id]),
+            ]);
+            saleReference = referenceResult.status === 'fulfilled'
+              ? saleReferenceState(referenceResult.value, timestamp)
+              : Object.freeze({ available: false, reason: 'Firsto 市场参考价暂不可读取。' });
+            const reviewStatus = reviewResult.status === 'fulfilled' ? reviewResult.value[0] : null;
+            saleReview = reviewStatus !== null && reviewStatus <= 2n
+              ? Object.freeze({ available: true, status: reviewStatus })
+              : Object.freeze({ available: false, status: null, reason: '平台审核状态暂不可读取。' });
+          }
+          return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
+            referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
+            yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0],
+            threshold: cost !== null && p.price < cost ? 60n : 51n, saleReference, saleReview };
+        });
+    }));
+    row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt)
+      .map(candidate => Object.freeze({ ...candidate, ...childSaleExecutionGate({ candidate,
+        openerExecuted: entries[0].executed, state: row.state, timestamp, stage: context.stage }) }));
+    row.proposal = row.proposals[0];
+  }
+  // Display at most 100 children per page; the adapter accepts a cursor for further batches below.
+  if (includeChildren) row.children = await readPortfolioChildren(context, target, row.childCount);
+  return Object.freeze(row);
+}
+
+export async function readPortfolioChildren(context, portfolio, count, offset = 0n) {
+  const result = [], end = count < offset + 100n ? count : offset + 100n;
+  for (let start = offset; start < end; start += 4n) {
+    const jobs = [];
+    for (let i = start; i < end && i < start + 4n; i++) jobs.push((async () => {
+      const pool = address((await context.read(portfolio, abi.BudgetPortfolioVault, 'childAt', [i]))[0]);
+      const info = await context.read(portfolio, abi.BudgetPortfolioVault, 'childInfo', [pool]);
+      const [registered, factory, state, expired, activatedAt] = await Promise.all([
+        context.read(context.manifest.factory, abi.PoolFactory, 'isPool', [pool]), context.read(pool, abi.PoolVault, 'factory'),
+        context.read(pool, abi.PoolVault, 'state'), context.read(pool, abi.PoolVault, 'expiresAt'), context.read(pool, abi.PoolVault, 'activatedAt'),
+      ]);
+      requireValue(registered[0] === true && same(factory[0], context.manifest.factory), '子矿池未在已核验工厂登记。');
+      return { pool, collection: address(info.collection), tokenId: info.tokenId, costWei: info.purchaseCost,
+        official: info.official, sold: info.sold, state: state[0], expiresAt: expired[0], activatedAt: activatedAt[0] };
+    })());
+    result.push(...await Promise.all(jobs));
+  }
+  return result;
+}
+
+export async function readPortfolioPage(config, provider, { account, cursor = 0, mine = false,
+  fetcher = globalThis.fetch, now = Date.now } = {}) {
+  requireValue(Number.isSafeInteger(cursor) && cursor >= 0, '项目分页游标无效。');
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), base = new URL(config.indexBaseUrl);
+  requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
+  const path = mine ? `/v1/accounts/${address(account)}/portfolios` : '/v1/portfolios';
+  let result;
+  try { result = await fetchLiveJsonWithClock(`${base.href.replace(/\/$/, '')}${path}?cursor=${cursor}&limit=20`, { fetcher, now }); }
+  catch (error) {
+    if (mine || !isRetryableReadError(error)) throw error;
+    result = await fetchLiveJsonWithClock(`${base.href.replace(/\/$/, '')}/v1/snapshot/portfolios?cursor=${cursor}&limit=20`, { fetcher, now });
+    requireValue(result.body?.source?.readMode === 'verified_snapshot', '预算项目快照来源无效。');
+  }
+  const { body: reply, serverNow, localReceivedAt } = result;
+  const source = validateIndexSource(reply.source, manifest, { now: now(),
+    ...(reply.source?.readMode === 'verified_snapshot' ? { maxAgeMs: 30 * 60 * 1000 } : {}),
+    ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
+    && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算项目索引身份或分页无效。');
+  const nextCursor = reply.data.nextCursor;
+  requireValue(nextCursor === null || Number.isSafeInteger(nextCursor) && nextCursor > cursor, '索引返回重复游标。');
+  await requireRecentSnapshotState(provider, source);
+  const context = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
+  insist(context.block.hash.toLowerCase() === source.indexedBlockHash
+    && context.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '预算项目索引区块已变化。');
+  if (source.readMode === 'verified_snapshot') {
+    const count = (await context.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
+    requireValue(typeof source.portfolioCount === 'string' && count === BigInt(source.portfolioCount), '预算项目快照数量与链上不一致。');
+  }
+  const items = [], seen = new Set();
+  for (const entry of reply.data.items) {
+    const pool = address(entry.address);
+    requireValue(entry.kind === 'portfolio' && same(entry.factory, manifest.portfolioFactory)
+      && !seen.has(pool), '预算项目索引包含重复或外部地址。');
+    seen.add(pool);
+  }
+  const limited = boundedPortfolioReads(context.read), pageContext = { ...context, read: limited.read };
+  try {
+    for (let offset = 0; offset < reply.data.items.length; offset += 4) {
+      const batch = await Promise.allSettled(reply.data.items.slice(offset, offset + 4)
+        .map(entry => readPortfolio(pageContext, entry.address, account || ZeroAddress, { includeChildren: false })));
+      const failed = batch.find(result => result.status === 'rejected');
+      if (failed) throw failed.reason;
+      items.push(...batch.map(result => result.value));
+    }
+  } finally { await limited.drain(); }
+  await context.canonical();
+  return { items, nextCursor, source, operator: context.operator };
+}
+
+export async function readPortfolioOrders(config, provider, pool, { cursor,
+  fetcher = globalThis.fetch, now = Date.now } = {}) {
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), target = address(pool), base = new URL(config.indexBaseUrl);
+  requireValue(base.origin === config.origin && !base.search && !base.hash, '订单索引服务来源不一致。');
+  const query = new URLSearchParams({ pool: target, limit: '20' });
+  if (cursor !== undefined && cursor !== null) query.set('cursor', uint(String(cursor)).toString());
+  const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(
+    `${base.href.replace(/\/$/, '')}/v1/portfolio-orders?${query}`, { fetcher, now });
+  const source = validateIndexSource(reply.source, manifest, { now: now(),
+    ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
+    && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算订单索引身份无效。');
+  const ctx = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
+  insist(ctx.block.hash.toLowerCase() === source.indexedBlockHash, 'source_reorg', '预算订单索引区块已变化。');
+  await readPortfolio(ctx, target, ZeroAddress, { includeChildren: false });
+  const items = []; let last = cursor ? uint(String(cursor)) : null;
+  for (const entry of reply.data.items) {
+    const id = uint(entry.orderId);
+    requireValue(id > 0n && (last === null || id < last), '订单游标或排序无效。'); last = id;
+    const [raw, expiry] = await Promise.all([ctx.read(manifest.portfolioMarket, abi.ShareMarket, 'orders', [id]),
+      ctx.read(manifest.portfolioMarket, abi.ShareMarket, 'orderExpiresAt', [id])]);
+    const order = raw[0];
+    requireValue(same(order.pool, target) && same(entry.pool, target) && same(order.seller, entry.seller)
+      && order.remaining === uint(entry.remaining) && order.pricePerUnit === uint(entry.pricePerUnitWei), '预算订单与链上数据不一致。');
+    items.push({ id, pool: target, seller: address(order.seller), remaining: order.remaining,
+      pricePerUnitWei: order.pricePerUnit, active: order.active, expiresAt: expiry[0], expired: expiry[0] <= ctx.timestamp });
+  }
+  requireValue(reply.data.nextCursor === null || items.length > 0 && String(reply.data.nextCursor) === last.toString(), '订单分页游标无效。');
+  await ctx.canonical(); return { items, nextCursor: reply.data.nextCursor, source };
+}
+
+export async function preparePortfolioAction({ config, provider, account, pool, action }) {
+  const context = await readPortfolioContext(config, provider), owner = address(account), { manifest, read } = context;
+  const operatorAllowed = async () => {
+    if (same(owner, context.operator)) return true;
+    if (config?.stage !== 'fresh-active' || !config.authority || !same(context.operator, config.authority)) return false;
+    const [first, second, core, budget] = await Promise.all([
+      read(config.authority, abi.PlatformAuthority, 'administratorOne'),
+      read(config.authority, abi.PlatformAuthority, 'administratorTwo'),
+      read(config.authority, abi.PlatformAuthority, 'coreFactory'),
+      read(config.authority, abi.PlatformAuthority, 'budgetFactory'),
+    ]);
+    return (same(owner, first[0]) || same(owner, second[0]))
+      && same(core[0], manifest.factory) && same(budget[0], manifest.portfolioFactory);
+  };
+  let target = pool && address(pool), contract = abi.BudgetPortfolioVault, method = action.kind, args = [], value = 0n, row = null, procurement = null;
+  let targetType = 'portfolio', marketTrade = null;
+  if (['marketList', 'marketFill', 'marketCancel', 'marketExpire', 'marketWithdraw'].includes(method)) {
+    const methodMap = { marketList: 'list', marketFill: 'fill', marketCancel: 'cancel', marketExpire: 'expire', marketWithdraw: 'withdrawBnb' };
+    method = methodMap[method]; targetType = 'portfolioMarket'; target = manifest.portfolioMarket; contract = abi.ShareMarket;
+    if (method === 'list' || method === 'fill') {
+      const [sellerFee, buyerFee] = await Promise.all([read(target, contract, 'feeBps'), read(target, contract, 'buyerFeeBps')]);
+      requireValue(sellerFee[0] === 100n && buyerFee[0] === 100n, '预算市场尚未通过双边 1% 手续费核验。');
+    }
+    if (method === 'list') {
+      row = await readPortfolio(context, address(pool), owner, { includeChildren: false });
+      const shares = shareQuantity(action.quantity), price = exactPrice(action.price);
+      requireValue(row.shareTradingAllowed && shares <= row.availableShares, '项目份额正在冻结或可售数量不足。');
+      args = [row.pool, shares, price];
+      marketTrade = { baseWei: uint(price * shares), buyerFeeWei: price * shares / 100n, sellerFeeWei: price * shares / 100n };
+    } else if (method !== 'withdrawBnb') {
+      const id = uint(action.orderId); requireValue(id > 0n, '订单编号无效。');
+      const [o, expiry] = await Promise.all([read(target, contract, 'orders', [id]), read(target, contract, 'orderExpiresAt', [id])]);
+      const order = o[0];
+      requireValue(order.active && order.remaining > 0n && same(order.pool, pool), '订单已结束或属于其他预算项目。');
+      row = await readPortfolio(context, order.pool, owner, { includeChildren: false });
+      if (method === 'fill') {
+        const shares = shareQuantity(action.quantity);
+        requireValue(row.shareTradingAllowed && expiry[0] > context.timestamp && shares <= order.remaining && !same(order.seller, owner), '订单暂不能成交。');
+        if (action.expectedSeller) requireValue(same(order.seller, action.expectedSeller), '卖方已改变。');
+        if (action.expectedPricePerUnitWei !== undefined) requireValue(order.pricePerUnit === uint(action.expectedPricePerUnitWei), '每份价格已改变。');
+        const base = uint(order.pricePerUnit * shares), fee = base / 100n;
+        value = uint(base + fee); args = [id, shares];
+        marketTrade = { baseWei: base, buyerFeeWei: fee, sellerFeeWei: fee, seller: order.seller, pricePerUnitWei: order.pricePerUnit };
+      } else {
+        requireValue(method === 'cancel' ? same(order.seller, owner) : expiry[0] <= context.timestamp, '只有卖方可撤单；到期后任何人可解锁。');
+        args = [id];
+      }
+    }
+  } else if (method === 'createPortfolio') {
+    targetType = 'portfolioFactory';
+    requireValue(await operatorAllowed(), '仅链上登记的预算项目管理员可创建项目。');
+    target = manifest.portfolioFactory; contract = abi.BudgetPortfolioFactory;
+    const budget = exactPrice(action.budget), absoluteCap = exactPrice(action.absoluteCap), unitCap = exactPrice(action.unitCap);
+    const funding = uint(action.fundingDeadline, 64), purchase = uint(action.purchaseDeadline, 64);
+    requireValue(budget % 100n === 0n && absoluteCap <= budget && funding > context.timestamp && purchase > funding,
+      '请核对预算、价格上限和募集/购机截止时间。');
+    args = [budget, absoluteCap, unitCap, funding, purchase];
+  } else {
+    requireValue(method === 'autoPurchase' || PORTFOLIO_ACTIONS.has(method), '不支持的预算项目操作。');
+    row = await readPortfolio(context, target, owner, { includeChildren: false });
+    if (action.expectedPool) requireValue(same(target, action.expectedPool), '预算项目已改变。');
+    if (method === 'claimBem') requireValue(row.lockedShares === 0n,
+      '份额挂单仍在锁定；请先撤单或等待成交、到期解锁后再领取 BEM。');
+    if (method === 'autoPurchase') {
+      requireValue(await operatorAllowed() && row.state === 1n, '预算项目未募满或当前钱包不是运营钱包。');
+      const child = address(action.child);
+      requireValue((await read(manifest.factory, abi.PoolFactory, 'isPool', [child]))[0], '子矿池未登记。');
+      const [paramsResult, childState, supply, childFactory] = await Promise.all([
+        read(child, abi.PoolVault, 'params'), read(child, abi.PoolVault, 'state'), read(child, abi.PoolVault, 'totalSupply'), read(child, abi.PoolVault, 'factory'),
+      ]);
+      const params = paramsResult[0];
+      requireValue(same(childFactory[0], manifest.factory) && childState[0] === 0n && supply[0] === 0n, '只能采购已创建但无人认购的子矿池。');
+      const official = await readOfficialMinerOnchain(provider, params.circuits, params.circuitId, { config, blockTag: context.tag });
+      requireValue(official.blockHash === context.block.hash && same(official.registry.pool, child), '矿机唯一性登记或区块不一致。');
+      const weighted = row.unitCapWei * uint(official.verifiedWeight);
+      const projectCap = weighted < row.absoluteCapWei ? weighted : row.absoluteCapWei;
+      requireValue(params.priceCap <= projectCap && params.targetRaise <= row.budgetWei - row.spentWei, '子矿池价格上限或募集额超出预算限制。');
+      if (official.official && uint(official.official.priceWei) <= params.priceCap) {
+        method = 'buyOfficial'; args = [child, uint(official.official.id)];
+        procurement = { route: 'official', child, priceWei: uint(official.official.priceWei), capWei: params.priceCap };
+      } else {
+        let order;
+        if (action.frozenOrder) order = await verifyFirstoSignedAsk(provider, decodeFirstoOrder(action.frozenOrder), { blockTag: context.tag });
+        else {
+          const checked = await loadOperatorQuote({ collection: params.circuits, tokenId: params.circuitId.toString(), config, provider,
+            blockTag: context.tag, mode: 'createPool', officialPriceCapWei: params.priceCap.toString() });
+          requireValue(checked.chain.blockHash === context.block.hash && checked.chain.firsto, checked.chain.firstoError || '无可执行的 Firsto 报价。');
+          order = checked.chain.firsto;
+        }
+        requireValue(same(order.ask.collection, params.circuits) && uint(order.ask.tokenId) === params.circuitId
+          && uint(order.grossWei) <= params.priceCap, 'Firsto 报价不属于目标矿机或超过购机上限。');
+        method = 'buyFirsto'; args = [child, order.encodedOrder];
+        procurement = { route: 'firsto', child, priceWei: uint(order.grossWei), capWei: params.priceCap, frozenOrder: order.encodedOrder };
+      }
+      if (action.expectedPurchaseWei !== undefined) requireValue(procurement.priceWei === uint(action.expectedPurchaseWei), '采购报价已变化，请重新预览。');
+    } else if (method === 'deposit') { const shares = shareQuantity(action.quantity); args = [shares]; value = row.unitPriceWei * shares; }
+    else if (method === 'transfer') args = [address(action.recipient), shareQuantity(action.quantity)];
+    else if (method === 'collectChildBem') args = [address(action.child)];
+    else if (method === 'proposeChildSale') {
+      const child = address(action.child);
+      if (context.stage === 'genesis') {
+        const gate = genesisPortfolioProposalGate(row);
+        requireValue(gate.allowed, gate.reason);
+        const [info, childState, activatedAt] = await Promise.all([
+          read(target, abi.BudgetPortfolioVault, 'childInfo', [child]),
+          read(child, abi.PoolVault, 'state'), read(child, abi.PoolVault, 'activatedAt'),
+        ]);
+        requireValue(info.collection !== ZeroAddress && !info.sold && childState[0] === 2n
+          && context.timestamp >= activatedAt[0] + 7n * 86400n,
+        '该子矿机尚未满足创世版出售条件。');
+      }
+      args = [child, exactPrice(action.price), exactPrice(action.reference), uint(action.referenceAt, 64)];
+    }
+    else if (method === 'voteChildSale' || method === 'executeChildSale') {
+      const candidate = row.proposals.find(item => item.id === uint(action.proposalId));
+      requireValue(candidate && !row.proposal?.executed && !candidate.executed, '子矿机提案已改变。');
+      if (method === 'executeChildSale') requireValue(row.timestamp < candidate.endsAt
+        && candidate.yesShares >= candidate.threshold
+        && candidate.yesMembers * 2n > candidate.memberCount,
+      '子矿机出售尚未达到该版本链上表决门槛。');
+      if (method === 'executeChildSale') requireValue(candidate.canExecute,
+        candidate.executionBlockReason || '子矿机出售当前不可执行，请重新预览。');
+      args = method === 'voteChildSale' ? [candidate.id, action.support] : [candidate.id];
+      if (method === 'voteChildSale') requireValue(typeof action.support === 'boolean', '投票选项无效。');
+    } else if (method === 'buyOfficial') args = [address(action.child), uint(action.listingId)];
+    else if (method === 'buyFirsto') args = [address(action.child), action.encodedOrder];
+  }
+  const transaction = { chainId: '0x38', from: owner, to: target, data: contract.encodeFunctionData(method, args), value: toQuantity(value) };
+  await context.canonical();
+  return { transaction, action: { kind: method, targetType }, row,
+    blockNumber: BigInt(context.block.number), args, procurement, marketTrade,
+    payoutWei: targetType === 'portfolio' && method === 'withdrawBnb' ? row.withdrawableBnb
+      : targetType === 'portfolio' && method === 'claimBem' ? row.claimableBem : null };
+}

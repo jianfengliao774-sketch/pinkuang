@@ -1,0 +1,30 @@
+{
+  "passed": 2,
+  "checks": [
+    {
+      "mobile": false,
+      "openedMs": 662,
+      "firstClick": true,
+      "rpcStillPending": true,
+      "ssrDisabled": true
+    },
+    {
+      "mobile": true,
+      "openedMs": 411,
+      "firstClick": true,
+      "rpcStillPending": true,
+      "ssrDisabled": true
+    }
+  ],
+  "script": "web/scripts/wallet-hydration-browser-check.mjs",
+  "verifiedAt": "2026-09-28T03:07:08.294Z",
+  "testScope": "Offline Chromium fixtures, no real wallet signatures or chain broadcasts",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3200,
+    "handler": "ThreadingHTTPServer",
+    "request_queue_size": 128,
+    "requestLogging": false
+  },
+  "exitCode": 0
+}

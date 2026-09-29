@@ -1,0 +1,972 @@
+No files changed, compilation skipped
+
+Ran 17 tests for test/unit/PoolMining.t.sol:PoolMiningTest
+[PASS] test_armAndStartRejectOtherCollectionOrToken() (gas: 1124282)
+[PASS] test_armForwardsExactDataFromVaultToFixedMining() (gas: 1183393)
+[PASS] test_externalCallCannotReenterMineEvenWhenMiningIsOperator() (gas: 1395885)
+[PASS] test_mineRejectsMemberOwnerAndStranger() (gas: 1058041)
+[PASS] test_mineRequiresActiveInFundingFundedAndRefunding() (gas: 770631)
+[PASS] test_minerIdentityChangeDuringMiningCallRollsBack() (gas: 1211637)
+[PASS] test_missingOwnershipRejectsBeforeCallingMining() (gas: 1028394)
+[PASS] test_operatorRotationRevokesOldAuthorityOnExistingPool() (gas: 1198731)
+[PASS] test_ownerLossDuringMiningCallRollsBackProtocolMutation() (gas: 1219197)
+[PASS] test_protocolCustomErrorBubblesWithoutChangingAssets() (gas: 1128574)
+[PASS] test_reclaimOnlyForCurrentProjectKey() (gas: 1177396)
+[PASS] test_shortPayloadAndWrongFixedLengthsRejected() (gas: 1209116)
+[PASS] test_startDecodesCompleteDynamicArgumentsAndPreservesReturnData() (gas: 1569012)
+[PASS] test_startMalformedDynamicOffsetsCannotReachMining() (gas: 1025408)
+[PASS] test_startRejectsNoncanonicalTrailingData() (gas: 1032711)
+[PASS] test_stopClaimApprovalAndArbitrarySelectorRejectedBeforeExternalCall() (gas: 1137330)
+[PASS] test_wrongMinerIdentityRejectsBeforeCallingMining() (gas: 1034284)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 23.55ms (19.15ms CPU time)
+
+Ran 29 tests for test/unit/PoolFunding.t.sol:PoolFundingTest
+[PASS] testFuzz_paymentMustMatchExactIntegerShares(uint8,uint96) (runs: 256, μ: 57329, ~: 57627)
+Logs:
+  Bound result 1
+  Bound result 80677408536652095977
+
+[PASS] test_assetOwedExposesOnlyNativeBnbLiability() (gas: 330388)
+[PASS] test_bnbCallbackCannotWithdrawTwice() (gas: 437608)
+[PASS] test_checkpointTracksMembershipAndSameTimestampFinalState() (gas: 701793)
+[PASS] test_cumulativeShareCapAndRepeatMembership() (gas: 345412)
+[PASS] test_currentAndFutureCheckpointLookupsReject() (gas: 33700)
+[PASS] test_depositBeforeDeadlineButRejectAtDeadlineAndAfter() (gas: 327465)
+[PASS] test_depositOneAndFortyNineShares() (gas: 476655)
+[PASS] test_erc20TransfersAndApprovalsCannotReplaceBnbSubscription() (gas: 584010)
+[PASS] test_failedBnbTransferRestoresPullCredit() (gas: 370486)
+[PASS] test_finalizeBeforeFundingDeadlineAndRepeatedFinalizeRejected() (gas: 364206)
+[PASS] test_fundingTimeoutCreditsActualContributionsOnly() (gas: 534880)
+[PASS] test_initialStateAndAssetBindings() (gas: 74331)
+[PASS] test_nonCanonicalUint8AbiCannotMintFractionalShares() (gas: 36390)
+[PASS] test_oneHundredMemberFailureHasBoundedGasAndConservesBnb() (gas: 17247438)
+Logs:
+  finalizeFailure 100 members gas: 2358937
+
+[PASS] test_operatorReplacementRevokesOldAuthorityInExistingPool() (gas: 78168)
+[PASS] test_overRemainingSharesRejectedThenLastShareCompletes() (gas: 831376)
+[PASS] test_pauseOnlyDepositsAndDoesNotBlockWithdrawalOrFailure() (gas: 561059)
+[PASS] test_pauseRequiresOperatorAndResumeRestoresDeposits() (gas: 362140)
+[PASS] test_plainBnbTransferCannotSubscribe() (gas: 39812)
+[PASS] test_purchaseTimeoutAndExactDeadline() (gas: 706167)
+[PASS] test_redepositDoesNotOverwritePriorPullCreditOrDuplicateRefund() (gas: 493904)
+[PASS] test_refundHasNoBemClaimIntervalOrExpiry() (gas: 720344)
+[PASS] test_repeatedWithdrawAndNonMemberCannotTakeOthersBnb() (gas: 346377)
+[PASS] test_shareTransferAndTransferFromRejectedBeforeActive() (gas: 346925)
+[PASS] test_threeMembersFortyNineFortyNineTwoFundExactly() (gas: 665961)
+[PASS] test_withdrawDepositAfterDeadlineBeforeFinalizationRemainsAvailable() (gas: 357783)
+[PASS] test_withdrawDepositIsPullAndRemovesCurrentMember() (gas: 472003)
+[PASS] test_zeroAndFiftySharesRejected() (gas: 52720)
+Suite result: ok. 29 passed; 0 failed; 0 skipped; finished in 82.82ms (79.31ms CPU time)
+
+Ran 27 tests for test/unit/PoolVoting.t.sol:PoolVotingTest
+[PASS] testFuzz_referenceAndPriceAreRecordedWithoutOracleValidation(uint256,uint256,uint64) (runs: 256, μ: 258692, ~: 259237)
+[PASS] test_acquisitionSevenDayBoundaryAndProposalSnapshot() (gas: 301139)
+[PASS] test_closedLifecycleFixtureCannotVoteOrProposeButRetainsHistory() (gas: 402019)
+[PASS] test_currentNewMemberCanProposeButHasNoSameSecondHistoricalVote() (gas: 736753)
+[PASS] test_exactlyHalfMembersFailEvenWithShareMajority() (gas: 707517)
+[PASS] test_exactlyHalfSharesFailEvenWithMemberMajority() (gas: 926081)
+[PASS] test_falseVoteConsumesVoteAndCannotBeChanged() (gas: 325126)
+[PASS] test_formerMemberVotesOriginalWeightAfterCompleteExit() (gas: 704067)
+[PASS] test_fortyNineSharesAloneDoNotPass() (gas: 332933)
+[PASS] test_fundingFundedAndRefundingPoolsCannotProposeOrVote() (gas: 1210590)
+[PASS] test_listedLifecycleFixtureRejectsProposalsAndVotesWithoutChangingHistory() (gas: 390824)
+[PASS] test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() (gas: 496378)
+[PASS] test_memberReceivingMoreSharesAfterProposalOnlyVotesHistoricalWeight() (gas: 701166)
+[PASS] test_miningCallbackCannotProposeDuringShareTransfer() (gas: 1045506)
+[PASS] test_miningCallbackCannotVoteDuringShareTransfer() (gas: 1102159)
+[PASS] test_nonMembersHaveNoPrivilegedProposalOrVoteAccess() (gas: 382904)
+[PASS] test_onlyOneLiveProposalAndRejectedAttemptsDoNotSetCooldown() (gas: 288752)
+[PASS] test_replacementProposalRefreshesSnapshotAndDoesNotInheritOldVotes() (gas: 1075029)
+[PASS] test_sameProposerSevenDayBoundarySurvivesExitAndReentry() (gas: 814686)
+[PASS] test_sameSecondDirectTransferCannotDuplicateSnapshotVotes() (gas: 757317)
+[PASS] test_sameSecondMarketFillCannotDuplicateSnapshotVotes() (gas: 871158)
+[PASS] test_sameSecondMemberExitCannotLowerSnapshotMajorityThreshold() (gas: 787841)
+[PASS] test_sameSecondTransferFromCannotDuplicateSnapshotVotes() (gas: 767936)
+[PASS] test_twentyFourHourVotingBoundaryAndExpiredProposalReplacement() (gas: 659492)
+[PASS] test_twoOfThreeMembersWithFiftyOneSharesPass() (gas: 371961)
+[PASS] test_unknownProposalViewsAndVotesRejectWithoutWritingVotes() (gas: 305568)
+[PASS] test_zeroPriceAndReferenceWithFutureReferenceTimestampAreAccepted() (gas: 334802)
+Suite result: ok. 27 passed; 0 failed; 0 skipped; finished in 124.01ms (117.74ms CPU time)
+
+Ran 22 tests for test/unit/ShareMarket.t.sol:ShareMarketTest
+[PASS] testFuzz_listedOrClosedCannotFillButCancelOnlyUnlocks(bool) (runs: 256, μ: 214977, ~: 215072)
+[PASS] test_cancelOnlySellerAndCannotRepeatOrFillCancelledOrder() (gas: 195733)
+[PASS] test_failedFinalMiningClaimRollsBackFillBnbCreditAndLocks() (gas: 426923)
+[PASS] test_feeRecipientUsesPoolSnapshotWhenFactoryTreasuryChanges() (gas: 603812)
+[PASS] test_feeRoundsDownPerPartialFillAndRemainderStaysWithSeller() (gas: 666610)
+[PASS] test_fullFillCreditsCanBeWithdrawnOnlyOnceByRecipients() (gas: 614177)
+[PASS] test_fundingPoolCannotListShares() (gas: 549011)
+[PASS] test_listingAndCancelDoNotTransferSharesOrCreateMemberCheckpoints() (gas: 216384)
+[PASS] test_lockedSharesCannotBeUsedToBypassBuyerMaximum() (gas: 671389)
+[PASS] test_marketInitializeLockedAndRejectsWrongGovernance() (gas: 2986294)
+[PASS] test_miningCallbackCannotReenterFillDuringLockedTransfer() (gas: 1173786)
+[PASS] test_multipleOrdersCannotLockMoreThanSellerOwnsAndCancelFreesOnlyRemainder() (gas: 883931)
+[PASS] test_partialFillsPreserveLocksAndDeductExactlyOnePercentFromSeller() (gas: 847919)
+[PASS] test_registrationChecksCodeFactoryAndTimelockIdentityEvenThroughQueue() (gas: 2419888)
+[PASS] test_registrationRequiresActual48HourQueueAndCannotInstantlyReplace() (gas: 5291380)
+[PASS] test_rejectingSellerCannotBlockFillAndFailedWithdrawalKeepsCredit() (gas: 1132632)
+[PASS] test_sellerAndTreasurySameAddressAccumulateRatherThanOverwrite() (gas: 693483)
+[PASS] test_unregisteredMarketAndUnknownPoolCannotCreateOrders() (gas: 1605307)
+[PASS] test_uupsUpgradeRequiresActual48HourQueueAndPreservesOrderAndCredit() (gas: 2274163)
+[PASS] test_withdrawBnbCallbackCannotReenterAndGetPaidTwice() (gas: 1205711)
+[PASS] test_wrongAmountWrongPaymentAndUnknownOrderAreAtomic() (gas: 296528)
+[PASS] test_zeroPriceOrderTransfersFreelyWithNoFeeOrBnbLiability() (gas: 724829)
+Suite result: ok. 22 passed; 0 failed; 0 skipped; finished in 162.33ms (156.63ms CPU time)
+
+Ran 30 tests for test/unit/PoolRewards.t.sol:PoolRewardsTest
+[PASS] testFuzz_failedFeeOrBurnTransferRollsBackHarvest(bool) (runs: 256, μ: 459055, ~: 473356)
+[PASS] testFuzz_harnessStrictHarvestRejectsFailedOrUnsettledClaimWithoutCharging(uint8) (runs: 256, μ: 251021, ~: 256430)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_harnessTerminalStateKeepsHistoricalClaimsAndOriginalExpiry(bool) (runs: 256, μ: 893398, ~: 893412)
+[PASS] test_allEightLiveEpochsIncludedBeforeExactExpiry() (gas: 2295032)
+[PASS] test_bemTransferCannotReenterHarvest() (gas: 525318)
+[PASS] test_bnbSurplusWithdrawalNotBlockedByBemCooldown() (gas: 718984)
+[PASS] test_burnIncludesBatchDustAndCannotChargeAgain() (gas: 1312312)
+[PASS] test_cumulativeDustMayExceedSingleDivisionBound() (gas: 21567154)
+[PASS] test_directBemAndExternalMiningClaimAreRecognizedExactlyOnce() (gas: 478770)
+[PASS] test_directReceiptUsesAccountingEpochAfterLongIdlePeriod() (gas: 645668)
+[PASS] test_expiringBatchesDoNotCarryFractionAcrossEpochs() (gas: 1465060)
+[PASS] test_expiryCanOnlyBeConfiguredOnceDuringFactoryCreation() (gas: 1032507)
+[PASS] test_expiryDisabledKeepsOldRewardsAndGlobalFractionalCarry() (gas: 2447028)
+[PASS] test_expiryDisabledSampleStillSplitsNinetyFiveFourOne() (gas: 2246397)
+[PASS] test_failedExpiryBurnPreservesWholeBatchAndCanRetry() (gas: 552432)
+[PASS] test_failedMemberTransferPreservesDebtAndClaimTime() (gas: 912992)
+[PASS] test_feeRoundingIsPerHarvestNotRecomputedFromLifetimeGross() (gas: 6529406)
+[PASS] test_firstClaimImmediateThenExactTwentyFourHourBoundary() (gas: 1033043)
+[PASS] test_harnessClosedStatePreservesExistingClaimCooldown() (gas: 854643)
+[PASS] test_harnessClosedWithExpiryDisabledKeepsRewardsForYears() (gas: 2195997)
+[PASS] test_harnessStrictHarvestSuccessfullyAccountsActualReceipt() (gas: 451090)
+[PASS] test_longGapRecordsOnlyActualCurrentReceiptWithoutInventingPastDays() (gas: 959741)
+Logs:
+  harvest and claim after 30000 empty days: 331611
+
+[PASS] test_miningClaimCannotReenterHarvest() (gas: 519341)
+[PASS] test_miningClaimChangingOwnerRollsBackEntireHarvest() (gas: 254106)
+[PASS] test_oneBemSpecificationExampleAndAllMembersConserve() (gas: 1085826)
+[PASS] test_ordinaryClaimFailureStillAccountsIndependentDirectReceipt() (gas: 669228)
+[PASS] test_ringOverwritePreservesExpiredGlobalLiabilityAndNewRewards() (gas: 1335926)
+[PASS] test_sameEpochMultipleSettlementsPreserveFractionalRemainder() (gas: 1235364)
+[PASS] test_twoOneBemHarvestsAccumulateWithoutChargingOldBalancesAgain() (gas: 1218687)
+[PASS] test_zeroClaimDoesNotStartCooldownAndOtherUsersDoNotResetIt() (gas: 1022179)
+Suite result: ok. 30 passed; 0 failed; 0 skipped; finished in 734.22ms (729.70ms CPU time)
+
+Ran 16 tests for test/unit/PoolTransfers.t.sol:PoolTransfersTest
+[PASS] testFuzz_failedStrictClaimRollsBackTransferAndAllowance(uint8) (runs: 256, μ: 266425, ~: 296252)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_pendingRewardsBelongToOldSharesBeforeTransfer(uint8) (runs: 256, μ: 1585159, ~: 1585479)
+Logs:
+  Bound result 7
+
+[PASS] test_disabledExpiryPreservesFractionsAcrossDaysAndOwnershipChanges() (gas: 2849003)
+[PASS] test_listedAndClosedOrdinaryTransfersFailWithoutMovingShares() (gas: 78224)
+[PASS] test_lockDoesNotProvideASecondFortyNineShareAllowance() (gas: 577308)
+[PASS] test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() (gas: 1122846)
+[PASS] test_memberCheckpointsRecordExitEntryAndNewMemberCount() (gas: 734744)
+[PASS] test_miningClaimCannotReenterApprovedTransferFrom() (gas: 1119909)
+[PASS] test_onlyRegisteredMarketCanChangeLocksOrTransferLockedShares() (gas: 88601)
+[PASS] test_purchaseTimestampTransferCannotCarryOldBnbSurplus() (gas: 574719)
+[PASS] test_sameEpochFractionStaysWithOriginalOwnerAcrossTransfers() (gas: 1589385)
+[PASS] test_selfTransferRespectsUnlockedBalanceWithoutArtificiallyExceedingCap() (gas: 853517)
+[PASS] test_transferDoesNotRestartOldEpochExpiry() (gas: 1478386)
+[PASS] test_transferFromConsumesAllowanceAndMaintainsHolderCap() (gas: 483297)
+[PASS] test_zeroBalanceFormerMemberStillClaimsOldRewards() (gas: 1196176)
+[PASS] test_zeroOverCapAndMarketDestinationRejected() (gas: 375374)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 778.23ms (772.74ms CPU time)
+
+Ran 37 tests for test/unit/PoolPurchase.t.sol:PoolPurchaseTest
+[PASS] testFuzz_badClaimPostconditionsRollback(uint8) (runs: 256, μ: 1002266, ~: 994296)
+Logs:
+  Bound result 4
+
+[PASS] testFuzz_badPostPurchaseOwnershipOrMiningRollsBack(uint8) (runs: 256, μ: 1161994, ~: 1183325)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_directBadCallbackRollsBackSellerCreditAndReward(uint8) (runs: 256, μ: 1517561, ~: 1501540)
+Logs:
+  Bound result 1
+
+[PASS] testFuzz_wrongOrDuplicateCallbackRollsBack(uint8) (runs: 256, μ: 1144629, ~: 1120773)
+Logs:
+  Bound result 1
+
+[PASS] test_callbackCannotReenterAnotherPurchase() (gas: 1266345)
+[PASS] test_claimCallbackCannotReenterAnotherPurchase() (gas: 1315532)
+[PASS] test_claimCallbackCannotWithdrawExistingCredit() (gas: 1417506)
+[PASS] test_claimFailureDoesNotGetSwallowedEvenWhenPendingZero() (gas: 881842)
+[PASS] test_directDeadlineRejectsAtDeadline() (gas: 1227106)
+[PASS] test_directOnlyConfiguredSellerAndRequiresApproval() (gas: 1419391)
+[PASS] test_directPurchasedEventIdentifiesPathAndPrice() (gas: 1527688)
+[PASS] test_directRepeatPurchaseCannotCreditSellerTwice() (gas: 1532616)
+[PASS] test_directSellerMayBeAMemberWithoutMixingSellerPriceAndSurplus() (gas: 1556240)
+[PASS] test_directSellerReceivesPullCreditAndHistoricalBem() (gas: 1583912)
+[PASS] test_existingSellerBemCannotMaskMissingSettlementReceipt() (gas: 998258)
+[PASS] test_inactiveMinerCannotBePurchased() (gas: 851852)
+[PASS] test_marketDeadlineRejectsAtDeadlineAndLeavesRefundAvailable() (gas: 881548)
+[PASS] test_marketFailureRollsBackPreviouslyMintedSellerReward() (gas: 1122570)
+[PASS] test_marketPriceCapInclusiveAndOneWeiExcessRejected() (gas: 1302387)
+[PASS] test_marketPurchaseOneSecondBeforeDeadlineSucceedsDespiteDepositPause() (gas: 1189868)
+[PASS] test_marketPurchasePaysOnlyListedPriceAndCreditsOriginalSurplus() (gas: 1194824)
+[PASS] test_marketRejectsInvalidListingWrongNftAndWrongTokenId() (gas: 1038580)
+[PASS] test_marketRejectsSellerWhoseOwnershipChanged() (gas: 837880)
+[PASS] test_marketSettlementEventPrecedesNftTransferAndPurchase() (gas: 1161649)
+[PASS] test_minerBecomingInactiveDuringClaimRollsBackEverything() (gas: 1204745)
+[PASS] test_miningRecordMustMatchRequestedNft() (gas: 852042)
+[PASS] test_noSurplusWhenPurchaseUsesEntireRaise() (gas: 1643536)
+[PASS] test_previousWithdrawalCreditAndForcedBnbDoNotInflateSurplus() (gas: 1244863)
+[PASS] test_purchaseRequiresFundedAndCannotRepeat() (gas: 1168137)
+[PASS] test_rejectingDirectSellerDoesNotBlockPurchaseAndKeepsPullCredit() (gas: 1762747)
+[PASS] test_surplusDoesNotPermitOrdinaryTransfersBeforeT1d() (gas: 1171837)
+[PASS] test_surplusRemainderReservedSeparatelyAndAllMembersConserveBnb() (gas: 1362548)
+[PASS] test_surplusWithdrawImmediatelyAtPurchaseTimestampAndOnlyOnce() (gas: 1229899)
+[PASS] test_unconfiguredDirectPathRejected() (gas: 674776)
+[PASS] test_unsolicitedTargetNftTransferRejectedOutsidePurchaseContext() (gas: 702361)
+[PASS] test_zeroStoredPendingStillClaimsUnreportedRewards() (gas: 1177006)
+[PASS] test_zeroTotalRewardCanStillBeSettledAndPurchased() (gas: 1130244)
+Suite result: ok. 37 passed; 0 failed; 0 skipped; finished in 803.88ms (800.59ms CPU time)
+
+Ran 12 tests for test/unit/PoolGovernance.t.sol:PoolGovernanceTest
+[PASS] test_BeaconOwnershipCannotMigrateEvenThroughTimelock() (gas: 98941)
+[PASS] test_BeaconUpgradeChangesAllPoolsOnlyAfter48Hours() (gas: 6208974)
+[PASS] test_CreateBothWhitelistedCircuitTypesAndDirectSale() (gas: 1086219)
+[PASS] test_CreatePoolRegistryAndTreasurySnapshot() (gas: 1039465)
+[PASS] test_CreateRejectsInvalidEconomicAndTimingParameters() (gas: 215507)
+[PASS] test_DailyAdminDoesNotGiveOperatorOwnerPowers() (gas: 611284)
+[PASS] test_FactoryUpgradeRequiresRealTimelockQueueAndPreservesRegistry() (gas: 2501058)
+[PASS] test_GovernanceRolesAndNoDeployerAdmin() (gas: 77045)
+[PASS] test_InitializationRejectsMissingRolesAndUnprotectedGovernance() (gas: 2257238)
+[PASS] test_InitializeIsAtomicAndCannotBeRepeated() (gas: 38775)
+[PASS] test_TimelockDelayCannotBeReducedBelow48Hours() (gas: 63457)
+[PASS] test_TimelockProposeCancelAndPublicExecuteBoundaries() (gas: 58004)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 6.26ms (4.66ms CPU time)
+
+Ran 2 tests for test/invariant/PoolFundingInvariant.t.sol:PoolFundingInvariantTest
+[PASS] invariant_fundingUsesRealBnbAndRefundsRemainSolvent() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 1122  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 1175  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 1169  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 1146  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 1194  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 1175  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 1211  | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 3543275955
+  Bound result 317015
+  Bound result 84201
+  Bound result 2027
+  Bound result 5781
+  Bound result 5676
+  Bound result 282781
+  Bound result 41229
+  Bound result 52893
+  Bound result 56623
+  Bound result 316111
+  Bound result 6443
+  Bound result 318343
+  Bound result 172731
+  Bound result 30209
+  Bound result 162124528108392459
+  Bound result 2
+  Bound result 5300
+
+[PASS] invariant_shareSupplyAndCurrentMemberIndexAgree() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+-----------------+-------+---------+----------╮
+| Contract       | Selector        | Calls | Reverts | Discards |
++===============================================================+
+| FundingHandler | advanceTime     | 1122  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | deposit         | 1175  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | finalizeFailure | 1169  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | forceBnb        | 1146  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | setPause        | 1194  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawBnb     | 1175  | 0       | 0        |
+|----------------+-----------------+-------+---------+----------|
+| FundingHandler | withdrawDeposit | 1211  | 0       | 0        |
+╰----------------+-----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 3543275955
+  Bound result 256228
+  Bound result 84201
+  Bound result 2478893115
+  Bound result 5781
+  Bound result 5604
+  Bound result 141865
+  Bound result 41229
+  Bound result 52893
+  Bound result 56623
+  Bound result 45
+  Bound result 12
+  Bound result 28
+  Bound result 12
+  Bound result 242554
+  Bound result 391
+  Bound result 95728
+  Bound result 172731
+  Bound result 30209
+  Bound result 162124528108392459
+  Bound result 2
+  Bound result 4161572466937396
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 15.97s (20.23s CPU time)
+
+Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsInvariantTest
+[PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 1016  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 982   | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 1046  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 1000  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 1031  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 1042  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 1034  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 1041  | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 442093
+  Bound result 949701272888
+  Bound result 571600
+  Bound result 2058
+  Bound result 364790
+  Bound result 57051458060
+  Bound result 229325210669
+  Bound result 2127814
+  Bound result 1271817
+  Bound result 431029765223
+  Bound result 19422096368
+  Bound result 809
+  Bound result 8185
+  Bound result 1681
+  Bound result 687905194751
+  Bound result 13786
+  Bound result 18520
+  Bound result 34282899810
+  Bound result 591254884726
+  Bound result 6404
+  Bound result 3683
+  Bound result 14166
+  Bound result 8917
+  Bound result 15773
+  Bound result 1575
+
+[PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 1016  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 982   | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 1046  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 1000  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 1031  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 1042  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 1034  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 1041  | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 442093
+  Bound result 949701272888
+  Bound result 1074566
+  Bound result 1240050
+  Bound result 364790
+  Bound result 57051458060
+  Bound result 229325210669
+  Bound result 1996781
+  Bound result 1271817
+  Bound result 431029765223
+  Bound result 19422096368
+  Bound result 809
+  Bound result 8185
+  Bound result 2123
+  Bound result 687905194751
+  Bound result 6677
+  Bound result 18984
+  Bound result 34282899810
+  Bound result 591254884726
+  Bound result 6689
+  Bound result 9333
+  Bound result 15244
+  Bound result 1163013
+  Bound result 16186
+  Bound result 3344933590
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 15.97s (21.20s CPU time)
+
+Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersNoExpiryInvariantTest
+[PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 904   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 965   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 915   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 872   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 972   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 870   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 905   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 901   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 888   | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 113721575
+  Bound result 711816
+  Bound result 21829
+  Bound result 26122781
+  Bound result 398687656043
+  Bound result 690832074477
+  Bound result 2159
+  Bound result 134806906974
+  Bound result 30065408165
+  Bound result 308770830447
+  Bound result 20928
+  Bound result 307625162075
+  Bound result 118378
+  Bound result 6
+  Bound result 542192183341
+  Bound result 990414
+  Bound result 1952
+  Bound result 541669934921
+  Bound result 21073
+  Bound result 95
+  Bound result 733
+  Bound result 30
+  Bound result 557619777099
+  Bound result 16021
+  Bound result 235
+  Bound result 1086164
+  Bound result 15
+  Bound result 627581
+  Bound result 187957
+
+[PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 904   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 965   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 915   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 872   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 972   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 870   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 905   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 901   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 888   | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 113721575
+  Bound result 711816
+  Bound result 21829
+  Bound result 26122781
+  Bound result 398687656043
+  Bound result 690832074477
+  Bound result 2159
+  Bound result 134806906974
+  Bound result 30065408165
+  Bound result 308770830447
+  Bound result 20928
+  Bound result 307625162075
+  Bound result 118378
+  Bound result 542192183341
+  Bound result 990414
+  Bound result 820048889122
+  Bound result 541669934921
+  Bound result 2
+  Bound result 17561
+  Bound result 95
+  Bound result 716
+  Bound result 23
+  Bound result 6128
+  Bound result 15970
+  Bound result 235
+  Bound result 2
+  Bound result 1086164
+  Bound result 14
+  Bound result 627581
+  Bound result 633186
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 16.45s (31.74s CPU time)
+
+Ran 2 tests for test/invariant/PoolVotingInvariant.t.sol:PoolVotingInvariantTest
+[PASS] invariant_noDuplicateVotesOrReassignedHistoricalWeight() (runs: 128, calls: 8192, reverts: 0)
+
+╭-------------------+-------------+-------+---------+----------╮
+| Contract          | Selector    | Calls | Reverts | Discards |
++==============================================================+
+| PoolVotingHandler | advanceTime | 2074  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | moveShares  | 2018  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | propose     | 2034  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | vote        | 2066  | 0       | 0        |
+╰-------------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 49
+  Bound result 10
+  Bound result 5
+  Bound result 1
+  Bound result 3
+  Bound result 11
+  Bound result 24
+  Bound result 10
+  Bound result 5
+  Bound result 2
+  Bound result 1
+  Bound result 10
+  Bound result 3
+  Bound result 8
+  Bound result 12
+
+[PASS] invariant_snapshotOwnershipSurvivesArbitraryShareMovesAndProposalReplacement() (runs: 128, calls: 8192, reverts: 0)
+
+╭-------------------+-------------+-------+---------+----------╮
+| Contract          | Selector    | Calls | Reverts | Discards |
++==============================================================+
+| PoolVotingHandler | advanceTime | 2074  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | moveShares  | 2018  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | propose     | 2034  | 0       | 0        |
+|-------------------+-------------+-------+---------+----------|
+| PoolVotingHandler | vote        | 2066  | 0       | 0        |
+╰-------------------+-------------+-------+---------+----------╯
+
+Logs:
+  Bound result 49
+  Bound result 10
+  Bound result 5
+  Bound result 1
+  Bound result 32
+  Bound result 11
+  Bound result 24
+  Bound result 12
+  Bound result 2
+  Bound result 1
+  Bound result 4
+  Bound result 3
+  Bound result 34
+  Bound result 7
+  Bound result 2
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 21.52s (35.83s CPU time)
+
+Ran 2 tests for test/invariant/PoolRewardsInvariant.t.sol:PoolRewardsNoExpiryInvariantTest
+[PASS] invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 1016  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 982   | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 1046  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 1000  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 1031  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 1042  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 1034  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 1041  | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 442093
+  Bound result 949701272888
+  Bound result 1863383
+  Bound result 2356369
+  Bound result 364790
+  Bound result 57051458060
+  Bound result 229325210669
+  Bound result 1829708
+  Bound result 1271817
+  Bound result 431029765223
+  Bound result 19422096368
+  Bound result 809
+  Bound result 8185
+  Bound result 1737
+  Bound result 687905194751
+  Bound result 13744
+  Bound result 17552
+  Bound result 34282899810
+  Bound result 591254884726
+  Bound result 5906
+  Bound result 3732
+  Bound result 16501
+  Bound result 8626
+  Bound result 14352
+  Bound result 1576
+
+[PASS] invariant_actualBalancesMatchIndependentGrossNetAndLiabilities() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------+---------------------+-------+---------+----------╮
+| Contract       | Selector            | Calls | Reverts | Discards |
++===================================================================+
+| RewardsHandler | advanceTime         | 1016  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | burn                | 982   | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | claim               | 1046  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | donate              | 1000  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | externalMiningClaim | 1031  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | harvest             | 1042  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | queueMining         | 1034  | 0       | 0        |
+|----------------+---------------------+-------+---------+----------|
+| RewardsHandler | settle              | 1041  | 0       | 0        |
+╰----------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 442093
+  Bound result 949701272888
+  Bound result 1231883
+  Bound result 1020279
+  Bound result 364790
+  Bound result 57051458060
+  Bound result 229325210669
+  Bound result 1229250
+  Bound result 1271817
+  Bound result 431029765223
+  Bound result 19422096368
+  Bound result 809
+  Bound result 8185
+  Bound result 1828
+  Bound result 687905194751
+  Bound result 16449
+  Bound result 18858
+  Bound result 34282899810
+  Bound result 591254884726
+  Bound result 5636
+  Bound result 3762
+  Bound result 21710
+  Bound result 8942
+  Bound result 14353
+  Bound result 1575
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 22.61s (11.85s CPU time)
+
+Ran 2 tests for test/invariant/PoolTransfersInvariant.t.sol:PoolTransfersInvariantTest
+[PASS] invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 904   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 965   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 915   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 872   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 972   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 870   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 905   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 901   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 888   | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 113721575
+  Bound result 711816
+  Bound result 357338660354
+  Bound result 1640
+  Bound result 398687656043
+  Bound result 690832074477
+  Bound result 6656
+  Bound result 37
+  Bound result 30065408165
+  Bound result 308770830447
+  Bound result 20793
+  Bound result 307625162075
+  Bound result 118378
+  Bound result 23
+  Bound result 542192183341
+  Bound result 990414
+  Bound result 113728231
+  Bound result 541669934921
+  Bound result 9
+  Bound result 18985
+  Bound result 95
+  Bound result 733
+  Bound result 14
+  Bound result 1800403300
+  Bound result 18488
+  Bound result 235
+  Bound result 9
+  Bound result 14
+  Bound result 1086164
+  Bound result 15
+  Bound result 627581
+  Bound result 949251
+
+[PASS] invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit() (runs: 128, calls: 8192, reverts: 0)
+
+╭----------------------+----------------+-------+---------+----------╮
+| Contract             | Selector       | Calls | Reverts | Discards |
++====================================================================+
+| ShareTransferHandler | advanceTime    | 904   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | burn           | 965   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | changeLock     | 915   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | claim          | 872   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | donate         | 972   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | harvest        | 870   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | queueMining    | 905   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferLocked | 901   | 0       | 0        |
+|----------------------+----------------+-------+---------+----------|
+| ShareTransferHandler | transferShares | 888   | 0       | 0        |
+╰----------------------+----------------+-------+---------+----------╯
+
+Logs:
+  Bound result 113721575
+  Bound result 711816
+  Bound result 357338660354
+  Bound result 1640
+  Bound result 398687656043
+  Bound result 690832074477
+  Bound result 6656
+  Bound result 37
+  Bound result 30065408165
+  Bound result 308770830447
+  Bound result 20793
+  Bound result 307625162075
+  Bound result 118378
+  Bound result 23
+  Bound result 542192183341
+  Bound result 990414
+  Bound result 113728230
+  Bound result 541669934921
+  Bound result 19019
+  Bound result 95
+  Bound result 1054767
+  Bound result 999998500002
+  Bound result 16021
+  Bound result 235
+  Bound result 1086164
+  Bound result 4
+  Bound result 627581
+  Bound result 1272604
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 22.61s (34.44s CPU time)
+
+Ran 2 tests for test/invariant/ShareMarketInvariant.t.sol:ShareMarketInvariantTest
+[PASS] invariant_paidBnbEqualsIndependentCreditsAndWithdrawals() (runs: 128, calls: 8192, reverts: 0)
+
+╭--------------------+---------------------+-------+---------+----------╮
+| Contract           | Selector            | Calls | Reverts | Discards |
++=======================================================================+
+| ShareMarketHandler | cancelOrder         | 1381  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | fillOrder           | 1428  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | listOrder           | 1342  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | rejectBadPayment    | 1394  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | rejectMiningFailure | 1278  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | withdraw            | 1369  | 0       | 0        |
+╰--------------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 12
+  Bound result 10001
+  Bound result 20
+  Bound result 16
+  Bound result 99
+  Bound result 2
+  Bound result 100000000000001
+  Bound result 5
+  Bound result 7
+  Bound result 7
+  Bound result 133
+  Bound result 2
+  Bound result 7
+  Bound result 16
+  Bound result 2
+  Bound result 1
+  Bound result 30
+  Bound result 93569757417
+  Bound result 11
+  Bound result 51097
+  Bound result 37
+  Bound result 5518824083177
+  Bound result 28
+  Bound result 2
+  Bound result 599786190433531
+  Bound result 9
+  Bound result 2
+  Bound result 492799453063937
+  Bound result 2
+  Bound result 9
+  Bound result 5
+  Bound result 901952139234743
+  Bound result 8
+  Bound result 432713833992738
+  Bound result 2
+  Bound result 22242
+  Bound result 4
+  Bound result 2
+  Bound result 5
+  Bound result 3
+  Bound result 2
+  Bound result 6
+  Bound result 1
+  Bound result 3903
+  Bound result 12
+  Bound result 14
+  Bound result 117967
+  Bound result 3
+
+[PASS] invariant_realOrdersLockExactlyTheirRemainingBeneficialShares() (runs: 128, calls: 8192, reverts: 0)
+
+╭--------------------+---------------------+-------+---------+----------╮
+| Contract           | Selector            | Calls | Reverts | Discards |
++=======================================================================+
+| ShareMarketHandler | cancelOrder         | 1381  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | fillOrder           | 1428  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | listOrder           | 1342  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | rejectBadPayment    | 1394  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | rejectMiningFailure | 1278  | 0       | 0        |
+|--------------------+---------------------+-------+---------+----------|
+| ShareMarketHandler | withdraw            | 1369  | 0       | 0        |
+╰--------------------+---------------------+-------+---------+----------╯
+
+Logs:
+  Bound result 12
+  Bound result 10001
+  Bound result 20
+  Bound result 16
+  Bound result 99
+  Bound result 2
+  Bound result 100000000000001
+  Bound result 5
+  Bound result 7
+  Bound result 7
+  Bound result 133
+  Bound result 2
+  Bound result 1
+  Bound result 16
+  Bound result 2
+  Bound result 1
+  Bound result 30
+  Bound result 93569757417
+  Bound result 37
+  Bound result 5518824083177
+  Bound result 4
+  Bound result 2
+  Bound result 599786190433531
+  Bound result 12
+  Bound result 42
+  Bound result 9
+  Bound result 1
+  Bound result 2
+  Bound result 901952139234743
+  Bound result 1
+  Bound result 432713833992738
+  Bound result 2
+  Bound result 22242
+  Bound result 2
+  Bound result 1
+  Bound result 1
+  Bound result 28
+  Bound result 2
+  Bound result 1
+  Bound result 11
+  Bound result 3903
+  Bound result 5
+  Bound result 465933548246419
+  Bound result 22
+  Bound result 22993869068578
+  Bound result 18
+  Bound result 20
+  Bound result 1
+  Bound result 8
+  Bound result 2
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 29.09s (44.81s CPU time)
+
+Ran 15 test suites in 29.09s (146.94s CPU time): 204 tests passed, 0 failed, 0 skipped (204 total tests)
