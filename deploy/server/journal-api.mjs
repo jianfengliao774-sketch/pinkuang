@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { createV2GenesisGraphReader } from './v2-genesis-public-graph.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mjs';
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
@@ -181,6 +182,7 @@ function decodeProduct(value) {
   if (decoded.name === 'deposit' && (decoded.args[0] < 1n || decoded.args[0] > 100n)
     || decoded.name === 'list' && (decoded.args[1] < 1n || decoded.args[1] > 100n)
     || decoded.name === 'fill' && (decoded.args[1] < 1n || decoded.args[1] > 100n)) fail(400, 'Invalid share quantity.');
+  if (decoded.name === 'list' && decoded.args[2] === 0n) fail(400, 'Share listing price must be positive.');
   if (decoded.name === 'propose' && decoded.args[0] === 0n) fail(400, 'Whole miner sale price must be positive.');
   if (decoded.name === 'proposeChildSale' && decoded.args[1] === 0n) fail(400,'Child sale price must be positive.');
   if (decoded.name === 'buyFirsto') {
@@ -751,6 +753,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle});
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
+  const publicGenesisGraph = createV2GenesisGraphReader({ provider: officialProvider, trustedProduct, graphVerifier, now });
   const inFlight = new Set();
   const officialCache = new Map(), officialScans = new Map();
   const publicDiscoveryJobs = new Map();
@@ -1061,6 +1064,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if (method !== 'GET' && req.headers.origin !== origin) fail(403, 'Request origin is not allowed.');
       if (method === 'GET' && path === '/api/journal/notifications/capabilities')
         return send(200, notificationService?.capabilities() ?? { enabled: false, botUsername: 'BEMineNotifyBot' });
+      if (method === 'GET' && path === '/api/journal/product-graph') {
+        if (url.search) fail(400, 'Product graph does not accept caller-selected parameters.');
+        try { return send(200, await publicGenesisGraph()); }
+        catch { fail(503, 'Reviewed original v2 graph is unavailable.'); }
+      }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
         const response=await discoveryResponse(url,path.endsWith('/budget-candidates')?'budget':'official');
         return send(response.status,response.body);
