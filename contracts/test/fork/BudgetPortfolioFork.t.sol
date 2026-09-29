@@ -128,6 +128,10 @@ contract BudgetPortfolioForkTest is Test {
         uint256 net = portfolio.settleChildSale();
         assertEq(net, SALE_PRICE * 99 / 100, "child sale fee is not charged again by the portfolio");
         assertEq(address(portfolio).balance - beforeBalance, net);
+        assertEq(
+            BEM.balanceOf(address(portfolio)), 0, "BNB sale settlement leaves child BEM available for later collection"
+        );
+        assertEq(portfolio.collectChildBem(address(officialChild)), childBem);
         assertEq(BEM.balanceOf(address(portfolio)), childBem);
         uint256 distributedBem = childBem / 100 * 100;
         assertEq(portfolio.claimableBem(ALICE), distributedBem);
