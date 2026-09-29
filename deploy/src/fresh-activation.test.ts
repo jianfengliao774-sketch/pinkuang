@@ -45,7 +45,7 @@ test('the seven transactions bind Authority, both Factories and Timelock with ze
   const deploy = await activationTransaction(saved, bundle, 'deployAuthority');
   assert.equal(deploy.to, undefined);
   assert.equal(deploy.value, 0n);
-  assert.equal(deploy.gasLimit, 4_000_000n);
+  assert.equal(deploy.gasLimit, 6_000_000n);
   assert.ok(deploy.data.startsWith(bundle.artifacts.PlatformAuthority.bytecode));
   assert.deepEqual(AbiCoder.defaultAbiCoder().decode(['address','address','address','address','address'],
     `0x${deploy.data.slice(bundle.artifacts.PlatformAuthority.bytecode.length)}`).map(String),

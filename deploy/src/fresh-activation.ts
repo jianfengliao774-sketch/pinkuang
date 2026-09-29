@@ -113,7 +113,7 @@ export async function activationTransaction(record: FreshActivationRecord, bundl
     const transaction = await new ContractFactory(artifact.abi, artifact.bytecode).getDeployTransaction(
       factory, portfolioFactory, record.administratorOne, record.administratorTwo, record.gasWallet);
     requireThat(typeof transaction.data === 'string' && transaction.data.startsWith('0x'), '权限合约部署数据不存在。');
-    return { data: transaction.data, value: 0n, gasLimit: 4_000_000n };
+    return { data: transaction.data, value: 0n, gasLimit: 6_000_000n };
   }
   requireThat(record.authorityAddress && getAddress(record.authorityAddress) !== ZeroAddress,
     '权限合约地址尚未通过已确认交易核验。');
