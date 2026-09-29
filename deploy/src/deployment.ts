@@ -460,6 +460,34 @@ export class DeploymentEngine {
     });
   }
 
+  /** A wallet-side envelope validation error is definite only while both nonce views remain unused. */
+  async releaseInvalidEnvelope(saved: DeploymentSnapshot): Promise<DeploymentSnapshot> {
+    return this.exclusive(async () => {
+      const snapshot = await this.latestSnapshot(saved);
+      await this.restore(snapshot);
+      const step = snapshot.steps.find(item => item.status === 'uncertain' && !item.txHash);
+      assert(step && step.id === 'initialize' && Number.isSafeInteger(step.nonce),
+        '当前没有可解除的初始化交易格式错误。');
+      assert(step.error?.includes('Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas'),
+        '这不是已确认的交易格式错误；必须通过交易哈希核对。');
+      assert(this.callbacks.readCurrentNonce, '缺少独立节点 nonce 核对，不能解除结果不明状态。');
+      const [independent, walletLatest, walletPending] = await Promise.all([
+        this.callbacks.readCurrentNonce(),
+        this.provider.getTransactionCount(snapshot.account, 'latest'),
+        this.provider.getTransactionCount(snapshot.account, 'pending'),
+      ]);
+      assert(independent.latest === step.nonce && independent.pending === step.nonce &&
+        walletLatest === step.nonce && walletPending === step.nonce,
+        '部署账户的 nonce 已变化或存在待确认交易；先核对交易哈希。');
+      step.status = 'rejected';
+      step.rejectionKind = 'pre-send';
+      snapshot.status = 'paused';
+      delete snapshot.error;
+      await this.save(snapshot);
+      return snapshot;
+    });
+  }
+
   /** Recheck a completed deployment for manifest export without changing its journal or requesting signatures. */
   async inspectGraphForManifest(saved: DeploymentSnapshot): Promise<DeploymentSnapshot> {
     const snapshot = clone(saved);
@@ -808,7 +836,17 @@ export class DeploymentEngine {
       assert(step.nonce === nonce && step.dataHash === keccak256(transaction.data as string),
         '上次拒签后 nonce 或部署交易内容已变化；不能按原写前记录重新签名，请先核对链上交易。');
     }
-    transaction.gasLimit = gasLimit; transaction.gasPrice = fee.gasPrice; transaction.nonce = nonce; transaction.type = 0;
+    transaction.gasLimit = gasLimit; transaction.nonce = nonce;
+    if (step.id === 'initialize') {
+      // MetaMask may wrap this call in an EIP-7702 (type 4) envelope. Such
+      // envelopes require EIP-1559 fee fields and reject legacy gasPrice.
+      transaction.type = 2;
+      transaction.maxFeePerGas = fee.gasPrice;
+      transaction.maxPriorityFeePerGas = fee.gasPrice;
+    } else {
+      transaction.gasPrice = fee.gasPrice;
+      transaction.type = 0;
+    }
     Object.assign(step, { status: 'signing', nonce, gasEstimate: estimated.toString(), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
     delete step.rejectionKind;
     delete step.error;

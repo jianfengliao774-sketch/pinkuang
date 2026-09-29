@@ -421,7 +421,12 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   let activeCodeReads = 0;
   let maxConcurrentCodeReads = 0;
   const graphCodeReads = new Map<string, number>();
+  let initializeEnvelope: Record<string, unknown> | undefined;
   const countedWallet: Eip1193Provider = { request: async request => {
+    if (request.method === 'eth_sendTransaction') {
+      const envelope = (request.params as Record<string, unknown>[])[0];
+      if (envelope.maxFeePerGas) initializeEnvelope = envelope;
+    }
     if (graphPhase && request.method === 'eth_getCode') {
       const address = String((request.params as string[])[0]).toLowerCase();
       graphCodeReads.set(address, (graphCodeReads.get(address) ?? 0) + 1);
@@ -438,9 +443,35 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   } });
   const complete = await countedEngine.resume(adjusted);
   assert.equal(complete.status, 'complete');
+  assert.equal(initializeEnvelope?.type, '0x2');
+  assert.ok(initializeEnvelope?.maxFeePerGas && initializeEnvelope?.maxPriorityFeePerGas);
+  assert.equal(initializeEnvelope?.gasPrice, undefined, 'initialization must not mix legacy and dynamic fees');
   assert.equal(complete.steps.length, LIBRARY_NAMES.length + 7);
   assert.ok(complete.steps.every(step => step.status === 'confirmed' && step.receipt?.status === 1));
   assert.ok(complete.verification!.checks.every(check => check.passed));
+  const invalidEnvelope = structuredClone(complete);
+  const finalStep = invalidEnvelope.steps.at(-1)!;
+  finalStep.status = 'uncertain';
+  finalStep.error = 'Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas';
+  delete finalStep.txHash;
+  delete finalStep.receipt;
+  invalidEnvelope.status = 'paused';
+  const beforeRelease = sends;
+  await assert.rejects(new DeploymentEngine(wallet, bundle, {
+    persist: () => {}, readCurrentNonce: async () => ({
+      latest: Number(await rpc('eth_getTransactionCount', [account, 'latest'])),
+      pending: Number(await rpc('eth_getTransactionCount', [account, 'pending'])),
+    }),
+  }).releaseInvalidEnvelope(invalidEnvelope), /nonce 已变化/);
+  const unusedNonce = `0x${finalStep.nonce!.toString(16)}`;
+  const unchangedNonceWallet: Eip1193Provider = { request: request =>
+    request.method === 'eth_getTransactionCount' ? Promise.resolve(unusedNonce) : wallet.request(request) };
+  const released = await new DeploymentEngine(unchangedNonceWallet, bundle, {
+    persist: () => {}, readCurrentNonce: async () => ({ latest: finalStep.nonce!, pending: finalStep.nonce! }),
+  }).releaseInvalidEnvelope(invalidEnvelope);
+  assert.equal(released.steps.at(-1)?.status, 'rejected');
+  assert.equal(released.steps.at(-1)?.rejectionKind, 'pre-send');
+  assert.equal(sends, beforeRelease, 'nonce recovery must not ask for a signature');
   assert.equal(complete.verification!.checks.find(check => check.label === '升级最小延迟')?.actual, '172800');
   assert.ok(BigInt(complete.spentWei) > 0n);
   assert.equal(Object.keys(complete.verification!.code).length, LIBRARY_NAMES.length + 16);
