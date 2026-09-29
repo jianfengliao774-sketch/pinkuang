@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatEther, ZeroAddress } from 'ethers';
 import { Layers3, RefreshCw, ArrowRight, ChevronDown } from 'lucide-react';
-import { readPortfolioPage, readPortfolioContext, readPortfolio, readPortfolioChildren, readPortfolioOrders, preparePortfolioAction } from '../lib/live-portfolios.mjs';
+import { genesisPortfolioProposalGate, readPortfolioPage, readPortfolioContext, readPortfolio, readPortfolioChildren, readPortfolioOrders, preparePortfolioAction } from '../lib/live-portfolios.mjs';
 import { amount, shortAddress, explorerAddress, explorerTransaction, exportActivityCsv } from '../lib/live-view.mjs';
 import { displayDecimal } from '../lib/amount-display.mjs';
 import { READ_CANCELLED, retryReadRound } from '../lib/read-retry.mjs';
@@ -57,9 +57,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const [quantity,setQuantity]=useState('1'),[recipient,setRecipient]=useState(''),[child,setChild]=useState(''),[price,setPrice]=useState(''),[reference,setReference]=useState('');
   const [budget,setBudget]=useState(''),[cap,setCap]=useState(''),[dailyCap,setDailyCap]=useState(''),[fundHours,setFundHours]=useState('24'),[buyHours,setBuyHours]=useState('48');
   const [dailyReference,setDailyReference]=useState(null),[dailyReferenceError,setDailyReferenceError]=useState(''),[capacitySample,setCapacitySample]=useState(null),[capacityBusy,setCapacityBusy]=useState(false);
-  const context=useRef({}), sequence=useRef(0);
-  const identity=`${config?.portfolioFactory || ''}:${account || ''}:${mode}:${initialPool || ''}:${refreshKey}`;
-  const cacheKey=JSON.stringify([config?.artifactDigest,config?.portfolioFactory,account?.toLowerCase() || '',mode,initialPool?.toLowerCase() || '']);
+  const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null);
+  const identity=`${config?.artifactDigest || ''}:${config?.stage || ''}:${config?.portfolioFactory || ''}:${account || ''}:${mode}:${initialPool || ''}`;
+  const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.portfolioFactory,account?.toLowerCase() || '',mode,initialPool?.toLowerCase() || '']);
   if(context.current.identity!==identity || context.current.provider!==provider || context.current.wallet!==wallet){
     sequence.current++;context.current={identity,provider,wallet};
   }
@@ -68,13 +68,13 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const current=ticket=>ticket===sequence.current;
   const isOperator=operatorVerified || same(operator,account);
   const visibleRows=loadedIdentity===identity?rows:[];
-  const selectedCurrent=selected && visibleRows.some(row=>same(row.pool,selected.pool)) && same(selected.account,account || ZeroAddress) ? selected:null;
+  const selectedCurrent=loadedIdentity===identity && selected && same(selected.account,account || ZeroAddress) ? selected:null;
   const frozen=busy || loading || disabled || readFailed;
   useEffect(() => {
-    onReadStateChange?.({ busy: busy || loading, failed: readFailed });
+    onReadStateChange?.({ busy: busy || loading || !!preview, failed: readFailed });
     return () => onReadStateChange?.({ busy: false, failed: false });
-  }, [busy, loading, readFailed]);
-  useEffect(()=>{setListingQuantity(selectedCurrent?.availableShares>0n?selectedCurrent.availableShares.toString():'1');setPrice('');},[selectedCurrent?.pool,selectedCurrent?.availableShares]);
+  }, [busy, loading, readFailed, preview]);
+  useEffect(()=>{setListingQuantity(selectedCurrent?.availableShares>0n?selectedCurrent.availableShares.toString():'1');setPrice('');},[selectedCurrent?.pool]);
   useEffect(()=>{const saved=recentPages.get(cacheKey),cached=saved && Date.now()-saved.savedAt<120_000?saved.result
       :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`);
     setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setRows(cached?.items || []);
@@ -84,6 +84,12 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);
     if(enabled && (!mine || account))void load();},[identity,provider,wallet]);
   useEffect(()=>()=>{sequence.current++;},[]);
+  useEffect(()=>{
+    if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:refreshKey};return;}
+    if(refreshSeen.current.key===refreshKey||preview||busy||loading)return;
+    refreshSeen.current={identity,key:refreshKey};
+    if(enabled&&(!mine||account))void load();
+  },[identity,refreshKey,preview,busy,loading]);
   async function refreshCapacity(active=()=>true){
     setCapacityBusy(true);
     try{const [value,page]=await Promise.all([fetchCapacityReference({baseUrl:QUOTE_BASE}),fetchQuotePage({page:1,pageSize:50,sort:'daily_capacity_price_low'},{baseUrl:QUOTE_BASE})]);
@@ -103,18 +109,28 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     onRetry:progress=>{if(current(ticket))setReadRetry(progress);}});}
 
   async function load(nextCursor=0){
-    const ticket=++sequence.current;setLoading(true);setError('');setPreview(null);
+    const ticket=++sequence.current,selectedPool=!nextCursor?selectedCurrent?.pool:null;
+    setLoading(true);setError('');
     try{
       const result=await retryRead(async()=>{
         if(initialPool){const ctx=await readPortfolioContext(config,provider);const row=await readPortfolio(ctx,initialPool,account || ZeroAddress);await ctx.canonical();return {items:[row],nextCursor:null,operator:ctx.operator};}
-        return readPortfolioPage(config,provider,{account:account || undefined,mine,cursor:nextCursor});
+        const [page,detail]=await Promise.all([
+          readPortfolioPage(config,provider,{account:account || undefined,mine,cursor:nextCursor}),
+          selectedPool?(async()=>{const ctx=await readPortfolioContext(config,provider);
+            const row=await readPortfolio(ctx,selectedPool,account || ZeroAddress);await ctx.canonical();return row;})():Promise.resolve(null),
+        ]);
+        return {...page,selectedDetail:detail};
       },ticket);
       if(result===READ_CANCELLED||!current(ticket))return;
-      if(!nextCursor){recentPages.delete(cacheKey);recentPages.set(cacheKey,{savedAt:Date.now(),result});
+      const {selectedDetail,...page}=result;
+      if(!nextCursor){recentPages.delete(cacheKey);recentPages.set(cacheKey,{savedAt:Date.now(),result:page});
         if(recentPages.size>8)recentPages.delete(recentPages.keys().next().value);
-        writeDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,result);}
+        writeDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,page);}
       setRows(previous=>nextCursor? [...previous,...result.items.filter(item=>!previous.some(p=>same(p.pool,item.pool)))]:result.items);
-      setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setListingSource(result.source || null);setSelected(initialPool?result.items[0]:null);if(initialPool)setChild(result.items[0].children.find(c=>!c.sold)?.pool || '');}
+      setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setListingSource(result.source || null);
+        setSelected(initialPool?result.items[0]:selectedDetail);
+        const children=initialPool?result.items[0]?.children:selectedDetail?.children;
+        if(children)setChild(previous=>children.some(c=>same(c.pool,previous))?previous:children.find(c=>!c.sold)?.pool || '');}
     }catch(problem){if(current(ticket)){setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
@@ -158,9 +174,11 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const p=selectedCurrent?.proposal;
   const nextRound=selectedCurrent?.nextRoundAt ?? 0n;
   const pChild=selectedCurrent?.children.find(c=>same(c.pool,p?.child));
+  const genesisSale=config?.stage==='genesis';
+  const genesisSaleGate=genesisSale&&selectedCurrent?genesisPortfolioProposalGate(selectedCurrent):null;
   return <section id="multi-miner-projects" className="panel portfolio-panel" aria-label={T('多矿机预算项目')}>
     <div className="portfolio-heading"><div><h2><Layers3 size={21}/>{T("多矿机预算项目")}</h2><p>{T("整个项目共 100 份，共同持有项目内多台矿机。每台矿机的出售单独表决，余款与收益归项目份额持有人。")}</p></div>
-      <button className="btn secondary" disabled={!enabled || busy || loading || disabled || mine&&!account} onClick={()=>void load()}><RefreshCw size={15}/>{T("刷新项目")}</button></div>
+      <button className="btn secondary" disabled={!enabled || busy || loading || !!preview || disabled || mine&&!account} onClick={()=>void load()}><RefreshCw size={15}/>{T("刷新项目")}</button></div>
     {!enabled ? <p role="status">{T("预算项目合约尚未完成部署验收。")}</p> : mine&&!account ? <button className="btn" onClick={onConnect}>{T("连接钱包查看项目权益")}</button> : <>
       {error&&<div className="portfolio-error" role="alert"><p>{T(error)}</p>{readFailed&&<button className="btn secondary" disabled={busy || loading || disabled} onClick={()=>void load()}>{locale==='en'?'Retry portfolio data':'重新读取预算项目'}</button>}</div>}
       {loading&&<p role="status">{readRetry?(locale==='en'?`Portfolio data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`:`预算数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`):T("正在核对预算项目…")}</p>}
@@ -211,15 +229,18 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           <div className="portfolio-actions"><button className="btn secondary" disabled={frozen} onClick={()=>void loadOrders()}>{T("读取本项目挂单")}</button><button className="btn secondary" disabled={frozen||!account} onClick={()=>act('marketWithdraw')}>{T("预览领取预算市场 BNB")}</button></div>
           {same(orderPool,selectedCurrent.pool)&&<><div className="portfolio-child-table"><table><thead><tr><th>{T("订单")}</th><th>{T("卖方")}</th><th>{T("剩余份额 / 每份价")}</th><th>{T("操作")}</th></tr></thead><tbody>{orders.map(order=><tr key={order.id.toString()}><td>#{order.id.toString()}</td><td>{shortAddress(order.seller)}</td><td>{order.remaining.toString()} / {amount(order.pricePerUnitWei)} BNB</td><td>{order.active&&order.remaining>0n? <>{same(order.seller,account)?<button className="btn secondary" disabled={frozen} onClick={()=>act('marketCancel',{orderId:order.id.toString()})}>{T("撤销挂单")}</button>:!order.expired&&<button className="btn" disabled={frozen||!selectedCurrent.shareTradingAllowed} onClick={()=>act('marketFill',{orderId:order.id.toString(),quantity,expectedSeller:order.seller,expectedPricePerUnitWei:order.pricePerUnitWei.toString()})}>{T("预览买入")} {quantity} {T("份")}</button>}{order.expired&&<button className="btn secondary" disabled={frozen} onClick={()=>act('marketExpire',{orderId:order.id.toString()})}>{T("解锁到期挂单")}</button>}</>:T('已结束')}</td></tr>)}</tbody></table></div><label>{T("买入份数")}<input inputMode="numeric" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>{!orders.length&&<p>{T("暂无本项目挂单。")}</p>}{orderCursor!==null&&<button className="btn secondary" disabled={frozen} onClick={()=>void loadOrders(orderCursor)}>{T("加载更多挂单")}</button>}</>}
         </details>
-        {p?<div className="portfolio-governance"><h3>{T("本轮子矿机出售候选")}</h3><p>{T("持有至少 10 份的成员可在同一轮提出候选，大家逐项投票；每轮最多 16 项。提案期间项目份额冻结，其他矿机继续归集收益。")}</p><p>{T("表决达到门槛后，挂牌仍需通过当前市场参考价与平台审核核验。")}</p>
+        {p?<div className="portfolio-governance"><h3>{T("本轮子矿机出售候选")}</h3><p>{T(genesisSale
+          ? "创世版持有至少 1 份即可发起提案；每轮只有一项，正在投票时不能再发起。"
+          : "持有至少 10 份的成员可在同一轮提出候选，大家逐项投票；每轮最多 16 项。提案期间项目份额冻结，其他矿机继续归集收益。")}</p>{!genesisSale&&<p>{T("表决达到门槛后，挂牌仍需通过当前市场参考价与平台审核核验。")}</p>}
           {(selectedCurrent.proposals||[p]).map(candidate=><div key={candidate.id.toString()}><p>#{candidate.id.toString()} · {shortAddress(candidate.child)} · {amount(candidate.price)} {T("BNB · 赞成")} {candidate.yesShares.toString()}/{candidate.threshold.toString()} {T("份，")}{candidate.yesMembers.toString()}/{(candidate.memberCount/2n+1n).toString()} {T("人")}</p><PortfolioSaleStatus candidate={candidate} stage={config.stage} locale={locale}/><div className="portfolio-actions">
           {!p.executed&&!candidate.executed&&selectedCurrent.timestamp<candidate.endsAt&&<><button className="btn" disabled={frozen||candidate.hasVoted||selectedCurrent.shares===0n} onClick={()=>act('voteChildSale',{proposalId:candidate.id.toString(),support:true})}>{T("赞成")}</button><button className="btn secondary" disabled={frozen||candidate.hasVoted||selectedCurrent.shares===0n} onClick={()=>act('voteChildSale',{proposalId:candidate.id.toString(),support:false})}>{T("反对")}</button><button className="btn" disabled={frozen||!candidate.canExecute} onClick={()=>act('executeChildSale',{proposalId:candidate.id.toString()})}>{T("执行该台挂牌")}</button></>}
           </div></div>)}<div className="portfolio-actions">
           {p.executed&&pChild?.state===4n&&<button className="btn" disabled={frozen} onClick={()=>act('settleChildSale')}>{T("归集该台卖款")}</button>}
           {(!p.executed&&selectedCurrent.timestamp>=p.endsAt||p.executed&&pChild?.state===3n&&selectedCurrent.timestamp>=pChild.expiresAt)&&<button className="btn secondary" disabled={frozen} onClick={()=>act('expireChildSale')}>{T("解除过期子机提案")}</button>}
         </div></div>:null}
-        {selectedCurrent.state===2n&&selectedCurrent.shares>0n&&selectedCurrent.shares<10n&&<p>{T("发起出售候选需持有至少 10 份；你仍可参与投票。")}</p>}
-        {selectedCurrent.state===2n&&selectedCurrent.shares>=10n&&(!p||!p.executed)&&<details><summary>{T("发起逐台出售候选")}</summary><p>{T("正在投票的轮次允许其他持份人提出候选；下一轮最早")} {nextRound===0n?T('现在'):new Date(Number(nextRound)*1000).toLocaleString(locale==='en'?'en-GB':'zh-CN')}{T("。")}</p><div className="portfolio-actions"><label>{T("项目内矿机")}<select value={child} onChange={e=>setChild(e.target.value)}>{selectedCurrent.children.filter(c=>!c.sold&&c.state===2n).map(c=><option key={c.pool} value={c.pool}>#{c.tokenId.toString()} · {shortAddress(c.pool)}</option>)}</select></label><label>{T("拟售价格（BNB）")}<input inputMode="decimal" value={price} onChange={e=>setPrice(e.target.value)}/></label><label>{T("观察到的参考价（BNB）")}<input inputMode="decimal" value={reference} onChange={e=>setReference(e.target.value)}/></label><button className="btn" disabled={frozen||!child||(p&&selectedCurrent.timestamp<p.endsAt?(selectedCurrent.proposals?.length??1)>=16:selectedCurrent.timestamp<nextRound)} onClick={()=>act('proposeChildSale',{child,price,reference,referenceAt:selectedCurrent.timestamp.toString()})}>{T("预览出售候选")}</button></div></details>}
+        {selectedCurrent.state===2n&&genesisSale&&!genesisSaleGate.allowed&&<p>{T(genesisSaleGate.reason)}</p>}
+        {selectedCurrent.state===2n&&!genesisSale&&selectedCurrent.shares>0n&&selectedCurrent.shares<10n&&<p>{T("发起出售候选需持有至少 10 份；你仍可参与投票。")}</p>}
+        {selectedCurrent.state===2n&&(genesisSale?genesisSaleGate.allowed:selectedCurrent.shares>=10n&&(!p||!p.executed))&&<details><summary>{T("发起逐台出售候选")}</summary><p>{genesisSale?T("创世版每轮只允许一项出售提案。下一轮最早"):T("正在投票的轮次允许其他持份人提出候选；下一轮最早")} {nextRound===0n?T('现在'):new Date(Number(nextRound)*1000).toLocaleString(locale==='en'?'en-GB':'zh-CN')}{T("。")}</p><div className="portfolio-actions"><label>{T("项目内矿机")}<select value={child} onChange={e=>setChild(e.target.value)}>{selectedCurrent.children.filter(c=>!c.sold&&c.state===2n).map(c=><option key={c.pool} value={c.pool}>#{c.tokenId.toString()} · {shortAddress(c.pool)}</option>)}</select></label><label>{T("拟售价格（BNB）")}<input inputMode="decimal" value={price} onChange={e=>setPrice(e.target.value)}/></label><label>{T("观察到的参考价（BNB）")}<input inputMode="decimal" value={reference} onChange={e=>setReference(e.target.value)}/></label><button className="btn" disabled={frozen||!child||(genesisSale?!genesisSaleGate.allowed:(p&&selectedCurrent.timestamp<p.endsAt?(selectedCurrent.proposals?.length??1)>=16:selectedCurrent.timestamp<nextRound))} onClick={()=>act('proposeChildSale',{child,price,reference,referenceAt:selectedCurrent.timestamp.toString()})}>{T("预览出售候选")}</button></div></details>}
       </div>}
 
     </>}

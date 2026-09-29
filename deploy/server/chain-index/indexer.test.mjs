@@ -450,13 +450,67 @@ test('HTTP keeps prior verified read responses available during refresh and fail
     assert.equal(duringSync.data.items[0].address, pool);
     releaseSlow(); await delayed;
 
+    const lastVerifiedTip = index.status().indexedThrough;
     chain.send = async () => { throw new Error('upstream failure'); };
     const failed = assert.rejects(index.sync());
     await failed;
     assert.equal(index.status().unknownReason, 'sync_failed');
     assert.equal((await fetch(url)).status, 200);
-    assert.equal((await fetch(url.replace('/v1/pools', '/v1/activity'))).status, 503);
+    const failedActivity = await (await fetch(url.replace('/v1/pools', '/v1/activity'))).json();
+    assert.equal(failedActivity.source.readMode, 'verified_snapshot');
+    assert.equal(failedActivity.source.stale, true);
+    assert.equal(failedActivity.source.transactionReady, false);
+    assert.equal(failedActivity.source.indexedThrough, lastVerifiedTip);
+    assert(failedActivity.data.items.every(item => item.blockNumber <= lastVerifiedTip));
+    assert.equal((await fetch(url.replace('/v1/pools', '/v1/notifications'))).status, 503);
     assert.equal((await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).status, 200);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    index.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('latest-header outage retains display history only until the verified view expires', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-latest-outage-'));
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
+    startBlock: 1, confirmations: 2 });
+  const server = createChainIndexServer(index, { syncWaitMs: 20 });
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await index.sync();
+    const tip = index.status().indexedThrough;
+    const getBlock = chain.getBlock.bind(chain);
+    chain.getBlock = number => number === 'latest' ? Promise.reject(new Error('RPC timeout')) : getBlock(number);
+    await assert.rejects(index.sync());
+    const failedHealth = await (await fetch(`${url}/health`)).json();
+    assert.equal(failedHealth.source.complete, false, 'operations still see the live failed status');
+    assert.equal(failedHealth.source.unknownReason, 'sync_failed');
+    assert.equal(failedHealth.displaySource.indexedThrough, tip);
+    assert.equal(failedHealth.displaySource.readMode, 'verified_snapshot');
+    assert.equal(failedHealth.displaySource.stale, true);
+    assert.equal(failedHealth.displaySource.transactionReady, false);
+    assert.equal(failedHealth.displaySource.refreshing, false);
+    const activity = await (await fetch(`${url}/v1/activity`)).json();
+    assert.equal(activity.source.indexedThrough, tip);
+    assert.equal(activity.source.readMode, 'verified_snapshot');
+    assert.equal(activity.source.transactionReady, false);
+    assert.equal((await fetch(`${url}/v1/notifications`)).status, 503);
+    index.verifiedReadView.source.checkedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+    assert.equal((await fetch(`${url}/v1/activity`)).status, 503);
+    assert.equal(index.verifiedReadView, null, 'expired WAL reader is closed');
+    assert.equal((await (await fetch(`${url}/health`)).json()).displaySource, undefined);
+    chain.getBlock = getBlock;
+    await index.sync();
+    assert.equal(index.status().complete, true);
+    chain.send = async () => '0x1';
+    await assert.rejects(index.sync(), /BSC mainnet/);
+    assert.equal(index.status().unknownReason, 'wrong_chain');
+    assert.equal(index.verifiedReadView, null, 'a wrong-chain proof invalidates the retained history');
+    assert.equal((await fetch(`${url}/v1/activity`)).status, 503);
+    assert.equal((await (await fetch(`${url}/health`)).json()).displaySource, undefined);
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();
@@ -492,6 +546,11 @@ test('read view stays at the verified tip after a later scan chunk commits, whil
     const health = await (await fetch(`${url}/health`)).json();
     assert.equal(health.source.complete, false);
     assert.equal(health.source.observedSafeHead, 8);
+    assert.equal(health.displaySource.indexedThrough, 6);
+    assert.equal(health.displaySource.readMode, 'verified_snapshot');
+    assert.equal(health.displaySource.stale, true);
+    assert.equal(health.displaySource.transactionReady, false);
+    assert.equal(health.displaySource.refreshing, true);
     const activity = await (await fetch(`${url}/v1/activity`)).json();
     assert.equal(activity.source.readMode, 'verified_snapshot');
     assert.equal(activity.source.indexedThrough, 6);
@@ -514,6 +573,7 @@ test('read view stays at the verified tip after a later scan chunk commits, whil
     await syncing;
     assert.equal(index.status().complete, true);
     assert.equal(index.verifiedReadView, null, 'WAL reader is released after the sync');
+    assert.equal((await (await fetch(`${url}/health`)).json()).displaySource, undefined);
     const fresh = await (await fetch(`${url}/v1/activity`)).json();
     assert.equal(fresh.source.indexedThrough, 8);
     assert.equal(fresh.data.items[0].blockNumber, 7);

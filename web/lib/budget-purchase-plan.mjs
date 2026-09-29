@@ -19,6 +19,15 @@ const roundShares=value=>(exact(value)+99n)/100n*100n;
 const key=row=>`${row.collection.toLowerCase()}:${row.tokenId}`;
 export const BUDGET_FIRSTO_PAGE_LIMIT=5;
 
+// The genesis factory has neither createBudgetChildPool nor
+// designatedSubscriber. The fresh deployment uses the Authority relay, while
+// this queue submits directly from an operator wallet. Neither can safely run
+// this two-transaction flow.
+export function budgetPurchaseQueueSupported(config){
+  return config?.kind==='integrated-v2' && config.operationalReady===true
+    && ['code-upgraded','role-migrating','role-wired'].includes(config.stage);
+}
+
 /** No display rounding enters approval or calldata. The temporary deposit needs 100 equal integer shares. */
 export function selectBudgetCandidates(rows,{remainingWei,limitWei,maxMachines=5}={}){
   need(Number.isInteger(maxMachines)&&maxMachines>0&&maxMachines<=20,'Select 1–20 machines per reviewed batch');
@@ -55,6 +64,7 @@ async function freshParent(input){
 /** Full official coverage is required before considering a bounded set of verified Firsto orders. */
 export async function discoverBudgetPurchasePlan({config,provider,account,parent,limitWei,maxMachines=5,fetcher=globalThis.fetch,onProgress,
   readParent=freshParent,readOfficial=officialSnapshot,quotePage=listOperatorQuotes,checkQuote=checkMinerOnchain}={}){
+  need(budgetPurchaseQueueSupported(config),'当前合约阶段不支持连续采购队列 / The current contract stage does not support this purchase queue');
   account=addr(account);parent=addr(parent);
   const {context,row}=await readParent({config,provider,account,parent}),remaining=row.budgetWei-row.spentWei;
   const limit=limitWei===undefined?remaining:exact(limitWei);need(limit>0n&&limit<=remaining,'Approved amount exceeds remaining budget');
@@ -114,6 +124,7 @@ export function nextBudgetQueueItem(plan){validateBudgetQueue(plan);return plan.
 export async function prepareBudgetQueueStep({config,provider,account,parent,plan,index,readParent=freshParent,
   readMiner=readOfficialMinerOnchain,prepareCreate=prepareAdminAction,preparePurchase=preparePortfolioAction,readOfficial=officialSnapshot,
   verifyOrder=verifyFirstoSignedAsk,fetcher=globalThis.fetch}={}){
+  need(budgetPurchaseQueueSupported(config),'当前合约阶段不支持连续采购队列 / The current contract stage does not support this purchase queue');
   validateBudgetQueue(plan,{config,account,parent});need(plan.approved===true,'Preview and approve the purchase limits first');
   need(index===nextBudgetQueueItem(plan),'Only the next reviewed queue item may run');const item=plan.items[index];
   need(['ready','created'].includes(item.status),'未知交易必须先核对 / Reconcile the unresolved transaction first');

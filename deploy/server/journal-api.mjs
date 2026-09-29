@@ -14,6 +14,7 @@ import { readBudgetCandidates } from './budget-candidates.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
 import { createRequestLimiter } from './request-limiter.mjs';
+import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -27,14 +28,16 @@ const FRESH_DEPLOYMENT_ACCOUNT = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7'.to
 const OFFICIAL_CACHE_MS = 5_000;
 const OFFICIAL_GRAPH_CACHE_MS = 5_000;
 const SIGNING_GRAPH_CACHE_MS = 5_000;
-const PRODUCT_GRAPH_SNAPSHOT_MS = 20_000;
+const PRODUCT_GRAPH_SNAPSHOT_MS = 45_000;
 const PRODUCT_GRAPH_STALE_MS = 2 * 60_000;
+const PRODUCT_GRAPH_REFRESH_MS = 15_000;
 const TRANSIENT_PRODUCT_RPC_CODES = new Set([
   'NETWORK_ERROR', 'TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
   'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
 ]);
 
 function isTransientProductRpcFailure(error) {
+  if (error instanceof ProductGraphAnchorUnavailable) return true;
   if (error instanceof ApiError) return false;
   for (let current=error, depth=0; current && depth<3; current=current.cause, depth++) {
     if (TRANSIENT_PRODUCT_RPC_CODES.has(current.code)) return true;
@@ -56,6 +59,9 @@ const PRODUCT_INTENT_WINDOW_MS = 60_000;
 const PRODUCT_INTENT_PER_ACCOUNT = 8;
 const PRODUCT_INTENT_PER_IP = 24;
 const MAX_PRODUCT_INTENT_ACCOUNTS = 4_096;
+// Match the browser's 5M Gas and 3 gwei hard ceilings. This bounds the fee
+// reservation without adding eth_call or eth_estimateGas to wallet submission.
+const MAX_PRODUCT_TRANSACTION_GAS_WEI = 15_000_000_000_000_000n;
 const OFFICIAL_COLLECTIONS = new Set([
   '0xb1024b89886b9a34aa4ff5f31c411d708b20a14c',
   '0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c',
@@ -121,6 +127,7 @@ const OFFICIAL_POOL_READ_ABI = new Interface([
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
+class ProductGraphAnchorUnavailable extends Error {}
 const fail = (status, message) => { throw new ApiError(status, message); };
 const identity = value => {
   try { return getAddress(value).toLowerCase(); }
@@ -246,7 +253,7 @@ function validateProduct(value, account) {
   if (typeof value.gas !== 'string' || !DECIMAL.test(value.gas) || value.gas.length > 9 || BigInt(value.gas) < 21000n || BigInt(value.gas) > 30_000_000n
     || typeof value.gasPrice !== 'string' || !DECIMAL.test(value.gasPrice) || value.gasPrice.length > 10
     || BigInt(value.gasPrice) < 1n || BigInt(value.gasPrice) > 3_000_000_000n
-    || BigInt(value.gas)*BigInt(value.gasPrice) > 10_000_000_000_000_000n) fail(400, 'Invalid product Gas limits.');
+    || BigInt(value.gas)*BigInt(value.gasPrice) > MAX_PRODUCT_TRANSACTION_GAS_WEI) fail(400, 'Invalid product Gas limits.');
   decodeProduct(value);
   validateCancellationRequests(value);
   return value;
@@ -833,8 +840,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
-  gasWalletAddressReader, freshConsolePreGenesis = false,
-  freshStage2Hold = false } = {}) {
+  gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
+  freshStage2Hold = true } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -868,17 +875,33 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     productActivationPath:freshActivationEvidencePath,expectedGasWallet});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
+  if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
+    throw new Error('Gas wallet signer proof reader is invalid.');
+  if (gasWalletAddressReader && gasWalletProofReader)
+    throw new Error('Only one Gas wallet proof source may be configured.');
   if (typeof freshConsolePreGenesis !== 'boolean') throw new Error('Fresh console mode must be a boolean.');
   if (typeof freshStage2Hold !== 'boolean') throw new Error('Fresh Stage 2 hold must be a boolean.');
-  const credentialStatus = () => {
+  const credentialStatus = async account => {
     // This HTTP-facing process must not receive a Gas private key. A configured
     // public address is not proof that an isolated signer holds its private key.
-    if (!gasWalletAddressReader) {
-      let configured = null;
-      try { configured = expectedGasWallet ? getAddress(expectedGasWallet) : null; }
-      catch { /* Invalid configuration remains unverified. */ }
+    let configured = null;
+    try { configured = expectedGasWallet ? getAddress(expectedGasWallet) : null; }
+    catch { /* Invalid configuration remains unverified. */ }
+    if (gasWalletProofReader && configured) {
+      try {
+        const genesis = store.deployment(account).record;
+        if (genesis?.status === 'complete' && genesis.kind === 'integrated-v2'
+          && genesis.chainId === 56 && genesis.account?.toLowerCase() === account.toLowerCase()) {
+          const challenge = { chainId: 56, origin, deploymentAccount: getAddress(account),
+            deploymentId: genesis.id, artifactDigest: genesis.artifactDigest,
+            expectedGasWallet: configured, nonce: `0x${randomBytes(32).toString('hex')}` };
+          const proof = await gasWalletProofReader(challenge);
+          return { credentialVerified: verifyGasSignerAttestation(challenge, proof), gasWallet: configured };
+        }
+      } catch { /* Missing, stale or invalid private signer proof never authorizes a write. */ }
       return { credentialVerified: false, gasWallet: configured };
     }
+    if (!gasWalletAddressReader) return { credentialVerified: false, gasWallet: configured };
     try {
       const derived = getAddress(gasWalletAddressReader());
       const verified = Boolean(expectedGasWallet) && derived.toLowerCase() === getAddress(expectedGasWallet).toLowerCase();
@@ -895,6 +918,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const activationBlocks = new Map();
   let lastVerifiedProductGraphSnapshot = null;
   let productGraphRefresh = null;
+  let lastProductGraphRefreshAttemptAt = null;
   let officialTokens = OFFICIAL_REQUEST_BURST, officialRefillAt = now(), activeOfficialScans = 0;
   let activeOfficialGraphProofs = 0, officialGraphTokens = OFFICIAL_GRAPH_PROOF_BURST;
   let officialGraphRefillAt = now();
@@ -949,8 +973,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     officialGraphTokens -= 1;
   }
 
-  async function pinnedOfficialBlock(number, hash) {
+  async function pinnedOfficialBlock(number, hash, missingTransient = false) {
     const block = await officialProvider.getBlock(number);
+    if (!block && missingTransient)
+      throw new ProductGraphAnchorUnavailable('Verified product block is temporarily unavailable.');
     if (!block || block.number !== number || !HASH.test(block.hash ?? '') ||
       block.hash.toLowerCase() !== hash || !Number.isSafeInteger(block.timestamp)) {
       fail(409, 'Requested BSC block changed or is unavailable.');
@@ -958,17 +984,22 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return block;
   }
 
-  async function verifiedOfficialGraph(factory, block, hash) {
+  async function verifiedOfficialGraph(factory, block, hash, forProductGraph = false) {
     const key = `${identity(factory)}:${hash}`;
+    const proofKey = forProductGraph ? `site:${key}` : key;
     const cached = officialGraphCache.get(key);
     if (cached && cached.expires > now()) return cached.verified;
     if (cached) officialGraphCache.delete(key);
-    let proof = officialGraphProofs.get(key);
+    let proof = officialGraphProofs.get(proofKey);
     if (!proof) {
-      if (activeOfficialGraphProofs >= MAX_OFFICIAL_GRAPH_PROOFS)
-        fail(503, 'Product graph verification is busy; retry shortly.');
-      consumeOfficialGraphProofBudget();
-      activeOfficialGraphProofs += 1;
+      // The one-at-a-time, timer-bounded site graph proof has its own slot.
+      // Public candidate lookups cannot exhaust its shared preview budget.
+      if (!forProductGraph) {
+        if (activeOfficialGraphProofs >= MAX_OFFICIAL_GRAPH_PROOFS)
+          fail(503, 'Product graph verification is busy; retry shortly.');
+        consumeOfficialGraphProofBudget();
+        activeOfficialGraphProofs += 1;
+      }
       proof = Promise.resolve().then(async () => {
         const verified = await graphVerifier(officialProvider, factory, block);
         if (!verified || identity(verified.factory) !== identity(factory) || verified.blockNumber !== block.number ||
@@ -977,7 +1008,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
             trustedProduct.integratedUpgrade?.digest].filter(Boolean).some(value =>
             verified.artifactDigest.toLowerCase() === value.toLowerCase()))
           fail(503, 'Reviewed product graph identity changed.');
-        await pinnedOfficialBlock(block.number, hash);
+        await pinnedOfficialBlock(block.number, hash, forProductGraph);
         officialGraphCache.set(key, { verified, expires: now() + OFFICIAL_GRAPH_CACHE_MS });
         if (officialGraphCache.size > 64) {
           for (const [item, entry] of officialGraphCache) if (entry.expires <= now()) officialGraphCache.delete(item);
@@ -985,10 +1016,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         }
         return verified;
       });
-      officialGraphProofs.set(key, proof);
+      officialGraphProofs.set(proofKey, proof);
       proof.finally(() => {
-        activeOfficialGraphProofs -= 1;
-        if (officialGraphProofs.get(key) === proof) officialGraphProofs.delete(key);
+        if (!forProductGraph) activeOfficialGraphProofs -= 1;
+        if (officialGraphProofs.get(proofKey) === proof) officialGraphProofs.delete(proofKey);
       }).catch(() => {});
     }
     return proof;
@@ -1179,7 +1210,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if(BigInt(await officialProvider.send('eth_chainId',[]))!==56n) fail(503,'Product RPC is not BSC mainnet.');
       const latest=await officialProvider.getBlock('latest');
       if(!Number.isSafeInteger(latest?.number) || number>latest.number || latest.number-number>MAX_OFFICIAL_BLOCK_AGE) fail(409,'Budget block is outside the recent purchase window.');
-      const block=await pinnedOfficialBlock(number,hash), graph=await verifiedOfficialGraph(factory,block,hash);
+      const block=await pinnedOfficialBlock(number,hash);
+      // An arbitrary address must not consume a full graph proof. These
+      // inexpensive pinned reads are only a prefilter; the complete proof and
+      // the legacy Factory binding are still checked before returning data.
+      const tag=`0x${number.toString(16)}`;
+      const read=async(to,name,args=[])=>IDENTITY_ABI.decodeFunctionResult(name,
+        await officialProvider.send('eth_call',[{to,data:IDENTITY_ABI.encodeFunctionData(name,args)},tag]))[0];
+      if (await officialProvider.getCode(parent,number)==='0x'
+        || !await read(factory,'isPool',[parent])
+        || identity(await read(parent,'OFFICIAL_FACTORY'))!==identity(factory))
+        fail(409,'Budget parent is not registered to the reviewed Factory.');
+      const graph=await verifiedOfficialGraph(factory,block,hash);
       const key=`budget:${parent}:${hash}`, cached=officialCache.get(key);
       if(cached?.expires>now()){await pinnedOfficialBlock(number,hash);return cached.result;}
       let scan=officialScans.get(key);
@@ -1248,15 +1290,22 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   async function verifyProductGraphSnapshot() {
     const previous=lastVerifiedProductGraphSnapshot;
     try {
-      if (BigInt(await officialProvider.send('eth_chainId',[])) !== 56n)
+      const chain=await officialProvider.send('eth_chainId',[]);
+      if (BigInt(chain) !== 56n)
         fail(503, 'Product RPC is not BSC mainnet.');
-      if (previous) await pinnedOfficialBlock(previous.body.verifiedBlockNumber,
-        previous.body.verifiedBlockHash.toLowerCase());
+      if (previous) {
+        const anchor=await officialProvider.getBlock(previous.body.verifiedBlockNumber);
+        if (!anchor)
+          throw new ProductGraphAnchorUnavailable('Verified anchor is temporarily unavailable.');
+        if (anchor.number!==previous.body.verifiedBlockNumber
+          || anchor.hash?.toLowerCase()!==previous.body.verifiedBlockHash.toLowerCase())
+          fail(409,'Verified product anchor changed.');
+      }
       const block=await officialProvider.getBlock('finalized');
       if (!Number.isSafeInteger(block?.number) || !HASH.test(block?.hash ?? '')
         || !Number.isSafeInteger(block?.timestamp) || block.timestamp <= 0)
         fail(503, 'A finalized product block is unavailable.');
-      const graph=await verifiedOfficialGraph(trustedProduct.record.addresses.factory,block,block.hash);
+      const graph=await verifiedOfficialGraph(trustedProduct.record.addresses.factory,block,block.hash,true);
       const old=trustedProduct.record;
       const initial=old.steps.find(step=>step.id==='initialize');
       const activation=graph.securityUpgrade
@@ -1264,6 +1313,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         : graph.freshAuthority
           ? await officialProvider.getBlock(graph.freshAuthority.activationBlock)
         : await officialProvider.getBlock(initial.receipt.blockNumber);
+      if (!activation)
+        throw new ProductGraphAnchorUnavailable('Product activation block is temporarily unavailable.');
       if (!Number.isSafeInteger(activation?.number) || activation.number > block.number
         || !HASH.test(activation.hash ?? '') || !Number.isSafeInteger(activation.timestamp)
         || activation.timestamp <= 0 || (graph.freshAuthority
@@ -1338,6 +1389,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
 
   function startProductGraphRefresh() {
     if (productGraphRefresh) return productGraphRefresh;
+    lastProductGraphRefreshAttemptAt=now();
     const refresh=Promise.resolve().then(verifyProductGraphSnapshot);
     productGraphRefresh=refresh;
     inFlight.add(refresh);
@@ -1347,6 +1399,14 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     }).catch(() => {});
     return refresh;
   }
+
+  // Keep display proof warm even when traffic is quiet. The timer uses the
+  // same single-flight path as HTTP reads; it never authorizes transactions.
+  const productGraphTimer=productMode && trustedProduct && officialProvider
+    ? setInterval(()=>{if(!closed)startProductGraphRefresh().catch(()=>{});},PRODUCT_GRAPH_REFRESH_MS)
+    : null;
+  productGraphTimer?.unref?.();
+  if(productGraphTimer)startProductGraphRefresh().catch(()=>{});
 
   async function respond(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -1375,7 +1435,6 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200, notificationService?.capabilities() ?? { enabled: false, botUsername: 'BEMineNotifyBot' });
       if (method === 'GET' && path === '/api/journal/product-graph') {
         if (url.search) fail(400, 'Product graph does not accept caller-selected parameters.');
-        if (!allowPublicGraph(req)) fail(429, 'Too many product-graph reads; retry shortly.');
         if (!officialProvider || !trustedProduct || !productMode)
           fail(503, 'Reviewed product graph is unavailable.');
         const cached=lastVerifiedProductGraphSnapshot;
@@ -1384,10 +1443,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           return send(200,{...cached.body,snapshotAgeMs,readMode:'current',stale:false});
         if (cached && snapshotAgeMs>=PRODUCT_GRAPH_SNAPSHOT_MS
           && snapshotAgeMs<PRODUCT_GRAPH_STALE_MS) {
-          startProductGraphRefresh();
+          // The response remains display-only even if a prior transient RPC
+          // failure delayed the next background proof. Do not let public reads
+          // spin up a fresh proof on every request after a fast failure.
+          if (lastProductGraphRefreshAttemptAt===null
+            || now()-lastProductGraphRefreshAttemptAt>=PRODUCT_GRAPH_REFRESH_MS)
+            startProductGraphRefresh();
           return send(200,{...cached.body,snapshotAgeMs,readMode:'verified_snapshot',
-            stale:true,refreshing:true,transactionReady:false,operationalReady:false});
+            stale:true,refreshing:Boolean(productGraphRefresh),transactionReady:false,operationalReady:false});
         }
+        // Cached verified display reads are cheap and often share a NAT IP.
+        // Bound only requests that must wait for a new chain proof.
+        if (!allowPublicGraph(req)) fail(429, 'Too many product-graph reads; retry shortly.');
         const body=await startProductGraphRefresh();
         return send(200,{...body,snapshotAgeMs:0,readMode:'current',stale:false});
       }
@@ -1471,12 +1538,12 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       }
       if (method === 'GET' && path === '/api/journal/deployment') return send(200, store.deployment(account));
       if (method === 'GET' && path === '/api/journal/fresh-activation/config')
-        return send(200, credentialStatus());
+        return send(200, { ...await credentialStatus(account), stage2Held: freshStage2Hold });
       if (method === 'GET' && path === '/api/journal/fresh-activation') return send(200, store.freshActivation(account));
       if (method === 'PUT' && path === '/api/journal/fresh-activation') {
         const body = await readJson(req);
         const genesis = store.deployment(account).record;
-        const credential = credentialStatus();
+        const credential = await credentialStatus(account);
         const previous = store.freshActivation(account).record;
         const newSigningIntent = body.record?.steps?.some((step, i) =>
           step.status === 'signing' && previous?.steps[i]?.status !== 'signing');
@@ -1669,6 +1736,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     },
     async close() {
       closed = true;
+      if(productGraphTimer)clearInterval(productGraphTimer);
       await Promise.allSettled([...inFlight]);
       store.close();
       if (!suppliedProvider) provider?.destroy();
@@ -1693,7 +1761,9 @@ export function journalConfiguration(env = process.env) {
     throw new Error('BEMINE_FRESH_STAGE2_HOLD must be 0 or 1.');
   return { dbPath, origin, rpcUrl,
     freshConsolePreGenesis: env.BEMINE_FRESH_CONSOLE_PRE_GENESIS === '1',
-    freshStage2Hold: env.BEMINE_FRESH_STAGE2_HOLD === '1',
+    // Missing configuration must never enable the seven Authority writes.
+    // A reviewed cutover must explicitly set 0 after recovery is proven.
+    freshStage2Hold: env.BEMINE_FRESH_STAGE2_HOLD !== '0',
     legacyFactory: legacyFactoryConfiguration(env.BEMINE_LEGACY_FACTORY),
     allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     productDeploymentRecordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,

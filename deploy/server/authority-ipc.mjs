@@ -3,10 +3,15 @@ import { createServer as createHttpServer, request as httpRequest } from 'node:h
 import { chmodSync, existsSync, lstatSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { Readable } from 'node:stream';
-import { getAddress } from 'ethers';
+import { FetchRequest, JsonRpcProvider, getAddress } from 'ethers';
+import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { JournalStore } from './journal-store.mjs';
+import { productGraphConfiguration } from './product-graph.mjs';
+import { createKeyedLimiter, createRequestLimiter } from './request-limiter.mjs';
+import { gasSignerAttestationMessage } from '../shared/gas-signer-attestation.mjs';
 
 export const AUTHORITY_SOCKET = '/run/pinkuang-v4-relay/authority.sock';
+export const GAS_ATTESTATION_PATH = '/internal/fresh-gas-attestation';
 const ROUTES = new Map([
   ['/api/journal/authority-relay', 'POST'],
   ['/api/journal/authority-relay/status', 'GET'],
@@ -70,8 +75,18 @@ export function authorityIpcConfiguration(env = process.env) {
   if (env.KEEPER_PRIVATE_KEY || existsSync(join(env.CREDENTIALS_DIRECTORY ?? '/', 'keeper-private-key'))
     || existsSync(join(env.CREDENTIALS_DIRECTORY ?? '/', 'authority-gas-private-key')))
     throw new Error('Public Authority IPC process must not receive a Gas private key.');
+  if (!env.DEPLOYMENT_JOURNAL_RPC_URL?.startsWith('https://')
+    || !env.BEMINE_EXPECTED_GAS_WALLET
+    || env.AUTHORITY_RELAY_PUBLIC_ENABLED === '1'
+      && !['BEMINE_DEPLOYMENT_RECORD_PATH','BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH',
+        'BEMINE_PRODUCT_ACTIVATION_PATH'].every(name => isAbsolute(env[name] ?? '')))
+    throw new Error('Authority IPC requires the Gas public address, an HTTPS BSC RPC, and graph evidence before relay.');
   return { socketPath: AUTHORITY_SOCKET, origin: env.DEPLOYMENT_JOURNAL_ORIGIN,
-    dbPath: env.DEPLOYMENT_JOURNAL_DB, key: readAuthorityIpcKey(env) };
+    dbPath: env.DEPLOYMENT_JOURNAL_DB, key: readAuthorityIpcKey(env),
+    rpcUrl: env.DEPLOYMENT_JOURNAL_RPC_URL, expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
+    recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
+    bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
+    activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
 }
 
 function sessionAccount(req, store) {
@@ -94,6 +109,44 @@ export function signAuthorityAssertion(key, { account, method, path, body, now =
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const mac = createHmac('sha256', key).update(encoded).digest('base64url');
   return `${encoded}.${mac}`;
+}
+
+/** Only the public server can reach this local socket; the returned signature
+ * is verified again against the current deployment by journal-api.mjs. */
+export function createGasSignerProofReader(config, dependencies = {}) {
+  if (!config || (!dependencies.allowTestPath && config.socketPath !== AUTHORITY_SOCKET)
+    || !isAbsolute(config.socketPath) || !config.origin?.startsWith('https://'))
+    throw new Error('Gas signer proof requires the reviewed private socket and HTTPS origin.');
+  const key = keyBytes(config.key);
+  const transport = dependencies.transport ?? httpRequest;
+  return async challenge => {
+    gasSignerAttestationMessage(challenge);
+    if (challenge.origin !== config.origin || getAddress(challenge.expectedGasWallet)
+      !== getAddress(config.expectedGasWallet))
+      throw new Error('Gas signer proof differs from the reviewed public configuration.');
+    const body = Buffer.from(JSON.stringify(challenge));
+    const assertion = signAuthorityAssertion(key, { account: challenge.deploymentAccount,
+      method: 'POST', path: GAS_ATTESTATION_PATH, body });
+    const result = await new Promise((resolve, reject) => {
+      const upstream = transport({ socketPath: config.socketPath, path: GAS_ATTESTATION_PATH,
+        method: 'POST', headers: { [ASSERTION_HEADER]: assertion, origin: config.origin,
+          'content-type': 'application/json', 'content-length': String(body.length) } }, response => {
+        let size = 0; const parts = [];
+        response.on('data', part => {
+          size += part.length;
+          if (size > 2048) { upstream.destroy(); reject(new Error('Gas signer proof response is oversized.')); }
+          else parts.push(part);
+        });
+        response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(parts) }));
+        response.on('error', reject);
+      });
+      upstream.setTimeout(3000, () => upstream.destroy(new Error('Gas signer proof timed out.')));
+      upstream.on('error', reject);
+      upstream.end(body);
+    });
+    if (result.status !== 200) throw new Error('The isolated Gas signer did not attest its public address.');
+    return JSON.parse(result.body.toString('utf8'));
+  };
 }
 
 /** The signer checks the exact body and rejects a duplicate assertion. */
@@ -122,7 +175,8 @@ export function createAuthorityAssertionVerifier(key, now = Date.now) {
     try { account = getAddress(claim.account); }
     catch { fail(401, 'Authority IPC account is invalid.'); }
     for (const [nonce, expiry] of seen) if (expiry <= stamp) seen.delete(nonce);
-    if (seen.size >= 4096 || seen.has(claim.nonce)) fail(409, 'Authority IPC assertion was reused.');
+    if (seen.has(claim.nonce)) fail(409, 'Authority IPC assertion was reused.');
+    if (seen.size >= 4096) fail(503, 'Authority IPC replay table is busy.');
     seen.set(claim.nonce, claim.expiresAt);
     return account;
   };
@@ -136,17 +190,37 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
   const key = keyBytes(config.key);
   const store = dependencies.store ?? new JournalStore(config.dbPath);
   const transport = dependencies.transport ?? httpRequest;
+  const trusted = dependencies.verifyAdministrator ? null : productGraphConfiguration({
+    recordPath: config.recordPath, bundlePath: config.bundlePath,
+    productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
+  });
+  if (!dependencies.verifyAdministrator && !trusted?.freshAuthority)
+    throw new Error('Authority IPC requires reviewed fresh Authority evidence.');
+  const rpcRequest = dependencies.verifyAdministrator ? null : new FetchRequest(config.rpcUrl);
+  if (rpcRequest) {
+    rpcRequest.timeout = 12_000;
+    rpcRequest.setThrottleParams({ maxAttempts: 1 });
+  }
+  const provider = rpcRequest ? new JsonRpcProvider(rpcRequest, 56,
+    { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 }) : null;
+  const verifyAdministrator = dependencies.verifyAdministrator
+    ?? (account => verifyCurrentAuthorityAdministrator(provider, trusted, account));
   const timeoutMs = dependencies.timeoutMs ?? 45_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 45_000)
     throw new Error('Authority IPC timeout exceeds the reviewed bound.');
+  const allowIp = createRequestLimiter({ windowMs: 60_000, perClient: 90, maxClients: 5_000 });
+  const allowAccount = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
   return {
     async handle(req, res) {
       try {
         const path = exactRoute(req);
         if (req.headers.origin && req.headers.origin !== config.origin) fail(403, 'Request origin is not allowed.');
         if (req.method === 'POST' && req.headers.origin !== config.origin) fail(403, 'Exact request origin is required.');
+        if (!allowIp(req)) fail(429, 'Too many authority relay requests from this client.');
         const account = sessionAccount(req, store);
         const body = await bodyBytes(req);
+        await verifyAdministrator(account);
+        if (!allowAccount(account.toLowerCase())) fail(429, 'Too many authority relay requests for this administrator.');
         const assertion = signAuthorityAssertion(key, { account, method: req.method, path, body });
         const status = await new Promise((resolve, reject) => {
           const upstream = transport({ socketPath: config.socketPath, path, method: req.method,
@@ -176,16 +250,43 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
           Number.isInteger(error.status) ? error.message : 'Authority signer is unavailable. Check status before retrying.');
       }
     },
-    close() { if (!dependencies.store) store.close(); },
+    close() { if (!dependencies.store) store.close(); provider?.destroy(); },
   };
 }
 
 /** Private process: verify HMAC, body, time and replay before business checks. */
 export function createAuthoritySignerServer(service, key, dependencies = {}) {
   const verify = dependencies.verify ?? createAuthorityAssertionVerifier(key);
+  const attestation = dependencies.attestation;
+  const allowAttestation = createKeyedLimiter({ windowMs: 60_000, perKey: 12, maxKeys: 1024 });
   return createHttpServer(async (req, res) => {
     try {
+      if (req.url === GAS_ATTESTATION_PATH && req.method === 'POST') {
+        if (!attestation) fail(503, 'Gas signer attestation is unavailable.');
+        const body = await bodyBytes(req);
+        if (body.length > 1024 || req.headers.origin !== attestation.origin)
+          fail(400, 'Invalid Gas signer attestation request.');
+        const account = verify(req.headers[ASSERTION_HEADER], req, body);
+        if (!allowAttestation(account.toLowerCase())) fail(429, 'Too many Gas signer attestation requests.');
+        let challenge;
+        try { challenge = JSON.parse(body.toString('utf8')); }
+        catch { fail(400, 'Invalid Gas signer attestation request.'); }
+        let message;
+        try { message = gasSignerAttestationMessage(challenge); }
+        catch { fail(400, 'Invalid Gas signer attestation request.'); }
+        if (challenge.origin !== attestation.origin
+          || getAddress(challenge.expectedGasWallet) !== getAddress(attestation.wallet.address)
+          || getAddress(challenge.deploymentAccount) !== account)
+          fail(403, 'Gas signer attestation identity differs.');
+        const signature = await attestation.wallet.signMessage(message);
+        res.statusCode = 200;
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ gasWallet: attestation.wallet.address, signature }));
+        return;
+      }
       exactRoute(req);
+      if (!service) fail(503, 'Authority relay is not active.');
       const body = await bodyBytes(req);
       const account = verify(req.headers[ASSERTION_HEADER], req, body);
       const forwarded = Readable.from(body.length ? [body] : []);

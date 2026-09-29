@@ -1,4 +1,4 @@
-import { createRequestLimiter } from './request-limiter.mjs';
+import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
 
 const ADDRESS = /^0x[\da-f]{40}$/i;
 const QUANTITY = /^0x(?:0|[1-9a-f][\da-f]{0,63})$/i;
@@ -135,20 +135,29 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
 
 export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
-  maxQueued = 48, queueTimeoutMs = 3000, publicSourceTtlMs = 30000, pinnedRpcTtlMs = 60000,
+  // A portfolio page can issue ~104 independent reads at once. Keep upstream
+  // concurrency bounded while allowing that single page to wait its turn.
+  maxQueued = 128, maxConcurrentPerClient = 12, queueTimeoutMs = 8000,
+  pinnedRpcTtlMs = 60000,
   chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
-  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, queueTimeoutMs, publicSourceTtlMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
+  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent,
+    maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
   if (!Number.isSafeInteger(maxQueued) || maxQueued < 0) throw new Error('maxQueued must be a nonnegative integer.');
   if (chainIdTtlMs > 5000 || headerTtlMs > 1000) throw new Error('RPC identity and header cache TTLs exceed their reviewed limits.');
   let concurrent = 0;
+  const activeClients = new Map();
   const queue = [];
-  const acquire = () => {
-    if (concurrent < maxConcurrent) { concurrent++; return Promise.resolve(); }
+  const activeFor = client => activeClients.get(client) ?? 0;
+  const enter = client => { concurrent++; activeClients.set(client, activeFor(client) + 1); };
+  const acquire = client => {
+    if (concurrent < maxConcurrent && activeFor(client) < maxConcurrentPerClient) {
+      enter(client); return Promise.resolve();
+    }
     requireValue(queue.length < maxQueued, 503, 'Read-only data service is busy.');
     return new Promise((resolve, reject) => {
-      const entry = { resolve, timer: null };
+      const entry = { client, resolve, timer: null };
       entry.timer = setTimeout(() => {
         const position = queue.indexOf(entry);
         if (position !== -1) queue.splice(position, 1);
@@ -157,10 +166,22 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       queue.push(entry);
     });
   };
-  const release = () => {
-    const next = queue.shift();
-    if (next) { clearTimeout(next.timer); next.resolve(); }
-    else concurrent--;
+  const release = client => {
+    concurrent--;
+    const remaining = activeFor(client) - 1;
+    if (remaining) activeClients.set(client, remaining);
+    else activeClients.delete(client);
+    // A busy IP cannot reserve every available upstream slot or block a
+    // different visitor behind its own queue. Scan for the oldest eligible
+    // request; each admitted client still keeps its original FIFO order.
+    while (concurrent < maxConcurrent) {
+      const nextIndex = queue.findIndex(entry => activeFor(entry.client) < maxConcurrentPerClient);
+      if (nextIndex < 0) break;
+      const [next] = queue.splice(nextIndex, 1);
+      clearTimeout(next.timer);
+      enter(next.client);
+      next.resolve();
+    }
   };
   const pinnedRpc = new Map(), headerRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
@@ -257,8 +278,9 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
     }
     try {
       const { value, canonical } = await entry.pending;
-      if (payload.method === 'eth_getBlockByNumber')
-        requireValue(!entry.invalidated, 502, 'Header predates a pinned read.');
+        // A different caller's pinned read invalidates this header for cache
+        // reuse, but the header remains a valid answer to its original caller.
+        // That caller must perform its own post-read header check if needed.
       requireValue(entry.epoch === chainEpoch, 502, 'Read-only RPC chain changed during request.');
       if (payload.method !== 'eth_getBlockByNumber')
         requireValue(entry.forkEpoch === forkEpoch, 502, 'Read-only RPC fork changed during request.');
@@ -279,19 +301,6 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       return value;
     } finally { if (key && pendingRpc.get(key) === entry) pendingRpc.delete(key); }
   };
-  // Only the public index source is cached. The client rechecks its block hash
-  // against BSC; account balances, quotes and transaction reads are never cached.
-  let publicSource = null;
-  const rememberSource = value => {
-    const source = value?.source;
-    // A historical response is useful to its caller, but cannot certify
-    // current /health. Clear any older fresh-health hint once it is observed.
-    if (source?.readMode !== undefined || source?.stale === true || source?.transactionReady === false ||
-      source?.complete !== true || source.unknownReason !== null || source.chainId !== 56 ||
-      !Number.isSafeInteger(source.indexedThrough) || !/^0x[\da-f]{64}$/i.test(source.indexedBlockHash ?? '') ||
-      !Number.isFinite(Date.parse(source.checkedAt))) { publicSource = null; return; }
-    publicSource = { body: { source }, until: now() + publicSourceTtlMs };
-  };
   // A single verified budget page can issue more than 300 independent reads
   // on first load. The bounded queue still caps concurrent upstream work.
   const allowRpc = createRequestLimiter({ perClient: 900 });
@@ -300,6 +309,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
       if (status >= 400) res.setHeader('Connection', 'close'); res.end(JSON.stringify(value)); };
     let acquired = false;
+    const client = clientAddress(req);
     try {
       requireValue(typeof req.url === 'string' && req.url.length <= 2048 && req.url.startsWith('/') && !req.url.startsWith('//'), 400, 'Invalid request URL.');
       const url = new URL(req.url, 'http://localhost');
@@ -311,7 +321,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }));
         if (payload.method === 'eth_chainId' && now() < verifiedChainUntil)
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
-        await acquire(); acquired = true;
+        await acquire(client); acquired = true;
         if (payload.method === 'eth_chainId') {
           await ensureBscChain();
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
@@ -334,18 +344,13 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       requireValue(req.method === 'GET', 405, 'Index requires GET.');
       const route = validateIndexRequest(url);
       requireValue(indexUrl, 503, 'Read-only index is not configured.');
-      if (route === '/health' && publicSource && now() < publicSource.until) {
-        res.setHeader('X-Bemine-Server-Cache', 'hit');
-        return send(200, publicSource.body);
-      }
-      await acquire(); acquired = true;
+      await acquire(client); acquired = true;
       const upstream = new URL(`${indexUrl.replace(/\/$/, '')}${route}`); upstream.search = url.search;
       const { status, value } = await fetchJson(upstream.href, { method: 'GET' }, { fetcher, timeoutMs, maxResponseBytes });
       requireValue([200, 400, 503].includes(status), 502, 'Read-only index is unavailable.');
-      if (status === 200 || value?.source) rememberSource(value);
       return send(status, value);
     } catch (error) { if (!res.destroyed && !res.writableEnded) send(error instanceof ProxyError ? error.status : 502,
       { error: error instanceof ProxyError ? error.message : 'Read-only data service is unavailable.' }); }
-    finally { if (acquired) release(); }
+    finally { if (acquired) release(client); }
   } });
 }

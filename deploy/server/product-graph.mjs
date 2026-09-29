@@ -50,6 +50,14 @@ function runtimeMatches(artifact, observed, addresses, ownAddress) {
   return expected===actual;
 }
 
+/** Match the reviewed Authority runtime while checking its constructor immutables through pinned views. */
+export function reviewedAuthorityRuntimeMatches(trusted, observed) {
+  const artifact=trusted?.bundle?.artifacts?.PlatformAuthority;
+  const address=trusted?.freshAuthority?.authority?.address;
+  return Boolean(artifact && address && observed!=='0x'
+    && runtimeMatches(artifact,observed,trusted.record.addresses,address));
+}
+
 /** Evidence is operator-owned local data; never accept it from an API caller. */
 export function productGraphConfiguration({ recordPath, bundlePath, record, bundle,
   genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle,
@@ -232,7 +240,8 @@ export async function verifyFreshAuthority(provider,record,bundle,evidence,block
   ]);
   const domain=authorityAbi.decodeFunctionResult('eip712Domain',domainRaw);
   check(same(owner,a.timelock) && same(core,a.factory) && same(budgetAddress,a.portfolioFactory)
-    && same(adminOne,FRESH_ADMINS[0]) && same(adminTwo,FRESH_ADMINS[1])
+    && !same(adminOne,ZERO) && !same(adminTwo,ZERO)
+    && !same(adminOne,adminTwo) && !same(adminOne,gasWallet) && !same(adminTwo,gasWallet)
     && same(gasWallet,authority.gasWallet)
     && domain.name==='BEMine Platform Authority' && domain.version==='1'
     && domain.chainId===56n && same(domain.verifyingContract,authority.address),

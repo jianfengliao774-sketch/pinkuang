@@ -6,7 +6,6 @@ import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
 import type { ServerJournal } from './server-journal';
 
 const explorer = 'https://bscscan.com';
-const STAGE2_HOLD = import.meta.env?.MODE === 'fresh';
 function download(name: string, value: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
@@ -34,7 +33,8 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [credential, setCredential] = useState<{credentialVerified:boolean;gasWallet:string|null}|null>(null);
+  const [credential, setCredential] = useState<{credentialVerified:boolean;gasWallet:string|null;stage2Held:boolean}|null>(null);
+  const stage2Held = credential?.stage2Held !== false;
   const enabled = !!(wallet && account && chainId === 56 && bundle && journal && genesis?.status === 'complete'
     && genesis.kind === 'integrated-v2' && genesis.account.toLowerCase() === account.toLowerCase());
   const refresh = useCallback(async () => {
@@ -84,10 +84,10 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
       <p className={credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
-          ? `服务器凭据已派生并核对 Gas 公钥：${credential.gasWallet}`
+          ? `独立签名服务已证明 Gas 公钥：${credential.gasWallet}`
           : `控制台只保存 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明独立签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
       <p className="field-help">只使用这些公开地址。网页不接收私钥。新合约和新站独立运行；旧池、份额和订单仍留在旧站，不会导入新图。</p>
-      {STAGE2_HOLD && <p className="alert alert-warning" role="status">第二阶段暂未开放签名：任一权限交易失败或被不同交易替换后，当前七步记录无法安全恢复。需要先完成链上证明与恢复测试；第一阶段部署和只读核验不受影响。</p>}
+      {stage2Held && <p className="alert alert-warning" role="status">第二阶段暂未开放签名：服务端仍保持权限交易冻结。完成独立签名服务证明与失败交易恢复核验后，服务端才可解除；第一阶段部署和只读核验不受影响。</p>}
       <p className="alert alert-warning">新版 Factory 只维护自己的矿机登记，不读取旧合约。独立系统无法保证新旧站之间的矿机编号不会重复，运营方仍须核对矿机实际所有权。Authority 接线后，管理员签名和 Gas 代发流程须先通过完整测试再开放建池。</p>
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
@@ -110,11 +110,11 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
         <input id="activation-recovery" className="text-input mono" value={recoveryHash} onChange={e => setRecoveryHash(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false}/>
         <p>结果不明时不会重发。已有哈希可直接核验；钱包加速后在此填入新的哈希。无哈希的签名意图须先关闭旧钱包确认弹窗，再由服务器及钱包核对 nonce；解除后仍须人工确认原交易。</p></div>}
       <div className="record-actions" style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-        {!record && <button className="primary-button" disabled={STAGE2_HOLD || !enabled || !!busy || loading || !credential?.credentialVerified
+        {!record && <button className="primary-button" disabled={stage2Held || !enabled || !!busy || loading || !credential?.credentialVerified
           || credential.gasWallet?.toLowerCase() !== gasWallet.trim().toLowerCase()
           || !/^0x[0-9a-fA-F]{40}$/.test(gasWallet.trim())} onClick={() => void act('初始链上核验', () => engine().prepare(budget, gasCap, gasWallet))}>
           {busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}核验新图并建立七笔交易记录</button>}
-        {record && activationCanRequestSignature(next?.status) && <button className="primary-button" disabled={STAGE2_HOLD || !enabled || !!busy || loading
+        {record && activationCanRequestSignature(next?.status) && <button className="primary-button" disabled={stage2Held || !enabled || !!busy || loading
           || !credential?.credentialVerified || credential.gasWallet?.toLowerCase() !== record.gasWallet.toLowerCase()}
           onClick={() => void act('硬件钱包交易', () => engine().sendNext(record))}>
           {busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}核对后在硬件钱包确认第 {record.steps.indexOf(next) + 1} 笔</button>}
@@ -123,7 +123,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
             onClick={() => void act('链上回执核验', () => engine().reconcile(record, recoveryHash))}>
               <RefreshCw size={15}/>只读核验链上交易</button>}
         {record && next?.status === 'signing' && !next.txHash && <button className="small-button"
-          disabled={STAGE2_HOLD || !enabled || !!busy || loading}
+          disabled={stage2Held || !enabled || !!busy || loading}
           onClick={() => void act('双重 nonce 核对', () => engine().releaseUnusedSigning(record))}>
             <ShieldCheck size={15}/>核对未使用 nonce 并解除签名意图</button>}
         {record?.status === 'complete' && <button className="small-button" onClick={() => download(`pinkuang-fresh-activation-${record.deploymentId}.json`, activationEvidence(record))}>

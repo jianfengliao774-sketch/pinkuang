@@ -17,7 +17,7 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
   return wallet.signTypedData(typed.domain,typed.types,typed.message);
 };
 
-function fixture({registered=true,relayHandler=null,lockJournal=null}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -28,21 +28,26 @@ function fixture({registered=true,relayHandler=null,lockJournal=null}={}) {
     'function setDepositPaused(bool enabled)'];
   const trusted = {record:{addresses:{factory,portfolioFactory:budget,shareMarket:market}},
     bundle:{artifacts:{FreshPoolFactory:{abi:creationAbi},
+      PlatformAuthority:{deployedBytecode:code,deployedLinkReferences:{},immutableReferences:{},abi:[
+        'function coreFactory() view returns(address)', 'function budgetFactory() view returns(address)',
+        'function administratorOne() view returns(address)', 'function administratorTwo() view returns(address)',
+        'function gasWallet() view returns(address)']},
       BudgetPortfolioFactory:{abi:['function createPortfolio(uint256 budget,uint256 absoluteCap,uint256 unitCap,uint64 fundingEnd,uint64 purchaseEnd)']}}},
     freshAuthority:{authority:{address:authority,codehash,administratorOne:admin.address,
       administratorTwo:address(36),gasWallet:gas.address}}};
   const graph = {freshAuthority:{address:authority,codehash},freshFactoryVerified:true,
     addresses:trusted.record.addresses};
   const calls = [], errors = [];
+  const roleState={first:admin.address,second:address(36),core:factory,budget,gasWallet:gas.address,code};
   const provider = {send:async()=> '0x38',getBlock:async()=>({number:1,hash:hash(1),
     timestamp:Math.floor(Date.now()/1000)}),destroy(){}};
   const store = {session:()=>admin.address.toLowerCase(),close(){}};
   const service = createAuthorityRelayService(config,{trusted,provider,store,onError:error=>errors.push(error),
+    ...(authenticateAccount ? {authenticateAccount} : {}),
     verifyGraph:async()=>graph,loadCredential:()=>gas.privateKey,
     readReclaimState:async target=>({registered:registered && target===pool,factory,
       mining:'0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',minerKey:hash(333)}),
-    readAuthorityState:async()=>({core:factory,budget,first:admin.address,second:address(36),
-      gasWallet:gas.address,nonce:0n,code}),
+    readAuthorityState:async()=>({...roleState,nonce:0n}),
     lockJournal:lockJournal??(()=>()=>{}),lockWallet:()=>()=>{},
     relay:async (_provider,options,signer)=>{
       calls.push({options,signer:signer.address});
@@ -57,7 +62,8 @@ function fixture({registered=true,relayHandler=null,lockJournal=null}={}) {
     const res = {statusCode:200,setHeader(){},end(data){resolve({status:this.statusCode,body:JSON.parse(data)});}};
     service.handle(req,res);
   });
-  return {admin,gas,authority,factory,budget,market,pool,codehash,service,request,calls,errors,creationAbi,
+  return {admin,gas,authority,factory,budget,market,pool,codehash,service,request,calls,errors,
+    creationAbi,roleState,
     close:async()=>{await service.close();rmSync(directory,{recursive:true,force:true});}};
 }
 
@@ -133,6 +139,47 @@ test('status exposes only the authenticated administrator journal summary',async
     const switched=await f.request('/api/journal/authority-relay/status','GET',undefined,
       {'x-pinkuang-account':address(99)});
     assert.equal(switched.status,409);
+  } finally {await f.close();}
+});
+
+test('signer rate limit is applied only after admin validation and is separate for both administrators',async()=>{
+  let caller=Wallet.createRandom().address;
+  const f=fixture({authenticateAccount:()=>caller});
+  try{
+    for(let count=0;count<35;count++)
+      assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,403,
+        'unrelated wallet assertions do not spend an administrator quota');
+    caller=f.admin.address;
+    for(let count=0;count<30;count++)
+      assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,200);
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,429);
+    caller=address(36);
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,200,
+      'the second approved administrator remains able to reconcile status');
+  }finally{await f.close();}
+});
+
+test('signer accepts a rotated on-chain administrator and rejects the retired one',async()=>{
+  let caller;
+  const f=fixture({authenticateAccount:()=>caller});
+  const rotated=Wallet.createRandom();
+  try {
+    caller=f.admin.address;
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,200);
+    f.roleState.first=rotated.address;
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,403);
+    caller=rotated.address;
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,200);
+    const args={market:f.market,pool:f.pool,proposalId:'7',priceWei:'1000',approved:true};
+    const deadline=String(Math.floor(Date.now()/1000)+300);
+    const signature=await sign(rotated,f.authority,'reviewSale',args,'0',deadline);
+    const command={authority:f.authority,expectedCodehash:f.codehash,kind:'reviewSale',
+      args,nonce:'0',deadline,signature};
+    assert.equal((await f.request('/api/journal/authority-relay','POST',{command})).status,200);
+    assert.equal(f.calls.length,1);
+    f.roleState.core=address(99);
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,409,
+      'a role read alone cannot authorize a changed Authority binding');
   } finally {await f.close();}
 });
 

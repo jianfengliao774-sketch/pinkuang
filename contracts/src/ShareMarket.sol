@@ -7,6 +7,44 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "./interfaces/IPoolVault.sol";
 import {IShareMarket, IShareMarketFactory, IShareMarketPool} from "./interfaces/IShareMarket.sol";
+import {PoolSaleState} from "./PoolSaleState.sol";
+
+interface IReviewedPool {
+    function getProposal(uint256 proposalId) external view returns (PoolSaleState.Proposal memory);
+    function activeProposalId() external view returns (uint256);
+    function nextProposalId() external view returns (uint256);
+}
+
+interface IDesignatedSubscriberFactory {
+    function designatedSubscriber(address pool) external view returns (address);
+}
+
+interface IPortfolioAuthorityFactory {
+    function budgetFactory() external view returns (address);
+}
+
+interface IRegisteredPortfolioFactory {
+    function legacyFactory() external view returns (address);
+    function isPool(address portfolio) external view returns (bool);
+}
+
+interface IReviewedPortfolio {
+    function childSaleReview(uint256 proposalId) external view returns (uint8);
+    function proposals(uint256 proposalId)
+        external
+        view
+        returns (
+            address child,
+            uint256 price,
+            uint256 referencePrice,
+            uint64 referenceAt,
+            uint64 endsAt,
+            uint16 memberCount,
+            uint16 yesMembers,
+            uint16 yesShares,
+            bool executed
+        );
+}
 
 /// @notice BNB orders for integer shares, locked in each seller's PoolVault account.
 /// @dev No ERC-20 custody or daily administration. Upgrades require the fixed Factory timelock.
@@ -183,7 +221,8 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     }
 
     /// @notice Platform review is required only when a passed sale lists below the fresh market reference.
-    /// @dev Rejection is final for this proposal, so a new vote is needed to propose a different price.
+    /// @dev Rejection is final only for an existing, current proposal. Neither
+    /// approval nor rejection may reserve a future proposal ID.
     function reviewSale(address pool, uint256 proposalId, uint128 priceWei, bool approved) external {
         MarketStorage storage s = _marketStorage();
         if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
@@ -193,8 +232,49 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         ) {
             revert InvalidSaleReference();
         }
+        _requireCurrentProposal(pool, proposalId, priceWei);
         s.saleReviews[pool][proposalId] = SaleReview(priceWei, approved ? 1 : 2);
         emit SaleReviewed(pool, proposalId, priceWei, approved, msg.sender);
+    }
+
+    /// @notice A registered budget project carries its one signed project review into
+    /// the child's newly created proposal in the same execution transaction.
+    function approveBudgetChildSale(address pool, uint256 proposalId, uint256 projectProposalId) external {
+        MarketStorage storage s = _marketStorage();
+        if (
+            !IShareMarketFactory(s.factory).isPool(pool)
+                || IDesignatedSubscriberFactory(s.factory).designatedSubscriber(pool) != msg.sender
+                || s.saleReviews[pool][proposalId].status == 2
+        ) revert InvalidSaleReference();
+        address operator = IShareMarketFactory(s.factory).operator();
+        if (operator.code.length == 0) revert InvalidSaleReference();
+        address budgetFactory = IPortfolioAuthorityFactory(operator).budgetFactory();
+        if (
+            budgetFactory.code.length == 0 || !IRegisteredPortfolioFactory(budgetFactory).isPool(msg.sender)
+                || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory
+                || IReviewedPortfolio(msg.sender).childSaleReview(projectProposalId) != 1
+        ) revert InvalidSaleReference();
+        (address child, uint256 price,,,,,,, bool executed) =
+            IReviewedPortfolio(msg.sender).proposals(projectProposalId);
+        if (child != pool || !executed || price == 0 || price > type(uint128).max) revert InvalidSaleReference();
+        _requireCurrentProposal(pool, proposalId, uint128(price));
+        s.saleReviews[pool][proposalId] = SaleReview(uint128(price), 1);
+        emit SaleReviewed(pool, proposalId, uint128(price), true, msg.sender);
+    }
+
+    function _requireCurrentProposal(address pool, uint256 proposalId, uint128 priceWei) private view {
+        if (IShareMarketPool(pool).state() != IPoolVault.State.Active) revert InvalidSaleReference();
+        IReviewedPool reviewedPool = IReviewedPool(pool);
+        uint256 activeId = reviewedPool.activeProposalId();
+        if (proposalId == 0 || proposalId >= reviewedPool.nextProposalId() || activeId == 0 || proposalId < activeId) {
+            revert InvalidSaleReference();
+        }
+        PoolSaleState.Proposal memory proposal = reviewedPool.getProposal(proposalId);
+        PoolSaleState.Proposal memory opener = reviewedPool.getProposal(activeId);
+        if (
+            proposal.price != priceWei || proposal.executed || opener.executed || block.timestamp >= proposal.endsAt
+                || proposal.snapshotTs != opener.snapshotTs || proposal.endsAt != opener.endsAt
+        ) revert InvalidSaleReference();
     }
 
     function saleReview(address pool, uint256 proposalId) external view returns (uint8 status, uint128 priceWei) {

@@ -13,6 +13,16 @@ const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
+/** Genesis permits one candidate per round and any positive-share holder to propose it. */
+export function genesisPortfolioProposalGate(row) {
+  if (row?.state !== 2n) return { allowed: false, reason: '项目当前不在运行状态，不能发起出售。' };
+  if (row.shares === 0n) return { allowed: false, reason: '持有至少 1 份项目份额才能发起出售。' };
+  if (row.proposal && (row.proposal.executed || row.timestamp < row.proposal.endsAt))
+    return { allowed: false, reason: '本轮已有进行中的出售提案，请等待结算或投票结束。' };
+  if (row.timestamp < row.nextRoundAt)
+    return { allowed: false, reason: '下一轮出售提案尚未开放。' };
+  return { allowed: true, reason: null };
+}
 function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, stage }) {
   const passed = candidate.yesShares >= candidate.threshold
     && candidate.yesMembers * 2n > candidate.memberCount;
@@ -363,7 +373,21 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     } else if (method === 'deposit') { const shares = shareQuantity(action.quantity); args = [shares]; value = row.unitPriceWei * shares; }
     else if (method === 'transfer') args = [address(action.recipient), shareQuantity(action.quantity)];
     else if (method === 'collectChildBem') args = [address(action.child)];
-    else if (method === 'proposeChildSale') args = [address(action.child), exactPrice(action.price), exactPrice(action.reference), uint(action.referenceAt, 64)];
+    else if (method === 'proposeChildSale') {
+      const child = address(action.child);
+      if (context.stage === 'genesis') {
+        const gate = genesisPortfolioProposalGate(row);
+        requireValue(gate.allowed, gate.reason);
+        const [info, childState, activatedAt] = await Promise.all([
+          read(target, abi.BudgetPortfolioVault, 'childInfo', [child]),
+          read(child, abi.PoolVault, 'state'), read(child, abi.PoolVault, 'activatedAt'),
+        ]);
+        requireValue(info.collection !== ZeroAddress && !info.sold && childState[0] === 2n
+          && context.timestamp >= activatedAt[0] + 7n * 86400n,
+        '该子矿机尚未满足创世版出售条件。');
+      }
+      args = [child, exactPrice(action.price), exactPrice(action.reference), uint(action.referenceAt, 64)];
+    }
     else if (method === 'voteChildSale' || method === 'executeChildSale') {
       const candidate = row.proposals.find(item => item.id === uint(action.proposalId));
       requireValue(candidate && !row.proposal?.executed && !candidate.executed, '子矿机提案已改变。');

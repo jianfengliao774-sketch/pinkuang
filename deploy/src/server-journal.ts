@@ -98,12 +98,13 @@ export class ServerJournal {
     return view.record;
   }
 
-  async freshActivationCredentialStatus(): Promise<{ credentialVerified: boolean; gasWallet: string | null }> {
-    const status = await this.request<{ credentialVerified: boolean; gasWallet: string | null }>('fresh-activation/config');
+  async freshActivationCredentialStatus(): Promise<{ credentialVerified: boolean; gasWallet: string | null; stage2Held: boolean }> {
+    const status = await this.request<{ credentialVerified: boolean; gasWallet: string | null; stage2Held: boolean }>('fresh-activation/config');
     if (!status || typeof status.credentialVerified !== 'boolean'
+      || typeof status.stage2Held !== 'boolean'
       || status.gasWallet !== null && (typeof status.gasWallet !== 'string'
         || getAddress(status.gasWallet) !== status.gasWallet)
-      || status.credentialVerified !== (status.gasWallet !== null))
+      || status.credentialVerified && status.gasWallet === null)
       throw new Error('服务器 Gas 钱包凭据状态格式异常。');
     return status;
   }

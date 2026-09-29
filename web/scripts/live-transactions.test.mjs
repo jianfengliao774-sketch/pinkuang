@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce,
-  productGasLimit, validateProductTransactionStage } from '../lib/live-transactions.mjs';
+  productGasLimit, requireCurrentProductStage, validateProductTransactionStage } from '../lib/live-transactions.mjs';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
@@ -61,12 +61,37 @@ test('a stale or unverified graph blocks before wallet access or intent persiste
   const transaction = { from: account, to: pool, chainId: '0x38', value: '0', data: abi.PoolVault.encodeFunctionData('claim') };
   await assert.rejects(sendProductTransaction({ provider, config: { ...secureConfig,
     readMode: 'verified_snapshot', stale: true, transactionReady: false },
-    transaction, action: 'claim', fetcher }), /仅供展示/);
-  assert.equal(networkCalls, 0); assert.equal(walletCalls, 0);
+    transaction, action: 'claim', fetcher }), error => error.code === 'product_graph' && error.beforeIntent === true);
+  assert.equal(networkCalls, 1); assert.equal(walletCalls, 0);
   await assert.rejects(sendProductTransaction({ provider, config: secureConfig,
     transaction,
-    action: 'claim', fetcher }), { code: 'product_graph' });
-  assert.equal(networkCalls, 1); assert.equal(walletCalls, 0);
+    action: 'claim', fetcher }), error => error.code === 'product_graph' && error.beforeIntent === true);
+  assert.equal(networkCalls, 2); assert.equal(walletCalls, 0);
+});
+
+test('display-only graph waits for a fresh identical proof before transaction preparation', async () => {
+  const manifest = { ...pinnedGenesis, verifiedBlockNumber: pinnedGenesis.deployment.blockNumber };
+  const secureConfig = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    portfolioFactory: pinnedGenesis.portfolioFactory, manifest, stage: 'genesis',
+    artifactDigest: pinnedGenesis.artifactDigest, stageActivationBlock: pinnedGenesis.deployment.blockNumber,
+    stageActivationHash: pinnedGenesis.deployment.blockHash, operationalReady: false,
+    productGraphUrl: 'https://bemine.example/api/journal/product-graph' };
+  const baseGraph = { status: 'verified', chainId: 56, stage: 'genesis',
+    artifactDigest: pinnedGenesis.artifactDigest, genesisArtifactDigest: pinnedGenesis.artifactDigest,
+    upgradeArtifactDigest: null, operationId: null, verifiedBlockNumber: pinnedGenesis.verifiedBlockNumber,
+    verifiedBlockHash: hash(99), stageActivationBlock: pinnedGenesis.deployment.blockNumber,
+    stageActivationHash: pinnedGenesis.deployment.blockHash, factory: pinnedGenesis.factory,
+    portfolioFactory: pinnedGenesis.portfolioFactory, operationalReady: false, manifest };
+  let reads = 0, waits = 0;
+  const fetcher = async () => new Response(JSON.stringify(reads++ === 0
+    ? { ...baseGraph, readMode: 'verified_snapshot', stale: true, transactionReady: false,
+      refreshing: true, snapshotAgeMs: 25_000 }
+    : { ...baseGraph, readMode: 'current', stale: false, transactionReady: true }),
+  { status: 200, headers: { 'content-type': 'application/json' } });
+  const graph = await requireCurrentProductStage(secureConfig, fetcher, { wait: async () => { waits++; } });
+  assert.equal(graph.readMode, 'current');
+  assert.equal(reads, 2);
+  assert.equal(waits, 1);
 });
 test('fixed Gas caps give simple market actions less reservation without running estimates',()=>{
   for(const kind of ['list','cancel','expire','withdrawBnb']) assert.equal(productGasLimit(kind,'market'),1_000_000n);
@@ -190,6 +215,21 @@ test('connect and journal authentication are explicit; existing sessions do not 
   await authenticate({provider:f.provider,account,config,fetcher:f.fetcher});
   assert.equal(f.calls.filter(x=>x.method==='personal_sign').length,1);
   assert(!f.calls.some(x=>x.method==='eth_sendTransaction'));
+});
+
+test('the full permitted 3 gwei quote reaches the wallet without a simulation or another RPC round',async()=>{
+  const f=fixture({price:3_000_000_000n});
+  const result=await f.send();
+  assert.equal(result.status,'confirmed');
+  const sends=f.calls.filter(call=>call.method==='eth_sendTransaction');
+  assert.equal(sends.length,1);
+  assert.equal(BigInt(sends[0].params[0].gas),5_000_000n);
+  assert.equal(BigInt(sends[0].params[0].gasPrice),3_000_000_000n);
+  assert(!f.calls.some(call=>['eth_call','eth_estimateGas'].includes(call.method)));
+
+  const over=fixture({price:3_000_000_001n});
+  await assert.rejects(over.send(),/Gas 费用超出/);
+  assert(!over.calls.some(call=>call.method==='eth_sendTransaction'));
 });
 
 test('authentication refuses a foreign challenge before personal_sign',async()=>{

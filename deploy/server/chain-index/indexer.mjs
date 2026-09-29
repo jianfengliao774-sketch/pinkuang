@@ -183,7 +183,13 @@ export class ChainIndex {
 
   acquireVerifiedReadView() {
     const entry = this.verifiedReadView;
-    if (!entry?.valid || Date.now() - Date.parse(entry.source.checkedAt) > 30 * 60 * 1000) return null;
+    if (!entry?.valid) return null;
+    if (Date.now() - Date.parse(entry.source.checkedAt) > 30 * 60 * 1000) {
+      // A retained WAL reader must not pin the database indefinitely if an
+      // upstream outage lasts beyond the permitted display-snapshot age.
+      this._retireVerifiedReadView();
+      return null;
+    }
     entry.readers++;
     return entry;
   }
@@ -560,15 +566,16 @@ export class ChainIndex {
     let stage = 'latest_header';
     this.lastScanPhase = null;
     try {
-      const latest = normalizeBlock(await this.provider.getBlock('latest'));
-      const safeHead = latest.number - this.confirmations;
-      if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
-      // Pin the last fully verified database before any chunk can commit.
-      // A failed read pin affects fallback availability, never canonical indexing.
+      // Save the last fully verified tip before the first RPC. If even the
+      // latest-header read fails, display-only history can still be served.
+      // Never use this view to authorize notifications or transactions.
       const verified = this.status();
       if (verified.complete) {
         try { await this._saveVerifiedReadView(); } catch { /* Fresh indexing remains authoritative. */ }
       }
+      const latest = normalizeBlock(await this.provider.getBlock('latest'));
+      const safeHead = latest.number - this.confirmations;
+      if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
       this.observedSafeHead = safeHead;
       // A load-balanced RPC can briefly report a shorter latest chain. That
       // alone is not proof of a reorg and must not erase committed history.
@@ -621,7 +628,13 @@ export class ChainIndex {
       this.checkedAt = new Date().toISOString();
       throw error;
     } finally {
-      try { this._retireVerifiedReadView(); }
+      try {
+        // Transient RPC failures do not invalidate the previously verified
+        // read-only tip. Reorg rollback invalidates it separately. A chain or
+        // history proof failure must fail closed even for display reads.
+        if (!this.lastError) this._retireVerifiedReadView();
+        else if (['wrong_chain', 'incomplete_history'].includes(this.lastError)) this._retireVerifiedReadView(true);
+      }
       finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
     }
   }

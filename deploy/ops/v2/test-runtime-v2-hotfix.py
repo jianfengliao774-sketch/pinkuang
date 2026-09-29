@@ -24,6 +24,12 @@ class HotfixConfiguration(unittest.TestCase):
         candidate=self.ns['candidate_snippet'](original);addition=self.ns['quote_location']()
         self.assertEqual(candidate.replace(addition,b'',1),original);self.assertEqual(self.ns['candidate_snippet'](candidate),candidate)
         self.assertIn(b'location = /bemine-v2/data/bem-price.json',candidate);self.assertNotIn(b'location /bemine-v2/data/',candidate)
+    def test_existing_reviewed_no_store_route_is_preserved_byte_for_byte(self):
+        current=self.ns['quote_location']()+b'location ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
+        self.assertEqual(self.ns['candidate_snippet'](current),current)
+    def test_old_or_unknown_existing_price_route_requires_new_review(self):
+        legacy=self.ns['quote_location']().replace(b'    add_header Cache-Control "no-store" always;\n    add_header X-Content-Type-Options nosniff always;\n',b'    expires -1;\n')
+        with self.assertRaises(AssertionError):self.ns['candidate_snippet'](legacy)
     def test_unexpected_existing_quote_route_rejected(self):
         with self.assertRaises(AssertionError):self.ns['candidate_snippet'](b'location = /bemine-v2/data/bem-price.json { alias /other; }')
 
@@ -68,6 +74,27 @@ class Quote(unittest.TestCase):
         for k,v in [('updatedAt','2020-01-01T00:00:00Z'),('blockTimestamp','2020-01-01T00:00:00Z'),('tokenAddress','OTHER'),('priceUsdt',float('nan')),('priceUsdt',True),('chainId',1)]:
             with self.subTest(k=k),self.assertRaises(AssertionError):self.ns['quote_valid'](json.dumps({**self.quote,k:v}))
 
+class GenesisGraphAcceptance(unittest.TestCase):
+    def setUp(self):
+        self.ns={'json':json,'re':re};functions(['verified_genesis_graph'],self.ns)
+        self.manifest=json.loads((HERE.parent.parent.parent/'web/public/data/frontend-manifest.json').read_text())
+        m=self.manifest;d=m['deployment']
+        self.graph={'status':'verified','chainId':56,'stage':'genesis','readMode':'current','stale':False,
+            'operationalReady':False,'upgradeArtifactDigest':None,'operationId':None,
+            'artifactDigest':m['artifactDigest'],'genesisArtifactDigest':m['artifactDigest'],
+            'factory':m['factory'],'portfolioFactory':m['portfolioFactory'],
+            'stageActivationBlock':d['blockNumber'],'stageActivationHash':d['blockHash'],
+            'verifiedBlockNumber':m['verifiedBlockNumber']+1,'verifiedBlockHash':'0x'+'ab'*32,
+            'manifest':{**m,'verifiedBlockNumber':d['blockNumber']}}
+    def test_original_genesis_is_accepted(self):
+        self.assertEqual(self.ns['verified_genesis_graph'](json.dumps(self.graph).encode(),self.manifest)['stage'],'genesis')
+    def test_wrong_factory_or_upgrade_or_stale_read_fails(self):
+        for patch in [{'factory':'0x0000000000000000000000000000000000000001'},
+            {'stage':'fresh-active'},{'readMode':'verified_snapshot'},{'upgradeArtifactDigest':'0x'+'ab'*32},
+            {'manifest':{**self.graph['manifest'],'portfolioFactory':'0x0000000000000000000000000000000000000001'}}]:
+            with self.subTest(patch=patch),self.assertRaises(AssertionError):
+                self.ns['verified_genesis_graph'](json.dumps({**self.graph,**patch}).encode(),self.manifest)
+
 class IndexCycleObservation(unittest.TestCase):
     def fixture(self,rows):
         clock={'now':0,'i':0};prints=[]
@@ -107,7 +134,7 @@ class Rollback(unittest.TestCase):
             before=('old '+key).encode();after=('new '+key).encode();(backup/(key+'.before')).write_bytes(before);path.write_bytes(after)
             state['beforeHashes'][key]=sha(before);state['candidateHashes'][key]=sha(after);state['beforeModes'][key]=0o644
         calls=[];journal=root/'journal.sqlite';journal.write_bytes(b'live signed intent');index=root/'index.sqlite';index.write_bytes(b'new verified headers')
-        ns={'targets':targets,'backup':backup,'sha':sha,'regular':lambda p:p.read_bytes(),'preserved_surface':lambda:None,'current_database_ids':lambda:state['databaseIds'],
+        ns={'targets':targets,'backup':backup,'sha':sha,'regular':lambda p:p.read_bytes(),'preserved_surface':lambda strict=True:None,'current_database_ids':lambda:state['databaseIds'],
             'replace':lambda p,b,m:p.write_bytes(b),'run':lambda args,**kw:calls.append(args)}
         functions(['restore_hotfix'],ns);return ns,state,targets,calls,journal,index
     def test_concurrent_last_file_prevents_any_stop(self):
@@ -125,5 +152,21 @@ class Rollback(unittest.TestCase):
         self.assertIn(['systemctl','start','pinkuang-index-v2.service'],calls);self.assertIn(['systemctl','start','pinkuang-deploy-v2.service'],calls)
         self.assertEqual(calls[-2:],[['nginx','-t'],['systemctl','reload','nginx']])
         self.assertFalse(any('enable' in x or 'disable' in x for x in calls))
+
+class RollbackLegacyRestart(unittest.TestCase):
+    def test_unrelated_pid_change_does_not_block_rollback_surface_guard(self):
+        stable={'LoadState':'loaded','ActiveState':'active','SubState':'running','User':'old','Group':'old','MainPID':'10','InvocationID':'old'}
+        current={**stable,'MainPID':'11','InvocationID':'new'}
+        baseline={'services':{'other':stable},'links':{'/old/current':'/old/release'}}
+        observed={'services':{'other':current},'links':baseline['links']}
+        content=b'unchanged';sha=lambda data:hashlib.sha256(data).hexdigest()
+        ns={'legacy':lambda:observed,'CONFIG':{'legacy':baseline,'nginxSha256':sha(content),'trustedRecordSha256':sha(content)},
+            'sha':sha,'regular':lambda p:content,'site':'site','record_path':'record','link_target':lambda:'/product',
+            'product':'/product'}
+        functions(['preserved_surface'],ns)
+        ns['preserved_surface'](False)
+        with self.assertRaisesRegex(AssertionError,'Legacy services'):ns['preserved_surface']()
+        observed['links']={'/old/current':'/unexpected'}
+        with self.assertRaisesRegex(AssertionError,'Legacy links'):ns['preserved_surface'](False)
 
 if __name__=='__main__':unittest.main()

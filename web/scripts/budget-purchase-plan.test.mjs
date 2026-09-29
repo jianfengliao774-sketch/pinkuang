@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ZeroAddress, getAddress } from 'ethers';
 import { selectBudgetCandidates,discoverBudgetPurchasePlan,validateBudgetQueue,prepareBudgetQueueStep,beginBudgetQueueStep,
   applyBudgetQueueResult,nextBudgetQueueItem,budgetQueuePreviewMatches,reconcileBudgetQueue,
-  restoreBudgetQueueBeforeSubmission } from '../lib/budget-purchase-plan.mjs';
+  restoreBudgetQueueBeforeSubmission,budgetPurchaseQueueSupported } from '../lib/budget-purchase-plan.mjs';
 import { parseFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { signedSource,now as sourceNow } from '../../deploy/scripts/fixtures/firsto-order.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { JournalStore, JournalConflict } from '../../deploy/server/journal-store.mjs';
 const address=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`),H=`0x${'a'.repeat(64)}`,D=`0x${'d'.repeat(64)}`;
 const C=getAddress('0xb1024b89886b9a34aa4ff5f31c411d708b20a14c'),account=address(1),parent=address(2),factory=address(3),portfolioFactory=address(4),child=address(5);
-const config={kind:'integrated-v2',factory,portfolioFactory,artifactDigest:D};
+const config={kind:'integrated-v2',factory,portfolioFactory,artifactDigest:D,stage:'role-wired',operationalReady:true};
 const candidate=(token,cost=200)=>({collection:C,tokenId:String(token),costWei:String(cost),verifiedWeight:'10',venue:'official',listingId:String(token)});
 function fixture(candidates=[candidate(1),candidate(2)]){
   const row={budgetWei:1000n,spentWei:0n,absoluteCapWei:500n,unitCapWei:100n,purchaseDeadline:2000n,timestamp:1000n};
@@ -31,6 +31,19 @@ function fixture(candidates=[candidate(1),candidate(2)]){
 function final(phase,overrides={}){return{status:'confirmed',finalized:true,account,target:phase==='create'?factory:parent,
   factory:phase==='create'?factory:portfolioFactory,action:phase==='create'?'createBudgetChildPool':'buyOfficial',hash:H,nonce:4,poolAddress:child,
   receipt:{transactionHash:H,status:1},...overrides};}
+
+test('genesis and fresh Authority stages cannot discover or submit a budget child purchase',async()=>{
+  const f=fixture();let reads=0;
+  for(const stage of ['genesis','fresh-active']){
+    const blocked={...config,stage};
+    assert.equal(budgetPurchaseQueueSupported(blocked),false);
+    await assert.rejects(discoverBudgetPurchasePlan({config:blocked,provider:{},account,parent,readParent:async()=>{reads++;return f.readParent();}}),/contract stage/);
+    await assert.rejects(prepareBudgetQueueStep({config:blocked,provider:{},account,parent,plan:{},index:0,readParent:async()=>{reads++;return f.readParent();}}),/contract stage/);
+  }
+  assert.equal(budgetPurchaseQueueSupported({...config,operationalReady:false}),false);
+  assert.equal(budgetPurchaseQueueSupported(config),true);
+  assert.equal(reads,0);
+});
 
 test('candidate selection respects exact temporary funding and deduplicates permanent NFT identity',()=>{
   assert.deepEqual(selectBudgetCandidates([candidate(1,101),candidate(1,101),candidate(2,100)],{remainingWei:250n,limitWei:250n}).map(x=>x.tokenId),['2']);

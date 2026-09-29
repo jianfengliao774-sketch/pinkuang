@@ -1,4 +1,5 @@
-import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, unlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { constants, closeSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAddress, keccak256 } from 'ethers';
@@ -12,38 +13,53 @@ export function authorityLockPath(resourcePath, lockRoot) {
 
 export function clearStaleAuthorityLock(resourcePath, lockRoot, minimumAgeMs = 60_000) {
   const root = lstatSync(lockRoot);
-  if (!root.isDirectory() || (root.mode & 0o077) !== 0)
+  if (!root.isDirectory() || (root.mode & 0o077) !== 0 || root.uid !== process.getuid())
     throw new Error('Lock directory must be a real private 0700 directory.');
   const lock = authorityLockPath(resourcePath, lockRoot);
-  // Only one recovery process may inspect/remove this lock. A live keeper does
-  // not use the recovery marker but cannot replace its still-existing lock.
-  const guard = `${lock}.recovery`;
-  const guardFd = openSync(guard, 'wx', 0o600);
+  // Preserve the inode. Unlinking it can let two signers lock different files
+  // for the same wallet when one has already opened the old inode.
+  const fd = openSync(lock, constants.O_RDWR | constants.O_NOFOLLOW);
   try {
-    const fd = openSync(lock, constants.O_RDONLY | constants.O_NOFOLLOW);
-    let details, info;
-    try {
-      info = fstatSync(fd);
-      if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0)
-        throw new Error('Lock must be a private regular file.');
-      details = JSON.parse(readFileSync(fd, 'utf8'));
-    } finally { closeSync(fd); }
-    const created = Date.parse(details.createdAt);
-    if (!Number.isSafeInteger(details.pid) || details.pid <= 0
-      || details.resource !== resolve(resourcePath) || !Number.isFinite(created)
-      || Date.now() - Math.max(created, info.mtimeMs) < minimumAgeMs)
-      throw new Error('Lock identity or minimum age is not verified; retain it for manual investigation.');
-    try { process.kill(details.pid, 0); }
-    catch (error) {
-      if (error.code !== 'ESRCH') throw new Error('Lock owner liveness is uncertain; retain the lock.');
-      const latest = lstatSync(lock);
-      if (latest.dev !== info.dev || latest.ino !== info.ino)
-        throw new Error('Lock changed during recovery; retain it.');
-      unlinkSync(lock);
-      return { status: 'stale-lock-cleared', resource: resolve(resourcePath), pid: details.pid };
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid())
+      throw new Error('Lock must be a private regular file owned by this process.');
+    const result = process.platform === 'darwin'
+      ? spawnSync('python3', ['-c', 'import fcntl,sys\ntry: fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError: sys.exit(75)'],
+        { stdio: ['ignore', 'ignore', 'ignore', fd] })
+      : spawnSync('/usr/bin/flock', ['-n', '-E', '75', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
+    if (result.status === 75) throw new Error('Another process holds this lock; retain it.');
+    if (result.error || result.status !== 0) throw new Error('OS file-lock helper failed; retain the lock.');
+    const current = lstatSync(lock);
+    if (current.dev !== info.dev || current.ino !== info.ino)
+      throw new Error('Lock changed during recovery; retain it.');
+    let details;
+    try { details = JSON.parse(readFileSync(fd, 'utf8')); } catch { /* A torn diagnostic record can be rebuilt manually. */ }
+    if (details?.lockProtocol === 'flock-v1') {
+      if (details.resource !== resolve(resourcePath)) throw new Error('Lock identity is invalid; retain it.');
+      return { status: 'stable-lock-reusable', resource: resolve(resourcePath) };
     }
-    throw new Error('Lock owner is still alive; retain the lock.');
-  } finally { closeSync(guardFd); unlinkSync(guard); }
+    if (Date.now() - info.mtimeMs < minimumAgeMs)
+      throw new Error('Lock minimum age is not verified; retain it for manual investigation.');
+    if (details) {
+      const created = Date.parse(details.createdAt);
+      if (!Number.isSafeInteger(details.pid) || details.pid <= 0
+        || details.resource !== resolve(resourcePath) || !Number.isFinite(created)
+        || Date.now() - created < minimumAgeMs)
+        throw new Error('Lock identity or minimum age is not verified; retain it for manual investigation.');
+      let dead = false;
+      try { process.kill(details.pid, 0); }
+      catch (error) {
+        if (error.code !== 'ESRCH') throw new Error('Lock owner liveness is uncertain; retain the lock.');
+        dead = true;
+      }
+      if (!dead) throw new Error('Lock owner is still alive; retain the lock.');
+    }
+    ftruncateSync(fd, 0);
+    writeSync(fd, `${JSON.stringify({ lockProtocol: 'flock-v1', pid: process.pid,
+      resource: resolve(resourcePath), createdAt: new Date().toISOString(), recovered: true })}\n`, 0, 'utf8');
+    fsyncSync(fd);
+    return { status: 'stale-lock-reinitialized', resource: resolve(resourcePath) };
+  } finally { closeSync(fd); }
 }
 
 export function authorityWalletLockResource(address, stateRoot) {

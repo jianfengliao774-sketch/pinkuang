@@ -141,3 +141,20 @@ test('nonce witness rejects malformed or inconsistent counters and preserves ser
     await assert.rejects(journal.readCurrentNonce(), /服务器暂时无法独立核对/);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test('fresh activation config exposes the server hold and an unverified public Gas address', async () => {
+  const originalFetch = globalThis.fetch;
+  const gasWallet = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619';
+  let reply: unknown = { credentialVerified: false, gasWallet, stage2Held: true };
+  globalThis.fetch = async () => new Response(JSON.stringify(reply), { status: 200 });
+  try {
+    const journal = new ServerJournal('0x1111111111111111111111111111111111111111');
+    assert.deepEqual(await journal.freshActivationCredentialStatus(), reply);
+    reply = { credentialVerified: false, gasWallet, stage2Held: false };
+    assert.deepEqual(await journal.freshActivationCredentialStatus(), reply);
+    reply = { credentialVerified: true, gasWallet: null, stage2Held: false };
+    await assert.rejects(journal.freshActivationCredentialStatus(), /状态格式异常/);
+    reply = { credentialVerified: true, gasWallet };
+    await assert.rejects(journal.freshActivationCredentialStatus(), /状态格式异常/);
+  } finally { globalThis.fetch = originalFetch; }
+});

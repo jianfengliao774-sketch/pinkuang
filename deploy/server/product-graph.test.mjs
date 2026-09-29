@@ -113,14 +113,16 @@ test('seven hardware-wallet Authority actions must match exact calldata, order, 
       blockNumber:100+index,blockHash:hash(300+index)}));
   const evidence={authority:{address:authority,deploymentTxHash:steps[0].txHash,
     administratorOne:admins[0],administratorTwo:admins[1],gasWallet},steps};
-  const state={badData:false,badReceipt:false,badOwner:false};
+  const state={badData:false,badReceipt:false,badOwner:false,
+    currentFirst:admins[0],currentSecond:admins[1]};
   const txs=steps.map((step,index)=>({hash:step.txHash,from:account,to:tos[index],
     data:data[index],value:0n,nonce:index,index:0}));
   const receipts=steps.map((step,index)=>({status:1,blockNumber:step.blockNumber,
     blockHash:step.blockHash,contractAddress:index===0?authority:null}));
   const values={owner:()=>state.badOwner?addr(99):addresses.timelock,
     coreFactory:()=>addresses.factory,budgetFactory:()=>addresses.portfolioFactory,
-    administratorOne:()=>admins[0],administratorTwo:()=>admins[1],gasWallet:()=>gasWallet};
+    administratorOne:()=>state.currentFirst,administratorTwo:()=>state.currentSecond,
+    gasWallet:()=>gasWallet};
   const provider={
     getTransaction:async txHash=>{
       const index=steps.findIndex(step=>step.txHash===txHash);
@@ -144,6 +146,16 @@ test('seven hardware-wallet Authority actions must match exact calldata, order, 
   const verified=await verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120});
   assert.equal(verified.current.coreOperator,authority);
   assert.equal(verified.current.budgetOwner,addresses.timelock);
+  state.currentFirst=addr(93);
+  assert.equal((await verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120})).address,
+    authority,'a timelock-approved admin rotation preserves the historical deployment proof');
+  for(const [first,second] of [[addr(0),admins[1]],[admins[1],admins[1]],
+    [gasWallet,admins[1]]]){
+    state.currentFirst=first;state.currentSecond=second;
+    await assert.rejects(verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120}),
+      /constructor state/);
+  }
+  state.currentFirst=admins[0];state.currentSecond=admins[1];
   for(const key of ['badData','badReceipt','badOwner']){
     state[key]=true;
     await assert.rejects(verifyFreshAuthority(provider,record,freshBundle,evidence,{number:120}));

@@ -16,7 +16,8 @@ const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url), 'ut
 const genesisRecord = read('../public/upgrade-genesis/genesis-record.json');
 const genesisBundle = read('../public/upgrade-genesis/genesis-artifacts.json');
 const genesisManifest = read('../../web/public/data/frontend-manifest.json');
-const candidateBundle = read('../dist/deployment-artifacts.json');
+// Tests must use the source-pinned artifact, not a possibly stale local build.
+const candidateBundle = read('../public/deployment-artifacts.json');
 const addr = number => getAddress(`0x${number.toString(16).padStart(40, '0')}`);
 const salt = digit => `0x${digit.repeat(64)}`;
 const replacements = Object.fromEntries(integratedUpgradeDeploymentOrder.map((name, index) =>
@@ -148,7 +149,7 @@ test('public product-graph response is pinned to a verified block and never fall
       'read-only bootstrap may reuse a bounded verified snapshot');
     assert.equal((await fetch(`${base}?pool=${addresses.factory}`)).status, 400);
     verifiedDigest = salt('7');
-    clock+=20_000;finalized={...block,number:block.number+1,hash:salt('8')};
+    clock+=45_000;finalized={...block,number:block.number+1,hash:salt('8')};
     const stale=await (await fetch(base)).json();
     assert.equal(stale.readMode,'verified_snapshot');
     assert.equal(stale.stale,true);
@@ -170,7 +171,7 @@ test('expired verified graph returns immediately as display-only while one new p
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
   const next={number:first.number+1,hash:salt('7'),timestamp:first.timestamp+3};
-  let finalized=first,clock=1_000_000,verifications=0;
+  let finalized=first,clock=1_000_000,verifications=0,rejectGraph=false;
   let releaseSecond,secondStarted,secondActivationRead;
   const secondGate=new Promise(resolve=>{releaseSecond=resolve;});
   const secondProofStarted=new Promise(resolve=>{secondStarted=resolve;});
@@ -197,6 +198,7 @@ test('expired verified graph returns immediately as display-only while one new p
     productGraphVerifier:async (_provider,factory,block)=>{
       verifications++;
       if(verifications===2){secondStarted();await secondGate;}
+      if(rejectGraph)throw Object.assign(new Error('Temporary RPC timeout'),{code:'ETIMEDOUT'});
       return {factory,blockNumber:block.number,artifactDigest:genesisRecord.artifactDigest,
         addresses,codehash};
     }});
@@ -207,18 +209,29 @@ test('expired verified graph returns immediately as display-only while one new p
     const firstRead=await (await fetch(url)).json();
     assert.equal(firstRead.readMode,'current');
     assert.equal(firstRead.stale,false);
-    clock+=20_000;finalized=next;
+    const cachedReads=await Promise.all(Array.from({length:8},()=>fetch(url)));
+    assert.ok(cachedReads.every(response=>response.status===200),
+      'cached verified reads from one NAT address must not consume the proof quota');
+    assert.equal(verifications,1);
+    clock+=45_000;finalized=next;
     const response=await fetch(url,{signal:AbortSignal.timeout(1_000)});
     assert.equal(response.status,200,'refresh must not block the display');
     const stale=await response.json();
     assert.equal(stale.readMode,'verified_snapshot');
     assert.equal(stale.verifiedBlockHash,first.hash);
-    assert.equal(stale.snapshotAgeMs,20_000);
+    assert.equal(stale.snapshotAgeMs,45_000);
     assert.equal(stale.refreshing,true);
     assert.equal(stale.transactionReady,false);
     assert.equal(stale.operationalReady,false);
     await secondProofStarted;
-    assert.equal((await (await fetch(url)).json()).stale,true);
+    const staleReads=await Promise.all(Array.from({length:8},()=>fetch(url)));
+    assert.ok(staleReads.every(response=>response.status===200),
+      'stale verified display reads from one NAT address must remain available');
+    for(const response of staleReads){
+      const graph=await response.json();
+      assert.equal(graph.stale,true);
+      assert.equal(graph.transactionReady,false);
+    }
     assert.equal(verifications,2,'concurrent stale reads share one proof');
     releaseSecond();
     await secondActivation;
@@ -231,8 +244,146 @@ test('expired verified graph returns immediately as display-only while one new p
     const aged=await (await fetch(url,{headers:{'x-real-ip':'127.0.0.2'}})).json();
     assert.equal(aged.readMode,'current','a snapshot beyond the stale bound must wait for a new proof');
     assert.equal(verifications,3);
+    rejectGraph=true;clock+=120_000;
+    const missHeaders={'x-real-ip':'198.51.100.42'};
+    for(let index=0;index<4;index++)
+      assert.equal((await fetch(url,{headers:missHeaders})).status,503,
+        'each uncached proof attempt must fail closed on RPC timeout');
+    assert.equal((await fetch(url,{headers:missHeaders})).status,429,
+      'uncached proof attempts remain bounded per client');
   }finally{
     releaseSecond();
+    await new Promise(resolve=>server.close(resolve));
+    await service.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('quiet product site refreshes its reviewed display graph before the current window expires', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'product-graph-timer-api-'));
+  const initial=genesisRecord.steps.find(step=>step.id==='initialize');
+  const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
+  const next={number:first.number+1,hash:salt('7'),timestamp:first.timestamp+3};
+  let finalized=first,clock=1_000_000,verifications=0,resolveNext;
+  const nextProof=new Promise(resolve=>{resolveNext=resolve;});
+  const addresses=genesisRecord.addresses;
+  const codehash=Object.fromEntries(Object.entries(genesisRecord.verification.code)
+    .map(([name,value])=>[name,value.codehash]));
+  const provider={async send(method){assert.equal(method,'eth_chainId');return '0x38';},
+    async getBlock(tag){
+      if(tag==='finalized')return finalized;
+      if(tag===first.number)return first;
+      if(tag===next.number)return next;
+      if(tag===initial.receipt.blockNumber)
+        return {number:tag,hash:initial.receipt.blockHash,timestamp:first.timestamp-100};
+      throw new Error(`Unexpected block ${tag}`);
+    }};
+  const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),
+    origin:'http://127.0.0.1:4173',provider,now:()=>clock,
+    currentArtifactDigest:()=>genesisRecord.artifactDigest,
+    productDeploymentRecord:genesisRecord,productArtifactBundle:genesisBundle,
+    allowedProductFactories:[addresses.factory,addresses.portfolioFactory],
+    productGraphVerifier:async(_provider,factory,block)=>{
+      verifications++;
+      if(block.number===next.number)resolveNext();
+      return {factory,blockNumber:block.number,artifactDigest:genesisRecord.artifactDigest,
+        addresses,codehash};
+    }});
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
+    assert.equal((await(await fetch(url)).json()).verifiedBlockHash,first.hash);
+    clock+=45_000;finalized=next;
+    const timeout=setTimeout(()=>resolveNext(new Error('background refresh did not start')),17_000);
+    const result=await nextProof;
+    clearTimeout(timeout);
+    if(result instanceof Error)throw result;
+    await new Promise(resolve=>setImmediate(resolve));
+    const current=await(await fetch(url)).json();
+    assert.equal(current.readMode,'current');
+    assert.equal(current.verifiedBlockHash,next.hash);
+    assert.equal(verifications,2,'no visitor request was needed to trigger the next proof');
+  }finally{
+    await new Promise(resolve=>server.close(resolve));
+    await service.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('two public budget proofs cannot consume the site graph refresh slot', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'product-graph-budget-cap-api-'));
+  const initial=genesisRecord.steps.find(step=>step.id==='initialize');
+  const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
+  const budgetBlocks=[1,2].map(offset=>({number:first.number+offset,
+    hash:salt(String(offset)),timestamp:first.timestamp+offset}));
+  const next={number:first.number+3,hash:salt('7'),timestamp:first.timestamp+3};
+  const addresses=genesisRecord.addresses,parent=addr(61_000);
+  const identityAbi=new Interface(['function isPool(address) view returns(bool)',
+    'function OFFICIAL_FACTORY() view returns(address)']);
+  const codehash=Object.fromEntries(Object.entries(genesisRecord.verification.code)
+    .map(([name,value])=>[name,value.codehash]));
+  let finalized=first,clock=1_000_000,budgetProofs=0,siteProofs=0;
+  let releaseBudget,resolveBudgetStarted;
+  const budgetGate=new Promise(resolve=>{releaseBudget=resolve;});
+  const budgetStarted=new Promise(resolve=>{resolveBudgetStarted=resolve;});
+  const blocks=new Map([first,...budgetBlocks,next].map(block=>[block.number,block]));
+  const provider={async send(method,args){
+      if(method==='eth_chainId')return '0x38';
+      assert.equal(method,'eth_call');
+      const [{to,data}]=args,call=identityAbi.parseTransaction({data});
+      if(call.name==='isPool'){
+        assert.equal(to.toLowerCase(),addresses.portfolioFactory.toLowerCase());
+        return identityAbi.encodeFunctionResult('isPool',[true]);
+      }
+      assert.equal(to.toLowerCase(),parent.toLowerCase());
+      return identityAbi.encodeFunctionResult('OFFICIAL_FACTORY',[addresses.portfolioFactory]);
+    },
+    async getCode(address){return address.toLowerCase()===parent.toLowerCase()?'0x1234':'0x';},
+    async getBlock(tag){
+      if(tag==='finalized')return finalized;
+      if(tag==='latest')return {number:next.number+1,hash:salt('8'),timestamp:next.timestamp+3};
+      if(tag===initial.receipt.blockNumber)
+        return {number:tag,hash:initial.receipt.blockHash,timestamp:first.timestamp-100};
+      return blocks.get(tag)??null;
+    }};
+  const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),
+    origin:'http://127.0.0.1:4173',provider,now:()=>clock,
+    currentArtifactDigest:()=>genesisRecord.artifactDigest,
+    productDeploymentRecord:genesisRecord,productArtifactBundle:genesisBundle,
+    allowedProductFactories:[addresses.factory,addresses.portfolioFactory],
+    productGraphVerifier:async(_provider,factory,block)=>{
+      if(factory.toLowerCase()===addresses.portfolioFactory.toLowerCase()){
+        budgetProofs++;
+        if(budgetProofs===2)resolveBudgetStarted();
+        await budgetGate;
+        throw new Error('Held candidate proof released');
+      }
+      siteProofs++;
+      return {factory,blockNumber:block.number,artifactDigest:genesisRecord.artifactDigest,
+        addresses,codehash};
+    }});
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const base=`http://127.0.0.1:${server.address().port}`;
+  const pending=[];
+  try{
+    const graphUrl=`${base}/api/journal/product-graph`;
+    assert.equal((await(await fetch(graphUrl)).json()).verifiedBlockHash,first.hash);
+    for(const block of budgetBlocks)
+      pending.push(fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${block.number}&hash=${block.hash}`));
+    await budgetStarted;
+    assert.equal(budgetProofs,2,'both candidate graph slots are occupied');
+    clock+=45_000;finalized=next;
+    assert.equal((await(await fetch(graphUrl)).json()).readMode,'verified_snapshot');
+    await new Promise(resolve=>setImmediate(resolve));
+    const refreshed=await(await fetch(graphUrl)).json();
+    assert.equal(refreshed.readMode,'current');
+    assert.equal(refreshed.verifiedBlockHash,next.hash);
+    assert.equal(siteProofs,2,'site graph proof runs despite the occupied candidate slots');
+  }finally{
+    releaseBudget();
+    await Promise.allSettled(pending);
     await new Promise(resolve=>server.close(resolve));
     await service.close();
     await rm(directory,{recursive:true,force:true});
@@ -243,7 +394,7 @@ test('a transient RPC outage retains only the original two-minute display snapsh
   const directory=await mkdtemp(join(tmpdir(),'product-graph-transient-api-'));
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const block={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
-  let clock=1_000_000,offline=false,verifications=0,failedRead;
+  let clock=1_000_000,offline=false,verifications=0,offlineReads=0,failedRead;
   const failureReached=new Promise(resolve=>{failedRead=resolve;});
   const addresses=genesisRecord.addresses;
   const codehash=Object.fromEntries(Object.entries(genesisRecord.verification.code)
@@ -251,6 +402,7 @@ test('a transient RPC outage retains only the original two-minute display snapsh
   const provider={async send(method){assert.equal(method,'eth_chainId');return '0x38';},
     async getBlock(tag){
       if(tag==='finalized' && offline){
+        offlineReads++;
         failedRead();
         throw Object.assign(new Error('RPC connection reset'),{code:'NETWORK_ERROR'});
       }
@@ -274,7 +426,7 @@ test('a transient RPC outage retains only the original two-minute display snapsh
   try{
     const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
     assert.equal((await (await fetch(url)).json()).readMode,'current');
-    clock+=20_000;offline=true;
+    clock+=45_000;offline=true;
     assert.equal((await (await fetch(url)).json()).readMode,'verified_snapshot');
     await failureReached;
     await new Promise(resolve=>setImmediate(resolve));
@@ -284,10 +436,60 @@ test('a transient RPC outage retains only the original two-minute display snapsh
     assert.equal(retained.verifiedBlockHash,block.hash);
     assert.equal(retained.transactionReady,false);
     assert.equal(retained.operationalReady,false);
-    assert.equal(retained.snapshotAgeMs,20_000,'failed refresh must not renew the snapshot age');
+    assert.equal(retained.refreshing,false);
+    assert.equal(retained.snapshotAgeMs,45_000,'failed refresh must not renew the snapshot age');
     assert.equal(verifications,1);
+    const staleReads=await Promise.all(Array.from({length:8},()=>fetch(url)));
+    assert.ok(staleReads.every(response=>response.status===200));
+    assert.equal(offlineReads,1,'stale display traffic cannot repeatedly start a fast-failing proof');
     clock=1_000_000+2*60_000;
     assert.equal((await fetch(url)).status,503,'a network outage cannot extend the two-minute bound');
+  }finally{
+    await new Promise(resolve=>server.close(resolve));
+    await service.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('a temporarily missing reviewed anchor keeps only the bounded display snapshot', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'product-graph-anchor-api-'));
+  const initial=genesisRecord.steps.find(step=>step.id==='initialize');
+  const block={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
+  let clock=1_000_000,missing=false,resolveMissing;
+  const missingRead=new Promise(resolve=>{resolveMissing=resolve;});
+  const addresses=genesisRecord.addresses;
+  const codehash=Object.fromEntries(Object.entries(genesisRecord.verification.code)
+    .map(([name,value])=>[name,value.codehash]));
+  const provider={async send(method){assert.equal(method,'eth_chainId');return '0x38';},
+    async getBlock(tag){
+      if(tag==='finalized')return block;
+      if(tag===block.number){if(missing){resolveMissing();return null;}return block;}
+      if(tag===initial.receipt.blockNumber)
+        return {number:tag,hash:initial.receipt.blockHash,timestamp:block.timestamp-100};
+      throw new Error(`Unexpected block ${tag}`);
+    }};
+  const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),
+    origin:'http://127.0.0.1:4173',provider,now:()=>clock,
+    currentArtifactDigest:()=>genesisRecord.artifactDigest,
+    productDeploymentRecord:genesisRecord,productArtifactBundle:genesisBundle,
+    allowedProductFactories:[addresses.factory,addresses.portfolioFactory],
+    productGraphVerifier:async(_provider,factory,confirmedBlock)=>({factory,
+      blockNumber:confirmedBlock.number,artifactDigest:genesisRecord.artifactDigest,addresses,codehash})});
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
+    assert.equal((await(await fetch(url)).json()).readMode,'current');
+    missing=true;clock+=45_000;
+    assert.equal((await(await fetch(url)).json()).readMode,'verified_snapshot');
+    await missingRead;
+    await new Promise(resolve=>setImmediate(resolve));
+    const retained=await(await fetch(url)).json();
+    assert.equal(retained.readMode,'verified_snapshot');
+    assert.equal(retained.transactionReady,false);
+    assert.equal(retained.snapshotAgeMs,45_000);
+    clock=1_000_000+2*60_000;
+    assert.equal((await fetch(url)).status,503,'missing RPC data cannot extend the two-minute bound');
   }finally{
     await new Promise(resolve=>server.close(resolve));
     await service.close();
@@ -329,7 +531,7 @@ test('wrong RPC chain ID invalidates a prior display snapshot rather than treati
   try{
     const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
     assert.equal((await (await fetch(url)).json()).readMode,'current');
-    clock+=20_000;chainId='0x1';
+    clock+=45_000;chainId='0x1';
     assert.equal((await (await fetch(url)).json()).stale,true);
     await wrongChainReached;
     await new Promise(resolve=>setImmediate(resolve));
@@ -375,7 +577,7 @@ test('a changed canonical hash invalidates the previous display snapshot before 
   try{
     const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
     assert.equal((await (await fetch(url)).json()).verifiedBlockHash,first.hash);
-    clock+=20_000;canonical=replacement;
+    clock+=45_000;canonical=replacement;
     assert.equal((await (await fetch(url)).json()).stale,true);
     await checked;
     await new Promise(resolve=>setImmediate(resolve));
@@ -476,6 +678,7 @@ test('public product-graph response exposes the reviewed candidate manifest only
   let verified = true;
   let failedRefresh;
   const failedRefreshReached=new Promise(resolve=>{failedRefresh=resolve;});
+  receipt.logs=[];
   const service = createJournalService({ dbPath: join(directory, 'private', 'journal.sqlite'),
     origin: 'http://127.0.0.1:4173', provider, now:()=>clock,
     currentArtifactDigest: () => genesisRecord.artifactDigest,
@@ -492,7 +695,6 @@ test('public product-graph response exposes the reviewed candidate manifest only
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const url = `http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
-    receipt.logs=[];
     assert.equal((await fetch(url)).status,503,'a claimed execute hash without exact Timelock events is not an activation');
     receipt.logs=logs;
     const response = await fetch(url);
@@ -507,7 +709,7 @@ test('public product-graph response exposes the reviewed candidate manifest only
     assert.equal(payload.manifest.verifiedBlockNumber,activationBlock);
     assert.equal(payload.verifiedBlockNumber,block.number);
     assert.equal(payload.operationalReady, false);
-    verified = false;clock+=20_000;finalized={...block,number:block.number+1,hash:salt('c')};
+    verified = false;clock+=45_000;finalized={...block,number:block.number+1,hash:salt('c')};
     const stale=await (await fetch(url)).json();
     assert.equal(stale.stale,true);
     assert.equal(stale.operationId,evidence.plan.operationId,'old stage is explicitly historical');

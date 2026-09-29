@@ -8,9 +8,15 @@ v4 是一套全新合约图和独立部署记录。`FreshPoolFactory` 只检查�
 
 现有预创世部署台的热钱包凭据隔离更新使用 [UPDATE_PREGENESIS_CONSOLE.md](./UPDATE_PREGENESIS_CONSOLE.md) 的固定哈希、空日志和回滚核验步骤。
 
-**第二阶段解除冻结条件**：需要另建不对公网服务的 Gas signer，通过可核验的签名或受保护的本机证明绑定预设公开地址、链 ID、当前部署图和权限交易；服务端验证该证明后，才可把 `credentialVerified` 改为 `true` 并开放第二阶段。当前返回 `false` 是有意的 fail-closed 状态，不可当作接线完成，也不能仅凭环境变量中的公开地址、服务器文件存在或浏览器显示地址来放行。
+**第二阶段解除冻结条件**：源码现在提供独立 signer 经私有 Unix socket 返回 EIP-191 证明；挑战绑定链 ID、网页来源、当前完成的部署记录、产物摘要、Gas 公开地址和一次性 nonce，公网进程验签后才会返回 `credentialVerified:true`。仅配置公开地址、文件存在或网页显示地址均不能放行。生产尚未安装和核验这个受限 signer，且 `BEMINE_FRESH_STAGE2_HOLD=1` 继续禁止第二阶段写入；证明成功本身也不会解除冻结。
 
-源码中的独立 Authority signer 是后续产品审核代付的**关闭状态草案**，不是上述 Stage2 证明。公网 `server/index.mjs` 只校验钱包会话和同源请求，使用仅有 HMAC 凭据的本地代理；`server/authority-signer.mjs` 在独立 `pinkuang-v4-signer` 用户下持有 Gas 凭据，监听 `/run/pinkuang-v4-relay/authority.sock`，不监听公网 TCP。代理只转发准确的 `POST /api/journal/authority-relay` 和 `GET /api/journal/authority-relay/status`，请求限 64 KiB、回包限 64 KiB、45 秒超时。短时断言绑定方法、路径、请求体 SHA-256、会话地址和期限，signer 拒绝重放；signer 仍独立重验管理员 EIP-712 签名、当前新合约图、角色、codehash、nonce 与 Gas 预算。公网进程若被完全控制，攻击者可能伪造会话断言，但仍不能伪造管理员的业务签名；因此这个隔离降低私钥暴露面，不能代替管理员签名核验。
+Stage2 激活前的离线工件由 `package-stage2-attestor.mjs --out <独立私有发布目录>` 和 `prepare-stage2-attestation.mjs <输入.json> <输出.json>` 生成。前者只复制受审源码的 19 个静态依赖、package/lock 和哈希清单，私钥与 HMAC 凭据均不入包；后者输出独立 signer unit 和公网部署台 drop-in。所指的 signer release 必须是这份独立包，经清单哈希与源码提交核对并安装运行依赖后才能审查安装。两个 unit 均固定 `AUTHORITY_RELAY_ENABLED=0`，公网 `AUTHORITY_RELAY_PUBLIC_ENABLED=0`，signer 固定 `AUTHORITY_SIGNER_ATTEST_ONLY=1`；公网 unit 保持 `BEMINE_FRESH_STAGE2_HOLD=1`。工件只生成文件，不安装、启动、广播或解除冻结；仍需单独核对受保护 Gas 凭据来源、独立用户/组、socket 权限和部署钱包链上结果。
+
+独立发布目录和其中代码须由 root 持有、供 signer 只读；私钥仅通过 systemd `LoadCredential` 装入 signer 进程，不能复制进发布目录或公网服务。安装后仍须核对实际 unit 的所有有效 drop-in；清单和生成器不能证明服务器现状。
+
+后续 cutover 草案的 `runtimeRelayDropIn` 沿用旧字段名，但仍固定关闭公网交易中继；`signerUnit` 指向同一独立私有 signer 发布目录，且同样是仅证明模式。产品代发需另行审查，不能把这份草案改成交易发送单元直接安装。
+
+源码中的独立 Authority signer 可用 `AUTHORITY_SIGNER_ATTEST_ONLY=1` 且 `AUTHORITY_RELAY_ENABLED=0` 仅提供上述证明；这种模式下产品审核代付路由返回 503，不能广播交易。公网进程使用仅有 HMAC 凭据的本地代理；`server/authority-signer.mjs` 在独立 `pinkuang-v4-signer` 用户下持有 Gas 凭据，监听 `/run/pinkuang-v4-relay/authority.sock`，不监听公网 TCP。产品中继只有经独立审查启用后才转发准确的 `POST /api/journal/authority-relay` 和 `GET /api/journal/authority-relay/status`，请求限 64 KiB、回包限 64 KiB、45 秒超时。短时断言绑定方法、路径、请求体 SHA-256、会话地址和期限，signer 拒绝重放；正式启用时仍独立重验管理员 EIP-712 签名、当前新合约图、角色、codehash、nonce 与 Gas 预算。公网进程若被完全控制，攻击者可能伪造会话断言，但仍不能伪造管理员的业务签名；因此这个隔离降低私钥暴露面，不能代替管理员签名核验。
 
 离线 cutover 草案中的普通 runtime 不加载任何私钥或 IPC 凭据。启用前须另外审查 `runtimeRelayDropIn` 和 `signerUnit`：创建专用用户 `pinkuang-v4-signer` 与专用组 `pinkuang-v4-relay`，仅公网服务用户和 signer 用户加入该组；UDS 父目录 0750、socket 0660。公开服务只加载独立随机 32 字节 HMAC 凭据，Gas 私钥只通过 systemd `LoadCredential` 交给 signer。需把同一已核验 v4 部署记录和 Authority 激活记录按 SHA256 核对后复制到 signer 私有的 `/var/lib/pinkuang-v4-signer/`，不能给 signer 读写公网 journal DB。签名 journal 与 nonce 锁只在 signer 私有根目录。用户选择继续使用原 Gas 公开地址 `0xA285…6619`，草案为私有 signer 指向原受保护凭据 `/etc/pinkuang/keeper.key`，不创建新密钥副本，也不把它交给公网进程。当前 v2 购机服务仍在发送域内，两版日志和锁不互通，因此 v4 signer 与自动购机保持关闭。启用前须停用并核对全部 v2 发送者、逐笔对账未决日志和链上 pending nonce；之后才能把 `BEMINE_V2_GAS_SENDER_DRAINED` 从 `0` 改为 `1`。这个变量只是已完成人工核对的断言，不是链上证明；若 v2 继续运行，则必须先实现共用的 nonce 调度与持久账本。
 

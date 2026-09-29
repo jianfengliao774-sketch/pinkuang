@@ -10,13 +10,17 @@ const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function all
 const POOL_ABI = ['function state() view returns(uint8)'];
 const serial = value => JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item);
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
-export const needsOperatorReview = status => /review-required|manual-review|unknown|(?:nonce|chain)-changed/.test(status ?? '');
+export const needsOperatorReview = status => /review-required|manual-review|unknown|pending-not-indexed|(?:nonce|chain)-changed/.test(status ?? '');
+export const stopsOtherPurchases = (send, journal, result) => Boolean(send
+  && (unresolved(journal) || needsOperatorReview(result.status)));
 export function reportOperatorReview(results, log = console.error) {
   const review = results.find(item => needsOperatorReview(item.status));
   if (!review) return false;
   log(serial({ at: new Date().toISOString(), status: 'operator-review-required', pool: review.pool,
     reason: review.status, message: 'No automatic rebroadcast. Inspect the durable journal before resuming.' }));
-  process.exitCode = 1;
+  // A dedicated status lets systemd keep the service failed for review instead
+  // of restarting the same unresolved wallet journal every few seconds.
+  process.exitCode = 2;
   return true;
 }
 
@@ -109,7 +113,9 @@ export async function runSupervisorCycle(provider, options, signer, state) {
       state.runtimes.set(pool, runtime);
       const result = await runKeeperCycle(provider, { ...options, pool, journal, venue: 'auto', refreshInterval: 30 }, signer, fetch, runtime);
       results.push({ pool, ...result });
-      if (options.send && (unresolved(journalFor(pool)) || result.terminal || needsOperatorReview(result.status))) break;
+      // A terminal pool no longer reserves this wallet. Continue to other
+      // Funded pools; only an unresolved nonce or review state blocks them.
+      if (stopsOtherPurchases(options.send, journalFor(pool), result)) break;
     } finally { releaseWallet?.(); releaseJournal(); }
   }
   return { status: 'scanned', poolCount: pools.length, fundedCount: [...states.values()].filter(value => value === 1n).length, results };

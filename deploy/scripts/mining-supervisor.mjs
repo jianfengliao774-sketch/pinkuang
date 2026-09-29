@@ -19,7 +19,7 @@ export function reportOperatorReview(result, send, log = console.error) {
   log(json({ at: new Date().toISOString(), status: 'operator-review-required',
     pool: review?.pool ?? null, reason: review?.status ?? result.status,
     message: 'No automatic rebroadcast. Inspect pool journals before resuming.' }));
-  process.exitCode = 1;
+  process.exitCode = 2;
   return true;
 }
 

@@ -52,6 +52,17 @@ def reviewed_unit(*, credential=True, flags=False):
 
 
 class ConsoleCredentialTests(unittest.TestCase):
+    def test_activation_helper_is_pinned_before_execution(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(__file__).with_name('update-console.remote.py')
+            helper = Path(__file__).with_name('activate-console.remote.py')
+            copy = Path(folder) / source.name
+            sibling = Path(folder) / helper.name
+            copy.write_bytes(source.read_bytes())
+            sibling.write_bytes(helper.read_bytes() + b'\n# unexpected edit\n')
+            with self.assertRaisesRegex(RuntimeError, 'differs from the reviewed source'):
+                runpy.run_path(str(copy))
+
     def test_reviewed_legacy_key_is_removed(self):
         old = ('[Service]\n'
                'LoadCredential=keeper-private-key:/etc/pinkuang/keeper-v4.key\n'
@@ -72,10 +83,10 @@ class ConsoleCredentialTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'unexpected credential'):
                     without_hot_wallet_credential('[Service]\n' + directive + '\n')
 
-    def test_replacement_removes_key_and_sets_both_holds_before_staging(self):
+    def test_replacement_removes_key_and_keeps_reviewed_public_address_and_holds(self):
         updated = replacement_unit(reviewed_unit(flags=False), OLD, NEW)
         self.assertNotIn('LoadCredential=', updated)
-        self.assertNotIn('BEMINE_EXPECTED_GAS_WALLET=', updated)
+        self.assertEqual(updated.count(script['LEGACY_GAS_WALLET_ENV']), 1)
         self.assertIn(f'WorkingDirectory={NEW}\n', updated)
         self.assertIn(f'ExecStart=/usr/bin/node {NEW}/server/index.mjs\n', updated)
         self.assertEqual(updated.count('Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=1\n'), 1)
@@ -102,11 +113,12 @@ class ConsoleCredentialTests(unittest.TestCase):
     def test_replacement_accepts_key_already_absent(self):
         updated = replacement_unit(reviewed_unit(credential=False, flags=True), OLD, NEW)
         self.assertNotIn('LoadCredential=', updated)
-        self.assertNotIn('BEMINE_EXPECTED_GAS_WALLET=', updated)
+        self.assertEqual(updated.count(script['LEGACY_GAS_WALLET_ENV']), 1)
 
     def test_replacement_accepts_console_without_old_gas_address(self):
         old = reviewed_unit(credential=False, flags=True).replace(script['LEGACY_GAS_WALLET_ENV'], '')
         updated = replacement_unit(old, OLD, NEW)
+        self.assertEqual(updated.count(script['LEGACY_GAS_WALLET_ENV']), 1)
         review_unit(updated, NEW, expect_credential=False, require_flags=True)
 
     def test_replacement_rejects_unreviewed_gas_wallet_address(self):

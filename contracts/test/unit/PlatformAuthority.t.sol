@@ -40,13 +40,20 @@ contract AuthorityFactoryMock {
     }
 
     function createFlexiblePool(IPoolVault.PoolParams calldata, IPoolVault.FlexiblePurchaseConfig calldata)
-        external view returns (address) {
+        external
+        view
+        returns (address)
+    {
         require(msg.sender == operator, "operator");
         return address(0x1234);
     }
 
-    function createFlexiblePoolChecked(IPoolVault.PoolParams calldata, IPoolVault.FlexiblePurchaseConfig calldata,
-        uint32, uint128) external view returns (address) {
+    function createFlexiblePoolChecked(
+        IPoolVault.PoolParams calldata,
+        IPoolVault.FlexiblePurchaseConfig calldata,
+        uint32,
+        uint128
+    ) external view returns (address) {
         require(msg.sender == operator, "operator");
         return address(0x1234);
     }
@@ -219,11 +226,7 @@ contract PlatformAuthorityTest is Test {
         vm.deal(address(this), 10 ether);
     }
 
-    function _sign(uint256 key, bytes32 structHash)
-        private
-        view
-        returns (bytes memory)
-    {
+    function _sign(uint256 key, bytes32 structHash) private view returns (bytes memory) {
         bytes32 domain = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
@@ -237,51 +240,144 @@ contract PlatformAuthorityTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _saleSig(uint256 key, address market_, address pool_, uint256 id, uint128 price, bool approved,
-        uint256 nonce, uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.REVIEW_SALE_TYPEHASH(), market_, pool_, id,
-            price, approved, nonce, deadline)));
+    function _saleSig(
+        uint256 key,
+        address market_,
+        address pool_,
+        uint256 id,
+        uint128 price,
+        bool approved,
+        uint256 nonce,
+        uint256 deadline
+    ) private view returns (bytes memory) {
+        return _sign(
+            key,
+            keccak256(
+                abi.encode(authority.REVIEW_SALE_TYPEHASH(), market_, pool_, id, price, approved, nonce, deadline)
+            )
+        );
     }
 
-    function _childSig(uint256 key, address portfolio, uint256 id, bool approved, uint256 nonce,
-        uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.REVIEW_CHILD_SALE_TYPEHASH(), portfolio,
-            id, approved, nonce, deadline)));
+    function _childSig(uint256 key, address portfolio, uint256 id, bool approved, uint256 nonce, uint256 deadline)
+        private
+        view
+        returns (bytes memory)
+    {
+        return _sign(
+            key, keccak256(abi.encode(authority.REVIEW_CHILD_SALE_TYPEHASH(), portfolio, id, approved, nonce, deadline))
+        );
     }
 
-    function _referenceSig(uint256 key, address market_, address pool_, uint128 price, uint64 observedAt,
-        bytes32 digest, uint256 nonce, uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.SALE_REFERENCE_TYPEHASH(), market_, pool_,
-            price, observedAt, digest, nonce, deadline)));
+    function _referenceSig(
+        uint256 key,
+        address market_,
+        address pool_,
+        uint128 price,
+        uint64 observedAt,
+        bytes32 digest,
+        uint256 nonce,
+        uint256 deadline
+    ) private view returns (bytes memory) {
+        return _sign(
+            key,
+            keccak256(
+                abi.encode(
+                    authority.SALE_REFERENCE_TYPEHASH(), market_, pool_, price, observedAt, digest, nonce, deadline
+                )
+            )
+        );
     }
 
-    function _feeSig(uint256 key, address[] memory markets, address[] memory pools, address recipient,
-        uint256 nonce, uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.CLAIM_FEES_TYPEHASH(),
-            keccak256(abi.encodePacked(markets)), keccak256(abi.encodePacked(pools)), recipient, nonce, deadline)));
+    function _feeSig(
+        uint256 key,
+        address[] memory markets,
+        address[] memory pools,
+        address recipient,
+        uint256 nonce,
+        uint256 deadline
+    ) private view returns (bytes memory) {
+        return _sign(
+            key,
+            keccak256(
+                abi.encode(
+                    authority.CLAIM_FEES_TYPEHASH(),
+                    keccak256(abi.encodePacked(markets)),
+                    keccak256(abi.encodePacked(pools)),
+                    recipient,
+                    nonce,
+                    deadline
+                )
+            )
+        );
     }
 
-    function _officialSig(uint256 key, address portfolio, address child, uint256 listingId, uint256 maxCost,
-        uint256 nonce, uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.BUY_BUDGET_OFFICIAL_TYPEHASH(), portfolio,
-            child, listingId, maxCost, nonce, deadline)));
+    function _officialSig(
+        uint256 key,
+        address portfolio,
+        address child,
+        uint256 listingId,
+        uint256 maxCost,
+        uint256 nonce,
+        uint256 deadline
+    ) private view returns (bytes memory) {
+        return _sign(
+            key,
+            keccak256(
+                abi.encode(
+                    authority.BUY_BUDGET_OFFICIAL_TYPEHASH(), portfolio, child, listingId, maxCost, nonce, deadline
+                )
+            )
+        );
     }
 
-    function _firstoSig(uint256 key, address portfolio, address child, bytes32 orderHash, uint256 maxCost,
-        uint256 nonce, uint256 deadline) private view returns (bytes memory) {
-        return _sign(key, keccak256(abi.encode(authority.BUY_BUDGET_FIRSTO_TYPEHASH(), portfolio,
-            child, orderHash, maxCost, nonce, deadline)));
+    function _firstoSig(
+        uint256 key,
+        address portfolio,
+        address child,
+        bytes32 orderHash,
+        uint256 maxCost,
+        uint256 nonce,
+        uint256 deadline
+    ) private view returns (bytes memory) {
+        return _sign(
+            key,
+            keccak256(
+                abi.encode(
+                    authority.BUY_BUDGET_FIRSTO_TYPEHASH(), portfolio, child, orderHash, maxCost, nonce, deadline
+                )
+            )
+        );
     }
 
     function _paramsHash(IPoolVault.PoolParams memory p) private view returns (bytes32) {
-        return keccak256(abi.encode(authority.POOL_PARAMS_TYPEHASH(), p.circuits, p.circuitId, p.targetRaise,
-            p.priceCap, p.directSeller, p.directPrice, p.fundingDeadline, p.purchaseDeadline));
+        return keccak256(
+            abi.encode(
+                authority.POOL_PARAMS_TYPEHASH(),
+                p.circuits,
+                p.circuitId,
+                p.targetRaise,
+                p.priceCap,
+                p.directSeller,
+                p.directPrice,
+                p.fundingDeadline,
+                p.purchaseDeadline
+            )
+        );
     }
 
     function _configHash(IPoolVault.FlexiblePurchaseConfig memory c) private view returns (bytes32) {
-        return keccak256(abi.encode(authority.FLEXIBLE_CONFIG_TYPEHASH(), c.minVerifiedWeight,
-            c.referencePriceWei, c.targetDailyYieldAtomic, c.extraBps, c.referenceObservedAt,
-            c.referenceBlock, c.referenceDigest));
+        return keccak256(
+            abi.encode(
+                authority.FLEXIBLE_CONFIG_TYPEHASH(),
+                c.minVerifiedWeight,
+                c.referencePriceWei,
+                c.targetDailyYieldAtomic,
+                c.extraBps,
+                c.referenceObservedAt,
+                c.referenceBlock,
+                c.referenceDigest
+            )
+        );
     }
 
     function _zeroConfigHash() private view returns (bytes32) {
@@ -290,7 +386,10 @@ contract PlatformAuthorityTest is Test {
     }
 
     function _poolSig(uint256 key, address factory, bytes memory data, uint256 nonce, uint256 deadline)
-        private view returns (bytes memory) {
+        private
+        view
+        returns (bytes memory)
+    {
         bytes4 selector;
         assembly { selector := mload(add(data, 32)) }
         IPoolVault.PoolParams memory p;
@@ -300,23 +399,56 @@ contract PlatformAuthorityTest is Test {
         address subscriber;
         uint32 expectedTaskId;
         uint128 expectedReferenceWeight;
-        if (selector == bytes4(keccak256("createPool((address,uint256,uint256,uint256,address,uint256,uint64,uint64))"))) {
+        if (
+            selector == bytes4(keccak256("createPool((address,uint256,uint256,uint256,address,uint256,uint64,uint64))"))
+        ) {
             p = abi.decode(_tail(data), (IPoolVault.PoolParams));
             operationHash = keccak256("createPool");
-        } else if (selector == bytes4(keccak256("createBudgetChildPool((address,uint256,uint256,uint256,address,uint256,uint64,uint64),address)"))) {
+        } else if (
+            selector
+                == bytes4(
+                    keccak256(
+                        "createBudgetChildPool((address,uint256,uint256,uint256,address,uint256,uint64,uint64),address)"
+                    )
+                )
+        ) {
             (p, subscriber) = abi.decode(_tail(data), (IPoolVault.PoolParams, address));
             operationHash = keccak256("createBudgetChildPool");
-        } else if (selector == bytes4(keccak256("createPoolWithExpiry((address,uint256,uint256,uint256,address,uint256,uint64,uint64),bool)"))) {
+        } else if (
+            selector
+                == bytes4(
+                    keccak256(
+                        "createPoolWithExpiry((address,uint256,uint256,uint256,address,uint256,uint64,uint64),bool)"
+                    )
+                )
+        ) {
             (p, expiry) = abi.decode(_tail(data), (IPoolVault.PoolParams, bool));
             operationHash = keccak256("createPoolWithExpiry");
-        } else if (selector == bytes4(keccak256("createFlexiblePool((address,uint256,uint256,uint256,address,uint256,uint64,uint64),(uint128,uint256,uint256,uint16,uint64,uint64,bytes32))"))) {
+        } else if (
+            selector
+                == bytes4(
+                    keccak256(
+                        "createFlexiblePool((address,uint256,uint256,uint256,address,uint256,uint64,uint64),(uint128,uint256,uint256,uint16,uint64,uint64,bytes32))"
+                    )
+                )
+        ) {
             (p, c) = abi.decode(_tail(data), (IPoolVault.PoolParams, IPoolVault.FlexiblePurchaseConfig));
             operationHash = keccak256("createFlexiblePool");
-        } else if (selector == bytes4(keccak256("createFlexiblePoolChecked((address,uint256,uint256,uint256,address,uint256,uint64,uint64),(uint128,uint256,uint256,uint16,uint64,uint64,bytes32),uint32,uint128)"))) {
-            (p, c, expectedTaskId, expectedReferenceWeight) = abi.decode(_tail(data),
-                (IPoolVault.PoolParams, IPoolVault.FlexiblePurchaseConfig, uint32, uint128));
+        } else if (
+            selector
+                == bytes4(
+                    keccak256(
+                        "createFlexiblePoolChecked((address,uint256,uint256,uint256,address,uint256,uint64,uint64),(uint128,uint256,uint256,uint16,uint64,uint64,bytes32),uint32,uint128)"
+                    )
+                )
+        ) {
+            (p, c, expectedTaskId, expectedReferenceWeight) = abi.decode(
+                _tail(data), (IPoolVault.PoolParams, IPoolVault.FlexiblePurchaseConfig, uint32, uint128)
+            );
             operationHash = keccak256("createFlexiblePoolChecked");
-        } else revert("unsupported test pool operation");
+        } else {
+            revert("unsupported test pool operation");
+        }
         bytes32[11] memory words;
         words[0] = authority.CREATE_POOL_TYPEHASH();
         words[1] = bytes32(uint256(uint160(factory)));
@@ -333,7 +465,10 @@ contract PlatformAuthorityTest is Test {
     }
 
     function _portfolioSig(uint256 key, address factory, bytes memory data, uint256 nonce, uint256 deadline)
-        private view returns (bytes memory) {
+        private
+        view
+        returns (bytes memory)
+    {
         (uint256 budgetWei, uint256 absoluteCapWei, uint256 unitCapWei, uint64 fundingEnd, uint64 purchaseEnd) =
             abi.decode(_tail(data), (uint256, uint256, uint256, uint64, uint64));
         bytes32[9] memory words;
@@ -350,18 +485,26 @@ contract PlatformAuthorityTest is Test {
     }
 
     function _reclaimSig(uint256 key, address pool_, bytes32 workId, uint256 nonce, uint256 deadline)
-        private view returns (bytes memory) {
+        private
+        view
+        returns (bytes memory)
+    {
         return _sign(key, keccak256(abi.encode(authority.RECLAIM_TYPEHASH(), pool_, workId, nonce, deadline)));
     }
 
     function _pauseSig(uint256 key, address pool_, bool paused, uint256 nonce, uint256 deadline)
-        private view returns (bytes memory) {
+        private
+        view
+        returns (bytes memory)
+    {
         return _sign(key, keccak256(abi.encode(authority.DEPOSIT_PAUSE_TYPEHASH(), pool_, paused, nonce, deadline)));
     }
 
     function _tail(bytes memory data) private pure returns (bytes memory result) {
         result = new bytes(data.length - 4);
-        for (uint256 i; i < result.length; ++i) result[i] = data[i + 4];
+        for (uint256 i; i < result.length; ++i) {
+            result[i] = data[i + 4];
+        }
     }
 
     function testTypedStructHashesMatchIndependentEthersVectors() public view {
@@ -369,14 +512,30 @@ contract PlatformAuthorityTest is Test {
         address[] memory pools = new address[](1);
         markets[0] = address(0x22);
         pools[0] = address(0x33);
-        assertEq(keccak256(abi.encode(authority.CLAIM_FEES_TYPEHASH(),
-            keccak256(abi.encodePacked(markets)), keccak256(abi.encodePacked(pools)),
-            address(0x44), uint256(2), uint256(9999999999))),
-            0xf6b1f0f4c9e89d05ce83d643bd454eeb3e684a26060d124a9273376cb44ddbd9);
+        assertEq(
+            keccak256(
+                abi.encode(
+                    authority.CLAIM_FEES_TYPEHASH(),
+                    keccak256(abi.encodePacked(markets)),
+                    keccak256(abi.encodePacked(pools)),
+                    address(0x44),
+                    uint256(2),
+                    uint256(9999999999)
+                )
+            ),
+            0xf6b1f0f4c9e89d05ce83d643bd454eeb3e684a26060d124a9273376cb44ddbd9
+        );
 
-        IPoolVault.PoolParams memory p = IPoolVault.PoolParams({circuits: address(0x33), circuitId: 123,
-            targetRaise: 100000, priceCap: 90000, directSeller: address(0x44), directPrice: 80000,
-            fundingDeadline: 1800001000, purchaseDeadline: 1800002000});
+        IPoolVault.PoolParams memory p = IPoolVault.PoolParams({
+            circuits: address(0x33),
+            circuitId: 123,
+            targetRaise: 100000,
+            priceCap: 90000,
+            directSeller: address(0x44),
+            directPrice: 80000,
+            fundingDeadline: 1800001000,
+            purchaseDeadline: 1800002000
+        });
         bytes32[11] memory words;
         words[0] = authority.CREATE_POOL_TYPEHASH();
         words[1] = bytes32(uint256(uint160(address(0x22))));
@@ -389,13 +548,12 @@ contract PlatformAuthorityTest is Test {
         words[8] = bytes32(0);
         words[9] = bytes32(uint256(2));
         words[10] = bytes32(uint256(9999999999));
-        assertEq(keccak256(abi.encodePacked(words)),
-            0x2e479e5e053f4ac9b3cc8b317638eed409caa78d2403572a419e26e22516ab4c);
+        assertEq(keccak256(abi.encodePacked(words)), 0x2e479e5e053f4ac9b3cc8b317638eed409caa78d2403572a419e26e22516ab4c);
     }
 
     function testEitherAdminCanReviewButRelayerCannotForgeOrReplay() public {
-        bytes memory signature = _saleSig(FIRST_KEY, address(market), address(pool), 7, 9 ether,
-            true, 0, block.timestamp + 1 hours);
+        bytes memory signature =
+            _saleSig(FIRST_KEY, address(market), address(pool), 7, 9 ether, true, 0, block.timestamp + 1 hours);
         vm.prank(RELAYER);
         authority.reviewSale(address(market), address(pool), 7, 9 ether, true, 0, block.timestamp + 1 hours, signature);
         assertEq(market.reviewedProposal(), 7);
@@ -404,8 +562,8 @@ contract PlatformAuthorityTest is Test {
         vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidAction.selector);
         authority.reviewSale(address(market), address(pool), 7, 9 ether, true, 0, block.timestamp + 1 hours, signature);
-        bytes memory secondOpinion = _saleSig(SECOND_KEY, address(market), address(pool), 7, 9 ether,
-            false, 0, block.timestamp + 1 hours);
+        bytes memory secondOpinion =
+            _saleSig(SECOND_KEY, address(market), address(pool), 7, 9 ether, false, 0, block.timestamp + 1 hours);
         vm.prank(RELAYER);
         authority.reviewSale(
             address(market), address(pool), 7, 9 ether, false, 0, block.timestamp + 1 hours, secondOpinion
@@ -419,8 +577,8 @@ contract PlatformAuthorityTest is Test {
         vm.prank(RELAYER);
         vm.expectRevert();
         authority.reviewSale(address(market), address(pool), 7, 8 ether, true, 0, block.timestamp + 1 hours, signature);
-        bytes memory nextProposal = _saleSig(FIRST_KEY, address(market), address(pool), 8, 9 ether,
-            true, 1, block.timestamp + 1 hours);
+        bytes memory nextProposal =
+            _saleSig(FIRST_KEY, address(market), address(pool), 8, 9 ether, true, 1, block.timestamp + 1 hours);
         // A signing administrator may submit directly if the Gas wallet withholds the action.
         vm.prank(first);
         authority.reviewSale(
@@ -437,11 +595,15 @@ contract PlatformAuthorityTest is Test {
 
     function testOldOpaqueActionSignatureCannotAuthorizeReview() public {
         uint256 deadline = block.timestamp + 1 hours;
-        bytes32 obsoleteType = keccak256(
-            "Action(bytes32 kind,address target,bytes32 paramsHash,uint256 nonce,uint256 deadline)");
+        bytes32 obsoleteType =
+            keccak256("Action(bytes32 kind,address target,bytes32 paramsHash,uint256 nonce,uint256 deadline)");
         bytes32 paramsHash = keccak256(abi.encode(address(pool), uint256(7), uint128(9 ether), true));
-        bytes memory obsolete = _sign(FIRST_KEY, keccak256(abi.encode(obsoleteType, authority.REVIEW_SALE(),
-            address(market), paramsHash, uint256(0), deadline)));
+        bytes memory obsolete = _sign(
+            FIRST_KEY,
+            keccak256(
+                abi.encode(obsoleteType, authority.REVIEW_SALE(), address(market), paramsHash, uint256(0), deadline)
+            )
+        );
         vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
         authority.reviewSale(address(market), address(pool), 7, 9 ether, true, 0, deadline, obsolete);
@@ -469,8 +631,16 @@ contract PlatformAuthorityTest is Test {
 
     function testReferenceNeedsAdminSignatureAndCannotBeChanged() public {
         bytes32 digest = keccak256("quote");
-        bytes memory signature = _referenceSig(FIRST_KEY, address(market), address(pool), 10 ether,
-            uint64(block.timestamp), digest, 0, block.timestamp + 1 hours);
+        bytes memory signature = _referenceSig(
+            FIRST_KEY,
+            address(market),
+            address(pool),
+            10 ether,
+            uint64(block.timestamp),
+            digest,
+            0,
+            block.timestamp + 1 hours
+        );
         vm.prank(RELAYER);
         authority.setSaleReference(
             address(market),
@@ -544,9 +714,7 @@ contract PlatformAuthorityTest is Test {
 
     function testRemovedAdministratorCannotReturnWithOutstandingSignature() public {
         uint256 deadline = block.timestamp + 1 hours;
-        bytes memory oldSignature = _saleSig(
-            SECOND_KEY, address(market), address(pool), 7, 9 ether, true, 0, deadline
-        );
+        bytes memory oldSignature = _saleSig(SECOND_KEY, address(market), address(pool), 7, 9 ether, true, 0, deadline);
         assertFalse(authority.retiredAdministrators(first));
         assertFalse(authority.retiredAdministrators(second));
 
@@ -569,9 +737,8 @@ contract PlatformAuthorityTest is Test {
         authority.setAdministrators(replacement, first);
         assertFalse(authority.retiredAdministrators(first));
         assertFalse(authority.retiredAdministrators(replacement));
-        bytes memory currentSignature = _saleSig(
-            FIRST_KEY, address(market), address(pool), 7, 9 ether, true, 0, deadline
-        );
+        bytes memory currentSignature =
+            _saleSig(FIRST_KEY, address(market), address(pool), 7, 9 ether, true, 0, deadline);
         vm.prank(RELAYER);
         authority.reviewSale(address(market), address(pool), 7, 9 ether, true, 0, deadline, currentSignature);
         assertEq(market.reviewedPool(), address(pool));
@@ -668,7 +835,8 @@ contract PlatformAuthorityTest is Test {
         vm.expectRevert(PlatformAuthority.Unauthorized.selector);
         authority.executeOperation(address(core), callData);
         bytes memory mineData = abi.encodeWithSelector(
-            AuthorityPoolMock.mine.selector, abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
+            AuthorityPoolMock.mine.selector,
+            abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
         );
         vm.prank(RELAYER);
         assertEq(
@@ -678,24 +846,41 @@ contract PlatformAuthorityTest is Test {
     }
 
     function testAllCreateVariantsAndPauseUseVisibleTypedFields() public {
-        IPoolVault.PoolParams memory p = IPoolVault.PoolParams({circuits: address(0x33), circuitId: 123,
-            targetRaise: 100000, priceCap: 90000, directSeller: address(0x44), directPrice: 80000,
-            fundingDeadline: 1800001000, purchaseDeadline: 1800002000});
+        IPoolVault.PoolParams memory p = IPoolVault.PoolParams({
+            circuits: address(0x33),
+            circuitId: 123,
+            targetRaise: 100000,
+            priceCap: 90000,
+            directSeller: address(0x44),
+            directPrice: 80000,
+            fundingDeadline: 1800001000,
+            purchaseDeadline: 1800002000
+        });
         IPoolVault.FlexiblePurchaseConfig memory c = IPoolVault.FlexiblePurchaseConfig({
-            minVerifiedWeight: 12, referencePriceWei: 70000, targetDailyYieldAtomic: 456,
-            extraBps: 800, referenceObservedAt: 1800000000, referenceBlock: 123456,
-            referenceDigest: keccak256("reference")});
+            minVerifiedWeight: 12,
+            referencePriceWei: 70000,
+            targetDailyYieldAtomic: 456,
+            extraBps: 800,
+            referenceObservedAt: 1800000000,
+            referenceBlock: 123456,
+            referenceDigest: keccak256("reference")
+        });
         bytes[] memory calls = new bytes[](3);
         calls[0] = abi.encodeWithSelector(AuthorityFactoryMock.createPoolWithExpiry.selector, p, false);
         calls[1] = abi.encodeWithSelector(AuthorityFactoryMock.createFlexiblePool.selector, p, c);
-        calls[2] = abi.encodeWithSelector(AuthorityFactoryMock.createFlexiblePoolChecked.selector,
-            p, c, uint32(42), uint128(12));
+        calls[2] = abi.encodeWithSelector(
+            AuthorityFactoryMock.createFlexiblePoolChecked.selector, p, c, uint32(42), uint128(12)
+        );
         uint256 deadline = block.timestamp + 1 hours;
         for (uint256 i; i < calls.length; ++i) {
             bytes memory signature = _poolSig(FIRST_KEY, address(core), calls[i], i, deadline);
             vm.prank(RELAYER);
-            assertEq(abi.decode(authority.executeApprovedOperation(address(core), calls[i], i, deadline, signature),
-                (address)), address(0x1234));
+            assertEq(
+                abi.decode(
+                    authority.executeApprovedOperation(address(core), calls[i], i, deadline, signature), (address)
+                ),
+                address(0x1234)
+            );
         }
         bytes memory pause = abi.encodeWithSelector(AuthorityPoolMock.setDepositPaused.selector, true);
         bytes memory pauseSig = _pauseSig(FIRST_KEY, address(pool), true, 3, deadline);
@@ -704,8 +889,13 @@ contract PlatformAuthorityTest is Test {
         assertTrue(pool.depositPaused());
         vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
-        authority.executeApprovedOperation(address(pool),
-            abi.encodeWithSelector(AuthorityPoolMock.setDepositPaused.selector, false), 3, deadline, pauseSig);
+        authority.executeApprovedOperation(
+            address(pool),
+            abi.encodeWithSelector(AuthorityPoolMock.setDepositPaused.selector, false),
+            3,
+            deadline,
+            pauseSig
+        );
     }
 
     function testReclaimRequiresAdministratorSignature() public {
@@ -724,7 +914,8 @@ contract PlatformAuthorityTest is Test {
             abi.encodeWithSignature("reclaim(bytes32)", bytes32(uint256(7)))
         );
         bytes memory arm = abi.encodeWithSelector(
-            AuthorityPoolMock.mine.selector, abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
+            AuthorityPoolMock.mine.selector,
+            abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
         );
         vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidAction.selector);
@@ -814,9 +1005,7 @@ contract PlatformAuthorityTest is Test {
     function testAdministratorCannotInvalidateFromNearMaximumToOverflowingNonce() public {
         // Reproduce the boundary directly; reaching it one permitted jump at a
         // time is impractical, but the final jump must still be rejected.
-        bytes32 nonceSlot = bytes32(
-            stdstore.target(address(authority)).sig("nonces(address)").with_key(first).find()
-        );
+        bytes32 nonceSlot = bytes32(stdstore.target(address(authority)).sig("nonces(address)").with_key(first).find());
         vm.store(address(authority), nonceSlot, bytes32(type(uint256).max - 1));
         assertEq(authority.nonces(first), type(uint256).max - 1);
         vm.prank(first);

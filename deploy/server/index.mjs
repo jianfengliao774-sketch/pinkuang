@@ -7,7 +7,8 @@ import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { servedArtifactDigest } from './artifact-digest.mjs';
 import { startOptionalNotifications } from './notifications/runtime.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
-import { authorityIpcConfiguration, createAuthorityRelayProxy } from './authority-ipc.mjs';
+import { authorityIpcConfiguration, createAuthorityRelayProxy,
+  createGasSignerProofReader } from './authority-ipc.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
@@ -69,6 +70,12 @@ export function logNotificationStatus(value, log = console.error) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { host, port } = serverConfiguration();
+  if (process.env.AUTHORITY_RELAY_PUBLIC_ENABLED !== undefined
+    && !['0', '1'].includes(process.env.AUTHORITY_RELAY_PUBLIC_ENABLED))
+    throw new Error('AUTHORITY_RELAY_PUBLIC_ENABLED must be 0 or 1.');
+  const ipc = authorityIpcConfiguration();
+  if (process.env.AUTHORITY_RELAY_PUBLIC_ENABLED === '1' && !ipc)
+    throw new Error('Public Authority relay requires the reviewed private socket.');
   const lastNotificationLog = new Map();
   // `npm start` serves real wallet actions, regardless of NODE_ENV. Only the
   // explicit Vite development integration may use local defaults.
@@ -81,9 +88,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }),
   });
   const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
+    gasWalletProofReader: ipc ? createGasSignerProofReader(ipc) : undefined,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
-  const authorityRelayService = createAuthorityRelayProxy(authorityIpcConfiguration());
+  const authorityRelayService = process.env.AUTHORITY_RELAY_PUBLIC_ENABLED === '1'
+    ? createAuthorityRelayProxy(ipc) : null;
   const server = createDeploymentServer({ journalService, liveDataProxy, authorityRelayService });
   server.listen(port, host, () => {
     console.log(`拼矿部署台：http://${host}:${port}`);

@@ -275,6 +275,30 @@ test('atomic product authorization verifies once and durably saves one signing p
   }finally{await f.close();}
 });
 
+test('product Gas envelope admits its 5M by 3 gwei boundary but rejects a larger fee',async()=>{
+  const record={...intent(),gas:'5000000',gasPrice:'3000000000'};
+  const f=await fixture({record});
+  try{
+    f.state.gasPrice=3_000_000_000n;
+    const admitted=await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0});
+    assert.equal(admitted.status,200);
+    assert.equal(admitted.body.record.gas,record.gas);
+    assert.equal(admitted.body.record.gasPrice,record.gasPrice);
+    assert.equal(f.state.simulations,0);
+    assert.equal(f.state.estimates,0);
+  }finally{await f.close();}
+
+  const over={...record,gas:'5000001'};
+  const rejected=await fixture({record:over});
+  try{
+    rejected.state.gasPrice=3_000_000_000n;
+    const response=await rejected.request('market/prepare-and-arm','POST',{record:over,expectedRevision:0});
+    assert.equal(response.status,400);
+    assert.match(response.body.error,/Gas limits/);
+    assert.equal(rejected.state.graphChecks,0);
+  }finally{await rejected.close();}
+});
+
 test('product intent checks are capped per wallet before graph RPC, then recover without blocking hash writes',async()=>{
   const clock={value:120_000},f=await fixture({now:()=>clock.value});
   try{

@@ -6,6 +6,7 @@ deployment consoles, nginx, the index, and Gas senders are not changed.
 """
 
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -14,7 +15,18 @@ import sqlite3
 import subprocess
 import time
 
-base = runpy.run_path(str(Path(__file__).with_name('activate-console.remote.py')))
+ACTIVATE_CONSOLE_SHA256 = '2d11ffecb45e37132f84dda8d9443bba091d853553aad4fee47ce3fd8a66c7a4'
+
+
+def reviewed_activation_helper():
+    helper = Path(__file__).with_name('activate-console.remote.py')
+    require_helper = helper.is_file() and not helper.is_symlink()
+    if not require_helper or hashlib.sha256(helper.read_bytes()).hexdigest() != ACTIVATE_CONSOLE_SHA256:
+        raise RuntimeError('The v4 activation helper differs from the reviewed source.')
+    return runpy.run_path(str(helper))
+
+
+base = reviewed_activation_helper()
 digest = base['digest']
 require = base['require']
 command = base['command']
@@ -132,9 +144,11 @@ def review_unit(unit, release, *, expect_credential, require_flags):
     require(all(values.get(key) == expected for key, expected in ENVIRONMENT.items()),
             'v4 unit safety environment differs from the reviewed console.')
     if 'BEMINE_EXPECTED_GAS_WALLET' in values:
-        require(not require_flags and
-                f'Environment=BEMINE_EXPECTED_GAS_WALLET={values["BEMINE_EXPECTED_GAS_WALLET"]}\n' == LEGACY_GAS_WALLET_ENV,
+        require(f'Environment=BEMINE_EXPECTED_GAS_WALLET={values["BEMINE_EXPECTED_GAS_WALLET"]}\n' == LEGACY_GAS_WALLET_ENV,
                 'v4 unit has an unreviewed Gas wallet address.')
+    if require_flags:
+        require('BEMINE_EXPECTED_GAS_WALLET' in values,
+                'v4 unit is missing the reviewed Gas wallet public address.')
     require(values['DEPLOYMENT_JOURNAL_RPC_URL'] == values['BEMINE_READ_RPC_URL']
             and values['DEPLOYMENT_JOURNAL_RPC_URL'].startswith('https://')
             and not any(char.isspace() for char in values['DEPLOYMENT_JOURNAL_RPC_URL']),
@@ -151,15 +165,16 @@ def replacement_unit(original, old, new):
     review_unit(original, old, expect_credential=HOT_KEY_CREDENTIAL.rstrip('\n') in original,
                 require_flags=False)
     updated = without_hot_wallet_credential(original)
-    updated = updated.replace(LEGACY_GAS_WALLET_ENV, '')
     updated = updated.replace(f'WorkingDirectory={old}\n', f'WorkingDirectory={new}\n')
     updated = updated.replace(f'ExecStart=/usr/bin/node {old}/server/index.mjs\n',
                               f'ExecStart=/usr/bin/node {new}/server/index.mjs\n')
-    if FLAG not in updated or STAGE2_HOLD not in updated:
-        inserted = ''.join(line for line in (FLAG, STAGE2_HOLD) if line not in updated)
+    if FLAG not in updated or STAGE2_HOLD not in updated or LEGACY_GAS_WALLET_ENV not in updated:
+        inserted = ''.join(line for line in (FLAG, STAGE2_HOLD, LEGACY_GAS_WALLET_ENV)
+                           if line not in updated)
         updated = updated.replace('UMask=0077\n', inserted + 'UMask=0077\n')
     require(updated != original and updated.count(FLAG) == 1
-            and updated.count(STAGE2_HOLD) == 1, 'v4 unit update is ambiguous.')
+            and updated.count(STAGE2_HOLD) == 1
+            and updated.count(LEGACY_GAS_WALLET_ENV) == 1, 'v4 unit update is ambiguous.')
     review_unit(updated, new, expect_credential=False, require_flags=True)
     return updated
 

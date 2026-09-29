@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { authorityLockPath, clearStaleAuthorityLock } from './authority-relay-lock-recovery.mjs';
+import { acquireKeeperLock } from './purchase-keeper.mjs';
 
 function fixture() {
   const directory=mkdtempSync(join(tmpdir(),'authority-lock-recovery-'));
@@ -36,7 +37,7 @@ test('live, young, malformed and nonprivate Authority locks remain untouched',()
   } finally {f.close();}
 });
 
-test('explicit recovery removes only an old lock whose owner is dead',()=>{
+test('explicit recovery preserves the lock inode and repairs a stale legacy or torn record',()=>{
   const f=fixture();
   try {
     const child=spawnSync(process.execPath,['-e','process.stdout.write(String(process.pid))'],{encoding:'utf8'});
@@ -44,8 +45,25 @@ test('explicit recovery removes only an old lock whose owner is dead',()=>{
     const old=new Date(Date.now()-120_000);
     writeFileSync(f.path,JSON.stringify({pid:Number(child.stdout),resource:f.resource,createdAt:old.toISOString()}),{mode:0o600});
     utimesSync(f.path,old,old);
-    assert.equal(clearStaleAuthorityLock(f.resource,f.root).status,'stale-lock-cleared');
-    assert.equal(existsSync(f.path),false);
-    assert.equal(existsSync(`${f.path}.recovery`),false);
+    const inode = statSync(f.path).ino;
+    assert.equal(clearStaleAuthorityLock(f.resource,f.root).status,'stale-lock-reinitialized');
+    assert.equal(statSync(f.path).ino,inode);
+    assert.equal(JSON.parse(readFileSync(f.path,'utf8')).lockProtocol,'flock-v1');
+    assert.equal(clearStaleAuthorityLock(f.resource,f.root).status,'stable-lock-reusable');
+    writeFileSync(f.path,'');
+    utimesSync(f.path,old,old);
+    assert.equal(clearStaleAuthorityLock(f.resource,f.root).status,'stale-lock-reinitialized');
+    assert.equal(statSync(f.path).ino,inode);
+  } finally {f.close();}
+});
+
+test('recovery cannot change a lock held by a live signer',()=>{
+  const f=fixture();
+  try {
+    const release=acquireKeeperLock(f.resource,f.root);
+    try {
+      assert.throws(()=>clearStaleAuthorityLock(f.resource,f.root),/holds this lock/);
+      assert.equal(existsSync(f.path),true);
+    } finally {release();}
   } finally {f.close();}
 });

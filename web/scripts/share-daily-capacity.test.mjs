@@ -95,6 +95,65 @@ test('uses the actual replacement NFT and its source block, with no sell order r
   assert(provider.calls.every(call => ['eth_call', 'eth_chainId', 'eth_getBlockByNumber'].includes(call.method)));
 });
 
+test('independent RPC and Firsto reads overlap without skipping final chain or block checks', async () => {
+  const base = rpc();
+  const deferred = () => {
+    let resolve;
+    return { promise: new Promise(done => { resolve = done; }), resolve: () => resolve() };
+  };
+  const groups = Object.fromEntries(['initial', 'identity', 'final'].map(name => [name, {
+    gate: deferred(), started: deferred(), seen: new Set(),
+  }]));
+  const mark = async (name, value, expected) => {
+    const group = groups[name];
+    group.seen.add(value);
+    if (group.seen.size === expected) group.started.resolve();
+    await group.gate.promise;
+  };
+  let chainReads = 0, sourceReads = 0;
+  const provider = { async request({ method, params = [] }) {
+    if (method === 'eth_chainId') {
+      chainReads++;
+      await mark(chainReads === 1 ? 'initial' : 'final', 'chain', chainReads === 1 ? 2 : 3);
+    } else if (method === 'eth_getBlockByNumber') {
+      if (params[0] === 'latest') await mark('initial', 'block', 2);
+      if (params[0] === '0x9' && ++sourceReads === 2) await mark('final', 'source', 3);
+      if (params[0] === '0xa') await mark('final', 'pinned', 3);
+    } else if (method === 'eth_call' && getAddress(params[0].to) === collection) {
+      await mark('identity', 'owner', 2);
+    }
+    return base.request({ method, params });
+  } };
+  const quoteLoader = async () => {
+    await mark('identity', 'quote', 2);
+    return detail();
+  };
+  const run = input(provider, { quoteLoader });
+  const startedWithin = async group => {
+    let timer;
+    try {
+      await Promise.race([groups[group].started.promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${group} reads did not overlap`)), 1000);
+      })]);
+    } finally { clearTimeout(timer); }
+  };
+  try {
+    await startedWithin('initial');
+    groups.initial.gate.resolve();
+    await startedWithin('identity');
+    groups.identity.gate.resolve();
+    await startedWithin('final');
+    groups.final.gate.resolve();
+    const result = await run;
+    assert.equal(result.available, true);
+    assert.equal(chainReads, 2, 'chain identity is checked again after the quote');
+    assert.equal(sourceReads, 2, 'source block is read before and after the quote');
+  } finally {
+    for (const group of Object.values(groups)) group.gate.resolve();
+    await run;
+  }
+});
+
 test('funding pool may display its exact external target with chain-matched owner and Firsto reference', async () => {
   const seller = address(12);
   const result = await input(rpc({ owner: seller }), { allowUnownedTarget: true,

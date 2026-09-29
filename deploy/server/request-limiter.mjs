@@ -52,3 +52,22 @@ export function createRequestLimiter({ windowMs = 60_000, perClient, maxClients 
     return true;
   };
 }
+
+/** Bounded quota for an already authenticated identity, independent of its IP. */
+export function createKeyedLimiter({ windowMs = 60_000, perKey, maxKeys = 10_000, now = Date.now }) {
+  if (![windowMs, perKey, maxKeys].every(value => Number.isSafeInteger(value) && value > 0))
+    throw new Error('Invalid keyed limiter configuration.');
+  let window = -1;
+  const counts = new Map();
+  return key => {
+    if (typeof key !== 'string' || !key) return false;
+    const current = Math.floor(now() / windowMs);
+    if (current !== window) { window = current; counts.clear(); }
+    const count = counts.get(key) ?? 0;
+    if (count >= perKey) return false;
+    if (count === 0 && counts.size >= maxKeys) counts.delete(counts.keys().next().value);
+    if (count > 0) counts.delete(key);
+    counts.set(key, count + 1);
+    return true;
+  };
+}

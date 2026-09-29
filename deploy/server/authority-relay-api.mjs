@@ -4,8 +4,9 @@ import { dirname, isAbsolute } from 'node:path';
 import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress, keccak256,
   parseEther, parseUnits } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
+import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
-import { createRequestLimiter } from './request-limiter.mjs';
+import { createKeyedLimiter } from './request-limiter.mjs';
 import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
 import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
@@ -231,11 +232,13 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   const relay = dependencies.relay ?? runAuthorityRelay;
   const lockJournal = dependencies.lockJournal ?? acquireKeeperLock;
   const lockWallet = dependencies.lockWallet ?? acquireWalletLock;
-  const readAuthorityState = dependencies.readAuthorityState ?? (async (authority, account) => {
+  const readAuthorityState = dependencies.readAuthorityState ?? (async (authority, account, blockNumber) => {
     const auth = new Contract(authority, ADMIN_ABI, provider);
+    const overrides = blockNumber === undefined ? {} : { blockTag: blockNumber };
     const [core, budget, first, second, gasWallet, nonce, code] = await Promise.all([
-      auth.coreFactory(), auth.budgetFactory(), auth.administratorOne(), auth.administratorTwo(),
-      auth.gasWallet(), auth.nonces(account), provider.getCode(authority),
+      auth.coreFactory(overrides), auth.budgetFactory(overrides), auth.administratorOne(overrides),
+      auth.administratorTwo(overrides), auth.gasWallet(overrides), auth.nonces(account, overrides),
+      provider.getCode(authority, blockNumber),
     ]);
     return { core, budget, first, second, gasWallet, nonce, code };
   });
@@ -249,7 +252,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     journalQueue = turn.catch(() => {});
     return turn;
   }
-  const allowRequest = createRequestLimiter({ windowMs: 60_000, perClient: 30, maxClients: 5_000 });
+  const allowAccountRequest = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
 
   async function freshGraph() {
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
@@ -339,11 +342,10 @@ export function createAuthorityRelayService(config, dependencies = {}) {
             !== '/api/journal/authority-relay' && new URL(req.url, config.origin).pathname
             !== '/api/journal/authority-relay/status') fail(404, 'Unknown authority relay route.');
           if (req.headers.origin && req.headers.origin !== config.origin) fail(403, 'Request origin is not allowed.');
-          if (!allowRequest(req)) fail(429, 'Too many authority relay requests.');
           const account = getAddress(authenticate(req));
-          const first = getAddress(trusted.freshAuthority.authority.administratorOne);
-          const second = getAddress(trusted.freshAuthority.authority.administratorTwo);
-          if (!same(account, first) && !same(account, second)) fail(403, 'Administrator wallet is required.');
+          await verifyCurrentAuthorityAdministrator(provider, trusted, account,
+            { readState: readAuthorityState });
+          if (!allowAccountRequest(account.toLowerCase())) fail(429, 'Too many authority relay requests.');
           if (req.method === 'GET' && req.url === '/api/journal/authority-relay/status')
             return json(res, 200, await status());
           if (req.method !== 'POST' || req.url !== '/api/journal/authority-relay') fail(405, 'Method is not allowed.');

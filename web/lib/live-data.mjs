@@ -17,6 +17,8 @@ const good = (s, bit) => (BigInt(s.validMask) & (1n << BigInt(bit))) !== 0n && (
 const sameSource = (a, b) => a.chainId === b.chainId && a.factory === b.factory && a.market === b.market
   && a.startBlock === b.startBlock && a.indexedThrough === b.indexedThrough && a.indexedBlockHash === b.indexedBlockHash
   && a.indexedTimestamp === b.indexedTimestamp && a.readMode === b.readMode && a.stale === b.stale;
+const VERIFICATION_TTL_MS = 10 * 60 * 1000;
+const sessionStorageSafe = () => { try { return typeof window === 'undefined' ? null : window.sessionStorage; } catch { return null; } };
 
 async function verifyInParallel(checks) {
   let next = 0, failed = false, failure;
@@ -80,7 +82,8 @@ export function livePoolModel(row, snapshot) {
 }
 
 /** Index discovers history; all balances/orders/eligibility are independently re-read at its canonical source block. */
-export function createLiveDataClient(config, { provider, fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
+export function createLiveDataClient(config, { provider, fetcher = globalThis.fetch, now = () => Date.now(),
+  verificationStorage = sessionStorageSafe() } = {}) {
   insist(config?.status === 'ready', 'unconfigured', '尚未配置已核验的正式合约。');
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   const rpc = provider ?? createReadOnlyHttpProvider(config, { fetcher });
@@ -88,6 +91,24 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   const indexBase = new URL(config.indexBaseUrl);
   insist(indexBase.origin === config.origin && !indexBase.search && !indexBase.hash, 'invalid_config', '索引必须来自本站配置。');
   const verified = new Map(), verifying = new Map();
+  const proofKey = `bemine:deployment-verified:v2:${manifest.artifactDigest}:${manifest.factory.toLowerCase()}:${config.stage}:${manifest.verifiedBlockNumber}`;
+  const readSessionProof = () => {
+    try {
+      const proof = JSON.parse(verificationStorage?.getItem(proofKey) ?? 'null');
+      return proof && typeof proof.block === 'string' && /^(0|[1-9]\d*)$/.test(proof.block)
+        && hash(proof.hash) && Number.isSafeInteger(proof.at) ? proof : null;
+    } catch { return null; }
+  };
+  let sessionProof = readSessionProof();
+  const sessionProofCurrent = header => sessionProof && sessionProof.at <= now()
+    && now() - sessionProof.at < VERIFICATION_TTL_MS
+    && BigInt(sessionProof.block) >= BigInt(manifest.verifiedBlockNumber)
+    && BigInt(sessionProof.block) <= header.number
+    && (BigInt(sessionProof.block) !== header.number || sessionProof.hash.toLowerCase() === header.hash);
+  const saveSessionProof = header => {
+    sessionProof = { block: header.number.toString(), hash: header.hash, at: now() };
+    try { verificationStorage?.setItem(proofKey, JSON.stringify(sessionProof)); } catch { /* Browsing still works without storage. */ }
+  };
   // PoolFactory only writes this slot during pool creation. A later source may
   // reuse the result after rechecking the original proof block's canonical hash.
   const subscriberCache = new Map();
@@ -116,9 +137,21 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     const b = await blockHeader(BigInt(source.indexedThrough));
     insist(b.hash === source.indexedBlockHash && b.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '索引区块已变化，请重新读取全部页面。');
   }
-  async function verifyDeployment({ blockNumber } = {}) {
-    const b = await blockHeader(blockNumber);
+  async function verifyDeploymentAtHeader(b, { displayRead = false } = {}) {
     insist(b.number >= BigInt(manifest.verifiedBlockNumber), 'deployment_block', '所选区块早于部署核验。');
+    if (displayRead && sessionProofCurrent(b)) {
+      const proofBlock = BigInt(sessionProof.block);
+      const proofHeader = proofBlock === b.number ? b : await blockHeader(proofBlock);
+      if (proofHeader.hash === sessionProof.hash.toLowerCase()) {
+        const after = await blockHeader(b.number);
+        insist(after.hash === b.hash, 'source_reorg', '读取期间发生区块变化。');
+        return Object.freeze({ chainId: 56n, factory: manifest.factory, lens: manifest.lens,
+          blockNumber: b.number, blockHash: b.hash, timestamp: b.timestamp });
+      }
+      // A newer source can be canonical while the earlier verification block was reorganized.
+      sessionProof = null;
+      try { verificationStorage?.removeItem(proofKey); } catch { /* Verification below remains authoritative. */ }
+    }
     const key = `${b.number}:${b.hash}`;
     let pending = verifying.get(key);
     if (!pending) {
@@ -153,19 +186,26 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     try { await pending; }
     catch (error) { verified.delete(key); throw error; }
     finally { if (verifying.get(key) === pending) verifying.delete(key); }
+    if (displayRead) saveSessionProof(b);
     return Object.freeze({ chainId: 56n, factory: manifest.factory, lens: manifest.lens, blockNumber: b.number, blockHash: b.hash, timestamp: b.timestamp });
+  }
+  async function verifyDeployment({ blockNumber } = {}) {
+    return verifyDeploymentAtHeader(await blockHeader(blockNumber));
   }
   async function indexRead(path, query = {}, expected) {
     const url = new URL(`${indexBase.href.replace(/\/$/, '')}${path}`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     const response = await fetchLiveJson(url.href, { fetcher });
-    const source = validateIndexSource(response?.source, manifest, { now: now() });
+    const displaySource = path === '/health' ? response?.displaySource : null;
+    const source = validateIndexSource(displaySource ?? response?.source, manifest, { now: now() });
     if (expected) {
       const old = validateIndexSource(expected, manifest, { now: now() });
       insist(sameSource(source, old), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
     }
-    await verifyDeployment({ blockNumber: BigInt(source.indexedThrough) });
-    await ensureCanonical(source);
+    const header = await blockHeader(BigInt(source.indexedThrough));
+    insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
+      'source_reorg', '索引区块已变化，请重新读取全部页面。');
+    await verifyDeploymentAtHeader(header, { displayRead: true });
     return { source, data: response.data };
   }
   async function savedSnapshotRead(path, query = {}) {
@@ -174,8 +214,10 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     const response = await fetchLiveJson(url.href, { fetcher });
     insist(response?.source?.readMode === 'verified_snapshot', 'index_identity', '服务端快照来源无效。');
     const source = validateIndexSource(response.source, manifest, { now: now(), maxAgeMs: 30 * 60 * 1000 });
-    await verifyDeployment({ blockNumber: BigInt(source.indexedThrough) });
-    await ensureCanonical(source);
+    const header = await blockHeader(BigInt(source.indexedThrough));
+    insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
+      'source_reorg', '索引区块已变化，请重新读取全部页面。');
+    await verifyDeploymentAtHeader(header, { displayRead: true });
     return { source, data: response.data };
   }
   async function sourceFor(expected) { return (await indexRead('/health', {}, expected)).source; }

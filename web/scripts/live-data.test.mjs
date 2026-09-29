@@ -60,7 +60,9 @@ function provider(options = {}) {
     if (method === 'eth_getBlockByNumber') {
       const n = args[0] === 'latest' ? BigInt(options.latestBlockNumber ?? 10) : BigInt(args[0]);
       return { number: toQuantity(n), timestamp: toQuantity(n === 8n ? timestamp - 2 : timestamp),
-        hash: n === 8n ? (options.deploymentReorg ? blockHash : deploymentHash) : options.reorg ? deploymentHash : blockHash };
+        hash: n === 8n ? (options.deploymentReorg ? blockHash : deploymentHash)
+          : options.reorg || options.reorgBlockNumber !== undefined && n === BigInt(options.reorgBlockNumber)
+            ? deploymentHash : blockHash };
     }
     if (method === 'eth_getCode') return options.badCode ? '0x6001' : code;
     assert.equal(method, 'eth_call'); assert.equal(args[1], toQuantity(options.blockNumber ?? 10n));
@@ -417,6 +419,43 @@ test('deployment success cache retains at most eight exact block identities', as
   await assert.rejects(c.verifyDeployment({ blockNumber: 10n }), { code: 'wrong_chain' });
 });
 
+test('display reads reuse a recent deployment proof across clients without bypassing direct verification', async () => {
+  const entries = new Map(), verificationStorage = {
+    getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value),
+  };
+  let clock = now;
+  const make = (rpc, indexedSource = source) => createLiveDataClient(config, { provider: rpc, verificationStorage,
+    fetcher: indexFetcher({ '/v1/pools': poolsData }, { ...indexedSource, checkedAt: new Date(clock).toISOString() }),
+    now: () => clock });
+  const cold = provider();
+  await make(cold).readPools();
+  assert.equal(cold.calls.filter(call => call.method === 'eth_getCode').length, 5);
+  const warm = provider();
+  await make(warm).readPools();
+  assert.equal(warm.calls.filter(call => call.method === 'eth_getCode').length, 0);
+  const newerSource = { ...source, indexedThrough: 11, observedSafeHead: 11 };
+  const canonicalProof = provider({ blockNumber: 11n });
+  await make(canonicalProof, newerSource).readPools();
+  assert(canonicalProof.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === '0xa'));
+  assert.equal(canonicalProof.calls.filter(call => call.method === 'eth_getCode').length, 0);
+  const reorganizedProof = provider({ blockNumber: 11n, reorgBlockNumber: 10n });
+  await make(reorganizedProof, newerSource).readPools();
+  assert(reorganizedProof.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === '0xa'));
+  assert.equal(reorganizedProof.calls.filter(call => call.method === 'eth_getCode').length, 5,
+    'a reorg of the earlier proof block must force fresh deployment verification at the newer source');
+  const warmNewer = provider({ blockNumber: 11n });
+  await make(warmNewer, newerSource).readPools();
+  assert.equal(warmNewer.calls.filter(call => call.method === 'eth_getCode').length, 0);
+  await assert.rejects(make(provider({ reorg: true })).readPools(), { code: 'source_reorg' });
+  const direct = provider();
+  await make(direct).verifyDeployment({ blockNumber: 10n });
+  assert.equal(direct.calls.filter(call => call.method === 'eth_getCode').length, 5);
+  clock += 10 * 60 * 1000 + 1;
+  const expired = provider();
+  await make(expired).readPools();
+  assert.equal(expired.calls.filter(call => call.method === 'eth_getCode').length, 5);
+});
+
 test('pools combine index discovery and same-block Lens; exact amounts and unknown mining stay exact', async () => {
   const { items, source: seen, snapshot } = await client({ '/v1/pools': poolsData }).readPools();
   assert.equal(items.length, 1); assert.equal(items[0].id, pool); assert.equal(items[0].tokenId, params.circuitId.toString());
@@ -485,6 +524,34 @@ test('a recent saved index snapshot discovers pools during sync, but Lens still 
       ? response({ source: { ...snapshotSource, indexedBlockHash: deploymentHash }, data: poolsData })
       : response({ error: 'syncing' }, 503), now: () => now });
   await assert.rejects(wrong.readPools({ account }), { code: 'source_reorg' });
+});
+
+test('detail and governance use health displaySource only after pinned-chain verification', async () => {
+  const liveStatus = { ...source, complete: false, unknownReason: 'sync_failed', observedSafeHead: 11 };
+  const displaySource = { ...source, checkedAt: new Date(now - 10 * 60_000).toISOString(),
+    readMode: 'verified_snapshot', stale: true, refreshing: false, transactionReady: false };
+  const rpc = provider();
+  const fetcher = async url => response(new URL(url).pathname.endsWith('/health')
+    ? { source: liveStatus, displaySource } : { error: 'unavailable' },
+  new URL(url).pathname.endsWith('/health') ? 200 : 503);
+  const c = createLiveDataClient(config, { provider: rpc, fetcher, now: () => now });
+  const [detail, governance] = await Promise.all([
+    c.readPool({ pool, account }), c.readGovernance({ pool, account }),
+  ]);
+  for (const result of [detail, governance]) {
+    assert.equal(result.source.readMode, 'verified_snapshot');
+    assert.equal(result.source.stale, true);
+    assert.equal(result.source.transactionReady, false);
+    assert.equal(result.source.indexedThrough, source.indexedThrough);
+  }
+  assert(rpc.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === '0xa'),
+    'the historical block hash is independently checked on chain');
+  const bad = createLiveDataClient(config, { provider: provider({ reorg: true }), fetcher, now: () => now });
+  await assert.rejects(bad.readGovernance({ pool, account }), { code: 'source_reorg' });
+  const invalid = createLiveDataClient(config, { provider: provider(), fetcher: async () => response({
+    source: liveStatus, displaySource: { ...displaySource, transactionReady: true },
+  }), now: () => now });
+  await assert.rejects(invalid.readGovernance({ pool, account }), { code: 'index_stale' });
 });
 
 test('automatic snapshot responses keep their historical checkedAt and never gain live transaction status', async () => {

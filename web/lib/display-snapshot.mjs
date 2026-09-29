@@ -8,6 +8,13 @@ const decode = (_key, value) => value && typeof value === 'object' && Object.key
   && typeof value[BIGINT] === 'string' && /^(0|[1-9]\d*)$/.test(value[BIGINT])
   ? BigInt(value[BIGINT]) : value;
 
+/** Keep the pre-boot and live page cache scoped to the same route and wallet. */
+export function pageDisplayKey(route, account, marketTab = 'shares') {
+  const name = route?.route ?? '';
+  return JSON.stringify([name, route?.pool?.toLowerCase() || '', account?.toLowerCase() || '',
+    name === 'market' ? marketTab : '']);
+}
+
 function key(manifest, page) {
   if (!HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory) || typeof page !== 'string') return null;
   return `${PREFIX}${manifest.artifactDigest.toLowerCase()}:${manifest.factory.toLowerCase()}:${page}`;

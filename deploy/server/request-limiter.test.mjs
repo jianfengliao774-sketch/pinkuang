@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
+import { clientAddress, createKeyedLimiter, createRequestLimiter } from './request-limiter.mjs';
 
 test('only loopback proxy identity can supply a client IP', () => {
   assert.equal(clientAddress({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'x-real-ip': '203.0.113.10' } }), '203.0.113.10');
@@ -50,4 +50,16 @@ test('IPv4-mapped IPv6 addresses retain the IPv4 client quota', () => {
   assert.equal(allowed(client('::ffff:192.0.2.3')), true);
   assert.equal(allowed(client('192.0.2.3')), false);
   assert.equal(allowed(client('::ffff:192.0.2.4')), true);
+});
+
+test('authenticated identity quotas are independent of IP and of other identities', () => {
+  let time=0;
+  const allow=createKeyedLimiter({perKey:2,maxKeys:2,windowMs:1_000,now:()=>time});
+  assert.equal(allow('admin-one'),true);
+  assert.equal(allow('admin-one'),true);
+  assert.equal(allow('admin-one'),false);
+  assert.equal(allow('admin-two'),true);
+  assert.equal(allow(''),false);
+  time=1_000;
+  assert.equal(allow('admin-one'),true);
 });

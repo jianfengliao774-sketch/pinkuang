@@ -2,8 +2,8 @@ name: Contracts
 
 on:
   push:
-    # PRs validate their merge ref; avoid a duplicate feature-branch RPC run.
-    branches: [main]
+    # Validate release branches even when they have not yet opened a PR.
+    branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -58,7 +58,7 @@ jobs:
 
   deployment-console:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -79,6 +79,11 @@ jobs:
         working-directory: deploy
       - name: Compile source-pinned UI and production server assets
         run: npm run build
+        working-directory: deploy
+      - name: Build and package the actual pre-genesis v4 console
+        run: |
+          npm run build:fresh
+          node scripts/package-fresh-console.mjs --out "$RUNNER_TEMP/pinkuang-fresh-package"
         working-directory: deploy
       - uses: pnpm/action-setup@v4
         with:

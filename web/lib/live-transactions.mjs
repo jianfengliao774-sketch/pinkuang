@@ -13,6 +13,10 @@ const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
 const genesisAbi = Object.freeze(Object.fromEntries(Object.entries(genesisContracts.abis)
   .map(([name, fragments]) => [name, new Interface(fragments)])));
 const active = new Set();
+// The largest fixed product limit is 5M Gas and the accepted price ceiling is
+// 3 gwei. Keep the default cost envelope consistent with both limits so an
+// otherwise valid quote is not rejected between 2 and 3 gwei.
+const DEFAULT_MAX_TRANSACTION_GAS_WEI = '15000000000000000';
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 const sameNullable = (a, b) => a == null && b == null || same(a, b);
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
@@ -171,16 +175,22 @@ export function validateProductTransactionStage(config, transaction, action) {
   return normalize(config, transaction, action);
 }
 
-async function requireCurrentProductStage(config, fetcher) {
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+export async function requireCurrentProductStage(config, fetcher, { wait = pause, now = Date.now } = {}) {
   if (!config.manifest) return; // Legacy isolated test fixtures never reach production boot.
   requireValue(typeof config.productGraphUrl === 'string' && typeof config.origin === 'string',
     '缺少已核验的产品阶段，请刷新页面。');
   const url = new URL(config.productGraphUrl);
   requireValue(url.origin === config.origin && url.pathname.endsWith('/api/journal/product-graph')
     && !url.search && !url.hash, '产品阶段必须由本站核验服务提供。');
-  const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
-  requireValue(graph.readMode === 'current' && graph.stale === false && graph.transactionReady !== false
-    && graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
+  // A display-only response is expected while the server refreshes its proof.
+  // Wait for a fresh proof before touching the wallet or writing an intent;
+  // never retry a submitted transaction or accept the old response for signing.
+  const deadline = now() + 8000;
+  for (;;) {
+    const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
+    requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
     && same(graph.manifest.portfolioFactory, config.portfolioFactory)
@@ -193,7 +203,13 @@ async function requireCurrentProductStage(config, fetcher) {
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
       && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),
-  '链上产品阶段已变化，请刷新页面后重新确认交易。');
+    '链上产品阶段已变化，请刷新页面后重新确认交易。');
+    if (graph.readMode === 'current' && graph.stale === false && graph.transactionReady !== false) return graph;
+    requireValue(graph.readMode === 'verified_snapshot' && graph.stale === true
+      && graph.transactionReady === false, '产品阶段资料尚未通过最新链上核验。');
+    requireValue(now() < deadline, '链上产品阶段仍在刷新，请稍后重试；尚未发送交易。');
+    await wait(Math.min(500, Math.max(0, deadline - now())));
+  }
 }
 function validateResult(result, account, record, hash) {
   requireValue(result?.finalized === true && ['confirmed','reverted','cancelled','replaced'].includes(result.status)
@@ -277,7 +293,7 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       && tx.gas === '0x5208' && tx.type === '0x0', '取消交易必须是原 nonce 的零金额自转。');
     const gasPrice = exact(tx.gasPrice, '取消交易 Gas 单价'), gas = 21_000n;
     requireValue(gasPrice > 0n && gasPrice <= 3_000_000_000n && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000')
-      && gas * gasPrice <= exact(config.maxTransactionGasWei ?? '10000000000000000'), '取消交易 Gas 费用超出页面限制。');
+      && gas * gasPrice <= exact(config.maxTransactionGasWei ?? DEFAULT_MAX_TRANSACTION_GAS_WEI), '取消交易 Gas 费用超出页面限制。');
     const cancellation = ack.record.cancellationRequests?.at(-1);
     requireValue(cancellation && Object.entries(tx).every(([key, value]) => cancellation[key] === value)
       && ack.record.cancellationRequests.length === (record.cancellationRequests?.length ?? 0) + 1,
@@ -321,14 +337,26 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
 }
 /** One explicit user action = at most one eth_sendTransaction. Server ACK precedes the wallet request. */
 export async function sendProductTransaction({ provider, config, transaction, action, onState, fetcher = globalThis.fetch }) {
-  const normalized = normalize(config, transaction, action), { account, factory, target, targetType, value, data } = normalized;
-  const lane = account.toLowerCase();
-  requireValue(!active.has(lane), '这个钱包正在提交另一笔交易。');
+  let lane;
+  try { lane = address(transaction?.from).toLowerCase(); }
+  catch (error) { if (error && typeof error === 'object') error.beforeIntent = true; throw error; }
+  if (active.has(lane)) {
+    const error = new Error('这个钱包正在提交另一笔交易。');
+    error.beforeIntent = true;
+    throw error;
+  }
   active.add(lane);
-  let record, hash, revision;
+  let record, hash, revision, intentRequestStarted = false;
   try {
     emit(onState, { status: 'preparing' });
-    await requireCurrentProductStage(config, fetcher);
+    const graph = await requireCurrentProductStage(config, fetcher);
+    // The boot response may have been a verified display-only snapshot. Only
+    // a freshly verified response with the identical pinned graph can clear
+    // that local display marker for this one submission.
+    const currentConfig = graph && config.transactionReady === false
+      ? { ...config, readMode: 'current', stale: false, transactionReady: true } : config;
+    const normalized = normalize(currentConfig, transaction, action);
+    const { account, factory, target, targetType, value, data } = normalized;
     // Independent reads overlap, but every started read settles before an intent can be saved.
     const { session, view } = await settleReadRound({
       wallet: () => requireWallet(provider, account),
@@ -350,13 +378,14 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(normalized.action.kind, targetType), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
     requireValue(nonce === rpcQuantity(pending, '钱包待处理 nonce') && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
     requireValue(gas > 0n && gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n
-      && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000') && gas * gasPrice <= exact(config.maxTransactionGasWei ?? '10000000000000000'), 'Gas 费用超出页面限制，请稍后重试。');
+      && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000') && gas * gasPrice <= exact(config.maxTransactionGasWei ?? DEFAULT_MAX_TRANSACTION_GAS_WEI), 'Gas 费用超出页面限制，请稍后重试。');
     requireValue(rpcQuantity(balance, '钱包 BNB 余额') >= value + gas * gasPrice, 'BNB 余额不足以支付款项和 Gas。');
     const prepared = { version: 2, chainId: 56, account, factory, target, targetType, nonce: Number(nonce),
       action: normalized.action, data, value: value.toString(), gas: gas.toString(), gasPrice: gasPrice.toString(), submittedAt: new Date().toISOString() };
     emit(onState, { status: 'recording-intent' });
     let permit, fastAuthorized = false;
     try {
+      intentRequestStarted = true;
       permit = await request(config, 'market/prepare-and-arm', 'POST',
         { record: prepared, expectedRevision: revision }, account, fetcher);
       record = prepared;
@@ -394,7 +423,10 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     emit(onState, { status: 'pending', hash, record });
     return await recoverPending({ provider, account, config, hash, onState, fetcher });
   } catch (error) {
-    if (!record) throw error;
+    if (!record) {
+      if (!intentRequestStarted && error && typeof error === 'object') error.beforeIntent = true;
+      throw error;
+    }
     const rejected = error.code === 4001 || error.code === 'ACTION_REJECTED';
     const result = { status: 'pending', record, ...(hash && HASH.test(hash) ? { hash } : {}),
       message: rejected ? '钱包请求已取消。签名前意图已保留，需核对 nonce 后才能继续；不会自动重发。' : (error.message || '交易结果待核对。') };

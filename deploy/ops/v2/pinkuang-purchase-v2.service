@@ -3,6 +3,8 @@ Description=BEMine v2 automatic official-first miner purchase
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/pinkuang/keeper.key
+StartLimitIntervalSec=10min
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -17,6 +19,7 @@ StateDirectoryMode=0700
 UMask=0077
 ExecStart=/usr/bin/node /srv/pinkuang-purchase-v2/current/scripts/purchase-supervisor.mjs --factory 0x2995B10d19056c8C24C57b281C22562a603C571F --rpc https://bsc-dataseed.bnbchain.org --journal-dir /var/lib/pinkuang-purchase-v2/journal --send
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=10s
 NoNewPrivileges=yes
 PrivateTmp=yes

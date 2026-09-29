@@ -62,9 +62,12 @@ export async function readShareDailyCapacityPrice(provider, {
     if (factory === ZeroAddress || pool === ZeroAddress) return unavailable('invalid_input');
     const price = uint(pricePerUnitWei);
     const request = (method, params = []) => provider.request({ method, params });
-    if (BigInt(await request('eth_chainId')) !== CHAIN_ID) return unavailable('wrong_chain');
     const requestedTag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
-    let block = await request('eth_getBlockByNumber', [requestedTag, false]);
+    const [initialChainId, initialBlock] = await Promise.all([
+      request('eth_chainId'), request('eth_getBlockByNumber', [requestedTag, false]),
+    ]);
+    if (BigInt(initialChainId) !== CHAIN_ID) return unavailable('wrong_chain');
+    let block = initialBlock;
     let pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
     let pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
     if (pinnedAt === null || (blockNumber !== undefined && pinnedNumber !== uint(blockNumber)) ||
@@ -82,12 +85,15 @@ export async function readShareDailyCapacityPrice(provider, {
     if (!registered || getAddress(backlink) !== factory) return unavailable('untrusted_pool');
     const collection = getAddress(params.circuits), tokenId = uint(params.circuitId).toString();
     if (!OFFICIAL.has(collection.toLowerCase())) return unavailable('unsupported_miner');
-    const owner = await call(collection, NFT, 'ownerOf', [tokenId]);
+    // Both reads use the same identity checked above. Keep the ownership and
+    // Firsto identity comparisons below before exposing any display price.
+    const [owner, detail] = await Promise.all([
+      call(collection, NFT, 'ownerOf', [tokenId]), quoteLoader(collection, tokenId),
+    ]);
     if (getAddress(owner) !== pool && !allowUnownedTarget) return unavailable('miner_not_in_pool');
 
     // The exact Firsto detail endpoint covers pool-owned NFTs even when they
     // have no active sell order or are absent from three pages of text search.
-    const detail = await quoteLoader(collection, tokenId);
     const asset = detail?.asset, mining = asset?.mining;
     if (!asset || !mining || getAddress(asset.collection) !== collection ||
         exactDecimal(asset.tokenId)?.toString() !== tokenId || getAddress(asset.owner) !== getAddress(owner) ||
@@ -122,11 +128,15 @@ export async function readShareDailyCapacityPrice(provider, {
     const observedAt = blockTime(sourceHeader, miningSourceBlock);
     if (observedAt === null || observedAt > pinnedAt || observedAt > now + 30_000 ||
         now - observedAt > MAX_QUOTE_AGE_MS) return unavailable('stale_quote');
-    const after = await request('eth_getBlockByNumber', [tag, false]);
-    const sourceAfter = sourceTag === tag ? after : await request('eth_getBlockByNumber', [sourceTag, false]);
+    const afterPromise = request('eth_getBlockByNumber', [tag, false]);
+    const [after, sourceAfter, finalChainId] = await Promise.all([
+      afterPromise,
+      sourceTag === tag ? afterPromise : request('eth_getBlockByNumber', [sourceTag, false]),
+      request('eth_chainId'),
+    ]);
     if (after?.hash !== block.hash || blockTime(after, pinnedNumber) !== pinnedAt ||
         sourceAfter?.hash !== sourceHeader.hash || blockTime(sourceAfter, miningSourceBlock) !== observedAt ||
-        BigInt(await request('eth_chainId')) !== CHAIN_ID) {
+        BigInt(finalChainId) !== CHAIN_ID) {
       return unavailable('chain_changed');
     }
     const metadata = parseMinerDisplayMetadata(mining);

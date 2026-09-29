@@ -35,7 +35,17 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     try { url = new URL(req.url, 'http://localhost'); }
     catch { return send(400, { error: 'Invalid URL.' }); }
     let source = index.status();
-    if (url.pathname === '/health') return send(200, { source });
+    if (url.pathname === '/health') {
+      const view = index.syncing || !source.complete ? index.acquireVerifiedReadView() : null;
+      try {
+        // Keep `source` as the live operational status. Only browser display
+        // reads may use the previously verified tip, clearly marked as stale.
+        return send(200, { source, ...(view ? { displaySource: {
+          ...view.source, readMode: 'verified_snapshot', stale: true,
+          refreshing: Boolean(index.syncing), transactionReady: false,
+        } } : {}) });
+      } finally { if (view) index.releaseVerifiedReadView(view); }
+    }
     const privateSnapshot = url.pathname === '/v1/notifications' || url.pathname === '/v1/community';
     // These pages can drive outbound messages. An earlier display tip must
     // never authorize a notification while fresh verification is underway.

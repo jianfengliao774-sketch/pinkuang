@@ -4,15 +4,33 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getAddress } from 'ethers';
+import { Interface, getAddress } from 'ethers';
 import { createJournalService } from './journal-api.mjs';
 const address=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`),hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
 const factory=address(1),parent=address(2),legacy=address(3),digest=hash(99);
+const prefilter=new Interface(['function isPool(address) view returns(bool)',
+  'function OFFICIAL_FACTORY() view returns(address)']);
 const path=(number=10)=>`/api/journal/budget-candidates?parent=${parent}&block=${number}&hash=${hash(number)}`;
 async function fixture({discovery,officialScanTimeoutMs}={}){
   const directory=await mkdtemp(join(tmpdir(),'journal-budget-'));
-  const state={chain:56n,head:20,time:100000,hashes:new Map(),graphs:0,scans:0,graphValid:true};
-  const provider={send:async method=>{assert.equal(method,'eth_chainId');return `0x${state.chain.toString(16)}`;},
+  const state={chain:56n,head:20,time:100000,hashes:new Map(),graphs:0,scans:0,
+    graphValid:true,parentRegistered:true,parentHasCode:true};
+  const provider={send:async(method,params)=>{
+      if(method==='eth_chainId')return `0x${state.chain.toString(16)}`;
+      assert.equal(method,'eth_call');
+      const [{to,data},tag]=params;
+      assert.equal(tag,'0xa');
+      const call=prefilter.parseTransaction({data});
+      if(call.name==='isPool'){
+        assert.equal(to.toLowerCase(),factory.toLowerCase());
+        assert.equal(call.args[0].toLowerCase(),parent.toLowerCase());
+        return prefilter.encodeFunctionResult('isPool',[state.parentRegistered]);
+      }
+      assert.equal(call.name,'OFFICIAL_FACTORY');
+      assert.equal(to.toLowerCase(),parent.toLowerCase());
+      return prefilter.encodeFunctionResult('OFFICIAL_FACTORY',[factory]);
+    },
+    getCode:async address=>address.toLowerCase()===parent.toLowerCase() && state.parentHasCode?'0x1234':'0x',
     getBlock:async number=>{const n=number==='latest'?state.head:number;return {number:n,hash:state.hashes.get(n)??hash(n),timestamp:1000};}};
   const complete=({block})=>({complete:true,chainId:56,parent,factory,legacyFactory:legacy,artifactDigest:digest,
     budgetWei:'1000',spentWei:'0',remainingWei:'1000',absoluteCapWei:'500',unitCapWei:'100',purchaseDeadline:'2000',
@@ -37,6 +55,18 @@ test('budget query and historical or changed blocks stop before candidate scans'
     for(const route of ['/api/journal/budget-candidates',path()+'&parent='+parent,path()+'&extra=1',path().replace('block=10','block=010')])assert.equal((await f.get(route)).status,400);
     assert.equal(f.state.scans,0);assert.equal((await f.get(path(21))).status,409);
     f.state.hashes.set(10,hash(100));assert.equal((await f.get()).status,409);assert.equal(f.state.scans,0);
+  }finally{await f.close();}
+});
+test('unregistered or absent budget parent cannot spend the shared graph proof budget',async()=>{
+  const f=await fixture();
+  try{
+    f.state.parentRegistered=false;
+    assert.equal((await f.get()).status,409);
+    f.state.parentRegistered=true;
+    f.state.parentHasCode=false;
+    assert.equal((await f.get()).status,409);
+    assert.equal(f.state.graphs,0);
+    assert.equal(f.state.scans,0);
   }finally{await f.close();}
 });
 test('bad graph and incomplete or mismatched discoveries never return empty complete candidates',async()=>{

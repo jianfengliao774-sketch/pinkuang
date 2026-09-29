@@ -180,7 +180,8 @@ def quote_location():
     return b'''location = /bemine-v2/data/bem-price.json {
     alias /var/www/bemine-preview/data/bem-price.json;
     default_type application/json;
-    expires -1;
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options nosniff always;
 }
 '''
 
@@ -206,6 +207,31 @@ def quote_valid(body):
     assert type(value.get('blockNumber')) is int and value['blockNumber']>0
     return {k:value[k] for k in ['status','chainId','priceUsdt','updatedAt','blockNumber','blockTimestamp']}
 
+def verified_genesis_graph(body,manifest):
+    graph=json.loads(body)
+    assert graph.get('status')=='verified' and graph.get('chainId')==56 and graph.get('stage')=='genesis'
+    assert graph.get('readMode')=='current' and graph.get('stale') is False and graph.get('operationalReady') is False
+    assert graph.get('upgradeArtifactDigest') is None and graph.get('operationId') is None
+    digest=manifest['artifactDigest']
+    for key in ['artifactDigest','genesisArtifactDigest']:
+        assert str(graph.get(key,'')).lower()==digest.lower(),'Wrong original artifact digest'
+    for key in ['factory','portfolioFactory']:
+        assert str(graph.get(key,'')).lower()==manifest[key].lower(),'Wrong original factory'
+    deployment=manifest['deployment']
+    assert graph.get('stageActivationBlock')==deployment['blockNumber']
+    assert str(graph.get('stageActivationHash','')).lower()==deployment['blockHash'].lower()
+    assert type(graph.get('verifiedBlockNumber')) is int and graph['verifiedBlockNumber']>=manifest['verifiedBlockNumber']
+    assert re.fullmatch(r'0x[0-9a-fA-F]{64}',str(graph.get('verifiedBlockHash','')))
+    published=graph.get('manifest',{})
+    assert published.get('schemaVersion')==1 and published.get('chainId')==56 and published.get('kind')=='integrated-v2'
+    assert published.get('deployment')==deployment and published.get('verifiedBlockNumber')==deployment['blockNumber']
+    assert published.get('sourceCommit')==manifest['sourceCommit']
+    assert str(published.get('artifactDigest','')).lower()==digest.lower()
+    for key in ['factory','shareMarket','lens','beacon','timelock','portfolioFactory','portfolioMarket','portfolioBeacon','portfolioImplementation','portfolioFactoryImplementation']:
+        assert str(published.get(key,'')).lower()==manifest[key].lower(),'Wrong original address: '+key
+        assert str(published.get('codehash',{}).get(key,'')).lower()==manifest['codehash'][key].lower(),'Wrong original code: '+key
+    return {'stage':'genesis','verifiedBlockNumber':graph['verifiedBlockNumber']}
+
 def current_database_ids(require_idle=False):
     u=pwd.getpwnam('pinkuang-v2')
     for path in [journal,index_db]:
@@ -225,14 +251,23 @@ def current_database_ids(require_idle=False):
     finally:db.close()
     return {'journal':list(journal_identity),'index':[s.st_dev,s.st_ino]}
 
-def preserved_surface():
-    assert legacy()==CONFIG['legacy'],'Legacy services or links changed'
+def preserved_surface(require_legacy_identity=True):
+    observed=legacy()
+    if require_legacy_identity:assert observed==CONFIG['legacy'],'Legacy services or links changed'
+    else:
+        # A restart of an unrelated legacy service changes MainPID and
+        # InvocationID, but cannot justify leaving the v2 hotfix half-applied.
+        assert observed['links']==CONFIG['legacy']['links'],'Legacy links changed'
+        for name,expected in CONFIG['legacy']['services'].items():
+            actual=observed['services'][name]
+            for key in ['LoadState','ActiveState','SubState','User','Group']:
+                assert actual.get(key)==expected.get(key),'Legacy service state changed: '+name+'.'+key
     assert sha(regular(site))==CONFIG['nginxSha256'] and sha(regular(record_path))==CONFIG['trustedRecordSha256']
     assert link_target()==str(product),'Product current must remain on the approved release'
 
 def restore_hotfix(state):
     # Preflight every file and DB identity before stopping either service.
-    preserved_surface();assert current_database_ids()==state['databaseIds']
+    preserved_surface(False);assert current_database_ids()==state['databaseIds']
     for name,path in targets.items():
         assert sha(regular(path)) in [state['beforeHashes'][name],state['candidateHashes'][name]],'Concurrent edit blocks rollback'
     for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','stop',name],timeout=60)
@@ -242,7 +277,7 @@ def restore_hotfix(state):
     for name in ['pinkuang-deploy-v2.service','pinkuang-index-v2.service']:run(['systemctl','start',name],timeout=60)
     # Even a failed reload command may have applied the candidate. Always reload restored bytes.
     run(['nginx','-t']);run(['systemctl','reload','nginx'])
-    preserved_surface();assert current_database_ids()==state['databaseIds']
+    preserved_surface(False);assert current_database_ids()==state['databaseIds']
 
 def observe_index_cycles():
     # Record successful complete cycles; an in-progress scan is not a verified snapshot.
@@ -267,6 +302,10 @@ def public_acceptance(runtime_manifest,product_manifest):
         code,body=public('/pinkuang-deploy-v2'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256']
     for path,name in [('/bemine-v2/','public/bemine-v2/index.html'),('/bemine-v2/data/frontend-manifest.json','public/bemine-v2/data/frontend-manifest.json')]:
         code,body=public(path);assert code==200 and sha(body)==product_manifest['files'][name]['sha256']
+    code,body=http('http://127.0.0.1:4174/api/journal/product-graph');assert code==200
+    print(json.dumps({'localGenesisGraph':verified_genesis_graph(body,CONFIG['manifest'])}),flush=True)
+    code,body=public('/bemine-v2/api/journal/product-graph');assert code==200
+    print(json.dumps({'publicGenesisGraph':verified_genesis_graph(body,CONFIG['manifest'])}),flush=True)
     assert public('/bemine-v2/api/journal/build')[0]==401
     code,body=http('http://127.0.0.1:4174/api/rpc',{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]});assert code==200 and json.loads(body).get('result')=='0x38'
     code,body=public('/bemine-v2/data/bem-price.json');assert code==200

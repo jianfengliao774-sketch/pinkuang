@@ -1,11 +1,83 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress,
   keccak256, parseEther, parseUnits, verifyTypedData } from 'ethers';
-import { acquireKeeperLock, acquireWalletLock, gasBudget, readJournal, reconcilePending, writeJournal } from './purchase-keeper.mjs';
+import { acquireKeeperLock, acquireWalletLock, gasBudget, KEEPER_STATE_ROOT, readJournal, reconcilePending, writeJournal } from './purchase-keeper.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
+import { ORIGINAL_GAS_WALLET, requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
+
+export const V4_AUTHORITY_JOURNAL = '/var/lib/pinkuang-v4-signer/authority/authority.json';
+export const V4_KEEPER_STATE_ROOT = '/var/lib/pinkuang-v4-signer/keeper';
+export const AUTHORITY_RECOVERY_UNIT = 'pinkuang-v4-authority-recovery.service';
+export const AUTHORITY_RECOVERY_SENDERS = Object.freeze([
+  'pinkuang-purchase-v2.service', 'pinkuang-v4-signer.service', 'pinkuang-v4-purchase.service',
+]);
+
+/** Fail before touching a journal or lock if a mutating CLI has the wrong isolation domain. */
+export function requireAuthorityCliIsolation(options, env = process.env, keeperStateRoot = KEEPER_STATE_ROOT,
+  now = Date.now()) {
+  if (!options.send && !options.acknowledgeFailure && !options.acknowledgeReplacement) return;
+  if (env.PINKUANG_KEEPER_STATE_ROOT !== V4_KEEPER_STATE_ROOT
+    || keeperStateRoot !== V4_KEEPER_STATE_ROOT
+    || options.journal !== V4_AUTHORITY_JOURNAL
+    || (env.AUTHORITY_RELAY_JOURNAL && env.AUTHORITY_RELAY_JOURNAL !== V4_AUTHORITY_JOURNAL))
+    throw new Error('Authority recovery requires the paired v4 keeper state root and Authority journal.');
+  requireOriginalSenderDrained(ORIGINAL_GAS_WALLET, env);
+  if (env.KEEPER_PRIVATE_KEY !== undefined || env.KEEPER_PRIVATE_KEY_FILE !== undefined)
+    throw new Error('Authority recovery forbids private keys in the process environment.');
+  if (options.send && !env.CREDENTIALS_DIRECTORY)
+    throw new Error('Authority CLI send requires only a systemd keeper-private-key credential.');
+  const preflightAt = Number(env.BEMINE_V4_AUTHORITY_PREFLIGHT_AT);
+  if (!Number.isSafeInteger(preflightAt) || preflightAt <= 0 || now < preflightAt || now - preflightAt > 30_000)
+    throw new Error('Authority recovery requires a fresh pre-launch sender-state check.');
+}
+
+/** A fixed spelling must not resolve through a link into a legacy state tree. */
+export function requireAuthorityPrivatePaths(paths = [
+  ['/var/lib/pinkuang-v4-signer', 'directory'], [V4_KEEPER_STATE_ROOT, 'directory'],
+  [dirname(V4_AUTHORITY_JOURNAL), 'directory'], [V4_AUTHORITY_JOURNAL, 'file'],
+]) {
+  for (const [path, kind] of paths) {
+    let info;
+    try { info = lstatSync(path); }
+    catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    if ((kind === 'directory' && !info.isDirectory()) || (kind === 'file' && !info.isFile())
+      || (info.mode & 0o077) !== 0)
+      throw new Error(`Authority recovery path is not a private regular ${kind}: ${path}`);
+  }
+}
+
+function systemdUnitProperty(unit, property) {
+  const result = spawnSync('systemctl', ['show', unit, `--property=${property}`, '--value'],
+    { encoding: 'utf8', timeout: 3_000 });
+  if (result.error || result.status !== 0) throw new Error(`Cannot verify systemd ${unit} ${property}.`);
+  return result.stdout.trim();
+}
+
+/** The v2 sender has its own nonce ledger; it must be stopped before v4 recovery. */
+export function requireAuthorityRecoverySendersStopped(query = unit => systemdUnitProperty(unit, 'ActiveState')) {
+  for (const unit of AUTHORITY_RECOVERY_SENDERS) {
+    if (query(unit) !== 'inactive') throw new Error(`Stop and reconcile ${unit} before Authority recovery.`);
+  }
+}
+
+/** The CLI must itself be held inside the mutually exclusive transient unit. */
+export function requireAuthorityRecoveryUnit(query = systemdUnitProperty, pid = process.pid) {
+  if (query(AUTHORITY_RECOVERY_UNIT, 'MainPID') !== String(pid))
+    throw new Error('Run mutating Authority recovery in its dedicated systemd transient unit.');
+  const conflicts = new Set(query(AUTHORITY_RECOVERY_UNIT, 'Conflicts').split(/\s+/));
+  const after = new Set(query(AUTHORITY_RECOVERY_UNIT, 'After').split(/\s+/));
+  for (const unit of AUTHORITY_RECOVERY_SENDERS) {
+    if (!conflicts.has(unit) || !after.has(unit))
+      throw new Error(`Authority recovery unit must conflict with and follow ${unit}.`);
+  }
+}
 
 const abi = new Interface([
   'function administratorOne() view returns(address)', 'function administratorTwo() view returns(address)',
@@ -56,10 +128,12 @@ export function prepareAuthorityCall(command) {
   }
   let target, data, signer;
   if (kind === 'reviewSale') {
+    if (typeof args.approved !== 'boolean') throw new Error('Sale approval must be a boolean.');
     target = getAddress(args.market);
     data = abi.encodeFunctionData(kind, [target, args.pool, args.proposalId, args.priceWei,
       args.approved, nonce, deadline, command.signature]);
   } else if (kind === 'reviewChildSale') {
+    if (typeof args.approved !== 'boolean') throw new Error('Child sale approval must be a boolean.');
     target = getAddress(args.portfolio);
     data = abi.encodeFunctionData(kind, [target, args.proposalId, args.approved, nonce, deadline, command.signature]);
   } else if (kind === 'setSaleReference') {
@@ -95,10 +169,33 @@ export function prepareAuthorityCall(command) {
     domain, types, primaryType, value: message };
 }
 
+/** Recover an administrator command from the already signed, journal-validated
+ * Authority calldata. This never creates a new signature or transaction. */
+export function authorityCommandFromCalldata(authority, data) {
+  const decoded = abi.parseTransaction({ data });
+  if (!decoded) throw new Error('Journal calldata is not an Authority operation.');
+  const a = decoded.args, kind = decoded.name;
+  if (kind === 'executeOperation')
+    return { authority, kind, args: { target: a[0], data: a[1] } };
+  const nonce = a[a.length - 3].toString(), deadline = a[a.length - 2].toString();
+  const signature = a[a.length - 1];
+  let args;
+  if (kind === 'reviewSale') args = { market: a[0], pool: a[1], proposalId: a[2], priceWei: a[3], approved: a[4] };
+  else if (kind === 'reviewChildSale') args = { portfolio: a[0], proposalId: a[1], approved: a[2] };
+  else if (kind === 'setSaleReference') args = { market: a[0], pool: a[1], priceWei: a[2], observedAt: a[3], digest: a[4] };
+  else if (kind === 'claimFees') args = { markets: [...a[0]], pools: [...a[1]], recipient: a[2] };
+  else if (kind === 'executeApprovedOperation') args = { target: a[0], data: a[1] };
+  else if (kind === 'buyBudgetOfficial') args = { portfolio: a[0], child: a[1], listingId: a[2], maxCost: a[3] };
+  else if (kind === 'buyBudgetFirsto') args = { portfolio: a[0], child: a[1], encodedOrder: a[2], maxCost: a[3] };
+  else throw new Error('Journal calldata uses an unsupported Authority operation.');
+  return { authority, kind, args, nonce, deadline, signature };
+}
+
 export function parseAuthorityArguments(args) {
   const values = {};
   const keys = new Set(['command', 'journal', 'rpc', 'max-gas-bnb', 'max-gas-price-gwei',
-    'gas-limit', 'expected-hash', 'acknowledge-failure']);
+    'gas-limit', 'expected-hash', 'acknowledge-failure', 'acknowledge-replacement',
+    'replacement-hash', 'authority', 'expected-codehash']);
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i].startsWith('--') ? args[i].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[i]}`);
@@ -107,11 +204,22 @@ export function parseAuthorityArguments(args) {
     else throw new Error(`Unknown option or missing value: --${key}`);
   }
   if (values.help) return { help: true };
-  if (!values.command) throw new Error('--command is required.');
+  const recovery = Boolean(values['rebroadcast-signed'] || values['acknowledge-failure']
+    || values['acknowledge-replacement']);
+  if (!values.command && !recovery) throw new Error('--command is required.');
+  if (!values.command && (!/^0x[0-9a-f]{40}$/i.test(values.authority ?? '')
+    || !/^0x[0-9a-f]{64}$/i.test(values['expected-codehash'] ?? '')))
+    throw new Error('Command-free recovery requires --authority and --expected-codehash.');
   if (values.send && !values.journal) throw new Error('--send requires a private journal path.');
   if (values['acknowledge-failure'] && (!values.journal || values.send || values['rebroadcast-signed']
-    || !/^0x[0-9a-f]{64}$/i.test(values['acknowledge-failure'])))
+    || values['acknowledge-replacement'] || !/^0x[0-9a-f]{64}$/i.test(values['acknowledge-failure'])))
     throw new Error('Failure acknowledgement requires a private journal, exact hash and no send flags.');
+  if (values['acknowledge-replacement'] && (!values.journal || values.send || values['rebroadcast-signed']
+    || !/^0x[0-9a-f]{64}$/i.test(values['acknowledge-replacement'])
+    || !/^0x[0-9a-f]{64}$/i.test(values['replacement-hash'] ?? '')))
+    throw new Error('Replacement acknowledgement requires a private journal and exact original and replacement hashes.');
+  if (values['replacement-hash'] && !values['acknowledge-replacement'])
+    throw new Error('--replacement-hash requires --acknowledge-replacement.');
   if (values.send && !values['rebroadcast-signed'] && !values['gas-limit'])
     throw new Error('New Authority sends require an explicit reviewed --gas-limit; no simulation is performed.');
   if (values['rebroadcast-signed'] && (!values.send || !/^0x[0-9a-f]{64}$/i.test(values['expected-hash'] ?? '')))
@@ -127,11 +235,16 @@ export function parseAuthorityArguments(args) {
   const maxGasWei = parseEther(values['max-gas-bnb'] ?? '0.01');
   const maxGasPrice = parseUnits(values['max-gas-price-gwei'] ?? '1', 'gwei');
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
-  return { command: resolve(values.command), journal: resolve(values.journal ?? 'keeper-journal/authority.json'),
+  return { command: values.command ? resolve(values.command) : undefined,
+    recoveryAuthority: values.authority ? getAddress(values.authority) : undefined,
+    recoveryCodehash: values['expected-codehash']?.toLowerCase(),
+    journal: resolve(values.journal ?? 'keeper-journal/authority.json'),
     rpc, send: values.send === true, maxGasWei, maxGasPrice,
     gasLimit, rebroadcastSigned: values['rebroadcast-signed'] === true,
     expectedHash: values['expected-hash']?.toLowerCase(),
-    acknowledgeFailure: values['acknowledge-failure']?.toLowerCase() };
+    acknowledgeFailure: values['acknowledge-failure']?.toLowerCase(),
+    acknowledgeReplacement: values['acknowledge-replacement']?.toLowerCase(),
+    replacementHash: values['replacement-hash']?.toLowerCase() };
 }
 
 export async function acknowledgeFinalizedAuthorityFailure(provider, options, journal) {
@@ -176,6 +289,52 @@ export async function acknowledgeFinalizedAuthorityFailure(provider, options, jo
     message: 'The finalized failure is archived. This command did not sign or broadcast a transaction.' };
 }
 
+/** A finalized different transaction at the same wallet nonce proves every
+ * persisted Authority attempt lost. Preserve signed bytes in the private
+ * journal; never infer replacement from a merely pending nonce observation. */
+export async function acknowledgeFinalizedAuthorityReplacement(provider, options, journal) {
+  const tx = journal.transaction;
+  if (!tx || !['signed', 'broadcast'].includes(tx.phase)
+    || !options.acknowledgeReplacement || tx.hash.toLowerCase() !== options.acknowledgeReplacement
+    || !options.replacementHash || tx.attempts?.some(item =>
+      item.hash.toLowerCase() === options.replacementHash))
+    throw new Error('Replacement review requires the exact unresolved Authority hash and a distinct replacement hash.');
+  const [network, replacement, receipt, originalReceipt, finalized] = await Promise.all([
+    provider.getNetwork(), provider.getTransaction(options.replacementHash),
+    provider.getTransactionReceipt(options.replacementHash), provider.getTransactionReceipt(tx.hash),
+    provider.getBlock('finalized'),
+  ]);
+  if (network.chainId !== 56n || !replacement || !receipt || originalReceipt || !finalized
+    || !Number.isSafeInteger(finalized.number) || !/^0x[0-9a-f]{64}$/i.test(finalized.hash ?? '')
+    || replacement.hash.toLowerCase() !== options.replacementHash
+    || receipt.hash.toLowerCase() !== options.replacementHash
+    || !same(replacement.from, tx.from) || !same(receipt.from, tx.from)
+    || replacement.nonce !== tx.nonce || replacement.chainId !== 56n
+    || !Number.isSafeInteger(receipt.blockNumber) || receipt.blockNumber > finalized.number
+    || !/^0x[0-9a-f]{64}$/i.test(receipt.blockHash ?? '')
+    || ![0, 1].includes(receipt.status))
+    throw new Error('Replacement has no matching BSC-finalized transaction and receipt; retain review hold.');
+  const [canonical, finalizedNonce] = await Promise.all([
+    provider.getBlock(receipt.blockNumber), provider.getTransactionCount(tx.from, finalized.number),
+  ]);
+  if (!canonical || canonical.hash.toLowerCase() !== receipt.blockHash.toLowerCase()
+    || !Number.isSafeInteger(finalizedNonce) || finalizedNonce <= tx.nonce)
+    throw new Error('Replacement block or finalized wallet nonce is not canonical; retain review hold.');
+  const history = journal.replacedAuthorityTransactions ?? [];
+  if (!Array.isArray(history) || history.length >= 100)
+    throw new Error('Replacement archive is full or malformed; preserve the private journal for review.');
+  history.push({ original: tx, replacementHash: options.replacementHash,
+    replacementBlockNumber: receipt.blockNumber, replacementBlockHash: receipt.blockHash,
+    finalizedBlockNumber: finalized.number, acknowledgedAt: new Date().toISOString() });
+  journal.replacedAuthorityTransactions = history;
+  journal.previousTransaction = tx;
+  journal.transaction = null;
+  writeJournal(options.journal, journal);
+  return { status: 'replacement-acknowledged', hash: tx.hash,
+    replacementHash: options.replacementHash,
+    message: 'A different transaction finalized at this wallet nonce. Original signed bytes remain archived; no transaction was signed or sent.' };
+}
+
 export async function manuallyRebroadcastSigned(provider, options, signer, prepared, journal, pendingResult) {
   const pending = journal.transaction, attempt = pending?.attempts?.[0];
   if (pendingResult?.status !== 'pending-not-indexed' || pending?.phase !== 'signed'
@@ -186,6 +345,18 @@ export async function manuallyRebroadcastSigned(provider, options, signer, prepa
     || pending.data.toLowerCase() !== prepared.data.toLowerCase()
     || !same(pending.from, signer.address)) {
     throw new Error('Manual recovery must name the exact unbroadcast signed transaction and original administrator action.');
+  }
+  const encoded = abi.parseTransaction({ data: pending.data });
+  if (!encoded || encoded.name !== pending.kind)
+    throw new Error('Durable Authority calldata does not identify the recorded operation.');
+  if (pending.kind !== 'executeOperation') {
+    const deadline = BigInt(encoded.args[encoded.args.length - 2]);
+    const latestBlock = await provider.getBlock('latest');
+    // Replaying an expired approval is guaranteed to revert, yet would consume
+    // the wallet nonce and Gas. No automated replacement or cancellation here.
+    if (!latestBlock || !Number.isSafeInteger(latestBlock.timestamp)
+      || BigInt(latestBlock.timestamp) + 30n >= deadline)
+      return { status: 'signed-admin-authorization-expired-review-required', hash: pending.hash };
   }
   const [network, latest, queued, balance] = await Promise.all([
     provider.getNetwork(), provider.getTransactionCount(signer.address, 'latest'),
@@ -211,14 +382,24 @@ export async function manuallyRebroadcastSigned(provider, options, signer, prepa
 }
 
 export async function runAuthorityRelay(provider, options, signer = null) {
-  const command = options.commandObject ?? JSON.parse(readFileSync(options.command, 'utf8'));
-  const prepared = prepareAuthorityCall(command);
+  const command = options.commandObject ?? (options.command ? JSON.parse(readFileSync(options.command, 'utf8')) : null);
+  const prepared = command ? prepareAuthorityCall(command) : {
+    authority: options.recoveryAuthority, expectedCodehash: options.recoveryCodehash,
+  };
+  if (!prepared.authority || ((options.send || !command) && !prepared.expectedCodehash))
+    throw new Error('Authority recovery needs a reviewed address and codehash.');
+  if (command && options.recoveryAuthority && !same(prepared.authority, options.recoveryAuthority))
+    throw new Error('Recovery Authority differs from the command.');
+  if (command && options.recoveryCodehash && prepared.expectedCodehash?.toLowerCase() !== options.recoveryCodehash)
+    throw new Error('Recovery codehash differs from the command.');
   if ((await provider.getNetwork()).chainId !== 56n) throw new Error('Authority relay only supports BSC mainnet.');
-  if (options.acknowledgeFailure) {
+  if (options.acknowledgeFailure || options.acknowledgeReplacement) {
     const journalOptions = { factory: prepared.authority, pool: prepared.authority,
       transactionTarget: prepared.authority, journal: options.journal };
-    return acknowledgeFinalizedAuthorityFailure(provider, options,
-      readJournal(options.journal, journalOptions));
+    const journal = readJournal(options.journal, journalOptions);
+    return options.acknowledgeFailure
+      ? acknowledgeFinalizedAuthorityFailure(provider, options, journal)
+      : acknowledgeFinalizedAuthorityReplacement(provider, options, journal);
   }
   if (options.send && !prepared.expectedCodehash) {
     throw new Error('Send mode requires the independently reviewed Authority runtime codehash.');
@@ -232,6 +413,15 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     journal = readJournal(options.journal, journalOptions);
     if (journal.transaction && !same(journal.transaction.from, signer.address)) throw new Error('Journal belongs to another Gas wallet.');
     pendingResult = await reconcilePending(provider, journalOptions, journal);
+    if (options.rebroadcastSigned && !command) {
+      if (!journal.transaction) throw new Error('No signed Authority transaction remains to rebroadcast.');
+      const recovered = prepareAuthorityCall(authorityCommandFromCalldata(
+        prepared.authority, journal.transaction.data));
+      if (recovered.kind !== journal.transaction.kind
+        || recovered.data.toLowerCase() !== journal.transaction.data.toLowerCase())
+        throw new Error('Durable Authority operation differs from its signed journal.');
+      Object.assign(prepared, recovered, { expectedCodehash: options.recoveryCodehash });
+    }
     if (pendingResult && !options.rebroadcastSigned) return {
       status: journal.transaction?.phase === 'signed'
         && journal.transaction.attempts?.[0]?.broadcastCount === 0
@@ -260,7 +450,10 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   if (prepared.signer && !same(prepared.signer, first) && !same(prepared.signer, second)) {
     throw new Error('Signature is not from a current administrator.');
   }
-  if (prepared.deadline && BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline) throw new Error('Administrator signature expired.');
+  // Manual replay sends existing bytes only. Its deadline check is derived
+  // from durable calldata inside manuallyRebroadcastSigned, even when the
+  // original administrator command JSON is no longer available.
+  if (!options.rebroadcastSigned && prepared.deadline && BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline) throw new Error('Administrator signature expired.');
   if (prepared.signer && await authority.nonces(prepared.signer) !== prepared.nonce) {
     throw new Error('Administrator signature nonce is not current.');
   }
@@ -316,13 +509,19 @@ export async function main(args = process.argv.slice(2)) {
   const options = parseAuthorityArguments(args);
   if (options.help) {
     console.log('Authority relay: node scripts/authority-relay.mjs --command /private/action.json --journal /private/authority.json [--send --gas-limit N].\n' +
-      'Default read-only. Send mode reads a systemd keeper-private-key credential or KEEPER_PRIVATE_KEY.\n' +
-      'Manual recovery: add --send --rebroadcast-signed --expected-hash 0x... to send only the exact durable signed bytes.\n' +
-      'After independently reviewing a BSC-finalized failure, --acknowledge-failure 0x... archives the hold without sending.\n' +
+      'Default read-only. Mutating recovery requires the pre-launch wrapper, v4 private state root and dedicated systemd transient unit; send mode requires a systemd keeper-private-key credential.\n' +
+      'Manual recovery: --send --rebroadcast-signed --expected-hash 0x... sends only the exact durable signed bytes. A missing original command can be replaced with --authority and --expected-codehash.\n' +
+      'After BSC-finalized proof, --acknowledge-failure 0x... or --acknowledge-replacement 0x... --replacement-hash 0x... archives the hold without sending.\n' +
       'Only use command files from a private operator-controlled directory; admin signatures never grant arbitrary targets.');
     return;
   }
-  if (options.send) {
+  requireAuthorityCliIsolation(options);
+  if (options.send || options.acknowledgeFailure || options.acknowledgeReplacement) {
+    requireAuthorityRecoveryUnit();
+    requireAuthorityRecoverySendersStopped();
+    requireAuthorityPrivatePaths();
+  }
+  if (options.send && options.command) {
     const file = lstatSync(options.command);
     if (!file.isFile() || (file.mode & 0o077) !== 0
       || (statSync(dirname(options.command)).mode & 0o077) !== 0) {
@@ -342,6 +541,7 @@ export async function main(args = process.argv.slice(2)) {
       if ((statSync(dirname(options.journal)).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
       releaseWallet = acquireWalletLock(signer.address, options.journal);
       if (!existsSync(options.journal)) {
+        if (!options.command) throw new Error('Command-free recovery requires an existing private Authority journal.');
         const command = prepareAuthorityCall(JSON.parse(readFileSync(options.command, 'utf8')));
         writeJournal(options.journal, readJournal(options.journal,
           { factory: command.authority, pool: command.authority, transactionTarget: command.authority }));

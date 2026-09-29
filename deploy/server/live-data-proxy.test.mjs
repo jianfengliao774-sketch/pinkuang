@@ -87,30 +87,31 @@ test('proxy preserves incomplete index 503 and refuses redirected/HTML/mismatche
   }
 });
 
-test('server reuses only a recent complete public source; browser and private reads stay uncached', async t => {
-  let clock = Date.now(), indexCalls = 0;
+test('health always relays the live index state after a previously complete read', async t => {
+  let indexCalls = 0;
   const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
-    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date(clock).toISOString() };
-  const f = await fixture(t, { now: () => clock, publicSourceTtlMs: 30000,
-    upstream: (_url, init) => {
+    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date().toISOString() };
+  const f = await fixture(t, {
+    upstream: (url, init) => {
       if (init.method === 'POST') return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
       indexCalls++;
       return indexCalls === 1 ? json({ source, data: { items: [] } })
-        : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' }, data: null }, 503);
+        : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' }, data: null },
+          url.endsWith('/health') ? 200 : 503);
     } });
   assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
-  const cached = await f.get('/api/chain-index/health');
-  assert.equal(cached.status, 200);
-  assert.equal(cached.headers.get('x-bemine-server-cache'), 'hit');
-  assert.deepEqual(await cached.json(), { source });
-  assert.equal(indexCalls, 1, 'the server answers health from its own cache');
+  const health = await f.get('/api/chain-index/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-bemine-server-cache'), null);
+  assert.equal((await health.json()).source.complete, false, 'prior complete state must not mask sync');
+  assert.equal(indexCalls, 2);
   assert.equal((await f.get('/api/chain-index/v1/pools')).status, 503, 'catalog is never served stale');
   assert.equal((await f.post(rpc())).status, 200, 'RPC is never served stale');
-  clock += 30000;
-  assert.equal((await f.get('/api/chain-index/health')).status, 503, 'expired source is not served');
+  assert.equal((await (await f.get('/api/chain-index/health')).json()).source.complete, false);
+  assert.equal(indexCalls, 4, 'each health request reaches the local index');
 });
 
-test('verified history responses never seed or preserve the fresh health cache', async t => {
+test('verified history responses never substitute for a live health response', async t => {
   const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
     indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date().toISOString() };
   const historical = { ...source, readMode: 'verified_snapshot', stale: true,
@@ -142,7 +143,7 @@ test('verified history responses never seed or preserve the fresh health cache',
   assert.equal(coldCalls, 2);
 });
 
-test('cached public health remains readable while the upstream RPC capacity is occupied', async t => {
+test('health fails closed while the proxy is saturated, then reads current status', async t => {
   let releaseRpc, rpcStarted = false;
   const gate = new Promise(resolve => { releaseRpc = resolve; });
   const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
@@ -157,11 +158,13 @@ test('cached public health remains readable while the upstream RPC capacity is o
   assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
   const rpcRead = f.post(rpc());
   while (!rpcStarted) await new Promise(resolve => setTimeout(resolve, 1));
-  const health = await f.get('/api/chain-index/health');
-  assert.equal(health.status, 200);
-  assert.equal(health.headers.get('x-bemine-server-cache'), 'hit');
+  assert.equal((await f.get('/api/chain-index/health')).status, 503,
+    'a cached complete source cannot bypass a busy live index');
   releaseRpc();
   assert.equal((await rpcRead).status, 200);
+  const health = await f.get('/api/chain-index/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-bemine-server-cache'), null);
 });
 
 test('server reuses exact pinned reads while live headers and latest simulations stay fresh', async t => {
@@ -318,7 +321,8 @@ test('a pinned read cannot reuse or cache an older same-height pending header', 
     'the post-call header must be fetched after the pinned read');
   assert.equal(headerReads,2,'the post-call check must not join the older pending header');
   releaseOld();
-  assert.equal((await pendingOld).status,502,'the invalidated old header cannot escape');
+  assert.equal((await (await pendingOld).json()).result.hash,oldHash,
+    'the original caller receives its own header without poisoning the cache');
   const cached=await f.post({...header,id:3});
   assert.equal((await cached.json()).result.hash,newHash);
   assert.equal(headerReads,2,'the old response cannot replace the newer header cache');
@@ -356,7 +360,8 @@ test('a header started during a pinned read cannot become its post-read check', 
   assert.equal((await afterCall.json()).result.hash,`0x${'b'.repeat(64)}`);
   assert.equal(headerReads,2);
   releaseHeader();
-  assert.equal((await pendingDuring).status,502);
+  assert.equal((await (await pendingDuring).json()).result.hash,`0x${'a'.repeat(64)}`,
+    'another caller keeps its response while the post-call check stays fresh');
 });
 
 test('a reorg evicts pinned calls and rejects old-fork calls still in flight', async t => {
@@ -504,6 +509,48 @@ test('short bounded queue absorbs read bursts above the active RPC limit without
   assert.deepEqual(await Promise.all([first, second, third].map(async request => (await request).status)), [200, 200, 200]);
   assert.equal(peak, 1);
   assert.equal(calls, 4,'one chain proof plus three admitted reads');
+});
+
+test('one busy client cannot occupy every upstream slot or block another client behind its queue', async t => {
+  let releaseFirst, firstStarted;
+  const gate = new Promise(resolve => { releaseFirst = resolve; });
+  const started = new Promise(resolve => { firstStarted = resolve; });
+  const f = await fixture(t, { maxConcurrent: 2, maxConcurrentPerClient: 1, maxQueued: 2,
+    upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      if (request.id === 1) { firstStarted(); await gate; }
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x10' });
+    } });
+  const from = (id, ip) => f.post({ ...rpc('eth_blockNumber'), id }, '/api/rpc',
+    { headers: { 'content-type': 'application/json', 'x-real-ip': ip } });
+  const first = from(1, '203.0.113.1');
+  await started;
+  const queued = from(2, '203.0.113.1');
+  assert.equal((await from(3, '203.0.113.2')).status, 200,
+    'another client must use the unoccupied upstream slot');
+  releaseFirst();
+  assert.deepEqual(await Promise.all([first, queued].map(async request => (await request).status)), [200, 200]);
+});
+
+test('default queue admits one portfolio page burst without unbounded upstream concurrency', async t => {
+  let releaseReads, active = 0, peak = 0;
+  const gate = new Promise(resolve => { releaseReads = resolve; });
+  const f = await fixture(t, { upstream: async (_url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    active++; peak = Math.max(peak, active);
+    await gate;
+    active--;
+    return json({ jsonrpc: '2.0', id: request.id, result: '0x10' });
+  } });
+  const requests = Array.from({ length: 104 }, (_, id) => f.post({ ...rpc('eth_blockNumber'), id: id + 1 }));
+  try {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  } finally { releaseReads(); }
+  const statuses = await Promise.all(requests.map(async request => (await request).status));
+  assert(statuses.every(status => status === 200), `portfolio burst returned ${statuses.filter(status => status !== 200)}`);
+  assert(peak <= 24, 'the queue must not bypass the upstream concurrency cap');
 });
 
 test('queued reads expire instead of waiting behind a stalled upstream', async t => {

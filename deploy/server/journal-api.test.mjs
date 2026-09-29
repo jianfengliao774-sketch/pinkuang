@@ -12,6 +12,7 @@ import { Wallet, getCreateAddress, keccak256 } from 'ethers';
 import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO } from './fresh-activation-journal.mjs';
 import { createDeploymentServer } from './index.mjs';
+import { gasSignerAttestationMessage } from '../shared/gas-signer-attestation.mjs';
 
 const origin = 'http://127.0.0.1:4173';
 const hex = n => `0x${n.toString(16).padStart(64, '0')}`;
@@ -136,7 +137,8 @@ async function fixture(provider = chainProof(), currentArtifactDigest = () => he
   const dbPath = join(directory, 'private', 'journal.sqlite');
   const service = createJournalService({ dbPath, origin, provider, currentArtifactDigest,
     assertSigningInputsCurrent, ...options });
-  const server = createServer((req, res) => service.handle(req, res));
+  const server = options.fullServer ? createDeploymentServer({ journalService: service })
+    : createServer((req, res) => service.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   const request = async (path, method = 'GET', body, cookie, requestOrigin = origin, extraHeaders = {}) => {
@@ -173,12 +175,14 @@ test('pre-genesis console keeps deployment journals but rejects every product wr
   assert.equal(journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: '1' }).freshConsolePreGenesis, true);
   assert.equal(journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: '0' }).freshConsolePreGenesis, false);
   assert.equal(journalConfiguration({ BEMINE_FRESH_STAGE2_HOLD: '1' }).freshStage2Hold, true);
+  assert.equal(journalConfiguration({}).freshStage2Hold, true);
+  assert.equal(journalConfiguration({ BEMINE_FRESH_STAGE2_HOLD: '0' }).freshStage2Hold, false);
   assert.throws(() => journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: 'true' }),
     /BEMINE_FRESH_CONSOLE_PRE_GENESIS/);
   assert.throws(() => journalConfiguration({ BEMINE_FRESH_STAGE2_HOLD: 'true' }),
     /BEMINE_FRESH_STAGE2_HOLD/);
   const f = await fixture(chainProof(), () => hex(5), () => {},
-    { freshConsolePreGenesis: true, freshStage2Hold: true });
+    { freshConsolePreGenesis: true });
   try {
     const cookie = f.sessionFor(deploymentAccount);
     const initial = deployment(deploymentAccount);
@@ -226,21 +230,21 @@ test('pre-genesis console keeps deployment journals but rejects every product wr
 test('fresh activation reports only a Gas public address derived from the reviewed credential', async () => {
   const expected=Wallet.createRandom().address;
   const f=await fixture(chainProof(),()=>hex(5),()=>{},
-    {expectedGasWallet:expected,gasWalletAddressReader:()=>expected});
+    {expectedGasWallet:expected,gasWalletAddressReader:()=>expected,freshStage2Hold:false});
   try {
     const session=await f.login(wallet);
     const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
-    assert.deepEqual(config.body,{credentialVerified:true,gasWallet:expected});
+    assert.deepEqual(config.body,{credentialVerified:true,gasWallet:expected,stage2Held:false});
     const missing=await f.request('/api/journal/fresh-activation','PUT',
       {record:{},expectedRevision:0},session.cookie);
     assert.equal(missing.status,400,'valid credential still requires a complete Stage2 record');
   } finally {await f.close();}
   const mismatch=await fixture(chainProof(),()=>hex(5),()=>{},
-    {expectedGasWallet:expected,gasWalletAddressReader:()=>Wallet.createRandom().address});
+    {expectedGasWallet:expected,gasWalletAddressReader:()=>Wallet.createRandom().address,freshStage2Hold:false});
   try {
     const session=await mismatch.login(wallet);
     const config=await mismatch.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
-    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:null});
+    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:null,stage2Held:false});
     const denied=await mismatch.request('/api/journal/fresh-activation','PUT',
       {record:{},expectedRevision:0},session.cookie);
     assert.equal(denied.status,503);
@@ -250,15 +254,50 @@ test('fresh activation reports only a Gas public address derived from the review
 test('public deployment console never treats its configured Gas address as a verified signer', async () => {
   const expected=Wallet.createRandom().address;
   const f=await fixture(chainProof(),()=>hex(5),()=>{},
-    {expectedGasWallet:expected,freshConsolePreGenesis:true});
+    {expectedGasWallet:expected,freshConsolePreGenesis:true,freshStage2Hold:false});
   try {
     const cookie=f.sessionFor(deploymentAccount);
     const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,cookie);
-    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:expected});
+    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:expected,stage2Held:false});
     const denied=await f.request('/api/journal/fresh-activation','PUT',
       {record:{},expectedRevision:0},cookie);
     assert.equal(denied.status,503);
   } finally {await f.close();}
+});
+
+test('the actual deployment HTTP server accepts only a fresh isolated signer proof for the completed genesis', async () => {
+  const gas = Wallet.createRandom();
+  let signer = gas;
+  let challengeSeen = false;
+  const f = await fixture(chainProof(), () => hex(5), () => {}, {
+    fullServer: true, freshConsolePreGenesis: true, freshStage2Hold: false, expectedGasWallet: gas.address,
+    gasWalletProofReader: async challenge => {
+      challengeSeen = true;
+      return { gasWallet: gas.address,
+        signature: await signer.signMessage(gasSignerAttestationMessage(challenge)) };
+    },
+  });
+  try {
+    const genesis = completedProof(deploymentAccount).record;
+    genesis.kind = 'integrated-v2';
+    const db = new DatabaseSync(f.dbPath);
+    try { db.prepare('INSERT INTO deployment(account,revision,record) VALUES(?,?,?)')
+      .run(deploymentAccount, 1, JSON.stringify(genesis)); }
+    finally { db.close(); }
+    const cookie = f.sessionFor(deploymentAccount);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record?.status, 'complete');
+    const status = await f.request('/api/journal/fresh-activation/config', 'GET', undefined, cookie);
+    assert.equal(challengeSeen, true, 'a completed deployment must reach the isolated proof reader');
+    assert.deepEqual(status.body, { credentialVerified: true, gasWallet: gas.address, stage2Held: false });
+    assert.equal((await f.request('/api/journal/fresh-activation', 'PUT',
+      { record: {}, expectedRevision: 0 }, cookie)).status, 400,
+    'the independent proof passes the credential gate but cannot bypass record validation');
+    signer = Wallet.createRandom();
+    const changed = await f.request('/api/journal/fresh-activation/config', 'GET', undefined, cookie);
+    assert.deepEqual(changed.body, { credentialVerified: false, gasWallet: gas.address, stage2Held: false });
+    assert.equal((await f.request('/api/journal/fresh-activation', 'PUT',
+      { record: {}, expectedRevision: 0 }, cookie)).status, 503);
+  } finally { await f.close(); }
 });
 
 test('pre-genesis journal writes require the fixed deployment wallet, including with EIP-7702 code', async () => {
@@ -269,6 +308,8 @@ test('pre-genesis journal writes require the fixed deployment wallet, including 
   const f = await fixture(delegatedProvider, () => hex(5), () => {},
     { freshConsolePreGenesis: true, freshStage2Hold: true, expectedGasWallet: gasWallet.address });
   try {
+    assert.equal((await f.request('/api/journal/fresh-activation/config', 'GET', undefined,
+      f.sessionFor(deploymentAccount))).body.stage2Held, true);
     const publicRead = await f.request('/api/journal/product-graph');
     assert.equal(publicRead.status, 503, 'public product-graph reads do not require a wallet session');
     const { cookie: gasCookie } = await f.login(gasWallet);
@@ -312,7 +353,7 @@ test('journal API permits only documented no-send rejection and same-intent manu
   const proof = { ...chainProof(),
     getTransactionCount: async (_owner, tag) => tag === 'pending' ? stagePending : 8 };
   const f = await fixture(proof, () => hex(5), () => {},
-    { expectedGasWallet: gasWallet, gasWalletAddressReader: () => gasWallet });
+    { expectedGasWallet: gasWallet, gasWalletAddressReader: () => gasWallet, freshStage2Hold: false });
   try {
     const { cookie } = await f.login(wallet);
     const core = deployment();

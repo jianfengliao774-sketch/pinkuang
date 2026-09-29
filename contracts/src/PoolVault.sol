@@ -685,8 +685,7 @@ contract PoolVault is
                 pendingRemainder = s.surplusRemainder;
             }
         }
-        return s.totalBnbOwed + s.surplusOutstandingWei + pendingRemainder
-            + SaleSettlement.outstanding(_saleStorage());
+        return s.totalBnbOwed + s.surplusOutstandingWei + pendingRemainder + SaleSettlement.outstanding(_saleStorage());
     }
 
     function refundsRecorded() external view returns (bool) {

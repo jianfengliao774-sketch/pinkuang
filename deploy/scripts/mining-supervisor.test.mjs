@@ -60,7 +60,7 @@ test('one pool review is alerted and quarantined while another pool keeps mining
   const original = process.exitCode;
   try {
     assert.equal(reportOperatorReview(exhausted, true, () => {}), true);
-    assert.equal(process.exitCode, 1);
+    assert.equal(process.exitCode, 2);
   } finally { process.exitCode = original; }
 });
 
@@ -112,7 +112,7 @@ test('a review result with an unresolved signed journal blocks the shared wallet
   try {
     let alert;
     assert.equal(reportOperatorReview(result, true, message => { alert = JSON.parse(message); }), true);
-    assert.equal(process.exitCode, 1);
+    assert.equal(process.exitCode, 2);
     assert.equal(alert.status, 'operator-review-required');
     assert.equal(alert.pool, pools[0]);
   } finally { process.exitCode = original; }

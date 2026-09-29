@@ -208,9 +208,9 @@ export class FreshActivationEngine {
     try {
       requireThat(typeof navigator === 'undefined' || !!navigator.locks,
         '浏览器不支持跨页面部署锁；请使用支持 Web Locks 的 HTTPS 浏览器。');
-      if (typeof navigator !== 'undefined') return navigator.locks.request('pinkuang-deployment-chain56',
+      if (typeof navigator !== 'undefined') return await navigator.locks.request('pinkuang-deployment-chain56',
         { ifAvailable: true }, async lock => { requireThat(lock, '另一个部署页面正在使用此钱包。'); return action(); });
-      return action();
+      return await action();
     } finally { this.busy = false; }
   }
 

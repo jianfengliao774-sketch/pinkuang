@@ -34,6 +34,8 @@ ALLOWED = {'dist', 'public', 'server', 'shared', 'scripts', 'src', 'package.json
 REQUIRED = {'dist/index.html', 'dist/deployment-artifacts.json',
             'public/deployment-artifacts.json', 'public/fresh-release-manifest.json',
             'server/index.mjs', 'server/authority-ipc.mjs',
+            'server/authority-role.mjs',
+            'shared/gas-signer-attestation.mjs',
             'package.json', 'package-lock.json'}
 
 

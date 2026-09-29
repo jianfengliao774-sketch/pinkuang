@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ZeroAddress, ZeroHash } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { validateManifest } from '../lib/live-config.mjs';
-import { portfolioBnbEntitlement,readPortfolioContext,readPortfolio,readPortfolioPage,readPortfolioOrders,preparePortfolioAction } from '../lib/live-portfolios.mjs';
+import { portfolioBnbEntitlement,genesisPortfolioProposalGate,readPortfolioContext,readPortfolio,readPortfolioPage,readPortfolioOrders,preparePortfolioAction } from '../lib/live-portfolios.mjs';
 import { portfolioFixture,PORTFOLIOS,address } from './portfolio-fixture.mjs';
 
 const saleProposal=(changes={})=>({child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
@@ -62,6 +62,28 @@ test('genesis budget sale execution requires its cost-based threshold before wal
   assert(!f.calls.some(({method,params})=>method==='eth_call'&&
     [abi.BudgetPortfolioVault.getFunction('childSaleReview').selector,abi.ShareMarket.getFunction('saleReference').selector]
       .includes(params[0].data.slice(0,10))),'genesis must retain its purchase-cost rule');
+});
+test('genesis budget sale proposal accepts one share only after the current round and child maturity',async()=>{
+  const f=portfolioFixture({stage:'genesis',poolState:2n,shares:1n,saleDebt:0n});
+  const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'proposeChildSale',child:address(0x951),price:'0.04',reference:'0.04',referenceAt:String(f.source().indexedTimestamp)}};
+  const ready=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(genesisPortfolioProposalGate(ready).allowed,true);
+  const prepared=await preparePortfolioAction(input);
+  assert.equal(abi.BudgetPortfolioVault.parseTransaction(prepared.transaction).name,'proposeChildSale');
+  assert(!f.calls.some(({method,params})=>method==='eth_call'&&params?.[0]?.from===f.account));
+  f.state.shares=0n;
+  await assert.rejects(preparePortfolioAction(input),/至少 1 份/);
+  f.state.shares=1n;f.state.nextRoundAt=BigInt(f.source().indexedTimestamp)+1n;
+  await assert.rejects(preparePortfolioAction(input),/下一轮/);
+  f.state.nextRoundAt=0n;f.state.activeProposalId=1n;f.state.nextProposalId=2n;
+  await assert.rejects(preparePortfolioAction(input),/本轮已有/);
+  f.state.activeProposalId=0n;f.state.nextProposalId=1n;
+  f.state.childActivatedAt=BigInt(f.source().indexedTimestamp)-7n*86400n+1n;
+  await assert.rejects(preparePortfolioAction(input),/出售条件/);
+  f.state.childActivatedAt=BigInt(f.source().indexedTimestamp)-8n*86400n;
+  f.state.childSold=true;
+  await assert.rejects(preparePortfolioAction(input),/出售条件/);
 });
 test('v4 budget child sale needs a fresh child reference and an approved review below that price',async()=>{
   const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:2n,

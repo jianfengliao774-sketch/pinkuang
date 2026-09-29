@@ -1,7 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
-import { displayOnlySnapshot, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
@@ -45,7 +45,7 @@ import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios from "./LivePortfolios";
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
-import { prepareBudgetQueueStep, budgetQueuePreviewMatches } from "../lib/budget-purchase-plan.mjs";
+import { prepareBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
 import PortfolioProjectShare from "./PortfolioProjectShare";
 import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect.mjs";
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
@@ -57,7 +57,8 @@ import { approvedOperatorCall, authorityActionStatus, signAuthorityAction, submi
 import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
-import { createReadOnlyHttpProvider, fetchLiveJson, loadLiveConfig, validateProductGraph } from "../lib/live-config.mjs";
+import { createReadOnlyHttpProvider, fetchLiveJson, loadLiveConfig, validatePinnedGenesis, validateProductGraph } from "../lib/live-config.mjs";
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
@@ -258,6 +259,7 @@ export default function LivePlatform() {
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
   const [cachedPage, setCachedPage] = useState(false);
   const [loading, setLoading] = useState(false),
+    [revalidating, setRevalidating] = useState(false),
     [busy, setBusy] = useState(false),
     [transactionStage, setTransactionStage] = useState(null),
     [transactionGasWei, setTransactionGasWei] = useState(null),
@@ -293,6 +295,7 @@ export default function LivePlatform() {
     walletEpoch = useRef(0),
     activeModal = useRef(null);
   const lastPageRefresh = useRef(new Map());
+  const prebootShown = useRef(new Set());
   const portfolioRead = useRef({ busy: false, failed: false });
   const capacityDisplay = useRef({ pools: {}, orders: {} });
   const refreshState = useRef(null);
@@ -305,7 +308,7 @@ export default function LivePlatform() {
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
   capacityDisplay.current = { pools: poolCapacity, orders: orderCapacity };
-  refreshState.current = { loading: loading || positionsReadLoading || marketOrdersLoading || activityReadLoading,
+  refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading,
     busy, modal: !!modal, pending: !!pending,
     failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
@@ -397,31 +400,62 @@ export default function LivePlatform() {
     } catch {}
   }, [appearance]);
   useEffect(() => {
+    if (client || boot.status !== 'loading' || account) return;
+    // The build-pinned genesis allows a display-only cache to paint while the
+    // product graph and manifest are still loading. Route identity must match
+    // the URL so a deep link never flashes the home page's previous data.
+    const activeRoute = parseProductRoute(location.hash);
+    if (activeRoute.route !== route.route || activeRoute.pool !== route.pool) return;
+    const pageKey = pageDisplayKey(route, null, marketTab);
+    if (prebootShown.current.has(pageKey)) return;
+    try {
+      const cached = readDisplaySnapshot(displayStorage(), validatePinnedGenesis(pinnedGenesis), pageKey);
+      if (!cached?.catalog && !cached?.detail) return;
+      const visiblePools = cached.catalog?.items.map(viewPool);
+      const visibleDetail = cached.detail ? viewPool(cached.detail.item) : null;
+      prebootShown.current.add(pageKey);
+      if (visiblePools) { setPools(visiblePools); setPoolCursor(cached.catalog.nextCursor); }
+      if (visibleDetail) setDetail(visibleDetail);
+      setSource(cached.detail?.source ?? cached.catalog?.source);
+      setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
+      setCachedPage(true);
+    } catch { /* A corrupt browser cache cannot block the live read. */ }
+  }, [client, boot.status, account, route.route, route.pool, marketTab]);
+  useEffect(() => {
     let cancelled = false;
+    let retryTimer;
+    let shown = false;
     setBoot({ status: "loading" });
     setClient(null);
     setError("");
-    loadLiveConfig({ basePath })
-      .then((result) => {
+    const retry = attempt => {
+      if (attempt < 3) retryTimer = setTimeout(() => void load(attempt + 1), 2_500);
+    };
+    const load = async (attempt = 0) => {
+      try {
+        const result = await loadLiveConfig({ basePath });
         if (cancelled) return;
-        if (result.status !== "ready") {
-          setBoot(result);
-          return;
-        }
-        const service = createLiveDataClient(result);
-        if (!cancelled) {
+        if (result.status !== "ready") { setBoot(result); return; }
+        // An older verified graph can paint public data, but cannot authorize
+        // a wallet action. Keep it visible while bounded retries wait for the
+        // journal's already-running single-flight chain refresh.
+        if (!shown || result.readMode === 'current') {
+          const service = createLiveDataClient(result);
+          shown = true;
           setBoot(result);
           setClient(service);
         }
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setBoot({ status: "error" });
-          setError(textError(e));
-        }
-      });
+        if (result.readMode === 'verified_snapshot') retry(attempt);
+      } catch (e) {
+        if (cancelled) return;
+        if (!shown) { setBoot({ status: "error" }); setError(textError(e)); }
+        else retry(attempt);
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
+      clearTimeout(retryTimer);
     };
   }, [bootAttempt]);
   useEffect(() => {
@@ -573,8 +607,7 @@ export default function LivePlatform() {
     const revision = ++epoch.current;
     const current = () => !cancelled && revision === epoch.current;
     const accountKey = account?.toLowerCase() || '';
-    const pageKey = JSON.stringify([route.route, route.pool?.toLowerCase() || '', accountKey,
-      route.route === 'market' ? marketTab : '']);
+    const pageKey = pageDisplayKey(route, account, marketTab);
     const cache = pageCache.current.get(client);
     const saved = cache?.get(pageKey);
     const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
@@ -607,7 +640,8 @@ export default function LivePlatform() {
       setLoadedRoute(cached || (!needsCatalog && route.route !== 'detail')
         ? route.route + (route.pool ? `/${route.pool}` : '') : '');
       setLoadedAccount(null);
-      setLoading(true);
+      setLoading(!cached);
+      setRevalidating(!!cached);
       setError("");
       setPrepared(null);
       // The route's sections own their data. Keep verified display values visible
@@ -651,6 +685,7 @@ export default function LivePlatform() {
       .finally(() => {
         if (current()) {
           setLoading(false);
+          setRevalidating(false);
           setReadRetry(null);
           setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ""));
         }
@@ -889,7 +924,7 @@ export default function LivePlatform() {
         }
       }
     };
-    void Promise.all(Array.from({ length: Math.min(2, uniqueRows.length) }, worker));
+    void Promise.all(Array.from({ length: Math.min(6, uniqueRows.length) }, worker));
     return () => { cancelled = true; };
   }, [client, route.route, marketTab, pools, positions, detail, boot, refresh, loading, poolQuoteRevision]);
 
@@ -1289,6 +1324,7 @@ export default function LivePlatform() {
   }
   async function sendBudgetQueueStep(confirmed, input) {
     if (busy || submissionLock.current || !wallet || !account || pending) throw Object.assign(new Error(L('请先完成或核对当前操作。', 'Complete or verify the current operation first.')), { beforeWalletSubmission: true });
+    if (!budgetPurchaseQueueSupported(config)) throw Object.assign(new Error(L('当前合约阶段不支持连续采购队列。', 'The current contract stage does not support this purchase queue.')), { beforeWalletSubmission: true });
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
     let enteredSender = false;
     submissionLock.current = ticket; setBusy(true); setError('');
@@ -1305,7 +1341,8 @@ export default function LivePlatform() {
       return result;
     } catch (problem) {
       // This proof is local to this call; never infer it from a timeout or empty journal.
-      if (!enteredSender) throw Object.assign(new Error(textError(problem)), { beforeWalletSubmission: true });
+      if (!enteredSender || problem?.beforeIntent === true)
+        throw Object.assign(new Error(textError(problem)), { beforeWalletSubmission: true });
       throw problem;
     } finally {
       if (submissionLock.current === ticket) submissionLock.current = null;
@@ -1999,11 +2036,11 @@ export default function LivePlatform() {
                 'Browsing remains available. Product transactions require a current on-chain verification.')}</p>
             </div>
           </div>}
-          {loading && readRetry && <div className="live-notice" role="status">
+          {(loading || revalidating) && readRetry && <div className="live-notice" role="status">
             <RefreshCw size={18}/><span>{L(`数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`,
               `Data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`)}</span>
           </div>}
-          {loading && cachedPage && !historicalSource && <div className="live-notice" role="status">
+          {revalidating && cachedPage && !historicalSource && <div className="live-notice" role="status">
             <RefreshCw size={18}/><span>{L('显示上次核验的数据，正在更新；操作将重新核对最新链上状态。', 'Showing previously verified data while refreshing; actions recheck current on-chain state.')}</span>
           </div>}
           {historicalSource && <div className="live-notice" role="status">
@@ -3056,7 +3093,7 @@ export default function LivePlatform() {
               wallet={wallet} disabled={busy || !!pending} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
-              onSendQueue={config?.stage === 'fresh-active' ? undefined : sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
+              onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
           </> : <section className="panel" data-operator-access={operatorAccess}>
             <Empty title={operatorAccess === 'checking'

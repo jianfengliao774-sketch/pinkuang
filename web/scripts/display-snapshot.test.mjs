@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayOnlySnapshot, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 
 const manifest = { artifactDigest: `0x${'ab'.repeat(32)}`, factory: `0x${'11'.repeat(20)}`, shareMarket: `0x${'22'.repeat(20)}` };
 const source = { complete: true, unknownReason: null, chainId: 56, factory: manifest.factory,
@@ -9,6 +9,14 @@ const source = { complete: true, unknownReason: null, chainId: 56, factory: mani
 const storage = (map = new Map()) => {
   return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
 };
+
+test('pre-boot and live display keys isolate routes, wallets and market tabs', () => {
+  const route = { route: 'market', pool: null };
+  assert.equal(pageDisplayKey(route, null, 'whole'), '["market","","","whole"]');
+  assert.notEqual(pageDisplayKey(route, null, 'whole'), pageDisplayKey(route, null, 'shares'));
+  assert.notEqual(pageDisplayKey(route, null, 'whole'), pageDisplayKey(route, `0x${'aa'.repeat(20)}`, 'whole'));
+  assert.notEqual(pageDisplayKey(route, null, 'whole'), pageDisplayKey({ route: 'detail', pool: manifest.factory }, null));
+});
 
 test('persists only identity-bound, verified display data and preserves exact amounts', () => {
   const cache = storage(), result = { detail: { source, item: { pool: manifest.factory, shares: 99n, cost: 40_000_000_000_000_000n } } };

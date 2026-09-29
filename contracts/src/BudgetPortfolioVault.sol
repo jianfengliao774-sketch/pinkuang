@@ -37,6 +37,7 @@ interface IBudgetSaleReference {
         external
         view
         returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
+    function approveBudgetChildSale(address pool, uint256 proposalId, uint256 projectProposalId) external;
 }
 
 interface IBudgetLegacySaleMarket {
@@ -461,6 +462,8 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         if (!_currentSaleCandidate(proposalId) || p.executed || g.saleReviews[proposalId] == 2) {
             revert InvalidProposal();
         }
+        // A sale at or above the current reference needs no operator decision.
+        if (p.price >= _freshChildMarketPrice(p.child)) revert InvalidProposal();
         g.saleReviews[proposalId] = approved ? 1 : 2;
         emit ChildSaleReviewed(proposalId, approved, msg.sender);
     }
@@ -475,16 +478,8 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             state != IPoolVault.State.Active || !_currentSaleCandidate(proposalId) || block.timestamp >= p.endsAt
                 || p.executed
         ) revert InvalidProposal();
-        (uint128 marketPrice, uint64 observedAt, bytes32 digest) =
-            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket()).saleReference(p.child);
-        if (
-            marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
-                || block.timestamp - observedAt > 15 minutes
-        ) revert ProposalNotPassed();
-        // A platform rejection is final for this proposal, even if a later
-        // market reference falls below its price.
-        if (_budgetGovernanceStorage().saleReviews[proposalId] == 2) revert ProposalNotPassed();
-        if (p.price < marketPrice && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
+        bool discount = p.price < _freshChildMarketPrice(p.child);
+        if (discount && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
             revert ProposalNotPassed();
         }
         if (uint256(p.yesMembers) * 2 <= p.memberCount || uint256(p.yesShares) * 2 <= TOTAL_SHARES) {
@@ -495,8 +490,23 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         IBudgetChild pool = IBudgetChild(p.child);
         uint256 childProposal = pool.propose(p.price, p.referencePrice, p.referenceAt);
         pool.vote(childProposal, true);
+        if (discount) {
+            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket())
+                .approveBudgetChildSale(p.child, childProposal, proposalId);
+        }
         pool.executeSale(childProposal);
         emit ChildSaleApproved(proposalId, p.child);
+    }
+
+    function _freshChildMarketPrice(address child) private view returns (uint128 marketPrice) {
+        uint64 observedAt;
+        bytes32 digest;
+        (marketPrice, observedAt, digest) =
+            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket()).saleReference(child);
+        if (
+            marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
+                || block.timestamp - observedAt > 15 minutes
+        ) revert ProposalNotPassed();
     }
 
     function settleChildSale() external nonReentrant returns (uint256 net) {

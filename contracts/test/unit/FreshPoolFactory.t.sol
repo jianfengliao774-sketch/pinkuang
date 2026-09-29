@@ -38,8 +38,9 @@ contract FreshPoolFactoryTest is Test {
     function test_newFactoryStillRejectsDuplicateMachineWithinItsRegistry() public {
         IPoolVault.PoolParams memory p = _params(13043);
         address pool = factory.createPool(p);
-        vm.expectRevert(abi.encodeWithSelector(PoolFactory.MachineAlreadyReserved.selector,
-            p.circuits, p.circuitId, pool));
+        vm.expectRevert(
+            abi.encodeWithSelector(PoolFactory.MachineAlreadyReserved.selector, p.circuits, p.circuitId, pool)
+        );
         factory.createPool(p);
     }
 

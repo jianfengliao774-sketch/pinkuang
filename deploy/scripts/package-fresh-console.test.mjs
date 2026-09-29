@@ -89,5 +89,10 @@ test('pre-genesis package contains only fresh dist and required runtime files', 
       || /\.test\.|fixture|\.env|\.key/.test(name)));
     assert(!manifest.files['src/UpgradeConsole.tsx']);
     assert(!manifest.files['scripts/build-artifacts.mjs']);
+    // Manual recovery belongs to the private signer installation, not the
+    // public pre-genesis console release.
+    for (const name of ['scripts/authority-relay-recovery.mjs',
+      'scripts/authority-relay.mjs', 'scripts/purchase-keeper.mjs',
+      'scripts/keeper-credential.mjs']) assert(!manifest.files[name]);
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });

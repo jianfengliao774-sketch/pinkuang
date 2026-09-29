@@ -462,6 +462,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
         vm.prank(OPERATOR);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
         shareMarket.reviewSale(address(pool), id, 3 ether, true);
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
@@ -469,6 +470,39 @@ contract PoolVotingTest is ShareTransferTestBase {
         shareMarket.reviewSale(address(pool), id, 4 ether, true);
         voting.executeSale(id);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_futureReviewCannotRejectOrPreApproveAnOrdinaryPool() public {
+        _ready();
+        uint256 futureId = voting.nextProposalId();
+        vm.startPrank(OPERATOR);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), futureId, 4 ether, false);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), futureId, 4 ether, true);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), futureId + 1, 4 ether, false);
+        vm.stopPrank();
+        vm.prank(ALICE);
+        uint256 actualId = voting.propose(4 ether, 0, 0);
+        assertEq(actualId, futureId);
+        (uint8 status,) = shareMarket.saleReview(address(pool), actualId);
+        assertEq(status, 0);
+    }
+
+    function test_reviewMustNameCurrentUnexecutedProposalAtItsActualPrice() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        vm.startPrank(OPERATOR);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), id, 3 ether, false);
+        shareMarket.reviewSale(address(pool), id, 4 ether, true);
+        vm.stopPrank();
+        vm.warp(voting.getProposal(id).endsAt);
+        vm.prank(OPERATOR);
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.reviewSale(address(pool), id, 4 ether, false);
     }
 
     function test_platformCanFinallyRejectBelowMarketProposal() public {
