@@ -33,3 +33,7 @@
 .legacy-cutover .preflight-facts{padding-top:4px;padding-bottom:4px}
 .legacy-cutover .success-inline{display:flex;align-items:center;gap:8px}
 .legacy-cutover a{text-decoration:underline;text-underline-offset:3px}
+.fresh-role-plan{margin:0 25px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:11px;line-height:1.75;color:#6b797c}
+.fresh-role-plan b{display:block;font-size:12px;font-weight:600;color:#3c4c4e}.fresh-role-plan b:not(:first-child){margin-top:12px}
+.fresh-role-plan p{margin-top:5px;overflow-wrap:anywhere}
+@media(max-width:1160px){.fresh-role-plan{margin-left:20px;margin-right:20px}}
