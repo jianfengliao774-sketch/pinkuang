@@ -6,7 +6,7 @@ import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: '
 import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS,
   GENESIS_ARTIFACT_DIGEST,
   validateProductGraph } from '../lib/live-config.mjs';
-import { createLiveDataClient, validateIndexSource } from '../lib/live-data.mjs';
+import { createLiveDataClient, requireRecentSnapshotState, validateIndexSource } from '../lib/live-data.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = addr(1), shareMarket = addr(2), lens = addr(3), beacon = addr(4), timelock = addr(5);
@@ -578,7 +578,7 @@ test('detail and governance use health displaySource only after pinned-chain ver
 });
 
 test('automatic snapshot responses keep their historical checkedAt and never gain live transaction status', async () => {
-  const historical = { ...source, checkedAt: new Date(now - 10 * 60_000).toISOString(),
+  const historical = { ...source, checkedAt: new Date(now - 60_000).toISOString(),
     readMode: 'verified_snapshot', stale: true, refreshing: false, transactionReady: false };
   const c = client({ '/v1/pools': poolsData, '/v1/orders': ordersData, '/v1/stats': {
     scope: 'confirmed_indexed_history', registeredPoolCount: '1', everParticipantAddressCount: '0',
@@ -593,6 +593,31 @@ test('automatic snapshot responses keep their historical checkedAt and never gai
   for (const bad of [{ stale: false }, { transactionReady: true }, { refreshing: undefined },
     { readMode: undefined }, { checkedAt: new Date(now - 30 * 60_000 - 1).toISOString() }])
     assert.throws(() => validateIndexSource({ ...historical, ...bad }, manifest, { now }), { code: 'index_stale' });
+});
+
+test('snapshot state reads are bounded by the RPC head, not merely their recent checkedAt', async () => {
+  const recent = { ...source, readMode: 'verified_snapshot', stale: true,
+    refreshing: false, transactionReady: false, indexedTimestamp: timestamp - 90 };
+  await requireRecentSnapshotState(provider(), recent);
+  const old = { ...recent, indexedTimestamp: timestamp - 91, checkedAt: new Date(now).toISOString() };
+  const rpc = provider();
+  await assert.rejects(requireRecentSnapshotState(rpc, old), { code: 'index_stale' });
+  assert.equal(rpc.calls.filter(call => call.method === 'eth_call').length, 0);
+  await assert.rejects(requireRecentSnapshotState(provider({ latestBlockNumber: 139 }), recent),
+    { code: 'index_stale' }, 'block-depth guard also bounds RPCs with inaccurate timestamps');
+});
+
+test('an old historical catalog skips old-state calls and uses fresh direct chain fallback', async () => {
+  const rpc = provider({ latestBlockNumber: 22n });
+  const historical = { ...source, indexedThrough: 11, observedSafeHead: 11,
+    indexedTimestamp: timestamp - 1000, checkedAt: new Date(now - 1000).toISOString(),
+    readMode: 'verified_snapshot', stale: true, refreshing: false, transactionReady: false };
+  const fetcher = async () => response({ source: historical, data: poolsData });
+  const result = await createLiveDataClient(config, { provider: rpc, fetcher, now: () => now }).readPools({ account });
+  assert.equal(result.source.readMode, 'direct_chain');
+  assert.equal(result.items[0].pool, pool);
+  assert.equal(rpc.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === '0xb'), false,
+    'the old snapshot block must not be requested for proof or state reads');
 });
 
 test('an older index without the snapshot route falls through to confirmed direct reads', async () => {

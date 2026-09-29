@@ -469,6 +469,58 @@ test('display snapshot capture failure does not close a verified live index', as
   }
 });
 
+test('display snapshot lists newest pools first and finds an older pool by exact address', async () => {
+  const chain=new MockChain(); fixture(chain);
+  const newer=addr(99);
+  chain.event('factory','PoolCreated',[newer,collection,16210n,1100n,1000n,bob],2);
+  const originalCall=chain.call.bind(chain);
+  chain.call=({to,data,...rest})=>{
+    const parsed=binding.parseTransaction({data});
+    if(parsed.name==='poolCount') return Promise.resolve(binding.encodeFunctionResult('poolCount',[2n]));
+    if(parsed.name==='isPool') return Promise.resolve(binding.encodeFunctionResult('isPool',
+      [[pool,newer].includes(parsed.args[0].toLowerCase())]));
+    return originalCall({to,data,...rest});
+  };
+  const index=new ChainIndex(chain,{dbPath:':memory:',factory,market,startBlock:1,confirmations:2});
+  const server=createChainIndexServer(index);
+  try {
+    await index.sync();
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`;
+    const newest=await (await fetch(`${base}/v1/snapshot/pools?limit=1`)).json();
+    assert.equal(newest.data.items[0].address,newer);
+    assert.equal(newest.data.nextCursor,1);
+    const older=await (await fetch(`${base}/v1/snapshot/pools/${pool}`)).json();
+    assert.equal(older.data.lookupAddress,pool);
+    assert.equal(older.data.items[0].address,pool);
+    assert.equal(older.data.nextCursor,null);
+    assert.deepEqual(older.block,newest.block);
+    assert.equal(older.source.standalonePoolCount,'2');
+    const missing=await fetch(`${base}/v1/snapshot/pools/${addr(98)}`);
+    assert.equal(missing.status,200);
+    assert.deepEqual((await missing.json()).data.items,[]);
+    assert.equal((await fetch(`${base}/v1/snapshot/pools/${pool}?limit=1`)).status,400);
+  } finally { await new Promise(resolve=>server.close(resolve));index.close(); }
+});
+
+test('index API reports internal status and read failures as unavailable, not invalid user input', async () => {
+  const index={status(){throw new Error('private database path');}};
+  const server=createChainIndexServer(index);
+  try {
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`;
+    const response=await fetch(`${base}/health`);
+    assert.equal(response.status,503);
+    assert.equal((await response.text()).includes('private database path'),false);
+    index.status=()=>({complete:true,indexedThrough:1,indexedBlockHash:hex(1)});
+    index.pools=()=>{throw new Error('private database path');};
+    const broken=await fetch(`${base}/v1/pools`);
+    assert.equal(broken.status,503);
+    assert.equal((await broken.text()).includes('private database path'),false);
+    assert.equal((await fetch(`${base}/v1/pools?limit=51`)).status,400);
+  } finally { await new Promise(resolve=>server.close(resolve)); }
+});
+
 test('missing indexed events trigger one persisted full replay and recover automatically', async () => {
   const chain = new MockChain(); fixture(chain);
   const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1,
@@ -555,6 +607,12 @@ test('over 500 standalone pools disables only the verified pool section', async 
     assert.equal(poolBody.source.standalonePoolCount, '501');
     assert.equal(poolBody.source.transactionReady, false);
     assert.equal(poolBody.block.hash, chain.blocks.get(6).hash);
+    const exact=await fetch(`${base}/pools/${pool}`);
+    assert.equal(exact.status,200,'an exact deep link remains available after the directory ceiling');
+    const exactBody=await exact.json();
+    assert.equal(exactBody.data.lookupAddress,pool);
+    assert.deepEqual(exactBody.data.items.map(item=>item.address),[pool]);
+    assert.deepEqual(exactBody.block,poolBody.block);
     assert.equal((await fetch(`${base}/stats`)).status, 200);
     assert.equal((await fetch(`${base}/orders`)).status, 200);
     assert.equal((await fetch(`${base}/portfolios`)).status, 200);

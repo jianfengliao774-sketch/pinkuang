@@ -1,7 +1,7 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
 import { validateManifest, fetchLiveJson, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
-import { validateIndexSource } from './live-data.mjs';
+import { requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
@@ -246,6 +246,7 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算项目索引身份或分页无效。');
   const nextCursor = reply.data.nextCursor;
   requireValue(nextCursor === null || Number.isSafeInteger(nextCursor) && nextCursor > cursor, '索引返回重复游标。');
+  await requireRecentSnapshotState(provider, source);
   const context = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
   requireValue(context.block.hash.toLowerCase() === source.indexedBlockHash
     && context.timestamp === BigInt(source.indexedTimestamp), '预算项目索引区块已变化。');

@@ -69,7 +69,8 @@ export function validateIndexRequest(url) {
     '/v1/activity': ['pool', 'account', 'cursor', 'limit'],
     '/v1/yield': ['pool', 'account', 'days'],
   };
-  const allowed = /^\/v1\/accounts\/0x[\da-f]{40}\/(pools|portfolios)$/i.test(route)
+  const allowed = /^\/v1\/snapshot\/pools\/0x[\da-f]{40}$/i.test(route) ? []
+    : /^\/v1\/accounts\/0x[\da-f]{40}\/(pools|portfolios)$/i.test(route)
     || /^\/v1\/portfolios\/0x[\da-f]{40}\/children$/i.test(route) ? ['cursor', 'limit'] : routes[route];
   requireValue(allowed, 404, 'Unknown read-only index route.');
   const seen = new Set();

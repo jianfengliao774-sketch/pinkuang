@@ -2,11 +2,12 @@ import { createServer } from 'node:http';
 import { communityPage } from './community.mjs';
 import { chainIndexInterfaces } from './indexer.mjs';
 
+class InvalidQueryError extends Error {}
 const pageInt = (value, label, fallback, max = 50) => {
   if (value === null) return fallback;
-  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error(`Invalid ${label}.`);
+  if (!/^(0|[1-9]\d*)$/.test(value)) throw new InvalidQueryError(`Invalid ${label}.`);
   const number = Number(value);
-  if (!Number.isSafeInteger(number) || number > max) throw new Error(`Invalid ${label}.`);
+  if (!Number.isSafeInteger(number) || number > max) throw new InvalidQueryError(`Invalid ${label}.`);
   return number;
 };
 
@@ -34,6 +35,7 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     let url;
     try { url = new URL(req.url, 'http://localhost'); }
     catch { return send(400, { error: 'Invalid URL.' }); }
+    try {
     let source = index.status();
     if (url.pathname === '/health') {
       const view = index.syncing || !source.complete ? index.acquireVerifiedReadView() : null;
@@ -54,7 +56,9 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     // Display-only reads can use a previously completed, canonical snapshot
     // while the next sync runs or an RPC is unavailable. Transaction paths
     // continue to require a fresh graph and finalized on-chain checks.
-    const snapshotPath = url.pathname.startsWith('/v1/snapshot/') ? url.pathname
+    const exactPool = /^\/v1\/snapshot\/pools\/(0x[\da-fA-F]{40})$/.exec(url.pathname);
+    const snapshotPath = exactPool ? '/v1/snapshot/pools'
+      : url.pathname.startsWith('/v1/snapshot/') ? url.pathname
       : !source.complete ? displaySnapshots[url.pathname] : undefined;
     if (snapshotPath && Object.values(displaySnapshots).includes(snapshotPath)) {
       const snapshot = index.verifiedDisplaySnapshot();
@@ -66,6 +70,19 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
         const block = { number: snapshotSource.indexedThrough, hash: snapshotSource.indexedBlockHash,
           timestamp: snapshotSource.indexedTimestamp };
         try {
+          if (exactPool) {
+            if ([...url.searchParams].length) throw new InvalidQueryError('Exact pool lookup takes no query parameters.');
+            const lookupAddress = exactPool[1].toLowerCase();
+            const matched = index.verifiedDisplayPool(lookupAddress, snapshot);
+            return send(200, { source: snapshotSource, block,
+              data: { items: matched ? [matched] : [], nextCursor: null, lookupAddress,
+                registeredPoolCount: snapshot.source.registeredPoolCount,
+                childPoolCount: snapshot.source.childPoolCount,
+                reservedChildPoolCount: snapshot.source.reservedChildPoolCount,
+                reservedChildPoolAddresses: snapshot.source.reservedChildPoolAddresses,
+                reservedChildPoolAddressesComplete: snapshot.source.reservedChildPoolAddressesComplete,
+                standalonePoolCount: snapshot.source.standalonePoolCount } });
+          }
           if (snapshotPath.endsWith('/stats')) {
             if (!snapshot.stats) return send(503, { source: snapshotSource, block, data: null,
               error: 'Verified statistics snapshot is unavailable.' });
@@ -76,10 +93,10 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
               data: { items: null, nextCursor: null, ordersAvailable: false },
               error: 'Verified order snapshot is unavailable.' });
             const pool = url.searchParams.get('pool'), seller = url.searchParams.get('seller');
-            if ([pool, seller].some(value => value !== null && !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new Error('Invalid address filter.');
+            if ([pool, seller].some(value => value !== null && !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new InvalidQueryError('Invalid address filter.');
             const active = url.searchParams.get('active'), cursor = url.searchParams.get('cursor');
-            if (active !== null && active !== 'true' && active !== 'false') throw new Error('Invalid active filter.');
-            if (cursor !== null && !/^[1-9]\d*$/.test(cursor)) throw new Error('Invalid order cursor.');
+            if (active !== null && active !== 'true' && active !== 'false') throw new InvalidQueryError('Invalid active filter.');
+            if (cursor !== null && !/^[1-9]\d*$/.test(cursor)) throw new InvalidQueryError('Invalid order cursor.');
             const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
             const filtered = snapshot.orders.filter(order => (!pool || order.pool.toLowerCase() === pool.toLowerCase())
               && (!seller || order.seller.toLowerCase() === seller.toLowerCase())
@@ -104,7 +121,8 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
               reservedChildPoolAddresses: snapshot.source.reservedChildPoolAddresses,
               reservedChildPoolAddressesComplete: snapshot.source.reservedChildPoolAddressesComplete,
               standalonePoolCount: snapshot.source.standalonePoolCount } });
-        } catch { return send(400, { source: snapshotSource, error: 'Invalid snapshot query.' }); }
+        } catch (error) { return send(error instanceof InvalidQueryError ? 400 : 503,
+          { source: snapshotSource, error: error instanceof InvalidQueryError ? 'Invalid snapshot query.' : 'Index snapshot unavailable.' }); }
       }
     }
     // A pinned copy of the previous fully verified tip keeps history reads
@@ -151,7 +169,7 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
           limit: pageInt(url.searchParams.get('limit'), 'limit', 20) });
       } else if (url.pathname === '/v1/orders' || url.pathname === '/v1/portfolio-orders') {
         const active = url.searchParams.get('active');
-        if (active !== null && active !== 'true' && active !== 'false') throw new Error('Invalid active filter.');
+        if (active !== null && active !== 'true' && active !== 'false') throw new InvalidQueryError('Invalid active filter.');
         data = reader.orders({ portfolio:url.pathname==='/v1/portfolio-orders',pool: url.searchParams.get('pool') ?? undefined,
           seller: url.searchParams.get('seller') ?? undefined, active: active === null ? undefined : active === 'true',
           cursor: url.searchParams.get('cursor') ?? undefined, limit: pageInt(url.searchParams.get('limit'), 'limit', 20) });
@@ -161,16 +179,19 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
           limit: pageInt(url.searchParams.get('limit'), 'limit', 20) });
       } else if (url.pathname === '/v1/yield') {
         const pool = url.searchParams.get('pool');
-        if (!pool) throw new Error('pool is required.');
+        if (!pool) throw new InvalidQueryError('pool is required.');
         data = reader.yieldCurve({ pool, account: url.searchParams.get('account') ?? undefined,
           days: pageInt(url.searchParams.get('days'), 'days', 30, 90) });
       } else return send(404, { error: 'Unknown route.' });
       if (readView && !index.isVerifiedReadView(readView))
         return send(503, { source: index.status(), data: null, error: 'Previous verified snapshot was invalidated.' });
       return send(200, { source, data });
-    } catch {
-      return send(privateSnapshot ? 503 : 400,
-        { source, error: privateSnapshot ? 'Private snapshot unavailable or changed.' : 'Invalid query.' });
+    } catch (error) {
+      const invalid = error instanceof InvalidQueryError;
+      return send(privateSnapshot || !invalid ? 503 : 400,
+        { source, error: privateSnapshot ? 'Private snapshot unavailable or changed.'
+          : invalid ? 'Invalid query.' : 'Index read unavailable.' });
     } finally { if (readView) index.releaseVerifiedReadView(readView); }
+    } catch { return send(503, { source: null, error: 'Index unavailable.' }); }
   });
 }

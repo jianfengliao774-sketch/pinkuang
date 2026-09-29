@@ -53,7 +53,11 @@ export function serverConfiguration(env = process.env) {
       host,port,dbPath,scanRange,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
       factory:manifest.factory,market:manifest.shareMarket,
       portfolioFactory:manifest.portfolioFactory,portfolioMarket:manifest.portfolioMarket,
-      startBlock:manifest.deployment.blockNumber,reservationMode:'required'};
+      startBlock:manifest.deployment.blockNumber,reservationMode:'required',
+      freshCodehashes:Object.freeze([
+        ...Object.entries(manifest.codehash).map(([name,expected])=>({address:manifest[name],expected})),
+        {address:manifest.authority,expected:manifest.freshAuthority.codehash},
+      ])};
   }
   if(Boolean(env.CHAIN_INDEX_PORTFOLIO_FACTORY)!==Boolean(env.CHAIN_INDEX_PORTFOLIO_MARKET))throw new Error('Configure both portfolio Factory and market.');
   const reservationMode=env.CHAIN_INDEX_RESERVATION_MODE || 'legacy';

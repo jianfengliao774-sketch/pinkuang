@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { Interface, ZeroAddress, getAddress } from 'ethers';
+import { Interface, ZeroAddress, getAddress, keccak256 } from 'ethers';
 import { notificationPage } from './notifications.mjs';
 
 const artifactPath = fileURLToPath(new URL('../../public/deployment-artifacts.json', import.meta.url));
@@ -42,6 +42,10 @@ const binding = new Interface([
   'function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)',
 ]);
 const CHILD_COUNT_READ_CONCURRENCY = 16;
+// A fresh deployment is checked on its first sync and again about once per
+// minute. The pinned runtime hashes complement (but cannot replace) the
+// proxy/market binding checks made on every sync.
+const FRESH_CODEHASH_RECHECK_BLOCKS = 20;
 const indexedEvents = Object.freeze({
   factory: new Set(['PoolCreated']),
   market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn', 'SaleReviewed']),
@@ -89,7 +93,7 @@ const normalizeBlock = block => {
 /** Read-only, event-sourced index. All amounts stay decimal strings; no transaction method is used. */
 export class ChainIndex {
   constructor(provider, { dbPath, factory, market, portfolioFactory, portfolioMarket, reservationMode = 'legacy',
-    startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500 }) {
+    startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500, freshCodehashes = null }) {
     if (!provider || typeof provider.getLogs !== 'function' || typeof provider.call !== 'function'
       || typeof provider.send !== 'function') throw new Error('Read-only provider required.');
     this.provider = provider;
@@ -98,6 +102,19 @@ export class ChainIndex {
     if (Boolean(portfolioFactory) !== Boolean(portfolioMarket)) throw new Error('Both portfolio Factory and market must be configured.');
     this.portfolioFactory = portfolioFactory ? exactAddress(portfolioFactory) : null;
     this.portfolioMarket = portfolioMarket ? exactAddress(portfolioMarket) : null;
+    this.freshCodehashes = freshCodehashes === null ? null : Object.freeze(freshCodehashes.map(({address,expected}) => {
+      if (typeof expected !== 'string' || !/^0x[\da-f]{64}$/i.test(expected))
+        throw new Error('Invalid fresh index codehash.');
+      return Object.freeze({address:exactAddress(address),expected:expected.toLowerCase()});
+    }));
+    if (this.freshCodehashes && (this.freshCodehashes.length !== 11
+      || new Set(this.freshCodehashes.map(item=>item.address)).size !== 11
+      || !this.freshCodehashes.some(item=>item.address===this.factory)
+      || !this.freshCodehashes.some(item=>item.address===this.market)
+      || !this.freshCodehashes.some(item=>item.address===this.portfolioFactory)
+      || !this.freshCodehashes.some(item=>item.address===this.portfolioMarket)))
+      throw new Error('Fresh index codehash graph is incomplete.');
+    this.freshCodehashVerifiedAt = null;
     if (!['legacy','required'].includes(reservationMode)) throw new Error('Invalid reservation mode.');
     if (reservationMode === 'required' && !this.portfolioFactory)
       throw new Error('Reservation proofs require the integrated portfolio Factory.');
@@ -369,6 +386,15 @@ export class ChainIndex {
           if (error?.code !== 'CALL_EXCEPTION' || error?.data && error.data !== '0x') throw error;
         }
       }
+    }
+    if (this.freshCodehashes && (this.freshCodehashVerifiedAt === null
+      || blockNumber < this.freshCodehashVerifiedAt
+      || blockNumber - this.freshCodehashVerifiedAt >= FRESH_CODEHASH_RECHECK_BLOCKS)) {
+      const codes = await Promise.all(this.freshCodehashes.map(item => this.provider.getCode(item.address, blockNumber)));
+      if (codes.some((code, index) => typeof code !== 'string' || !/^0x(?:[\da-f]{2})*$/i.test(code)
+        || keccak256(code).toLowerCase() !== this.freshCodehashes[index].expected))
+        throw new Error('Fresh manifest codehash mismatch.');
+      this.freshCodehashVerifiedAt = blockNumber;
     }
   }
 
@@ -699,7 +725,7 @@ export class ChainIndex {
         ? 'wrong_chain' : error instanceof Error && error.message.startsWith('Event history is incomplete')
           ? 'incomplete_history' : error instanceof Error && [
             'Factory/market code or binding mismatch.', 'Portfolio deployment binding mismatch.',
-            'Factory reservation capability requires a required-mode index.',
+            'Factory reservation capability requires a required-mode index.', 'Fresh manifest codehash mismatch.',
           ].includes(error.message)
             ? 'invalid_binding' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
               ? 'rpc_lagging' : 'sync_failed';
@@ -727,7 +753,7 @@ export class ChainIndex {
     const counts = this._poolCounts();
     const pools = this.db.prepare(`SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools
       WHERE designated_subscriber = ? AND address NOT IN (SELECT address FROM portfolio_children)
-      ORDER BY created_block,address LIMIT 501`).all(ZeroAddress.toLowerCase());
+      ORDER BY created_block DESC,address DESC LIMIT 501`).all(ZeroAddress.toLowerCase());
     const reserved = this._reservedChildPoolAddresses(counts.reservedChildPoolCount);
     const portfolios = this.db.prepare('SELECT address,created_block AS createdBlock,budget AS budgetWei,absolute_cap AS absoluteCapWei,unit_cap AS unitCapWei FROM portfolios ORDER BY created_block,address LIMIT 501').all()
       .map(row => ({ ...row, kind: 'portfolio', factory: this.portfolioFactory }));
@@ -770,6 +796,19 @@ export class ChainIndex {
     return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
       portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null,
       orders: saved.orders ? JSON.parse(saved.orders) : null };
+  }
+
+  verifiedDisplayPool(address, snapshot) {
+    if (!snapshot?.source || !this.snapshotTrusted) throw new Error('A verified display source is required.');
+    const target = exactAddress(address);
+    if (Array.isArray(snapshot.pools)) return snapshot.pools.find(row => row.address === target) ?? null;
+    // The all-pools snapshot intentionally has a 500-row ceiling. A deep
+    // link can still read one proven pool from the same canonical index tip.
+    // Never return a row created after the displayed source block.
+    return this.db.prepare(`SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools
+      WHERE address = ? AND created_block <= ? AND designated_subscriber = ?
+      AND address NOT IN (SELECT address FROM portfolio_children)`).get(
+        target, snapshot.source.indexedThrough, ZeroAddress.toLowerCase()) ?? null;
   }
 
   _allLogs({ kind, address, names, fromTimestamp } = {}) {

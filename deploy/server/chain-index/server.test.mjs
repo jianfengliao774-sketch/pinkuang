@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
-import { Interface, ZeroAddress, toQuantity } from 'ethers';
+import { Interface, ZeroAddress, keccak256, toQuantity } from 'ethers';
 import { chainIndexFailureMessage, serverConfiguration, startChainIndex } from './server.mjs';
 import { createFreshIndexManifest, freshIndexManifestBytes, freshIndexManifestSha256 } from './fresh-manifest.mjs';
+import { ChainIndex } from './indexer.mjs';
 
 const config = rpc => ({ rpc, host: '127.0.0.1', port: 0, dbPath: ':memory:',
   factory: '0x0000000000000000000000000000000000000001',
@@ -76,6 +77,8 @@ test('fresh v4 index derives all addresses and start block only from a pinned ma
     assert.equal(config.portfolioMarket,manifest.portfolioMarket);
     assert.equal(config.startBlock,115);
     assert.equal(config.reservationMode,'required');
+    assert.equal(config.freshCodehashes.length,11);
+    assert.deepEqual(config.freshCodehashes.at(-1),{address:manifest.authority,expected:manifest.freshAuthority.codehash});
     assert.throws(()=>serverConfiguration({...env,NODE_ENV:'production'}),/independent database path/);
     assert.throws(()=>serverConfiguration({...env,NODE_ENV:'production',
       CHAIN_INDEX_DB:'/var/lib/pinkuang-index-v4/index.sqlite'}),/release-pinned manifest path/);
@@ -85,6 +88,51 @@ test('fresh v4 index derives all addresses and start block only from a pinned ma
     writeFileSync(path,Buffer.from(freshIndexManifestBytes(manifest).toString().replace(manifest.factory,addr(99))));
     assert.throws(()=>serverConfiguration(env),/SHA256 differs/);
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('fresh index verifies pinned codehashes at first sync and each 20-block interval', async () => {
+  const address=n=>`0x${n.toString(16).padStart(40,'0')}`;
+  const factory=address(1), shareMarket=address(2), portfolioFactory=address(3), portfolioMarket=address(4);
+  const graph=Array.from({length:11},(_,i)=>address(i+1));
+  const expected=keccak256('0x6001');
+  const freshCodehashes=graph.map(address=>({address,expected}));
+  const iface=new Interface(['function shareMarket() view returns(address)',
+    'function factory() view returns(address)','function legacyFactory() view returns(address)']);
+  let changed=null, unavailable=null;
+  const codeReads=[];
+  const provider={
+    send:async()=> '0x38',getLogs:async()=>[],
+    getCode:async (to,block)=>{
+      codeReads.push({to,block});
+      if(to.toLowerCase()===unavailable) throw new Error('upstream unavailable');
+      return to.toLowerCase()===changed?'0x6002':'0x6001';
+    },
+    call:async ({to,data})=>{
+      const parsed=iface.parseTransaction({data});
+      const result=parsed.name==='legacyFactory'?factory
+        : parsed.name==='shareMarket'?(to.toLowerCase()===factory.toLowerCase()?shareMarket:portfolioMarket)
+        : to.toLowerCase()===shareMarket.toLowerCase()?factory:portfolioFactory;
+      return iface.encodeFunctionResult(parsed.fragment,[result]);
+    },
+  };
+  const index=new ChainIndex(provider,{dbPath:':memory:',factory,market:shareMarket,portfolioFactory,portfolioMarket,
+    reservationMode:'required',startBlock:1,freshCodehashes});
+  try {
+    await index._verifyDeployment(100);
+    assert.equal(index.freshCodehashVerifiedAt,100);
+    assert.equal(codeReads.filter(read=>read.block===100).length,15);
+    await index._verifyDeployment(119);
+    assert.equal(codeReads.filter(read=>read.block===119).length,4,'ordinary sync only checks core bindings');
+    changed=graph[8].toLowerCase();
+    await assert.rejects(index._verifyDeployment(120),/Fresh manifest codehash mismatch/);
+    assert.equal(index.freshCodehashVerifiedAt,100,'mismatch must not advance proof cadence');
+    changed=null; unavailable=graph[9].toLowerCase();
+    await assert.rejects(index._verifyDeployment(120),/upstream unavailable/);
+    assert.equal(index.freshCodehashVerifiedAt,100,'RPC failure must not advance proof cadence');
+    unavailable=null;
+    await index._verifyDeployment(120);
+    assert.equal(index.freshCodehashVerifiedAt,120);
+  } finally { index.close(); }
 });
 
 test('sync failure diagnostics identify a bounded RPC method without leaking provider URLs', () => {

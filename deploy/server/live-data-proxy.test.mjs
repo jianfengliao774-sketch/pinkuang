@@ -62,13 +62,16 @@ test('RPC rejects writes, URL override, malformed or oversized input before any 
 test('index allows only known GET endpoints and bounded unique query parameters', async t => {
   const f = await fixture(t);
   for (const path of ['/health', '/v1/stats', '/v1/pools?cursor=0&limit=20', `/v1/accounts/${address}/pools`,
-    '/v1/snapshot/pools?cursor=0&limit=20', '/v1/snapshot/portfolios?limit=20', '/v1/snapshot/stats',
+    '/v1/snapshot/pools?cursor=0&limit=20', `/v1/snapshot/pools/${address}`,
+    '/v1/snapshot/portfolios?limit=20', '/v1/snapshot/stats',
     `/v1/snapshot/orders?active=true&seller=${address}&limit=20`,
     `/v1/orders?pool=${address}&seller=${address}&active=true&cursor=8`, `/v1/activity?cursor=10:2:1&account=${address}`,
     `/v1/yield?pool=${address}&days=30`]) assert.equal((await f.get(`/api/chain-index${path}`)).status, 200);
   assert(f.calls.every(call => call.url.startsWith('http://127.0.0.1:4180/') && call.init.method === 'GET'));
   const count = f.calls.length;
-  for (const path of ['/v1/private', '/v1/notifications', '/v1/public-display', '/v1/pools?url=http://evil.test', '/v1/pools?limit=1&limit=2', '/v1/pools?limit=51',
+  for (const path of ['/v1/private', '/v1/notifications', '/v1/public-display',
+    `/v1/snapshot/pools/${address}?limit=1`, '/v1/snapshot/pools/0x1234',
+    '/v1/pools?url=http://evil.test', '/v1/pools?limit=1&limit=2', '/v1/pools?limit=51',
     '/v1/orders?cursor=0', '/v1/orders?active=maybe', '/v1/activity?cursor=1:2:Infinity', '/v1/yield?days=30']) assert((await f.get(`/api/chain-index${path}`)).status >= 400);
   assert.equal((await f.post(rpc(), '/api/chain-index/v1/pools')).status, 405); assert.equal(f.calls.length, count);
 });

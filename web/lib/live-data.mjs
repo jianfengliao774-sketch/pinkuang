@@ -75,6 +75,24 @@ export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeM
   return Object.freeze({ ...input, factory: getAddress(input.factory), market: getAddress(input.market), indexedBlockHash: input.indexedBlockHash.toLowerCase() });
 }
 
+/** Historical display snapshots are not an archive-node promise. Keep old-state
+ * eth_call off ordinary RPC nodes; the separate public preview remains usable. */
+export async function requireRecentSnapshotState(provider, source) {
+  if (source?.readMode !== 'verified_snapshot') return;
+  const [chainId, head] = await Promise.all([
+    provider.request({ method: 'eth_chainId', params: [] }),
+    provider.request({ method: 'eth_getBlockByNumber', params: ['latest', false] }),
+  ]);
+  insist(BigInt(chainId) === 56n, 'wrong_chain', '请切换至 BSC 主网。');
+  insist(head && /^0x[\da-f]+$/i.test(head.number) && /^0x[\da-f]+$/i.test(head.timestamp)
+    && hash(head.hash), 'rpc_block', 'RPC 最新区块响应无效。');
+  const blockLag = BigInt(head.number) - BigInt(source.indexedThrough);
+  const timeLag = BigInt(head.timestamp) - BigInt(source.indexedTimestamp);
+  insist(blockLag >= 0n && timeLag >= 0n, 'source_changed', 'RPC 尚未追上已核验快照区块。');
+  insist(blockLag <= 128n && timeLag <= 90n, 'index_stale',
+    '历史区块超过普通 RPC 的安全状态读取窗口；仅显示服务器快照，请稍后刷新。');
+}
+
 /** Exact amounts stay bigint. Missing mining estimates and history are deliberately null. */
 export function livePoolModel(row, snapshot) {
   const params = row.params;
@@ -212,6 +230,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       insist(sameSource(source, old), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
       source = conservativeSource(source, old);
     }
+    await requireRecentSnapshotState(rpc, source);
     const header = await blockHeader(BigInt(source.indexedThrough));
     insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
       'source_reorg', '索引区块已变化，请重新读取全部页面。');
@@ -224,6 +243,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     const response = await fetchLiveJson(url.href, { fetcher });
     insist(response?.source?.readMode === 'verified_snapshot', 'index_identity', '服务端快照来源无效。');
     const source = validateIndexSource(response.source, manifest, { now: now(), maxAgeMs: 30 * 60 * 1000 });
+    await requireRecentSnapshotState(rpc, source);
     const header = await blockHeader(BigInt(source.indexedThrough));
     insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
       'source_reorg', '索引区块已变化，请重新读取全部页面。');

@@ -210,7 +210,7 @@ test('v4 reviews and references remain bound to each child sale candidate',async
 });
 test('automatic portfolio fallback remains an explicitly stale display snapshot',async()=>{
   const f=portfolioFixture();
-  const source={...f.source(),checkedAt:new Date(Date.now()-10*60_000).toISOString(),
+  const source={...f.source(),checkedAt:new Date(Date.now()-60_000).toISOString(),
     readMode:'verified_snapshot',stale:true,refreshing:true,transactionReady:false,portfolioCount:'2'};
   const fetcher=async url=>new Response(JSON.stringify({...f.index(url),source}),
     {headers:{'content-type':'application/json'}});
@@ -219,6 +219,17 @@ test('automatic portfolio fallback remains an explicitly stale display snapshot'
   assert.equal(page.source.transactionReady,false);
   assert.equal(page.source.checkedAt,source.checkedAt);
   assert.equal(page.items.length,2);
+});
+test('old portfolio snapshot is display-only and never starts historical contract reads',async()=>{
+  const f=portfolioFixture();
+  const source={...f.source(),indexedTimestamp:f.source().indexedTimestamp-1000,
+    checkedAt:new Date(Date.now()-1000).toISOString(),readMode:'verified_snapshot',
+    stale:true,refreshing:false,transactionReady:false,portfolioCount:'2'};
+  const fetcher=async url=>new URL(url).pathname.endsWith('/v1/portfolios')
+    ? new Response(JSON.stringify({error:'syncing'}),{status:503,headers:{'content-type':'application/json'}})
+    : new Response(JSON.stringify({...f.index(url),source}),{headers:{'content-type':'application/json'}});
+  await assert.rejects(readPortfolioPage(f.config,f.provider,{account:f.account,fetcher}),{code:'index_stale'});
+  assert.equal(f.calls.filter(call=>call.method==='eth_call').length,0);
 });
 test('former holders can read and withdraw settled BNB without current shares',async()=>{
   const f=portfolioFixture({shares:0n,saleDebt:0n,bnbOwed:99n});

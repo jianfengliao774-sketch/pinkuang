@@ -32,7 +32,7 @@ const sanitizeSource = source => Object.freeze({
 
 /** A section has its own proof and age. Never copy account or action fields. */
 export function parsePublicDisplaySection(reply, manifest, section, { now = Date.now(), cursor = 0,
-  limit = 50, activeOrders = true } = {}) {
+  limit = 50, activeOrders = true, lookupAddress = null } = {}) {
   insist(SECTIONS.has(section), 'invalid_config', '未知公共展示分区。');
   insist(reply?.source?.readMode === 'verified_snapshot' && reply.source.stale === true
     && reply.source.transactionReady === false && typeof reply.source.refreshing === 'boolean',
@@ -71,10 +71,14 @@ export function parsePublicDisplaySection(reply, manifest, section, { now = Date
     return Object.freeze({ ...common, stats: Object.freeze(stats) });
   }
   const data = reply.data;
-  insist(source[`${section}Available`] === true, 'index_incomplete', '该公共展示分区未保存完整目录。');
+  const exactPool = lookupAddress !== null;
+  insist(!exactPool || section === 'pools', 'invalid_config', '仅矿池分区支持精确地址快照。');
+  insist(exactPool || source[`${section}Available`] === true,
+    'index_incomplete', '该公共展示分区未保存完整目录。');
   if (section === 'orders') insist(data?.ordersAvailable === true,
     'index_incomplete', '历史挂单分区不可用。');
-  insist(Array.isArray(data?.items) && data.items.length <= limit && limit > 0 && limit <= 50,
+  insist(Array.isArray(data?.items) && data.items.length <= (exactPool ? 1 : limit)
+    && limit > 0 && limit <= 50,
     'invalid_data', '公共展示页缺少有界目录。');
   let items;
   if (section === 'pools') {
@@ -118,22 +122,39 @@ export function parsePublicDisplaySection(reply, manifest, section, { now = Date
     'invalid_data', '历史挂单游标无效。');
   } else {
     const total = section === 'pools' ? standaloneCount : portfolioCount;
-    insist(total <= 500n && Number.isSafeInteger(cursor) && cursor >= 0
-      && (data.nextCursor === null ? BigInt(cursor + items.length) === total
-        : items.length === limit && data.nextCursor === cursor + limit
-          && BigInt(data.nextCursor) < total),
-    'index_coverage', '公共展示目录页与已核验数量不一致。');
+    if (exactPool) {
+      const target = liveAddress(lookupAddress);
+      insist(liveAddress(data.lookupAddress) === target && data.nextCursor === null
+        && items.every(row => row.address === target),
+      'index_coverage', '矿池精确快照与查询地址不一致。');
+    } else insist(total <= 500n && Number.isSafeInteger(cursor) && cursor >= 0
+        && (data.nextCursor === null ? BigInt(cursor + items.length) === total
+          : items.length === limit && data.nextCursor === cursor + limit
+            && BigInt(data.nextCursor) < total),
+      'index_coverage', '公共展示目录页与已核验数量不一致。');
   }
   return Object.freeze({ ...common, items: Object.freeze(items), nextCursor: data.nextCursor });
 }
 
-/** Fetches only the active page's section. Deep-link lookup is capped at two pages. */
+/** Fetches only the active page's section. Pool deep links use exact server lookup. */
 export async function readPublicDisplaySection({ origin, manifest, section, address,
   fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   insist(typeof origin === 'string' && new URL(origin).origin === origin && SECTIONS.has(section),
     'invalid_config', '网站来源或公共展示分区无效。');
   const target = address ? liveAddress(address).toLowerCase() : null;
   insist(!target || section === 'pools' || section === 'portfolios', 'invalid_config', '该分区不支持地址查找。');
+  if (target && section === 'pools') {
+    const url = new URL(`${origin}/bemine-v4/api/chain-index/v1/snapshot/pools/${target}`);
+    try {
+      const reply = await fetchLiveJson(url.href, { fetcher, maxBytes: 1_000_000 });
+      return parsePublicDisplaySection(reply, manifest, section,
+        { now: now(), lookupAddress: target });
+    } catch (error) {
+      // Allow the frontend and index proxy to roll out independently. A 200
+      // reply with an invalid proof must fail closed instead of scanning pages.
+      if (error?.code !== 'http_unavailable' || error.details?.status !== 404) throw error;
+    }
+  }
   let cursor = 0, firstSource = null, lastPreview = null;
   const seen = new Set();
   for (let page = 0; page < (target ? 2 : 1); page++) {

@@ -80,6 +80,8 @@ test('deep-link search reads at most two verified pages and does not claim a mis
     address: addr((index + 1).toString(16).padStart(2, '0')), circuitId: String(index + 1) }));
   const fetcher = async url => {
     calls.push(url);
+    if (new URL(url).pathname.includes('/v1/snapshot/pools/')) return new Response(JSON.stringify({ error: 'not deployed' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } });
     const cursor = Number(new URL(url).searchParams.get('cursor') ?? 0);
     const value = reply('pools', { items: rows.slice(cursor, cursor + 50), nextCursor: cursor + 50 < rows.length ? cursor + 50 : null });
     value.source.standalonePoolCount = '120';
@@ -89,13 +91,15 @@ test('deep-link search reads at most two verified pages and does not claim a mis
   const found = await readPublicDisplaySection({ origin: 'https://example.test', manifest,
     section: 'pools', address: rows[70].address, fetcher, now: () => now });
   assert.equal(found.items[20].address, rows[70].address);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   calls.length = 0;
   const later = await readPublicDisplaySection({ origin: 'https://example.test', manifest,
     section: 'pools', address: rows[110].address, fetcher, now: () => now });
   assert.equal(later.items.some(row => row.address === rows[110].address), false);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   const driftFetcher = async url => {
+    if (new URL(url).pathname.includes('/v1/snapshot/pools/')) return new Response(JSON.stringify({ error: 'not deployed' }),
+      { status: 404, headers: { 'Content-Type': 'application/json' } });
     const cursor = Number(new URL(url).searchParams.get('cursor') ?? 0);
     const value = reply('pools', { items: rows.slice(cursor, cursor + 50), nextCursor: cursor + 50 });
     value.source.standalonePoolCount = '120';
@@ -105,6 +109,39 @@ test('deep-link search reads at most two verified pages and does not claim a mis
   };
   await assert.rejects(readPublicDisplaySection({ origin: 'https://example.test', manifest,
     section: 'pools', address: rows[70].address, fetcher: driftFetcher, now: () => now }));
+});
+
+test('new pool deep links use one exact historical snapshot lookup beyond the first hundred', async () => {
+  const target = addr('ee'), calls = [];
+  const fetcher = async url => {
+    calls.push(url);
+    const value = reply('pools', { items: [{ ...pool, address: target, createdBlock: 99 }],
+      nextCursor: null, lookupAddress: target });
+    value.source.standalonePoolCount = '150';
+    value.source.registeredPoolCount = '150';
+    return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+  };
+  const result = await readPublicDisplaySection({ origin: 'https://example.test', manifest,
+    section: 'pools', address: target, fetcher, now: () => now });
+  assert.equal(result.items[0].address.toLowerCase(), target.toLowerCase());
+  assert.deepEqual(calls.map(url => new URL(url).pathname),
+    [`/bemine-v4/api/chain-index/v1/snapshot/pools/${target.toLowerCase()}`]);
+  const mismatched = reply('pools', { items: [{ ...pool, address: addr('dd') }],
+    nextCursor: null, lookupAddress: target });
+  mismatched.source.standalonePoolCount = '150';
+  mismatched.source.registeredPoolCount = '150';
+  assert.throws(() => parsePublicDisplaySection(mismatched, manifest, 'pools',
+    { now, lookupAddress: target }), { code: 'index_coverage' });
+  const absent = reply('pools', { items: [], nextCursor: null, lookupAddress: target });
+  absent.source.standalonePoolCount = '150';
+  absent.source.registeredPoolCount = '150';
+  assert.equal(parsePublicDisplaySection(absent, manifest, 'pools', { now, lookupAddress: target }).items.length, 0);
+  const large = reply('pools', { items: [{ ...pool, address: target }], nextCursor: null, lookupAddress: target });
+  large.source.standalonePoolCount = '501';
+  large.source.registeredPoolCount = '501';
+  large.source.poolsAvailable = false;
+  assert.equal(parsePublicDisplaySection(large, manifest, 'pools', { now, lookupAddress: target }).items.length, 1,
+    'a separately verified exact row can preview beyond the bounded full-directory snapshot');
 });
 
 test('snapshot display validity advances with its original proof clock', () => {

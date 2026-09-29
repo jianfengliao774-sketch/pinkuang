@@ -2,8 +2,9 @@ name: Contracts
 
 on:
   push:
-    # Validate release branches even when they have not yet opened a PR.
-    branches: [main, 'codex/**']
+    # Feature branches run through pull_request; avoid a duplicate public-RPC
+    # fork run for the same commit on push and PR.
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
