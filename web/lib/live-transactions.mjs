@@ -2,6 +2,7 @@ import { Interface, getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers'
 import { abi, ARTIFACT_DIGEST } from './chain-client.mjs';
 import genesisContracts from './contracts.genesis.json' with { type: 'json' };
 import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson, validateProductGraph } from './live-config.mjs';
+import { validateCurrentProductGraph } from './product-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
@@ -189,7 +190,7 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
   // never retry a submitted transaction or accept the old response for signing.
   const deadline = now() + 8000;
   for (;;) {
-    const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
+    const graph = validateCurrentProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }), config);
     requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
