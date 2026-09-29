@@ -1,14 +1,43 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync,
   writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { packageFreshConsole, RUNTIME_MODULES, verifyRuntimeClosure } from './package-fresh-console.mjs';
+import { assertPinnedSourceUnchanged, packageFreshConsole, RUNTIME_MODULES,
+  verifyRuntimeClosure } from './package-fresh-console.mjs';
 import { servedArtifactDigest } from '../server/artifact-digest.mjs';
 
 const deploy = fileURLToPath(new URL('../', import.meta.url));
+
+test('artifact source pin tolerates later packaging commits, but rejects changed runtime code', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pinkuang-source-pin-test-')));
+  const source = join(root, 'deploy');
+  mkdirSync(source);
+  const git = (...args) => execFileSync('git', args, { cwd: source, encoding: 'utf8' }).trim();
+  try {
+    execFileSync('git', ['init', '-q', root]);
+    git('config', 'user.name', 'Source Pin Test');
+    git('config', 'user.email', 'source-pin@example.invalid');
+    git('config', 'commit.gpgsign', 'false');
+    mkdirSync(join(source, 'src'));
+    writeFileSync(join(source, 'src/app.ts'), 'export const version = 1;\n');
+    git('add', '.');
+    git('commit', '-qm', 'audited code');
+    const audited = git('rev-parse', 'HEAD');
+    writeFileSync(join(source, 'README.md'), 'Packaging notes\n');
+    git('add', '.');
+    git('commit', '-qm', 'documentation only');
+    assert.doesNotThrow(() => assertPinnedSourceUnchanged(source, audited, git('rev-parse', 'HEAD')));
+    writeFileSync(join(source, 'src/app.ts'), 'export const version = 2;\n');
+    git('add', '.');
+    git('commit', '-qm', 'runtime changed');
+    assert.throws(() => assertPinnedSourceUnchanged(source, audited, git('rev-parse', 'HEAD')),
+      /source changed since the artifact commit/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('fresh console runtime allowlist includes the complete static import closure', () => {
   const files = new Map(RUNTIME_MODULES.map(name =>

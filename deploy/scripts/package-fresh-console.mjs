@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -10,6 +10,12 @@ import { servedArtifactDigest } from '../server/artifact-digest.mjs';
 const DEPLOY = fileURLToPath(new URL('../', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const SOURCE_COMMIT = /^[a-f\d]{40}$/i;
+const PINNED_SOURCE_PATHS = Object.freeze([
+  'src', 'server', 'shared', 'index.html', 'vite.config.ts',
+  'package.json', 'package-lock.json', '../contracts/src', '../contracts/foundry.toml',
+  'scripts/budget-multicall-read.mjs', 'scripts/budget-official-discovery.mjs',
+  'scripts/official-market-discovery.mjs',
+]);
 
 // This is the complete, reviewed import graph of server/index.mjs. Adding a
 // runtime dependency must update the allowlist and its tests; CLI entrypoints,
@@ -108,6 +114,16 @@ function ensureSourceCommit(source, sourceHead) {
   assert.deepEqual(tracked.sort(), [...RUNTIME_MODULES].sort(), 'Every packaged runtime module must be tracked at the source commit.');
 }
 
+export function assertPinnedSourceUnchanged(source, artifactCommit, sourceHead) {
+  assert(SOURCE_COMMIT.test(artifactCommit), 'Deployment artifact source commit is malformed.');
+  const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', artifactCommit, sourceHead],
+    { cwd: source, stdio: 'ignore' });
+  assert.equal(ancestor.status, 0, 'Deployment artifact source commit is not an ancestor of the release.');
+  const changed = spawnSync('git', ['diff', '--quiet', artifactCommit, sourceHead,
+    '--', ...PINNED_SOURCE_PATHS], { cwd: source, stdio: 'ignore' });
+  assert.equal(changed.status, 0, 'Reviewed deploy or contract source changed since the artifact commit.');
+}
+
 /** Build a new, source-pinned directory; no SSH, installation or transaction. */
 export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHead,
   verifyGit = true } = {}) {
@@ -132,8 +148,7 @@ export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHe
   assert(files.get('dist/deployment-artifacts.json').equals(files.get('public/deployment-artifacts.json')),
     'Served artifact differs from the packaged artifact.');
   const artifact = JSON.parse(files.get('public/deployment-artifacts.json').toString('utf8'));
-  assert(!verifyGit || artifact.sourceCommit === sourceHead,
-    'Artifact sourceCommit is not the reviewed source HEAD. Regenerate artifacts after committing.');
+  if (verifyGit) assertPinnedSourceUnchanged(source, artifact.sourceCommit, sourceHead);
   for (const name of ['FreshPoolFactory', 'PlatformAuthority', 'AtomicDeployment',
     'BudgetPortfolioFactory', 'BudgetPortfolioVault'])
     assert(artifact.artifacts?.[name], `Fresh deployment artifact is missing: ${name}`);
