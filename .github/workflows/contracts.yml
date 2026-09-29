@@ -77,6 +77,13 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: deploy
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+          run_install: false
+      - name: Install product frontend dependencies from its lockfile
+        run: pnpm install --frozen-lockfile
+        working-directory: web
       - name: Verify deployment artifacts against Solidity sources and pinned compiler
         run: npm run artifacts:check
         working-directory: deploy
@@ -102,13 +109,6 @@ jobs:
           npm run build:fresh
           node scripts/package-fresh-console.mjs --out "$RUNNER_TEMP/pinkuang-fresh-package"
         working-directory: deploy
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11.5.2
-          run_install: false
-      - name: Install product frontend dependencies from its lockfile
-        run: pnpm install --frozen-lockfile
-        working-directory: web
       - name: Verify product frontend ABI against independently compiled Solidity
         run: node scripts/sync-contracts.mjs --check
         working-directory: web
