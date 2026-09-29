@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -19,8 +19,19 @@ export function prepareFreshProductBuild(manifest) {
   return Object.freeze({ basePath: '/bemine-v4', productFamily: 'fresh-v4',
     manifestSha256, artifactDigest: checked.artifactDigest,
     factory: checked.factory, portfolioFactory: checked.portfolioFactory,
-    authority: checked.authority, deployment: checked.deployment,
+    authority: checked.authority, gasWallet: checked.gasWallet, deployment: checked.deployment,
     sourceCommit: checked.sourceCommit });
+}
+
+function reviewedSourceHead() {
+  const sourceHead = execFileSync('git', ['rev-parse', 'HEAD'],
+    { cwd: webRoot, encoding: 'utf8' }).trim();
+  if (!/^[\da-f]{40}$/i.test(sourceHead)) fail('A complete reviewed frontend source HEAD is required.');
+  // Run before the temporary manifest write below. Build output is ignored by Git.
+  const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.'],
+    { cwd: webRoot, encoding: 'utf8' });
+  if (dirty.trim()) fail('Commit reviewed frontend source before building the v4 product.');
+  return sourceHead;
 }
 
 function walk(root, directory = root) {
@@ -38,6 +49,7 @@ export function buildFreshProduct(manifestPath, { run = spawnSync } = {}) {
   if (existsSync(stagedManifest)) fail('v4 manifest staging path already exists; refusing to overwrite it.');
   const manifest = JSON.parse(readFileSync(resolve(manifestPath), 'utf8'));
   const plan = prepareFreshProductBuild(manifest);
+  const frontendSourceHead = reviewedSourceHead();
   const previousCompiledManifest = readFileSync(compiledManifest);
   mkdirSync(dirname(stagedManifest), { recursive: true });
   writeFileSync(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`, { flag: 'wx', mode: 0o644 });
@@ -66,7 +78,7 @@ export function buildFreshProduct(manifestPath, { run = spawnSync } = {}) {
     const files = walk(outputRoot).sort();
     const contentSha256 = sha256(files.map(name => `${name}\0${sha256(readFileSync(join(outputRoot, name)))}\n`).join(''));
     const release = { schemaVersion: 1, kind: 'fresh-v4-product-static-candidate', chainId: 56,
-      ...plan, contentSha256, fileCount: files.length,
+      ...plan, frontendSourceHead, contentSha256, fileCount: files.length,
       legacyManifestIncluded: false, activationAllowed: false };
     writeFileSync(join(outputRoot, 'fresh-product-release.json'), `${JSON.stringify(release, null, 2)}\n`,
       { flag: 'wx', mode: 0o644 });
