@@ -32,24 +32,37 @@ export async function portfolioNotification(index,portfolio,source,deadline) {
     } else if(event.name==='ChildPurchased') children.set(lower(a.child),{collection:lower(a.collection),tokenId:String(a.tokenId),cost:BigInt(a.cost)});
     else if(event.name==='ChildSaleProposed') {
       const child=children.get(lower(a.child)),proposalId=String(a.proposalId);
-      check(child && !active && !proposals.has(proposalId));
+      const sameRound=active!==null,endsAt=Number(a.endsAt);
+      check(child && !proposals.has(proposalId) && Number.isSafeInteger(endsAt)
+        && (!sameRound || (!active.executed && row.timestamp<active.endsAt && endsAt===active.endsAt
+          && [...proposals.values()].filter(proposal=>proposal.roundId===active.roundId).length<16)));
       const owners=[...balances].filter(([,v])=>v>0n).map(([account,shares])=>({account,shares:String(shares)}));
       check(owners.length<=100 && owners.reduce((n,v)=>n+BigInt(v.shares),0n)===100n);
-      active={proposalId,child:lower(a.child),circuitId:child.tokenId,collection:child.collection,priceWei:String(a.price),
-        purchaseCostWei:String(child.cost),endsAt:Number(a.endsAt),createdAt:row.timestamp,createdBlock:row.blockNumber,
+      if(sameRound){
+        const opening=proposals.get(active.roundId);
+        check(opening && owners.length===opening.owners.length
+          && owners.every((owner,i)=>owner.account===opening.owners[i].account && owner.shares===opening.owners[i].shares));
+      }
+      const proposal={proposalId,roundId:sameRound?active.roundId:proposalId,child:lower(a.child),circuitId:child.tokenId,
+        collection:child.collection,priceWei:String(a.price),purchaseCostWei:String(child.cost),endsAt,
+        createdAt:row.timestamp,createdBlock:row.blockNumber,
         eventId:identity(event),owners,votes:[],yesCount:0,yesShares:'0',executed:false,listing:null,completed:null,expired:null};
-      proposals.set(proposalId,active);
+      if(!sameRound)active=proposal;
+      proposals.set(proposalId,proposal);
     } else if(event.name==='ChildSaleVoted') {
       const proposal=proposals.get(String(a.proposalId)),member=lower(a.member);
-      check(proposal===active && !proposal.executed && proposal.endsAt>row.timestamp
+      check(active && proposal?.roundId===active.roundId && !active.executed && !proposal.executed
+        && proposal.endsAt>row.timestamp
         && proposal.owners.some(owner=>owner.account===member && owner.shares===String(a.shares))
         && !proposal.votes.some(vote=>vote.account===member));
       proposal.votes.push({account:member,support:Boolean(a.support),shares:String(a.shares)});
       if(a.support){proposal.yesCount++;proposal.yesShares=String(BigInt(proposal.yesShares)+BigInt(a.shares));}
     } else if(event.name==='ChildSaleApproved') {
       const proposal=proposals.get(String(a.proposalId));
-      check(proposal===active && !proposal.executed && proposal.child===lower(a.child) && proposal.endsAt>row.timestamp);
+      check(active && proposal?.roundId===active.roundId && !active.executed && !proposal.executed
+        && proposal.child===lower(a.child) && proposal.endsAt>row.timestamp);
       proposal.executed=true;proposal.listing={eventId:identity(event),timestamp:row.timestamp,blockNumber:row.blockNumber,expiresAt:null};
+      active=proposal;
     } else if(event.name==='ChildSaleSettled') {
       check(active?.executed && active.child===lower(a.child));
       active.completed={eventId:identity(event),timestamp:row.timestamp,blockNumber:row.blockNumber,grossWei:active.priceWei,toMembersWei:String(a.netProceeds)};
@@ -86,10 +99,11 @@ export async function portfolioNotification(index,portfolio,source,deadline) {
     }
     if(proposal.listing)proposal.listing.expiresAt=Number(await call(proposal.child,'expiresAt',[],proposal.listing.blockNumber));
     proposal.requiredYesCount=Math.floor(proposal.owners.length/2)+1;
-    proposal.requiredYesShares=BigInt(proposal.priceWei)<BigInt(proposal.purchaseCostWei)?60:51;
+    proposal.requiredYesShares=51;
     proposal.passed=proposal.yesCount>=proposal.requiredYesCount && BigInt(proposal.yesShares)>=BigInt(proposal.requiredYesShares);
     check(!proposal.executed || proposal.passed);
-    proposal.roundExecuted=proposal.executed;proposal.open=active===proposal && !proposal.executed && proposal.endsAt>source.indexedTimestamp;
+    proposal.roundExecuted=[...proposals.values()].some(candidate=>candidate.roundId===proposal.roundId && candidate.executed);
+    proposal.open=active?.roundId===proposal.roundId && !proposal.roundExecuted && proposal.endsAt>source.indexedTimestamp;
   }
   return {...portfolio,kind:'portfolio',verified:true,circuitId:null,proposals:recent};
 }

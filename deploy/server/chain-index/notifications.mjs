@@ -92,7 +92,7 @@ export function replayNotificationPool(pool, logs, { market, factory, timestamp 
   for (const proposal of proposals.values()) {
     requireMatch(proposal.snapshotTs !== null);
     proposal.requiredYesCount = Math.floor(proposal.owners.length / 2) + 1;
-    proposal.requiredYesShares = BigInt(proposal.priceWei) < BigInt(purchaseCostWei) ? 60 : 51;
+    proposal.requiredYesShares = 51;
     proposal.passed = proposal.yesCount >= proposal.requiredYesCount && BigInt(proposal.yesShares) >= BigInt(proposal.requiredYesShares);
     requireMatch(!proposal.executed || proposal.passed);
     const roundExecuted = [...proposals.values()].some(other => other.roundId === proposal.roundId && other.executed);

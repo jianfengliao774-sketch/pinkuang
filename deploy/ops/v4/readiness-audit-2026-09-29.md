@@ -17,12 +17,15 @@
 | 预部署服务允许旧市场和报价写入新 v4 SQLite | `deploy/server/journal-api.mjs`、`deploy/ops/v4/activate-console.remote.py` | 已认证请求的产品写入返回 409；部署和只读请求仍可用 |
 | MetaMask 把请求包装成 EIP-7702 type 4 时，`gasPrice` 旧式封装被拒 | `deploy/src/deployment.ts`、`deploy/src/fresh-activation.ts` | 第一阶段 16 笔及第二阶段计划均改用动态费字段；保留独立 nonce、预算、回执和不明结果禁止重发核验 |
 | 第二阶段失败/替换后缺少安全恢复，可能卡死已完成的权限变更 | 暂在 `FreshActivationPanel.tsx` 和服务端 `BEMINE_FRESH_STAGE2_HOLD=1` 按钮/写入双重暂停 | 这是临时停用而非恢复修复；开放前仍须做不可变尝试历史与当前链上权限证明 |
+| 两套出售通知索引器沿用旧的“折价至少 60 份”门槛，与当前合约双过半不一致 | `deploy/server/chain-index/notifications.mjs`、`portfolio-notifications.mjs` 与各自测试 | 折价与非折价均按持有人过半、份额至少 51/100 判定通过；折价成交仍须单独通过管理员审核，通知不能把投票通过误报为已挂牌或已成交 |
+| 预算项目索引器只认首个出售候选，第二个合法候选会使整页通知失败 | `deploy/server/chain-index/portfolio-notifications.mjs` 与多候选回放测试 | 同轮最多 16 个候选共用截止时间和持仓快照；各候选独立投票，非首个候选可执行；执行后整轮关闭，异常历史仍拒绝 |
 
 ## 新合约旧审计项分类
 
 - **源码已有修复，链上未复验**：预算子池提案覆盖和外部 `cancelExpired()` 后冻结（`BudgetPortfolioVault.sol`）；1 wei 预充值执行器阻断（`FirstoSaleExecutor.sol`）；单机出售投票与成交的双过半口径（`SaleGovernance.sol`、`SaleSettlement.sol`）；零价份额挂牌（`ShareMarket.sol`）；子池采购尾差（`PoolFunds.sol`）；锁单后的 BEM 抢领（`BudgetPortfolioVault.sol`）；Gas 钱包未经管理员签名的任意支出（`PlatformAuthority.sol`）。不把这些源码修复误称为已上线链上合约。
 - **仍存且需协议层决定**：严格 Mining `claim` 持续失败会阻断份额转让与整机出售（`PoolVault.sol:562-565`、`MiningOperations.sol:59-97`）。市场参考价需管理员在 15 分钟内更新，停更会阻断出售（`SaleGovernance.sol:208-215`、`BudgetPortfolioVault.sol:478-485`）。任一管理员可独自审核与领取全部手续费是用户已确认的权限安排，不能误记为待改的双签或均分。
 - **跨版本独立性的运营边界**：新旧 Factory 各自只认自己的矿机登记，同一 NFT/编号可能在两个系统分别登记。新图不应在合约中调用旧 Factory；建池前需独立核对 NFT 所有权、原挂单与旧池占用。
+- **体积余量**：v4 实际部署的 `FreshPoolFactory` 运行时代码约 23,454 B，距 EIP-170 的 24,576 B 上限尚有 1,122 B。产物中的基类 `PoolFactory` 为 24,516 B，仅余 60 B，但不是这次新图实际部署的 Factory。后续改动仍须逐次核对实际部署合约的运行时代码长度。
 - **旧升级专属**：旧 Factory 停建、PoolLens 旧版升级批次、旧 v2 页面只适用于原升级路线；不得拿它们作为 v4 新合约部署的前置依赖。
 
 ## 正式开放前的阻断项
@@ -32,7 +35,11 @@
 3. **产品钱包格式与最终性**：`journal-api.mjs:1472-1493` 的未来产品交易响应仍为 `gasPrice`/type 0，需按同钱包兼容性处理；`product-graph.mjs:184-245` 验证权限证据时还需独立最终性锚。未完成前不要开启市场交易。
 4. **自动化容错**：挖矿 keeper 的 `estimateGas` 失败可能把 RPC 429/超时误判为业务需人工处理，supervisor 一池异常可能停止整个循环（`mining-keeper.mjs:244-258`、`mining-supervisor.mjs:89-124`）；购机 supervisor 对未知结果会停止（`purchase-supervisor.mjs:103,153`）。开放自动挖矿/购机前要做隔离、退避与恢复测试。
 5. **显示与操作体验**：本轮已把部署台的 Gas 余额、预算及已花费金额统一为五位小数；底层交易仍使用精确 wei。产品页面尚未部署，无法按“所有页面”验收。极小非零金额若五位显示为零，仍须可查精确原值。
+6. **通知索引尚未投入 v4 生产**：上述折价投票门槛及预算项目多候选重放已在源码和专项测试中修正，但当前线上只有部署台；正式产品包须包含修正后的两套索引器及其独立数据库，并从 v4 合约事件重建，不能复用旧版已计算的通知快照。
+7. **折价审核状态未接入预算产品**：合约提供 `ChildSaleReviewed`/`childSaleReview`，单机市场提供 `SaleReviewed`/`saleReview`；现有链上索引事件列表遗漏两种审核事件，预算通知不展示批准或驳回状态。预算项目执行按钮只看投票，预览未读取当时市场参考价和审核结果，未审核或已驳回的折价交易会送入钱包后再被合约拒绝（`deploy/server/chain-index/indexer.mjs:38-48`、`portfolio-notifications.mjs`、`web/components/LivePortfolios.jsx:196-201`、`web/lib/live-portfolios.mjs:297-301`）。产品开放前要补链上审核状态、执行前门禁及相应测试；不能因投票通过而显示“已批准挂牌”。
 
 ## 验收顺序
 
 先以当前源码重新生成部署 JSON 和 fresh 页面，并核对 bundle 所嵌摘要、清单哈希、合约体积与测试；随后只更新空日志的 v4 预部署服务，复核 v4 URL、旧 v2 URL、产品 404 和两个写入暂停标志。第一阶段可由所选 MetaMask 钱包逐笔签名；第二阶段须等上述恢复机制通过测试后另发包解除暂停。最后单独构建并验收 v4 产品与后端，不能复用旧合约、旧索引、旧市场记录或仅凭部署台正常就开放资金操作。
+
+旧升级路径的 `deploy/src/upgrade-release.test.ts` 依赖一份冻结的 `/bemine-v2/` 静态导出；当前 `web/out/index.html` 已不含该测试固定的旧 app chunk，单独运行会在夹具加载时失败。这不表示 v4 新图合约测试失败，但也不能据 v4 测试宣称旧升级路径通过。旧产品和旧升级功能应单独复核，不作为新图部署的前置依赖。

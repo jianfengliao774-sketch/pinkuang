@@ -60,12 +60,13 @@ test('competing proposals retain shared snapshot and actual deadline; early exec
   const sold = h.replay(); assert.equal(sold.state, 'Closed'); assert.equal(sold.proposals[1].completed.grossWei, '110');
 });
 
-test('discounted sale requires 60 shares and majority addresses; passing never means listed', () => {
+test('discounted sale follows dual majority; passing never means listed', () => {
   const h = history(); h.propose('1', '99');
   h.add('Voted', { proposalId: '1', voter: bob, support: true, weight: '49' }, timestamp + 1);
   h.add('Voted', { proposalId: '1', voter: carol, support: true, weight: '2' }, timestamp + 2);
   const p = h.replay().proposals[0];
-  assert.equal(p.requiredYesCount, 2); assert.equal(p.requiredYesShares, 60); assert.equal(p.passed, false);
+  assert.equal(p.requiredYesCount, 2); assert.equal(p.requiredYesShares, 51); assert.equal(p.passed, true);
+  assert.equal(p.listing, null);
 });
 
 function callsFor(replayed, override = {}) {
