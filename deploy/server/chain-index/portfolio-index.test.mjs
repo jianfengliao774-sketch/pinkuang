@@ -51,8 +51,30 @@ function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMo
       return abi.encodeFunctionResult(call.name,[values[call.name]]);}};
   const index=new ChainIndex(provider,{dbPath,factory,market,portfolioFactory,portfolioMarket,
     reservationMode,startBlock:1,confirmations:2});
-  return {index,state,provider,reorg(){reorg=true;}};
+  return {index,state,provider,event,reorg(){reorg=true;}};
 }
+test('review decisions are indexed and attributed to their pool, project and operator',async()=>{
+  const f=fixture();
+  try {
+    f.event('market','SaleReviewed',[pool,1,123,false,alice],6);
+    f.event('portfolioMarket','SaleReviewed',[portfolio,2,456,true,bob],6);
+    f.event('portfolio','ChildSaleReviewed',[3,false,bob],6);
+    await f.index.sync();
+    const core=f.index.activity({pool,account:alice}).items.filter(row=>row.event==='SaleReviewed');
+    assert.equal(core.length,1);
+    assert.equal(core[0].pool,pool);
+    assert.deepEqual(core[0].fields,{pool,proposalId:'1',priceWei:'123',approved:false,operator:alice});
+    const project=f.index.activity({pool:portfolio,account:bob}).items;
+    assert.deepEqual(project.filter(row=>row.event==='SaleReviewed').map(row=>row.pool),[portfolio]);
+    assert.deepEqual(project.filter(row=>row.event==='ChildSaleReviewed').map(row=>row.fields),[
+      {proposalId:'3',approved:false,operator:bob},
+    ]);
+    f.reorg();
+    await f.index.sync();
+    assert.equal(f.index.activity().items.filter(row=>row.event==='SaleReviewed'||row.event==='ChildSaleReviewed').length,0,
+      'reorged review decisions must not remain in the history');
+  }finally{f.index.close();}
+});
 test('budget discovery counts parent once, preserves former-member rights and rolls child wrapping back on reorg',async()=>{
   const f=fixture();try {
     await f.index.sync();assert.deepEqual(f.index.pools().items,[]);

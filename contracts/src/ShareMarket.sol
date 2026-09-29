@@ -254,6 +254,9 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
                 || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory
                 || IReviewedPortfolio(msg.sender).childSaleReview(projectProposalId) != 1
         ) revert InvalidSaleReference();
+        // The review and child proposal bind the price; intermediate vote snapshots
+        // are intentionally irrelevant to this exact child/price/execution check.
+        // slither-disable-next-line unused-return
         (address child, uint256 price,,,,,,, bool executed) =
             IReviewedPortfolio(msg.sender).proposals(projectProposalId);
         if (child != pool || !executed || price == 0 || price > type(uint128).max) revert InvalidSaleReference();

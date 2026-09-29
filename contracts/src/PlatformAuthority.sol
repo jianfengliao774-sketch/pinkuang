@@ -293,7 +293,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     ) external nonReentrant returns (bytes memory result) {
         if (data.length < 4) revert InvalidAction();
         bytes4 selector = bytes4(data[:4]);
-        bool allowed;
+        bool allowed = false;
         if (target == coreFactory) {
             allowed = selector == IAuthorityCoreOperations.createPool.selector
                 || selector == IAuthorityCoreOperations.createPoolWithExpiry.selector

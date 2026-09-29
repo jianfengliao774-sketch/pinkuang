@@ -34,9 +34,9 @@ function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, s
   const reviewRequired = discounted;
   const reviewApproved = discounted === true && review?.status === 1n;
   let executionBlockReason = null;
-  if (review?.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
-  else if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
-  else if (!review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
+  else if (discounted && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (discounted && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
   else if (discounted && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价，尚待平台审核通过。';
   return { passed, discounted, reviewRequired, reviewApproved,
     canExecute: open && passed && executionBlockReason === null, executionBlockReason };

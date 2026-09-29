@@ -141,7 +141,7 @@ test('v4 budget child sale fails closed when reference or review cannot be trust
   Object.assign(f.state,{reviewReadError:false,reviewStatus:3n});
   await assert.rejects(preparePortfolioAction(input),/审核状态/);
 });
-test('v4 non-discount child sale needs a readable review and a rejected proposal stays blocked',async()=>{
+test('v4 non-discount child sale ignores an earlier discount rejection or unavailable review',async()=>{
   const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:2n,
     proposal:saleProposal(),referencePrice:90n,reviewStatus:0n});
   const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
@@ -152,20 +152,26 @@ test('v4 non-discount child sale needs a readable review and a rejected proposal
   assert.equal(prepared.row.proposal.reviewApproved,false);
   assert.equal(prepared.row.proposal.canExecute,true);
   f.state.reviewStatus=2n;
-  await assert.rejects(preparePortfolioAction(input),/已驳回/);
+  const afterRejection=await preparePortfolioAction(input);
+  assert.equal(afterRejection.row.proposal.canExecute,true);
   f.state.reviewReadError=true;
+  const reviewUnavailable=await preparePortfolioAction(input);
+  assert.equal(reviewUnavailable.row.proposal.canExecute,true);
+  f.state.referencePrice=150n;
   await assert.rejects(preparePortfolioAction(input),/审核状态/);
+  f.state.reviewReadError=false;
+  await assert.rejects(preparePortfolioAction(input),/已驳回/);
 });
 test('v4 reviews and references remain bound to each child sale candidate',async()=>{
   const first=saleProposal({child:address(0x951)}),second=saleProposal({child:address(0x952)});
   const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:3n,
     proposals:[first,second],references:{
-      [first.child.toLowerCase()]:{price:150n},[second.child.toLowerCase()]:{price:90n}},
+      [first.child.toLowerCase()]:{price:150n},[second.child.toLowerCase()]:{price:120n}},
     reviewStatuses:{1:1n,2:2n}});
   const context=await readPortfolioContext(f.config,f.provider);
   const row=await readPortfolio(context,PORTFOLIOS[0],f.account,{includeChildren:false});
   assert.deepEqual(row.proposals.map(item=>item.id),[1n,2n]);
-  assert.deepEqual(row.proposals.map(item=>item.saleReference.priceWei),[150n,90n]);
+  assert.deepEqual(row.proposals.map(item=>item.saleReference.priceWei),[150n,120n]);
   assert.deepEqual(row.proposals.map(item=>item.saleReview.status),[1n,2n]);
   assert.deepEqual(row.proposals.map(item=>item.canExecute),[true,false]);
   await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],

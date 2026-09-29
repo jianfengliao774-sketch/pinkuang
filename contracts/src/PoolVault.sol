@@ -676,7 +676,7 @@ contract PoolVault is
 
     function totalBnbOwed() external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        uint256 pendingRemainder;
+        uint256 pendingRemainder = 0;
         // The exact purchase tail is claimable only by the original sole
         // holder of all 100 shares. Split pools leave it unallocated.
         if (s.surplusRemainder != 0 && s.activeMembers.length == 1) {

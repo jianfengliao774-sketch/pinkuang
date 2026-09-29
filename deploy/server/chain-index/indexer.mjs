@@ -26,6 +26,7 @@ const interfaces = Object.freeze({
     'event ChildSaleVoted(uint256 indexed proposalId,address indexed member,bool support,uint256 shares)',
     'event ChildSaleApproved(uint256 indexed proposalId,address indexed child)',
     'event ChildSaleSettled(address indexed child,uint256 netProceeds)', 'event ChildSaleExpired(uint256 indexed proposalId)',
+    'event ChildSaleReviewed(uint256 indexed proposalId,bool approved,address indexed operator)',
   ]),
 });
 const binding = new Interface([
@@ -42,11 +43,12 @@ const binding = new Interface([
 const CHILD_COUNT_READ_CONCURRENCY = 16;
 const indexedEvents = Object.freeze({
   factory: new Set(['PoolCreated']),
-  market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn']),
+  market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn', 'SaleReviewed']),
   portfolioFactory: new Set(['PortfolioCreated']),
-  portfolioMarket: new Set(['OrderListed','OrderExpirySet','OrderFilled','BuyerFeeCharged','OrderCancelled','BnbWithdrawn']),
+  portfolioMarket: new Set(['OrderListed','OrderExpirySet','OrderFilled','BuyerFeeCharged','OrderCancelled','BnbWithdrawn','SaleReviewed']),
   portfolio: new Set(['Transfer','Deposited','ChildPurchased','AcquisitionFinalized','BemCollected','ChildHarvestFailed',
-    'BemClaimed','BnbWithdrawn','ChildSaleProposed','ChildSaleVoted','ChildSaleApproved','ChildSaleSettled','ChildSaleExpired']),
+    'BemClaimed','BnbWithdrawn','ChildSaleProposed','ChildSaleVoted','ChildSaleApproved','ChildSaleSettled','ChildSaleExpired',
+    'ChildSaleReviewed']),
   pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'FirstoPurchased', 'AlternativeMinerSelected',
     'PurchaseSurplusSettled', 'Harvested', 'BemClaimed', 'BnbWithdrawn', 'Transfer', 'SaleProposed', 'Voted',
     'SaleListed', 'SaleCompleted', 'FirstoSaleCompleted', 'SaleExpired', 'SaleSnapshotRecorded', 'SaleProceedsSettled', 'LockedSharesChanged',
@@ -892,9 +894,12 @@ export class ChainIndex {
       if (['market','portfolioMarket'].includes(event.kind) && event.name === 'OrderListed') { orderPools.set(orderKey, a.pool); orderSellers.set(orderKey, a.seller); }
       const eventPool = ['pool','portfolio'].includes(event.kind) ? event.address
         : event.kind === 'factory' && event.name === 'PoolCreated' ? a.pool
-          : event.kind==='portfolioFactory' && event.name==='PortfolioCreated' ? a.portfolio : orderPools.get(orderKey) ?? null;
+          : event.kind==='portfolioFactory' && event.name==='PortfolioCreated' ? a.portfolio
+            : ['market','portfolioMarket'].includes(event.kind) && event.name === 'SaleReviewed'
+              ? a.pool : orderPools.get(orderKey) ?? null;
       if (targetPool && eventPool !== targetPool) continue;
-      if (targetAccount && ![a.user, a.member, a.proposer, a.voter, a.seller, a.buyer, a.treasury, a.from, a.to, orderSellers.get(orderKey)]
+      if (targetAccount && ![a.user, a.member, a.proposer, a.voter, a.seller, a.buyer, a.treasury, a.from, a.to,
+        a.operator, orderSellers.get(orderKey)]
         .some(value => value && lower(value) === targetAccount)) continue;
       if (cursorParts && (event.blockNumber > cursorParts[0]
         || event.blockNumber === cursorParts[0] && (event.txIndex > cursorParts[1]

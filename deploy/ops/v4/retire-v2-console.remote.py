@@ -14,6 +14,8 @@ from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+import time
+from typing import Optional
 from datetime import datetime, timezone
 
 
@@ -89,30 +91,67 @@ def review_journal(path: Path = JOURNAL) -> dict:
         db.close()
 
 
-def command(*args: str) -> str:
-    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT).strip()
+def command(*args: str, timeout_s: float = 15) -> str:
+    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT,
+                                   timeout=timeout_s).strip()
 
 
-def probe(path: str) -> int:
-    code = command('curl', '--silent', '--show-error', '--location', '--output', '/dev/null',
-                   '--write-out', '%{http_code}', '--max-time', '12',
+def probe(path: str, max_time: float = 12) -> int:
+    code = command('curl', '--silent', '--show-error', '--noproxy', '*',
+                   '--output', '/dev/null', '--write-out', '%{http_code}',
+                   '--connect-timeout', '2', '--max-time', str(max_time),
                    '--resolve', 'tapeout.cc.cd:443:127.0.0.1',
-                   'https://tapeout.cc.cd' + path)
+                   'https://tapeout.cc.cd' + path, timeout_s=max_time)
     if not code.isdecimal():
         raise RuntimeError('HTTPS probe did not return a status code')
     return int(code)
 
 
-def review_runtime(console_status: int) -> None:
+def remaining_seconds(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError('v2 console reload verification timed out')
+    return remaining
+
+
+def bounded_probe(path: str, deadline: float) -> int:
+    return probe(path, min(2.5, remaining_seconds(deadline)))
+
+
+def review_services_and_product(deadline: Optional[float] = None) -> None:
     for unit in UNITS:
-        if command('systemctl', 'is-active', unit) != 'active':
+        timeout_s = remaining_seconds(deadline) if deadline is not None else 15
+        if command('systemctl', 'is-active', unit, timeout_s=timeout_s) != 'active':
             raise RuntimeError(f'v2 service is not active: {unit}')
-    expected = {'/pinkuang-deploy-v2/': console_status,
-                '/bemine-v2/': 200, '/bemine-v2/api/journal/build': 401}
+    expected = {'/bemine-v2/': 200, '/bemine-v2/api/journal/build': 401}
     for path, status in expected.items():
-        actual = probe(path)
+        actual = bounded_probe(path, deadline) if deadline is not None else probe(path)
         if actual != status:
             raise RuntimeError(f'{path} returned {actual}, expected {status}')
+
+
+def review_runtime(console_status: int) -> None:
+    review_services_and_product()
+    actual = probe('/pinkuang-deploy-v2/')
+    if actual != console_status:
+        raise RuntimeError(f'/pinkuang-deploy-v2/ returned {actual}, expected {console_status}')
+
+
+def wait_for_retired_route(timeout_s: float = 10) -> None:
+    """Allow only old-worker 200 during nginx's asynchronous reload window."""
+    deadline = time.monotonic() + timeout_s
+    review_services_and_product(deadline)
+    while True:
+        actual = bounded_probe('/pinkuang-deploy-v2/', deadline)
+        if actual == 410:
+            review_services_and_product(deadline)
+            return
+        if actual != 200:
+            raise RuntimeError(f'/pinkuang-deploy-v2/ returned {actual}, expected 410')
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError('v2 console reload verification timed out')
+        time.sleep(min(0.2, remaining))
 
 
 def apply_update(before: bytes, after: bytes) -> Path:
@@ -140,7 +179,7 @@ def apply_update(before: bytes, after: bytes) -> Path:
         replaced = True
         command('nginx', '-t')
         command('systemctl', 'reload', 'nginx')
-        review_runtime(410)
+        wait_for_retired_route()
         if SNIPPET.read_bytes() != after:
             raise RuntimeError('v2 nginx snippet changed after reload')
     except Exception:

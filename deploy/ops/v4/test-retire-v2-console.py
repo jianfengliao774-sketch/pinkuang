@@ -81,11 +81,11 @@ class RetireV2ConsoleTest(unittest.TestCase):
             after = module.retired_snippet(SOURCE, hashlib.sha256(SOURCE).hexdigest())
             with patch.object(module, 'SNIPPET', snippet), patch.object(module, 'BACKUPS', backups), \
                  patch.object(module, 'command', return_value=''), \
-                 patch.object(module, 'review_runtime') as runtime:
+                 patch.object(module, 'wait_for_retired_route') as runtime:
                 backup = module.apply_update(SOURCE, after)
             self.assertEqual(snippet.read_bytes(), after)
             self.assertEqual(backup.read_bytes(), SOURCE)
-            runtime.assert_called_once_with(410)
+            runtime.assert_called_once_with()
 
     def test_failed_validation_restores_exact_bytes(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -115,11 +115,43 @@ class RetireV2ConsoleTest(unittest.TestCase):
                 return ''
             with patch.object(module, 'SNIPPET', snippet), patch.object(module, 'BACKUPS', backups), \
                  patch.object(module, 'command', side_effect=command), \
-                 patch.object(module, 'review_runtime', side_effect=RuntimeError('health probe failed')):
+                 patch.object(module, 'wait_for_retired_route', side_effect=RuntimeError('health probe failed')):
                 with self.assertRaisesRegex(RuntimeError, 'health probe failed'):
                     module.apply_update(SOURCE, after)
             self.assertEqual(snippet.read_bytes(), SOURCE)
             self.assertEqual(commands.count(('systemctl', 'reload', 'nginx')), 2)
+
+    def test_reload_waits_only_for_old_console_worker(self):
+        with patch.object(module, 'review_services_and_product') as product, \
+             patch.object(module, 'bounded_probe', side_effect=[200, 410]) as console, \
+             patch.object(module.time, 'sleep') as sleep:
+            module.wait_for_retired_route(timeout_s=10)
+        self.assertEqual(console.call_count, 2)
+        self.assertEqual(product.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_reload_rejects_product_error_or_other_console_status_immediately(self):
+        with patch.object(module, 'review_services_and_product',
+                          side_effect=RuntimeError('product returned 503')), \
+             patch.object(module, 'bounded_probe') as console:
+            with self.assertRaisesRegex(RuntimeError, 'product returned 503'):
+                module.wait_for_retired_route()
+            console.assert_not_called()
+        with patch.object(module, 'review_services_and_product'), \
+             patch.object(module, 'bounded_probe', return_value=503) as console, \
+             patch.object(module.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'returned 503'):
+                module.wait_for_retired_route()
+            console.assert_called_once()
+            sleep.assert_not_called()
+
+    def test_reload_wait_is_bounded_to_ten_seconds(self):
+        with patch.object(module, 'review_services_and_product'), \
+             patch.object(module, 'bounded_probe', return_value=200), \
+             patch.object(module.time, 'monotonic', side_effect=[0, 0, 9.9, 10.01]), \
+             patch.object(module.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'timed out'):
+                module.wait_for_retired_route(timeout_s=10)
 
 
 if __name__ == '__main__':
