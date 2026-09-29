@@ -540,7 +540,7 @@ test('one durable signing permission survives concurrent tabs, stale revisions a
     const ack=race.find(item=>item.status===200).body;
     assert.equal(ack.revision,2); assert.deepEqual(ack.record,intent());
     assert.deepEqual(ack.transaction,{chainId:'0x38',from:account,to:pool,nonce:'0x7',data:intent().data,value:'0x14',
-      gas:'0x186a0',gasPrice:'0x3b9aca00',type:'0x0'});
+      gas:'0x186a0',maxFeePerGas:'0x3b9aca00',maxPriorityFeePerGas:'0x3b9aca00',type:'0x2'});
     assert.equal((await f.request('market/arm','POST',{expectedRevision:2})).status,409);
     const reopened=new JournalStore(f.dbPath);
     try { assert.throws(()=>reopened.armMarket(account,2),/already consumed/); } finally {reopened.close();}

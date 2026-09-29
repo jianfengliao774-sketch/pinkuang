@@ -404,8 +404,11 @@ export async function sendProductTransaction({ provider, config, transaction, ac
       && ['version','chainId','nonce','data','value','gas','gasPrice','submittedAt','targetType'].every(key => permit.record[key] === prepared[key])
       && same(permit.record.account, account) && same(permit.record.factory, factory) && same(permit.record.target, target)
       && permit.record.action?.kind === normalized.action.kind, '签名许可与确认内容不一致，已停止发送。');
-    const expectedTx = { ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' };
-    requireValue(permit.transaction && Object.entries(expectedTx).every(([key, value]) => same(permit.transaction[key], value)), '签名许可交易内容不一致，已停止发送。');
+    const expectedTx = { ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas),
+      maxFeePerGas: toQuantity(gasPrice), maxPriorityFeePerGas: toQuantity(gasPrice), type: '0x2' };
+    requireValue(permit.transaction && Object.keys(permit.transaction).sort().join(',') === Object.keys(expectedTx).sort().join(',')
+      && Object.entries(expectedTx).every(([key, value]) => same(permit.transaction[key], value)),
+    '签名许可交易内容不一致，已停止发送。');
     record = permit.record; revision = permit.revision;
     if (fastAuthorized) emit(onState, { status: 'authorizing' });
     const { wallet: finalWallet, lastNonce, pendingNonce } = await settleReadRound({
@@ -416,7 +419,7 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     requireValue(same(finalWallet, account), '签名前钱包账户已变化，请重新连接后确认。');
     requireValue(rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
     emit(onState, { status: 'awaiting-signature', record, gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
-    hash = await provider.request({ method: 'eth_sendTransaction', params: [{ ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' }] });
+    hash = await provider.request({ method: 'eth_sendTransaction', params: [expectedTx] });
     requireValue(typeof hash === 'string' && HASH.test(hash), '钱包未返回有效哈希，发送结果待核对。');
     record = { ...record, hash };
     await request(config, 'market', 'PUT', { record, expectedRevision: revision }, account, fetcher);

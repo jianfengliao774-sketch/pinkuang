@@ -150,7 +150,8 @@ function fixture(options={}){
       const r=state.record;
       const transaction={from:r.account,to:r.target,chainId:'0x38',nonce:`0x${BigInt(r.nonce).toString(16)}`,
         data:r.data,value:`0x${BigInt(r.value).toString(16)}`,gas:`0x${BigInt(r.gas).toString(16)}`,
-        gasPrice:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x0',...state.permitTransaction};
+        maxFeePerGas:`0x${BigInt(r.gasPrice).toString(16)}`,
+        maxPriorityFeePerGas:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x2',...state.permitTransaction};
       if(state.armAckLost)throw new Error('Signature permission ACK lost');
       return response(200,{revision:state.revision,record:structuredClone(r),transaction});
     }
@@ -160,7 +161,8 @@ function fixture(options={}){
       const r=state.record;state.revision++;
       const transaction={from:r.account,to:r.target,chainId:'0x38',nonce:`0x${BigInt(r.nonce).toString(16)}`,
         data:r.data,value:`0x${BigInt(r.value).toString(16)}`,gas:`0x${BigInt(r.gas).toString(16)}`,
-        gasPrice:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x0',...state.permitTransaction};
+        maxFeePerGas:`0x${BigInt(r.gasPrice).toString(16)}`,
+        maxPriorityFeePerGas:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x2',...state.permitTransaction};
       if(state.armAckLost)throw new Error('Signature permission ACK lost');
       return response(200,{revision:state.revision,record:structuredClone(r),transaction});
     }
@@ -224,7 +226,10 @@ test('the full permitted 3 gwei quote reaches the wallet without a simulation or
   const sends=f.calls.filter(call=>call.method==='eth_sendTransaction');
   assert.equal(sends.length,1);
   assert.equal(BigInt(sends[0].params[0].gas),5_000_000n);
-  assert.equal(BigInt(sends[0].params[0].gasPrice),3_000_000_000n);
+  assert.equal(BigInt(sends[0].params[0].maxFeePerGas),3_000_000_000n);
+  assert.equal(BigInt(sends[0].params[0].maxPriorityFeePerGas),3_000_000_000n);
+  assert.equal(sends[0].params[0].type,'0x2');
+  assert.equal(sends[0].params[0].gasPrice,undefined);
   assert(!f.calls.some(call=>['eth_call','eth_estimateGas'].includes(call.method)));
 
   const over=fixture({price:3_000_000_001n});
@@ -428,7 +433,9 @@ test('cancel rejection and ambiguous outcome preserve the intent; recovery never
 });
 
 test('missing, lost or modified single-use signing permission never opens the wallet', async()=>{
-  for(const options of [{armFail:true},{armAckLost:true},{permitTransaction:{value:'0x100'}},{permitTransaction:{to:addr(90)}},{permitTransaction:{gas:'0x1'}}]){
+  for(const options of [{armFail:true},{armAckLost:true},{permitTransaction:{value:'0x100'}},
+    {permitTransaction:{to:addr(90)}},{permitTransaction:{gas:'0x1'}},
+    {permitTransaction:{gasPrice:'0x1'}}]){
     const f=fixture(options);const result=await f.send();assert.equal(result.status,'pending');
     assert(f.state.record);assert(!f.calls.some(x=>x.method==='eth_sendTransaction'));
   }

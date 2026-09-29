@@ -259,6 +259,14 @@ function validateProduct(value, account) {
   return value;
 }
 
+function productWalletTransaction(record) {
+  const hex=value=>`0x${BigInt(value).toString(16)}`;
+  const fee=hex(record.gasPrice);
+  return {chainId:'0x38',from:record.account,to:record.target,
+    nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),
+    maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'};
+}
+
 /** Only an explicit wallet-signed, zero-value EOA self-transfer can consume an unsent/unknown nonce. */
 export async function cancellationIntent(provider, record) {
   if (!provider) fail(503, 'BSC cancellation verifier is unavailable.');
@@ -1694,9 +1702,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const current=store.market(account);
         if (current.record || current.revision!==revision) fail(409,'Market revision changed.');
         await verifyBoundedProductIntent(req,account,record);
-        const next=store.prepareAndArmMarket(account,record,revision), hex=value=>`0x${BigInt(value).toString(16)}`;
-        return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
-          nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),gasPrice:hex(record.gasPrice),type:'0x0'}});
+        const next=store.prepareAndArmMarket(account,record,revision);
+        return send(200,{revision:next,record,transaction:productWalletTransaction(record)});
       }
       if (method === 'POST' && path === '/api/journal/market/arm') {
         const body=await readJson(req), revision=exactRevision(body.expectedRevision), current=store.market(account);
@@ -1704,10 +1711,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (current.record.hash || current.record.recoveryHashes?.length || current.record.cancellationRequests?.length)
           fail(409,'Product transaction already has a send or recovery history.');
         await verifyBoundedProductIntent(req,account,current.record);
-        const record=current.record, hex=value=>`0x${BigInt(value).toString(16)}`;
+        const record=current.record;
         const next=store.armMarket(account,revision);
-        return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
-          nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),gasPrice:hex(record.gasPrice),type:'0x0'}});
+        return send(200,{revision:next,record,transaction:productWalletTransaction(record)});
       }
       if (method === 'POST' && path === '/api/journal/market/cancel-intent') {
         const body = await readJson(req), revision = exactRevision(body.expectedRevision), current = store.market(account);
