@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { Interface, getCreateAddress, keccak256, toUtf8Bytes } from 'ethers';
+import { AbstractProvider, Interface, Network, getCreateAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
 import { createJournalService } from './journal-api.mjs';
 import { FRESH_ACTIVATION_STEPS, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
@@ -120,7 +120,10 @@ function chain(f,{record,winnerHash},index) {
     getStorage:async(proxy,_slot,block)=>'0x'+(state.wrongImplLatest&&block===127&&proxy===factory
       ?address('c'):proxy===factory?coreImpl:budgetImpl).slice(2).padStart(64,'0'),
     getTransactionCount:async(_account,tag)=>tag==='pending'?state.pending:9,
-    call:async({to,data},block)=>{
+    call:async({to,data,blockTag},extra)=>{
+      assert.equal(extra,undefined,'ethers call accepts the block tag only inside its transaction');
+      assert(Number.isSafeInteger(blockTag),'role reads must use a numbered chain anchor');
+      const block=blockTag;
       assert([125,127].includes(block));
       const abi=to===timelock?timelockAbi:to===authority?authorityAbi:factoryAbi;
       const parsed=abi.parseTransaction({data});
@@ -145,6 +148,35 @@ function chain(f,{record,winnerHash},index) {
   };
   return {provider,state};
 }
+
+// Exercise AbstractProvider.call itself: ethers 6.17 ignores a second positional
+// argument and takes the block tag from the transaction request.
+class EthersCallAdapter extends AbstractProvider {
+  constructor(delegate) { super(Network.from(56)); this.delegate=delegate; this.callTags=[]; }
+  async _detectNetwork() { return Network.from(56); }
+  async _perform(request) {
+    assert.equal(request.method,'call');
+    assert.match(request.blockTag,/^0x[\da-f]+$/i);
+    this.callTags.push(request.blockTag);
+    return this.delegate.call({...request.transaction,blockTag:Number(BigInt(request.blockTag))});
+  }
+  getBlock(tag) { return this.delegate.getBlock(tag); }
+  getTransaction(hash) { return this.delegate.getTransaction(hash); }
+  getTransactionReceipt(hash) { return this.delegate.getTransactionReceipt(hash); }
+  getCode(address,tag) { return this.delegate.getCode(address,tag); }
+  getStorage(address,slot,tag) { return this.delegate.getStorage(address,slot,tag); }
+  getTransactionCount(address,tag) { return this.delegate.getTransactionCount(address,tag); }
+}
+
+test('ethers 6.17 adapter receives distinct finalized and latest block tags for role calls',async()=>{
+  const f=fixture(2),{provider}=chain(f,f,2);
+  const adapter=new EthersCallAdapter(provider);
+  await verifyFinalizedFreshAttempt(adapter,f.record,f.genesis,hardware,
+    'coreTreasury',8,f.winnerHash,f.bundle);
+  assert(adapter.callTags.includes('0x7d'),'finalized block 125 must reach eth_call');
+  assert(adapter.callTags.includes('0x7f'),'latest block 127 must reach eth_call');
+  assert(!adapter.callTags.includes('latest'));
+});
 
 for(const [index,status] of [[0,'failed'],[0,'replaced'],[2,'failed'],[6,'replaced']]) {
   test(`finalized Stage 2 ${status} at step ${index+1} archives the attempt and preserves fees`,async()=>{
@@ -328,9 +360,10 @@ test('a newer finalized anchor gets fresh role and code checks',async()=>{
       },
       getCode:async(address,block)=>drift==='code'&&block===128&&address===coreImpl
         ?'0x6001':base.getCode(address,block),
-      call:async(tx,block)=>drift==='role'&&block===128&&tx.to===factory
+      call:async(tx)=>drift==='role'&&tx.blockTag===128&&tx.to===factory
         && factoryAbi.parseTransaction({data:tx.data})?.name==='operator'
-        ?factoryAbi.encodeFunctionResult('operator',[gasWallet]):base.call(tx,block>=128?125:block),
+        ?factoryAbi.encodeFunctionResult('operator',[gasWallet])
+        :base.call({...tx,blockTag:tx.blockTag>=128?125:tx.blockTag}),
     };
     await assert.rejects(()=>verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
       'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
@@ -389,7 +422,7 @@ test('long pause crosses 4096-header checkpoint without skipping a parent edge',
       if(number<=127)return base.getBlock(number);
       return {number,hash:blockHash(number),parentHash:blockHash(number-1)};
     },
-    call:async(tx,block)=>base.call(tx,block>=128?125:block),
+    call:async(tx)=>base.call({...tx,blockTag:tx.blockTag>=128?125:tx.blockTag}),
   };
   const proof=await verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
     'coreTreasury',8,f.winnerHash,f.bundle);
@@ -400,4 +433,43 @@ test('long pause crosses 4096-header checkpoint without skipping a parent edge',
   }};
   await assert.rejects(()=>verifyFinalizedFreshAttempt(broken,f.record,f.genesis,hardware,
     'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
+});
+
+test('a reorg during refreshed state reads rejects both recovery and later signing',async()=>{
+  for (const changed of ['winner','old-anchor']) {
+    const f=fixture(2),base=chain(f,f,2).provider;
+    const proof=await verifyFinalizedFreshAttempt(base,f.record,f.genesis,hardware,
+      'coreTreasury',8,f.winnerHash,f.bundle);
+    const dir=mkdtempSync(join(tmpdir(),'fresh-stage2-late-reorg-'));
+    const store=new JournalStore(join(dir,'journal.sqlite'));
+    let recovered;
+    try {
+      store.putFreshActivation(hardware,f.record,0);
+      recovered=store.recoverFinalizedFreshAttempt(hardware,1,proof).record;
+    } finally {store.close();rmSync(dir,{recursive:true,force:true});}
+    const providerWithLateReorg=()=>{
+      let finalizedReads=0,latestReads=0,reorg=false;
+      return {...base,
+        getBlock:async tag=>{
+          if(tag==='finalized') return ++finalizedReads===1?base.getBlock(tag)
+            :{number:128,hash:hash('a'),parentHash:blockHash(127)};
+          if(tag==='latest') return ++latestReads===1?base.getBlock(tag)
+            :{number:129,hash:hash('b'),parentHash:hash('a')};
+          if(tag===128) return {number:128,hash:hash('a'),parentHash:blockHash(127)};
+          if(tag===129) return {number:129,hash:hash('b'),parentHash:hash('a')};
+          if(reorg&&tag===(changed==='winner'?120:125))
+            return {...await base.getBlock(tag),hash:hash('e')};
+          return base.getBlock(tag);
+        },
+        call:async tx=>{
+          if(tx.blockTag===128)reorg=true;
+          return base.call({...tx,blockTag:tx.blockTag>=128?125:tx.blockTag});
+        },
+      };
+    };
+    await assert.rejects(()=>verifyFinalizedFreshAttempt(providerWithLateReorg(),f.record,
+      f.genesis,hardware,'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
+    await assert.rejects(()=>verifyRecoveredFreshSigning(providerWithLateReorg(),recovered,
+      f.genesis,hardware,f.bundle),/proof failed/);
+  }
 });

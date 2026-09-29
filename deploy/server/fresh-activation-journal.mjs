@@ -228,15 +228,17 @@ async function currentChainAnchor(provider) {
   return {finalized,latest};
 }
 
-async function assertAnchorStillCanonical(provider, receipts, finalized, latest) {
-  const [winnerAgain,finalizedAgain,latestAgain,finalizedTag,latestTag]=await Promise.all([
+async function assertAnchorStillCanonical(provider, receipts, finalized, latest, refreshedAnchors=[]) {
+  const [winnerAgain,finalizedAgain,latestAgain,refreshedAgain,finalizedTag,latestTag]=await Promise.all([
     Promise.all(receipts.map(receipt=>provider.getBlock(receipt.blockNumber))),
     provider.getBlock(finalized.number),provider.getBlock(latest.number),
+    Promise.all(refreshedAnchors.map(block=>provider.getBlock(block.number))),
     provider.getBlock('finalized'),provider.getBlock('latest'),
   ]);
   if (receipts.some((receipt,index)=>winnerAgain[index]?.hash!==receipt.blockHash)
     || finalizedAgain?.hash!==finalized.hash
     || latestAgain?.hash!==latest.hash
+    || refreshedAnchors.some((block,index)=>refreshedAgain[index]?.hash!==block.hash)
     || !await proveAncestor(provider,finalized.number,finalized.hash,finalizedTag)
     || !await proveAncestor(provider,latest.number,latest.hash,latestTag)
     || !await proveAncestor(provider,finalizedTag.number,finalizedTag.hash,latestTag))
@@ -248,7 +250,7 @@ async function verifyPrefixAt(provider, record, genesis, account, completed, blo
   const deny = () => { throw new Error('Finalized fresh activation recovery proof failed.'); };
   const g=record.genesis;
   const read=async(to,iface,name,args=[])=>iface.decodeFunctionResult(name,
-    await provider.call({to,data:iface.encodeFunctionData(name,args)},block.number))[0];
+    await provider.call({to,data:iface.encodeFunctionData(name,args),blockTag:block.number}))[0];
   for (const [name,address] of Object.entries({factory:g.factory,portfolioFactory:g.portfolioFactory,
     shareMarket:g.shareMarket,portfolioMarket:g.portfolioMarket,timelock:g.timelock})) {
     const code=await provider.getCode(address,block.number);
@@ -372,6 +374,10 @@ export async function verifyFinalizedFreshAttempt(provider,record,genesis,accoun
     await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
   if (checked.latestTag.hash!==latest.hash)
     await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
+  // State reads can race a reorg. Recheck every evidence block after the last
+  // role/code call, including both original and refreshed anchors.
+  await assertAnchorStillCanonical(provider,[proof.receipt],finalized,latest,
+    [checked.finalizedTag,checked.latestTag]);
   const [latestNonce,pendingNonce]=await Promise.all([
     provider.getTransactionCount(account,'latest'),provider.getTransactionCount(account,'pending')]);
   if (latestNonce!==pendingNonce || latestNonce<=nonce) deny();
@@ -406,4 +412,6 @@ export async function verifyRecoveredFreshSigning(provider,record,genesis,accoun
     await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
   if (checked.latestTag.hash!==commonAnchor.latest.hash)
     await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
+  await assertAnchorStillCanonical(provider,receipts,
+    commonAnchor.finalized,commonAnchor.latest,[checked.finalizedTag,checked.latestTag]);
 }
