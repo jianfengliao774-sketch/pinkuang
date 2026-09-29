@@ -6,6 +6,7 @@ import hashlib
 import runpy
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -75,6 +76,69 @@ class ConsoleAccessTests(unittest.TestCase):
                  self.assertRaisesRegex(RuntimeError, 'reload failed'):
                 tool['main']()
             self.assertIn(auth, snippet.read_text())
+            self.assertIn(('systemctl', 'stop', 'pinkuang-deploy-v4.service'), calls)
+
+    def test_public_first_probe_retries_until_every_v4_route_requires_auth(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            snippet = root / 'v4.conf'
+            snippet.write_text('location ^~ /pinkuang-deploy-v4/ {\n    proxy_pass http://127.0.0.1:4177/;\n}\n')
+            before = snippet.read_bytes()
+            calls = []
+            probes = {}
+            sleeps = []
+
+            def status(path):
+                if path == '/bemine-v2/':
+                    return '200'
+                probes[path] = probes.get(path, 0) + 1
+                return '200' if probes[path] == 1 else '401'
+
+            hooks = {'SNIPPET': snippet, 'BACKUP_DIR': root / 'backup',
+                     'LOCK': root / 'v4.lock', 'require_credential_file': lambda: None,
+                     'secure_lock': lambda path: nullcontext(),
+                     'command': lambda *args: calls.append(args),
+                     'unauthenticated_status': status,
+                     'time': SimpleNamespace(sleep=sleeps.append)}
+            args = ['protect-console.remote.py', '--current-snippet-sha256',
+                    hashlib.sha256(before).hexdigest()]
+            with patch.dict(tool['main'].__globals__, hooks), \
+                 patch('os.geteuid', return_value=0), \
+                 patch.object(sys, 'argv', args):
+                tool['main']()
+            self.assertEqual(sorted(probes.values()), [2, 2, 2])
+            self.assertEqual(sleeps, [tool['PROBE_INTERVAL_SECONDS']])
+            self.assertNotIn(('systemctl', 'stop', 'pinkuang-deploy-v4.service'), calls)
+
+    def test_never_protected_route_stops_console_after_bounded_retries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            snippet = root / 'v4.conf'
+            snippet.write_text('location ^~ /pinkuang-deploy-v4/ {\n    proxy_pass http://127.0.0.1:4177/;\n}\n')
+            before = snippet.read_bytes()
+            calls = []
+            probes = {}
+            sleeps = []
+
+            def status(path):
+                probes[path] = probes.get(path, 0) + 1
+                return '200' if path == '/pinkuang-deploy-v4/' else '401'
+
+            hooks = {'SNIPPET': snippet, 'BACKUP_DIR': root / 'backup',
+                     'LOCK': root / 'v4.lock', 'require_credential_file': lambda: None,
+                     'secure_lock': lambda path: nullcontext(),
+                     'command': lambda *args: calls.append(args),
+                     'unauthenticated_status': status,
+                     'time': SimpleNamespace(sleep=sleeps.append)}
+            args = ['protect-console.remote.py', '--current-snippet-sha256',
+                    hashlib.sha256(before).hexdigest()]
+            with patch.dict(tool['main'].__globals__, hooks), \
+                 patch('os.geteuid', return_value=0), \
+                 patch.object(sys, 'argv', args), \
+                 self.assertRaisesRegex(RuntimeError, 'did not consistently require authentication'):
+                tool['main']()
+            self.assertEqual(probes['/pinkuang-deploy-v4/'], tool['PROBE_ATTEMPTS'])
+            self.assertEqual(len(sleeps), tool['PROBE_ATTEMPTS'] - 1)
             self.assertIn(('systemctl', 'stop', 'pinkuang-deploy-v4.service'), calls)
 
     def test_unrelated_v2_probe_failure_keeps_console_protected(self):

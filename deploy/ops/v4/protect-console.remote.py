@@ -16,6 +16,7 @@ import re
 import stat
 import subprocess
 import tempfile
+import time
 
 
 SNIPPET = Path('/etc/nginx/snippets/pinkuang-deploy-v4.conf')
@@ -27,6 +28,8 @@ API = 'location ^~ /pinkuang-deploy-v4/api/ {'
 AUTH = ('    auth_basic "BEMine deployment";\n'
         f'    auth_basic_user_file {AUTH_FILE};\n'
         '    proxy_set_header Authorization "";\n')
+PROBE_ATTEMPTS = 8
+PROBE_INTERVAL_SECONDS = 1
 
 
 def require(ok, message):
@@ -115,6 +118,25 @@ def unauthenticated_status(path):
     return result.stdout
 
 
+def require_protected_routes(paths):
+    """Allow old nginx workers to drain after reload, then fail closed."""
+    for attempt in range(PROBE_ATTEMPTS):
+        failures = []
+        for path in paths:
+            try:
+                status = unauthenticated_status(path)
+                if status != '401':
+                    failures.append(f'{path}: HTTP {status}')
+            except RuntimeError as error:
+                failures.append(f'{path}: {error}')
+        if not failures:
+            return
+        if attempt + 1 < PROBE_ATTEMPTS:
+            time.sleep(PROBE_INTERVAL_SECONDS)
+    raise RuntimeError('v4 routes did not consistently require authentication '
+                       f'after nginx reload: {", ".join(failures)}')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--current-snippet-sha256', required=True)
@@ -143,11 +165,11 @@ def main():
             atomic_write(SNIPPET, after, 0o644)
             command('nginx', '-t')
             command('systemctl', 'reload', 'nginx')
-            for path in ('/pinkuang-deploy-v4/',
-                         '/pinkuang-deploy-v4/deployment-artifacts.json',
-                         '/pinkuang-deploy-v4/api/journal/product-graph'):
-                require(unauthenticated_status(path) == '401',
-                        f'Unauthenticated v4 route remained reachable: {path}')
+            require_protected_routes((
+                '/pinkuang-deploy-v4/',
+                '/pinkuang-deploy-v4/deployment-artifacts.json',
+                '/pinkuang-deploy-v4/api/journal/product-graph',
+            ))
         except Exception:
             # The previous nginx config is public. A failed reload or probe
             # must never restore that config while the deployment app is live.
