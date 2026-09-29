@@ -6,7 +6,7 @@ import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
 import type { ServerJournal } from './server-journal';
 
 const explorer = 'https://bscscan.com';
-const STAGE2_HOLD = import.meta.env.MODE === 'fresh';
+const STAGE2_HOLD = import.meta.env?.MODE === 'fresh';
 function download(name: string, value: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
