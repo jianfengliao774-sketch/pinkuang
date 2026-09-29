@@ -7,7 +7,7 @@ import { JournalStore } from './journal-store.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
 import { createRequestLimiter } from './request-limiter.mjs';
 import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
-import { acquireKeeperLock, acquireWalletLock, KEEPER_STATE_ROOT, readJournal,
+import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 
@@ -92,7 +92,6 @@ export function authorityRelayConfiguration(env = process.env) {
   if (!env.CREDENTIALS_DIRECTORY || env.KEEPER_PRIVATE_KEY)
     throw new Error('Authority relay requires a systemd Gas-wallet credential, never an environment private key.');
   if (!env.PINKUANG_KEEPER_STATE_ROOT || !isAbsolute(env.PINKUANG_KEEPER_STATE_ROOT)
-    || env.PINKUANG_KEEPER_STATE_ROOT !== KEEPER_STATE_ROOT
     || env.PINKUANG_KEEPER_STATE_ROOT !== '/var/lib/pinkuang-v4-signer/keeper')
     throw new Error('Authority relay requires its exclusive v4 wallet state root.');
   const journal = env.AUTHORITY_RELAY_JOURNAL;
@@ -244,6 +243,15 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     return { core, budget, first, second, gasWallet, nonce, code };
   });
   const rates = new Map(), inFlight = new Set(); let closed = false;
+  // Status reconciliation can write the journal. Serialize it with submit in
+  // this process so simultaneous polls do not turn the O_EXCL lock into a 503.
+  // The filesystem lock still protects against a second process.
+  let journalQueue = Promise.resolve(), statusTask = null;
+  function withJournalTurn(work) {
+    const turn = journalQueue.then(work);
+    journalQueue = turn.catch(() => {});
+    return turn;
+  }
   const allowRequest = createRequestLimiter({ windowMs: 60_000, perClient: 30, maxClients: 5_000 });
 
   async function freshGraph() {
@@ -271,20 +279,26 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     if (row.count > 8) fail(429, 'Too many administrator relay requests.');
   }
 
-  async function status() {
-    const authority = trusted.freshAuthority.authority.address;
-    const release = lockJournal(config.journal);
-    try {
-      const options = { factory: authority, pool: authority, transactionTarget: authority, journal: config.journal };
-      const journal = readJournal(config.journal, options);
-      const result = await reconcilePending(provider, options, journal);
-      const tx = journal.transaction;
-      const rawStatus = tx?.phase === 'signed' && result?.status === 'pending-not-indexed'
-        ? 'broadcast-result-unknown' : result?.status ?? tx?.phase ?? 'idle';
-      return { status: relayStatus(rawStatus), hash: result?.hash ?? tx?.hash ?? null,
-        kind: tx?.kind ?? null, blockNumber: tx?.blockNumber ?? null,
-        gasCostWei: tx?.gasCostWei ?? null };
-    } finally { release(); }
+  function status() {
+    if (statusTask) return statusTask;
+    const task = withJournalTurn(async () => {
+      const authority = trusted.freshAuthority.authority.address;
+      const release = lockJournal(config.journal);
+      try {
+        const options = { factory: authority, pool: authority, transactionTarget: authority, journal: config.journal };
+        const journal = readJournal(config.journal, options);
+        const result = await reconcilePending(provider, options, journal);
+        const tx = journal.transaction;
+        const rawStatus = tx?.phase === 'signed' && result?.status === 'pending-not-indexed'
+          ? 'broadcast-result-unknown' : result?.status ?? tx?.phase ?? 'idle';
+        return { status: relayStatus(rawStatus), hash: result?.hash ?? tx?.hash ?? null,
+          kind: tx?.kind ?? null, blockNumber: tx?.blockNumber ?? null,
+          gasCostWei: tx?.gasCostWei ?? null };
+      } finally { release(); }
+    });
+    statusTask = task;
+    task.finally(() => { if (statusTask === task) statusTask = null; }).catch(() => {});
+    return task;
   }
 
   async function submit(command, account) {
@@ -303,18 +317,20 @@ export function createAuthorityRelayService(config, dependencies = {}) {
       || nonce !== prepared.nonce || BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline
       || keccak256(code).toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
       fail(409, 'Administrator nonce, Gas wallet or reviewed Authority graph changed.');
-    const releaseJournal = lockJournal(config.journal);
-    let releaseWallet;
-    try {
-      const signer = new Wallet(loadCredential(), provider);
-      if (!same(signer.address, gasWallet)) fail(409, 'Configured Gas credential does not match the reviewed wallet.');
-      if (!existsSync(config.journal)) writeJournal(config.journal, readJournal(config.journal,
-        { factory: authority, pool: authority, transactionTarget: authority }));
-      releaseWallet = lockWallet(signer.address, config.journal);
-      return await relay(provider, { commandObject: command, journal: config.journal, send: true,
-        maxGasWei: config.maxGasWei, maxGasPrice: config.maxGasPrice,
-        gasLimit: GAS_LIMIT[command.kind] }, signer);
-    } finally { releaseWallet?.(); releaseJournal(); }
+    return withJournalTurn(async () => {
+      const releaseJournal = lockJournal(config.journal);
+      let releaseWallet;
+      try {
+        const signer = new Wallet(loadCredential(), provider);
+        if (!same(signer.address, gasWallet)) fail(409, 'Configured Gas credential does not match the reviewed wallet.');
+        if (!existsSync(config.journal)) writeJournal(config.journal, readJournal(config.journal,
+          { factory: authority, pool: authority, transactionTarget: authority }));
+        releaseWallet = lockWallet(signer.address, config.journal);
+        return await relay(provider, { commandObject: command, journal: config.journal, send: true,
+          maxGasWei: config.maxGasWei, maxGasPrice: config.maxGasPrice,
+          gasLimit: GAS_LIMIT[command.kind] }, signer);
+      } finally { releaseWallet?.(); releaseJournal(); }
+    });
   }
 
   return {

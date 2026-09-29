@@ -20,10 +20,29 @@ const MAX_BODY = 64 * 1024;
 const CHALLENGE_MS = 5 * 60_000;
 const SESSION_MS = 12 * 60 * 60_000;
 const TOKEN_COOKIE = 'pinkuang_journal';
+// The pre-genesis v4 deployment journal belongs to this hardware wallet alone.
+// Compare the authenticated address, not its code: EIP-7702 delegation does not
+// change wallet ownership or make the Gas wallet / administrators deployers.
+const FRESH_DEPLOYMENT_ACCOUNT = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7'.toLowerCase();
 const OFFICIAL_CACHE_MS = 5_000;
 const OFFICIAL_GRAPH_CACHE_MS = 5_000;
 const SIGNING_GRAPH_CACHE_MS = 5_000;
 const PRODUCT_GRAPH_SNAPSHOT_MS = 20_000;
+const PRODUCT_GRAPH_STALE_MS = 2 * 60_000;
+const TRANSIENT_PRODUCT_RPC_CODES = new Set([
+  'NETWORK_ERROR', 'TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
+]);
+
+function isTransientProductRpcFailure(error) {
+  if (error instanceof ApiError) return false;
+  for (let current=error, depth=0; current && depth<3; current=current.cause, depth++) {
+    if (TRANSIENT_PRODUCT_RPC_CODES.has(current.code)) return true;
+    if (current.code==='SERVER_ERROR' && [429,502,503,504].includes(Number(
+      current.status ?? current.response?.status ?? current.info?.responseStatus))) return true;
+  }
+  return false;
+}
 const OFFICIAL_SCAN_MS = 60_000;
 const OFFICIAL_RPC_TIMEOUT_MS = 9_000;
 const MAX_OFFICIAL_SCANS = 2;
@@ -750,10 +769,12 @@ export function createBoundedOfficialProvider(url, timeoutMs = OFFICIAL_RPC_TIME
 
 /** The signing RPC must not batch independent graph checks: some BSC endpoints
  * return incomplete batch responses, which otherwise reject valid intents. */
-export function createProductVerifierProvider(url) {
+export function createProductVerifierProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
   // The chain is checked explicitly in verifyProductIntent; avoid ethers'
   // separate eth_chainId bootstrap before every read against this fixed RPC.
-  return new JsonRpcProvider(url, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
+  // This signing path must also use the bounded HTTP timeout and no hidden
+  // Retry-After wait when its upstream responds with 429.
+  return createBoundedOfficialProvider(url, timeoutMs);
 }
 
 /** Reuse only a proof for the exact canonical block and configured deployment.
@@ -873,6 +894,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const officialGraphCache = new Map(), officialGraphProofs = new Map();
   const activationBlocks = new Map();
   let lastVerifiedProductGraphSnapshot = null;
+  let productGraphRefresh = null;
   let officialTokens = OFFICIAL_REQUEST_BURST, officialRefillAt = now(), activeOfficialScans = 0;
   let activeOfficialGraphProofs = 0, officialGraphTokens = OFFICIAL_GRAPH_PROOF_BURST;
   let officialGraphRefillAt = now();
@@ -1221,6 +1243,111 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return {status:202,body:{complete:false,status:'scanning',chainId:56,[field]:getAddress(target),blockNumber:String(number),blockHash:hash,retryAfterMs:2000}};
   }
 
+  // A cached graph is useful for display while its next finalized proof runs.
+  // The signing verifier is separate and never consults this snapshot.
+  async function verifyProductGraphSnapshot() {
+    const previous=lastVerifiedProductGraphSnapshot;
+    try {
+      if (BigInt(await officialProvider.send('eth_chainId',[])) !== 56n)
+        fail(503, 'Product RPC is not BSC mainnet.');
+      if (previous) await pinnedOfficialBlock(previous.body.verifiedBlockNumber,
+        previous.body.verifiedBlockHash.toLowerCase());
+      const block=await officialProvider.getBlock('finalized');
+      if (!Number.isSafeInteger(block?.number) || !HASH.test(block?.hash ?? '')
+        || !Number.isSafeInteger(block?.timestamp) || block.timestamp <= 0)
+        fail(503, 'A finalized product block is unavailable.');
+      const graph=await verifiedOfficialGraph(trustedProduct.record.addresses.factory,block,block.hash);
+      const old=trustedProduct.record;
+      const initial=old.steps.find(step=>step.id==='initialize');
+      const activation=graph.securityUpgrade
+        ? await verifiedCodeActivation(graph.securityUpgrade.operationId,block,initial.receipt.blockNumber)
+        : graph.freshAuthority
+          ? await officialProvider.getBlock(graph.freshAuthority.activationBlock)
+        : await officialProvider.getBlock(initial.receipt.blockNumber);
+      if (!Number.isSafeInteger(activation?.number) || activation.number > block.number
+        || !HASH.test(activation.hash ?? '') || !Number.isSafeInteger(activation.timestamp)
+        || activation.timestamp <= 0 || (graph.freshAuthority
+          ? activation.hash.toLowerCase() !== graph.freshAuthority.activationHash.toLowerCase()
+          : !graph.securityUpgrade
+            && activation.hash.toLowerCase() !== initial.receipt.blockHash.toLowerCase()))
+        fail(503,'Reviewed product activation block changed.');
+      const manifestNames={factory:'factory',shareMarket:'shareMarket',lens:'lens',beacon:'beacon',timelock:'timelock',
+        portfolioFactory:'portfolioFactory',portfolioMarket:'portfolioShareMarket',
+        portfolioBeacon:'portfolioBeacon',portfolioImplementation:'BudgetPortfolioVault',
+        portfolioFactoryImplementation:'BudgetPortfolioFactory'};
+      const manifestCodehash=Object.fromEntries(Object.entries(manifestNames)
+        .map(([key,name])=>[key,graph.codehash[name]]));
+      const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-active' : graph.securityUpgrade
+        ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
+          : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
+      const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
+        ...Object.fromEntries(Object.entries(manifestNames)
+          .map(([key,name])=>[key,graph.addresses[name]])),
+        ...(graph.freshAuthority ? {authority:graph.freshAuthority.address,
+          gasWallet:graph.freshAuthority.gasWallet,
+          freshAuthority:{address:graph.freshAuthority.address,
+            codehash:graph.freshAuthority.codehash,
+            deploymentTxHash:graph.freshAuthority.deploymentTxHash,
+            administratorOne:graph.freshAuthority.administratorOne,
+            administratorTwo:graph.freshAuthority.administratorTwo,
+            gasWallet:graph.freshAuthority.gasWallet}} : {}),
+        deployment:{txHash:initial.txHash,blockNumber:initial.receipt.blockNumber,
+          blockHash:initial.receipt.blockHash},artifactDigest:graph.artifactDigest,
+        sourceCommit:graph.securityUpgrade ? trustedProduct.integratedUpgrade.bundle.sourceCommit : old.sourceCommit,
+        verifiedAt:new Date(activation.timestamp*1000).toISOString(),
+        verifiedBlockNumber:activation.number,
+        codehash:manifestCodehash};
+      const body={chainId:56,status:'verified',stage,
+        artifactDigest:graph.artifactDigest,genesisArtifactDigest:trustedProduct.record.artifactDigest,
+        upgradeArtifactDigest:trustedProduct.integratedUpgrade?.digest ?? null,
+        reviewedUpgradeOperationId:trustedProduct.integratedUpgrade?.plan.operationId ?? null,
+        reviewedBootstrapOperationId:trustedProduct.integratedUpgrade?.bootstrapPlan.operationId ?? null,
+        operationId:graph.securityUpgrade?.operationId ?? null,
+        ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
+          codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
+          activationHash:graph.freshAuthority.activationHash,
+          deploymentTxHash:graph.freshAuthority.deploymentTxHash,
+          administratorOne:graph.freshAuthority.administratorOne,
+          administratorTwo:graph.freshAuthority.administratorTwo,
+          gasWallet:graph.freshAuthority.gasWallet}} : {}),
+        verifiedBlockNumber:block.number,verifiedBlockHash:block.hash,
+        stageActivationBlock:activation.number,stageActivationHash:activation.hash,
+        factory:trustedProduct.record.addresses.factory,
+        portfolioFactory:trustedProduct.record.addresses.portfolioFactory ?? null,
+        creationPaused:graph.securityUpgrade ? true : undefined,
+        // A verified fresh graph can be displayed independently of old Factories.
+        // Product signing remains closed until its separate API/relay cutover.
+        ...(stage==='fresh-active' ? {freshFactoryVerified:true} : {}),
+        operationalReady:false,
+        manifest};
+      if (closed) fail(503, 'Journal is unavailable.');
+      lastVerifiedProductGraphSnapshot={savedAt:now(),body};
+      return body;
+    } catch (error) {
+      // A transport failure is not evidence that a previously verified graph
+      // changed. Keep it for display only, without extending its original age.
+      // Unknown failures, chain mismatches and reorgs invalidate it immediately.
+      if (!previous || !isTransientProductRpcFailure(error) || now()-previous.savedAt<0
+        || now()-previous.savedAt>=PRODUCT_GRAPH_STALE_MS)
+        lastVerifiedProductGraphSnapshot=null;
+      officialGraphCache.clear();
+      if (error instanceof ApiError) throw error;
+      fail(503, 'Reviewed product graph could not be verified.');
+    }
+  }
+
+  function startProductGraphRefresh() {
+    if (productGraphRefresh) return productGraphRefresh;
+    const refresh=Promise.resolve().then(verifyProductGraphSnapshot);
+    productGraphRefresh=refresh;
+    inFlight.add(refresh);
+    refresh.finally(() => {
+      if (productGraphRefresh === refresh) productGraphRefresh=null;
+      inFlight.delete(refresh);
+    }).catch(() => {});
+    return refresh;
+  }
+
   async function respond(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -1254,84 +1381,15 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const cached=lastVerifiedProductGraphSnapshot;
         const snapshotAgeMs=cached ? now()-cached.savedAt : Infinity;
         if (snapshotAgeMs>=0 && snapshotAgeMs<PRODUCT_GRAPH_SNAPSHOT_MS)
-          return send(200,{...cached.body,snapshotAgeMs});
-        try {
-          if (BigInt(await officialProvider.send('eth_chainId',[])) !== 56n)
-            fail(503, 'Product RPC is not BSC mainnet.');
-          const block=await officialProvider.getBlock('finalized');
-          if (!Number.isSafeInteger(block?.number) || !HASH.test(block?.hash ?? '')
-            || !Number.isSafeInteger(block?.timestamp) || block.timestamp <= 0)
-            fail(503, 'A finalized product block is unavailable.');
-          const graph=await verifiedOfficialGraph(trustedProduct.record.addresses.factory,block,block.hash);
-          const old=trustedProduct.record;
-          const initial=old.steps.find(step=>step.id==='initialize');
-          const activation=graph.securityUpgrade
-            ? await verifiedCodeActivation(graph.securityUpgrade.operationId,block,initial.receipt.blockNumber)
-            : graph.freshAuthority
-              ? await officialProvider.getBlock(graph.freshAuthority.activationBlock)
-            : await officialProvider.getBlock(initial.receipt.blockNumber);
-          if (!Number.isSafeInteger(activation?.number) || activation.number > block.number
-            || !HASH.test(activation.hash ?? '') || !Number.isSafeInteger(activation.timestamp)
-            || activation.timestamp <= 0 || (graph.freshAuthority
-              ? activation.hash.toLowerCase() !== graph.freshAuthority.activationHash.toLowerCase()
-              : !graph.securityUpgrade
-                && activation.hash.toLowerCase() !== initial.receipt.blockHash.toLowerCase()))
-            fail(503,'Reviewed product activation block changed.');
-          const manifestNames={factory:'factory',shareMarket:'shareMarket',lens:'lens',beacon:'beacon',timelock:'timelock',
-            portfolioFactory:'portfolioFactory',portfolioMarket:'portfolioShareMarket',
-            portfolioBeacon:'portfolioBeacon',portfolioImplementation:'BudgetPortfolioVault',
-            portfolioFactoryImplementation:'BudgetPortfolioFactory'};
-          const manifestCodehash=Object.fromEntries(Object.entries(manifestNames)
-            .map(([key,name])=>[key,graph.codehash[name]]));
-          const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-active' : graph.securityUpgrade
-            ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
-              : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
-          const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
-            ...Object.fromEntries(Object.entries(manifestNames)
-              .map(([key,name])=>[key,graph.addresses[name]])),
-            ...(graph.freshAuthority ? {authority:graph.freshAuthority.address,
-              gasWallet:graph.freshAuthority.gasWallet,
-              freshAuthority:{address:graph.freshAuthority.address,
-                codehash:graph.freshAuthority.codehash,
-                deploymentTxHash:graph.freshAuthority.deploymentTxHash,
-                administratorOne:graph.freshAuthority.administratorOne,
-                administratorTwo:graph.freshAuthority.administratorTwo,
-                gasWallet:graph.freshAuthority.gasWallet}} : {}),
-            deployment:{txHash:initial.txHash,blockNumber:initial.receipt.blockNumber,
-              blockHash:initial.receipt.blockHash},artifactDigest:graph.artifactDigest,
-            sourceCommit:graph.securityUpgrade ? trustedProduct.integratedUpgrade.bundle.sourceCommit : old.sourceCommit,
-            verifiedAt:new Date(activation.timestamp*1000).toISOString(),
-            verifiedBlockNumber:activation.number,
-            codehash:manifestCodehash};
-          const body={chainId:56,status:'verified',stage,
-            artifactDigest:graph.artifactDigest,genesisArtifactDigest:trustedProduct.record.artifactDigest,
-            upgradeArtifactDigest:trustedProduct.integratedUpgrade?.digest ?? null,
-            reviewedUpgradeOperationId:trustedProduct.integratedUpgrade?.plan.operationId ?? null,
-            reviewedBootstrapOperationId:trustedProduct.integratedUpgrade?.bootstrapPlan.operationId ?? null,
-            operationId:graph.securityUpgrade?.operationId ?? null,
-            ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
-              codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
-              activationHash:graph.freshAuthority.activationHash,
-              deploymentTxHash:graph.freshAuthority.deploymentTxHash,
-              administratorOne:graph.freshAuthority.administratorOne,
-              administratorTwo:graph.freshAuthority.administratorTwo,
-              gasWallet:graph.freshAuthority.gasWallet}} : {}),
-            verifiedBlockNumber:block.number,verifiedBlockHash:block.hash,
-            stageActivationBlock:activation.number,stageActivationHash:activation.hash,
-            factory:trustedProduct.record.addresses.factory,
-            portfolioFactory:trustedProduct.record.addresses.portfolioFactory ?? null,
-            creationPaused:graph.securityUpgrade ? true : undefined,
-            // A verified fresh graph can be displayed independently of old Factories.
-            // Product signing remains closed until its separate API/relay cutover.
-            ...(stage==='fresh-active' ? {freshFactoryVerified:true} : {}),
-            operationalReady:false,
-            manifest};
-          lastVerifiedProductGraphSnapshot={savedAt:now(),body};
-          return send(200,{...body,snapshotAgeMs:0});
-        } catch (error) {
-          if (error instanceof ApiError) throw error;
-          fail(503, 'Reviewed product graph could not be verified.');
+          return send(200,{...cached.body,snapshotAgeMs,readMode:'current',stale:false});
+        if (cached && snapshotAgeMs>=PRODUCT_GRAPH_SNAPSHOT_MS
+          && snapshotAgeMs<PRODUCT_GRAPH_STALE_MS) {
+          startProductGraphRefresh();
+          return send(200,{...cached.body,snapshotAgeMs,readMode:'verified_snapshot',
+            stale:true,refreshing:true,transactionReady:false,operationalReady:false});
         }
+        const body=await startProductGraphRefresh();
+        return send(200,{...body,snapshotAgeMs:0,readMode:'current',stale:false});
       }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
         const response=await discoveryResponse(url,path.endsWith('/budget-candidates')?'budget':'official');
@@ -1369,6 +1427,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const expectedAccount = req.headers['x-pinkuang-account'];
       if (expectedAccount !== undefined && identity(expectedAccount) !== account)
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
+      if (freshConsolePreGenesis && method !== 'GET' && account !== FRESH_DEPLOYMENT_ACCOUNT)
+        fail(403, 'Only the designated v4 deployment wallet may modify the pre-genesis journal.');
       // The pre-genesis deployment console may record only deployment and
       // Authority progress. It must not become a second product market or
       // accept old deployment archives before the independent v4 cutover.
@@ -1379,7 +1439,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         || (path === '/api/journal/market' && method !== 'GET')
         || (path.startsWith('/api/journal/market/') && method !== 'GET')
       )) fail(409, 'Product transactions are unavailable in the pre-genesis deployment console.');
-      if (freshStage2Hold && path === '/api/journal/fresh-activation' && method === 'PUT')
+      if (freshStage2Hold && path.startsWith('/api/journal/fresh-activation') && method !== 'GET')
         fail(409, 'Stage 2 signing is held until failed-transaction recovery is verified.');
       if (path.startsWith('/api/journal/notifications/')) {
         if (!expectedAccount) fail(400, 'The selected wallet is required.');
@@ -1429,6 +1489,23 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (newSigningIntent && record.genesisArtifactDigest.toLowerCase() !== signingBuildDigest())
           fail(409, 'Deployment artifacts changed. Reload before another hardware-wallet signature.');
         return send(200, { revision: store.putFreshActivation(account, record, exactRevision(body.expectedRevision)) });
+      }
+      if (method === 'POST' && path === '/api/journal/fresh-activation/release-unused-signing') {
+        const body = await readJson(req);
+        const revision = exactRevision(body.expectedRevision);
+        const current = store.freshActivation(account);
+        const step = current.record?.steps.find(item => item.status !== 'confirmed');
+        if (current.revision !== revision || current.record?.status !== 'paused'
+          || step?.status !== 'signing' || step.id !== body.stepId
+          || !Number.isSafeInteger(body.nonce) || body.nonce < 0 || step.nonce !== body.nonce
+          || typeof body.dataHash !== 'string' || step.dataHash !== body.dataHash
+          || step.txHash || step.receipt)
+          fail(409, 'Fresh activation signing intent or revision changed; reload before recovery.');
+        const witness = await currentAccountNonce(provider, account);
+        if (witness.latest !== body.nonce || witness.pending !== body.nonce)
+          fail(409, 'Deployment wallet nonce changed or has a pending transaction; recover its hash first.');
+        return send(200, store.releaseUnusedFreshSigning(account, revision,
+          body.stepId, body.nonce, body.dataHash));
       }
       if (method === 'GET' && path === '/api/journal/deployment/nonce') {
         if (new URL(req.url, origin).search) fail(400, 'Nonce verification accepts only the authenticated wallet, with no query parameters.');

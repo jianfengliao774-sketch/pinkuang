@@ -84,6 +84,9 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
             data: { items, nextCursor: cursor + limit < directory.length ? cursor + limit : null,
               registeredPoolCount: snapshot.source.registeredPoolCount,
               childPoolCount: snapshot.source.childPoolCount,
+              reservedChildPoolCount: snapshot.source.reservedChildPoolCount,
+              reservedChildPoolAddresses: snapshot.source.reservedChildPoolAddresses,
+              reservedChildPoolAddressesComplete: snapshot.source.reservedChildPoolAddressesComplete,
               standalonePoolCount: snapshot.source.standalonePoolCount } });
         } catch { return send(400, { source: snapshotSource, error: 'Invalid snapshot query.' }); }
       }

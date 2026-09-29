@@ -177,19 +177,27 @@ export function createCommunityWorker({ store, source, sender, factory, market, 
           const pool = pools.get(job.pool); if (!pool) fail();
           verifyNotificationSource(verifiedFeed, { factory, market, now: now(), checkpoint, maxSourceAgeMs });
           if (!store.acquireLease(scope, owner, ttlMs, now())) throw new Error('Community worker lease was lost.');
+          let accepted = false;
           try {
             const renderedAt = now(), renderedState = stateOf(pool, renderedAt);
             const message = renderCommunityAnnouncement(pool, { publicBaseUrl, now: renderedAt });
+            // A crash after Telegram accepts a request can lose its receipt. Persist
+            // the in-flight state before calling Telegram so restart never resends it.
+            const reserved = store.db.prepare("UPDATE community_announcements SET status='sending',updated_at=? WHERE scope=? AND pool=? AND status='pending'")
+              .run(now(), scope, job.pool);
+            if (reserved.changes !== 1) throw new Error('Community announcement reservation failed.');
             const result = job.message_id ? await sender.editTopicCaption(destination, job.message_id, message)
               : await sender.sendTopicPhoto(destination, message);
+            accepted = true;
             const messageId = job.message_id ?? result?.message_id;
-            if (!Number.isSafeInteger(messageId) || messageId <= 0) throw Object.assign(new Error('Missing Telegram message id.'), { retryable: false });
+            if (!Number.isSafeInteger(messageId) || messageId <= 0)
+              throw Object.assign(new Error('Missing Telegram message id.'), { uncertain: true });
             store.db.prepare("UPDATE community_announcements SET status='idle',message_id=?,last_state=?,attempts=0,error_code=NULL,updated_at=? WHERE scope=? AND pool=?")
               .run(messageId, renderedState, now(), scope, job.pool);
             if (job.message_id) edited++; else sent++;
           } catch (error) {
             const rateLimited = error?.code === 429 || error?.code === 'rate_limited';
-            if (error?.uncertain) {
+            if (accepted || error?.uncertain) {
               // Telegram may already have published or edited this message.
               // Never auto-send again without checking the exact group topic.
               store.db.prepare("UPDATE community_announcements SET status='blocked',attempts=attempts+1,error_code='telegram_outcome_unknown',updated_at=? WHERE scope=? AND pool=?")
@@ -198,7 +206,7 @@ export function createCommunityWorker({ store, source, sender, factory, market, 
             } else if (!error?.blocked && (rateLimited || error?.retryable !== false && job.attempts + 1 < 8)) {
               const supplied = Number(error?.retryAfterMs), retryAfterMs = Number.isFinite(supplied) && supplied > 0 ? supplied : 0;
               const delay = rateLimited ? Math.max(1000, retryAfterMs || 30_000) : Math.max(retryAfterMs, Math.min(3600_000, 30_000 * 2 ** job.attempts));
-              store.db.prepare('UPDATE community_announcements SET attempts=attempts+?,due_at=?,error_code=?,updated_at=? WHERE scope=? AND pool=?')
+              store.db.prepare("UPDATE community_announcements SET status='pending',attempts=attempts+?,due_at=?,error_code=?,updated_at=? WHERE scope=? AND pool=?")
                 .run(rateLimited ? 0 : 1, now() + delay, rateLimited ? 'telegram_rate_limit' : 'telegram_temporary_failure', now(), scope, job.pool);
               if (rateLimited) store.setMeta(cooldownKey, now() + delay);
               retried++;
@@ -209,10 +217,11 @@ export function createCommunityWorker({ store, source, sender, factory, market, 
           }
         }
         store.setMeta(checkpointKey, nextCheckpoint);
-        const unresolved = store.db.prepare("SELECT error_code,COUNT(*) AS count FROM community_announcements WHERE scope=? AND status='blocked' GROUP BY error_code")
+        const unresolved = store.db.prepare("SELECT status,error_code,COUNT(*) AS count FROM community_announcements WHERE scope=? AND status IN ('blocked','sending') GROUP BY status,error_code")
           .all(scope);
         const blockedPending = unresolved.reduce((sum, row) => sum + row.count, 0);
-        const manualInspectionPending = unresolved.find(row => row.error_code === 'telegram_outcome_unknown')?.count ?? 0;
+        const manualInspectionPending = unresolved.filter(row => row.status === 'sending' || row.error_code === 'telegram_outcome_unknown')
+          .reduce((sum, row) => sum + row.count, 0);
         return { status: manualInspectionPending ? 'outcome_unknown'
           : blockedPending ? 'delivery_blocked' : invalid ? 'degraded' : 'ok',
           sent, edited, retried, blocked, outcomeUnknown, blockedPending, manualInspectionPending,

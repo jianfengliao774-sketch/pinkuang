@@ -40,6 +40,10 @@ test('write-ahead nonce and hashes cannot be erased or changed on reload', () =>
   const next = structuredClone(before);
   next.steps[0].status = 'submitted'; next.steps[0].txHash = hash('c');
   assert.doesNotThrow(() => validateFreshActivationProgress(before, next));
+  const forgedRecovery = structuredClone(before);
+  forgedRecovery.steps[0].status = 'rejected';
+  forgedRecovery.steps[0].rejectionKind = 'nonce-witnessed';
+  assert.throws(() => validateFreshActivationProgress(before, forgedRecovery), /progress changed/);
   const erased = structuredClone(next); delete erased.steps[0].txHash;
   assert.throws(() => validateFreshActivationProgress(next, erased), /progress changed/);
   const rewound = structuredClone(next); rewound.steps[0].status = 'waiting';

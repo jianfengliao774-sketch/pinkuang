@@ -31,7 +31,8 @@ function liveHandlers(c,checkWallet){
  const functions=source.slice(source.indexOf('  function cancelWalletScan()'),source.indexOf('  function showTransactionProgress('));
  assert(functions.includes('async function selectWallet'),'Review harness must use actual current component functions');
  const state={wallet:null,account:null,busy:false,error:null},refs={connectionLock:{current:null},activeModal:{current:{type:'connect-wallet'}},walletEpoch:{current:0},connectedWallet:{current:null},qrConnector:{current:c}};
- const context={...refs,busy:false,wallet:null,account:null,locale:'en',walletConnectEnabled:true,discovery:{current:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message};
+ const context={...refs,busy:false,wallet:null,account:null,locale:'en',walletConnectEnabled:true,discovery:{current:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message,
+  clearWalletDisplay:()=>{}};
  for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
  return{...new Function(...Object.keys(context),functions+'\nreturn {selectWallet,cancelWalletScan};')(...Object.values(context)),state,refs};
 }

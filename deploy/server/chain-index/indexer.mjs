@@ -35,9 +35,11 @@ const binding = new Interface([
   'function poolCount() view returns (uint256)',
   'function nextOrderId() view returns (uint256)',
   'function legacyFactory() view returns(address)', 'function OFFICIAL_FACTORY() view returns(address)',
+  'function designatedSubscriber(address) view returns(address)',
   'function portfolioCount() view returns(uint256)', 'function childCount() view returns(uint256)',
   'function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)',
 ]);
+const CHILD_COUNT_READ_CONCURRENCY = 16;
 const indexedEvents = Object.freeze({
   factory: new Set(['PoolCreated']),
   market: new Set(['OrderListed', 'OrderExpirySet', 'OrderFilled', 'BuyerFeeCharged', 'OrderCancelled', 'BnbWithdrawn']),
@@ -77,7 +79,8 @@ const normalizeBlock = block => {
 
 /** Read-only, event-sourced index. All amounts stay decimal strings; no transaction method is used. */
 export class ChainIndex {
-  constructor(provider, { dbPath, factory, market, portfolioFactory, portfolioMarket, startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500 }) {
+  constructor(provider, { dbPath, factory, market, portfolioFactory, portfolioMarket, reservationMode = 'legacy',
+    startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500 }) {
     if (!provider || typeof provider.getLogs !== 'function' || typeof provider.call !== 'function'
       || typeof provider.send !== 'function') throw new Error('Read-only provider required.');
     this.provider = provider;
@@ -86,6 +89,10 @@ export class ChainIndex {
     if (Boolean(portfolioFactory) !== Boolean(portfolioMarket)) throw new Error('Both portfolio Factory and market must be configured.');
     this.portfolioFactory = portfolioFactory ? exactAddress(portfolioFactory) : null;
     this.portfolioMarket = portfolioMarket ? exactAddress(portfolioMarket) : null;
+    if (!['legacy','required'].includes(reservationMode)) throw new Error('Invalid reservation mode.');
+    if (reservationMode === 'required' && !this.portfolioFactory)
+      throw new Error('Reservation proofs require the integrated portfolio Factory.');
+    this.reservationMode = reservationMode;
     if (this.portfolioFactory && new Set([this.factory,this.market,this.portfolioFactory,this.portfolioMarket]).size !== 4)
       throw new Error('Integrated deployment addresses must differ.');
     if (this.factory === this.market) throw new Error('Factory and market must differ.');
@@ -107,7 +114,7 @@ export class ChainIndex {
       CREATE INDEX IF NOT EXISTS logs_order ON logs(block_number, tx_index, log_index);
       CREATE INDEX IF NOT EXISTS logs_source ON logs(kind, address, block_number);
       CREATE INDEX IF NOT EXISTS logs_event ON logs(kind, name, block_number);
-      CREATE TABLE IF NOT EXISTS pools (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL, collection TEXT NOT NULL, circuit_id TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS pools (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL, collection TEXT NOT NULL, circuit_id TEXT NOT NULL, designated_subscriber TEXT);
       CREATE TABLE IF NOT EXISTS portfolios (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL,budget TEXT NOT NULL,absolute_cap TEXT NOT NULL,unit_cap TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolio_children (address TEXT PRIMARY KEY,portfolio TEXT NOT NULL,purchased_block INTEGER NOT NULL,collection TEXT NOT NULL,token_id TEXT NOT NULL,cost TEXT NOT NULL,official INTEGER NOT NULL);`);
     this.db.exec('CREATE TABLE IF NOT EXISTS verified_display_snapshot (id INTEGER PRIMARY KEY CHECK(id = 1), source TEXT NOT NULL, pools TEXT NOT NULL, stats TEXT)');
@@ -115,10 +122,24 @@ export class ChainIndex {
       this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN portfolios TEXT');
     if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'orders'))
       this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN orders TEXT');
-    const identity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
+    const priorIdentity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
+    const identity = this.portfolioFactory
+      ? JSON.stringify({ ...JSON.parse(priorIdentity), reservationMode: this.reservationMode }) : priorIdentity;
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
-    if (saved && saved.value !== identity) { this.db.close(); throw new Error('Index database belongs to a different deployment.'); }
+    if (saved && saved.value !== identity) {
+      if (saved.value === priorIdentity && this.reservationMode === 'legacy')
+        this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
+      else { this.db.close(); throw new Error('Index database belongs to a different deployment or reservation mode.'); }
+    }
+    const legacyReservationSchema = !this.db.prepare('PRAGMA table_info(pools)').all()
+      .some(column => column.name === 'designated_subscriber');
+    if (legacyReservationSchema) this.db.exec('ALTER TABLE pools ADD COLUMN designated_subscriber TEXT');
+    this.reservationMigrationPending = this.db.prepare('SELECT 1 FROM pools WHERE designated_subscriber IS NULL LIMIT 1').get() !== undefined;
+    // A prior complete snapshot may contain a reserved child as an ordinary
+    // pool. It cannot be served while legacy rows still lack their marker.
+    if (legacyReservationSchema || this.reservationMigrationPending)
+      this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
     if (!saved) {
       this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?)').run('identity', identity);
       this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?)').run('indexedThrough', String(this.startBlock - 1));
@@ -225,8 +246,9 @@ export class ChainIndex {
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),
       confirmations: this.confirmations, indexedThrough, indexedBlockHash: source?.hash ?? null,
       indexedTimestamp: source?.timestamp ?? null, observedSafeHead: this.observedSafeHead,
-      complete: this.ready && this.lastError === null && indexedThrough === this.observedSafeHead,
-      checkedAt: this.checkedAt, unknownReason: this.lastError ?? (this.ready ? null : 'index_not_caught_up'),
+      complete: !this.reservationMigrationPending && this.ready && this.lastError === null && indexedThrough === this.observedSafeHead,
+      checkedAt: this.checkedAt, unknownReason: this.reservationMigrationPending ? 'reservation_unverified'
+        : this.lastError ?? (this.ready ? null : 'index_not_caught_up'),
     };
   }
 
@@ -244,6 +266,35 @@ export class ChainIndex {
     // a second positional argument is ignored and would silently read latest.
     const result = await this.provider.call({ to, data, blockTag: blockNumber });
     return binding.decodeFunctionResult(method, result)[0];
+  }
+
+  async _backfillPoolReservations() {
+    if (!this.reservationMigrationPending) return;
+    const rows = this.db.prepare('SELECT address,created_block AS createdBlock FROM pools WHERE designated_subscriber IS NULL ORDER BY created_block,address').all();
+    const resolved = [];
+    for (const row of rows) {
+      const saved = this._header(row.createdBlock);
+      if (!saved || normalizeBlock(await this.provider.getBlock(row.createdBlock)).hash !== saved.hash)
+        throw new Error('Legacy pool creation block is not canonical.');
+      const subscriber = this.reservationMode === 'required'
+        ? getAddress(await this._call(this.factory, 'designatedSubscriber', [row.address], row.createdBlock)).toLowerCase()
+        : ZeroAddress.toLowerCase();
+      if (normalizeBlock(await this.provider.getBlock(row.createdBlock)).hash !== saved.hash)
+        throw new Error('Legacy pool creation block changed during reservation proof.');
+      resolved.push({ address: row.address, subscriber });
+    }
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const update = this.db.prepare('UPDATE pools SET designated_subscriber = ? WHERE address = ? AND designated_subscriber IS NULL');
+      for (const row of resolved) {
+        if (update.run(row.subscriber, row.address).changes !== 1)
+          throw new Error('Legacy pool reservation changed during backfill.');
+      }
+      this.db.exec('COMMIT');
+      this.reservationMigrationPending = false;
+      this.statsGeneration++;
+      this.cachedStats = null;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   async _verifyDeployment(blockNumber) {
@@ -267,6 +318,18 @@ export class ChainIndex {
       const [fc,mc,registered,factory,legacy]=values.map(v=>v.value);
       if (fc==='0x' || mc==='0x' || exactAddress(registered)!==this.portfolioMarket || exactAddress(factory)!==this.portfolioFactory
         || exactAddress(legacy)!==this.factory) throw new Error('Portfolio deployment binding mismatch.');
+      if (this.reservationMode === 'legacy') {
+        // A legacy index is valid only while the Factory truly lacks the
+        // reservation selector. An in-place implementation upgrade must stop
+        // this database until it is rebuilt in required mode.
+        const data=binding.encodeFunctionData('designatedSubscriber',[ZeroAddress]);
+        try {
+          const result=await this.provider.call({to:this.factory,data,blockTag:blockNumber});
+          if (result !== '0x') throw new Error('Factory reservation capability requires a required-mode index.');
+        } catch (error) {
+          if (error?.code !== 'CALL_EXCEPTION' || error?.data && error.data !== '0x') throw error;
+        }
+      }
     }
   }
 
@@ -280,6 +343,7 @@ export class ChainIndex {
     if (onchainPools !== BigInt(indexedPools) || nextOrderId !== BigInt(indexedOrders) + 1n) {
       throw new Error('Event history is incomplete for the configured deployment start block.');
     }
+    this._poolCounts();
     if (this.portfolioFactory) {
       if (this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children c LEFT JOIN pools p ON p.address = c.address WHERE p.address IS NULL').get().n !== 0)
         throw new Error('Event history is incomplete for budget child registration.');
@@ -288,8 +352,12 @@ export class ChainIndex {
       if (count!==BigInt(this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n)
         || orders!==BigInt(this.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind='portfolioMarket' AND name='OrderListed'").get().n)+1n)
         throw new Error('Event history is incomplete for budget projects.');
-      for (const row of this.db.prepare('SELECT address FROM portfolios').iterate()) {
-        if (await this._call(row.address,'childCount',[],blockNumber)!==BigInt(this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children WHERE portfolio=?').get(row.address).n))
+      const parents = this.db.prepare(`SELECT p.address,COUNT(c.address) AS child_count FROM portfolios p
+        LEFT JOIN portfolio_children c ON c.portfolio = p.address GROUP BY p.address ORDER BY p.address`).all();
+      for (let offset=0;offset<parents.length;offset+=CHILD_COUNT_READ_CONCURRENCY) {
+        const batch=parents.slice(offset,offset+CHILD_COUNT_READ_CONCURRENCY);
+        const reads=await Promise.allSettled(batch.map(row=>this._call(row.address,'childCount',[],blockNumber)));
+        if (reads.some((read,i)=>read.status==='rejected' || read.value!==BigInt(batch[i].child_count)))
           throw new Error('Event history is incomplete for budget child miners.');
       }
     }
@@ -409,7 +477,13 @@ export class ChainIndex {
       const pool = exactAddress(log.args.pool);
       if (!existing.includes(pool) && !created.some(entry => entry.address === pool)) {
         if (!(await this._call(this.factory, 'isPool', [pool], toBlock))) throw new Error('Factory event is not registered on-chain.');
-        created.push({ address: pool, createdBlock: log.blockNumber, collection: exactAddress(log.args.circuits), circuitId: log.args.circuitId });
+        const designatedSubscriber = this.reservationMode === 'required'
+          ? getAddress(await this._call(this.factory, 'designatedSubscriber', [pool], log.blockNumber)).toLowerCase()
+          : ZeroAddress.toLowerCase();
+        if (normalizeBlock(await this.provider.getBlock(log.blockNumber)).hash !== log.blockHash)
+          throw new Error('Pool creation block changed during reservation proof.');
+        created.push({ address: pool, createdBlock: log.blockNumber, collection: exactAddress(log.args.circuits),
+          circuitId: log.args.circuitId, designatedSubscriber });
       }
     }
     this.lastScanPhase = 'pool_logs';
@@ -463,10 +537,10 @@ export class ChainIndex {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const insertHeader = this.db.prepare('INSERT INTO headers(number,hash,parent_hash,timestamp) VALUES(?,?,?,?)');
-      const insertPool = this.db.prepare('INSERT INTO pools(address,created_block,collection,circuit_id) VALUES(?,?,?,?)');
+      const insertPool = this.db.prepare('INSERT INTO pools(address,created_block,collection,circuit_id,designated_subscriber) VALUES(?,?,?,?,?)');
       const insertLog = this.db.prepare('INSERT INTO logs(block_number,tx_index,log_index,tx_hash,address,kind,name,args) VALUES(?,?,?,?,?,?,?,?)');
       for (const header of headers) insertHeader.run(header.number, header.hash, header.parentHash, header.timestamp);
-      for (const pool of created) insertPool.run(pool.address, pool.createdBlock, pool.collection, pool.circuitId);
+      for (const pool of created) insertPool.run(pool.address, pool.createdBlock, pool.collection, pool.circuitId,pool.designatedSubscriber);
       const insertPortfolio=this.db.prepare('INSERT INTO portfolios(address,created_block,budget,absolute_cap,unit_cap) VALUES(?,?,?,?,?)');
       for (const row of newPortfolios) insertPortfolio.run(row.address,row.createdBlock,row.budgetWei,row.absoluteCapWei,row.unitCapWei);
       const insertChild=this.db.prepare('INSERT INTO portfolio_children(address,portfolio,purchased_block,collection,token_id,cost,official) VALUES(?,?,?,?,?,?,?)');
@@ -505,6 +579,8 @@ export class ChainIndex {
       await this._verifyDeployment(safeHead);
       stage = 'reconcile';
       await this._reconcile();
+      stage = 'reservation_backfill';
+      await this._backfillPoolReservations();
       const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
       if (saved && !this.snapshotTrusted) {
         const source = JSON.parse(saved.source);
@@ -553,14 +629,16 @@ export class ChainIndex {
   _captureVerifiedSnapshot() {
     const source = this.status();
     if (!source.complete) throw new Error('Only a fully verified source can be saved.');
-    const pools = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT 501').all();
+    const counts = this._poolCounts();
+    const pools = this.db.prepare(`SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools
+      WHERE designated_subscriber = ? AND address NOT IN (SELECT address FROM portfolio_children)
+      ORDER BY created_block,address LIMIT 501`).all(ZeroAddress.toLowerCase());
+    const reserved = this._reservedChildPoolAddresses(counts.reservedChildPoolCount);
     const portfolios = this.db.prepare('SELECT address,created_block AS createdBlock,budget AS budgetWei,absolute_cap AS absoluteCapWei,unit_cap AS unitCapWei FROM portfolios ORDER BY created_block,address LIMIT 501').all()
       .map(row => ({ ...row, kind: 'portfolio', factory: this.portfolioFactory }));
     if (pools.length > 500 || portfolios.length > 500) return;
-    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
-    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
     const portfolioCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
-    if (pools.length !== registeredPoolCount - childPoolCount) throw new Error('Verified pool directory is incomplete.');
+    if (pools.length !== counts.standalonePoolCount) throw new Error('Verified pool directory is incomplete.');
     if (portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
     const orderCount = this.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'market' AND name = 'OrderListed'").get().n;
     let orders = null;
@@ -572,8 +650,10 @@ export class ChainIndex {
     // Stats are aggregated, not a serialized copy of log history. A large
     // history must not silently disable the verified /v1/stats fallback.
     const stats = this.stats();
-    const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
-      childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length), portfolioCount: String(portfolioCount) };
+    const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(counts.registeredPoolCount),
+      childPoolCount: String(counts.childPoolCount), reservedChildPoolCount: String(counts.reservedChildPoolCount),
+      reservedChildPoolAddresses: reserved.addresses, reservedChildPoolAddressesComplete: reserved.complete,
+      standalonePoolCount: String(counts.standalonePoolCount), portfolioCount: String(portfolioCount) };
     this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
       .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null,
         JSON.stringify(portfolios), orders ? JSON.stringify(orders) : null);
@@ -586,6 +666,10 @@ export class ChainIndex {
     if (!saved) return null;
     const source = JSON.parse(saved.source);
     if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
+    if (!Array.isArray(source.reservedChildPoolAddresses)
+      || typeof source.reservedChildPoolAddressesComplete !== 'boolean'
+      || source.reservedChildPoolAddresses.length !== Math.min(Number(source.reservedChildPoolCount), 500)
+      || source.reservedChildPoolAddressesComplete !== (Number(source.reservedChildPoolCount) <= 500)) return null;
     return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
       portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null,
       orders: saved.orders ? JSON.parse(saved.orders) : null };
@@ -614,17 +698,48 @@ export class ChainIndex {
     return pool;
   }
 
+  _poolCounts() {
+    if (this.reservationMigrationPending) throw new Error('Pool reservations have not been verified.');
+    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
+    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    const reservedChildPoolCount = this.db.prepare(`SELECT COUNT(*) AS n FROM pools p
+      WHERE p.designated_subscriber != ? AND p.address NOT IN (SELECT address FROM portfolio_children)`)
+      .get(ZeroAddress.toLowerCase()).n;
+    const standalonePoolCount = this.db.prepare(`SELECT COUNT(*) AS n FROM pools p
+      WHERE p.designated_subscriber = ? AND p.address NOT IN (SELECT address FROM portfolio_children)`)
+      .get(ZeroAddress.toLowerCase()).n;
+    if (registeredPoolCount !== standalonePoolCount + childPoolCount + reservedChildPoolCount)
+      throw new Error('Pool reservation classification is incomplete.');
+    return { registeredPoolCount, childPoolCount, reservedChildPoolCount, standalonePoolCount };
+  }
+
+  _reservedChildPoolAddresses(expectedCount) {
+    const rows = this.db.prepare(`SELECT p.address FROM pools p WHERE p.designated_subscriber != ?
+      AND p.address NOT IN (SELECT address FROM portfolio_children)
+      ORDER BY p.created_block,p.address LIMIT 501`).all(ZeroAddress.toLowerCase());
+    if (rows.length !== Math.min(expectedCount, 501))
+      throw new Error('Reserved child pool directory count is inconsistent.');
+    // Keep ordinary pages bounded even if the Factory eventually has more
+    // than 500 unpurchased children. The count remains exact, and consumers
+    // can reject an incomplete directory without disabling the whole index.
+    return { addresses: rows.slice(0, 500).map(row => row.address), complete: expectedCount <= 500 };
+  }
+
   notifications(options = {}) { return notificationPage(this, interfaces.pool, options); }
 
   pools({ cursor = 0, limit = 20 } = {}) {
     integer(cursor, 'cursor'); integer(limit, 'limit', 1);
     if (limit > 50) throw new Error('Page limit exceeds 50.');
-    const rows = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT ? OFFSET ?').all(limit + 1, cursor);
-    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
-    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    const counts = this._poolCounts();
+    const reserved = this._reservedChildPoolAddresses(counts.reservedChildPoolCount);
+    const rows = this.db.prepare(`SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools
+      WHERE designated_subscriber = ? AND address NOT IN (SELECT address FROM portfolio_children)
+      ORDER BY created_block,address LIMIT ? OFFSET ?`).all(ZeroAddress.toLowerCase(),limit + 1, cursor);
     return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? cursor + limit : null,
-      registeredPoolCount: String(registeredPoolCount), childPoolCount: String(childPoolCount),
-      standalonePoolCount: String(registeredPoolCount - childPoolCount) };
+      registeredPoolCount: String(counts.registeredPoolCount), childPoolCount: String(counts.childPoolCount),
+      reservedChildPoolCount: String(counts.reservedChildPoolCount),
+      reservedChildPoolAddresses: reserved.addresses, reservedChildPoolAddressesComplete: reserved.complete,
+      standalonePoolCount: String(counts.standalonePoolCount) };
   }
 
   portfolios({cursor=0,limit=20,account}={}) {
@@ -655,9 +770,10 @@ export class ChainIndex {
   /** Historical totals only. No estimated production or current pool state is inferred from events. */
   stats() {
     const status = this.status();
+    const counts = this._poolCounts();
     const cacheKey = this.statsGeneration;
     if (this.cachedStats?.key === cacheKey) return this.cachedStats.value;
-    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS count FROM pools').get().count;
+    const reserved = this._reservedChildPoolAddresses(counts.reservedChildPoolCount);
     const system = new Set([ZeroAddress.toLowerCase(), this.factory, this.market,this.portfolioFactory,this.portfolioMarket]);
     for (const row of this.db.prepare('SELECT address FROM pools').iterate()) system.add(row.address);
     for (const row of this.db.prepare('SELECT address FROM portfolios').iterate()) system.add(row.address);
@@ -677,10 +793,11 @@ export class ChainIndex {
       else if (row.name === 'Harvested') harvestedNet += BigInt(a.toMembers);
     }
     const portfolioCount=this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
-    const childPoolCount=this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
-    const value = { scope: 'confirmed_indexed_history', registeredPoolCount: String(registeredPoolCount),
-      standalonePoolCount:String(registeredPoolCount-childPoolCount),portfolioCount:String(portfolioCount),childPoolCount:String(childPoolCount),
-      topLevelProjectCount:String(registeredPoolCount-childPoolCount+portfolioCount),
+    const value = { scope: 'confirmed_indexed_history', registeredPoolCount: String(counts.registeredPoolCount),
+      standalonePoolCount:String(counts.standalonePoolCount),portfolioCount:String(portfolioCount),
+      childPoolCount:String(counts.childPoolCount),reservedChildPoolCount:String(counts.reservedChildPoolCount),
+      reservedChildPoolAddresses: reserved.addresses, reservedChildPoolAddressesComplete: reserved.complete,
+      topLevelProjectCount:String(counts.standalonePoolCount+portfolioCount),
       everParticipantAddressCount: String(participants.size), purchasedCostWei: purchasedCost.toString(),
       shareMarketFilledGrossWei: marketGross.toString(), harvestedToMembersBemAtomic: harvestedNet.toString(),
       estimatedDailyBemAtomic: null, currentlyActivePoolCount: null };

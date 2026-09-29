@@ -1,4 +1,5 @@
-import { openSync, closeSync, existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, fsyncSync, statSync, chmodSync } from 'node:fs';
+import { openSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync, renameSync, mkdirSync, fsyncSync, statSync, fstatSync, ftruncateSync, chmodSync, constants } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -422,12 +423,51 @@ export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT
   mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
   const identity = keccak256(new TextEncoder().encode(resolve(resourcePath))).slice(2);
   const lock = resolve(root, `${identity}.lock`);
-  let fd;
-  try { fd = openSync(lock, 'wx', 0o600); }
-  catch (error) { if (error.code === 'EEXIST') throw new Error(`Keeper lock already exists: ${lock}. Check its PID before manually removing a stale lock.`); throw error; }
-  writeFileSync(fd, `${serial({ pid: process.pid, resource: resolve(resourcePath), createdAt: new Date().toISOString() })}\n`); closeSync(fd);
+  // Never unlink a lock file: unlinking after a crash can race another signer
+  // that opened the same inode. flock releases automatically when this process
+  // exits, while a stable inode keeps all contenders on the same lock.
+  let fd, created = false;
+  try {
+    fd = openSync(lock, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+    created = true;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    fd = openSync(lock, constants.O_RDWR | constants.O_NOFOLLOW);
+  }
+  try {
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid()) {
+      throw new Error('Keeper lock file must be a private regular file owned by this process.');
+    }
+    // The child receives a duplicate of fd 3, so flock remains held by Node's
+    // copy of the *same open file description* after the short helper exits.
+    // Production Linux requires util-linux flock; a missing binary fails
+    // closed. macOS development/tests use its native fcntl.flock via Python.
+    const result = process.platform === 'darwin'
+      ? spawnSync('python3', ['-c', 'import fcntl,sys\ntry: fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError: sys.exit(75)'],
+        { stdio: ['ignore', 'ignore', 'ignore', fd] })
+      : spawnSync('/usr/bin/flock', ['-n', '-E', '75', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
+    if (result.status === 75) throw new Error(`Keeper lock already exists: ${lock}. Another process holds it.`);
+    if (result.error || result.status !== 0) throw new Error('OS file-lock helper failed; signing remains disabled.');
+    if (!created) {
+      // A rolling upgrade may encounter an O_EXCL file from the older keeper,
+      // whose live process does not own an OS flock. Do not sign alongside it.
+      let previous;
+      try { previous = JSON.parse(readFileSync(fd, 'utf8')); }
+      catch { throw new Error('Existing keeper lock has no readable owner. Reconcile it manually before signing.'); }
+      if (previous.lockProtocol !== 'flock-v1') {
+        if (!Number.isSafeInteger(previous.pid) || previous.pid <= 0) throw new Error('Legacy keeper lock has no valid PID. Reconcile it manually before signing.');
+        try { process.kill(previous.pid, 0); throw new Error('Legacy keeper lock owner may still be running; stop and reconcile it before signing.'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+    }
+    ftruncateSync(fd, 0);
+    writeSync(fd, `${serial({ lockProtocol: 'flock-v1', pid: process.pid, resource: resolve(resourcePath), createdAt: new Date().toISOString() })}\n`, 0, 'utf8');
+    // This metadata is diagnostic only; the kernel lock, not these bytes,
+    // decides ownership. Avoid an unnecessary disk fsync on every pool scan.
+  } catch (error) { closeSync(fd); throw error; }
   let released = false;
-  return () => { if (!released) { released = true; unlinkSync(lock); } };
+  return () => { if (!released) { released = true; closeSync(fd); } };
 }
 
 /** The persistent wallet pointer also blocks a different pool after --once exits or a process crashes. */

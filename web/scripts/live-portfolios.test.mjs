@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ZeroAddress } from 'ethers';
+import { ZeroAddress, ZeroHash } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { validateManifest } from '../lib/live-config.mjs';
 import { portfolioBnbEntitlement,readPortfolioContext,readPortfolio,readPortfolioPage,readPortfolioOrders,preparePortfolioAction } from '../lib/live-portfolios.mjs';
 import { portfolioFixture,PORTFOLIOS,address } from './portfolio-fixture.mjs';
+
+const saleProposal=(changes={})=>({child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+  endsAt:2_000_000_000n,memberCount:2n,yesMembers:2n,yesShares:51n,executed:false,...changes});
 
 test('budget manifest requires the complete reviewed graph and rejects partial legacy additions',()=>{
   const f=portfolioFixture();assert.equal(validateManifest(f.manifest).kind,'integrated-v2');
@@ -56,6 +59,100 @@ test('genesis budget sale execution requires its cost-based threshold before wal
   f.state.proposal.yesShares=60n;
   const prepared=await preparePortfolioAction(input);
   assert.equal(abi.BudgetPortfolioVault.parseTransaction(prepared.transaction).name,'executeChildSale');
+  assert(!f.calls.some(({method,params})=>method==='eth_call'&&
+    [abi.BudgetPortfolioVault.getFunction('childSaleReview').selector,abi.ShareMarket.getFunction('saleReference').selector]
+      .includes(params[0].data.slice(0,10))),'genesis must retain its purchase-cost rule');
+});
+test('v4 budget child sale needs a fresh child reference and an approved review below that price',async()=>{
+  const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:2n,
+    proposal:saleProposal(),referencePrice:150n});
+  const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'1'}};
+  const row=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(row.proposal.passed,true);
+  assert.equal(row.proposal.saleReference.priceWei,150n);
+  assert.equal(row.proposal.saleReview.status,0n);
+  assert.equal(row.proposal.discounted,true);
+  assert.equal(row.proposal.reviewApproved,false);
+  assert.equal(row.proposal.canExecute,false);
+  assert(f.calls.some(({method,params})=>method==='eth_call'&&
+    params[0].data&&params[0].to===f.manifest.shareMarket&&params[1]==='0x64'&&
+    abi.ShareMarket.parseTransaction({data:params[0].data})?.name==='saleReference'&&
+    abi.ShareMarket.parseTransaction({data:params[0].data}).args[0]===saleProposal().child));
+  assert(f.calls.some(({method,params})=>method==='eth_call'&&
+    params[0].data&&params[0].to===PORTFOLIOS[0]&&params[1]==='0x64'&&
+    abi.BudgetPortfolioVault.parseTransaction({data:params[0].data})?.name==='childSaleReview'));
+  await assert.rejects(preparePortfolioAction(input),/尚待平台审核/);
+  f.state.reviewStatus=1n;
+  const approved=await preparePortfolioAction(input);
+  assert.equal(approved.row.proposal.reviewApproved,true);
+  assert.equal(approved.row.proposal.canExecute,true);
+  assert.equal(abi.BudgetPortfolioVault.parseTransaction(approved.transaction).name,'executeChildSale');
+  f.state.reviewStatus=2n;
+  await assert.rejects(preparePortfolioAction(input),/已驳回/);
+  assert(!f.calls.some(({method,params})=>method==='eth_call'&&params?.[0]?.from===f.account),
+    'the review gate uses pinned reads without reintroducing transaction simulation');
+});
+test('v4 budget child sale fails closed when reference or review cannot be trusted',async()=>{
+  const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:2n,
+    proposal:saleProposal(),referencePrice:150n,reviewStatus:1n});
+  const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'1'}};
+  const validAt=BigInt(f.source().indexedTimestamp)-100n;
+  for(const change of [
+    {referenceAt:validAt-901n,referencePrice:150n,referenceDigest:`0x${'11'.repeat(32)}`,referenceReadError:false},
+    {referenceAt:validAt+101n,referencePrice:150n,referenceDigest:`0x${'11'.repeat(32)}`,referenceReadError:false},
+    {referenceAt:validAt,referencePrice:0n,referenceDigest:`0x${'11'.repeat(32)}`,referenceReadError:false},
+    {referenceAt:validAt,referencePrice:150n,referenceDigest:ZeroHash,referenceReadError:false},
+    {referenceAt:validAt,referencePrice:150n,referenceDigest:`0x${'11'.repeat(32)}`,referenceReadError:true},
+  ]){
+    Object.assign(f.state,change);
+    const row=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+    assert.equal(row.proposal.canExecute,false);
+    assert.equal(row.proposal.discounted,null);
+    await assert.rejects(preparePortfolioAction(input),/参考价/);
+  }
+  Object.assign(f.state,{referenceReadError:false,referenceAt:validAt,reviewReadError:true});
+  const unknown=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(unknown.proposal.saleReview.available,false);
+  await assert.rejects(preparePortfolioAction(input),/审核状态/);
+  Object.assign(f.state,{reviewReadError:false,reviewStatus:3n});
+  await assert.rejects(preparePortfolioAction(input),/审核状态/);
+});
+test('v4 non-discount child sale needs a readable review and a rejected proposal stays blocked',async()=>{
+  const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:2n,
+    proposal:saleProposal(),referencePrice:90n,reviewStatus:0n});
+  const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'1'}};
+  const prepared=await preparePortfolioAction(input);
+  assert.equal(prepared.row.proposal.discounted,false);
+  assert.equal(prepared.row.proposal.reviewRequired,false);
+  assert.equal(prepared.row.proposal.reviewApproved,false);
+  assert.equal(prepared.row.proposal.canExecute,true);
+  f.state.reviewStatus=2n;
+  await assert.rejects(preparePortfolioAction(input),/已驳回/);
+  f.state.reviewReadError=true;
+  await assert.rejects(preparePortfolioAction(input),/审核状态/);
+});
+test('v4 reviews and references remain bound to each child sale candidate',async()=>{
+  const first=saleProposal({child:address(0x951)}),second=saleProposal({child:address(0x952)});
+  const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:3n,
+    proposals:[first,second],references:{
+      [first.child.toLowerCase()]:{price:150n},[second.child.toLowerCase()]:{price:90n}},
+    reviewStatuses:{1:1n,2:2n}});
+  const context=await readPortfolioContext(f.config,f.provider);
+  const row=await readPortfolio(context,PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.deepEqual(row.proposals.map(item=>item.id),[1n,2n]);
+  assert.deepEqual(row.proposals.map(item=>item.saleReference.priceWei),[150n,90n]);
+  assert.deepEqual(row.proposals.map(item=>item.saleReview.status),[1n,2n]);
+  assert.deepEqual(row.proposals.map(item=>item.canExecute),[true,false]);
+  await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'2'}}),/已驳回/);
+  await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'3'}}),/提案已改变/);
+  f.state.activeProposalId=0n;f.state.nextProposalId=1n;
+  await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'1'}}),/提案已改变/);
 });
 test('automatic portfolio fallback remains an explicitly stale display snapshot',async()=>{
   const f=portfolioFixture();

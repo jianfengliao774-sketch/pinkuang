@@ -1,38 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 import {Interface,ZeroAddress} from 'ethers';
 import {ChainIndex,chainIndexInterfaces as interfaces} from './indexer.mjs';
+import {createChainIndexServer} from './api.mjs';
 const addr=n=>`0x${n.toString(16).padStart(40,'0')}`,hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
-const factory=addr(1),market=addr(2),portfolioFactory=addr(3),portfolioMarket=addr(4),portfolio=addr(5),pool=addr(6),collection=addr(7),alice=addr(8),bob=addr(9);
+const factory=addr(1),market=addr(2),portfolioFactory=addr(3),portfolioMarket=addr(4),portfolio=addr(5),pool=addr(6),collection=addr(7),alice=addr(8),bob=addr(9),ordinary=addr(10);
 const abi=new Interface(['function shareMarket() view returns(address)','function factory() view returns(address)',
   'function legacyFactory() view returns(address)','function OFFICIAL_FACTORY() view returns(address)','function isPool(address) view returns(bool)',
+  'function designatedSubscriber(address) view returns(address)',
   'function poolCount() view returns(uint256)','function portfolioCount() view returns(uint256)','function childCount() view returns(uint256)',
   'function nextOrderId() view returns(uint256)','function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)']);
-function fixture() {
-  const events=[];let reorg=false;const state={wrongBinding:false,missingChild:false,incomplete:false};
+function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMode='required',dbPath=':memory:'}={}) {
+  const events=[];let reorg=false;const state={wrongBinding:false,missingChild:false,incomplete:false,upgraded:false};
+  const reservedPools=new Set(reservationMode==='required'?[pool,...Array.from({length:extraReserved},(_,i)=>addr(11+i))]:[]);
   const block=n=>({number:n,hash:hash(n+(reorg&&n>=5?1000:0)),parentHash:hash(n-1+(reorg&&n>5?1000:0)),timestamp:1800000000+n});
   function event(kind,name,args,n,to){const index=events.length;events.push({...interfaces[kind].encodeEventLog(interfaces[kind].getEvent(name),args),
     address:to??({factory,market,portfolioFactory,portfolioMarket,portfolio,pool})[kind],blockNumber:n,blockHash:block(n).hash,transactionHash:hash(100+index),transactionIndex:0,index});}
   event('factory','PoolCreated',[pool,collection,7,1000,1000,alice],1);
+  if(ordinaryPool)event('factory','PoolCreated',[ordinary,collection,8,1000,1000,alice],1);
+  for(let i=0;i<extraReserved;i++)event('factory','PoolCreated',[addr(11+i),collection,9+i,1000,1000,alice],1);
   event('portfolioFactory','PortfolioCreated',[portfolio,1000,800,100],1);
   event('portfolio','Deposited',[alice,100,1000],2);
   event('portfolio','Transfer',[ZeroAddress,alice,100],2);
-  event('pool','Deposited',[portfolio,100,1000,1000],5);
-  event('pool','Transfer',[ZeroAddress,portfolio,100],5);
-  event('pool','Purchased',[500,0,1],5);
-  event('portfolio','ChildPurchased',[pool,collection,7,500,true],5);
+  if(purchase){
+    event('pool','Deposited',[portfolio,100,1000,1000],5);
+    event('pool','Transfer',[ZeroAddress,portfolio,100],5);
+    event('pool','Purchased',[500,0,1],5);
+    event('portfolio','ChildPurchased',[pool,collection,7,500,true],5);
+  }
   event('portfolio','Transfer',[alice,bob,100],6);
   const provider={send:async()=> '0x38',getCode:async()=> '0x6000',getBlock:async n=>block(n==='latest'?8:Number(n)),
     getLogs:async({address,fromBlock,toBlock,topics})=>events.filter(e=>e.blockNumber>=fromBlock&&e.blockNumber<=toBlock&&(!reorg||e.blockNumber<5)
       &&[address].flat().includes(e.address)&&topics[0].includes(e.topics[0])&&!(state.missingChild&&e.address===portfolio&&e.blockNumber===5)),
     call:async({to,data,blockTag})=>{assert(Number.isSafeInteger(blockTag));const call=abi.parseTransaction({data});
       if(call.name==='childInfo')return abi.encodeFunctionResult(call.name,[collection,7,500,true,false]);
+      if(call.name==='designatedSubscriber'){
+        if(reservationMode==='legacy'&&!state.upgraded)
+          throw Object.assign(new Error('unknown selector'),{code:'CALL_EXCEPTION',data:'0x'});
+        if(reservationMode==='required')assert.equal(blockTag,1,'the reservation is verified at its creation block');
+        return abi.encodeFunctionResult(call.name,[reservedPools.has(call.args[0].toLowerCase())?portfolio:ZeroAddress]);
+      }
       const values={shareMarket:to===factory?market:portfolioMarket,factory:to===market?factory:portfolioFactory,
-        legacyFactory:state.wrongBinding?addr(99):factory,OFFICIAL_FACTORY:portfolioFactory,isPool:true,poolCount:1n,portfolioCount:1n,
-        childCount:state.incomplete?2n:reorg?0n:1n,nextOrderId:1n};
+        legacyFactory:state.wrongBinding?addr(99):factory,OFFICIAL_FACTORY:portfolioFactory,isPool:true,
+        poolCount:BigInt(1+Number(ordinaryPool)+extraReserved),portfolioCount:1n,
+        childCount:state.incomplete?2n:reorg||!purchase?0n:1n,nextOrderId:1n};
       return abi.encodeFunctionResult(call.name,[values[call.name]]);}};
-  const index=new ChainIndex(provider,{dbPath:':memory:',factory,market,portfolioFactory,portfolioMarket,startBlock:1,confirmations:2});
-  return {index,state,reorg(){reorg=true;}};
+  const index=new ChainIndex(provider,{dbPath,factory,market,portfolioFactory,portfolioMarket,
+    reservationMode,startBlock:1,confirmations:2});
+  return {index,state,provider,reorg(){reorg=true;}};
 }
 test('budget discovery counts parent once, preserves former-member rights and rolls child wrapping back on reorg',async()=>{
   const f=fixture();try {
@@ -43,14 +62,198 @@ test('budget discovery counts parent once, preserves former-member rights and ro
     assert.equal(f.index.portfolioChildren(portfolio).items[0].costWei,'500');
     assert.equal(f.index.stats().topLevelProjectCount,'1');assert.equal(f.index.stats().everParticipantAddressCount,'2');
     assert.equal(f.index.stats().purchasedCostWei,'500','wrapper event is not a second purchase');
-    f.reorg();await f.index.sync();assert.equal(f.index.pools().items.length,1);assert.equal(f.index.portfolioChildren(portfolio).items.length,0);
-    assert.equal(f.index.stats().topLevelProjectCount,'2');assert.equal(f.index.stats().purchasedCostWei,'0');
+    f.reorg();await f.index.sync();assert.equal(f.index.pools().items.length,0);assert.equal(f.index.portfolioChildren(portfolio).items.length,0);
+    assert.equal(f.index.stats().topLevelProjectCount,'1');assert.equal(f.index.stats().reservedChildPoolCount,'1');
+    assert.equal(f.index.stats().purchasedCostWei,'0');
   }finally{f.index.close();}
+});
+test('a designated child awaiting purchase is absent from ordinary pools but an ordinary pool remains visible',async()=>{
+  const f=fixture({purchase:false,ordinaryPool:true});let server;try{
+    await f.index.sync();
+    const page=f.index.pools();
+    assert.deepEqual(page.items.map(row=>row.address),[ordinary]);
+    assert.equal(page.registeredPoolCount,'2');
+    assert.equal(page.childPoolCount,'0','childPoolCount still counts only purchased children');
+    assert.equal(page.reservedChildPoolCount,'1');
+    assert.deepEqual(page.reservedChildPoolAddresses,[pool]);
+    assert.equal(page.reservedChildPoolAddressesComplete,true);
+    assert.equal(page.standalonePoolCount,'1');
+    assert.deepEqual(f.index.portfolioChildren(portfolio).items,[]);
+    const stats=f.index.stats();
+    assert.equal(stats.topLevelProjectCount,'2');
+    assert.equal(stats.childPoolCount,'0');
+    assert.equal(stats.reservedChildPoolCount,'1');
+    assert.deepEqual(stats.reservedChildPoolAddresses,[pool]);
+    assert.equal(stats.reservedChildPoolAddressesComplete,true);
+    const snapshot=f.index.verifiedDisplaySnapshot();
+    assert.deepEqual(snapshot.pools.map(row=>row.address),[ordinary]);
+    assert.deepEqual(snapshot.source.reservedChildPoolAddresses,[pool]);
+    assert.equal(snapshot.source.reservedChildPoolAddressesComplete,true);
+    assert.equal(snapshot.stats.reservedChildPoolCount,'1');
+    server=createChainIndexServer(f.index);
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`;
+    for(const path of ['/v1/pools','/v1/snapshot/pools']){
+      const response=await fetch(`${base}${path}`);
+      assert.equal(response.status,200);
+      const body=await response.json();
+      assert.deepEqual(body.data.reservedChildPoolAddresses,[pool]);
+      assert.equal(body.data.reservedChildPoolAddressesComplete,true);
+      assert.equal(body.data.childPoolCount,'0');
+      assert.equal(body.data.reservedChildPoolCount,'1');
+      assert.deepEqual(body.data.items.map(row=>row.address),[ordinary]);
+    }
+    for(const path of ['/v1/stats','/v1/snapshot/stats']){
+      const response=await fetch(`${base}${path}`);
+      assert.equal(response.status,200);
+      const body=await response.json();
+      assert.deepEqual(body.data.reservedChildPoolAddresses,[pool]);
+      assert.equal(body.data.reservedChildPoolAddressesComplete,true);
+      assert.equal(body.data.reservedChildPoolCount,'1');
+    }
+  }finally{
+    if(server)await new Promise(resolve=>server.close(resolve));
+    f.index.close();
+  }
+});
+test('more than 500 reserved children keep the index healthy and mark the address directory incomplete',async()=>{
+  const f=fixture({purchase:false,ordinaryPool:true,extraReserved:500});let server;
+  try{
+    await f.index.sync();
+    assert.equal(f.index.status().complete,true);
+    const pools=f.index.pools(),stats=f.index.stats(),snapshot=f.index.verifiedDisplaySnapshot();
+    assert.deepEqual(pools.items.map(row=>row.address),[ordinary]);
+    assert.equal(pools.registeredPoolCount,'502');
+    assert.equal(pools.standalonePoolCount,'1');
+    assert.equal(pools.childPoolCount,'0');
+    assert.equal(pools.reservedChildPoolCount,'501');
+    assert.equal(pools.reservedChildPoolAddresses.length,500);
+    assert.equal(pools.reservedChildPoolAddressesComplete,false);
+    assert.equal(stats.reservedChildPoolCount,'501');
+    assert.equal(stats.reservedChildPoolAddressesComplete,false);
+    assert.equal(snapshot.source.reservedChildPoolAddressesComplete,false);
+    server=createChainIndexServer(f.index);
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/v1/snapshot/pools`);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.source.complete,true);
+    assert.equal(body.data.reservedChildPoolCount,'501');
+    assert.equal(body.data.reservedChildPoolAddressesComplete,false);
+    assert.equal(body.data.reservedChildPoolAddresses.length,500);
+  }finally{
+    if(server)await new Promise(resolve=>server.close(resolve));
+    f.index.close();
+  }
+});
+test('legacy pool reservation migration discards old snapshots and stays closed until every row is verified',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'pinkuang-reservation-migration-'));
+  const dbPath=join(directory,'index.sqlite');
+  let first,reopened,server;
+  try{
+    first=fixture({purchase:false,ordinaryPool:true,dbPath});
+    await first.index.sync();first.index.close();first=null;
+    const oldDb=new DatabaseSync(dbPath);
+    oldDb.exec('ALTER TABLE pools DROP COLUMN designated_subscriber');
+    oldDb.close();
+    reopened=fixture({purchase:false,ordinaryPool:true,dbPath});
+    assert.equal(reopened.index.status().complete,false);
+    assert.equal(reopened.index.status().unknownReason,'reservation_unverified');
+    assert.equal(reopened.index.verifiedDisplaySnapshot(),null);
+    assert.throws(()=>reopened.index.pools(),/reservations have not been verified/);
+    assert.throws(()=>reopened.index.stats(),/reservations have not been verified/);
+    server=createChainIndexServer(reopened.index);
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`;
+    const health=await fetch(`${base}/health`);
+    assert.equal(health.status,200);
+    assert.equal((await health.json()).source.unknownReason,'reservation_unverified');
+    assert.equal((await fetch(`${base}/v1/pools`)).status,503);
+    assert.equal((await fetch(`${base}/v1/stats`)).status,503);
+    const original=reopened.provider.call;
+    reopened.provider.call=async request=>{
+      const call=abi.parseTransaction({data:request.data});
+      if(call.name==='designatedSubscriber' && call.args[0].toLowerCase()===ordinary)
+        throw new Error('historical reservation unavailable');
+      return original(request);
+    };
+    await assert.rejects(reopened.index.sync(),/historical reservation unavailable/);
+    assert.equal(reopened.index.status().complete,false);
+    assert.equal(reopened.index.verifiedDisplaySnapshot(),null);
+    assert.equal((await fetch(`${base}/v1/pools`)).status,503);
+    assert.equal(reopened.index.db.prepare('SELECT COUNT(*) AS n FROM pools WHERE designated_subscriber IS NULL').get().n,2,
+      'failed backfill cannot partially classify existing rows');
+    reopened.provider.call=original;
+    await reopened.index.sync();
+    assert.equal(reopened.index.status().complete,true);
+    assert.deepEqual(reopened.index.pools().items.map(row=>row.address),[ordinary]);
+    assert.equal(reopened.index.pools().reservedChildPoolCount,'1');
+    assert.equal(reopened.index.db.prepare('SELECT COUNT(*) AS n FROM pools WHERE designated_subscriber IS NULL').get().n,0);
+  }finally{
+    if(server)await new Promise(resolve=>server.close(resolve));
+    first?.index.close();reopened?.index.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+test('legacy mode preserves old Factory reads, migrates old DB identity, and stops on capability upgrade',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'pinkuang-legacy-reservation-'));
+  const dbPath=join(directory,'index.sqlite');
+  let first,reopened;
+  try{
+    first=fixture({purchase:false,ordinaryPool:true,reservationMode:'legacy',dbPath});
+    await first.index.sync();
+    assert.deepEqual(first.index.pools().items.map(row=>row.address),[pool,ordinary]);
+    assert.equal(first.index.pools().reservedChildPoolCount,'0');
+    first.index.close();first=null;
+    const oldDb=new DatabaseSync(dbPath);
+    const identity=JSON.parse(oldDb.prepare("SELECT value FROM metadata WHERE key='identity'").get().value);
+    delete identity.reservationMode;
+    oldDb.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
+    oldDb.exec('ALTER TABLE pools DROP COLUMN designated_subscriber');
+    oldDb.close();
+    assert.throws(()=>fixture({purchase:false,ordinaryPool:true,reservationMode:'required',dbPath}),/reservation mode/);
+    reopened=fixture({purchase:false,ordinaryPool:true,reservationMode:'legacy',dbPath});
+    assert.equal(reopened.index.status().unknownReason,'reservation_unverified');
+    await reopened.index.sync();
+    assert.equal(reopened.index.status().complete,true);
+    assert.deepEqual(reopened.index.pools().items.map(row=>row.address),[pool,ordinary]);
+    assert.equal(reopened.index.pools().reservedChildPoolCount,'0');
+    reopened.state.upgraded=true;
+    await assert.rejects(reopened.index.sync(),/requires a required-mode index/);
+    assert.equal(reopened.index.status().complete,false);
+  }finally{
+    first?.index.close();reopened?.index.close();
+    await rm(directory,{recursive:true,force:true});
+  }
 });
 test('portfolio bindings and omitted child history keep data unavailable',async()=>{
   for(const field of ['wrongBinding','missingChild','incomplete']){const f=fixture();f.state[field]=true;try {
     await assert.rejects(f.index.sync());assert.equal(f.index.status().complete,false);
   }finally{f.index.close();}}
+});
+
+test('budget child-count proofs use bounded same-block batches instead of serial reads',async()=>{
+  const f=fixture();try{
+    await f.index.sync();
+    const insert=f.index.db.prepare('INSERT INTO portfolios(address,created_block,budget,absolute_cap,unit_cap) VALUES(?,?,?,?,?)');
+    for(let i=0;i<32;i++)insert.run(addr(100+i),1,'1000','800','100');
+    const original=f.index._call.bind(f.index);
+    let active=0,peak=0,reads=0;
+    const blocks=new Set();
+    f.index._call=async(to,method,args,blockNumber)=>{
+      if(method==='portfolioCount')return 33n;
+      if(method==='childCount'&&to!==portfolio){
+        reads++;active++;peak=Math.max(peak,active);blocks.add(blockNumber);
+        await new Promise(resolve=>setTimeout(resolve,1));
+        active--;return 0n;
+      }
+      return original(to,method,args,blockNumber);
+    };
+    await f.index._verifyHistoryComplete(6);
+    assert.equal(reads,32);
+    assert.equal(peak,16);
+    assert.deepEqual([...blocks],[6]);
+  }finally{f.index.close();}
 });
 
 test('four global log reads overlap, then discovered pool and portfolio reads preserve complete history', {timeout:3000}, async()=>{

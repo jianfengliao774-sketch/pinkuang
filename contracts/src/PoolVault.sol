@@ -676,7 +676,17 @@ contract PoolVault is
 
     function totalBnbOwed() external view returns (uint256) {
         VaultStorage storage s = _vaultStorage();
-        return s.totalBnbOwed + s.surplusOutstandingWei + SaleSettlement.outstanding(_saleStorage());
+        uint256 pendingRemainder;
+        // The exact purchase tail is claimable only by the original sole
+        // holder of all 100 shares. Split pools leave it unallocated.
+        if (s.surplusRemainder != 0 && s.activeMembers.length == 1) {
+            address member = s.activeMembers[0];
+            if (balanceOf(member) == TOTAL_SHARES && !s.surplusSettled[member]) {
+                pendingRemainder = s.surplusRemainder;
+            }
+        }
+        return s.totalBnbOwed + s.surplusOutstandingWei + pendingRemainder
+            + SaleSettlement.outstanding(_saleStorage());
     }
 
     function refundsRecorded() external view returns (bool) {

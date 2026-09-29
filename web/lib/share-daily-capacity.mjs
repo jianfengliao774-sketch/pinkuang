@@ -18,6 +18,23 @@ function blockTime(header, number) {
   return millis > 0n && millis <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(millis) : null;
 }
 
+/** Display-only Firsto metadata; incomplete or conflicting weights stay unknown. */
+export function parseMinerDisplayMetadata(mining) {
+  const rawTask = exactDecimal(mining?.taskId);
+  const task = rawTask !== null && rawTask < 2n ** 32n ? rawTask : null;
+  const verified = exactDecimal(mining?.verifiedWeight);
+  const unverified = exactDecimal(mining?.unverifiedWeight);
+  const weight = exactDecimal(mining?.weight);
+  const validWeights = verified !== null && unverified !== null && weight !== null
+    && weight === verified + unverified && weight > 0n;
+  const classification = validWeights && task !== null
+    ? mining.status === 'verified' && task > 0n && verified > 0n && unverified === 0n ? 'verified'
+      : mining.status === 'unverified' && task === 0n && verified === 0n && unverified > 0n ? 'unverified' : null
+    : null;
+  return Object.freeze({ taskId: task !== null ? task.toString() : null,
+    miningClassification: classification, hashPower: classification ? weight.toString() : null });
+}
+
 /** Buyer price per one whole BEM of estimated daily output, rounded up by at most one wei. */
 export function shareDailyCapacityPriceWei(pricePerUnitWei, estimated24hAtomic) {
   const price = uint(pricePerUnitWei), daily = uint(estimated24hAtomic);
@@ -75,11 +92,10 @@ export async function readShareDailyCapacityPrice(provider, {
     if (!asset || !mining || getAddress(asset.collection) !== collection ||
         exactDecimal(asset.tokenId)?.toString() !== tokenId || getAddress(asset.owner) !== getAddress(owner) ||
         asset.category !== 'official_mining' || asset.classification !== 'official_mining' ||
-        mining.tokenSymbol !== 'BEM' || mining.tokenDecimals !== 8 || mining.status !== 'verified') {
+        mining.tokenSymbol !== 'BEM' || mining.tokenDecimals !== 8 || !['verified', 'unverified'].includes(mining.status)) {
       return unavailable('quote_identity');
     }
     const dailyAtomic = exactDecimal(mining.estimated24hAtomic);
-    if (dailyAtomic === null || dailyAtomic === 0n) return unavailable('missing_output');
     const miningSourceBlock = exactDecimal(mining.sourceBlock);
     if (miningSourceBlock === null) return unavailable('stale_quote');
     // The external request can finish after the initially pinned block. For a
@@ -113,8 +129,15 @@ export async function readShareDailyCapacityPrice(provider, {
         BigInt(await request('eth_chainId')) !== CHAIN_ID) {
       return unavailable('chain_changed');
     }
-    return Object.freeze({ available: true, pool, collection, tokenId, sourceBlock: pinnedNumber,
-      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS,
+    const metadata = parseMinerDisplayMetadata(mining);
+    const context = { pool, collection, tokenId, sourceBlock: pinnedNumber,
+      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS };
+    if (mining.status !== 'verified' || dailyAtomic === null || dailyAtomic === 0n) {
+      const missing = unavailable(mining.status !== 'verified' ? 'unverified_output' : 'missing_output');
+      return metadata.miningClassification ? Object.freeze({ ...missing, ...context, ...metadata,
+        metadataAvailable: true }) : missing;
+    }
+    return Object.freeze({ available: true, ...context, ...metadata, metadataAvailable: true,
       estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
       priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
       marketReferencePriceWei: (() => {

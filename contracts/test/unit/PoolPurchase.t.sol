@@ -614,6 +614,20 @@ contract PoolPurchaseTest is FundingTestBase {
         assertEq(address(pool).balance, 99);
     }
 
+    function test_totalBnbOwedIncludesClaimableSoleHolderRemainder() public {
+        _deposit(pool, ALICE, 100);
+        uint96 oddPrice = PRICE + 1;
+        purchase.buyFromMarket(_list(oddPrice));
+        uint256 surplus = defaultParams.targetRaise - oddPrice;
+        assertEq(purchase.surplusRemainder(), 99);
+        assertEq(pool.bnbOwed(ALICE), surplus);
+        assertEq(pool.totalBnbOwed(), surplus);
+        vm.prank(ALICE);
+        pool.withdrawBnb();
+        assertEq(pool.totalBnbOwed(), 0);
+        assertEq(purchase.surplusRemainder(), 0);
+    }
+
     function test_previousWithdrawalCreditAndForcedBnbDoNotInflateSurplus() public {
         _deposit(pool, ALICE, 1);
         vm.prank(ALICE);

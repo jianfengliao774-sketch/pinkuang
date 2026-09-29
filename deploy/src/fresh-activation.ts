@@ -49,10 +49,23 @@ const TIMELOCK_ABI = [
 ];
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const INVALID_ENVELOPE = 'Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas';
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const requireThat: (ok: unknown, message: string) => asserts ok = (ok, message) => { if (!ok) throw new Error(message); };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+function invalidEnvelopeError(error: unknown): boolean {
+  const failure = error as { message?: unknown; shortMessage?: unknown;
+    info?: { error?: { message?: unknown } }; data?: { message?: unknown } } | null;
+  return [failure?.message, failure?.shortMessage, failure?.info?.error?.message, failure?.data?.message]
+    .some(value => typeof value === 'string'
+      && /invalid transaction envelope type/i.test(value)
+      && /\btype\s*["']?0x4["']?/i.test(value)
+      && /\bgasPrice\b/.test(value) && /\bmaxFeePerGas\b/.test(value)
+      && /\bmaxPriorityFeePerGas\b/.test(value) && /instead of/i.test(value));
+}
+
+type FreshActivationStepRecord = Omit<StepRecord, 'rejectionKind'> & {
+  rejectionKind?: StepRecord['rejectionKind'] | 'nonce-witnessed';
+};
 
 export interface FreshActivationRecord {
   schemaVersion: 1;
@@ -73,7 +86,7 @@ export interface FreshActivationRecord {
   gasPriceCapGwei: string;
   spentWei: string;
   status: 'ready' | 'paused' | 'complete' | 'aborted';
-  steps: StepRecord[];
+  steps: FreshActivationStepRecord[];
   error?: string;
 }
 
@@ -365,6 +378,16 @@ export class FreshActivationEngine {
     return this.exclusive(async () => {
       const record = await this.latest(saved);
       requireThat(record.status !== 'complete' && record.status !== 'aborted', '激活已经完成或终止。');
+      // A restored server journal is not the authority for the initial role
+      // owners or the two fixed administrators. Keep read-only recovery open,
+      // but pin these values again before asking the hardware wallet to sign.
+      requireThat(this.genesis.kind === 'integrated-v2' && this.genesis.status === 'complete'
+        && same(this.genesis.input.ownerMultisig, record.account)
+        && same(this.genesis.input.operator, record.account)
+        && same(this.genesis.input.treasury, record.account)
+        && same(record.administratorOne, FRESH_ADMIN_ONE)
+        && same(record.administratorTwo, FRESH_ADMIN_TWO),
+      '恢复的部署角色或管理员地址与已确认的新部署方案不一致；停止签名。');
       const index = record.steps.findIndex(step => step.status !== 'confirmed');
       requireThat(index >= 0, '所有交易已发送；请执行最终核验。');
       const step = record.steps[index];
@@ -385,10 +408,12 @@ export class FreshActivationEngine {
         '钱包存在其他待确认交易或节点 nonce 不一致；停止签名。');
       requireThat(record.steps.filter(item => item.status === 'confirmed').every(item => item.nonce! < nonce.latest),
         '账户 nonce 落后于已确认激活交易。');
-      requireThat(fees.gasPrice && fees.gasPrice > 0n
-        && fees.gasPrice <= parseUnits(record.gasPriceCapGwei, 'gwei'), 'Gas 单价超过激活上限。');
+      const recovered = step.status === 'rejected' && step.rejectionKind === 'nonce-witnessed';
+      const gasPrice = recovered ? BigInt(step.gasPriceWei ?? '0') : fees.gasPrice;
+      requireThat(gasPrice && gasPrice > 0n
+        && gasPrice <= parseUnits(record.gasPriceCapGwei, 'gwei'), 'Gas 单价超过激活上限。');
       requireThat(block && planned.gasLimit <= block.gasLimit, '激活交易 Gas 上限超出区块限制。');
-      const feeLimit = planned.gasLimit * fees.gasPrice;
+      const feeLimit = planned.gasLimit * gasPrice;
       requireThat(BigInt(record.spentWei) + feeLimit <= parseEther(record.maxGasBudgetBnb)
         && balance >= feeLimit, '激活 Gas 预算或钱包余额不足。');
       // A wallet may wrap a request in an EIP-7702 type-4 envelope. Dynamic
@@ -396,15 +421,18 @@ export class FreshActivationEngine {
       const tx = { chainId: '0x38', from: account, ...(planned.to ? { to: planned.to } : {}),
         data: planned.data, value: '0x0', nonce: `0x${nonce.latest.toString(16)}`,
         gas: `0x${planned.gasLimit.toString(16)}`,
-        maxFeePerGas: `0x${fees.gasPrice.toString(16)}`,
-        maxPriorityFeePerGas: `0x${fees.gasPrice.toString(16)}`, type: '0x2' };
+        maxFeePerGas: `0x${gasPrice.toString(16)}`,
+        maxPriorityFeePerGas: `0x${gasPrice.toString(16)}`, type: '0x2' };
       if (step.status === 'rejected') {
         requireThat(step.nonce === nonce.latest && step.dataHash === keccak256(planned.data),
           '上次拒签后 nonce 或交易内容已变化；不能按原写前记录重新签名，必须先核对链上。');
+        if (recovered) requireThat(step.gasLimit === planned.gasLimit.toString()
+          && step.maxFeeWei === feeLimit.toString(),
+        '已恢复交易的 Gas 字段与原写前记录不一致；不能重新签名。');
       }
       Object.assign(step, { status: 'signing', nonce: nonce.latest,
         dataHash: keccak256(planned.data), gasLimit: planned.gasLimit.toString(),
-        gasPriceWei: fees.gasPrice.toString(), maxFeeWei: feeLimit.toString() });
+        gasPriceWei: gasPrice.toString(), maxFeeWei: feeLimit.toString() });
       delete step.rejectionKind;
       record.status = 'paused'; delete record.error;
       await this.save(record); // Durable write-ahead intent before hardware-wallet request.
@@ -433,10 +461,10 @@ export class FreshActivationEngine {
           || failure.code === 'ACTION_REJECTED' || failure.info?.error?.code === 4001);
         const definiteNoSend = !attemptedBroadcast && !nonceConflict;
         let invalidEnvelopeNotSent = false;
-        if (attemptedBroadcast && !step.txHash && String(error).includes(INVALID_ENVELOPE)) {
+        if (attemptedBroadcast && !step.txHash && invalidEnvelopeError(error)) {
           try {
-            // This exact validation error cannot produce a valid transaction,
-            // but two independent nonce views must still agree before retry.
+            // This envelope validation failure occurs before broadcast, but
+            // two independent nonce views must still agree before retry.
             const [independent, walletLatest, walletPending] = await Promise.all([
               this.journal.readCurrentNonce(), this.provider.getTransactionCount(account, 'latest'),
               this.provider.getTransactionCount(account, 'pending'),
@@ -459,6 +487,58 @@ export class FreshActivationEngine {
       step.txHash = hash; step.status = 'submitted';
       await this.save(record);
       return record;
+    });
+  }
+
+  /** Release only a hashless write-ahead intent whose nonce is still unused in both views. */
+  async releaseUnusedSigning(saved: FreshActivationRecord): Promise<FreshActivationRecord> {
+    return this.exclusive(async () => {
+      const record = await this.latest(saved);
+      const index = record.steps.findIndex(step => step.status !== 'confirmed');
+      const step = record.steps[index];
+      requireThat(record.status === 'paused' && step?.status === 'signing'
+        && !step.txHash && !step.receipt && Number.isSafeInteger(step.nonce),
+      '当前没有可用 nonce 核对解除的无哈希签名记录。');
+      requireThat(this.genesis.kind === 'integrated-v2' && this.genesis.status === 'complete'
+        && same(this.genesis.input.ownerMultisig, record.account)
+        && same(this.genesis.input.operator, record.account)
+        && same(this.genesis.input.treasury, record.account)
+        && same(record.administratorOne, FRESH_ADMIN_ONE)
+        && same(record.administratorTwo, FRESH_ADMIN_TWO),
+      '恢复的部署角色或管理员地址与已确认的新部署方案不一致；停止恢复。');
+      const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
+      requireThat(step.dataHash === keccak256(planned.data)
+        && step.gasLimit === planned.gasLimit.toString()
+        && step.gasPriceWei && BigInt(step.gasPriceWei) > 0n
+        && step.maxFeeWei === (planned.gasLimit * BigInt(step.gasPriceWei)).toString(),
+      '写前记录中的交易内容或 Gas 字段与当前方案不一致，不能解除。');
+      await this.verifyPinnedState(record, index);
+      const account = await this.account();
+      const [server, walletLatest, walletPending] = await Promise.all([
+        this.journal.readCurrentNonce(), this.provider.getTransactionCount(account, 'latest'),
+        this.provider.getTransactionCount(account, 'pending'),
+      ]);
+      requireThat(server.latest === step.nonce && server.pending === step.nonce
+        && walletLatest === step.nonce && walletPending === step.nonce,
+      '服务器或钱包的 nonce 已变化或存在待确认交易；先核对原交易哈希。');
+      const released = await this.journal.releaseUnusedFreshSigning(step.id, step.nonce, step.dataHash);
+      requireThat(released.deploymentId === record.deploymentId && same(released.account, account)
+        && released.steps[index]?.id === step.id
+        && released.genesis.factory === record.genesis.factory
+        && released.genesis.portfolioFactory === record.genesis.portfolioFactory
+        && released.genesis.timelock === record.genesis.timelock
+        && released.authorityAddress === record.authorityAddress
+        && released.steps[index]?.status === 'rejected'
+        && released.steps[index].rejectionKind === 'nonce-witnessed'
+        && released.steps[index].nonce === step.nonce
+        && released.steps[index].dataHash === step.dataHash
+        && released.steps[index].gasLimit === step.gasLimit
+        && released.steps[index].gasPriceWei === step.gasPriceWei
+        && released.steps[index].maxFeeWei === step.maxFeeWei
+        && !released.steps[index].txHash,
+      '服务器返回的 nonce 恢复状态与原签名记录不一致。');
+      this.onUpdate?.(clone(released));
+      return released;
     });
   }
 

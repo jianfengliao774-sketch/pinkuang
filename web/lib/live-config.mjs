@@ -109,6 +109,16 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
     && same(input.freshAuthority.activationHash, input.stageActivationHash),
   'product_graph', '新部署的工厂或管理员接线尚未完成链上核验。');
   insist(typeof input.operationalReady === 'boolean', 'product_graph', '运营接线状态未通过核验。');
+  // Older genesis responses have no read mode. A verified historical response
+  // must carry explicit display-only fields before the page may render it.
+  const readMode = input.readMode ?? 'current';
+  const stale = readMode === 'verified_snapshot';
+  insist(stale
+    ? input.stale === true && input.transactionReady === false && input.operationalReady === false
+      && typeof input.refreshing === 'boolean' && safeInteger(input.snapshotAgeMs)
+    : readMode === 'current' && (input.stale === undefined || input.stale === false)
+      && (input.transactionReady === undefined || typeof input.transactionReady === 'boolean'),
+  'product_graph', '历史产品阶段缺少仅供展示标记。');
   insist(same(input.factory, genesis.factory) && same(input.portfolioFactory, genesis.portfolioFactory),
     'product_graph', 'Factory 与旧版可信部署不一致。');
   const manifest = validateManifest(input.manifest, expectedDigest);
@@ -135,6 +145,8 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
   return Object.freeze({ stage: input.stage, manifest, artifactDigest: expectedDigest,
     operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
     verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
+    readMode, stale, ...(input.transactionReady === false ? { transactionReady: false } : {}),
+    ...(stale ? { refreshing: input.refreshing, snapshotAgeMs: input.snapshotAgeMs } : {}),
     stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase(),
     ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),freshFactoryVerified:true} : {}) });
 }
@@ -200,6 +212,9 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
   return Object.freeze({ status: 'ready', manifest: graph.manifest, stage: graph.stage,
     artifactDigest: graph.artifactDigest, operationId: graph.operationId,
     productGraphUrl, verifiedBlockHash: graph.verifiedBlockHash, operationalReady: graph.operationalReady,
+    readMode: graph.readMode, stale: graph.stale,
+    ...(graph.transactionReady === false ? { transactionReady: false } : {}),
+    ...(graph.stale ? { refreshing: graph.refreshing, snapshotAgeMs: graph.snapshotAgeMs } : {}),
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
     ...(graph.freshAuthority ? {freshAuthority:graph.freshAuthority,freshFactoryVerified:true} : {}),
     origin, basePath: base, manifestUrl,

@@ -71,13 +71,18 @@ export function validateFreshActivation(record, account, genesis, expectedGasWal
       || step.previousTxHashes !== undefined && (!Array.isArray(step.previousTxHashes)
         || step.previousTxHashes.some(hash => !HASH.test(hash))
         || new Set(step.previousTxHashes.map(hash => hash.toLowerCase())).size !== step.previousTxHashes.length)
-      || step.rejectionKind !== undefined && !['pre-send','wallet-rejected'].includes(step.rejectionKind)
+      || step.rejectionKind !== undefined && !['pre-send','wallet-rejected','nonce-witnessed'].includes(step.rejectionKind)
       || step.replacementHash !== undefined && !HASH.test(step.replacementHash)) bad();
     if (['signing','submitted','uncertain','confirmed'].includes(step.status)
       && (step.nonce === undefined || !step.dataHash || !DECIMAL.test(step.gasLimit)
         || !DECIMAL.test(step.gasPriceWei) || !DECIMAL.test(step.maxFeeWei))) bad();
     if (['submitted','confirmed'].includes(step.status) && !step.txHash) bad();
     if (step.status === 'confirmed' && (!step.receipt || step.receipt.status !== 1)) bad();
+    if (step.rejectionKind === 'nonce-witnessed' && (step.status !== 'rejected' || step.txHash || step.receipt
+      || step.nonce === undefined || !step.dataHash || !DECIMAL.test(step.gasLimit)
+      || !DECIMAL.test(step.gasPriceWei) || BigInt(step.gasPriceWei) <= 0n
+      || !DECIMAL.test(step.maxFeeWei)
+      || BigInt(step.gasLimit) * BigInt(step.gasPriceWei) !== BigInt(step.maxFeeWei))) bad();
     if (i > 0 && step.status !== 'waiting' && record.steps[i - 1].status !== 'confirmed') bad();
   }
   if (record.status === 'complete' && (record.steps.some(step => step.status !== 'confirmed') || !record.authorityAddress)) bad();
@@ -102,6 +107,9 @@ export function validateFreshActivationProgress(previous, next) {
     for (const field of ['id','nonce','dataHash','address']) {
       if (old[field] !== undefined && old[field] !== item[field]) conflict();
     }
+    if (item.rejectionKind === 'nonce-witnessed' && old.rejectionKind !== 'nonce-witnessed') conflict();
+    if (old.rejectionKind === 'nonce-witnessed'
+      && ['gasLimit','gasPriceWei','maxFeeWei'].some(field => old[field] !== item[field])) conflict();
     if (old.txHash !== undefined && old.txHash !== item.txHash
       && !(item.finalizedRecovery === true && item.status === 'confirmed'
         && item.previousTxHashes?.some(hash => hash.toLowerCase() === old.txHash.toLowerCase()))) conflict();

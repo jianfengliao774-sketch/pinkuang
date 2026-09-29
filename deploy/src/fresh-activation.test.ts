@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { AbiCoder, Interface, getAddress } from 'ethers';
+import { AbiCoder, Interface, getAddress, keccak256 } from 'ethers';
 import { activationEvidence, activationTransaction, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
   FreshActivationEngine,
   FRESH_ACTIVATION_STEPS, validatedFreshGasWallet, type FreshActivationRecord } from './fresh-activation';
@@ -93,7 +93,8 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
   let saved = record();
   saved.steps[0].nonce = 4;
   let nonce = 5, walletNonce = 5, sends = 0, artifactOutage = true;
-  let walletMode: 'reject' | 'success' | 'ambiguous' | 'invalid-format' | 'invalid-format-drift' = 'reject';
+  let walletMode: 'reject' | 'success' | 'ambiguous' | 'invalid-format' | 'invalid-format-drift'
+    | 'invalid-format-wrapped' | 'other-format' = 'reject';
   const sentTransactions: Record<string, string>[] = [];
   const wallet: Eip1193Provider = { request: async req => {
     if (req.method !== 'eth_sendTransaction') throw new Error(`Unexpected wallet method ${req.method}`);
@@ -103,6 +104,9 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
     if (walletMode === 'ambiguous') throw new Error('response lost after broadcast');
     if (walletMode === 'invalid-format-drift') walletNonce = 6;
     if (walletMode === 'invalid-format' || walletMode === 'invalid-format-drift') throw new Error('Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas');
+    if (walletMode === 'invalid-format-wrapped') throw Object.assign(new Error('wallet RPC failed'),
+      { info: { error: { message: 'Invalid transaction envelope type: specified type 0x4 but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas' } } });
+    if (walletMode === 'other-format') throw new Error('Invalid transaction envelope type: gasPrice field is malformed');
     return hash('a');
   } };
   const journal = {
@@ -112,7 +116,8 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
     assertCurrentArtifact: async () => { if (artifactOutage) throw new Error('artifact unavailable'); },
     readCurrentNonce: async () => ({ latest: nonce, pending: nonce }),
   } as unknown as ServerJournal;
-  const genesis = { id: saved.deploymentId, account: hardware } as DeploymentSnapshot;
+  const genesis = { id: saved.deploymentId, account: hardware, kind: 'integrated-v2', status: 'complete',
+    input: { ownerMultisig: hardware, operator: hardware, treasury: hardware } } as DeploymentSnapshot;
   const engine = new FreshActivationEngine(wallet, bundle, journal, genesis);
   const internals = engine as unknown as {
     exclusive: (action: () => Promise<unknown>) => Promise<unknown>;
@@ -176,4 +181,117 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
   assert.equal(saved.steps[1].status, 'uncertain');
   await assert.rejects(engine.sendNext(saved), /只可核验/);
   assert.equal(sends, 5);
+
+  walletNonce = 5;
+  saved = record(); saved.steps[0].nonce = 4;
+  walletMode = 'invalid-format-wrapped';
+  await assert.rejects(engine.sendNext(saved), /wallet RPC failed/);
+  assert.equal(saved.steps[1].status, 'rejected');
+  saved = record(); saved.steps[0].nonce = 4;
+  walletMode = 'other-format';
+  await assert.rejects(engine.sendNext(saved), /gasPrice field is malformed/);
+  assert.equal(saved.steps[1].status, 'uncertain');
+});
+
+test('hashless Stage 2 signing resumes only after both nonce witnesses; retry keeps the original intent', async () => {
+  let saved = record(); saved.genesisArtifactDigest = artifactDigest(bundle);
+  saved.steps[0].nonce = 4;
+  const planned = await activationTransaction(saved, bundle, 'coreOperator');
+  saved.steps[1] = { id: 'coreOperator', label: 'coreOperator', status: 'signing', nonce: 5,
+    dataHash: keccak256(planned.data), gasLimit: planned.gasLimit.toString(),
+    gasPriceWei: '1000000000', maxFeeWei: '150000000000000' };
+  let serverPending = 6, walletPending = 5, releases = 0;
+  const sent: Record<string, string>[] = [];
+  const wallet: Eip1193Provider = { request: async req => {
+    if (req.method !== 'eth_sendTransaction') throw new Error(`Unexpected wallet method ${req.method}`);
+    sent.push((req.params as Record<string, string>[])[0]);
+    return hash('c');
+  } };
+  const journal = {
+    loadFreshActivation: async () => structuredClone(saved),
+    saveFreshActivation: async (next: FreshActivationRecord) => { saved = structuredClone(next); },
+    freshActivationCredentialStatus: async () => ({ credentialVerified: true, gasWallet }),
+    assertCurrentArtifact: async () => {},
+    readCurrentNonce: async () => ({ latest: 5, pending: serverPending }),
+    releaseUnusedFreshSigning: async (id: string, nonce: number, dataHash: string) => {
+      releases++;
+      assert.equal(id, 'coreOperator'); assert.equal(nonce, 5);
+      assert.equal(dataHash, saved.steps[1].dataHash);
+      saved.steps[1].status = 'rejected'; saved.steps[1].rejectionKind = 'nonce-witnessed';
+      return structuredClone(saved);
+    },
+  } as unknown as ServerJournal;
+  const genesis = { id: saved.deploymentId, account: hardware, kind: 'integrated-v2', status: 'complete',
+    input: { ownerMultisig: hardware, operator: hardware, treasury: hardware } } as DeploymentSnapshot;
+  const engine = new FreshActivationEngine(wallet, bundle, journal, genesis);
+  const internals = engine as unknown as {
+    exclusive: (action: () => Promise<unknown>) => Promise<unknown>;
+    verifyPinnedState: () => Promise<unknown>; account: () => Promise<string>;
+    provider: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  };
+  internals.exclusive = action => action();
+  internals.verifyPinnedState = async () => ({ number: 100, hash: hash('b') });
+  internals.account = async () => hardware;
+  internals.provider = {
+    getTransactionCount: async (_account: unknown, tag: unknown) => tag === 'pending' ? walletPending : 5,
+    getFeeData: async () => ({ gasPrice: 2_000_000_000n }),
+    getBalance: async () => 1_000_000_000_000_000_000n,
+    getBlock: async () => ({ gasLimit: 30_000_000n }),
+  };
+  await assert.rejects(engine.releaseUnusedSigning(saved), /nonce 已变化/);
+  assert.equal(releases, 0);
+  serverPending = 5; walletPending = 6;
+  await assert.rejects(engine.releaseUnusedSigning(saved), /nonce 已变化/);
+  assert.equal(releases, 0);
+  walletPending = 5;
+  saved.steps[1].dataHash = hash('d');
+  await assert.rejects(engine.releaseUnusedSigning(saved), /交易内容或 Gas 字段/);
+  assert.equal(releases, 0);
+  saved.steps[1].dataHash = keccak256(planned.data);
+  genesis.input.operator = gasWallet;
+  await assert.rejects(engine.releaseUnusedSigning(saved), /部署角色或管理员地址/);
+  assert.equal(releases, 0);
+  genesis.input.operator = hardware;
+  const released = await engine.releaseUnusedSigning(saved);
+  assert.equal(released.steps[1].status, 'rejected');
+  assert.equal(released.steps[1].rejectionKind, 'nonce-witnessed');
+  assert.equal(sent.length, 0, 'nonce recovery does not call the wallet signer');
+  assert.equal(releases, 1);
+  const submitted = await engine.sendNext(released);
+  assert.equal(submitted.steps[1].status, 'submitted');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].from, hardware);
+  assert.equal(sent[0].to, factory);
+  assert.equal(sent[0].nonce, '0x5');
+  assert.equal(sent[0].data, planned.data);
+  assert.equal(sent[0].maxFeePerGas, '0x3b9aca00');
+  assert.equal(sent[0].maxPriorityFeePerGas, '0x3b9aca00');
+});
+
+test('restored Stage 2 roles and both administrator addresses are pinned before wallet signing', async () => {
+  const original = record();
+  original.genesisArtifactDigest = artifactDigest(bundle);
+  let saved = structuredClone(original), sends = 0;
+  const wallet: Eip1193Provider = { request: async request => {
+    if (request.method === 'eth_sendTransaction') sends++;
+    throw new Error(`Unexpected wallet method ${request.method}`);
+  } };
+  const journal = { loadFreshActivation: async () => structuredClone(saved) } as unknown as ServerJournal;
+  const genesis = { id: original.deploymentId, account: hardware, kind: 'integrated-v2', status: 'complete',
+    input: { ownerMultisig: hardware, operator: hardware, treasury: hardware } } as DeploymentSnapshot;
+  const engine = new FreshActivationEngine(wallet, bundle, journal, genesis);
+  const internals = engine as unknown as { exclusive: (action: () => Promise<unknown>) => Promise<unknown> };
+  internals.exclusive = action => action();
+  for (const role of ['operator', 'treasury'] as const) {
+    genesis.input[role] = gasWallet;
+    await assert.rejects(engine.sendNext(saved), /恢复的部署角色或管理员地址/);
+    genesis.input[role] = hardware;
+    assert.equal(sends, 0);
+  }
+  for (const administrator of ['administratorOne', 'administratorTwo'] as const) {
+    saved = structuredClone(original);
+    saved[administrator] = gasWallet;
+    await assert.rejects(engine.sendNext(saved), /恢复的部署角色或管理员地址/);
+    assert.equal(sends, 0);
+  }
 });

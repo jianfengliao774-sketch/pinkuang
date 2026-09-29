@@ -4,6 +4,10 @@ const ADDRESS = /^0x[\da-f]{40}$/i;
 const QUANTITY = /^0x(?:0|[1-9a-f][\da-f]{0,63})$/i;
 const DATA = /^0x(?:[\da-f]{2})*$/i;
 const DECIMAL = /^(?:0|[1-9]\d*)$/;
+const HASH = /^0x[\da-f]{64}$/i;
+const BSC_CHAIN_ID = '0x38';
+const MAX_HEADER_CACHE_ENTRIES = 64;
+const MAX_CACHED_HEADER_BYTES = 64 * 1024;
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const ownKeys = (value, allowed) => isRecord(value) && Object.keys(value).every(key => allowed.includes(key));
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
@@ -131,11 +135,13 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
 
 export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
-  maxQueued = 48, queueTimeoutMs = 3000, publicSourceTtlMs = 30000, pinnedRpcTtlMs = 60000, now = Date.now } = {}) {
+  maxQueued = 48, queueTimeoutMs = 3000, publicSourceTtlMs = 30000, pinnedRpcTtlMs = 60000,
+  chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
-  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, queueTimeoutMs, publicSourceTtlMs, pinnedRpcTtlMs }))
+  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, queueTimeoutMs, publicSourceTtlMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
   if (!Number.isSafeInteger(maxQueued) || maxQueued < 0) throw new Error('maxQueued must be a nonnegative integer.');
+  if (chainIdTtlMs > 5000 || headerTtlMs > 1000) throw new Error('RPC identity and header cache TTLs exceed their reviewed limits.');
   let concurrent = 0;
   const queue = [];
   const acquire = () => {
@@ -156,29 +162,122 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
     if (next) { clearTimeout(next.timer); next.resolve(); }
     else concurrent--;
   };
-  const pinnedRpc = new Map(), pendingRpc = new Map();
+  const pinnedRpc = new Map(), headerRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
+  let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
+  const clearReadCaches = () => {
+    pinnedRpc.clear(); headerRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
+  };
+  const canonicalBlockTag = tag => `0x${BigInt(tag).toString(16)}`;
   const pinnedKey = payload => ['eth_call', 'eth_getCode'].includes(payload.method) && QUANTITY.test(payload.params[1])
     ? JSON.stringify([payload.method, payload.params]) : null;
+  const headerKey = payload => payload.method === 'eth_getBlockByNumber' && QUANTITY.test(payload.params[0])
+    ? canonicalBlockTag(payload.params[0]) : null;
+  const pinnedBlockKey = payload => {
+    const tag = payload.method === 'eth_getStorageAt' ? payload.params[2]
+      : ['eth_call', 'eth_getCode'].includes(payload.method) ? payload.params[1] : null;
+    return typeof tag === 'string' && QUANTITY.test(tag) ? canonicalBlockTag(tag) : null;
+  };
+  const invalidateHeaderForPinnedRead = tag => {
+    headerRpc.delete(tag);
+    const pending = pendingRpc.get(tag);
+    if (pending) {
+      // A header started before (or during) a pinned read cannot certify the
+      // chain after that read. Do not let the next check join or cache it.
+      pending.invalidated = true;
+      pendingRpc.delete(tag);
+    }
+  };
+  const validHeader = (header, requestedTag) => isRecord(header) && QUANTITY.test(header.number)
+    && HASH.test(header.hash ?? '') && QUANTITY.test(header.timestamp)
+    && (requestedTag === null || BigInt(header.number) === BigInt(requestedTag));
+  const observeHeader = (header, sequence) => {
+    if (!validHeader(header, null)) return false;
+    const key = canonicalBlockTag(header.number), hash = header.hash.toLowerCase();
+    const prior = observedHeaders.get(key);
+    // A slower request cannot reinstate an old fork after a newer header has
+    // already exposed a different canonical hash at the same height.
+    if (prior && prior.sequence > sequence) return prior.hash === hash;
+    if (prior && prior.hash !== hash) {
+      // A same-height reorg invalidates both headers and calls pinned to the
+      // old fork. Pending old-fork calls may finish, but must not return or
+      // repopulate the cache after this newer header has been observed.
+      headerRpc.delete(key);
+      pinnedRpc.clear();
+      pendingRpc.clear();
+      forkEpoch++;
+    }
+    observedHeaders.delete(key);
+    observedHeaders.set(key, { hash, sequence });
+    if (observedHeaders.size > MAX_HEADER_CACHE_ENTRIES) observedHeaders.delete(observedHeaders.keys().next().value);
+    return true;
+  };
+  // A fixed BSC URL is still a configuration claim, not chain evidence. Verify
+  // it upstream before answering locally, then recheck at most five seconds later.
+  const ensureBscChain = async () => {
+    if (now() < verifiedChainUntil) return;
+    if (!chainProof) {
+      const proof = (async () => {
+        try {
+          const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
+          const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(request) },
+            { fetcher, timeoutMs, maxResponseBytes });
+          requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+            && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
+            && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
+          502, 'Read-only RPC is not BSC mainnet.');
+          verifiedChainUntil = now() + chainIdTtlMs;
+        } catch (error) {
+          verifiedChainUntil = 0;
+          clearReadCaches();
+          throw error;
+        }
+      })();
+      chainProof = proof;
+      proof.finally(() => { if (chainProof === proof) chainProof = null; }).catch(() => {});
+    }
+    await chainProof;
+  };
   const readRpc = async (payload, key) => {
-    let pending = key && pendingRpc.get(key);
-    if (!pending) {
-      pending = (async () => {
+    let entry = key && pendingRpc.get(key);
+    if (!entry) {
+      const epoch = chainEpoch, startedForkEpoch = forkEpoch;
+      const sequence = payload.method === 'eth_getBlockByNumber' ? ++headerSequence : 0;
+      const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false };
+      created.pending = (async () => {
         const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
         requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
           && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
-        return value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+        const normalized = value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+        const canonical = !created.invalidated && epoch === chainEpoch && payload.method === 'eth_getBlockByNumber'
+          && observeHeader(normalized.result, sequence);
+        return { value: normalized, canonical };
       })();
-      if (key) pendingRpc.set(key, pending);
+      entry = created;
+      if (key) pendingRpc.set(key, entry);
     }
     try {
-      const value = await pending;
-      if (key && typeof value.result === 'string' && value.result.length <= 65536) {
+      const { value, canonical } = await entry.pending;
+      if (payload.method === 'eth_getBlockByNumber')
+        requireValue(!entry.invalidated, 502, 'Header predates a pinned read.');
+      requireValue(entry.epoch === chainEpoch, 502, 'Read-only RPC chain changed during request.');
+      if (payload.method !== 'eth_getBlockByNumber')
+        requireValue(entry.forkEpoch === forkEpoch, 502, 'Read-only RPC fork changed during request.');
+      if (key && canonical && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
+        && payload.method === 'eth_getBlockByNumber' && validHeader(value.result, payload.params[0])
+        && Buffer.byteLength(JSON.stringify(value.result)) <= MAX_CACHED_HEADER_BYTES) {
+        const tag = canonicalBlockTag(payload.params[0]);
+        headerRpc.delete(tag);
+        headerRpc.set(tag, { value, hash: value.result.hash.toLowerCase(), until: now() + headerTtlMs });
+        if (headerRpc.size > MAX_HEADER_CACHE_ENTRIES) headerRpc.delete(headerRpc.keys().next().value);
+      } else if (key && payload.method !== 'eth_getBlockByNumber'
+        && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
+        && typeof value.result === 'string' && value.result.length <= 65536) {
         pinnedRpc.delete(key);
         pinnedRpc.set(key, { value, until: now() + pinnedRpcTtlMs });
         if (pinnedRpc.size > 256) pinnedRpc.delete(pinnedRpc.keys().next().value);
       }
       return value;
-    } finally { if (key && pendingRpc.get(key) === pending) pendingRpc.delete(key); }
+    } finally { if (key && pendingRpc.get(key) === entry) pendingRpc.delete(key); }
   };
   // Only the public index source is cached. The client rechecks its block hash
   // against BSC; account balances, quotes and transaction reads are never cached.
@@ -209,13 +308,26 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         requireValue(req.method === 'POST', 405, 'RPC requires POST.');
         requireValue(!url.search && !url.hash, 400, 'RPC does not accept URL parameters.');
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');
-        await acquire(); acquired = true;
         const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }));
-        const key = pinnedKey(payload), cached = key && pinnedRpc.get(key);
+        if (payload.method === 'eth_chainId' && now() < verifiedChainUntil)
+          return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
+        await acquire(); acquired = true;
+        if (payload.method === 'eth_chainId') {
+          await ensureBscChain();
+          return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
+        }
+        const pinned = pinnedKey(payload), header = headerKey(payload), key = pinned ?? header;
+        await ensureBscChain();
+        // A caller can use the next header as its post-read canonical check.
+        // Do not answer that check from a header cached before a pinned read.
+        const readBlock = pinnedBlockKey(payload);
+        if (readBlock) invalidateHeaderForPinnedRead(readBlock);
+        const cached = pinned ? pinnedRpc.get(pinned) : header ? headerRpc.get(header) : null;
         const hit = cached && now() < cached.until;
         if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
-        else if (cached) pinnedRpc.delete(key);
+        else if (cached) (pinned ? pinnedRpc : headerRpc).delete(pinned ?? header);
         const value = hit ? cached.value : await readRpc(payload, key);
+        if (readBlock) invalidateHeaderForPinnedRead(readBlock);
         return send(200, { jsonrpc: '2.0', id: payload.id, ...value });
       }
       requireValue(url.pathname.startsWith('/api/chain-index/'), 404, 'Unknown data route.');

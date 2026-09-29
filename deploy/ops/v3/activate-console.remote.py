@@ -2,8 +2,8 @@
 """Install only the parallel pre-genesis v3 deployment console.
 
 The fresh product, index, Gas relay and old v2 runtime remain inactive or untouched.
-A root-only v3 credential copy is created for public-address attestation; no new Gas
-sender is enabled. Expected hashes come from a reviewed, read-only host snapshot.
+The public console receives only the expected Gas wallet address, never a private key.
+Expected hashes come from a reviewed, read-only host snapshot.
 """
 
 import argparse
@@ -28,7 +28,6 @@ V3_UNIT = Path('/etc/systemd/system/pinkuang-deploy-v3.service')
 SNIPPET = Path('/etc/nginx/snippets/pinkuang-deploy-v3.conf')
 RELEASES = Path('/srv/pinkuang-deploy-v3/releases')
 DB_DIR = Path('/var/lib/pinkuang-deploy-v3')
-OLD_GAS_CREDENTIAL = Path('/etc/pinkuang/keeper.key')
 V3_GAS_CREDENTIAL = Path('/etc/pinkuang/keeper-v3.key')
 ANCHOR = '    include /etc/nginx/snippets/pinkuang-deploy-v2.conf;\n'
 INCLUDE = '    include /etc/nginx/snippets/pinkuang-deploy-v3.conf;\n'
@@ -142,18 +141,32 @@ def write_atomic(path, content, mode=0o644):
             os.unlink(temp)
 
 
-def copy_private_file(source, destination):
-    """Create at 0600 before the first credential byte is written."""
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0)
-    descriptor = os.open(destination, flags, 0o600)
-    try:
-        with os.fdopen(descriptor, 'wb') as target, source.open('rb') as original:
-            shutil.copyfileobj(original, target)
-            target.flush()
-            os.fsync(target.fileno())
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
+def build_public_console_unit(release, rpc):
+    env = {
+        'NODE_ENV': 'production', 'HOST': '127.0.0.1', 'PORT': '4175',
+        'DEPLOYMENT_JOURNAL_ORIGIN': 'https://tapeout.cc.cd',
+        'DEPLOYMENT_JOURNAL_DB': str(DB_DIR / 'journal.sqlite'),
+        'DEPLOYMENT_JOURNAL_RPC_URL': rpc, 'BEMINE_READ_RPC_URL': rpc,
+        'BEMINE_INDEX_URL': 'http://127.0.0.1:4182',
+        'BEMINE_NOTIFICATIONS_ENABLED': '0',
+        'BEMINE_EXPECTED_GAS_WALLET': GAS_WALLET,
+        'AUTHORITY_RELAY_ENABLED': '0',
+    }
+    return ('[Unit]\nDescription=BEMine v3 hardware-wallet deployment console (pre-genesis)\n'
+            'After=network-online.target\nWants=network-online.target\n\n[Service]\n'
+            'Type=simple\nUser=pinkuang-v3\nGroup=pinkuang-v3\n'
+            f'WorkingDirectory={release}\nExecStart=/usr/bin/node {release}/server/index.mjs\n'
+            + ''.join(f'Environment={key}={value}\n' for key, value in env.items())
+            + 'UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n'
+            'ProtectHome=true\nProtectSystem=strict\n'
+            f'ReadWritePaths={DB_DIR}\nRestart=on-failure\nRestartSec=5\n'
+            'TimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n')
+
+
+def require_public_process_environment(variables):
+    names = {item.split(b'=', 1)[0] for item in variables if item}
+    require(b'CREDENTIALS_DIRECTORY' not in names and b'KEEPER_PRIVATE_KEY' not in names,
+            'Public v3 console process received a private-key source.')
 
 
 def check_http(url, expected_status, expected_body=None):
@@ -201,6 +214,8 @@ def main():
             'Current nginx/v2 unit differs from the reviewed read-only snapshot.')
     require(not V3_UNIT.exists() and not SNIPPET.exists()
             and not (RELEASES / args.release_id).exists(), 'v3 console is already installed.')
+    require(not V3_GAS_CREDENTIAL.exists() and not V3_GAS_CREDENTIAL.is_symlink(),
+            'Remove the obsolete v3 Gas credential copy before publishing a public console.')
     with socket.socket() as listener_check:
         listener_check.settimeout(1)
         require(listener_check.connect_ex(('127.0.0.1', 4175)) != 0,
@@ -225,24 +240,6 @@ def main():
         raise
 
     try:
-        source_stat = OLD_GAS_CREDENTIAL.stat()
-        require(not OLD_GAS_CREDENTIAL.is_symlink() and OLD_GAS_CREDENTIAL.is_file() and source_stat.st_uid == 0
-                and source_stat.st_gid == 0 and (source_stat.st_mode & 0o777) == 0o600,
-                'Existing Gas credential is not root-owned 0600.')
-        if V3_GAS_CREDENTIAL.exists():
-            copied_stat = V3_GAS_CREDENTIAL.stat()
-            require(not V3_GAS_CREDENTIAL.is_symlink() and V3_GAS_CREDENTIAL.is_file() and copied_stat.st_uid == 0
-                    and copied_stat.st_gid == 0 and (copied_stat.st_mode & 0o777) == 0o600
-                    and digest(V3_GAS_CREDENTIAL) == digest(OLD_GAS_CREDENTIAL),
-                    'Existing v3 Gas credential differs from the reviewed source.')
-        else:
-            copy_private_file(OLD_GAS_CREDENTIAL, V3_GAS_CREDENTIAL)
-            os.chown(V3_GAS_CREDENTIAL, 0, 0)
-        command(['node', '-e',
-                 'const fs=require("node:fs"); const {Wallet}=require("ethers"); '
-                 'const address=new Wallet(fs.readFileSync("/etc/pinkuang/keeper-v3.key","utf8").trim()).address; '
-                 f'if(address.toLowerCase()!=="{GAS_WALLET.lower()}")process.exit(1);'],
-                cwd=release)
         try:
             user = pwd.getpwnam('pinkuang-v3')
         except KeyError:
@@ -252,26 +249,7 @@ def main():
         DB_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
         DB_DIR.chmod(0o700)
         os.chown(DB_DIR, user.pw_uid, user.pw_gid)
-        env = {
-            'NODE_ENV': 'production', 'HOST': '127.0.0.1', 'PORT': '4175',
-            'DEPLOYMENT_JOURNAL_ORIGIN': 'https://tapeout.cc.cd',
-            'DEPLOYMENT_JOURNAL_DB': str(DB_DIR / 'journal.sqlite'),
-            'DEPLOYMENT_JOURNAL_RPC_URL': rpc, 'BEMINE_READ_RPC_URL': rpc,
-            'BEMINE_INDEX_URL': 'http://127.0.0.1:4182',
-            'BEMINE_NOTIFICATIONS_ENABLED': '0',
-            'BEMINE_EXPECTED_GAS_WALLET': GAS_WALLET,
-            'AUTHORITY_RELAY_ENABLED': '0',
-        }
-        unit = ('[Unit]\nDescription=BEMine v3 hardware-wallet deployment console (pre-genesis)\n'
-                'After=network-online.target\nWants=network-online.target\n\n[Service]\n'
-                'Type=simple\nUser=pinkuang-v3\nGroup=pinkuang-v3\n'
-                f'WorkingDirectory={release}\nExecStart=/usr/bin/node {release}/server/index.mjs\n'
-                f'LoadCredential=keeper-private-key:{V3_GAS_CREDENTIAL}\n'
-                + ''.join(f'Environment={key}={value}\n' for key, value in env.items())
-                + 'UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n'
-                'ProtectHome=true\nProtectSystem=strict\n'
-                f'ReadWritePaths={DB_DIR}\nRestart=on-failure\nRestartSec=5\n'
-                'TimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n')
+        unit = build_public_console_unit(release, rpc)
         snippet = ('location = /pinkuang-deploy-v3 { return 308 /pinkuang-deploy-v3/; }\n'
                    'location ^~ /pinkuang-deploy-v3/ {\n'
                    '    proxy_pass http://127.0.0.1:4175/;\n'
@@ -309,11 +287,7 @@ def main():
                                            '--value', 'pinkuang-deploy-v3.service'], text=True).strip())
         require(pid > 0, 'v3 service has no running process.')
         variables = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
-        directories = [item.split(b'=', 1)[1].decode() for item in variables
-                       if item.startswith(b'CREDENTIALS_DIRECTORY=')]
-        require(len(directories) == 1
-                and digest(Path(directories[0]) / 'keeper-private-key') == digest(V3_GAS_CREDENTIAL),
-                'Running v3 process did not receive the reviewed Gas credential.')
+        require_public_process_environment(variables)
         require(digest(SITE) == args.site_sha256, 'Site config changed during staging.')
         candidate_site = original_site.replace(ANCHOR, ANCHOR + INCLUDE)
         write_atomic(SITE, candidate_site)

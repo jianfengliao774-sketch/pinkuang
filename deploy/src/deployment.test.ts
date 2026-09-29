@@ -100,6 +100,44 @@ test('read-only preflight permits unchecked review, but signing requires review'
   await assert.rejects(preflight(wrongChain, bundle, input), /Chain ID 56/);
 });
 
+test('fresh Stage 1 pins operator and treasury before signing while read-only recovery remains available', async () => {
+  const other = getAddress((await rpc('eth_accounts') as string[])[1]);
+  let writes = 0, broadcasts = 0;
+  const counted: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_sendTransaction') broadcasts++;
+    return wallet.request(request);
+  } };
+  const create = () => new DeploymentEngine(counted, bundle, {
+    persist: () => { writes++; },
+  });
+  for (const role of ['operator', 'treasury'] as const) {
+    await assert.rejects(create().start({ ...input, [role]: other }), /owner、operator 和 treasury/);
+    assert.equal(writes, 0, `${role} must be rejected before creating a journal`);
+    assert.equal(broadcasts, 0);
+  }
+  let saved: DeploymentSnapshot | undefined;
+  const rejecting: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_sendTransaction') {
+      broadcasts++;
+      return Promise.reject(Object.assign(new Error('user rejected'), { code: 4001 }));
+    }
+    return wallet.request(request);
+  } };
+  const guarded = new DeploymentEngine(rejecting, bundle, {
+    persist: state => { saved = structuredClone(state); },
+  });
+  await assert.rejects(guarded.start(input), /user rejected/);
+  assert.equal(broadcasts, 1);
+  for (const role of ['operator', 'treasury'] as const) {
+    const restored = structuredClone(saved!);
+    restored.input[role] = other;
+    await assert.rejects(guarded.resume(restored), /恢复的新部署角色/);
+    assert.equal(broadcasts, 1, `${role} must not reach the wallet after restore`);
+    assert.equal((await guarded.reconcile(restored)).status, 'paused',
+      `${role} must not prevent read-only recovery of an existing journal`);
+  }
+});
+
 test('recent reviewed configuration skips duplicate code reads but refreshes wallet, nonce, fee and balance', async () => {
   const calls: string[] = [];
   const rejecting: Eip1193Provider = { request: request => {

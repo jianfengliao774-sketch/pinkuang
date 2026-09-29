@@ -11,18 +11,29 @@ const json = value => JSON.stringify(value, (_key, item) => typeof item === 'big
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
 const followup = journal => ['arming', 'starting'].includes(journal.miningStage)
   && journal.transaction?.phase === 'confirmed';
-const failed = journal => ['reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction?.phase);
+export const walletReviewRequired = status => /unknown|nonce-or-chain-changed|operator-wallet-has-pending-transaction/.test(status ?? '');
+export const poolReviewRequired = status => /review-required|inactive-requires-review/.test(status ?? '');
+export function reportOperatorReview(result, send, log = console.error) {
+  const review = result.results?.find(item => item.walletBlocked || walletReviewRequired(item.status));
+  if (!review && !(send && result.status === 'all-pools-quarantined')) return false;
+  log(json({ at: new Date().toISOString(), status: 'operator-review-required',
+    pool: review?.pool ?? null, reason: review?.status ?? result.status,
+    message: 'No automatic rebroadcast. Inspect pool journals before resuming.' }));
+  process.exitCode = 1;
+  return true;
+}
 
-export function prioritizePools(pools, journalFor, cursor, batch = 10) {
-  const urgent = pools.filter(pool => {
+export function prioritizePools(pools, journalFor, cursor, batch = 10, quarantined = new Set(), cooldowns = new Map(), now = Date.now()) {
+  const eligible = pools.filter(pool => !quarantined.has(pool) && (cooldowns.get(pool) ?? 0) <= now);
+  const urgent = eligible.filter(pool => {
     const journal = journalFor(pool);
-    return unresolved(journal) || followup(journal) || failed(journal);
+    return unresolved(journal) || followup(journal);
   });
   if (urgent.length > 1) throw new Error('Multiple mining journals need the same operator wallet; resolve them manually.');
   if (urgent.length) return { selected: urgent, nextCursor: cursor };
-  if (!pools.length) return { selected: [], nextCursor: 0 };
-  const selected = Array.from({ length: Math.min(batch, pools.length) }, (_, index) => pools[(cursor + index) % pools.length]);
-  return { selected, nextCursor: (cursor + selected.length) % pools.length };
+  if (!eligible.length) return { selected: [], nextCursor: 0 };
+  const selected = Array.from({ length: Math.min(batch, eligible.length) }, (_, index) => eligible[(cursor + index) % eligible.length]);
+  return { selected, nextCursor: (cursor + selected.length) % eligible.length };
 }
 
 export function parseSupervisorArguments(args) {
@@ -65,32 +76,63 @@ async function refreshPools(provider, options, known) {
   return known;
 }
 
-export async function runSupervisorCycle(provider, options, signer, state) {
-  const pools = await refreshPools(provider, options, state.pools);
+export async function runSupervisorCycle(provider, options, signer, state, dependencies = {}) {
+  const pools = await (dependencies.refreshPools ?? refreshPools)(provider, options, state.pools);
+  state.quarantined ??= new Map();
+  state.cooldowns ??= new Map();
   const journalPath = pool => resolve(options.journalDir, `${pool.toLowerCase()}.json`);
-  const journalFor = pool => readJournal(journalPath(pool), { factory: options.factory, pool,
+  const journalFor = pool => (dependencies.readJournal ?? readJournal)(journalPath(pool), { factory: options.factory, pool,
     transactionTarget: options.authority ?? pool });
-  const { selected, nextCursor } = prioritizePools(pools, journalFor, state.cursor, options.batch);
+  const { selected, nextCursor } = prioritizePools(pools, journalFor, state.cursor, options.batch,
+    state.quarantined, state.cooldowns, dependencies.now?.() ?? Date.now());
   state.cursor = nextCursor;
-  if (!selected.length) return { status: 'no-registered-pools', poolCount: 0 };
+  if (!selected.length) return { status: !pools.length ? 'no-registered-pools'
+    : state.quarantined.size === pools.length ? 'all-pools-quarantined' : 'waiting-pool-retry',
+    poolCount: pools.length, checked: 0, quarantinedCount: state.quarantined.size, results: [] };
   const results = [];
   for (const pool of selected) {
     const journal = journalPath(pool);
-    const releaseJournal = acquireKeeperLock(journal);
+    let releaseJournal;
     let releaseWallet;
     try {
+      releaseJournal = (dependencies.acquireKeeperLock ?? acquireKeeperLock)(journal);
       if (options.send) {
-        releaseWallet = acquireWalletLock(signer.address, journal);
+        releaseWallet = (dependencies.acquireWalletLock ?? acquireWalletLock)(signer.address, journal);
         if (!existsSync(journal)) writeJournal(journal, journalFor(pool));
       }
-      const result = await runMiningCycle(provider, { ...options, pool, journal,
+      const result = await (dependencies.runMiningCycle ?? runMiningCycle)(provider, { ...options, pool, journal,
         transactionTarget: options.authority ?? pool }, signer);
-      results.push({ pool, ...result });
-      if (options.send && (unresolved(journalFor(pool)) || followup(journalFor(pool)) || failed(journalFor(pool))
-        || /review-required|unknown|nonce-or-chain-changed/.test(result.status))) break;
-    } finally { releaseWallet?.(); releaseJournal(); }
+      const record = { pool, ...result };
+      results.push(record);
+      const pending = options.send && unresolved(journalFor(pool));
+      if (pending || walletReviewRequired(result.status)) {
+        // A signed pending journal keeps the wallet nonce reserved. Ordinary
+        // broadcast waits for receipt reconciliation; review + pending exits.
+        if (pending && (poolReviewRequired(result.status) || walletReviewRequired(result.status))) record.walletBlocked = true;
+        break;
+      }
+      if (poolReviewRequired(result.status)) {
+        state.quarantined.set(pool, result.status);
+        console.error(json({ at: new Date().toISOString(), status: 'pool-review-required', pool, reason: result.status,
+          message: 'This pool is paused for manual review; other pools remain eligible.' }));
+        continue;
+      }
+      if (options.send && followup(journalFor(pool))) break;
+    } catch (error) {
+      // A wallet-lock failure or a newly signed pending journal affects every
+      // pool using this wallet. Stop globally, never send a different nonce.
+      if (options.send && (!releaseWallet || unresolved(journalFor(pool)))) throw error;
+      const detail = String(error.shortMessage ?? error.message ?? 'Pool cycle failed.')
+        .replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]')
+        .split(signer?.privateKey ?? '\0').join('[redacted]');
+      state.cooldowns.set(pool, (dependencies.now?.() ?? Date.now()) + 30_000);
+      results.push({ pool, status: 'pool-cycle-error' });
+      console.error(json({ at: new Date().toISOString(), status: 'pool-cycle-error', pool,
+        retryAfterSeconds: 30, message: detail.slice(0, 300) }));
+    } finally { releaseWallet?.(); releaseJournal?.(); }
   }
-  return { status: 'scanned', poolCount: pools.length, checked: results.length, results };
+  return { status: 'scanned', poolCount: pools.length, checked: results.length,
+    quarantinedCount: state.quarantined.size, results };
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -116,17 +158,17 @@ export async function main(args = process.argv.slice(2)) {
       mkdirSync(options.journalDir, { recursive: true, mode: 0o700 });
       if ((statSync(options.journalDir).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
     }
-    const state = { pools: [], cursor: 0 };
+    const state = { pools: [], cursor: 0, quarantined: new Map(), cooldowns: new Map() };
     do {
       try {
         const result = await runSupervisorCycle(provider, { ...options, shouldStop: () => stopping }, signer, state);
         console.log(json({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
-        if (result.results?.some(item => /review-required|unknown|nonce-or-chain-changed/.test(item.status))) break;
+        if (reportOperatorReview(result, options.send)) break;
       } catch (error) {
         const detail = String(error.shortMessage ?? error.message).replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');
         console.error(json({ at: new Date().toISOString(), status: 'supervisor-error',
           message: (signer ? detail.split(keeperKey).join('[redacted]') : detail).slice(0, 300) }));
-        if (options.once) { process.exitCode = 1; break; }
+        if (options.once || options.authority) { process.exitCode = 1; break; }
       }
       if (options.once || stopping) break;
       await new Promise(done => setTimeout(done, options.interval * 1000));

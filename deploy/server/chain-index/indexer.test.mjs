@@ -181,7 +181,8 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
     assert.equal(index.activity({ pool }).items.filter(row => row.event === 'Harvested').length, 1);
     assert.equal(index.activity({ pool }).items.filter(row => row.event === 'PoolCreated').length, 1);
     assert.deepEqual(index.stats(), { scope: 'confirmed_indexed_history', registeredPoolCount: '1',
-      standalonePoolCount:'1',portfolioCount:'0',childPoolCount:'0',topLevelProjectCount:'1',
+      standalonePoolCount:'1',portfolioCount:'0',childPoolCount:'0',reservedChildPoolCount:'0',
+      reservedChildPoolAddresses:[],reservedChildPoolAddressesComplete:true,topLevelProjectCount:'1',
       everParticipantAddressCount: '2', purchasedCostWei: '500', shareMarketFilledGrossWei: '20',
       harvestedToMembersBemAtomic: '990', estimatedDailyBemAtomic: null, currentlyActivePoolCount: null });
     index.close(); index = null;

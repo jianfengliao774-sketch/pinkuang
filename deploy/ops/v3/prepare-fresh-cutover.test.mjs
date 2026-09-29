@@ -61,14 +61,14 @@ test('offline v3 draft contains only new graph and remains disabled pending live
   assert.equal(result.runtimeEnvironment.PORT,'4175');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_PORT,'4182');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_FACTORY,fixture().record.addresses.factory);
-  assert.match(result.runtimeUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper-v3\.key/);
+  assert.doesNotMatch(result.runtimeUnit,/LoadCredential|KEEPER_PRIVATE_KEY|keeper-v3\.key/);
   assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_JOURNAL,
     '/var/lib/pinkuang-v3/authority/authority.json');
   assert.match(result.runtimeUnit,/StateDirectoryMode=0700/);
   assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_ENABLED,'0');
   assert.equal(result.purchaseEnvironment.FRESH_PURCHASE_ENABLED,'0');
-  assert.match(result.purchaseUnit,/--fresh-graph --send/);
-  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper-v3\.key/);
+  assert.match(result.purchaseUnit,/--fresh-graph\n/);
+  assert.doesNotMatch(result.purchaseUnit,/--send|LoadCredential|KEEPER_PRIVATE_KEY|keeper-v3\.key/);
   assert.match(result.purchaseUnit,/ReadWritePaths=\/var\/lib\/pinkuang-v3 \/var\/lib\/pinkuang-shared-keeper/);
 });
 

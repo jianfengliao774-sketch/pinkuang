@@ -15,7 +15,11 @@ async function view(request, market, method, args, blockNumber) {
 }
 
 export async function readSaleReference(request, market, pool, blockNumber, timestamp) {
-  const [priceWei, observedAt, sourceDigest] = await view(request, market, 'saleReference', [pool], blockNumber);
+  return saleReferenceState(await view(request, market, 'saleReference', [pool], blockNumber), timestamp);
+}
+
+/** Apply the same freshness and evidence rule to pool and budget-child references. */
+export function saleReferenceState([priceWei, observedAt, sourceDigest], timestamp) {
   const available = priceWei > 0n && sourceDigest !== ZeroHash
     && observedAt <= timestamp && timestamp - observedAt <= MAX_REFERENCE_AGE;
   return Object.freeze({ available, priceWei, observedAt, sourceDigest,

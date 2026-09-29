@@ -2,9 +2,7 @@ import importlib.util
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
-import stat
 import tarfile
 import tempfile
 import unittest
@@ -102,20 +100,23 @@ class ConsoleArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'checksum'):
                 activation.validate_archive(path)
 
-    def test_private_credential_is_0600_even_with_permissive_umask(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / 'source'
-            destination = Path(directory) / 'destination'
-            source.write_bytes(b'dummy-test-value')
-            previous = os.umask(0)
-            try:
-                activation.copy_private_file(source, destination)
-            finally:
-                os.umask(previous)
-            self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o600)
-            self.assertEqual(destination.read_bytes(), source.read_bytes())
-            with self.assertRaises(FileExistsError):
-                activation.copy_private_file(source, destination)
+    def test_public_console_unit_only_receives_gas_address(self):
+        unit = activation.build_public_console_unit(
+            Path('/srv/pinkuang-deploy-v3/releases/v3-reviewed'),
+            'https://bsc-dataseed.bnbchain.org',
+        )
+        self.assertIn(f'Environment=BEMINE_EXPECTED_GAS_WALLET={activation.GAS_WALLET}\n', unit)
+        self.assertIn('Environment=AUTHORITY_RELAY_ENABLED=0\n', unit)
+        for forbidden in ('LoadCredential=', 'KEEPER_PRIVATE_KEY', 'keeper-v3.key'):
+            self.assertNotIn(forbidden, unit)
+
+    def test_public_console_rejects_credential_in_process_environment(self):
+        activation.require_public_process_environment([
+            b'BEMINE_EXPECTED_GAS_WALLET=0x1234', b'NODE_ENV=production',
+        ])
+        for variable in (b'CREDENTIALS_DIRECTORY=/run/credentials/v3', b'KEEPER_PRIVATE_KEY=secret'):
+            with self.assertRaisesRegex(RuntimeError, 'private-key source'):
+                activation.require_public_process_environment([variable])
 
 
 if __name__ == '__main__':

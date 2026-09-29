@@ -26,6 +26,20 @@ function verifiedSource(result, manifest) {
     && Number.isSafeInteger(source.indexedThrough) && Number.isSafeInteger(source.indexedTimestamp);
 }
 
+/** Cached values are never current transaction evidence, even when their original read was. */
+export function displayOnlySnapshot(result, manifest, verifiedAt) {
+  if (!verifiedSource(result, manifest) || !Number.isSafeInteger(verifiedAt)) return null;
+  const mark = source => source ? { ...source, readMode: 'verified_snapshot', stale: true,
+    transactionReady: false, refreshing: true, cacheOrigin: 'local',
+    checkedAt: source.readMode === 'verified_snapshot' ? source.checkedAt : new Date(verifiedAt).toISOString() } : source;
+  return {
+    ...result,
+    ...(result.source ? { source: mark(result.source) } : {}),
+    ...(result.catalog?.source ? { catalog: { ...result.catalog, source: mark(result.catalog.source) } } : {}),
+    ...(result.detail?.source ? { detail: { ...result.detail, source: mark(result.detail.source) } } : {}),
+  };
+}
+
 /** A display-only copy. Never use it to prepare, simulate or sign a transaction. */
 export function readDisplaySnapshot(storage, manifest, page, { now = Date.now(), maxAgeMs = 60 * 60 * 1000 } = {}) {
   const cacheKey = key(manifest, page);
@@ -36,7 +50,8 @@ export function readDisplaySnapshot(storage, manifest, page, { now = Date.now(),
     if (!record || !Number.isSafeInteger(record.savedAt) || record.savedAt > now
       || now - record.savedAt > maxAgeMs || !verifiedSource(record.result, manifest)
       || source?.readMode === 'verified_snapshot' && now - Date.parse(source.checkedAt) > 30 * 60 * 1000) return null;
-    return record.result;
+    return displayOnlySnapshot(record.result, manifest, source?.readMode === 'verified_snapshot'
+      ? Date.parse(source.checkedAt) : record.savedAt);
   } catch { return null; }
 }
 

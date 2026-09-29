@@ -1,9 +1,9 @@
-import { AbiCoder, Interface, ZeroAddress, getAddress, keccak256, toUtf8Bytes, verifyTypedData } from 'ethers';
+import { Interface, ZeroAddress, getAddress, keccak256, verifyTypedData } from 'ethers';
 import { abi } from './chain-client.mjs';
+import { authorityTypedAction } from '../../deploy/shared/authority-typed.mjs';
 
 const need = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
-const coder = AbiCoder.defaultAbiCoder();
 const authorityAbi = new Interface([
   'function administratorOne() view returns(address)',
   'function administratorTwo() view returns(address)',
@@ -12,62 +12,14 @@ const authorityAbi = new Interface([
   'function budgetFactory() view returns(address)',
   'function nonces(address) view returns(uint256)',
 ]);
-const types = { Action: [
-  { name: 'kind', type: 'bytes32' }, { name: 'target', type: 'address' },
-  { name: 'paramsHash', type: 'bytes32' }, { name: 'nonce', type: 'uint256' },
-  { name: 'deadline', type: 'uint256' },
-] };
-const actionKind = Object.freeze({
-  executeApprovedOperation: 'APPROVED_OPERATION',
-  reviewSale: 'REVIEW_SALE', reviewChildSale: 'REVIEW_CHILD_SALE',
-  setSaleReference: 'SALE_REFERENCE', claimFees: 'CLAIM_FEES',
-  buyBudgetOfficial: 'BUY_BUDGET_OFFICIAL', buyBudgetFirsto: 'BUY_BUDGET_FIRSTO',
-});
 const integer = value => { const n = BigInt(value); need(n >= 0n, '金额、编号或时间不能为负。'); return n; };
-const hashKind = name => keccak256(toUtf8Bytes(name));
-const hexBytes = value => typeof value === 'string' && /^0x(?:[0-9a-f]{2})+$/i.test(value);
 
 /** Build only an action that PlatformAuthority itself can authorize. */
 export function authorityAction(authority, kind, args, nonce, deadline) {
-  authority = getAddress(authority);
-  need(actionKind[kind], '不支持的管理员操作。');
   need(args && typeof args === 'object' && !Array.isArray(args), '管理员操作参数无效。');
   const n = integer(nonce), expires = integer(deadline);
   need(expires > 0n, '签名有效期无效。');
-  let target, paramsHash;
-  if (kind === 'executeApprovedOperation') {
-    target = getAddress(args.target);
-    need(hexBytes(args.data) && args.data.length >= 10, '操作数据无效。');
-    paramsHash = keccak256(args.data);
-  } else if (kind === 'reviewSale') {
-    target = getAddress(args.market);
-    paramsHash = keccak256(coder.encode(['address','uint256','uint128','bool'],
-      [getAddress(args.pool), integer(args.proposalId), integer(args.priceWei), args.approved === true]));
-  } else if (kind === 'reviewChildSale') {
-    target = getAddress(args.portfolio);
-    paramsHash = keccak256(coder.encode(['uint256','bool'], [integer(args.proposalId), args.approved === true]));
-  } else if (kind === 'setSaleReference') {
-    target = getAddress(args.market);
-    paramsHash = keccak256(coder.encode(['address','uint128','uint64','bytes32'],
-      [getAddress(args.pool), integer(args.priceWei), integer(args.observedAt), args.digest]));
-  } else if (kind === 'claimFees') {
-    target = authority;
-    need(Array.isArray(args.markets) && Array.isArray(args.pools), '手续费来源必须为列表。');
-    paramsHash = keccak256(coder.encode(['address[]','address[]','address'],
-      [args.markets.map(getAddress), args.pools.map(getAddress), getAddress(args.recipient)]));
-  } else if (kind === 'buyBudgetOfficial') {
-    target = getAddress(args.portfolio);
-    paramsHash = keccak256(coder.encode(['address','uint256','uint256'],
-      [getAddress(args.child), integer(args.listingId), integer(args.maxCost)]));
-  } else {
-    target = getAddress(args.portfolio);
-    need(hexBytes(args.encodedOrder), 'Firsto 订单数据无效。');
-    paramsHash = keccak256(coder.encode(['address','bytes32','uint256'],
-      [getAddress(args.child), keccak256(args.encodedOrder), integer(args.maxCost)]));
-  }
-  const domain = { name: 'BEMine Platform Authority', version: '1', chainId: 56, verifyingContract: authority };
-  const message = { kind: hashKind(actionKind[kind]), target, paramsHash, nonce: n.toString(), deadline: expires.toString() };
-  return { domain, types, message };
+  return authorityTypedAction(authority, kind, args, n, expires);
 }
 
 /** A fresh operator preview already contains exact Factory calldata; bind that byte string. */
@@ -110,7 +62,7 @@ export async function signAuthorityAction({ provider, config, account, kind, arg
   const payload = { types: { EIP712Domain: [
     { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
     { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
-  ], ...signed.types }, primaryType: 'Action', domain: signed.domain, message: signed.message };
+  ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message };
   const signature = await rpc('eth_signTypedData_v4', [signer, JSON.stringify(payload)]);
   need(same(verifyTypedData(signed.domain, signed.types, signed.message, signature), signer),
     '钱包签名与当前管理员地址不一致。');

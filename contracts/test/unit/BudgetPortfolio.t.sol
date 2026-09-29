@@ -662,6 +662,32 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
     }
 
+    function test_rejectedChildSaleStaysRejectedAfterReferenceFalls() public {
+        _subscribe(ALICE, 29);
+        _subscribe(BOB, 30);
+        _subscribe(CAROL, 41);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 id = project.proposeChildSale(address(pool), 4 ether, 5 ether, uint64(block.timestamp));
+        vm.prank(ALICE);
+        project.voteChildSale(id, true);
+        vm.prank(BOB);
+        project.voteChildSale(id, true);
+        vm.prank(OPERATOR);
+        project.reviewChildSale(id, false);
+        assertEq(project.childSaleReview(id), 2);
+        _saleReference(5 ether);
+        vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
+        project.executeChildSale(id);
+        _saleReference(3 ether);
+        vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
+        project.executeChildSale(id);
+    }
+
     function test_childSalePriceMustFitFirstoAskBeforeOpeningRound() public {
         _subscribe(ALICE, 60);
         _subscribe(BOB, 40);

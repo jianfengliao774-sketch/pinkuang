@@ -20,6 +20,11 @@ test('production configuration keeps HTTPS and loopback requirements', () => {
     CHAIN_INDEX_MARKET: config('').market, CHAIN_INDEX_START_BLOCK: '100' };
   assert.equal(serverConfiguration(env).rpc, env.CHAIN_INDEX_RPC_URL);
   assert.equal(serverConfiguration(env).host, '127.0.0.1');
+  assert.equal(serverConfiguration(env).reservationMode,'legacy');
+  assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_RESERVATION_MODE:'required'}),/portfolio Factory/);
+  assert.equal(serverConfiguration({...env,CHAIN_INDEX_PORTFOLIO_FACTORY:config('').factory,
+    CHAIN_INDEX_PORTFOLIO_MARKET:config('').market,CHAIN_INDEX_RESERVATION_MODE:'required'}).reservationMode,'required');
+  assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_RESERVATION_MODE:'auto'}),/reservation mode/);
   assert.equal(serverConfiguration(env).scanRange, 100);
   assert.equal(serverConfiguration(env).logsTimeoutMs, 12_000);
   for (const timeout of ['12000', '15000', '30000'])

@@ -38,6 +38,18 @@ test('a verified fresh graph remains read-only until its product services are ac
   assert.equal(validateProductTransactionStage({ ...fresh, operationalReady: true }, transaction, 'claim').action.kind, 'claim');
 });
 
+test('display-only graph metadata blocks a wallet action before signing or journaling', () => {
+  const base = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    manifest: pinnedGenesis, stage: 'genesis', artifactDigest: pinnedGenesis.artifactDigest };
+  const transaction = { from: account, to: pool, chainId: '0x38', value: '0',
+    data: abi.PoolVault.encodeFunctionData('claim') };
+  for (const historical of [{ readMode: 'verified_snapshot', stale: true, transactionReady: false },
+    { readMode: 'unknown' }, { readMode: 'current', stale: true }, { readMode: 'current', transactionReady: false }])
+    assert.throws(() => validateProductTransactionStage({ ...base, ...historical }, transaction, 'claim'),
+      /仅供展示/);
+  assert.equal(validateProductTransactionStage({ ...base, readMode: 'current', stale: false }, transaction, 'claim').action.kind, 'claim');
+});
+
 test('a stale or unverified graph blocks before wallet access or intent persistence', async () => {
   const secureConfig = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
     portfolioFactory: pinnedGenesis.portfolioFactory, manifest: pinnedGenesis, stage: 'genesis',
@@ -46,8 +58,13 @@ test('a stale or unverified graph blocks before wallet access or intent persiste
   const provider = { request: async () => { walletCalls++; throw new Error('wallet must remain untouched'); } };
   const fetcher = async () => { networkCalls++; return new Response(JSON.stringify({ status: 'unverified' }),
     { status: 200, headers: { 'content-type': 'application/json' } }); };
+  const transaction = { from: account, to: pool, chainId: '0x38', value: '0', data: abi.PoolVault.encodeFunctionData('claim') };
+  await assert.rejects(sendProductTransaction({ provider, config: { ...secureConfig,
+    readMode: 'verified_snapshot', stale: true, transactionReady: false },
+    transaction, action: 'claim', fetcher }), /仅供展示/);
+  assert.equal(networkCalls, 0); assert.equal(walletCalls, 0);
   await assert.rejects(sendProductTransaction({ provider, config: secureConfig,
-    transaction: { from: account, to: pool, chainId: '0x38', value: '0', data: abi.PoolVault.encodeFunctionData('claim') },
+    transaction,
     action: 'claim', fetcher }), { code: 'product_graph' });
   assert.equal(networkCalls, 1); assert.equal(walletCalls, 0);
 });

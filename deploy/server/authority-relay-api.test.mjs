@@ -4,19 +4,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { Interface, Wallet, getAddress, keccak256, toUtf8Bytes } from 'ethers';
+import { Interface, Wallet, getAddress, keccak256 } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { createDeploymentServer } from './index.mjs';
+import { authorityTypedAction } from '../shared/authority-typed.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
-const kindHash = value => keccak256(toUtf8Bytes(value));
-const types = { Action: [
-  {name:'kind',type:'bytes32'}, {name:'target',type:'address'}, {name:'paramsHash',type:'bytes32'},
-  {name:'nonce',type:'uint256'}, {name:'deadline',type:'uint256'},
-] };
+const sign = async (wallet,authority,kind,args,nonce,deadline) => {
+  const typed=authorityTypedAction(authority,kind,args,nonce,deadline);
+  return wallet.signTypedData(typed.domain,typed.types,typed.message);
+};
 
-function fixture({registered=true}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -42,9 +42,10 @@ function fixture({registered=true}={}) {
       mining:'0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',minerKey:hash(333)}),
     readAuthorityState:async()=>({core:factory,budget,first:admin.address,second:address(36),
       gasWallet:gas.address,nonce:0n,code}),
-    lockJournal:()=>()=>{},lockWallet:()=>()=>{},
+    lockJournal:lockJournal??(()=>()=>{}),lockWallet:()=>()=>{},
     relay:async (_provider,options,signer)=>{
       calls.push({options,signer:signer.address});
+      if (relayHandler) return relayHandler(options,signer);
       return {status:'broadcast',hash:hash(9),kind:options.commandObject.kind};
     }});
   const request = (path,method,body,headers={}) => new Promise(resolve=>{
@@ -62,12 +63,7 @@ function fixture({registered=true}={}) {
 async function signedReview(f) {
   const args = {market:f.market,pool:f.pool,proposalId:'7',priceWei:'1000',approved:true};
   const nonce = '0', deadline = String(Math.floor(Date.now()/1000)+300);
-  const coder = (await import('ethers')).AbiCoder.defaultAbiCoder();
-  const paramsHash = keccak256(coder.encode(['address','uint256','uint128','bool'],
-    [f.pool,args.proposalId,args.priceWei,args.approved]));
-  const signature = await f.admin.signTypedData({name:'BEMine Platform Authority',version:'1',chainId:56,
-    verifyingContract:f.authority},types,{kind:kindHash('REVIEW_SALE'),target:f.market,
-    paramsHash,nonce,deadline});
+  const signature = await sign(f.admin,f.authority,'reviewSale',args,nonce,deadline);
   return {authority:f.authority,expectedCodehash:f.codehash,kind:'reviewSale',args,nonce,deadline,signature};
 }
 
@@ -76,6 +72,36 @@ test('Gas relay is disabled by default and requires a systemd credential when en
   assert.throws(()=>authorityRelayConfiguration({AUTHORITY_RELAY_ENABLED:'1',
     DEPLOYMENT_JOURNAL_ORIGIN:'https://example.test',DEPLOYMENT_JOURNAL_RPC_URL:'https://example.test/rpc',
     KEEPER_PRIVATE_KEY:'0x'+'1'.repeat(64)}),/systemd Gas-wallet credential/);
+});
+
+test('status polling waits for an in-flight submit instead of colliding with its O_EXCL lock',async()=>{
+  let locked=false, enter, finish;
+  const entered=new Promise(resolve=>{enter=resolve;});
+  const releaseRelay=new Promise(resolve=>{finish=resolve;});
+  const f=fixture({
+    lockJournal:()=>{
+      if (locked) throw new Error('simultaneous filesystem lock');
+      locked=true;
+      return ()=>{locked=false;};
+    },
+    relayHandler:async options=>{
+      enter();
+      await releaseRelay;
+      return {status:'broadcast',hash:hash(9),kind:options.commandObject.kind};
+    },
+  });
+  try {
+    const command=await signedReview(f);
+    const submitting=f.request('/api/journal/authority-relay','POST',{command});
+    await entered;
+    const polling=f.request('/api/journal/authority-relay/status','GET');
+    await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(locked,true);
+    finish();
+    assert.equal((await submitting).status,200);
+    assert.equal((await polling).status,200);
+    assert.equal(f.errors.length,0);
+  } finally {await f.close();}
 });
 
 test('deployment server routes relay before the general journal handler',async()=>{
@@ -149,14 +175,13 @@ test('signed creation accepts only exact reviewed Factory selectors',async()=>{
       BigInt(Math.floor(Date.now()/1000)+3600),BigInt(Math.floor(Date.now()/1000)+7200)];
     const data=iface.encodeFunctionData('createPool',[params]);
     const deadline=String(Math.floor(Date.now()/1000)+300);
-    const sign=async (target,inner)=>f.admin.signTypedData({name:'BEMine Platform Authority',version:'1',
-      chainId:56,verifyingContract:f.authority},types,{kind:kindHash('APPROVED_OPERATION'),
-      target,paramsHash:keccak256(inner),nonce:'0',deadline});
+    const signOperation=async (target,inner)=>sign(f.admin,f.authority,'executeApprovedOperation',
+      {target,data:inner},'0',deadline);
     const command={authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',
-      args:{target:f.factory,data},nonce:'0',deadline,signature:await sign(f.factory,data)};
+      args:{target:f.factory,data},nonce:'0',deadline,signature:await signOperation(f.factory,data)};
     assert.equal((await f.request('/api/journal/authority-relay','POST',{command})).body.status,'pending');
     const pause=iface.encodeFunctionData('setDepositPaused',[true]);
-    const forbidden={...command,args:{target:f.factory,data:pause},signature:await sign(f.factory,pause)};
+    const forbidden={...command,args:{target:f.factory,data:pause},signature:await signOperation(f.factory,pause)};
     const blocked=await f.request('/api/journal/authority-relay','POST',{command:forbidden});
     assert.equal(blocked.status,400);
     assert.equal(f.calls.length,1);
@@ -169,19 +194,18 @@ test('signed pool operation accepts only canonical reclaim for a current fresh m
     const outer=new Interface(['function mine(bytes data)']);
     const mining=new Interface(['function reclaim(bytes32 key)','function arm(address circuits,uint256 circuitId)']);
     const deadline=String(Math.floor(Date.now()/1000)+300);
-    const sign=async data=>f.admin.signTypedData({name:'BEMine Platform Authority',version:'1',
-      chainId:56,verifyingContract:f.authority},types,{kind:kindHash('APPROVED_OPERATION'),
-      target:f.pool,paramsHash:keccak256(data),nonce:'0',deadline});
-    const send=async data=>f.request('/api/journal/authority-relay','POST',{command:{
+    const signOperation=async data=>sign(f.admin,f.authority,'executeApprovedOperation',
+      {target:f.pool,data},'0',deadline);
+    const send=async (data,signedData=data)=>f.request('/api/journal/authority-relay','POST',{command:{
       authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',
-      args:{target:f.pool,data},nonce:'0',deadline,signature:await sign(data)}});
+      args:{target:f.pool,data},nonce:'0',deadline,signature:await signOperation(signedData)}});
     const reclaim=outer.encodeFunctionData('mine',[mining.encodeFunctionData('reclaim',[hash(333)])]);
     assert.equal((await send(reclaim)).status,200,f.errors[0]?.message);
-    assert.equal((await send(`${reclaim}00`)).status,400);
+    assert.equal((await send(`${reclaim}00`,reclaim)).status,400);
     assert.equal((await send(outer.encodeFunctionData('mine',[
       mining.encodeFunctionData('reclaim',[hash(334)])]))).status,409);
     assert.equal((await send(outer.encodeFunctionData('mine',[
-      mining.encodeFunctionData('arm',[address(77),1])]))).status,400);
+      mining.encodeFunctionData('arm',[address(77),1])]),reclaim)).status,400);
     assert.equal(f.calls.length,1);
   } finally {await f.close();}
   const unregistered=fixture({registered:false});
@@ -190,9 +214,8 @@ test('signed pool operation accepts only canonical reclaim for a current fresh m
     const reclaim=outer.encodeFunctionData('mine',[
       new Interface(['function reclaim(bytes32 key)']).encodeFunctionData('reclaim',[hash(333)])]);
     const deadline=String(Math.floor(Date.now()/1000)+300);
-    const signature=await unregistered.admin.signTypedData({name:'BEMine Platform Authority',version:'1',
-      chainId:56,verifyingContract:unregistered.authority},types,{kind:kindHash('APPROVED_OPERATION'),
-      target:unregistered.pool,paramsHash:keccak256(reclaim),nonce:'0',deadline});
+    const signature=await sign(unregistered.admin,unregistered.authority,'executeApprovedOperation',
+      {target:unregistered.pool,data:reclaim},'0',deadline);
     const result=await unregistered.request('/api/journal/authority-relay','POST',{command:{
       authority:unregistered.authority,expectedCodehash:unregistered.codehash,kind:'executeApprovedOperation',
       args:{target:unregistered.pool,data:reclaim},nonce:'0',deadline,signature}});

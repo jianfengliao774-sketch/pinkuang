@@ -128,6 +128,8 @@ export async function abandonPrepared({ account, config = {}, fetcher = globalTh
 function normalize(config, transaction, action) {
   requireValue(config?.status === 'ready' && Number(config.chainId) === 56, '当前尚未配置已验证的 BSC 部署。');
   if (config.manifest) {
+    requireValue((config.readMode === undefined || config.readMode === 'current') && config.stale !== true
+      && config.transactionReady !== false, '历史产品资料仅供展示，请等待最新链上核对。');
     const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
     requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
       && same(config.artifactDigest, expected), '产品阶段或合约摘要已变化，请刷新页面。');
@@ -177,7 +179,8 @@ async function requireCurrentProductStage(config, fetcher) {
   requireValue(url.origin === config.origin && url.pathname.endsWith('/api/journal/product-graph')
     && !url.search && !url.hash, '产品阶段必须由本站核验服务提供。');
   const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
-  requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
+  requireValue(graph.readMode === 'current' && graph.stale === false && graph.transactionReady !== false
+    && graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
     && same(graph.manifest.portfolioFactory, config.portfolioFactory)

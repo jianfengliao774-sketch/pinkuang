@@ -481,6 +481,9 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
                 || block.timestamp - observedAt > 15 minutes
         ) revert ProposalNotPassed();
+        // A platform rejection is final for this proposal, even if a later
+        // market reference falls below its price.
+        if (_budgetGovernanceStorage().saleReviews[proposalId] == 2) revert ProposalNotPassed();
         if (p.price < marketPrice && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
             revert ProposalNotPassed();
         }

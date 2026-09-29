@@ -6,12 +6,31 @@ import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.m
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
+import { saleReferenceState } from './sale-governance-gate.mjs';
 
 const identity = new Interface(['function implementation() view returns(address)', 'function owner() view returns(address)']);
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
+function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, stage }) {
+  const passed = candidate.yesShares >= candidate.threshold
+    && candidate.yesMembers * 2n > candidate.memberCount;
+  const open = state === 2n && !openerExecuted && !candidate.executed && timestamp < candidate.endsAt;
+  if (stage === 'genesis') return { passed, discounted: candidate.threshold === 60n,
+    reviewRequired: false, reviewApproved: null, canExecute: open && passed, executionBlockReason: null };
+  const { saleReference: reference, saleReview: review } = candidate;
+  const discounted = reference?.available ? candidate.price < reference.priceWei : null;
+  const reviewRequired = discounted;
+  const reviewApproved = discounted === true && review?.status === 1n;
+  let executionBlockReason = null;
+  if (review?.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
+  else if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
+  else if (!review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (discounted && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价，尚待平台审核通过。';
+  return { passed, discounted, reviewRequired, reviewApproved,
+    canExecute: open && passed && executionBlockReason === null, executionBlockReason };
+}
 // Leave capacity for other page sections on the 24-active-request read proxy.
 const PORTFOLIO_PAGE_READ_LIMIT = 12;
 function boundedPortfolioReads(read) {
@@ -66,10 +85,11 @@ export async function readPortfolioContext(config, provider, blockNumber) {
     requireValue(code !== '0x' && keccak256(code) === manifest.codehash[key], '预算项目代码与核验清单不一致。');
   }));
   const pf = manifest.portfolioFactory, factoryAbi = abi.BudgetPortfolioFactory;
-  const [legacy, market, beacon, operator, impl, owner, marketFactory, slot, marketSlot, coreMarketSlot, marketOwner, sellerFee, buyerFee] = await Promise.all([
+  const [legacy, market, beacon, operator, impl, owner, marketFactory, legacyMarket, slot, marketSlot, coreMarketSlot, marketOwner, sellerFee, buyerFee] = await Promise.all([
     read(pf, factoryAbi, 'legacyFactory'), read(pf, factoryAbi, 'shareMarket'), read(pf, factoryAbi, 'beacon'),
     read(pf, factoryAbi, 'operator'), read(manifest.portfolioBeacon, identity, 'implementation'),
     read(manifest.portfolioBeacon, identity, 'owner'), read(manifest.portfolioMarket, abi.ShareMarket, 'factory'),
+    read(manifest.factory, abi.PoolFactory, 'shareMarket'),
     request('eth_getStorageAt', [pf, SLOT, tag]),
     request('eth_getStorageAt', [manifest.portfolioMarket, SLOT, tag]),
     request('eth_getStorageAt', [manifest.shareMarket, SLOT, tag]),
@@ -79,6 +99,7 @@ export async function readPortfolioContext(config, provider, blockNumber) {
   requireValue(same(legacy[0], manifest.factory) && same(market[0], manifest.portfolioMarket)
     && same(beacon[0], manifest.portfolioBeacon) && same(impl[0], manifest.portfolioImplementation)
     && same(owner[0], manifest.timelock) && same(marketFactory[0], pf)
+    && same(legacyMarket[0], manifest.shareMarket)
     && /^0x0{24}[a-f\d]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`, manifest.portfolioFactoryImplementation),
   '预算工厂、市场或升级权限关联不一致。');
   requireValue(/^0x0{24}[a-f\d]{40}$/i.test(marketSlot) && marketSlot.toLowerCase() === coreMarketSlot.toLowerCase()
@@ -120,13 +141,29 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
           const cost = context.stage === 'genesis'
             ? (await read(target, contract, 'childInfo', [p.child]))[2] : null;
           requireValue(cost === null || cost > 0n, '创世子矿机购机成本未通过链上核验。');
+          let saleReference = null, saleReview = null;
+          if (context.stage !== 'genesis') {
+            const [referenceResult, reviewResult] = await Promise.allSettled([
+              read(manifest.shareMarket, abi.ShareMarket, 'saleReference', [p.child]),
+              read(target, contract, 'childSaleReview', [id]),
+            ]);
+            saleReference = referenceResult.status === 'fulfilled'
+              ? saleReferenceState(referenceResult.value, timestamp)
+              : Object.freeze({ available: false, reason: 'Firsto 市场参考价暂不可读取。' });
+            const reviewStatus = reviewResult.status === 'fulfilled' ? reviewResult.value[0] : null;
+            saleReview = reviewStatus !== null && reviewStatus <= 2n
+              ? Object.freeze({ available: true, status: reviewStatus })
+              : Object.freeze({ available: false, status: null, reason: '平台审核状态暂不可读取。' });
+          }
           return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
             referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
             yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0],
-            threshold: cost !== null && p.price < cost ? 60n : 51n };
+            threshold: cost !== null && p.price < cost ? 60n : 51n, saleReference, saleReview };
         });
     }));
-    row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt);
+    row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt)
+      .map(candidate => Object.freeze({ ...candidate, ...childSaleExecutionGate({ candidate,
+        openerExecuted: entries[0].executed, state: row.state, timestamp, stage: context.stage }) }));
     row.proposal = row.proposals[0];
   }
   // Display at most 100 children per page; the adapter accepts a cursor for further batches below.
@@ -334,6 +371,8 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
         && candidate.yesShares >= candidate.threshold
         && candidate.yesMembers * 2n > candidate.memberCount,
       '子矿机出售尚未达到该版本链上表决门槛。');
+      if (method === 'executeChildSale') requireValue(candidate.canExecute,
+        candidate.executionBlockReason || '子矿机出售当前不可执行，请重新预览。');
       args = method === 'voteChildSale' ? [candidate.id, action.support] : [candidate.id];
       if (method === 'voteChildSale') requireValue(typeof action.support === 'boolean', '投票选项无效。');
     } else if (method === 'buyOfficial') args = [address(action.child), uint(action.listingId)];

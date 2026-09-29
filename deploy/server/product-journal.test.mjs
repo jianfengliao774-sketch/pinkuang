@@ -36,6 +36,38 @@ test('signing verifier sends independent graph reads to an RPC that cannot answe
   }finally{provider.destroy();await new Promise(resolve=>server.close(resolve));}
 });
 
+test('product signing RPC has a bounded timeout and does not retry HTTP 429', async () => {
+  let mode = 'rate', requests = 0;
+  const server = createServer((req, res) => {
+    requests++;
+    req.resume();
+    if (mode === 'rate') {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '120' });
+      res.end('{}');
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const rpcUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const defaultProvider = createProductVerifierProvider(rpcUrl);
+    assert.equal(defaultProvider._getConnection().timeout, 9_000, 'production signing RPC must not use the ethers 300-second default');
+    defaultProvider.destroy();
+    const limited = createProductVerifierProvider(rpcUrl, 100);
+    assert.equal(limited._getConnection().timeout, 100);
+    await assert.rejects(limited.send('eth_chainId', []));
+    assert.equal(requests, 1, '429 must not trigger a hidden retry or Retry-After delay');
+    limited.destroy();
+    mode = 'hang'; requests = 0;
+    const timed = createProductVerifierProvider(rpcUrl, 80);
+    await assert.rejects(timed.send('eth_chainId', []));
+    assert.equal(requests, 1, 'an unresponsive RPC must terminate after its configured timeout');
+    timed.destroy();
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 async function firstoIntentProof(options = {}) {
   const source=await signedSource(),order=parseFirstoSignedAsk(source,{collection,tokenId:'7',owner:source.account,now});
   const record=intent('buyFromFirsto',[0,order.encodedOrder],'0'),p=proof(record),f=firstoProvider(source,options);

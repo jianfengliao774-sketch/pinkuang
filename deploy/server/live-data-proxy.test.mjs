@@ -168,7 +168,9 @@ test('server reuses exact pinned reads while live headers and latest simulations
   let clock = Date.now(), reads = 0;
   const f = await fixture(t, { now: () => clock, pinnedRpcTtlMs: 1000,
     upstream: (_url, init) => {
-      const request = JSON.parse(init.body); reads++;
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      reads++;
       return json({ jsonrpc: '2.0', id: request.id, result: '0x6001' });
     } });
   const pinned = rpc('eth_getCode', [address, '0xa']);
@@ -185,6 +187,287 @@ test('server reuses exact pinned reads while live headers and latest simulations
   clock += 1000;
   await f.post(pinned);
   assert.equal(reads, 6, 'a pinned result expires at its TTL');
+});
+
+test('local BSC chain ID requires a recent upstream proof and never caches a wrong chain', async t => {
+  let clock=100_000,chain='0x38',proofs=0;
+  const f=await fixture(t,{now:()=>clock,chainIdTtlMs:1000,upstream:(_url,init)=>{
+    const request=JSON.parse(init.body);
+    assert.equal(request.method,'eth_chainId');
+    proofs++;
+    return json({jsonrpc:'2.0',id:request.id,result:chain});
+  }});
+  const first=await f.post(rpc());
+  assert.equal((await first.json()).result,'0x38');
+  assert.equal(proofs,1);
+  const local=await f.post({...rpc(),id:2});
+  assert.equal((await local.json()).result,'0x38');
+  assert.equal(proofs,1,'a verified fixed-chain answer needs no second upstream round trip');
+  chain='0x1';clock+=1000;
+  assert.equal((await f.post({...rpc(),id:3})).status,502);
+  assert.equal(proofs,2,'expired chain proof must be rechecked');
+  chain='0x38';
+  assert.equal((await (await f.post({...rpc(),id:4})).json()).result,'0x38');
+  assert.equal(proofs,3,'wrong-chain evidence cannot seed the local answer');
+});
+
+test('all uncached reads require the same recent BSC identity proof',async t=>{
+  let clock=100_000,chain='0x1',identityReads=0,dataReads=0;
+  const f=await fixture(t,{now:()=>clock,chainIdTtlMs:1000,upstream:(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId'){
+      identityReads++;
+      return json({jsonrpc:'2.0',id:request.id,result:chain});
+    }
+    dataReads++;
+    return json({jsonrpc:'2.0',id:request.id,result:'0x2'});
+  }});
+  const reads=[rpc('eth_blockNumber'),rpc('eth_getStorageAt',[address,'0x0','0xa']),
+    rpc('eth_call',[{to:address,data:'0x'},'latest']),rpc('eth_getCode',[address,'latest'])];
+  for(const request of reads)assert.equal((await f.post(request)).status,502);
+  assert.equal(dataReads,0,'no read may escape to an unverified chain');
+  chain='0x38';
+  for(const request of reads)assert.equal((await (await f.post(request)).json()).result,'0x2');
+  assert.equal(dataReads,reads.length);
+  assert.equal(identityReads,reads.length+1,'a successful short-lived proof is shared by uncached reads');
+  chain='0x1';clock+=1000;
+  assert.equal((await f.post(reads[2])).status,502);
+  assert.equal(dataReads,reads.length,'expiry prevents latest eth_call from reading the wrong chain');
+});
+
+test('numeric headers coalesce and cache briefly; fresh headers invalidate a reorged hash', async t => {
+  let clock=100_000,chain='0x38',headerReads=0,chainReads=0;
+  let currentHash=`0x${'a'.repeat(64)}`;
+  let releaseHeader,headerStarted;
+  const gate=new Promise(resolve=>{releaseHeader=resolve;});
+  const started=new Promise(resolve=>{headerStarted=resolve;});
+  const f=await fixture(t,{now:()=>clock,chainIdTtlMs:1000,headerTtlMs:100,
+    upstream:async(_url,init)=>{
+      const request=JSON.parse(init.body);
+      if(request.method==='eth_chainId'){
+        chainReads++;
+        return json({jsonrpc:'2.0',id:request.id,result:chain});
+      }
+      if(request.method==='eth_getBlockByNumber'){
+        headerReads++;
+        if(headerReads===1){headerStarted();await gate;}
+        return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',hash:currentHash,
+          timestamp:'0x10',transactions:[]}});
+      }
+      throw new Error(`Unexpected RPC ${request.method}`);
+    }});
+  const numbered=rpc('eth_getBlockByNumber',['0xa',false]);
+  const first=f.post(numbered);
+  await started;
+  const second=f.post({...numbered,id:2});
+  await new Promise(resolve=>setTimeout(resolve,10));
+  releaseHeader();
+  const [firstResponse,secondResponse]=await Promise.all([first,second]);
+  // Under a heavily loaded runner the second HTTP request may reach the
+  // server just after the first proof completes; that is a valid cache hit.
+  assert.ok([null,'hit'].includes(secondResponse.headers.get('x-bemine-server-cache')));
+  assert.deepEqual([firstResponse.status,secondResponse.status],[200,200]);
+  assert.deepEqual([(await firstResponse.json()).id,(await secondResponse.json()).id],[1,2]);
+  assert.equal(headerReads,1,'in-flight identical heights share one upstream read');
+  const cached=await f.post({...numbered,id:3});
+  assert.equal(cached.headers.get('x-bemine-server-cache'),'hit');
+  assert.equal(headerReads,1);
+  currentHash=`0x${'b'.repeat(64)}`;
+  const latest=await f.post(rpc('eth_getBlockByNumber',['latest',false]));
+  assert.equal((await latest.json()).result.hash,currentHash);
+  const afterReorg=await f.post({...numbered,id:4});
+  assert.equal(afterReorg.headers.get('x-bemine-server-cache'),null);
+  assert.equal((await afterReorg.json()).result.hash,currentHash);
+  assert.equal(headerReads,3,'a freshly observed conflicting hash discards the numeric cache');
+  clock+=100;
+  currentHash=`0x${'c'.repeat(64)}`;
+  assert.equal((await (await f.post({...numbered,id:5})).json()).result.hash,currentHash);
+  assert.equal(headerReads,4,'the short TTL never turns a new canonical check into a lasting cache hit');
+  chain='0x1';clock+=1000;
+  assert.equal((await f.post({...numbered,id:6})).status,502);
+  assert.equal(headerReads,4,'wrong-chain proof fails before a cached header can be served');
+  chain='0x38';
+  assert.equal((await (await f.post({...numbered,id:7})).json()).result.hash,currentHash);
+  assert.equal(headerReads,5,'recovery requires a fresh header after cache invalidation');
+  assert.equal(chainReads,3);
+});
+
+test('a pinned read cannot reuse or cache an older same-height pending header', async t => {
+  let headerReads=0,releaseOld,oldStarted;
+  const oldGate=new Promise(resolve=>{releaseOld=resolve;});
+  const started=new Promise(resolve=>{oldStarted=resolve;});
+  const oldHash=`0x${'a'.repeat(64)}`,newHash=`0x${'b'.repeat(64)}`;
+  const f=await fixture(t,{upstream:async(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+    if(request.method==='eth_getBlockByNumber'){
+      const ordinal=++headerReads;
+      if(ordinal===1){oldStarted();await oldGate;}
+      return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',
+        hash:ordinal===1?oldHash:newHash,timestamp:'0x10',transactions:[]}});
+    }
+    if(request.method==='eth_call')return json({jsonrpc:'2.0',id:request.id,result:'0x01'});
+    throw new Error(`Unexpected RPC ${request.method}`);
+  }});
+  const header=rpc('eth_getBlockByNumber',['0xa',false]);
+  const pendingOld=f.post(header);
+  await started;
+  assert.equal((await (await f.post(rpc('eth_call',[{to:address,data:'0x'},'0xa']))).json()).result,'0x01');
+  const afterCall=await f.post({...header,id:2});
+  assert.equal((await afterCall.json()).result.hash,newHash,
+    'the post-call header must be fetched after the pinned read');
+  assert.equal(headerReads,2,'the post-call check must not join the older pending header');
+  releaseOld();
+  assert.equal((await pendingOld).status,502,'the invalidated old header cannot escape');
+  const cached=await f.post({...header,id:3});
+  assert.equal((await cached.json()).result.hash,newHash);
+  assert.equal(headerReads,2,'the old response cannot replace the newer header cache');
+});
+
+test('a header started during a pinned read cannot become its post-read check', async t => {
+  let headerReads=0,releaseCall,callStarted,releaseHeader,headerStarted;
+  const callGate=new Promise(resolve=>{releaseCall=resolve;});
+  const callSeen=new Promise(resolve=>{callStarted=resolve;});
+  const headerGate=new Promise(resolve=>{releaseHeader=resolve;});
+  const headerSeen=new Promise(resolve=>{headerStarted=resolve;});
+  const f=await fixture(t,{upstream:async(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+    if(request.method==='eth_call'){
+      callStarted();await callGate;
+      return json({jsonrpc:'2.0',id:request.id,result:'0x01'});
+    }
+    if(request.method==='eth_getBlockByNumber'){
+      const ordinal=++headerReads;
+      if(ordinal===1){headerStarted();await headerGate;}
+      return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',
+        hash:`0x${(ordinal===1?'a':'b').repeat(64)}`,timestamp:'0x10',transactions:[]}});
+    }
+    throw new Error(`Unexpected RPC ${request.method}`);
+  }});
+  const call=f.post(rpc('eth_call',[{to:address,data:'0x'},'0xa']));
+  await callSeen;
+  const header=rpc('eth_getBlockByNumber',['0xa',false]);
+  const pendingDuring=f.post(header);
+  await headerSeen;
+  releaseCall();
+  assert.equal((await call).status,200);
+  const afterCall=await f.post({...header,id:2});
+  assert.equal((await afterCall.json()).result.hash,`0x${'b'.repeat(64)}`);
+  assert.equal(headerReads,2);
+  releaseHeader();
+  assert.equal((await pendingDuring).status,502);
+});
+
+test('a reorg evicts pinned calls and rejects old-fork calls still in flight', async t => {
+  let fork='a',headerReads=0,callReads=0,releaseOld,oldStarted;
+  const oldGate=new Promise(resolve=>{releaseOld=resolve;});
+  const started=new Promise(resolve=>{oldStarted=resolve;});
+  const f=await fixture(t,{upstream:async(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+    if(request.method==='eth_getBlockByNumber'){
+      headerReads++;
+      return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',hash:`0x${fork.repeat(64)}`,
+        timestamp:'0x10',transactions:[]}});
+    }
+    if(request.method==='eth_call'){
+      callReads++;
+      const readFork=fork;
+      if(callReads===2){oldStarted();await oldGate;}
+      return json({jsonrpc:'2.0',id:request.id,result:readFork==='a'?'0xaa':'0xbb'});
+    }
+    throw new Error(`Unexpected RPC ${request.method}`);
+  }});
+  const header=rpc('eth_getBlockByNumber',['0xa',false]);
+  const pinned=rpc('eth_call',[{to:address,data:'0x01'},'0xa']);
+  assert.equal((await (await f.post(header)).json()).result.hash,`0x${'a'.repeat(64)}`);
+  assert.equal((await (await f.post(pinned)).json()).result,'0xaa');
+  const cached=await f.post({...pinned,id:2});
+  assert.equal(cached.headers.get('x-bemine-server-cache'),'hit');
+  assert.equal((await cached.json()).id,2);
+  const pending=f.post({...pinned,params:[{to:address,data:'0x02'},'0xa'],id:3});
+  await started;
+  fork='b';
+  assert.equal((await (await f.post(rpc('eth_getBlockByNumber',['latest',false]))).json()).result.hash,`0x${'b'.repeat(64)}`);
+  releaseOld();
+  assert.equal((await pending).status,502,'an old-fork pending call cannot escape after a new header');
+  const fresh=await f.post({...pinned,id:4});
+  assert.equal(fresh.headers.get('x-bemine-server-cache'),null);
+  assert.deepEqual(await fresh.json(),{jsonrpc:'2.0',id:4,result:'0xbb'});
+  const finalHeader=await f.post({...header,id:5});
+  assert.equal(finalHeader.headers.get('x-bemine-server-cache'),null,'the post-call canonical check stays fresh');
+  assert.equal((await finalHeader.json()).result.hash,`0x${'b'.repeat(64)}`);
+  assert.equal(callReads,3);
+  assert.equal(headerReads,3);
+});
+
+test('failed chain reproof cannot let pending header or code reads repopulate caches', async t => {
+  let clock=100_000,chain='0x38',headerReads=0,codeReads=0,startedReads=0;
+  let releaseReads;
+  const gate=new Promise(resolve=>{releaseReads=resolve;});
+  const f=await fixture(t,{now:()=>clock,chainIdTtlMs:1000,upstream:async(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:chain});
+    if(request.method==='eth_getBlockByNumber'){
+      headerReads++;startedReads++;
+      if(headerReads===1)await gate;
+      return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',hash:`0x${'a'.repeat(64)}`,
+        timestamp:'0x10',transactions:[]}});
+    }
+    if(request.method==='eth_getCode'){
+      codeReads++;startedReads++;
+      if(codeReads===1)await gate;
+      return json({jsonrpc:'2.0',id:request.id,result:'0x6001'});
+    }
+    throw new Error(`Unexpected RPC ${request.method}`);
+  }});
+  assert.equal((await f.post(rpc())).status,200);
+  const header=rpc('eth_getBlockByNumber',['0xa',false]);
+  const code=rpc('eth_getCode',[address,'0xa']);
+  const pendingHeader=f.post(header),pendingCode=f.post(code);
+  while(startedReads<2)await new Promise(resolve=>setTimeout(resolve,1));
+  chain='0x1';clock+=1000;
+  assert.equal((await f.post({...rpc(),id:2})).status,502);
+  releaseReads();
+  assert.deepEqual(await Promise.all([pendingHeader,pendingCode].map(async request=>(await request).status)),[502,502]);
+  chain='0x38';
+  assert.equal((await f.post({...rpc(),id:3})).status,200);
+  const recoveredHeader=await f.post({...header,id:4});
+  const recoveredCode=await f.post({...code,id:5});
+  assert.equal(recoveredHeader.headers.get('x-bemine-server-cache'),null);
+  assert.equal(recoveredCode.headers.get('x-bemine-server-cache'),null);
+  assert.equal((await recoveredHeader.json()).id,4);
+  assert.equal((await recoveredCode.json()).id,5);
+  assert.equal(headerReads,2);
+  assert.equal(codeReads,2);
+});
+
+test('a slow old-fork header cannot overwrite a newer observed canonical hash', async t => {
+  let reads=0,releaseOld,oldStarted;
+  const gate=new Promise(resolve=>{releaseOld=resolve;});
+  const started=new Promise(resolve=>{oldStarted=resolve;});
+  const oldHash=`0x${'a'.repeat(64)}`,newHash=`0x${'b'.repeat(64)}`;
+  const f=await fixture(t,{upstream:async(_url,init)=>{
+    const request=JSON.parse(init.body);
+    if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+    assert.equal(request.method,'eth_getBlockByNumber');
+    reads++;
+    const old=reads===1;
+    if(old){oldStarted();await gate;}
+    return json({jsonrpc:'2.0',id:request.id,result:{number:'0xa',
+      hash:old?oldHash:newHash,timestamp:'0x10',transactions:[]}});
+  }});
+  const numbered=rpc('eth_getBlockByNumber',['0xa',false]);
+  const old=f.post(numbered);
+  await started;
+  assert.equal((await (await f.post(rpc('eth_getBlockByNumber',['latest',false]))).json()).result.hash,newHash);
+  releaseOld();
+  assert.equal((await (await old).json()).result.hash,oldHash);
+  const current=await f.post({...numbered,id:3});
+  assert.equal(current.headers.get('x-bemine-server-cache'),null);
+  assert.equal((await current.json()).result.hash,newHash);
+  assert.equal(reads,3);
 });
 
 test('oversized upstream bodies, timeout and exhausted concurrency are bounded', async t => {
@@ -207,19 +490,20 @@ test('short bounded queue absorbs read bursts above the active RPC limit without
       active--;
       return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
     } });
-  const first = f.post(rpc());
+  const read=rpc('eth_blockNumber');
+  const first = f.post(read);
   while (calls === 0) await new Promise(resolve => setTimeout(resolve, 1));
-  const second = f.post({ ...rpc(), id: 2 });
-  const third = f.post({ ...rpc(), id: 3 });
+  const second = f.post({ ...read, id: 2 });
+  const third = f.post({ ...read, id: 3 });
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal((await f.get('/api/chain-index/v1/private')).status, 404,
     'invalid routes must be rejected before they can occupy the queue');
-  assert.equal((await f.post({ ...rpc(), id: 4 })).status, 503,
+  assert.equal((await f.post({ ...read, id: 4 })).status, 503,
     'the queue remains bounded under overload');
   releaseFirst();
   assert.deepEqual(await Promise.all([first, second, third].map(async request => (await request).status)), [200, 200, 200]);
   assert.equal(peak, 1);
-  assert.equal(calls, 3);
+  assert.equal(calls, 4,'one chain proof plus three admitted reads');
 });
 
 test('queued reads expire instead of waiting behind a stalled upstream', async t => {
@@ -231,16 +515,21 @@ test('queued reads expire instead of waiting behind a stalled upstream', async t
       if (calls === 1) await gate;
       return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
     } });
-  const first = f.post(rpc());
+  const read=rpc('eth_blockNumber');
+  const first = f.post(read);
   while (calls === 0) await new Promise(resolve => setTimeout(resolve, 1));
-  assert.equal((await f.post({ ...rpc(), id: 2 })).status, 503);
+  assert.equal((await f.post({ ...read, id: 2 })).status, 503);
   releaseFirst();
   assert.equal((await first).status, 200);
-  assert.equal((await f.post({ ...rpc(), id: 3 })).status, 200);
-  assert.equal(calls, 2, 'expired request must never reach the RPC upstream');
+  assert.equal((await f.post({ ...read, id: 3 })).status, 200);
+  assert.equal(calls, 3, 'one chain proof and two reads; the expired request never reaches the RPC upstream');
 });
 
 test('upstream error details are not reflected to visitors', async t => {
-  const f = await fixture(t, { upstream: () => json({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'private-key-or-secret-url' } }) });
-  const result = await f.post(rpc()); assert.equal(result.status, 200); assert(!(await result.text()).includes('private-key-or-secret-url'));
+  const f = await fixture(t, { upstream: (_url,init) => {
+    const request=JSON.parse(init.body);
+    return request.method==='eth_chainId' ? json({jsonrpc:'2.0',id:request.id,result:'0x38'})
+      : json({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'private-key-or-secret-url' } });
+  } });
+  const result = await f.post(rpc('eth_blockNumber')); assert.equal(result.status, 200); assert(!(await result.text()).includes('private-key-or-secret-url'));
 });

@@ -10,6 +10,15 @@ const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function all
 const POOL_ABI = ['function state() view returns(uint8)'];
 const serial = value => JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item);
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
+export const needsOperatorReview = status => /review-required|manual-review|unknown|(?:nonce|chain)-changed/.test(status ?? '');
+export function reportOperatorReview(results, log = console.error) {
+  const review = results.find(item => needsOperatorReview(item.status));
+  if (!review) return false;
+  log(serial({ at: new Date().toISOString(), status: 'operator-review-required', pool: review.pool,
+    reason: review.status, message: 'No automatic rebroadcast. Inspect the durable journal before resuming.' }));
+  process.exitCode = 1;
+  return true;
+}
 
 export function parseSupervisorArguments(args) {
   const values = {};
@@ -100,7 +109,7 @@ export async function runSupervisorCycle(provider, options, signer, state) {
       state.runtimes.set(pool, runtime);
       const result = await runKeeperCycle(provider, { ...options, pool, journal, venue: 'auto', refreshInterval: 30 }, signer, fetch, runtime);
       results.push({ pool, ...result });
-      if (options.send && (unresolved(journalFor(pool)) || result.terminal || /review-required|unknown|nonce-or-chain-changed/.test(result.status))) break;
+      if (options.send && (unresolved(journalFor(pool)) || result.terminal || needsOperatorReview(result.status))) break;
     } finally { releaseWallet?.(); releaseJournal(); }
   }
   return { status: 'scanned', poolCount: pools.length, fundedCount: [...states.values()].filter(value => value === 1n).length, results };
@@ -150,7 +159,7 @@ export async function main(args = process.argv.slice(2)) {
       try {
         const result = await runSupervisorCycle(provider, options, signer, state);
         console.log(serial({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
-        if (result.results.some(item => /review-required|unknown|nonce-or-chain-changed/.test(item.status))) break;
+        if (reportOperatorReview(result.results)) break;
       } catch (error) {
         const message = String(error.shortMessage ?? error.message ?? 'Purchase supervisor cycle failed.')
           .replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]')

@@ -35,7 +35,7 @@ def reviewed_unit(*, credential=True, flags=False):
         'Environment=BEMINE_READ_RPC_URL=https://bsc.example/rpc',
         'Environment=BEMINE_INDEX_URL=http://127.0.0.1:4184',
         'Environment=BEMINE_NOTIFICATIONS_ENABLED=0',
-        'Environment=BEMINE_EXPECTED_GAS_WALLET=' + script['base']['GAS_WALLET'],
+        script['LEGACY_GAS_WALLET_ENV'].rstrip('\n'),
         'Environment=AUTHORITY_RELAY_ENABLED=0',
     ]
     if flags:
@@ -75,6 +75,7 @@ class ConsoleCredentialTests(unittest.TestCase):
     def test_replacement_removes_key_and_sets_both_holds_before_staging(self):
         updated = replacement_unit(reviewed_unit(flags=False), OLD, NEW)
         self.assertNotIn('LoadCredential=', updated)
+        self.assertNotIn('BEMINE_EXPECTED_GAS_WALLET=', updated)
         self.assertIn(f'WorkingDirectory={NEW}\n', updated)
         self.assertIn(f'ExecStart=/usr/bin/node {NEW}/server/index.mjs\n', updated)
         self.assertEqual(updated.count('Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=1\n'), 1)
@@ -101,6 +102,19 @@ class ConsoleCredentialTests(unittest.TestCase):
     def test_replacement_accepts_key_already_absent(self):
         updated = replacement_unit(reviewed_unit(credential=False, flags=True), OLD, NEW)
         self.assertNotIn('LoadCredential=', updated)
+        self.assertNotIn('BEMINE_EXPECTED_GAS_WALLET=', updated)
+
+    def test_replacement_accepts_console_without_old_gas_address(self):
+        old = reviewed_unit(credential=False, flags=True).replace(script['LEGACY_GAS_WALLET_ENV'], '')
+        updated = replacement_unit(old, OLD, NEW)
+        review_unit(updated, NEW, expect_credential=False, require_flags=True)
+
+    def test_replacement_rejects_unreviewed_gas_wallet_address(self):
+        old = reviewed_unit(credential=False, flags=True)
+        changed = old.replace('0xA285d1933e32b5990625aC1F5BEa205Cf2606619',
+                              '0x1111111111111111111111111111111111111111')
+        with self.assertRaisesRegex(RuntimeError, 'unreviewed Gas wallet'):
+            replacement_unit(changed, OLD, NEW)
 
 
 class EmptyJournalTests(unittest.TestCase):

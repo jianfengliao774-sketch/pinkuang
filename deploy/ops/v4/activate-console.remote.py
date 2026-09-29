@@ -30,7 +30,6 @@ RELEASES = Path('/srv/pinkuang-deploy-v4/releases')
 DB_DIR = Path('/var/lib/pinkuang-deploy-v4')
 ANCHOR = '    include /etc/nginx/snippets/pinkuang-deploy-v3.conf;\n'
 INCLUDE = '    include /etc/nginx/snippets/pinkuang-deploy-v4.conf;\n'
-GAS_WALLET = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619'
 ALLOWED = {'dist', 'public', 'server', 'shared', 'scripts', 'src', 'package.json', 'package-lock.json'}
 REQUIRED = {'dist/index.html', 'dist/deployment-artifacts.json',
             'public/deployment-artifacts.json', 'public/fresh-release-manifest.json',
@@ -226,7 +225,6 @@ def main():
             'BEMINE_NOTIFICATIONS_ENABLED': '0',
             'BEMINE_FRESH_CONSOLE_PRE_GENESIS': '1',
             'BEMINE_FRESH_STAGE2_HOLD': '1',
-            'BEMINE_EXPECTED_GAS_WALLET': GAS_WALLET,
             'AUTHORITY_RELAY_ENABLED': '0',
         }
         unit = ('[Unit]\nDescription=BEMine v4 hardware-wallet deployment console (pre-genesis)\n'

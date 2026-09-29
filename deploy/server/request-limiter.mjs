@@ -1,12 +1,35 @@
+import { isIP } from 'node:net';
+
 /** A small, bounded per-client limiter for public entry points before database or RPC work. */
+function normalizedClient(address) {
+  const version = isIP(address);
+  if (version !== 6) return address;
+  // Treat an IPv6 /64 as one client so rotating interface addresses cannot
+  // reset the quota or fill the bounded client table. Preserve IPv4-mapped
+  // addresses as individual IPv4 clients instead of grouping all of them.
+  let expanded = address.toLowerCase();
+  const dotted = expanded.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const octets = dotted[2].split('.').map(Number);
+    expanded = `${dotted[1]}${(octets[0] << 8 | octets[1]).toString(16)}:${(octets[2] << 8 | octets[3]).toString(16)}`;
+  }
+  const halves = expanded.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves[1] ? halves[1].split(':') : [];
+  const words = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right].map(word => parseInt(word, 16));
+  if (words.slice(0, 5).every(word => word === 0) && (words[5] === 0xffff || words[5] === 0))
+    return `${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`;
+  return `${words.slice(0, 4).map(word => word.toString(16).padStart(4, '0')).join(':')}::/64`;
+}
+
 export function clientAddress(req) {
   const peer = req.socket?.remoteAddress || 'unknown';
   // Only the loopback nginx hop is trusted to identify the public client.
   if (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') {
     const forwarded = req.headers?.['x-real-ip'];
-    if (typeof forwarded === 'string' && /^[\da-fA-F:.]{3,45}$/.test(forwarded)) return forwarded;
+    if (typeof forwarded === 'string' && isIP(forwarded)) return normalizedClient(forwarded);
   }
-  return peer;
+  return normalizedClient(peer);
 }
 
 export function createRequestLimiter({ windowMs = 60_000, perClient, maxClients = 10_000, now = Date.now }) {

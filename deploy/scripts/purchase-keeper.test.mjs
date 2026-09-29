@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -93,6 +94,32 @@ test('exclusive lock prevents another process from using the same journal and re
   release(); release();
   assert.equal(statSync(root).mode & 0o777, 0o700);
   const next = acquireKeeperLock(path, root); next();
+});
+test('OS keeper lock survives a stale file, excludes another process and is released by process exit', t => {
+  const path = temporary(t), root = join(path, '..', 'crash-locks');
+  const moduleUrl = new URL('./purchase-keeper.mjs', import.meta.url).href;
+  const childCode = `import { acquireKeeperLock } from ${JSON.stringify(moduleUrl)}; acquireKeeperLock(${JSON.stringify(path)}, ${JSON.stringify(root)});`;
+  const holder = acquireKeeperLock(path, root);
+  const blocked = spawnSync(process.execPath, ['--input-type=module', '-e', childCode], { encoding: 'utf8' });
+  assert.notEqual(blocked.status, 0, 'a separate process must not acquire the live inode');
+  holder();
+  const crash = spawnSync(process.execPath, ['--input-type=module', '-e', childCode], { encoding: 'utf8' });
+  assert.equal(crash.status, 0, crash.stderr);
+  const [lockFile] = readdirSync(root);
+  assert.equal(statSync(join(root, lockFile)).mode & 0o777, 0o600);
+  const recovered = acquireKeeperLock(path, root);
+  recovered();
+  assert.deepEqual(readdirSync(root), [lockFile], 'stable lock inode is never unlinked');
+});
+test('rolling upgrade refuses a live legacy O_EXCL owner and recovers a proven-dead PID', t => {
+  const path = temporary(t), root = join(path, '..', 'legacy-locks');
+  const release = acquireKeeperLock(path, root); release();
+  const lock = join(root, readdirSync(root)[0]);
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, resource: path }));
+  assert.throws(() => acquireKeeperLock(path, root), /Legacy keeper lock owner may still be running/);
+  writeFileSync(lock, JSON.stringify({ pid: 99_999_999, resource: path }));
+  const recovered = acquireKeeperLock(path, root); recovered();
+  assert.equal(JSON.parse(readFileSync(lock, 'utf8')).lockProtocol, 'flock-v1');
 });
 test('unknown broadcast blocks all chain reads and all resends until a matching receipt is provided', async t => {
   const path = temporary(t); writeJournal(path, pending());

@@ -17,8 +17,16 @@ const manifest = { schemaVersion: 1, chainId: 56, factory, shareMarket, lens, be
   deployment: { txHash, blockNumber: 8, blockHash: deploymentHash }, artifactDigest: ARTIFACT_DIGEST,
   sourceCommit: 'a'.repeat(40), verifiedAt: new Date(now).toISOString(), verifiedBlockNumber: 9,
   codehash: Object.fromEntries(MANIFEST_KEYS.map(key => [key, keccak256(code)])) };
+const portfolioFactory = addr(111), portfolioMarket = addr(112), portfolioBeacon = addr(113);
+const portfolioImplementation = addr(114), portfolioFactoryImplementation = addr(115), portfolio = addr(116);
+const integratedManifest = { ...manifest, kind: 'integrated-v2', portfolioFactory, portfolioMarket,
+  portfolioBeacon, portfolioImplementation, portfolioFactoryImplementation,
+  codehash: { ...manifest.codehash, ...Object.fromEntries([
+    'portfolioFactory', 'portfolioMarket', 'portfolioBeacon', 'portfolioImplementation',
+    'portfolioFactoryImplementation'].map(key => [key, keccak256(code)])) } };
 const config = { status: 'ready', manifest, origin, basePath: '/bemine',
   indexBaseUrl: `${origin}/api/chain-index`, rpcUrl: `${origin}/api/rpc` };
+const integratedConfig = { ...config, manifest: integratedManifest };
 const source = { chainId: 56, factory, market: shareMarket, startBlock: 8, confirmations: 12,
   indexedThrough: 10, indexedBlockHash: blockHash, indexedTimestamp: timestamp, observedSafeHead: 10,
   complete: true, checkedAt: new Date(now).toISOString(), unknownReason: null };
@@ -58,7 +66,8 @@ function provider(options = {}) {
     assert.equal(method, 'eth_call'); assert.equal(args[1], toQuantity(options.blockNumber ?? 10n));
     const { to, data } = args[0];
     let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
-      : to === pool ? abi.PoolVault : bindings;
+      : to === portfolioFactory ? abi.BudgetPortfolioFactory : (options.portfolios ?? []).includes(to) ? abi.BudgetPortfolioVault
+        : to === pool ? abi.PoolVault : bindings;
     let parsed = iface.parseTransaction({ data });
     if (!parsed && to === shareMarket) { iface = saleViews; parsed = iface.parseTransaction({ data }); }
     if (!parsed) { iface = bindings; parsed = iface.parseTransaction({ data }); }
@@ -70,6 +79,14 @@ function provider(options = {}) {
     else if (name === 'beacon') value = beacon;
     else if (name === 'VERSION') value = options.lensVersion ?? 1n;
     else if (name === 'poolCount') value = BigInt(options.totalPools ?? rows.length);
+    else if (name === 'designatedSubscriber') value = options.subscribers?.[getAddress(parsed.args[0])] ?? ZeroAddress;
+    else if (name === 'legacyFactory') value = factory;
+    else if (name === 'portfolioCount') value = BigInt((options.portfolios ?? []).length);
+    else if (name === 'portfolioAt') value = options.portfolios[Number(parsed.args[0])];
+    else if (name === 'childCount') value = BigInt(options.childCounts?.[getAddress(to)] ?? 0);
+    else if (name === 'isPool') value = (options.portfolios ?? []).includes(getAddress(parsed.args[0]));
+    else if (name === 'childInfo') value = [options.acquiredChildren?.includes(getAddress(parsed.args[0])) ? collection : ZeroAddress,
+      0n, 0n, false, false];
     else if (name === 'nextOrderId') value = 2n;
     else if (name === 'positions') value = { blockNumber: BigInt(options.blockNumber ?? 10), timestamp: BigInt(timestamp),
       totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
@@ -93,7 +110,7 @@ function provider(options = {}) {
       value = [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n];
     }
     else throw new Error(`unexpected call ${name}`);
-    return iface.encodeFunctionResult(name, ['saleReference', 'saleReview'].includes(name) ? value : [value]);
+    return iface.encodeFunctionResult(name, ['saleReference', 'saleReview', 'childInfo'].includes(name) ? value : [value]);
   } };
 }
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -206,6 +223,21 @@ test('fresh graph is readable with complete Authority and Factory proof while tr
     {manifest:{...active.manifest,gasWallet:addr(204)}},
     {manifest:{...active.manifest,freshAuthority:{...proof,codehash:deploymentHash}}}])
     assert.throws(()=>validateProductGraph({...active,...change},v3Genesis));
+});
+
+test('a verified historical product graph remains display-only after boot', async () => {
+  const current = verifiedGraph({ readMode: 'current', stale: false });
+  const historical = { ...current, readMode: 'verified_snapshot', stale: true,
+    refreshing: true, transactionReady: false, operationalReady: false, snapshotAgeMs: 12_000 };
+  const config = await loadLiveConfig({ origin, fetcher: configFetcher(historical) });
+  assert.equal(config.status, 'ready');
+  assert.equal(config.readMode, 'verified_snapshot');
+  assert.equal(config.stale, true);
+  assert.equal(config.transactionReady, false);
+  assert.equal(config.snapshotAgeMs, 12_000);
+  for (const change of [{ transactionReady: true }, { operationalReady: true },
+    { refreshing: undefined }, { snapshotAgeMs: -1 }, { readMode: 'current' }])
+    assert.throws(() => validateProductGraph({ ...historical, ...change }), { code: 'product_graph' });
 });
 
 test('HTTP provider never requests wallet permission or signs/sends, and checks response ID', async () => {
@@ -481,13 +513,218 @@ test('an older index without the snapshot route falls through to confirmed direc
   assert.equal(result.items[0].pool, pool);
 });
 
+test('legacy Factory reads never request the integrated-only child reservation selector', async () => {
+  const base = provider({ latestBlockNumber: 22n });
+  const selector = abi.PoolFactory.getFunction('designatedSubscriber').selector;
+  const rpc = { calls: base.calls, request: async request => {
+    if (request.method === 'eth_call' && request.params[0].to === factory
+      && request.params[0].data.startsWith(selector)) throw new Error('legacy Factory has no selector');
+    return base.request(request);
+  } };
+  const c = createLiveDataClient(config, { provider: rpc,
+    fetcher: async url => new URL(url).pathname.endsWith('/v1/pools')
+      ? response({ source, data: poolsData }) : response({ error: 'unavailable' }, 503), now: () => now });
+  assert.equal((await c.readPools({ account })).items[0].pool, pool);
+  const direct = createLiveDataClient(config, { provider: rpc,
+    fetcher: async () => response({ error: 'unavailable' }, 503), now: () => now });
+  assert.equal((await direct.readPools({ account })).items[0].pool, pool);
+  assert.equal(base.calls.filter(request => request.method === 'eth_call'
+    && request.params[0].to === factory && request.params[0].data.startsWith(selector)).length, 0);
+});
+
+test('genesis integrated-v2 graph does not assume its old Factory has designatedSubscriber', async () => {
+  const old = { ...integratedConfig, stage: 'genesis',
+    manifest: { ...integratedManifest, artifactDigest: GENESIS_ARTIFACT_DIGEST } };
+  const base = provider({ latestBlockNumber: 22n });
+  const selector = abi.PoolFactory.getFunction('designatedSubscriber').selector;
+  const rpc = { calls: base.calls, request: async request => {
+    if (request.method === 'eth_call' && request.params[0].to === factory
+      && request.params[0].data.startsWith(selector)) throw new Error('old integrated Factory has no selector');
+    return base.request(request);
+  } };
+  const directory = { ...poolsData, registeredPoolCount: '1', childPoolCount: '0', standalonePoolCount: '1' };
+  const indexed = createLiveDataClient(old, { provider: rpc,
+    fetcher: indexFetcher({ '/v1/pools': directory }), now: () => now });
+  assert.equal((await indexed.readPools({ account })).items[0].pool, pool);
+  const direct = createLiveDataClient(old, { provider: rpc,
+    fetcher: async () => response({ error: 'unavailable' }, 503), now: () => now });
+  assert.equal((await direct.readPools({ account })).items[0].pool, pool);
+  assert.equal(base.calls.filter(request => request.method === 'eth_call'
+    && request.params[0].to === factory && request.params[0].data.startsWith(selector)).length, 0);
+});
+
 test('pool directory counts exclude portfolio children without reporting missing Factory registrations', async () => {
-  const directory = { ...poolsData, registeredPoolCount: '2', childPoolCount: '1', standalonePoolCount: '1' };
-  const result = await client({ '/v1/pools': directory }, { totalPools: 2 }).readPools({ account });
+  const directory = { ...poolsData, registeredPoolCount: '2', childPoolCount: '1', standalonePoolCount: '1',
+    reservedChildPoolCount: '0', reservedChildPoolAddresses: [], reservedChildPoolAddressesComplete: true };
+  const budgetOptions = { totalPools: 2, portfolios: [portfolio], childCounts: { [portfolio]: 1 } };
+  const result = await createLiveDataClient(integratedConfig, { provider: provider(budgetOptions),
+    fetcher: indexFetcher({ '/v1/pools': directory }), now: () => now }).readPools({ account });
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].pool, pool);
-  await assert.rejects(client({ '/v1/pools': { ...directory, childPoolCount: '0' } }, { totalPools: 2 }).readPools({ account }),
+  await assert.rejects(createLiveDataClient(integratedConfig, { provider: provider(budgetOptions),
+    fetcher: indexFetcher({ '/v1/pools': { ...directory, childPoolCount: '0' } }), now: () => now }).readPools({ account }),
     { code: 'index_coverage' });
+  await assert.rejects(createLiveDataClient(integratedConfig, { provider: provider(budgetOptions),
+    fetcher: indexFetcher({ '/v1/pools': { ...directory, childPoolCount: '2', standalonePoolCount: '0' } }), now: () => now }).readPools({ account }),
+    { code: 'index_coverage' });
+});
+
+test('pending budget child never appears as a public project through index or direct chain fallback', async () => {
+  const reserved = addr(117), rows = [row({ pool: reserved, state: 0n }), row()];
+  const options = { latestBlockNumber: 22n, rows, subscribers: { [reserved]: portfolio } };
+  const directory = { items: [
+    { address: reserved, collection, circuitId: '11', createdBlock: 9 },
+    { address: pool, collection, circuitId: params.circuitId.toString(), createdBlock: 9 },
+  ], nextCursor: null, registeredPoolCount: '2', childPoolCount: '0', standalonePoolCount: '1',
+    reservedChildPoolCount: '1', reservedChildPoolAddresses: [reserved], reservedChildPoolAddressesComplete: true };
+  const indexed = await createLiveDataClient(integratedConfig, { provider: provider(options),
+    fetcher: indexFetcher({ '/v1/pools': directory }), now: () => now }).readPools({ account });
+  assert.equal(indexed.source.readMode, 'direct_chain', 'a page containing a reserved child falls back to verified direct discovery');
+  assert.deepEqual(indexed.items.map(item => item.pool), [pool]);
+  assert.equal(indexed.nextCursor, null);
+
+  const direct = await createLiveDataClient(integratedConfig, { provider: provider(options),
+    fetcher: async () => response({ error: 'unavailable' }, 503), now: () => now }).readPools({ account });
+  assert.deepEqual(direct.items.map(item => item.pool), [pool]);
+
+  const later = await createLiveDataClient(integratedConfig, { provider: provider({ ...options,
+    rows: [...Array.from({ length: 20 }, (_, index) => row({ pool: addr(200 + index), state: 0n })), row()],
+    subscribers: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [addr(200 + index), portfolio])) }),
+    fetcher: async () => response({ error: 'unavailable' }, 503), now: () => now }).readPools({ account });
+  assert.deepEqual(later.items.map(item => item.pool), [pool], 'all-child first batch must scan onward');
+  assert.equal(later.nextCursor, null);
+
+  const secondPublic = addr(250);
+  const pagedRpc = provider({ ...options,
+    rows: [...Array.from({ length: 20 }, (_, index) => row({ pool: addr(200 + index), state: 0n })),
+      row(), row({ pool: secondPublic })],
+    subscribers: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [addr(200 + index), portfolio])) });
+  const paged = createLiveDataClient(integratedConfig, { provider: pagedRpc,
+    fetcher: async () => response({ error: 'unavailable' }, 503), now: () => now });
+  const first = await paged.readPools({ account, limit: 1 });
+  assert.deepEqual(first.items.map(item => item.pool), [pool]);
+  assert.equal(first.nextCursor, 21);
+  const second = await paged.readPools({ account, limit: 1, cursor: first.nextCursor, source: first.source });
+  assert.deepEqual(second.items.map(item => item.pool), [secondPublic]);
+  assert.equal(second.nextCursor, null);
+});
+
+test('canonical reservation checks are reused on refresh without repeating pool calls', async () => {
+  const rpc = provider(), directory = { ...poolsData, registeredPoolCount: '1', childPoolCount: '0',
+    standalonePoolCount: '1', reservedChildPoolCount: '0', reservedChildPoolAddresses: [],
+    reservedChildPoolAddressesComplete: true };
+  const c = createLiveDataClient(integratedConfig, { provider: rpc,
+    fetcher: indexFetcher({ '/v1/pools': directory }), now: () => now });
+  await c.readPools({ account });
+  const first = rpc.calls.filter(call => call.method === 'eth_call'
+    && call.params[0].data.startsWith(abi.PoolFactory.getFunction('designatedSubscriber').selector)).length;
+  assert.equal(first, 1);
+  await c.readPools({ account });
+  const second = rpc.calls.filter(call => call.method === 'eth_call'
+    && call.params[0].data.startsWith(abi.PoolFactory.getFunction('designatedSubscriber').selector)).length;
+  assert.equal(second, first);
+});
+
+test('a changed proof block invalidates cached child classification before a newer source is shown', async () => {
+  const options = { blockNumber: 10n }, base = provider(options);
+  let indexed = source, changedOldBlock = false;
+  const rpc = { calls: base.calls, async request(request) {
+    const value = await base.request(request);
+    if (changedOldBlock && request.method === 'eth_getBlockByNumber' && request.params[0] === '0xa')
+      return { ...value, hash: deploymentHash };
+    return value;
+  } };
+  const directory = { ...poolsData, registeredPoolCount: '1', childPoolCount: '0',
+    standalonePoolCount: '1', reservedChildPoolCount: '0', reservedChildPoolAddresses: [],
+    reservedChildPoolAddressesComplete: true };
+  const c = createLiveDataClient(integratedConfig, { provider: rpc,
+    fetcher: async () => response({ source: indexed, data: directory }), now: () => now });
+  const reservationReads = () => rpc.calls.filter(call => call.method === 'eth_call'
+    && call.params[0].data.startsWith(abi.PoolFactory.getFunction('designatedSubscriber').selector)).length;
+  await c.readPools({ account });
+  assert.equal(reservationReads(), 1);
+  indexed = { ...source, indexedThrough: 11, observedSafeHead: 11 };
+  options.blockNumber = 11n;
+  changedOldBlock = true;
+  await c.readPools({ account });
+  assert.equal(reservationReads(), 2, 'a reorged proof block must force a fresh same-block classification');
+  indexed = { ...source, indexedThrough: 12, observedSafeHead: 12 };
+  options.blockNumber = 12n;
+  changedOldBlock = false;
+  await c.readPools({ account });
+  assert.equal(reservationReads(), 2, 'a canonical proof may be reused on a later verified block');
+});
+
+test('indexed statistics use server-verified child count without enumerating budget vaults per page', async () => {
+  const stats = { scope: 'confirmed_indexed_history', registeredPoolCount: '2', standalonePoolCount: '1',
+    childPoolCount: '1', reservedChildPoolCount: '0', reservedChildPoolAddresses: [], reservedChildPoolAddressesComplete: true,
+    portfolioCount: '1', topLevelProjectCount: '2', everParticipantAddressCount: '2',
+    purchasedCostWei: '0', shareMarketFilledGrossWei: '0', harvestedToMembersBemAtomic: '0' };
+  const budgetOptions = { totalPools: 2, portfolios: [portfolio], childCounts: { [portfolio]: 1 } };
+  const fetcher = indexFetcher({ '/v1/stats': stats });
+  const rpc = provider(budgetOptions);
+  const result = await createLiveDataClient(integratedConfig, { provider: rpc,
+    fetcher, now: () => now }).readStats();
+  assert.equal(result.data.childPoolCount, 1n);
+  assert.equal(rpc.calls.filter(request => request.method === 'eth_call'
+    && request.params[0].data.startsWith(abi.BudgetPortfolioVault.getFunction('childCount').selector)).length, 0);
+});
+
+test('500 budget projects and 500 reservations do not cause fleet-wide browser RPC reads', async () => {
+  const budgetPools = Array.from({ length: 500 }, (_, index) => addr(1000 + index));
+  const reservations = Array.from({ length: 500 }, (_, index) => addr(2000 + index));
+  const options = { totalPools: 1001, portfolios: budgetPools };
+  const directory = { ...poolsData, registeredPoolCount: '1001', childPoolCount: '500',
+    reservedChildPoolCount: '500', reservedChildPoolAddresses: reservations,
+    reservedChildPoolAddressesComplete: true, standalonePoolCount: '1' };
+  const stats = { scope: 'confirmed_indexed_history', registeredPoolCount: '1001', standalonePoolCount: '1',
+    childPoolCount: '500', reservedChildPoolCount: '500', reservedChildPoolAddresses: reservations,
+    reservedChildPoolAddressesComplete: true, portfolioCount: '500', topLevelProjectCount: '501',
+    everParticipantAddressCount: '1', purchasedCostWei: '0', shareMarketFilledGrossWei: '0',
+    harvestedToMembersBemAtomic: '0' };
+  const rpc = provider(options);
+  const c = createLiveDataClient(integratedConfig, { provider: rpc,
+    fetcher: indexFetcher({ '/v1/pools': directory, '/v1/stats': stats }), now: () => now });
+  assert.equal((await c.readPools({ account })).items.length, 1);
+  assert.equal((await c.readStats()).data.childPoolCount, 500n);
+  assert(rpc.calls.length < 100, 'browser reads must stay bounded independently of the number of budget projects');
+  const globalSelectors = [abi.BudgetPortfolioFactory.getFunction('portfolioAt').selector,
+    abi.BudgetPortfolioFactory.getFunction('isPool').selector,
+    abi.BudgetPortfolioVault.getFunction('childCount').selector,
+    abi.BudgetPortfolioVault.getFunction('childInfo').selector];
+  assert.equal(rpc.calls.filter(request => request.method === 'eth_call'
+    && globalSelectors.some(selector => request.params[0].data.startsWith(selector))).length, 0);
+});
+
+test('indexed reserved child list is complete, distinct and disjoint from visible rows', async () => {
+  const reserved = addr(118), options = { totalPools: 2, portfolios: [portfolio],
+    subscribers: { [reserved]: portfolio } };
+  const directory = { ...poolsData, registeredPoolCount: '2', childPoolCount: '0',
+    reservedChildPoolCount: '1', reservedChildPoolAddresses: [reserved], reservedChildPoolAddressesComplete: true,
+    standalonePoolCount: '1' };
+  const read = data => createLiveDataClient(integratedConfig, { provider: provider(options),
+    fetcher: indexFetcher({ '/v1/pools': data }), now: () => now }).readPools({ account });
+  const good = await read(directory);
+  assert.deepEqual(good.items.map(item => item.pool), [pool]);
+  await assert.rejects(read({ ...directory, reservedChildPoolAddresses: [pool] }), { code: 'index_coverage' });
+  await assert.rejects(read({ ...directory, reservedChildPoolCount: '2',
+    reservedChildPoolAddresses: [reserved, reserved] }), { code: 'index_coverage' });
+  await assert.rejects(read({ ...directory, reservedChildPoolAddressesComplete: false }), { code: 'index_coverage' });
+  await assert.rejects(createLiveDataClient(integratedConfig, { provider: provider({ ...options,
+    acquiredChildren: [reserved], childCounts: { [portfolio]: 1 } }),
+    fetcher: indexFetcher({ '/v1/pools': { ...directory, childPoolCount: '1', standalonePoolCount: '0' } }),
+    now: () => now }).readPools({ account }), { code: 'index_coverage' });
+
+  const stats = { scope: 'confirmed_indexed_history', registeredPoolCount: '2', standalonePoolCount: '1',
+    childPoolCount: '0', reservedChildPoolCount: '1', reservedChildPoolAddresses: [reserved], reservedChildPoolAddressesComplete: true,
+    portfolioCount: '1', topLevelProjectCount: '2', everParticipantAddressCount: '0',
+    purchasedCostWei: '0', shareMarketFilledGrossWei: '0', harvestedToMembersBemAtomic: '0' };
+  const result = await createLiveDataClient(integratedConfig, { provider: provider(options),
+    fetcher: indexFetcher({ '/v1/stats': stats }), now: () => now }).readStats();
+  assert.equal(result.data.reservedChildPoolCount, 1n);
+  await assert.rejects(createLiveDataClient(integratedConfig, { provider: provider(options),
+    fetcher: indexFetcher({ '/v1/stats': { ...stats, reservedChildPoolAddressesComplete: false } }),
+    now: () => now }).readStats(), { code: 'index_coverage' });
 });
 
 test('index identity mismatch cannot trigger direct chain fallback', async () => {
@@ -509,6 +746,64 @@ test('orders are re-read on chain and remain non-executable history candidates',
   assert.equal(result.items[0].executable, false); assert.equal(result.items[0].requiresLatestSimulation, true);
   await assert.rejects(client({ '/v1/orders': ordersData }, { wrongOrder: true }).readOrders(), { code: 'order_mismatch' });
   await assert.rejects(client({ '/v1/orders': ordersData }).readOrders({ active: false }), { code: 'order_mismatch' });
+});
+
+test('indexed order checks use bounded concurrent same-block reads and preserve page order', async () => {
+  const data = { items: Array.from({ length: 20 }, (_, i) =>
+    ({ ...ordersData.items[0], orderId: String(30 - i) })), nextCursor: null };
+  const base = provider(); let active = 0, peak = 0;
+  const marketSelectors = new Set(['orders', 'orderExpiresAt']
+    .map(name => abi.ShareMarket.getFunction(name).selector));
+  const marketBlocks = [];
+  const rpc = { async request(request) {
+    const marketRead = request.method === 'eth_call' && request.params[0].to === shareMarket
+      && marketSelectors.has(request.params[0].data.slice(0, 10));
+    if (!marketRead) return base.request(request);
+    marketBlocks.push(request.params[1]);
+    active++; peak = Math.max(peak, active);
+    try { await new Promise(resolve => setImmediate(resolve)); return await base.request(request); }
+    finally { active--; }
+  } };
+  const c = createLiveDataClient(config, { provider: rpc,
+    fetcher: indexFetcher({ '/v1/orders': data }), now: () => now });
+  const result = await c.readOrders({ active: true });
+  assert.deepEqual(result.items.map(item => item.orderId), data.items.map(item => BigInt(item.orderId)));
+  assert.equal(marketBlocks.length, 40);
+  assert(marketBlocks.every(block => block === '0xa'), 'every order check must use the source block');
+  assert(peak > 2 && peak <= 16, 'at most eight orders may be checked simultaneously');
+  assert.equal(active, 0);
+  assert(result.items.every(item => item.executable === false));
+});
+
+test('a failed concurrent order check drains in-flight RPCs and never returns a partial page', async () => {
+  const data = { items: Array.from({ length: 12 }, (_, i) =>
+    ({ ...ordersData.items[0], orderId: String(20 - i) })), nextCursor: null };
+  const base = provider({ wrongOrder: true });
+  const marketSelectors = new Set(['orders', 'orderExpiresAt']
+    .map(name => abi.ShareMarket.getFunction(name).selector));
+  let active = 0, started = 0, release, allStarted;
+  const gate = new Promise(resolve => { release = resolve; });
+  const reached = new Promise(resolve => { allStarted = resolve; });
+  const rpc = { async request(request) {
+    const marketRead = request.method === 'eth_call' && request.params[0].to === shareMarket
+      && marketSelectors.has(request.params[0].data.slice(0, 10));
+    if (!marketRead) return base.request(request);
+    active++; started++;
+    if (started === 16) allStarted();
+    try { await gate; return await base.request(request); }
+    finally { active--; }
+  } };
+  const c = createLiveDataClient(config, { provider: rpc,
+    fetcher: indexFetcher({ '/v1/orders': data }), now: () => now });
+  const pending = c.readOrders({ active: true });
+  const rejected = assert.rejects(pending, { code: 'order_mismatch' });
+  try {
+    await reached;
+    assert.equal(active, 16);
+  } finally { release(); }
+  await rejected;
+  assert.equal(started, 16, 'a failed cohort cannot schedule later orders');
+  assert.equal(active, 0, 'all reads started before failure must complete');
 });
 
 test('a pruned index block falls back to a fresh confirmed order read', async () => {

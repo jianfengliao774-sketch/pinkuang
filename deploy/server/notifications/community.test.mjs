@@ -136,6 +136,27 @@ test('unknown Telegram send outcome persists for manual inspection without a sec
   } finally { f.close(); }
 });
 
+test('an interrupted send remains visible after restart without resending or blocking other pools', async () => {
+  const f = fixture();
+  try {
+    await f.baseline(); f.items.push(pool(3));
+    f.sender.sendTopicPhoto = async () => { throw { retryable: true }; };
+    await f.make().tick();
+    assert.equal(f.rows()[0].status, 'pending');
+    // Model a process exit after it persisted the in-flight reservation.
+    f.store.db.prepare("UPDATE community_announcements SET status='sending' WHERE pool=?").run(addr(3));
+    f.restart(); f.time(START + 31_000); f.items.push(pool(4));
+    let calls = 0;
+    f.sender.sendTopicPhoto = async () => { calls++; assert.equal(f.rows().find(row => row.pool === addr(4)).status, 'sending');
+      return { message_id: 404 }; };
+    const result = await f.make().tick();
+    assert.equal(result.status, 'outcome_unknown'); assert.equal(result.manualInspectionPending, 1);
+    assert.equal(result.sent, 1); assert.equal(calls, 1);
+    assert.equal(f.rows().find(row => row.pool === addr(3)).status, 'sending');
+    await f.make().tick(); assert.equal(calls, 1);
+  } finally { f.close(); }
+});
+
 test('stale or changed source fails closed; malformed individual pools are isolated', async () => {
   const f = fixture();
   try {

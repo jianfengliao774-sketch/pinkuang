@@ -171,7 +171,7 @@ async function buildNotificationPage(index, iface, { cursor = 0, limit = 5, atBl
   const cache = index.notificationCache;
   let page=index.pools({cursor,limit});
   if(index.portfolioFactory) {
-    const standaloneCount=index.db.prepare('SELECT COUNT(*) AS n FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children)').get().n;
+    const standaloneCount=index._poolCounts().standalonePoolCount;
     const portfolioCount=index.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
     const poolItems=cursor<standaloneCount?page.items:[];
     const portfolioItems=poolItems.length<limit?index.portfolios({cursor:Math.max(0,cursor-standaloneCount),limit:limit-poolItems.length}).items:[];

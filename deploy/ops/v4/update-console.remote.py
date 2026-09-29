@@ -30,6 +30,8 @@ DB = Path('/var/lib/pinkuang-deploy-v4/journal.sqlite')
 FLAG = 'Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=1\n'
 STAGE2_HOLD = 'Environment=BEMINE_FRESH_STAGE2_HOLD=1\n'
 HOT_KEY_CREDENTIAL = 'LoadCredential=keeper-private-key:/etc/pinkuang/keeper-v4.key\n'
+LEGACY_GAS_WALLET_ENV = ('Environment=BEMINE_EXPECTED_GAS_WALLET='
+                         '0xA285d1933e32b5990625aC1F5BEa205Cf2606619\n')
 BUSINESS_TABLES = ('deployment', 'fresh_activation', 'deployment_archives',
                    'market', 'market_abandoned', 'market_signing', 'market_results',
                    'budget_queues', 'quotes')
@@ -41,7 +43,6 @@ ENVIRONMENT = {
     'DEPLOYMENT_JOURNAL_DB': str(DB),
     'BEMINE_INDEX_URL': 'http://127.0.0.1:4184',
     'BEMINE_NOTIFICATIONS_ENABLED': '0',
-    'BEMINE_EXPECTED_GAS_WALLET': base['GAS_WALLET'],
     'AUTHORITY_RELAY_ENABLED': '0',
 }
 RPC_ENVIRONMENT = {'DEPLOYMENT_JOURNAL_RPC_URL', 'BEMINE_READ_RPC_URL'}
@@ -125,11 +126,15 @@ def review_unit(unit, release, *, expect_credential, require_flags):
         key, value = entry.split('=', 1)
         require(key not in values, 'v4 unit has duplicate environment entries.')
         values[key] = value
-    allowed = set(ENVIRONMENT) | RPC_ENVIRONMENT | set(OPTIONAL_ENVIRONMENT)
+    allowed = set(ENVIRONMENT) | RPC_ENVIRONMENT | set(OPTIONAL_ENVIRONMENT) | {'BEMINE_EXPECTED_GAS_WALLET'}
     require(set(values) <= allowed and set(ENVIRONMENT) | RPC_ENVIRONMENT <= set(values),
             'v4 unit has an unexpected or missing environment entry.')
     require(all(values.get(key) == expected for key, expected in ENVIRONMENT.items()),
             'v4 unit safety environment differs from the reviewed console.')
+    if 'BEMINE_EXPECTED_GAS_WALLET' in values:
+        require(not require_flags and
+                f'Environment=BEMINE_EXPECTED_GAS_WALLET={values["BEMINE_EXPECTED_GAS_WALLET"]}\n' == LEGACY_GAS_WALLET_ENV,
+                'v4 unit has an unreviewed Gas wallet address.')
     require(values['DEPLOYMENT_JOURNAL_RPC_URL'] == values['BEMINE_READ_RPC_URL']
             and values['DEPLOYMENT_JOURNAL_RPC_URL'].startswith('https://')
             and not any(char.isspace() for char in values['DEPLOYMENT_JOURNAL_RPC_URL']),
@@ -146,6 +151,7 @@ def replacement_unit(original, old, new):
     review_unit(original, old, expect_credential=HOT_KEY_CREDENTIAL.rstrip('\n') in original,
                 require_flags=False)
     updated = without_hot_wallet_credential(original)
+    updated = updated.replace(LEGACY_GAS_WALLET_ENV, '')
     updated = updated.replace(f'WorkingDirectory={old}\n', f'WorkingDirectory={new}\n')
     updated = updated.replace(f'ExecStart=/usr/bin/node {old}/server/index.mjs\n',
                               f'ExecStart=/usr/bin/node {new}/server/index.mjs\n')

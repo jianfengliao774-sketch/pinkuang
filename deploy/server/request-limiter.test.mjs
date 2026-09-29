@@ -29,3 +29,25 @@ test('client table saturation does not lock out a new visitor', () => {
   assert.equal(allowed(client('203.0.113.12')), true);
   assert.equal(allowed(client('203.0.113.10')), false);
 });
+
+test('IPv6 interface addresses share a /64 quota and cannot fill the client table', () => {
+  const allowed = createRequestLimiter({ perClient: 2, maxClients: 2 });
+  const client = address => ({ socket: { remoteAddress: '127.0.0.1' }, headers: { 'x-real-ip': address } });
+  assert.equal(clientAddress(client('2001:db8:0:1::a')), '2001:0db8:0000:0001::/64');
+  assert.equal(clientAddress(client('2001:0db8:0000:0001:ffff::b')), '2001:0db8:0000:0001::/64');
+  assert.equal(allowed(client('2001:db8:0:1::a')), true);
+  assert.equal(allowed(client('2001:db8:0:1::b')), true);
+  assert.equal(allowed(client('2001:db8:0:1::c')), false);
+  assert.equal(allowed(client('2001:db8:0:2::a')), true);
+  assert.equal(allowed(client('2001:db8:0:3::a')), true, 'a new prefix evicts rather than globally locking out visitors');
+});
+
+test('IPv4-mapped IPv6 addresses retain the IPv4 client quota', () => {
+  const allowed = createRequestLimiter({ perClient: 1, maxClients: 2 });
+  const client = address => ({ socket: { remoteAddress: address }, headers: {} });
+  assert.equal(clientAddress(client('::ffff:192.0.2.3')), '192.0.2.3');
+  assert.equal(clientAddress(client('::ffff:c000:204')), '192.0.2.4');
+  assert.equal(allowed(client('::ffff:192.0.2.3')), true);
+  assert.equal(allowed(client('192.0.2.3')), false);
+  assert.equal(allowed(client('::ffff:192.0.2.4')), true);
+});

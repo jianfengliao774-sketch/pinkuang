@@ -404,6 +404,9 @@ export class DeploymentEngine {
       const input = normalizeInput(rawInput);
       assert(input.governanceMode === 'single', '本次完整部署使用已确认的单钱包管理；旧多签部署记录仅供核对恢复。');
       const report = await freshPreflight(this.wallet, this.bundle, input, reviewed);
+      assert(sameAddress(input.ownerMultisig, report.account)
+        && sameAddress(input.operator, report.account) && sameAddress(input.treasury, report.account),
+      '本次新部署的 owner、operator 和 treasury 必须均为当前硬件钱包。');
       const now = new Date().toISOString();
       const snapshot: DeploymentSnapshot = {
         schemaVersion: 1, kind: 'integrated-v2', id: `${Date.now()}-${report.account}`, chainId: 56, account: report.account,
@@ -435,6 +438,7 @@ export class DeploymentEngine {
         return snapshot;
       }
       // Refresh roles, code and network before any new signatures.
+      this.assertFreshSigningRoles(snapshot);
       const remainingBudget = parseEther(snapshot.input.maxGasBudgetBnb) - BigInt(snapshot.spentWei);
       assert(remainingBudget > 0n, '总 Gas 预算已耗尽，已停止。');
       // Preflight rechecks roles/protocols; remaining balance needs to cover only the unspent budget.
@@ -787,6 +791,7 @@ export class DeploymentEngine {
   }
 
   private async run(snapshot: DeploymentSnapshot): Promise<DeploymentSnapshot> {
+    this.assertFreshSigningRoles(snapshot);
     snapshot.status = 'running'; delete snapshot.error;
     await this.save(snapshot);
     try {
@@ -805,6 +810,18 @@ export class DeploymentEngine {
       await this.save(snapshot);
       throw error;
     }
+  }
+
+  private assertFreshSigningRoles(snapshot: DeploymentSnapshot): void {
+    // Old deployment records may still be inspected or recovered read-only.
+    // The integrated v4 plan may request another signature only with the
+    // reviewed hardware wallet controlling all three initial roles.
+    if (snapshot.kind !== 'integrated-v2') return;
+    assert(snapshot.input.governanceMode === 'single'
+      && sameAddress(snapshot.input.ownerMultisig, snapshot.account)
+      && sameAddress(snapshot.input.operator, snapshot.account)
+      && sameAddress(snapshot.input.treasury, snapshot.account),
+    '恢复的新部署角色与硬件钱包不一致；停止后续签名。');
   }
 
   private async sendStep(snapshot: DeploymentSnapshot, step: StepRecord): Promise<void> {

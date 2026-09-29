@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isPrivateCredential, parseSupervisorArguments, selectPools } from './purchase-supervisor.mjs';
+import { isPrivateCredential, needsOperatorReview, parseSupervisorArguments, reportOperatorReview, selectPools } from './purchase-supervisor.mjs';
 
 const factory = '0x1111111111111111111111111111111111111111';
 const pools = ['0x2222222222222222222222222222222222222222', '0x3333333333333333333333333333333333333333'];
@@ -44,4 +44,24 @@ test('systemd credential group read is accepted only inside its private credenti
   assert.equal(isPrivateCredential('/tmp/keeper.key', stat(0o440), directory), false);
   assert.equal(isPrivateCredential(path, stat(0o444), directory), false);
   assert.equal(isPrivateCredential(path, stat(0o440, 0, true), directory), false);
+});
+
+test('fresh supervisor treats ambiguous purchase status as operator review, not success', () => {
+  for (const status of ['unknown-wallet-nonce-manual-review', 'broadcast-result-unknown',
+    'nonce-or-chain-changed-before-broadcast', 'nonce-changed-before-broadcast-manual-review',
+    'chain-changed-before-broadcast', 'proof-review-required']) {
+    assert.equal(needsOperatorReview(status), true, status);
+  }
+  assert.equal(needsOperatorReview('broadcast'), false);
+  assert.equal(needsOperatorReview('confirmed'), false);
+  const original = process.exitCode;
+  try {
+    let alert;
+    assert.equal(reportOperatorReview([{ pool: pools[0], status: 'confirmed' }], message => { alert = message; }), false);
+    assert.equal(alert, undefined);
+    assert.equal(reportOperatorReview([{ pool: pools[0], status: 'broadcast-result-unknown' }], message => { alert = JSON.parse(message); }), true);
+    assert.equal(process.exitCode, 1);
+    assert.equal(alert.status, 'operator-review-required');
+    assert.equal(alert.pool, pools[0]);
+  } finally { process.exitCode = original; }
 });

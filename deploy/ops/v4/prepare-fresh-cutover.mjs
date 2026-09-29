@@ -86,6 +86,7 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     CHAIN_INDEX_SCAN_RANGE:'100',CHAIN_INDEX_RPC_URL:rpc,CHAIN_INDEX_LOGS_RPC_URL:logs,
     CHAIN_INDEX_FACTORY:a.factory,CHAIN_INDEX_MARKET:a.shareMarket,
     CHAIN_INDEX_PORTFOLIO_FACTORY:a.portfolioFactory,CHAIN_INDEX_PORTFOLIO_MARKET:a.portfolioShareMarket,
+    CHAIN_INDEX_RESERVATION_MODE:'required',
     CHAIN_INDEX_START_BLOCK:String(initialize.receipt.blockNumber)};
   const envLines=env=>Object.entries(env).map(([key,value])=>`Environment=${key}=${value}\n`).join('');
   const runtimeUnit=`[Unit]\nDescription=BEMine v4 fresh deployment runtime\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4\nGroup=pinkuang-v4\nSupplementaryGroups=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/server/index.mjs\nStateDirectory=pinkuang-deploy-v4 pinkuang-v4\nStateDirectoryMode=0700\n${envLines(runtimeEnvironment)}UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-deploy-v4 /var/lib/pinkuang-v4\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n`;

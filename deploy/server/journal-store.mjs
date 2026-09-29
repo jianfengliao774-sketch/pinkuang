@@ -114,6 +114,30 @@ export class JournalStore {
       return next;
     });
   }
+  /** The API checks the live chain nonce before this revision-guarded release. */
+  releaseUnusedFreshSigning(account, expectedRevision, stepId, nonce, dataHash) {
+    return this.transaction(() => {
+      const current = this.db.prepare('SELECT revision,record FROM fresh_activation WHERE account=?').get(account);
+      if (!current || current.revision !== expectedRevision) throw new JournalConflict('Fresh activation revision changed.');
+      const record = read(current.record);
+      const index = record?.steps?.findIndex(step => step.status !== 'confirmed') ?? -1;
+      const step = record?.steps?.[index];
+      if (record?.status !== 'paused' || step?.id !== stepId || step.status !== 'signing'
+        || step.nonce !== nonce || step.dataHash !== dataHash || step.txHash || step.receipt
+        || index < 0 || !record.steps.slice(0, index).every(item => item.status === 'confirmed')
+        || !record.steps.slice(index + 1).every(item => item.status === 'waiting'))
+        throw new JournalConflict('Only the matching hashless signing intent may be released.');
+      step.status = 'rejected';
+      step.rejectionKind = 'nonce-witnessed';
+      step.error = '服务器与钱包 nonce 均未使用；只可人工按原交易意图重试。';
+      record.error = '原签名没有交易哈希，双重 nonce 核对仍未使用。可人工按原交易意图重试；不会自动发送。';
+      record.updatedAt = new Date().toISOString();
+      const revision = current.revision + 1;
+      this.db.prepare('UPDATE fresh_activation SET revision=?,record=? WHERE account=?')
+        .run(revision, canonical(record), account);
+      return { revision, record };
+    });
+  }
   archives(account, cursor, limit) {
     const sql = cursor === null
       ? 'SELECT CAST(rowid AS TEXT) AS cursor,record FROM deployment_archives WHERE account=? ORDER BY rowid DESC LIMIT ?'

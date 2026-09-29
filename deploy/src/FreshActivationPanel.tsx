@@ -17,7 +17,8 @@ export const activationStepStatusText = (status: string) => status === 'confirme
   : status === 'waiting' ? '等待钱包确认'
   : status === 'rejected' ? '发送前停止或钱包拒签；核对后可手动重试'
   : status === 'submitted' ? '已广播，等待最终确认'
-  : status === 'signing' || status === 'uncertain' ? '结果不明，只能核对交易哈希'
+  : status === 'signing' ? '签名结果不明；可核对哈希，或在双重 nonce 核对后手动恢复'
+  : status === 'uncertain' ? '结果不明，只能核对交易哈希'
   : '计划已终止';
 
 export default function FreshActivationPanel({ wallet, account, chainId, bundle, journal, genesis }: {
@@ -107,7 +108,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
       {info && <div className="alert alert-success" role="status">{info}</div>}
       {unresolved && <div className="budget-recovery"><label htmlFor="activation-recovery">钱包交易哈希（原交易或相同内容加速交易）</label>
         <input id="activation-recovery" className="text-input mono" value={recoveryHash} onChange={e => setRecoveryHash(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false}/>
-        <p>结果不明时不会重发。已有哈希可直接核验；钱包加速后在此填入新的哈希。</p></div>}
+        <p>结果不明时不会重发。已有哈希可直接核验；钱包加速后在此填入新的哈希。无哈希的签名意图须先关闭旧钱包确认弹窗，再由服务器及钱包核对 nonce；解除后仍须人工确认原交易。</p></div>}
       <div className="record-actions" style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         {!record && <button className="primary-button" disabled={STAGE2_HOLD || !enabled || !!busy || loading || !credential?.credentialVerified
           || credential.gasWallet?.toLowerCase() !== gasWallet.trim().toLowerCase()
@@ -121,6 +122,10 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
           && <button className="small-button" disabled={!enabled || !!busy || loading || !!recoveryHash && !/^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim())}
             onClick={() => void act('链上回执核验', () => engine().reconcile(record, recoveryHash))}>
               <RefreshCw size={15}/>只读核验链上交易</button>}
+        {record && next?.status === 'signing' && !next.txHash && <button className="small-button"
+          disabled={STAGE2_HOLD || !enabled || !!busy || loading}
+          onClick={() => void act('双重 nonce 核对', () => engine().releaseUnusedSigning(record))}>
+            <ShieldCheck size={15}/>核对未使用 nonce 并解除签名意图</button>}
         {record?.status === 'complete' && <button className="small-button" onClick={() => download(`pinkuang-fresh-activation-${record.deploymentId}.json`, activationEvidence(record))}>
           <ArrowDownToLine size={15}/>导出七笔激活证据</button>}
         {record?.status === 'complete' && <button className="small-button" disabled={!enabled || !!busy || loading}

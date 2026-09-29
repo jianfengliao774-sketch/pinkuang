@@ -60,6 +60,7 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.equal(result.runtimeEnvironment.BEMINE_LEGACY_FACTORY,undefined);
   assert.equal(result.runtimeEnvironment.PORT,'4177');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_PORT,'4184');
+  assert.equal(result.indexEnvironment.CHAIN_INDEX_RESERVATION_MODE,'required');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_FACTORY,fixture().record.addresses.factory);
   assert.doesNotMatch(result.runtimeUnit,/LoadCredential|KEEPER_PRIVATE_KEY/);
   assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_JOURNAL,undefined);

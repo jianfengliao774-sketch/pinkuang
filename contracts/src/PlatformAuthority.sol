@@ -66,8 +66,28 @@ interface IAuthorityBudgetPool {
 contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    bytes32 public constant ACTION_TYPEHASH =
-        keccak256("Action(bytes32 kind,address target,bytes32 paramsHash,uint256 nonce,uint256 deadline)");
+    struct PoolOperation {
+        bytes32 operationHash;
+        IPoolVault.PoolParams params;
+        bool expiryEnabled;
+        address subscriber;
+        IPoolVault.FlexiblePurchaseConfig config;
+        uint32 expectedTaskId;
+        uint128 expectedReferenceWeight;
+    }
+
+    bytes32 public constant REVIEW_SALE_TYPEHASH = keccak256("ReviewSale(address market,address pool,uint256 proposalId,uint128 priceWei,bool approved,uint256 nonce,uint256 deadline)");
+    bytes32 public constant REVIEW_CHILD_SALE_TYPEHASH = keccak256("ReviewChildSale(address portfolio,uint256 proposalId,bool approved,uint256 nonce,uint256 deadline)");
+    bytes32 public constant SALE_REFERENCE_TYPEHASH = keccak256("SaleReference(address market,address pool,uint128 priceWei,uint64 observedAt,bytes32 digest,uint256 nonce,uint256 deadline)");
+    bytes32 public constant CLAIM_FEES_TYPEHASH = keccak256("ClaimFees(address[] markets,address[] pools,address recipient,uint256 nonce,uint256 deadline)");
+    bytes32 public constant BUY_BUDGET_OFFICIAL_TYPEHASH = keccak256("BuyBudgetOfficial(address portfolio,address child,uint256 listingId,uint256 maxCost,uint256 nonce,uint256 deadline)");
+    bytes32 public constant BUY_BUDGET_FIRSTO_TYPEHASH = keccak256("BuyBudgetFirsto(address portfolio,address child,bytes32 orderHash,uint256 maxCost,uint256 nonce,uint256 deadline)");
+    bytes32 public constant POOL_PARAMS_TYPEHASH = keccak256("PoolParams(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)");
+    bytes32 public constant FLEXIBLE_CONFIG_TYPEHASH = keccak256("FlexibleConfig(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)");
+    bytes32 public constant CREATE_POOL_TYPEHASH = keccak256("CreatePool(address factory,string operation,PoolParams params,bool expiryEnabled,address subscriber,FlexibleConfig config,uint32 expectedTaskId,uint128 expectedReferenceWeight,uint256 nonce,uint256 deadline)FlexibleConfig(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)PoolParams(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)");
+    bytes32 public constant CREATE_PORTFOLIO_TYPEHASH = keccak256("CreatePortfolio(address factory,uint256 budgetWei,uint256 absoluteCapWei,uint256 unitCapWei,uint64 fundingDeadline,uint64 purchaseDeadline,uint256 nonce,uint256 deadline)");
+    bytes32 public constant DEPOSIT_PAUSE_TYPEHASH = keccak256("DepositPause(address pool,bool paused,uint256 nonce,uint256 deadline)");
+    bytes32 public constant RECLAIM_TYPEHASH = keccak256("Reclaim(address pool,bytes32 workId,uint256 nonce,uint256 deadline)");
     bytes32 public constant REVIEW_SALE = keccak256("REVIEW_SALE");
     bytes32 public constant REVIEW_CHILD_SALE = keccak256("REVIEW_CHILD_SALE");
     bytes32 public constant SALE_REFERENCE = keccak256("SALE_REFERENCE");
@@ -84,6 +104,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     address public gasWallet;
     mapping(address => uint256) public nonces;
     mapping(bytes32 => bool) public reviewFinalized;
+    mapping(address => bool) public retiredAdministrators;
 
     error Unauthorized();
     error InvalidAddress();
@@ -125,9 +146,22 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     }
 
     function _setAdministrators(address first, address second) private {
-        if (first == address(0) || second == address(0) || first == second || first == gasWallet || second == gasWallet)
+        if (
+            first == address(0) || second == address(0) || first == second || first == gasWallet || second == gasWallet
+                || retiredAdministrators[first] || retiredAdministrators[second]
+        )
         {
             revert InvalidAddress();
+        }
+        address previousFirst = administratorOne;
+        address previousSecond = administratorTwo;
+        // A removed signer can have unexpired signatures at arbitrary future nonces.
+        // Retiring the address prevents those signatures from reviving on reappointment.
+        if (previousFirst != address(0) && previousFirst != first && previousFirst != second) {
+            retiredAdministrators[previousFirst] = true;
+        }
+        if (previousSecond != address(0) && previousSecond != first && previousSecond != second) {
+            retiredAdministrators[previousSecond] = true;
         }
         administratorOne = first;
         administratorTwo = second;
@@ -157,9 +191,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         // rejection remains final in ShareMarket, regardless of who approved.
         bytes32 reviewKey = keccak256(abi.encode(REVIEW_SALE, market, pool, proposalId, priceWei, approved));
         if (reviewFinalized[reviewKey]) revert InvalidAction();
-        _authorize(
-            REVIEW_SALE, market, keccak256(abi.encode(pool, proposalId, priceWei, approved)), nonce, deadline, signature
-        );
+        _authorize(REVIEW_SALE, market,
+            keccak256(abi.encode(REVIEW_SALE_TYPEHASH, market, pool, proposalId, priceWei, approved, nonce, deadline)),
+            nonce, deadline, signature);
         reviewFinalized[reviewKey] = true;
         IAuthorityMarket(market).reviewSale(pool, proposalId, priceWei, approved);
     }
@@ -175,9 +209,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (!IAuthorityFactory(budgetFactory).isPool(portfolio)) revert InvalidTarget();
         bytes32 reviewKey = keccak256(abi.encode(REVIEW_CHILD_SALE, portfolio, proposalId, approved));
         if (reviewFinalized[reviewKey]) revert InvalidAction();
-        _authorize(
-            REVIEW_CHILD_SALE, portfolio, keccak256(abi.encode(proposalId, approved)), nonce, deadline, signature
-        );
+        _authorize(REVIEW_CHILD_SALE, portfolio,
+            keccak256(abi.encode(REVIEW_CHILD_SALE_TYPEHASH, portfolio, proposalId, approved, nonce, deadline)),
+            nonce, deadline, signature);
         reviewFinalized[reviewKey] = true;
         IAuthorityPool(portfolio).reviewChildSale(proposalId, approved);
     }
@@ -195,14 +229,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (market != IAuthorityFactory(coreFactory).shareMarket() || !IAuthorityFactory(coreFactory).isPool(pool)) {
             revert InvalidTarget();
         }
-        _authorize(
-            SALE_REFERENCE,
-            market,
-            keccak256(abi.encode(pool, priceWei, observedAt, digest)),
-            nonce,
-            deadline,
-            signature
-        );
+        _authorize(SALE_REFERENCE, market,
+            keccak256(abi.encode(SALE_REFERENCE_TYPEHASH, market, pool, priceWei, observedAt, digest, nonce, deadline)),
+            nonce, deadline, signature);
         IAuthorityMarket(market).setSaleReference(pool, priceWei, observedAt, digest);
     }
 
@@ -245,7 +274,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
                     && _miningSelector(data) == bytes4(keccak256("reclaim(bytes32)"));
         }
         if (!allowed) revert InvalidAction();
-        _authorize(APPROVED_OPERATION, target, keccak256(data), nonce, deadline, signature);
+        _authorize(APPROVED_OPERATION, target, _approvedOperationHash(target, data, nonce, deadline), nonce, deadline, signature);
         return _callTarget(target, data);
     }
 
@@ -260,9 +289,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant returns (uint256 cost) {
         if (!IAuthorityFactory(budgetFactory).isPool(portfolio) || maxCost == 0) revert InvalidTarget();
-        _authorize(
-            BUY_BUDGET_OFFICIAL, portfolio, keccak256(abi.encode(child, listingId, maxCost)), nonce, deadline, signature
-        );
+        _authorize(BUY_BUDGET_OFFICIAL, portfolio,
+            keccak256(abi.encode(BUY_BUDGET_OFFICIAL_TYPEHASH, portfolio, child, listingId, maxCost, nonce, deadline)),
+            nonce, deadline, signature);
         IAuthorityBudgetPool project = IAuthorityBudgetPool(portfolio);
         uint256 spentBefore = project.spentWei();
         project.buyOfficial(child, listingId);
@@ -283,14 +312,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (!IAuthorityFactory(budgetFactory).isPool(portfolio) || maxCost == 0 || encodedOrder.length == 0) {
             revert InvalidTarget();
         }
-        _authorize(
-            BUY_BUDGET_FIRSTO,
-            portfolio,
-            keccak256(abi.encode(child, keccak256(encodedOrder), maxCost)),
-            nonce,
-            deadline,
-            signature
-        );
+        _authorize(BUY_BUDGET_FIRSTO, portfolio,
+            keccak256(abi.encode(BUY_BUDGET_FIRSTO_TYPEHASH, portfolio, child, keccak256(encodedOrder), maxCost, nonce, deadline)),
+            nonce, deadline, signature);
         IAuthorityBudgetPool project = IAuthorityBudgetPool(portfolio);
         uint256 spentBefore = project.spentWei();
         project.buyFirsto(child, encodedOrder);
@@ -304,7 +328,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         uint256 previous = nonces[msg.sender];
         // Do not let one erroneous maximum-value entry permanently exhaust
         // this administrator's nonce space.
-        if (next <= previous || next - previous > type(uint64).max) revert InvalidAction();
+        if (next <= previous || next == type(uint256).max || next - previous > type(uint64).max) {
+            revert InvalidAction();
+        }
         nonces[msg.sender] = next;
         emit NonceInvalidated(msg.sender, previous, next);
     }
@@ -321,6 +347,84 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         assembly { selector := mload(add(inner, 32)) }
     }
 
+    function _approvedOperationHash(address target, bytes calldata data, uint256 nonce, uint256 deadline)
+        private view returns (bytes32)
+    {
+        bytes4 selector = bytes4(data[:4]);
+        if (target == budgetFactory) {
+            (uint256 budgetWei, uint256 absoluteCapWei, uint256 unitCapWei, uint64 fundingEnd, uint64 purchaseEnd) =
+                abi.decode(data[4:], (uint256, uint256, uint256, uint64, uint64));
+            if (keccak256(data) != keccak256(abi.encodeWithSelector(selector, budgetWei, absoluteCapWei,
+                unitCapWei, fundingEnd, purchaseEnd))) revert InvalidAction();
+            return keccak256(abi.encode(CREATE_PORTFOLIO_TYPEHASH, target, budgetWei, absoluteCapWei,
+                unitCapWei, fundingEnd, purchaseEnd, nonce, deadline));
+        }
+        if (target != coreFactory) {
+            if (selector == bytes4(keccak256("setDepositPaused(bool)"))) {
+                bool paused = abi.decode(data[4:], (bool));
+                if (keccak256(data) != keccak256(abi.encodeWithSelector(selector, paused))) revert InvalidAction();
+                return keccak256(abi.encode(DEPOSIT_PAUSE_TYPEHASH, target, paused, nonce, deadline));
+            }
+            bytes memory inner = abi.decode(data[4:], (bytes));
+            if (inner.length != 36 || _miningSelector(data) != bytes4(keccak256("reclaim(bytes32)"))) {
+                revert InvalidAction();
+            }
+            bytes32 workId;
+            assembly { workId := mload(add(inner, 36)) }
+            if (keccak256(data) != keccak256(abi.encodeWithSelector(selector,
+                abi.encodeWithSelector(bytes4(keccak256("reclaim(bytes32)")), workId)))) revert InvalidAction();
+            return keccak256(abi.encode(RECLAIM_TYPEHASH, target, workId, nonce, deadline));
+        }
+
+        PoolOperation memory op;
+        op.expiryEnabled = true;
+        if (selector == IAuthorityCoreOperations.createPool.selector) {
+            op.operationHash = keccak256("createPool");
+            op.params = abi.decode(data[4:], (IPoolVault.PoolParams));
+        } else if (selector == IAuthorityCoreOperations.createPoolWithExpiry.selector) {
+            op.operationHash = keccak256("createPoolWithExpiry");
+            (op.params, op.expiryEnabled) = abi.decode(data[4:], (IPoolVault.PoolParams, bool));
+        } else if (selector == IAuthorityCoreOperations.createBudgetChildPool.selector) {
+            op.operationHash = keccak256("createBudgetChildPool");
+            (op.params, op.subscriber) = abi.decode(data[4:], (IPoolVault.PoolParams, address));
+        } else if (selector == IAuthorityCoreOperations.createFlexiblePool.selector) {
+            op.operationHash = keccak256("createFlexiblePool");
+            (op.params, op.config) = abi.decode(data[4:],
+                (IPoolVault.PoolParams, IPoolVault.FlexiblePurchaseConfig));
+        } else if (selector == IAuthorityCoreOperations.createFlexiblePoolChecked.selector) {
+            op.operationHash = keccak256("createFlexiblePoolChecked");
+            (op.params, op.config, op.expectedTaskId, op.expectedReferenceWeight) = abi.decode(data[4:],
+                (IPoolVault.PoolParams, IPoolVault.FlexiblePurchaseConfig, uint32, uint128));
+        } else revert InvalidAction();
+        bytes memory canonical;
+        if (selector == IAuthorityCoreOperations.createPool.selector) {
+            canonical = abi.encodeWithSelector(selector, op.params);
+        } else if (selector == IAuthorityCoreOperations.createPoolWithExpiry.selector) {
+            canonical = abi.encodeWithSelector(selector, op.params, op.expiryEnabled);
+        } else if (selector == IAuthorityCoreOperations.createBudgetChildPool.selector) {
+            canonical = abi.encodeWithSelector(selector, op.params, op.subscriber);
+        } else if (selector == IAuthorityCoreOperations.createFlexiblePool.selector) {
+            canonical = abi.encodeWithSelector(selector, op.params, op.config);
+        } else {
+            canonical = abi.encodeWithSelector(selector, op.params, op.config,
+                op.expectedTaskId, op.expectedReferenceWeight);
+        }
+        if (keccak256(data) != keccak256(canonical)) revert InvalidAction();
+        return keccak256(abi.encode(CREATE_POOL_TYPEHASH, target, op.operationHash,
+            _poolParamsHash(op.params), op.expiryEnabled, op.subscriber, _flexibleConfigHash(op.config),
+            op.expectedTaskId, op.expectedReferenceWeight, nonce, deadline));
+    }
+
+    function _poolParamsHash(IPoolVault.PoolParams memory p) private pure returns (bytes32) {
+        return keccak256(abi.encode(POOL_PARAMS_TYPEHASH, p.circuits, p.circuitId, p.targetRaise, p.priceCap,
+            p.directSeller, p.directPrice, p.fundingDeadline, p.purchaseDeadline));
+    }
+
+    function _flexibleConfigHash(IPoolVault.FlexiblePurchaseConfig memory c) private pure returns (bytes32) {
+        return keccak256(abi.encode(FLEXIBLE_CONFIG_TYPEHASH, c.minVerifiedWeight, c.referencePriceWei,
+            c.targetDailyYieldAtomic, c.extraBps, c.referenceObservedAt, c.referenceBlock, c.referenceDigest));
+    }
+
     /// @notice The first administrator to execute a signed claim receives all fees then available.
     function claimFees(
         address[] calldata markets,
@@ -331,15 +435,10 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant {
         if (recipient != administratorOne && recipient != administratorTwo) revert InvalidAddress();
-        _authorizeFor(
-            CLAIM_FEES,
-            address(this),
-            keccak256(abi.encode(markets, pools, recipient)),
-            recipient,
-            nonce,
-            deadline,
-            signature
-        );
+        _authorizeFor(CLAIM_FEES, address(this),
+            keccak256(abi.encode(CLAIM_FEES_TYPEHASH, keccak256(abi.encodePacked(markets)),
+                keccak256(abi.encodePacked(pools)), recipient, nonce, deadline)),
+            recipient, nonce, deadline, signature);
         for (uint256 i; i < markets.length; ++i) {
             address market = markets[i];
             if (
@@ -369,19 +468,19 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     function _authorize(
         bytes32 kind,
         address target,
-        bytes32 paramsHash,
+        bytes32 structHash,
         uint256 nonce,
         uint256 deadline,
         bytes calldata signature
     ) private {
-        address signer = ECDSA.recover(_actionDigest(kind, target, paramsHash, nonce, deadline), signature);
-        _authorizeFor(kind, target, paramsHash, signer, nonce, deadline, signature);
+        address signer = ECDSA.recover(_hashTypedDataV4(structHash), signature);
+        _authorizeFor(kind, target, structHash, signer, nonce, deadline, signature);
     }
 
     function _authorizeFor(
         bytes32 kind,
         address target,
-        bytes32 paramsHash,
+        bytes32 structHash,
         address signer,
         uint256 nonce,
         uint256 deadline,
@@ -390,18 +489,11 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (msg.sender != gasWallet && msg.sender != signer) revert Unauthorized();
         if (block.timestamp > deadline || nonce != nonces[signer]) revert InvalidSignature();
         if (signer != administratorOne && signer != administratorTwo) revert InvalidSignature();
-        if (ECDSA.recover(_actionDigest(kind, target, paramsHash, nonce, deadline), signature) != signer) {
+        if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) {
             revert InvalidSignature();
         }
         nonces[signer] = nonce + 1;
         emit AdminAction(signer, kind, target, nonce);
     }
 
-    function _actionDigest(bytes32 kind, address target, bytes32 paramsHash, uint256 nonce, uint256 deadline)
-        private
-        view
-        returns (bytes32)
-    {
-        return _hashTypedDataV4(keccak256(abi.encode(ACTION_TYPEHASH, kind, target, paramsHash, nonce, deadline)));
-    }
 }

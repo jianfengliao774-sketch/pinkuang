@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
@@ -6,8 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { Wallet, getCreateAddress, keccak256 } from 'ethers';
 import { createJournalService, journalConfiguration } from './journal-api.mjs';
+import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO } from './fresh-activation-journal.mjs';
 import { createDeploymentServer } from './index.mjs';
 
 const origin = 'http://127.0.0.1:4173';
@@ -15,6 +18,7 @@ const hex = n => `0x${n.toString(16).padStart(64, '0')}`;
 const wallet = Wallet.createRandom(), other = Wallet.createRandom();
 const account = wallet.address.toLowerCase(), market = Wallet.createRandom().address.toLowerCase();
 const factory = Wallet.createRandom().address.toLowerCase();
+const deploymentAccount = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7'.toLowerCase();
 
 function deployment(owner = account, id = 'first') {
   return { schemaVersion: 1, id, chainId: 56, account: owner, sourceCommit: 'a'.repeat(40),
@@ -150,7 +154,18 @@ async function fixture(provider = chainProof(), currentArtifactDigest = () => he
     assert.equal(session.status, 200);
     return { cookie: session.cookie.split(';')[0], challenge, signature };
   };
-  return { directory, dbPath, service, server, request, login,
+  // Tests cannot hold the deployment hardware wallet's private key. Seed only
+  // the server-side session row to exercise authorization after wallet login.
+  const sessionFor = address => {
+    const token = randomBytes(32).toString('base64url');
+    const db = new DatabaseSync(dbPath);
+    try {
+      db.prepare('INSERT INTO sessions(token_hash,account,expires) VALUES(?,?,?)')
+        .run(createHash('sha256').update(token).digest('hex'), address.toLowerCase(), Date.now() + 60_000);
+    } finally { db.close(); }
+    return `pinkuang_journal=${token}`;
+  };
+  return { directory, dbPath, service, server, request, login, sessionFor,
     async close() { await new Promise(resolve => server.close(resolve)); await service.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -165,8 +180,8 @@ test('pre-genesis console keeps deployment journals but rejects every product wr
   const f = await fixture(chainProof(), () => hex(5), () => {},
     { freshConsolePreGenesis: true, freshStage2Hold: true });
   try {
-    const { cookie } = await f.login(wallet);
-    const initial = deployment();
+    const cookie = f.sessionFor(deploymentAccount);
+    const initial = deployment(deploymentAccount);
     assert.equal((await f.request('/api/journal/deployment', 'PUT',
       { record: initial, expectedRevision: 0 }, cookie)).status, 200);
     assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.id,
@@ -176,6 +191,10 @@ test('pre-genesis console keeps deployment journals but rejects every product wr
       { record: {}, expectedRevision: 0 }, cookie);
     assert.equal(held.status, 409);
     assert.match(held.body.error, /Stage 2 signing is held/);
+    const heldRecovery = await f.request('/api/journal/fresh-activation/release-unused-signing', 'POST',
+      { expectedRevision: 0, stepId: 'deployAuthority', nonce: 8, dataHash: hex(8) }, cookie);
+    assert.equal(heldRecovery.status, 409);
+    assert.match(heldRecovery.body.error, /Stage 2 signing is held/);
     assert.equal((await f.request('/api/journal/fresh-activation', 'GET', undefined, cookie)).body.record, null);
     for (const [path, method, body] of [
       ['/api/journal/market', 'PUT', { record: intent(), expectedRevision: 0 }],
@@ -233,18 +252,66 @@ test('public deployment console never treats its configured Gas address as a ver
   const f=await fixture(chainProof(),()=>hex(5),()=>{},
     {expectedGasWallet:expected,freshConsolePreGenesis:true});
   try {
-    const session=await f.login(wallet);
-    const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
+    const cookie=f.sessionFor(deploymentAccount);
+    const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,cookie);
     assert.deepEqual(config.body,{credentialVerified:false,gasWallet:expected});
     const denied=await f.request('/api/journal/fresh-activation','PUT',
-      {record:{},expectedRevision:0},session.cookie);
+      {record:{},expectedRevision:0},cookie);
     assert.equal(denied.status,503);
   } finally {await f.close();}
 });
 
+test('pre-genesis journal writes require the fixed deployment wallet, including with EIP-7702 code', async () => {
+  const gasWallet = Wallet.createRandom();
+  const delegatedProvider = { ...chainProof(deploymentAccount),
+    getCode: async address => address.toLowerCase() === deploymentAccount
+      ? `0xef0100${'11'.repeat(20)}` : '0x' };
+  const f = await fixture(delegatedProvider, () => hex(5), () => {},
+    { freshConsolePreGenesis: true, freshStage2Hold: true, expectedGasWallet: gasWallet.address });
+  try {
+    const publicRead = await f.request('/api/journal/product-graph');
+    assert.equal(publicRead.status, 503, 'public product-graph reads do not require a wallet session');
+    const { cookie: gasCookie } = await f.login(gasWallet);
+    assert.equal((await f.request('/api/journal/session', 'GET', undefined, gasCookie)).status, 200,
+      'Stage 1 login remains available to a non-deployer');
+    const ownerCookie = f.sessionFor(deploymentAccount);
+    const initial = deployment(deploymentAccount);
+    const saved = await f.request('/api/journal/deployment', 'PUT',
+      { record: initial, expectedRevision: 0 }, ownerCookie);
+    assert.equal(saved.status, 200, 'the designated wallet may write despite EIP-7702 delegated code');
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, ownerCookie)).body.record.id,
+      initial.id);
+    for (const [name, cookie] of [
+      ['Gas wallet', gasCookie],
+      ['administrator one', f.sessionFor(FRESH_ADMIN_ONE)],
+      ['administrator two', f.sessionFor(FRESH_ADMIN_TWO)],
+      ['unrelated wallet', (await f.login(wallet)).cookie],
+    ]) {
+      assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).status, 200,
+        `${name} can read their own journal`);
+      for (const [path, method, body] of [
+        ['/api/journal/deployment', 'PUT', { record: deployment(), expectedRevision: 0 }],
+        ['/api/journal/deployment/archive', 'POST', { id: 'first', expectedRevision: 0 }],
+        ['/api/journal/fresh-activation', 'PUT', { record: {}, expectedRevision: 0 }],
+      ]) {
+        const denied = await f.request(path, method, body, cookie);
+        assert.equal(denied.status, 403, `${name} must not ${method} ${path}`);
+        assert.match(denied.body.error, /designated v4 deployment wallet/);
+      }
+    }
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: deployment(), expectedRevision: 0 }, gasCookie, origin,
+      { 'x-pinkuang-account': deploymentAccount })).status, 409,
+    'a selected-account header cannot turn a Gas-wallet session into the deployer');
+  } finally { await f.close(); }
+});
+
 test('journal API permits only documented no-send rejection and same-intent manual retry', async () => {
   const gasWallet = Wallet.createRandom().address;
-  const f = await fixture(chainProof(), () => hex(5), () => {},
+  let stagePending = 9;
+  const proof = { ...chainProof(),
+    getTransactionCount: async (_owner, tag) => tag === 'pending' ? stagePending : 8 };
+  const f = await fixture(proof, () => hex(5), () => {},
     { expectedGasWallet: gasWallet, gasWalletAddressReader: () => gasWallet });
   try {
     const { cookie } = await f.login(wallet);
@@ -314,6 +381,28 @@ test('journal API permits only documented no-send rejection and same-intent manu
     stageSigning.steps[0] = { id: ids[0], status: 'signing', nonce: 8, dataHash: hex(88),
       gasLimit: '4000000', gasPriceWei: '1000000000', maxFeeWei: '4000000000000000' };
     assert.equal((await putStage(stageSigning)).status, 200);
+    const forgedRelease = structuredClone(stageSigning);
+    forgedRelease.steps[0].status = 'rejected';
+    forgedRelease.steps[0].rejectionKind = 'nonce-witnessed';
+    assert.equal((await putStage(forgedRelease)).status, 409,
+      'ordinary journal PUT cannot claim a nonce-witnessed recovery');
+    const recover = () => f.request('/api/journal/fresh-activation/release-unused-signing', 'POST',
+      { expectedRevision: stageRevision, stepId: ids[0], nonce: 8, dataHash: hex(88) }, freshSession.cookie);
+    assert.equal((await recover()).status, 409, 'a pending nonce cannot be released');
+    stagePending = 8;
+    const released = await recover();
+    assert.equal(released.status, 200);
+    stageRevision = released.body.revision;
+    assert.equal(released.body.record.steps[0].status, 'rejected');
+    assert.equal(released.body.record.steps[0].rejectionKind, 'nonce-witnessed');
+    assert.equal(released.body.record.steps[0].nonce, 8);
+    assert.equal(released.body.record.steps[0].dataHash, hex(88));
+    assert.equal((await recover()).status, 409, 'the release is single-use');
+    const alteredRetry = structuredClone(stageSigning);
+    alteredRetry.steps[0].gasPriceWei = '2000000000';
+    alteredRetry.steps[0].maxFeeWei = '8000000000000000';
+    assert.equal((await putStage(alteredRetry)).status, 409, 'recovery pins the original gas fields');
+    assert.equal((await putStage(stageSigning)).status, 200, 'only a same-intent manual retry is accepted');
     const stageRejected = structuredClone(stageSigning);
     stageRejected.steps[0].status = 'rejected'; stageRejected.steps[0].rejectionKind = 'pre-send';
     assert.equal((await putStage(stageRejected)).status, 200);

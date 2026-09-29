@@ -116,6 +116,23 @@ export class ServerJournal {
     this.freshActivationRevision = result.revision;
   }
 
+  async releaseUnusedFreshSigning(stepId: string, nonce: number, dataHash: string): Promise<FreshActivationRecord> {
+    if (!Number.isSafeInteger(nonce) || nonce < 0 || !/^0x[0-9a-fA-F]{64}$/.test(dataHash))
+      throw new Error('新合约激活的签名意图无效。');
+    const result = await this.request<{ revision: number; record: FreshActivationRecord }>(
+      'fresh-activation/release-unused-signing', 'POST',
+      { expectedRevision: this.freshActivationRevision, stepId, nonce, dataHash });
+    const step = result.record?.steps.find(item => item.id === stepId);
+    if (!Number.isSafeInteger(result.revision) || result.revision <= this.freshActivationRevision
+      || result.record?.account?.toLowerCase() !== this.account.toLowerCase()
+      || step?.status !== 'rejected' || step.rejectionKind !== 'nonce-witnessed'
+      || step.nonce !== nonce || step.dataHash !== dataHash || step.txHash) {
+      throw new Error('服务器的无哈希签名恢复结果无效。');
+    }
+    this.freshActivationRevision = result.revision;
+    return result.record;
+  }
+
   async readCurrentNonce(): Promise<{ latest: number; pending: number }> {
     const state = await this.request<{ latest: number; pending: number }>('deployment/nonce');
     if (!state || !Number.isSafeInteger(state.latest) || state.latest < 0

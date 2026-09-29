@@ -27,6 +27,16 @@ export function portfolioFixture(options={}) {
     const tx=params[0];let contract=PORTFOLIOS.some(a=>same(a,tx.to))?abi.BudgetPortfolioVault
       :same(tx.to,extra.portfolioFactory)?abi.BudgetPortfolioFactory:same(tx.to,extra.portfolioMarket)?abi.ShareMarket
       :same(tx.to,extra.portfolioBeacon)?binds:null;
+    if(same(tx.to,manifest.shareMarket)){
+      const marketRead=abi.ShareMarket.parseTransaction(tx);
+      if(marketRead?.name==='saleReference'){
+        if(state.referenceReadError)throw new Error('market reference unavailable');
+        const quote=state.references?.[marketRead.args[0].toLowerCase()] || {};
+        return abi.ShareMarket.encodeFunctionResult('saleReference',[
+          quote.price??state.referencePrice??150n,quote.observedAt??state.referenceAt??BigInt(source().indexedTimestamp)-100n,
+          quote.digest??state.referenceDigest??`0x${'11'.repeat(32)}`]);
+      }
+    }
     if(!contract)return base.request(input);
     if(params[1]!=='0x64'&&!(tx.from&&params[1]==='latest'))throw new Error('Unpinned portfolio read');
     const parsed=contract.parseTransaction(tx);if(!parsed)throw new Error('Unknown portfolio ABI');
@@ -43,11 +53,15 @@ export function portfolioFixture(options={}) {
       claimableBem:member?100n:0n,bnbOwed:member?(state.bnbOwed??7n):0n,refundSettled:state.refundSettled??false,saleDebt:member?(state.saleDebt??5n):0n,lockedShares:member?(state.lockedShares??0n):0n,
       feeBps:100n,buyerFeeBps:state.buyerFeeBps??100n,orderExpiresAt:BigInt(source().indexedTimestamp)+86400n,
       orders:{seller:FIXTURE_OTHER_ACCOUNT,pool:PORTFOLIOS[0],remaining:5n,pricePerUnit:100n,active:true},
-      proposals:state.proposal??{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+      proposals:(parsed.name==='proposals'&&state.proposals
+        ? state.proposals[Number(parsed.args[0]-(state.activeProposalId??0n))]:null)??state.proposal??{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
         endsAt:BigInt(source().indexedTimestamp)+86400n,memberCount:2n,yesMembers:2n,yesShares:59n,executed:false},
       hasVoted:false,childInfo:{collection:address(0x952),tokenId:1n,purchaseCost:state.childCost??150n,
         official:true,sold:false},
+      childSaleReview:(parsed.name==='childSaleReview'?state.reviewStatuses?.[String(parsed.args[0])]:null)??state.reviewStatus??0n,
     };
+    if(parsed.name==='childSaleReview'&&(state.stage==='genesis'||state.reviewReadError))
+      throw new Error('child sale review unavailable');
     if(!(parsed.name in values))throw new Error(`Unknown portfolio fixture read ${parsed.name}`);
     if(parsed.name==='proposals'||parsed.name==='childInfo')
       return contract.encodeFunctionResult(parsed.fragment,

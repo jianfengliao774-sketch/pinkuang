@@ -88,7 +88,7 @@ scp -i "$SSH_KEY" "$ARCHIVE" \
 `NEW_RELEASE_ID` 换成上面的 `RELEASE_ID`。先运行 `--dry-run`；成功后使用完全相同的
 参数去掉 `--dry-run` 执行。预检会完成单元变换和全部必要配置校验，不留下新 release。
 正式运行再次检查归档、旧单元、空日志，安装依赖，短暂停止
-v4 部署台、移除旧 `keeper-private-key` 注入、启动新 release，并验证本地及 HTTPS
+v4 部署台、移除仍存在的旧 `keeper-private-key` 注入、启动新 release，并验证本地及 HTTPS
 状态、Stage2 关闭状态和进程没有收到 Gas 凭据。服务停止后、切换单元前，会再查一次
 九张业务日志表；若停机前有新写入，则停止切换并恢复原服务。安装依赖若在停服务前失败，
 新 release 目录可能已建立；再次尝试相同 release ID 前须只读核对其内容，再由运维人员
@@ -112,12 +112,29 @@ relay 仍返回 503，`/bemine-v4/` 仍为 404，旧 `/bemine-v2/` 仍可访问�
 ## 回滚边界
 
 切换脚本若在停止服务之后失败，会自动恢复原单元、原 release 并启动服务。
-**原单元含旧 Gas 凭据注入；自动回滚会重新把该凭据加载到公网 v4 进程。** 即使只是
-HTTPS 或旧 v2 健康检查短时失败，也会触发该回滚。必须立即核对实际单元、进程的
-`CREDENTIALS_DIRECTORY` 状态和 v4 服务可用性，并安排再次隔离；不得把失败运行
-误记为凭据隔离完成。成功后若发生后续故障，原 release 和 `/root/pinkuang-v4-backup/` 中的原单元
-是回滚点；回滚原单元同样会重新注入私钥，必须作为单独的运维决定，不能由本发布流程
-自动执行。不得删除或轮换任何凭据来完成本次预创世部署台更新。
+若原单元仍含旧 Gas 凭据，自动回滚会重新把该凭据加载到公网 v4 进程；若原单元
+已移除该凭据，回滚仍须复核实际单元。即使只是 HTTPS 或旧 v2 健康检查短时失败，
+也会触发回滚。必须立即核对实际单元、进程的 `CREDENTIALS_DIRECTORY` 状态和
+v4 服务可用性，不得把失败运行误记为凭据隔离完成。成功后若发生后续故障，原
+release 和事先保存的原单元是回滚点；回滚含私钥的老单元必须作为单独的运维决定，
+不能由本发布流程自动执行。不得删除或轮换任何凭据来完成本次预创世部署台更新。
 
-本更新只去掉公网 v4 进程的 Gas 私钥。Stage2 的 `credentialVerified` 仍为 false，
+本更新去掉公网 v4 进程的 Gas 私钥及旧 v2 Gas 公开地址。新的 Gas 地址必须由独立
+签名服务核验后另行配置；不可复用 v2 钱包。Stage2 的 `credentialVerified` 仍为 false，
 直到独立 signer 的可核验证明完成；Authority relay、自动购机和产品站保持关闭。
+
+## v4 API 独立限流
+
+公网部署台保留静态页面供钱包连接；API 写入仍必须通过钱包身份验证。可在不改变
+旧站或 v4 静态页面的前提下，单独给 `/pinkuang-deploy-v4/api/` 加每来源 IP
+30 次/秒、突发 60 次的 nginx 限流，超额返回 429。先核对现有 nginx 片段的
+SHA256，上传 `limit-console-api.remote.py`，以该哈希执行 `--dry-run`，再用相同
+参数正式执行。脚本会备份原片段、检查配置并重载 nginx；若验证失败会恢复原片段。
+它不会修改 v2/v3 路由、链上合约或 Gas 凭据。
+
+```sh
+sha256sum /etc/nginx/snippets/pinkuang-deploy-v4.conf
+python3 /root/pinkuang-v4-stage/limit-console-api.remote.py \
+  --current-snippet-sha256 REVIEWED_SHA256 --dry-run
+# 预检成功后：仅删除上一行的 --dry-run，再执行一次。
+```
