@@ -49,12 +49,12 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
         .getFunction('deployIntegratedSingleOwner')!.selector;
       const stage1Sends:Record<string,unknown>[]=[];
       let createSimulations=0;
-      let initializerSimulationGas:string|undefined;
+      let initializerSimulationCalls=0;
       const wallet:Eip1193Provider={request:({method,params})=>{
         if(method==='eth_estimateGas') createSimulations++;
         if(method==='eth_call'){
           const call=(params as Record<string,string>[] | undefined)?.[0];
-          if(call?.data?.startsWith(initializerSelector)) initializerSimulationGas=call.gas;
+          if(call?.data?.startsWith(initializerSelector)) initializerSimulationCalls++;
         }
         if(method==='eth_sendTransaction') stage1Sends.push((params as Record<string,unknown>[])[0]);
         return rpc(method,params as unknown[] | undefined);
@@ -67,20 +67,15 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
       assert.equal(complete.status,'complete');
       assert.deepEqual(complete.steps.map(step=>step.id).includes('FreshPoolFactory'),true);
       assert.equal(complete.steps.length,16);
-      assert.equal(createSimulations,15,'each CREATE must be simulated before signing');
+      assert.equal(createSimulations,0,'the reviewed fresh CREATEs must not request app-level Gas simulations');
       assert.equal(stage1Sends.length,complete.steps.length);
-      assert.equal(BigInt(initializerSimulationGas ?? '0'),BigInt(complete.steps.at(-1)!.gasLimit!),
-        'the initializer must be simulated under its reviewed fixed Gas limit');
+      assert.equal(initializerSimulationCalls,0,'the initializer must not request an app-level simulation');
       for (const [index,step] of complete.steps.entries()) {
         assert(step.receipt && step.gasLimit);
         assert(BigInt(step.receipt.gasUsed) <= BigInt(step.gasLimit), `${step.id} exceeds its reviewed gas limit`);
         assert.equal(BigInt(String(stage1Sends[index].gas ?? '0')),BigInt(step.gasLimit),
           `${step.id} wallet transaction must retain its reviewed fixed Gas limit`);
-        if(step.id==='initialize') assert.equal(step.gasEstimate,undefined,'initializer uses a read-only eth_call');
-        else {
-          assert(step.gasEstimate,`${step.id} must have a read-only Gas estimate`);
-          assert(BigInt(step.gasEstimate) <= BigInt(step.gasLimit),`${step.id} estimate exceeds the reviewed limit`);
-        }
+        assert.equal(step.gasEstimate,undefined,`${step.id} uses its reviewed fixed Gas limit without simulation`);
       }
       assert.equal(savedGenesisId,complete.id);
       // Anvil's finalized tag trails latest by many blocks. Advance the disposable

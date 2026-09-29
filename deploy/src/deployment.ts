@@ -859,14 +859,12 @@ export class DeploymentEngine {
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
     const reviewedLimit = snapshot.kind === 'integrated-v2' ? freshGasLimit(snapshot, step) : null;
-    // Simulate against current chain state before saving a signing intent. The
-    // reviewed limit remains the wallet limit; simulation is only a rollback
-    // and out-of-gas guard, never a source of a new Gas allowance.
-    const simulation = reviewedLimit === null || transaction.to == null
-      ? this.provider.estimateGas(transaction)
-      : this.provider.call({ ...transaction, gasLimit: reviewedLimit }).then(() => null);
+    // The fresh plan uses the fixed, artifact-pinned Gas limit. Do not make a
+    // redundant eth_estimateGas or eth_call before opening the wallet.
+    // Legacy plans still need an estimate because they have no reviewed limit.
+    const estimation = reviewedLimit === null ? this.provider.estimateGas(transaction) : Promise.resolve(null);
     const [estimated, fee, balance, walletNonce, walletPendingNonce, block, independentNonce] = await Promise.all([
-      simulation,
+      estimation,
       this.provider.getFeeData(), this.provider.getBalance(snapshot.account),
       this.provider.getTransactionCount(snapshot.account, 'latest'), this.provider.getTransactionCount(snapshot.account, 'pending'),
       this.provider.getBlock('latest'),
@@ -886,8 +884,6 @@ export class DeploymentEngine {
     const cap = parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
     assert(fee.gasPrice <= cap, '当前 Gas 单价超过设定上限。');
     const gasLimit = reviewedLimit ?? (estimated! * 120n + 99n) / 100n;
-    if (reviewedLimit !== null && estimated !== null)
-      assert(estimated <= reviewedLimit, '只读部署模拟所需 Gas 超过已核对的固定上限；部署已暂停。');
     assert(block && gasLimit <= block.gasLimit, '该笔部署超过区块 Gas 上限。');
     const maxFee = gasLimit * fee.gasPrice;
     assert(BigInt(snapshot.spentWei) + maxFee <= parseEther(snapshot.input.maxGasBudgetBnb), '下一笔交易可能超过总 Gas 预算，已停止。');
@@ -903,6 +899,7 @@ export class DeploymentEngine {
     transaction.type = 2;
     transaction.maxFeePerGas = fee.gasPrice;
     transaction.maxPriorityFeePerGas = fee.gasPrice;
+    if (reviewedLimit !== null) delete step.gasEstimate;
     Object.assign(step, { status: 'signing', nonce, ...(estimated === null ? {} : { gasEstimate: estimated.toString() }), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
     delete step.rejectionKind;
     delete step.error;

@@ -150,7 +150,7 @@ test('recent reviewed configuration skips duplicate code reads but refreshes wal
   calls.length = 0;
   await assert.rejects(engine(rejecting).start(input, reviewed), /user rejected/);
   assert(!calls.includes('eth_getCode'), 'a recent static inspection should not be repeated');
-  assert(calls.includes('eth_estimateGas'), 'a CREATE must be simulated before opening the wallet');
+  assert(!calls.includes('eth_estimateGas'), 'the reviewed fresh CREATE must not estimate Gas before opening the wallet');
   for (const method of ['eth_chainId', 'eth_accounts', 'eth_getBalance', 'eth_getTransactionCount', 'eth_sendTransaction']) {
     assert(calls.includes(method), `${method} must still run before the wallet request`);
   }
@@ -181,25 +181,14 @@ test('low gas budget pauses before any signature; rejection is persisted and unc
   assert.equal(attempts, 1);
 });
 
-test('a failed read-only CREATE simulation stops before a signing intent or wallet request', async () => {
-  let broadcasts = 0;
-  const reverting: Eip1193Provider = { request: request => {
-    if (request.method === 'eth_estimateGas') return Promise.reject(new Error('constructor simulation reverted'));
-    if (request.method === 'eth_sendTransaction') broadcasts++;
-    return wallet.request(request);
-  } };
-  let saved: DeploymentSnapshot | undefined;
-  const guarded = new DeploymentEngine(reverting, bundle, { persist: state => { saved = structuredClone(state); } });
-  await assert.rejects(guarded.start(input), /missing revert data|constructor simulation reverted/);
-  assert.equal(broadcasts, 0);
-  assert.equal(saved?.steps[0].status, 'waiting');
-  assert.equal(saved?.steps[0].nonce, undefined);
-});
-
-test('a smaller simulated CREATE cost never lowers the reviewed fixed wallet Gas limit', async () => {
+test('fresh signing skips app-level simulation and uses the artifact-pinned Gas limit', async () => {
   let submitted: Record<string,string> | undefined;
-  const smallerEstimate: Eip1193Provider = { request: request => {
-    if (request.method === 'eth_estimateGas') return Promise.resolve('0x5208');
+  let simulationCalls = 0;
+  const noSimulation: Eip1193Provider = { request: request => {
+    if (request.method === 'eth_estimateGas' || request.method === 'eth_call') {
+      simulationCalls++;
+      return Promise.reject(new Error('unexpected app-level simulation'));
+    }
     if (request.method === 'eth_sendTransaction') {
       submitted = (request.params as Record<string,string>[])[0];
       return Promise.reject(Object.assign(new Error('user rejected'), { code: 4001 }));
@@ -207,9 +196,10 @@ test('a smaller simulated CREATE cost never lowers the reviewed fixed wallet Gas
     return wallet.request(request);
   } };
   let saved: DeploymentSnapshot | undefined;
-  await assert.rejects(new DeploymentEngine(smallerEstimate, bundle,
+  await assert.rejects(new DeploymentEngine(noSimulation, bundle,
     { persist: state => { saved = structuredClone(state); } }).start(input), /user rejected/);
-  assert.equal(saved?.steps[0].gasEstimate, '21000');
+  assert.equal(simulationCalls, 0);
+  assert.equal(saved?.steps[0].gasEstimate, undefined);
   assert.equal(BigInt(submitted?.gas ?? '0'), BigInt(saved?.steps[0].gasLimit ?? '0'));
   assert(BigInt(submitted?.gas ?? '0') > 21_000n);
 });
@@ -497,12 +487,12 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   let maxConcurrentCodeReads = 0;
   const graphCodeReads = new Map<string, number>();
   const submittedEnvelopes: Record<string, unknown>[] = [];
-  let initializerSimulationGas: string | undefined;
+  let initializerSimulationCalls = 0;
   const initializerSelector = new Interface(bundle.artifacts.AtomicDeployment.abi).getFunction('deployIntegratedSingleOwner')!.selector;
   const countedWallet: Eip1193Provider = { request: async request => {
     if (request.method === 'eth_call') {
       const call = (request.params as Record<string,string>[])[0];
-      if (call?.data?.startsWith(initializerSelector)) initializerSimulationGas = call.gas;
+      if (call?.data?.startsWith(initializerSelector)) initializerSimulationCalls++;
     }
     if (request.method === 'eth_sendTransaction') {
       const envelope = (request.params as Record<string, unknown>[])[0];
@@ -524,8 +514,7 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   } });
   const complete = await countedEngine.resume(adjusted);
   assert.equal(complete.status, 'complete');
-  assert.equal(BigInt(initializerSimulationGas ?? '0'), BigInt(complete.steps.at(-1)?.gasLimit ?? '0'),
-    'the initializer must be simulated under the reviewed fixed Gas limit before signing');
+  assert.equal(initializerSimulationCalls, 0, 'the initializer must not run an app-level simulation before signing');
   assert.equal(submittedEnvelopes.length, LIBRARY_NAMES.length + 7);
   assert.ok(submittedEnvelopes.every(envelope => envelope.type === '0x2'
     && envelope.maxFeePerGas && envelope.maxPriorityFeePerGas && envelope.gasPrice === undefined),
