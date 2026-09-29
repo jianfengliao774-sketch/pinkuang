@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xe5b935e057cd4db99201e7002305ab2d43476c1b2feec3a345a115f7fd3be68f",
+  "artifactDigest": "0x11f77fe218faef0ae2c93cad3050d20464427495d6c024b24ecd1554c1134fed",
   "abis": {
     "PoolFactory": [
       {
@@ -6088,6 +6088,29 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "projectProposalId",
+            "type": "uint256"
+          }
+        ],
+        "name": "approveBudgetChildSale",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
       },
       {
