@@ -450,7 +450,6 @@ export default function LivePlatform() {
         if (cancelled || inFlight.has(section)) return;
         if (cached && publicPreviewFresh(cached.source)) {
           showSection(section, cacheKey, cached);
-          return;
         }
         inFlight.add(section);
         try {
