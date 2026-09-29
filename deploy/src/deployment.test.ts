@@ -468,6 +468,14 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
     request.method === 'eth_getTransactionCount' ? Promise.resolve(unusedNonce) : wallet.request(request) };
   const released = await new DeploymentEngine(unchangedNonceWallet, bundle, {
     persist: () => {}, readCurrentNonce: async () => ({ latest: finalStep.nonce!, pending: finalStep.nonce! }),
+    releaseInvalidEnvelope: async nonce => {
+      assert.equal(nonce, finalStep.nonce);
+      const result = structuredClone(invalidEnvelope);
+      result.steps.at(-1)!.status = 'rejected';
+      result.steps.at(-1)!.rejectionKind = 'pre-send';
+      delete result.error;
+      return result;
+    },
   }).releaseInvalidEnvelope(invalidEnvelope);
   assert.equal(released.steps.at(-1)?.status, 'rejected');
   assert.equal(released.steps.at(-1)?.rejectionKind, 'pre-send');

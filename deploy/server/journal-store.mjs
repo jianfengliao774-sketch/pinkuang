@@ -147,6 +147,28 @@ export class JournalStore {
       return next;
     });
   }
+  /** Server-approved resolution for a known wallet envelope validation failure. */
+  releaseInvalidEnvelope(account, expectedRevision, nonce) {
+    return this.transaction(() => {
+      const current = this.db.prepare('SELECT revision,record FROM deployment WHERE account=?').get(account);
+      if (!current || current.revision !== expectedRevision) throw new JournalConflict('Deployment revision changed.');
+      const record = read(current.record);
+      const step = record.steps.at(-1);
+      const error = 'Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas';
+      if (record.status !== 'paused' || step?.id !== 'initialize' || step.status !== 'uncertain'
+        || step.nonce !== nonce || step.error !== error || step.txHash || step.receipt
+        || !record.steps.slice(0, -1).every(item => item.status === 'confirmed'))
+        throw new JournalConflict('Only the exact unsent initialization envelope may be released.');
+      step.status = 'rejected';
+      step.rejectionKind = 'pre-send';
+      delete record.error;
+      record.updatedAt = new Date().toISOString();
+      const revision = current.revision + 1;
+      this.db.prepare('UPDATE deployment SET revision=?,record=? WHERE account=?')
+        .run(revision, canonical(record), account);
+      return { revision, record };
+    });
+  }
   archiveDeployment(account, id, expectedRevision) {
     return this.transaction(() => {
       const current = this.db.prepare('SELECT revision,record FROM deployment WHERE account=?').get(account);

@@ -182,6 +182,7 @@ export default function App() {
       persist: (value: DeploymentSnapshot) => journal.saveDeployment(value),
       assertCurrentArtifact: digest => journal.assertCurrentArtifact(digest),
       readCurrentNonce: () => journal.readCurrentNonce(),
+      releaseInvalidEnvelope: nonce => journal.releaseInvalidEnvelope(nonce),
       onUpdate: (value: DeploymentSnapshot) => { setSnapshot(JSON.parse(JSON.stringify(value))); },
     });
   };

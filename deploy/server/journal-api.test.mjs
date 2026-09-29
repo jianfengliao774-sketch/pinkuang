@@ -22,6 +22,48 @@ function deployment(owner = account, id = 'first') {
       governanceMode: 'single', maxGasBudgetBnb: '0.05', gasPriceCapGwei: '1', governanceReviewed: true, protocolReviewed: true },
     status: 'ready', steps: [{ id: 'PoolVault', status: 'waiting' }], addresses: {}, spentWei: '0', preflight: {} };
 }
+
+test('only the server nonce witness can release the exact unbroadcast initialization envelope', async () => {
+  let pending = 8;
+  const provider = {
+    send: async () => '0x38',
+    getTransactionCount: async (_owner, tag) => tag === 'latest' ? 7 : pending,
+  };
+  const f = await fixture(provider);
+  try {
+    const { cookie } = await f.login(wallet);
+    const initial = deployment();
+    initial.steps = [{ id: 'initialize', status: 'waiting' }];
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: initial, expectedRevision: 0 }, cookie)).status, 200);
+    const signing = structuredClone(initial);
+    signing.status = 'paused';
+    signing.steps[0] = { id: 'initialize', status: 'signing', nonce: 7, dataHash: hex(77) };
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: signing, expectedRevision: 1 }, cookie)).status, 200);
+    const uncertain = structuredClone(signing);
+    uncertain.steps[0].status = 'uncertain';
+    uncertain.steps[0].error = 'Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas';
+    uncertain.error = uncertain.steps[0].error;
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: uncertain, expectedRevision: 2 }, cookie)).status, 200);
+    const forged = structuredClone(uncertain);
+    forged.steps[0].status = 'rejected';
+    forged.steps[0].rejectionKind = 'pre-send';
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: forged, expectedRevision: 3 }, cookie)).status, 409);
+    const request = () => f.request('/api/journal/deployment/release-invalid-envelope', 'POST',
+      { expectedRevision: 3, nonce: 7 }, cookie);
+    assert.equal((await request()).status, 409, 'a pending nonce cannot be released');
+    pending = 7;
+    const released = await request();
+    assert.equal(released.status, 200);
+    assert.equal(released.body.record.steps[0].status, 'rejected');
+    assert.equal(released.body.record.steps[0].rejectionKind, 'pre-send');
+    assert.equal(released.body.record.steps[0].nonce, 7);
+    assert.equal((await request()).status, 409, 'the same recovery cannot be replayed');
+  } finally { await f.close(); }
+});
 function intent(owner = account) {
   return { version: 1, chainId: 56, account: owner, factory, market, nonce: 7, action: { kind: 'withdraw' },
     data: '0x12345678', value: '0', submittedAt: '2026-09-26T00:00:00.000Z' };

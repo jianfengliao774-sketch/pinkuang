@@ -125,6 +125,18 @@ export class ServerJournal {
     return { latest: state.latest, pending: state.pending };
   }
 
+  async releaseInvalidEnvelope(nonce: number): Promise<DeploymentSnapshot> {
+    if (!Number.isSafeInteger(nonce) || nonce < 0) throw new Error('部署交易 nonce 无效。');
+    const result = await this.request<{ revision: number; record: DeploymentSnapshot }>(
+      'deployment/release-invalid-envelope', 'POST', { expectedRevision: this.deploymentRevision, nonce });
+    if (!Number.isSafeInteger(result.revision) || result.revision <= this.deploymentRevision
+      || result.record?.account?.toLowerCase() !== this.account.toLowerCase()
+      || result.record.steps.at(-1)?.status !== 'rejected' || result.record.steps.at(-1)?.nonce !== nonce)
+      throw new Error('服务器的交易格式错误恢复结果无效。');
+    this.deploymentRevision = result.revision;
+    return result.record;
+  }
+
   async assertCurrentArtifact(digest: string): Promise<void> {
     if (!/^0x[0-9a-fA-F]{64}$/.test(digest)) throw new Error('部署产物摘要格式无效。');
     const state = await this.request<{ artifactDigest: string }>('build');

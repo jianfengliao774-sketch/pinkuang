@@ -1384,6 +1384,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (new URL(req.url, origin).search) fail(400, 'Nonce verification accepts only the authenticated wallet, with no query parameters.');
         return send(200, await currentAccountNonce(provider, account));
       }
+      if (method === 'POST' && path === '/api/journal/deployment/release-invalid-envelope') {
+        const body = await readJson(req);
+        const revision = exactRevision(body.expectedRevision);
+        if (!Number.isSafeInteger(body.nonce) || body.nonce < 0) fail(400, 'Invalid deployment nonce.');
+        const current = store.deployment(account);
+        if (current.revision !== revision || current.record?.steps.at(-1)?.nonce !== body.nonce)
+          fail(409, 'Deployment revision or nonce changed.');
+        const witness = await currentAccountNonce(provider, account);
+        if (witness.latest !== body.nonce || witness.pending !== body.nonce)
+          fail(409, 'Wallet nonce changed or has a pending transaction; recover the transaction hash first.');
+        return send(200, store.releaseInvalidEnvelope(account, revision, body.nonce));
+      }
       if (method === 'GET' && path === '/api/journal/deployment/archives') {
         const url = new URL(req.url, origin);
         if (url.searchParams.getAll('cursor').length > 1 || url.searchParams.getAll('limit').length > 1)

@@ -132,6 +132,8 @@ export interface DeploymentCallbacks {
   assertCurrentArtifact?: (digest: string) => void | Promise<void>;
   /** An independent RPC witness; browser-wallet nonce responses can be stale. */
   readCurrentNonce?: () => Promise<{ latest: number; pending: number }>;
+  /** Server checks its own nonce witness and atomically changes only the known failed envelope. */
+  releaseInvalidEnvelope?: (nonce: number) => Promise<DeploymentSnapshot>;
   onUpdate?: (snapshot: DeploymentSnapshot) => void;
   /** Read inside the cross-tab lock; prevents a stale tab from replaying already-completed steps. */
   readLatest?: () => DeploymentSnapshot | null | Promise<DeploymentSnapshot | null>;
@@ -479,12 +481,13 @@ export class DeploymentEngine {
       assert(independent.latest === step.nonce && independent.pending === step.nonce &&
         walletLatest === step.nonce && walletPending === step.nonce,
         '部署账户的 nonce 已变化或存在待确认交易；先核对交易哈希。');
-      step.status = 'rejected';
-      step.rejectionKind = 'pre-send';
-      snapshot.status = 'paused';
-      delete snapshot.error;
-      await this.save(snapshot);
-      return snapshot;
+      assert(this.callbacks.releaseInvalidEnvelope, '服务器不支持交易格式错误的受控恢复。');
+      const released = await this.callbacks.releaseInvalidEnvelope(step.nonce!);
+      assert(released.id === snapshot.id && released.steps.at(-1)?.nonce === step.nonce &&
+        released.steps.at(-1)?.status === 'rejected' && released.steps.at(-1)?.rejectionKind === 'pre-send',
+        '服务器返回的部署恢复状态与原记录不匹配。');
+      this.callbacks.onUpdate?.(clone(released));
+      return released;
     });
   }
 
