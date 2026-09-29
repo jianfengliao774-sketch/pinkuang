@@ -350,6 +350,15 @@ test('pending finality, replacement and revert do not produce share confirmation
   }
 });
 
+test('an old server success-labelled replacement cannot appear as a cleared product intent',async()=>{
+  const f=fixture({resolution:'replaced'});
+  const result=await f.send();
+  assert.equal(result.status,'pending');
+  assert.match(result.message,/可能已执行产品操作/);
+  assert(result.record);
+  assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
+});
+
 test('recovery reads saved finalized result after lost DELETE ACK, never signing again',async()=>{
   const f=fixture({deleteAckLost:true});
   const result=await f.send();assert.equal(result.status,'confirmed');

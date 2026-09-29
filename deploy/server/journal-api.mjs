@@ -470,9 +470,40 @@ export async function verifyMarketFinalized(provider, record, hash) {
   const target = record.version === 2 ? record.target : record.market;
   const matches = tx.to?.toLowerCase() === target.toLowerCase() && tx.data.toLowerCase() === record.data.toLowerCase()
     && tx.value.toString() === record.value;
+  // The wallet can rewrite a requested type-2 transaction into a type-4 EIP-7702
+  // envelope. A successful outer receipt, calldata substring, or product event
+  // cannot prove which inner call ran for every supported product action. Keep
+  // the nonce reserved until the exact outer call (or a separately proved inner
+  // execution) is known. DELETE must not turn an uncertain success into a fresh
+  // signing slot.
+  if (receipt.status === 1 && !matches) {
+    // A plain 21,000-gas self-transfer has no execution gas for a delegated
+    // account and cannot make an inner product call. Type-4 self-calls do not
+    // satisfy this cancellation proof, even if their outer data is empty.
+    const cancelled = tx.type === 0 && tx.gasLimit === 21_000n
+      && tx.to?.toLowerCase() === record.account.toLowerCase()
+      && tx.data === '0x' && tx.value === 0n;
+    if (!cancelled) fail(409, 'Successful replacement may contain an inner product call; keep the journal pending for manual verification.');
+  }
   if (record.version !== 2 && record.hash?.toLowerCase() === hash.toLowerCase()
     && !matches) fail(409, 'Original market transaction payload differs.');
-  const cancelled = tx.to?.toLowerCase() === record.account.toLowerCase() && tx.data === '0x' && tx.value === 0n;
+  if (record.version === 2 && matches) {
+    const gasLimit = BigInt(record.gas), feeCap = BigInt(record.gasPrice);
+    const fee = tx.type === 0 || tx.type === 1 ? tx.gasPrice
+      : tx.type === 2 || tx.type === 4 ? tx.maxFeePerGas : null;
+    // Check the signed maximum, not only the effective price in the receipt.
+    // A wallet-side fee/limit increase invalidates the page's reviewed upper
+    // bound even if the exact product calldata happened to execute.
+    if (typeof tx.gasLimit !== 'bigint' || tx.gasLimit > gasLimit
+      || typeof fee !== 'bigint' || fee > feeCap
+      || typeof tx.gasPrice !== 'bigint' || tx.gasPrice > feeCap
+      || typeof receipt.gasPrice !== 'bigint' || receipt.gasPrice > feeCap
+      || (tx.type === 2 || tx.type === 4)
+        && (typeof tx.maxPriorityFeePerGas !== 'bigint' || tx.maxPriorityFeePerGas > fee))
+      fail(409, 'Finalized wallet Gas limit or fee differs from the reviewed product cap; keep the journal pending.');
+  }
+  const cancelled = receipt.status === 1 && tx.type === 0 && tx.gasLimit === 21_000n
+    && tx.to?.toLowerCase() === record.account.toLowerCase() && tx.data === '0x' && tx.value === 0n;
   const result = { action: record.action.kind, status: matches ? (receipt.status === 1 ? 'confirmed' : 'reverted')
     : cancelled && receipt.status === 1 ? 'cancelled' : 'replaced', finalized: true, transactionHash: hash.toLowerCase(),
     account: record.account, target, nonce: record.nonce, factory: record.factory,

@@ -221,6 +221,11 @@ function validateResult(result, account, record, hash) {
     && same(result.target, record.target ?? record.market) && result.action === record.action.kind, '最终回执与交易意图不匹配。');
   if (result.status === 'cancelled') requireValue(result.receipt.status === 1 && same(result.receipt.to, account), '取消回执必须是本钱包成功的自转交易。');
   if (result.status === 'reverted') requireValue(result.receipt.status === 0, '失败回执状态不匹配。');
+  // An older server may label a successful EIP-7702 envelope as a replacement
+  // after looking only at the outer destination. That is not proof that an
+  // inner product call did not run. Never present it as a cleared intent.
+  if (result.status === 'replaced') requireValue(result.receipt.status === 0,
+    '成功的替换交易可能已执行产品操作，不能自动清除待核对意图。');
   if (result.status === 'confirmed') {
     requireValue(result.receipt.status === 1 && same(result.receipt.to, result.target), '成功回执的目标不匹配。');
     if (result.action === 'deposit') {
