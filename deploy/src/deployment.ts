@@ -142,6 +142,35 @@ export interface DeploymentCallbacks {
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
 const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
+// The fresh deployment gas limits were measured against the exact pinned
+// artifact bundle in a disposable BSC-chain-id 56 deployment (16 receipts).
+// A changed bundle must get a new reviewed plan before any wallet request.
+const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0xbac20f96a1476eeb7911d5f35abc78320f8339eebf10169a8d034fe797b2f88e';
+const FRESH_STEP_GAS_LIMITS: Readonly<Record<string, bigint>> = Object.freeze({
+  PoolFunds: 1060916n,
+  PurchaseValidation: 1081458n,
+  FlexiblePurchase: 3444822n,
+  MiningOperations: 1619118n,
+  RewardAccounting: 1322870n,
+  SaleGovernance: 1393937n,
+  SaleSettlement: 864965n,
+  ShareCheckpoints: 444602n,
+  FirstoSale: 1589058n,
+  AtomicDeployment: 5493507n,
+  PoolVault: 6446414n,
+  FreshPoolFactory: 6167382n,
+  ShareMarket: 3103917n,
+  BudgetPortfolioFactory: 2594235n,
+  BudgetPortfolioVault: 6413526n,
+  initialize: 6224554n,
+});
+function freshGasLimit(snapshot: DeploymentSnapshot, step: StepRecord): bigint {
+  assert(snapshot.artifactDigest === FRESH_GAS_PLAN_ARTIFACT_DIGEST,
+    '正式版构建产物与已核对的 Gas 计划不同；请重新测量并审核后再签名。');
+  const limit = FRESH_STEP_GAS_LIMITS[step.id];
+  assert(limit !== undefined && limit > 0n, `缺少 ${step.id} 的正式版 Gas 上限。`);
+  return limit;
+}
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const isAborted = (snapshot: DeploymentSnapshot): boolean => snapshot.status === 'aborted';
 const receiptRecord = (receipt: TransactionReceipt): NonNullable<StepRecord['receipt']> => ({
@@ -828,8 +857,10 @@ export class DeploymentEngine {
     verifyArtifactIntegrity(this.bundle);
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
+    const reviewedLimit = snapshot.kind === 'integrated-v2' ? freshGasLimit(snapshot, step) : null;
     const [estimated, fee, balance, walletNonce, walletPendingNonce, block, independentNonce] = await Promise.all([
-      this.provider.estimateGas(transaction), this.provider.getFeeData(), this.provider.getBalance(snapshot.account),
+      reviewedLimit === null ? this.provider.estimateGas(transaction) : Promise.resolve(null),
+      this.provider.getFeeData(), this.provider.getBalance(snapshot.account),
       this.provider.getTransactionCount(snapshot.account, 'latest'), this.provider.getTransactionCount(snapshot.account, 'pending'),
       this.provider.getBlock('latest'),
       this.callbacks.readCurrentNonce?.() ?? Promise.resolve(null),
@@ -847,7 +878,7 @@ export class DeploymentEngine {
     assert(fee.gasPrice !== null && fee.gasPrice > 0n, '无法读取 Gas 单价。');
     const cap = parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
     assert(fee.gasPrice <= cap, '当前 Gas 单价超过设定上限。');
-    const gasLimit = (estimated * 120n + 99n) / 100n;
+    const gasLimit = reviewedLimit ?? (estimated! * 120n + 99n) / 100n;
     assert(block && gasLimit <= block.gasLimit, '该笔部署超过区块 Gas 上限。');
     const maxFee = gasLimit * fee.gasPrice;
     assert(BigInt(snapshot.spentWei) + maxFee <= parseEther(snapshot.input.maxGasBudgetBnb), '下一笔交易可能超过总 Gas 预算，已停止。');
@@ -863,7 +894,7 @@ export class DeploymentEngine {
     transaction.type = 2;
     transaction.maxFeePerGas = fee.gasPrice;
     transaction.maxPriorityFeePerGas = fee.gasPrice;
-    Object.assign(step, { status: 'signing', nonce, gasEstimate: estimated.toString(), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
+    Object.assign(step, { status: 'signing', nonce, ...(estimated === null ? {} : { gasEstimate: estimated.toString() }), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
     delete step.rejectionKind;
     delete step.error;
     // Write-ahead intent makes a reload between wallet acceptance and hash delivery fail closed.

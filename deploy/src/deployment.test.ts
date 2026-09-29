@@ -150,6 +150,7 @@ test('recent reviewed configuration skips duplicate code reads but refreshes wal
   calls.length = 0;
   await assert.rejects(engine(rejecting).start(input, reviewed), /user rejected/);
   assert(!calls.includes('eth_getCode'), 'a recent static inspection should not be repeated');
+  assert(!calls.includes('eth_estimateGas'), 'the pinned fresh gas plan must reach the wallet without a simulation');
   for (const method of ['eth_chainId', 'eth_accounts', 'eth_getBalance', 'eth_getTransactionCount', 'eth_sendTransaction']) {
     assert(calls.includes(method), `${method} must still run before the wallet request`);
   }

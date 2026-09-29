@@ -53,6 +53,12 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
         maxGasBudgetBnb:'0.1',gasPriceCapGwei:'10',governanceReviewed:true,protocolReviewed:true});
       assert.equal(complete.status,'complete');
       assert.deepEqual(complete.steps.map(step=>step.id).includes('FreshPoolFactory'),true);
+      assert.equal(complete.steps.length,16);
+      for (const step of complete.steps) {
+        assert(step.receipt && step.gasLimit);
+        assert(BigInt(step.receipt.gasUsed) <= BigInt(step.gasLimit), `${step.id} exceeds its reviewed gas limit`);
+        assert.equal(step.gasEstimate,undefined,'fresh deployment must not simulate before a wallet request');
+      }
       assert.equal(savedGenesisId,complete.id);
       // Anvil's finalized tag trails latest by many blocks. Advance the disposable
       // chain so the production manifest verifier can require real finality.
