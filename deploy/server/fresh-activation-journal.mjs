@@ -1,4 +1,4 @@
-import { Interface, getAddress, keccak256, parseEther, parseUnits } from 'ethers';
+import { ContractFactory, Interface, getAddress, getCreateAddress, keccak256, parseEther, parseUnits } from 'ethers';
 
 export const FRESH_ACTIVATION_STEPS = [
   'deployAuthority', 'coreOperator', 'coreTreasury', 'budgetOperator',
@@ -166,65 +166,83 @@ const AUTHORITY_READ = new Interface(['function owner() view returns(address)',
   'function administratorOne() view returns(address)', 'function administratorTwo() view returns(address)',
   'function gasWallet() view returns(address)']);
 
-/** Independent RPC proof required before archiving a failed Stage 2 attempt. */
-export async function verifyFinalizedFreshAttempt(provider, record, account, stepId, nonce, winnerHash) {
-  const deny = () => { throw new Error('Finalized fresh activation recovery proof failed.'); };
-  const index=record?.steps?.findIndex(step=>step.status!=='confirmed') ?? -1;
-  const step=record?.steps?.[index];
-  if (record?.status!=='aborted' || index<1 || step?.id!==stepId
-    || !['failed','replaced'].includes(step.status) || step.nonce!==nonce
-    || !HASH.test(winnerHash) || (step.replacementHash??step.txHash)?.toLowerCase()!==winnerHash.toLowerCase()
-    || !validReceipt(step.receipt) || !record.steps.slice(0,index).every(item=>item.status==='confirmed')
-    || !record.steps.slice(index+1).every(item=>item.status==='waiting')) deny();
-  const [tx,receipt,finalized,network]=await Promise.all([
-    provider.getTransaction(winnerHash),provider.getTransactionReceipt(winnerHash),
-    provider.getBlock('finalized'),provider.getNetwork(),
+const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const MAX_ANCESTRY_BLOCKS = 4096;
+const EXPECTED_ACTIONS = g => [null,
+  [g.factory,'setOperator'], [g.factory,'setTreasury'],
+  [g.portfolioFactory,'setOperator'],[g.portfolioFactory,'setTreasury'],
+  [g.factory,'transferOwnership'],[g.portfolioFactory,'transferOwnership']];
+
+// RPCs can return a valid receipt and a valid finalized block from different forks.
+// Compare every parent link; a gap beyond this bound is deliberately non-recoverable
+// without a separate reviewed proof.
+async function proveAncestor(provider, ancestorNumber, ancestorHash, descendant) {
+  if (!Number.isSafeInteger(descendant?.number) || !HASH.test(descendant?.hash)
+    || descendant.number < ancestorNumber || descendant.number - ancestorNumber > MAX_ANCESTRY_BLOCKS) return false;
+  let expected = descendant.hash;
+  for (let number = descendant.number; number >= ancestorNumber; number--) {
+    const block = await provider.getBlock(number);
+    if (!block || block.number !== number || block.hash?.toLowerCase() !== expected.toLowerCase()) return false;
+    if (number === ancestorNumber) return block.hash.toLowerCase() === ancestorHash.toLowerCase();
+    if (!HASH.test(block.parentHash)) return false;
+    expected = block.parentHash;
+  }
+  return false;
+}
+
+async function anchorChain(provider, receipt) {
+  const [finalized,latest] = await Promise.all([provider.getBlock('finalized'),provider.getBlock('latest')]);
+  if (!finalized?.hash || !latest?.hash
+    || !await proveAncestor(provider,receipt.blockNumber,receipt.blockHash,finalized)
+    || !await proveAncestor(provider,finalized.number,finalized.hash,latest))
+    throw new Error('Finalized fresh activation recovery proof failed.');
+  return {finalized,latest};
+}
+
+async function assertAnchorStillCanonical(provider, receipt, finalized, latest) {
+  const [winnerAgain,finalizedAgain,latestAgain,finalizedTag,latestTag]=await Promise.all([
+    provider.getBlock(receipt.blockNumber),provider.getBlock(finalized.number),provider.getBlock(latest.number),
+    provider.getBlock('finalized'),provider.getBlock('latest'),
   ]);
-  if (network?.chainId!==56n || !tx || !receipt || !finalized?.hash
-    || tx.chainId!==56n || !sameAddress(tx.from,account) || tx.nonce!==nonce
-    || !sameAddress(receipt.from,account) || !sameAddress(tx.hash,winnerHash)
-    || !sameAddress(receipt.hash,winnerHash) || tx.blockNumber!==receipt.blockNumber
-    || tx.blockHash!==receipt.blockHash || receipt.blockNumber!==step.receipt.blockNumber
-    || receipt.blockHash!==step.receipt.blockHash || receipt.status!==step.receipt.status
-    || receipt.gasUsed.toString()!==step.receipt.gasUsed
-    || receipt.gasPrice.toString()!==step.receipt.gasPrice
-    || receipt.fee.toString()!==step.receipt.feeWei
-    || finalized.number<receipt.blockNumber
-    || step.status==='failed' && receipt.status!==0
-    || step.status==='replaced' && (receipt.status!==1 || !step.replacementHash
-      || step.replacementHash.toLowerCase()===step.txHash?.toLowerCase())) deny();
+  if (winnerAgain?.hash!==receipt.blockHash || finalizedAgain?.hash!==finalized.hash
+    || latestAgain?.hash!==latest.hash
+    || !await proveAncestor(provider,finalized.number,finalized.hash,finalizedTag)
+    || !await proveAncestor(provider,latest.number,latest.hash,latestTag))
+    throw new Error('Finalized fresh activation recovery proof failed.');
+  return {finalizedTag,latestTag};
+}
+
+async function verifyPrefixAt(provider, record, genesis, account, completed, block) {
+  const deny = () => { throw new Error('Finalized fresh activation recovery proof failed.'); };
   const g=record.genesis;
-  const actions=[null,
-    [g.factory,'setOperator',record.authorityAddress],
-    [g.factory,'setTreasury',record.authorityAddress],
-    [g.portfolioFactory,'setOperator',record.authorityAddress],
-    [g.portfolioFactory,'setTreasury',record.authorityAddress],
-    [g.factory,'transferOwnership',g.timelock],
-    [g.portfolioFactory,'transferOwnership',g.timelock]];
-  const [target,method,destination]=actions[index];
-  if (!destination || keccak256(FACTORY_WRITE.encodeFunctionData(method,[destination]))!==step.dataHash
-    || !step.replacementHash && (!sameAddress(tx.to,target) || tx.value!==0n
-      || keccak256(tx.data)!==step.dataHash)) deny();
-  const receiptBlock=await provider.getBlock(receipt.blockNumber);
-  if (receiptBlock?.hash!==receipt.blockHash) deny();
-  const block=finalized.number;
   const read=async(to,iface,name,args=[])=>iface.decodeFunctionResult(name,
-    await provider.call({to,data:iface.encodeFunctionData(name,args)},block))[0];
+    await provider.call({to,data:iface.encodeFunctionData(name,args)},block.number))[0];
   for (const [name,address] of Object.entries({factory:g.factory,portfolioFactory:g.portfolioFactory,
     shareMarket:g.shareMarket,portfolioMarket:g.portfolioMarket,timelock:g.timelock})) {
-    const code=await provider.getCode(address,block);
+    const code=await provider.getCode(address,block.number);
     if (code==='0x' || keccak256(code)!==g.codehash[name]) deny();
+  }
+  for (const [proxy,label] of [[g.factory,'FreshPoolFactory'],
+    [g.portfolioFactory,'BudgetPortfolioFactory']]) {
+    const implementation=genesis?.addresses?.[label];
+    const verified=genesis?.verification?.code?.[label];
+    if (!implementation || !sameAddress(verified?.address,implementation)
+      || !HASH.test(verified?.codehash)) deny();
+    const slot=await provider.getStorage(proxy,IMPLEMENTATION_SLOT,block.number);
+    if (!HASH.test(slot) || !sameAddress(`0x${slot.slice(-40)}`,implementation)) deny();
+    const code=await provider.getCode(implementation,block.number);
+    if (code==='0x' || keccak256(code)!==verified.codehash) deny();
   }
   for (const [target,market,isBudget] of [[g.factory,g.shareMarket,false],
     [g.portfolioFactory,g.portfolioMarket,true]]) {
     const owner=await read(target,FACTORY_READ,'owner');
     const operator=await read(target,FACTORY_READ,'operator');
     const treasury=await read(target,FACTORY_READ,'treasury');
-    const expectedOwner=isBudget ? index>=7?g.timelock:account : index>=6?g.timelock:account;
-    const expectedOperator=isBudget ? index>=4?record.authorityAddress:account
-      : index>=2?record.authorityAddress:account;
-    const expectedTreasury=isBudget ? index>=5?record.authorityAddress:account
-      : index>=3?record.authorityAddress:account;
+    const expectedOwner=isBudget ? completed>=7?g.timelock:account : completed>=6?g.timelock:account;
+    const expectedOperator=isBudget ? completed>=4?record.authorityAddress:account
+      : completed>=2?record.authorityAddress:account;
+    const expectedTreasury=isBudget ? completed>=5?record.authorityAddress:account
+      : completed>=3?record.authorityAddress:account;
     if (!sameAddress(owner,expectedOwner) || !sameAddress(operator,expectedOperator)
       || !sameAddress(treasury,expectedTreasury)
       || !sameAddress(await read(target,FACTORY_READ,'timelock'),g.timelock)
@@ -237,19 +255,113 @@ export async function verifyFinalizedFreshAttempt(provider, record, account, ste
   if (await read(g.timelock,TIMELOCK_READ,'getMinDelay')<48n*60n*60n
     || await read(g.timelock,TIMELOCK_READ,'hasRole',[proposer,account])!==true
     || await read(g.timelock,TIMELOCK_READ,'hasRole',[canceller,account])!==true) deny();
-  if (!record.authorityAddress || await provider.getCode(record.authorityAddress,block)==='0x') deny();
-  for (const [name,expected] of Object.entries({owner:g.timelock,coreFactory:g.factory,
-    budgetFactory:g.portfolioFactory,administratorOne:record.administratorOne,
-    administratorTwo:record.administratorTwo,gasWallet:record.gasWallet})) {
-    if (!sameAddress(await read(record.authorityAddress,AUTHORITY_READ,name),expected)) deny();
+  if (completed===0) {
+    if (record.authorityAddress) deny();
+  } else {
+    if (!record.authorityAddress || await provider.getCode(record.authorityAddress,block.number)==='0x') deny();
+    for (const [name,expected] of Object.entries({owner:g.timelock,coreFactory:g.factory,
+      budgetFactory:g.portfolioFactory,administratorOne:record.administratorOne,
+      administratorTwo:record.administratorTwo,gasWallet:record.gasWallet})) {
+      if (!sameAddress(await read(record.authorityAddress,AUTHORITY_READ,name),expected)) deny();
+    }
   }
-  const [again,finalizedAgain,latestNonce,pendingNonce]=await Promise.all([
-    provider.getBlock(receipt.blockNumber),provider.getBlock(block),
-    provider.getTransactionCount(account,'latest'),provider.getTransactionCount(account,'pending'),
-  ]);
-  if (again?.hash!==receipt.blockHash || finalizedAgain?.hash!==finalized.hash
-    || latestNonce!==pendingNonce || latestNonce<=nonce) deny();
-  return {stepId,nonce,winnerHash,receiptBlockNumber:receipt.blockNumber,
-    receiptBlockHash:receipt.blockHash,finalizedBlockNumber:block,
+}
+
+async function expectedDataHash(record,index,bundle) {
+  if (index===0) {
+    const artifact=bundle?.artifacts?.PlatformAuthority;
+    if (!artifact?.abi || !/^0x[\da-f]+$/i.test(artifact.bytecode)
+      || artifact.bytecode==='0x' || Object.keys(artifact.linkReferences??{}).length) return null;
+    const tx=await new ContractFactory(artifact.abi,artifact.bytecode).getDeployTransaction(
+      record.genesis.factory,record.genesis.portfolioFactory,record.administratorOne,
+      record.administratorTwo,record.gasWallet);
+    return keccak256(tx.data);
+  }
+  const [target,method]=EXPECTED_ACTIONS(record.genesis)[index];
+  const destination=index>=5?record.genesis.timelock:record.authorityAddress;
+  return target && destination ? keccak256(FACTORY_WRITE.encodeFunctionData(method,[destination])) : null;
+}
+
+async function proveAttemptWinner(provider,record,account,index,step,bundle) {
+  const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
+  const winnerHash=step.replacementHash??step.txHash;
+  if (!HASH.test(winnerHash) || !validReceipt(step.receipt)
+    || step.dataHash!==await expectedDataHash(record,index,bundle)) deny();
+  const [tx,receipt,network]=await Promise.all([provider.getTransaction(winnerHash),
+    provider.getTransactionReceipt(winnerHash),provider.getNetwork()]);
+  if (network?.chainId!==56n || !tx || !receipt || tx.chainId!==56n
+    || !sameAddress(tx.hash,winnerHash) || !sameAddress(receipt.hash,winnerHash)
+    || !sameAddress(tx.from,account) || !sameAddress(receipt.from,account)
+    || tx.nonce!==step.nonce || tx.blockNumber!==receipt.blockNumber
+    || tx.blockHash!==receipt.blockHash || receipt.blockNumber!==step.receipt.blockNumber
+    || receipt.blockHash!==step.receipt.blockHash || receipt.status!==step.receipt.status
+    || receipt.gasUsed.toString()!==step.receipt.gasUsed
+    || receipt.gasPrice.toString()!==step.receipt.gasPrice
+    || receipt.fee.toString()!==step.receipt.feeWei
+    || step.status==='failed' && receipt.status!==0
+    || step.status==='replaced' && (receipt.status!==1 || !step.replacementHash
+      || step.replacementHash.toLowerCase()===step.txHash?.toLowerCase())) deny();
+  if (!step.replacementHash) {
+    const target=index===0?null:EXPECTED_ACTIONS(record.genesis)[index][0];
+    if (!sameAddress(tx.to,target) && !(target===null && tx.to===null)
+      || tx.value!==0n || keccak256(tx.data)!==step.dataHash) deny();
+  }
+  const anchors=await anchorChain(provider,receipt);
+  if (index===0) {
+    const predicted=getCreateAddress({from:account,nonce:step.nonce});
+    for (const block of [anchors.finalized,anchors.latest]) {
+      if (await provider.getCode(predicted,block.number)!=='0x') deny();
+    }
+  }
+  return {winnerHash,receipt,anchors};
+}
+
+/** Independent RPC proof required before archiving a failed Stage 2 attempt. */
+export async function verifyFinalizedFreshAttempt(provider,record,genesis,account,stepId,nonce,winnerHash,bundle) {
+  const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
+  const index=record?.steps?.findIndex(step=>step.status!=='confirmed')??-1;
+  const step=record?.steps?.[index];
+  if (record?.status!=='aborted' || index<0 || step?.id!==stepId
+    || !['failed','replaced'].includes(step.status) || step.nonce!==nonce
+    || !HASH.test(winnerHash) || (step.replacementHash??step.txHash)?.toLowerCase()!==winnerHash.toLowerCase()
+    || !record.steps.slice(0,index).every(item=>item.status==='confirmed')
+    || !record.steps.slice(index+1).every(item=>item.status==='waiting')) deny();
+  const proof=await proveAttemptWinner(provider,record,account,index,step,bundle);
+  const {finalized,latest}=proof.anchors;
+  for (const block of finalized.hash===latest.hash?[finalized]:[finalized,latest])
+    await verifyPrefixAt(provider,record,genesis,account,index,block);
+  const checked=await assertAnchorStillCanonical(provider,proof.receipt,finalized,latest);
+  if (checked.latestTag.hash!==latest.hash)
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag);
+  const [latestNonce,pendingNonce]=await Promise.all([
+    provider.getTransactionCount(account,'latest'),provider.getTransactionCount(account,'pending')]);
+  if (latestNonce!==pendingNonce || latestNonce<=nonce) deny();
+  return {stepId,nonce,winnerHash,receiptBlockNumber:proof.receipt.blockNumber,
+    receiptBlockHash:proof.receipt.blockHash,finalizedBlockNumber:finalized.number,
     finalizedBlockHash:finalized.hash};
+}
+
+/** Every archived winner is checked again before the next signing intent. */
+export async function verifyRecoveredFreshSigning(provider,record,genesis,account,bundle) {
+  const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
+  const index=record?.steps?.findIndex(step=>step.status!=='confirmed')??-1;
+  if (index<0) deny();
+  let lastAnchor;
+  for (let i=0;i<=index;i++) for (const attempt of record.steps[i].attempts??[]) {
+    const proof=await proveAttemptWinner(provider,record,account,i,attempt,bundle);
+    const archived=attempt.recovery;
+    if (!archived || !await proveAncestor(provider,proof.receipt.blockNumber,
+      proof.receipt.blockHash,{number:archived.finalizedBlockNumber,hash:archived.finalizedBlockHash})
+      || !await proveAncestor(provider,archived.finalizedBlockNumber,
+        archived.finalizedBlockHash,proof.anchors.finalized)) deny();
+    lastAnchor=proof;
+  }
+  if (!lastAnchor) return;
+  for (const block of lastAnchor.anchors.finalized.hash===lastAnchor.anchors.latest.hash
+    ?[lastAnchor.anchors.finalized]:[lastAnchor.anchors.finalized,lastAnchor.anchors.latest])
+    await verifyPrefixAt(provider,record,genesis,account,index,block);
+  const checked=await assertAnchorStillCanonical(provider,lastAnchor.receipt,
+    lastAnchor.anchors.finalized,lastAnchor.anchors.latest);
+  if (checked.latestTag.hash!==lastAnchor.anchors.latest.hash)
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag);
 }

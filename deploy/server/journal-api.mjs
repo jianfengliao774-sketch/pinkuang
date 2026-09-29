@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { FetchRequest, Interface, JsonRpcProvider, getAddress, getCreateAddress, keccak256, toUtf8Bytes, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
-import { validateFreshActivation, verifyFinalizedFreshAttempt } from './fresh-activation-journal.mjs';
+import { validateFreshActivation, verifyFinalizedFreshAttempt, verifyRecoveredFreshSigning } from './fresh-activation-journal.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
@@ -938,6 +938,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return buildDigest();
   }
 
+  function freshRecoveryBundle(record) {
+    // First Authority creation must bind to the exact server-served reviewed bytecode.
+    if (!record?.steps?.[0]?.attempts?.length
+      && record?.steps?.[0]?.status !== 'failed'
+      && record?.steps?.[0]?.status !== 'replaced') return undefined;
+    const bundle = genesisBundle ?? JSON.parse(readFileSync(new URL('../dist/deployment-artifacts.json', import.meta.url), 'utf8'));
+    if (artifactContentDigest(bundle).toLowerCase() !== record.genesisArtifactDigest.toLowerCase()
+      || record.genesisArtifactDigest.toLowerCase() !== signingBuildDigest())
+      fail(409, 'Reviewed Authority creation artifact changed.');
+    return bundle;
+  }
+
   function consumeProductIntentBudget(req, account) {
     const window = Math.floor(now() / PRODUCT_INTENT_WINDOW_MS);
     if (window !== productIntentWindow) { productIntentWindow = window; productIntentAccounts.clear(); }
@@ -1557,6 +1569,13 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           fail(409, 'A new Stage 2 journal cannot import failed transaction attempts.');
         if (newSigningIntent && record.genesisArtifactDigest.toLowerCase() !== signingBuildDigest())
           fail(409, 'Deployment artifacts changed. Reload before another hardware-wallet signature.');
+        if (newSigningIntent && record.steps.some(step => step.attempts?.length)) {
+          if (!provider || !previous || !genesis)
+            fail(409, 'Recovered Stage 2 history has no independent chain reader.');
+          try { await verifyRecoveredFreshSigning(provider, previous, genesis, account,
+            freshRecoveryBundle(previous)); }
+          catch { fail(409, 'Archived same-nonce winner or current Authority roles changed.'); }
+        }
         return send(200, { revision: store.putFreshActivation(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'POST' && path === '/api/journal/fresh-activation/release-unused-signing') {
@@ -1586,8 +1605,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         try { validateFreshActivation(current.record, account, genesis, getAddress(expectedGasWallet)); }
         catch { fail(409, 'Fresh activation or genesis record failed independent validation.'); }
         let proof;
-        try { proof = await verifyFinalizedFreshAttempt(provider, current.record, account,
-          body.stepId, body.nonce, body.winnerHash); }
+        try { proof = await verifyFinalizedFreshAttempt(provider, current.record, genesis, account,
+          body.stepId, body.nonce, body.winnerHash, freshRecoveryBundle(current.record)); }
         catch { fail(409, 'Finalized same-nonce winner or current Authority roles could not be proven.'); }
         return send(200, store.recoverFinalizedFreshAttempt(account, revision, proof));
       }

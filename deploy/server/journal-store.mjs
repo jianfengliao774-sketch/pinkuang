@@ -147,7 +147,7 @@ export class JournalStore {
       const record = read(current.record);
       const index = record?.steps?.findIndex(step => step.status !== 'confirmed') ?? -1;
       const step = record?.steps?.[index];
-      if (record?.status !== 'aborted' || index < 1 || step?.id !== proof.stepId
+      if (record?.status !== 'aborted' || index < 0 || step?.id !== proof.stepId
         || !['failed','replaced'].includes(step.status) || step.nonce !== proof.nonce
         || (step.replacementHash ?? step.txHash)?.toLowerCase() !== proof.winnerHash.toLowerCase()
         || !step.receipt || step.receipt.blockHash !== proof.receiptBlockHash

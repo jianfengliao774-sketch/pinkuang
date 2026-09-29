@@ -343,18 +343,21 @@ test('a finalized third-step failure requires a separate same-action, new-nonce 
     exclusive: (action: () => Promise<unknown>) => Promise<unknown>;
     verifyPinnedState: () => Promise<unknown>;
     finalizedReceipt: () => Promise<unknown>;
+    proveAncestor: () => Promise<void>;
     account: () => Promise<string>;
     provider: Record<string, (...args: unknown[]) => Promise<unknown>>;
   };
   internals.exclusive = action => action();
   internals.account = async () => hardware;
   internals.verifyPinnedState = async () => ({ number: 125, hash: hash('d') });
+  internals.proveAncestor = async () => {};
   internals.finalizedReceipt = async () => ({ hash: hash('a'), from: hardware,
     blockNumber: 120, blockHash: hash('b'), status: 0, gasUsed: 100000n,
     gasPrice: 1000000000n, fee: 100000000000000n });
   internals.provider = {
     getTransaction: async () => ({ hash: hash('a'), chainId: 56n, from: hardware,
-      nonce: 8, blockNumber: 120, blockHash: hash('b') }),
+      nonce: 8, blockNumber: 120, blockHash: hash('b'),
+      to: factory, data: original.data, value: 0n }),
     getTransactionCount: async () => 9,
     getFeeData: async () => ({ gasPrice: 1000000000n }),
     getBalance: async () => 1_000_000_000_000_000_000n,

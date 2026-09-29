@@ -251,6 +251,20 @@ export class FreshActivationEngine {
     return clone(record);
   }
 
+  private async proveAncestor(number: number, hash: string, descendant: { number: number; hash: string | null }) {
+    requireThat(descendant.hash && descendant.number >= number && descendant.number - number <= 4096,
+      '获胜交易与最终确认区块距离过远或区块哈希未知；停止签名。');
+    let expected: string = descendant.hash;
+    for (let height = descendant.number; height >= number; height--) {
+      const block = await this.provider.getBlock(height);
+      requireThat(block?.hash && block.hash.toLowerCase() === expected.toLowerCase(),
+        '获胜交易不在同一条最终确认链上；停止签名。');
+      if (height === number) requireThat(block.hash.toLowerCase() === hash.toLowerCase(),
+        '获胜交易区块已改变；停止签名。');
+      expected = block.parentHash;
+    }
+  }
+
   private async verifyPinnedState(record: FreshActivationRecord, completed: number) {
     await this.account();
     // A finalized anchor proves the completed prefix; checking the current
@@ -260,6 +274,34 @@ export class FreshActivationEngine {
     ]);
     requireThat(finalized?.hash && head?.hash && head.number >= finalized.number,
       'BSC 最终确认区块或最新区块不可用。');
+    await this.proveAncestor(finalized.number, finalized.hash, head);
+    for (const step of record.steps.slice(0, completed + 1)) for (const attempt of step.attempts ?? []) {
+      const winnerHash = attempt.recovery.winnerHash;
+      const [tx, receipt] = await Promise.all([
+        this.provider.getTransaction(winnerHash), this.provider.getTransactionReceipt(winnerHash),
+      ]);
+      const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
+      requireThat(tx && receipt && same(tx.from, record.account) && same(receipt.from, record.account)
+        && tx.nonce === attempt.nonce && tx.blockHash === receipt.blockHash
+        && tx.blockNumber === receipt.blockNumber && receipt.blockHash === attempt.receipt.blockHash
+        && receipt.blockNumber === attempt.receipt.blockNumber
+        && receipt.status === attempt.receipt.status && receipt.fee.toString() === attempt.receipt.feeWei
+        && keccak256(planned.data) === attempt.dataHash,
+      '归档交易的同 nonce 赢家、回执或原动作已变化。');
+      if (!attempt.replacementHash) requireThat(tx.to === (planned.to ?? null)
+        && tx.value === 0n && keccak256(tx.data) === attempt.dataHash,
+      '归档失败交易不是原计划动作。');
+      await this.proveAncestor(receipt.blockNumber, receipt.blockHash,
+        {number:attempt.recovery.finalizedBlockNumber,hash:attempt.recovery.finalizedBlockHash});
+      await this.proveAncestor(attempt.recovery.finalizedBlockNumber,
+        attempt.recovery.finalizedBlockHash, finalized);
+      if (step.id === 'deployAuthority') {
+        const predicted = getCreateAddress({from:record.account,nonce:attempt.nonce});
+        requireThat(await this.provider.getCode(predicted,finalized.number) === '0x'
+          && await this.provider.getCode(predicted,head.number) === '0x',
+        '原权限合约地址已出现代码；不得重新部署。');
+      }
+    }
     for (const block of head.hash === finalized.hash ? [finalized] : [finalized, head]) {
     const at = { blockTag: block.number };
     const names = ['factory','portfolioFactory','shareMarket','portfolioMarket','timelock'];
@@ -586,7 +628,7 @@ export class FreshActivationEngine {
       const record = await this.latest(saved);
       const index = record.steps.findIndex(step => step.status !== 'confirmed');
       const step = record.steps[index];
-      requireThat(record.status === 'aborted' && index > 0 && step
+      requireThat(record.status === 'aborted' && index >= 0 && step
         && (step.status === 'failed' || step.status === 'replaced')
         && Number.isSafeInteger(step.nonce) && step.receipt,
       '只有已最终确认、且保留已上链前缀的失败或替换交易可恢复。');
@@ -607,9 +649,20 @@ export class FreshActivationEngine {
         && (step.status !== 'failed' || receipt.status === 0)
         && (step.status !== 'replaced' || receipt.status === 1),
       '同 nonce 获胜交易或最终确认回执与不可变日志不一致。');
+      const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
+      requireThat(step.dataHash === keccak256(planned.data)
+        && (step.replacementHash || tx.to === (planned.to ?? null)
+          && tx.value === 0n && keccak256(tx.data) === step.dataHash),
+      '失败尝试的原动作或链上交易数据与当前构建不一致。');
       const proofBlock = await this.verifyPinnedState(record, index);
-      requireThat(proofBlock.number >= receipt.blockNumber,
-        '权限状态尚未最终确认到失败交易所在区块。');
+      await this.proveAncestor(receipt.blockNumber,receipt.blockHash,proofBlock);
+      if (index === 0) {
+        const predicted = getCreateAddress({from:record.account,nonce:step.nonce});
+        requireThat(!record.authorityAddress
+          && await this.provider.getCode(predicted,proofBlock.number) === '0x'
+          && await this.provider.getCode(predicted,'latest') === '0x',
+        '失败的第一笔权限合约交易已留下代码；不得重新部署。');
+      }
       const account = await this.account();
       const [server, walletLatest, walletPending] = await Promise.all([
         this.journal.readCurrentNonce(), this.provider.getTransactionCount(account, 'latest'),
@@ -666,7 +719,7 @@ export class FreshActivationEngine {
           status: receipt.status!, gasUsed: receipt.gasUsed.toString(),
           gasPrice: receipt.gasPrice.toString(), feeWei: receipt.fee.toString() };
         record.spentWei = activationSpentWei(record);
-        record.status = 'aborted'; record.error = '激活交易已被取消、替换或链上失败。此七步计划已终止，禁止重发。';
+        record.status = 'aborted'; record.error = '激活交易已被取消、替换或链上失败。须先证明同 nonce 赢家、当前权限及原动作，归档后才能人工以新 nonce 重试。';
         await this.save(record);
         return record;
       }

@@ -132,7 +132,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
           disabled={stage2Held || !enabled || !!busy || loading}
           onClick={() => void act('双重 nonce 核对', () => engine().releaseUnusedSigning(record))}>
             <ShieldCheck size={15}/>核对未使用 nonce 并解除签名意图</button>}
-        {record?.status === 'aborted' && record.steps.indexOf(next!) > 0
+        {record?.status === 'aborted' && record.steps.indexOf(next!) >= 0
           && (next?.status === 'failed' || next?.status === 'replaced')
           && <button className="small-button" disabled={stage2Held || !enabled || !!busy || loading}
             onClick={() => void act('最终确认失败交易与权限前缀', () => engine().recoverFinalizedAttempt(record))}>
