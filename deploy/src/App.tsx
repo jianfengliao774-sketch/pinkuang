@@ -34,6 +34,7 @@ function Address({ value, label }: { value: string; label?: string }) {
 export default function App() {
   const [tab, setTab] = useState<'deploy' | 'market' | 'pricing' | 'funding' | 'records' | 'governance'>('deploy');
   const [wallets, setWallets] = useState<WalletOption[]>([]);
+  const [walletScan, setWalletScan] = useState(0);
   const [selected, setSelected] = useState<WalletOption | null>(null);
   const [wallet, setWallet] = useState<WalletState | null>(null);
   const [journal, setJournal] = useState<ServerJournal | null>(null);
@@ -63,7 +64,7 @@ export default function App() {
   const connecting = useRef(false);
   const advancedRef = useRef<HTMLDetailsElement>(null);
 
-  useEffect(() => discoverWallets(setWallets), []);
+  useEffect(() => discoverWallets(setWallets), [walletScan]);
   useEffect(() => {
     const abort = new AbortController();
     fetch(`${import.meta.env.BASE_URL}deployment-artifacts.json`, { signal: abort.signal, cache: 'no-store' }).then(async response => {
@@ -153,6 +154,7 @@ export default function App() {
   }
   async function requestConnection() {
     if (connecting.current || running.current || busy) return;
+    setWalletScan(value => value + 1);
     setWalletDialog(true);
   }
   async function refreshServerDeployment() {
@@ -346,7 +348,7 @@ export default function App() {
         <footer className="page-footer"><span><span className="tiny-brand">◆</span>拼矿协议<span className="footer-divider">/</span>部署工作台</span>{bundle && <a href={`https://github.com/jianfengliao774-sketch/pinkuang/blob/${bundle.sourceCommit}/deploy/README.md`} target="_blank" rel="noreferrer">构建时部署说明<ExternalLink size={13}/></a>}</footer>
       </main>
     </div>
-    {walletDialog && <div className="modal-backdrop" onClick={() => setWalletDialog(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="wallet-title" onClick={event => event.stopPropagation()}><button autoFocus className="icon-button modal-close" aria-label="关闭钱包选择" onClick={() => setWalletDialog(false)}><X size={20}/></button><span className="modal-emblem"><Wallet size={25}/></span><h2 id="wallet-title">连接你的钱包</h2>{wallets.length ? <div className="wallet-options">{wallets.map(option => <button key={option.id} disabled={qrPending} onClick={() => void connect(option)}><Wallet size={21}/>{option.name}<ArrowRight size={18}/></button>)}</div> : <><p>当前浏览器未检测到钱包。请在已安装钱包扩展的 Chrome、Edge，或钱包内置浏览器中打开此页面。</p><p className="muted">在 Codex 内预览时，可以先查看页面，再复制页面地址到你的钱包浏览器。</p></>}<WalletQrChoice onConnect={connect} onPending={setQrPending}/><p className="modal-note">连接后会要求一次无 Gas 签名，用于读取你在服务器保存的操作记录；不收集私钥或助记词。</p></section></div>}
+    {walletDialog && <div className="modal-backdrop" onClick={() => setWalletDialog(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="wallet-title" onClick={event => event.stopPropagation()}><button autoFocus className="icon-button modal-close" aria-label="关闭钱包选择" onClick={() => setWalletDialog(false)}><X size={20}/></button><span className="modal-emblem"><Wallet size={25}/></span><h2 id="wallet-title">连接你的钱包</h2>{wallets.length ? <div className="wallet-options">{wallets.map(option => <button key={option.id} disabled={qrPending} onClick={() => void connect(option)}><Wallet size={21}/>{option.name}<ArrowRight size={18}/></button>)}</div> : <><p>当前浏览器未检测到钱包。请在已安装 OneKey 扩展的 Chrome、Edge，或钱包内置浏览器中打开此页面。</p><p className="muted">在 Codex 内预览时，可以先查看页面，再复制页面地址到安装了 OneKey 的浏览器。</p></>}<button className="small-button" type="button" onClick={() => setWalletScan(value => value + 1)}><RefreshCw size={15}/>重新检测扩展钱包</button><WalletQrChoice onConnect={connect} onPending={setQrPending}/><p className="modal-note">连接后会要求一次无 Gas 签名，用于读取你在服务器保存的操作记录；不收集私钥或助记词。</p></section></div>}
     {confirmation && <div className="modal-backdrop"><section className="modal confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><button autoFocus className="icon-button modal-close" aria-label="返回检查配置" onClick={() => setConfirmation(false)}><X size={20}/></button><span className="modal-emblem"><Rocket size={25}/></span><h2 id="confirm-title">准备部署到 BSC 主网</h2><p>将依次请求 {INTEGRATED_TRANSACTION_COUNT} 笔交易签名，仅支付 Gas。请保持页面打开，并逐笔核对钱包中的网络和交易内容。</p><div className="confirm-summary"><div><span>管理钱包</span><b>{short(activeInput.ownerMultisig)}</b></div><div><span>Gas 总预算</span><b>{budget} BNB</b></div><div><span>升级等待</span><b>至少 48 小时</b></div></div><label className="acknowledgment"><input type="checkbox" checked={governanceReviewed} onChange={e => setGovernanceReviewed(e.target.checked)}/><span>我已核对管理、运营和金库地址，理解单钱包拥有升级权及私钥保管责任。</span></label><label className="acknowledgment"><input type="checkbox" checked={protocolReviewed} onChange={e => setProtocolReviewed(e.target.checked)}/><span>我已核对协议地址与代码，理解这是消耗真实 BNB 的主网测试，部署检查不等同于安全审计。</span></label><button className="primary-button" disabled={!governanceReviewed || !protocolReviewed || !!busy} onClick={() => void deploy()}>开始部署，在钱包中确认<ArrowRight size={18}/></button><button className="text-button" onClick={() => setConfirmation(false)}>返回检查配置</button></section></div>}
   </div>;
 }

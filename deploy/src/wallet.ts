@@ -7,23 +7,51 @@ export type WalletProvider = Eip1193Provider & {
 export type WalletOption = { id: string; name: string; provider: WalletProvider };
 export type WalletState = { address: string; chainId: number; balance: string };
 
-declare global { interface Window { ethereum?: WalletProvider } }
+declare global { interface Window { ethereum?: WalletProvider; $onekey?: { ethereum?: WalletProvider } } }
 
 export function discoverWallets(onChange: (options: WalletOption[]) => void) {
   const wallets = new Map<string, WalletOption>();
-  const update = () => onChange([...wallets.values()]);
-  if (window.ethereum) wallets.set('injected', { id: 'injected', name: '浏览器钱包', provider: window.ethereum });
-  const announce = (event: Event) => {
-    const { info, provider } = (event as CustomEvent<{ info: { uuid: string; name: string }; provider: WalletProvider }>).detail;
-    if (!provider?.request || !info?.uuid) return;
-    if (wallets.get('injected')?.provider === provider) wallets.delete('injected');
-    wallets.set(info.uuid, { id: info.uuid, name: info.name, provider });
+  const update = () => onChange([...wallets.values()].sort((a, b) => Number(b.id === 'onekey') - Number(a.id === 'onekey')));
+  const add = (id: string, name: string, provider: WalletProvider) => {
+    if (typeof provider?.request !== 'function') return;
+    if (id !== 'onekey' && wallets.get('onekey')?.provider === provider) return;
+    if (wallets.get(id)?.provider === provider && wallets.get(id)?.name === name) return;
+    for (const [key, option] of wallets) {
+      if (option.provider === provider && key !== id) wallets.delete(key);
+    }
+    wallets.set(id, { id, name, provider });
     update();
   };
+  const scanInjected = () => {
+    // OneKey's own namespace remains stable when another extension wins window.ethereum.
+    const oneKey = window.$onekey?.ethereum;
+    if (oneKey) add('onekey', 'OneKey 扩展钱包', oneKey);
+    const injected = window.ethereum;
+    if (injected && ![...wallets.values()].some(option => option.provider === injected)) {
+      add('injected', '浏览器钱包', injected);
+    }
+  };
+  const announce = (event: Event) => {
+    const detail = (event as CustomEvent<{ info?: { uuid?: string; name?: string; rdns?: string }; provider?: WalletProvider }>).detail;
+    const { info, provider } = detail || {};
+    if (!provider || !info?.uuid || !info.name) return;
+    const oneKey = info.rdns === 'so.onekey.app.wallet';
+    // EIP-6963 names are self-reported. Never replace OneKey's direct provider
+    // with a different provider that merely claims the same rdns.
+    if (oneKey && window.$onekey?.ethereum && window.$onekey.ethereum !== provider) return;
+    add(oneKey ? 'onekey' : info.uuid, oneKey ? 'OneKey 扩展钱包' : info.name, provider);
+  };
   window.addEventListener('eip6963:announceProvider', announce);
+  window.addEventListener('ethereum#initialized', scanInjected);
+  window.addEventListener('focus', scanInjected);
+  scanInjected();
   window.dispatchEvent(new Event('eip6963:requestProvider'));
   update();
-  return () => window.removeEventListener('eip6963:announceProvider', announce);
+  return () => {
+    window.removeEventListener('eip6963:announceProvider', announce);
+    window.removeEventListener('ethereum#initialized', scanInjected);
+    window.removeEventListener('focus', scanInjected);
+  };
 }
 
 export async function readWallet(wallet: WalletProvider): Promise<WalletState | null> {

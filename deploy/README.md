@@ -6,6 +6,8 @@
 
 手机扫码采用可选 WalletConnect 配置；未提供项目编号时继续使用浏览器扩展或钱包内置浏览器。配置与真实手机验收步骤见 [扫码连接说明](../docs/walletconnect-setup.md)。
 
+OneKey 硬件钱包通过安装了 OneKey 扩展的 Chrome 或 Edge 连接。部署台按 [OneKey 官方接入说明](https://developer.onekey.so/en/connect-to-software/)发现 EIP-6963 钱包公告，并检查其独立的 `window.$onekey.ethereum` 入口；打开钱包选择框会重新检测。扩展钱包只会注入到安装它的浏览器，其他浏览器或 Codex 内置预览无法调用该扩展。选择 OneKey 后仍要在硬件设备上核对账户、网络和每笔交易；网页不接收私钥。
+
 在仓库根目录执行 `npm ci --ignore-scripts`，然后：
 
 ```sh
