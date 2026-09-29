@@ -49,6 +49,7 @@ export function buildFreshProduct(manifestPath, { run = spawnSync } = {}) {
     const env = { ...process.env, NEXT_PUBLIC_BASE_PATH: plan.basePath,
       NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY: plan.productFamily,
       NEXT_PUBLIC_V4_MANIFEST_SHA256: plan.manifestSha256,
+      NEXT_PUBLIC_BEMINE_PUBLIC_URL: 'https://tapeout.cc.cd/bemine-v4/',
       NEXT_PUBLIC_DEPLOY_CONSOLE_URL: 'https://tapeout.cc.cd/pinkuang-deploy-v4/' };
     for (const args of [['scripts/sync-contracts.mjs', '--check'],
       ['node_modules/next/dist/bin/next', 'build', '--webpack']]) {

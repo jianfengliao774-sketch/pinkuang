@@ -1,7 +1,7 @@
 import { Interface, getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from './chain-client.mjs';
 import genesisContracts from './contracts.genesis.json' with { type: 'json' };
-import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson, validateProductGraph } from './live-config.mjs';
+import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson } from './live-config.mjs';
 import { validateCurrentProductGraph } from './product-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';

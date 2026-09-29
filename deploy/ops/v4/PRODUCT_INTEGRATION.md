@@ -14,3 +14,5 @@ node scripts/build-fresh-product.mjs /absolute/path/to/reviewed-fresh-manifest.j
 页面启动时只请求 `/bemine-v4/data/frontend-manifest.v4.json`、`/bemine-v4/api/journal/product-graph`，后续读取 `/bemine-v4/api/chain-index` 和 `/bemine-v4/api/rpc`。新清单内容由构建摘要固定；产品图必须为 `fresh-active`，且 Factory、预算 Factory、所有部署地址、代码摘要、Authority、部署交易及阶段区块与新清单一致。交易前同样重验该新图；历史快照仅供展示。旧 v2 的静态清单不作为 v4 信任根，旧页面预加载缓存不会在 v4 构建使用。
 
 当前服务端仍把新图的 `operationalReady` 固定为 `false`，`prepare-fresh-cutover.mjs` 也只输出禁用状态的 unit 草案。因此本构建不证明正式产品已经上线，也不能仅靠改前端变量开放交易。正式开放前需独立核对新图最终链上回执、产品 API、索引追到安全链头、钱包交易与 Authority 审核代付及自动购机的真实端到端结果，再用独立守卫激活；旧 v2 的 Factory、索引和资产不得接入这套服务。
+
+当前离线 cutover 草案继续设置 `BEMINE_FRESH_CONSOLE_PRE_GENESIS=1`，故候选页面只读，产品报价、预算队列和交易写入均未开放。不能单独把这个开关改为 `0`：还需另行实现并验收产品写入门禁、审核代付与自动购机，避免进入只有部分接口可写的状态。静态候选包与后端候选包必须用同一份新部署清单核对摘要，完成链上与本机探针后才可切换站点。

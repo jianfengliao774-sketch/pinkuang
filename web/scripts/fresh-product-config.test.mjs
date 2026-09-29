@@ -6,6 +6,7 @@ import oldManifest from '../public/data/frontend-manifest.json' with { type: 'js
 import { freshManifestDigest, loadFreshLiveConfig, validateFreshManifest,
   validateFreshProductGraph } from '../lib/fresh-product-config.mjs';
 import { loadProductConfig, validateCurrentProductGraph } from '../lib/product-config.mjs';
+import { requireCurrentProductStage } from '../lib/live-transactions.mjs';
 import { prepareFreshProductBuild } from './build-fresh-product.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
@@ -90,4 +91,16 @@ test('v4 refuses old genesis, altered graph, incomplete Authority and stale snap
     stale: true, transactionReady: false, refreshing: false,
     snapshotAgeMs: 20_000 }, manifest);
   assert.equal(displayOnly.transactionReady, false);
+});
+
+test('v4 transaction precheck binds the current graph to its own pinned manifest', async () => {
+  const config = await loadFreshLiveConfig({ origin, basePath: '/bemine-v4',
+    manifestSha256: freshManifestDigest(manifest),
+    fetcher: url => response(url.endsWith('.v4.json') ? manifest : graph) });
+  const actionConfig = { ...config, ...config.manifest };
+  const current = await requireCurrentProductStage(actionConfig, async () => response(graph));
+  assert.equal(current.stage, 'fresh-active');
+  await assert.rejects(requireCurrentProductStage(actionConfig,
+    async () => response({ ...graph, factory: oldManifest.factory })),
+  { code: 'product_graph' });
 });
