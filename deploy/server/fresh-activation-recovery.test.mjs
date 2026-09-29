@@ -14,13 +14,14 @@ import { FRESH_ACTIVATION_STEPS, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
 
 const address = digit => `0x${digit.repeat(40)}`;
 const hash = digit => `0x${digit.repeat(64)}`;
-const hardware=address('1'),gasWallet=address('2'),authority=address('8');
+const hardware=address('1'),gasWallet=address('2'),authority=getCreateAddress({from:hardware,nonce:0});
 const factory=address('3'),budget=address('4'),timelock=address('5');
 const shareMarket=address('6'),portfolioMarket=address('7');
 const code='0x6000', codehash=keccak256(code);
 const coreImpl=address('9'),budgetImpl=address('a');
 const bundle={artifacts:{PlatformAuthority:{abi:[
-  'constructor(address,address,address,address,address)'],bytecode:'0x6000',linkReferences:{}}}};
+  'constructor(address,address,address,address,address)'],bytecode:'0x6000',
+  deployedBytecode:code,deployedLinkReferences:{},immutableReferences:{},linkReferences:{}}}};
 const canonical=value=>Array.isArray(value)?value.map(canonical)
   :value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
 const bundleDigest=keccak256(toUtf8Bytes(JSON.stringify(canonical(bundle))));
@@ -69,7 +70,7 @@ function fixture(index,status='failed') {
     gasLimit:'150000',gasPriceWei:'1000000000',maxFeeWei:'150000000000000',
     receipt:{...receipt,status:status==='replaced'?1:0}};
   const record={schemaVersion:1,kind:'fresh-authority',chainId:56,account:hardware,
-    deploymentId:'new-graph',genesisArtifactDigest:hash('f'),
+    deploymentId:'new-graph',genesisArtifactDigest:bundleDigest,
     genesis:{factory,portfolioFactory:budget,timelock,shareMarket,portfolioMarket,
       codehash:{factory:codehash,portfolioFactory:codehash,shareMarket:codehash,
         portfolioMarket:codehash,timelock:codehash}},
@@ -94,7 +95,7 @@ function fixture(index,status='failed') {
 
 function chain(f,{record,winnerHash},index) {
   const state={finalized:125,receiptHash:receipt.blockHash,txKnown:true,wrongRole:false,
-    wrongRoleLatest:false,wrongImplLatest:false,wrongImplCodeLatest:false,
+    wrongRoleLatest:false,wrongImplLatest:false,wrongImplCodeLatest:false,wrongAuthorityLatest:false,
     forkParent:false,predictedOccupied:false,pending:9};
   const chainReceipt={hash:winnerHash,from:hardware,blockNumber:120,blockHash:receipt.blockHash,
     status:record.steps[index].receipt.status,gasUsed:100000n,gasPrice:1000000000n,
@@ -114,7 +115,8 @@ function chain(f,{record,winnerHash},index) {
     },
     getCode:async(address,block)=>index===0&&address.toLowerCase()===getCreateAddress({from:hardware,nonce:8}).toLowerCase()
       ? state.predictedOccupied?code:'0x'
-      :state.wrongImplCodeLatest&&block===127&&address===coreImpl?'0x6001':code,
+      :state.wrongImplCodeLatest&&block===127&&address===coreImpl
+        ||state.wrongAuthorityLatest&&block===127&&address===authority?'0x6001':code,
     getStorage:async(proxy,_slot,block)=>'0x'+(state.wrongImplLatest&&block===127&&proxy===factory
       ?address('c'):proxy===factory?coreImpl:budgetImpl).slice(2).padStart(64,'0'),
     getTransactionCount:async(_account,tag)=>tag==='pending'?state.pending:9,
@@ -182,6 +184,7 @@ test('unknown winner, unfinalized receipt, reorg, pending nonce and changed role
   state.wrongRoleLatest=true;await assert.rejects(run(),/proof failed/);state.wrongRoleLatest=false;
   state.wrongImplLatest=true;await assert.rejects(run(),/proof failed/);state.wrongImplLatest=false;
   state.wrongImplCodeLatest=true;await assert.rejects(run(),/proof failed/);state.wrongImplCodeLatest=false;
+  state.wrongAuthorityLatest=true;await assert.rejects(run(),/proof failed/);state.wrongAuthorityLatest=false;
   state.forkParent=true;await assert.rejects(run(),/proof failed/);
 });
 
@@ -199,6 +202,7 @@ test('authenticated recovery API checks the chain and journal revision before ar
   const origin='http://127.0.0.1:4173';
   const service=createJournalService({dbPath,origin,provider,
     currentArtifactDigest:()=>f.record.genesisArtifactDigest,
+    genesisBundle:f.bundle,
     expectedGasWallet:gasWallet,gasWalletAddressReader:()=>gasWallet,freshStage2Hold:false});
   const store=new JournalStore(dbPath);
   const token=randomBytes(32).toString('base64url');

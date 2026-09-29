@@ -168,6 +168,23 @@ const AUTHORITY_READ = new Interface(['function owner() view returns(address)',
 
 const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 const MAX_ANCESTRY_BLOCKS = 4096;
+function authorityRuntimeMatches(artifact,actual) {
+  if (!artifact || !/^0x[\da-f]+$/i.test(artifact.deployedBytecode ?? '')
+    || artifact.deployedBytecode==='0x'
+    || Object.keys(artifact.deployedLinkReferences??{}).length
+    || !/^0x[\da-f]+$/i.test(actual) || actual==='0x') return false;
+  let expected=artifact.deployedBytecode.slice(2).toLowerCase();
+  let observed=actual.slice(2).toLowerCase();
+  if (expected.length!==observed.length) return false;
+  for (const ranges of Object.values(artifact.immutableReferences??{})) for (const range of ranges) {
+    const {start,length}=range;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(length)
+      || start<0 || length<=0 || (start+length)*2>expected.length) return false;
+    expected=expected.slice(0,start*2)+'0'.repeat(length*2)+expected.slice((start+length)*2);
+    observed=observed.slice(0,start*2)+'0'.repeat(length*2)+observed.slice((start+length)*2);
+  }
+  return expected===observed;
+}
 const EXPECTED_ACTIONS = g => [null,
   [g.factory,'setOperator'], [g.factory,'setTreasury'],
   [g.portfolioFactory,'setOperator'],[g.portfolioFactory,'setTreasury'],
@@ -212,7 +229,7 @@ async function assertAnchorStillCanonical(provider, receipt, finalized, latest) 
   return {finalizedTag,latestTag};
 }
 
-async function verifyPrefixAt(provider, record, genesis, account, completed, block) {
+async function verifyPrefixAt(provider, record, genesis, account, completed, block, bundle) {
   const deny = () => { throw new Error('Finalized fresh activation recovery proof failed.'); };
   const g=record.genesis;
   const read=async(to,iface,name,args=[])=>iface.decodeFunctionResult(name,
@@ -258,7 +275,11 @@ async function verifyPrefixAt(provider, record, genesis, account, completed, blo
   if (completed===0) {
     if (record.authorityAddress) deny();
   } else {
-    if (!record.authorityAddress || await provider.getCode(record.authorityAddress,block.number)==='0x') deny();
+    if (!record.authorityAddress || !Number.isSafeInteger(record.steps[0]?.nonce)
+      || !sameAddress(record.authorityAddress,
+        getCreateAddress({from:account,nonce:record.steps[0].nonce}))
+      || !authorityRuntimeMatches(bundle?.artifacts?.PlatformAuthority,
+        await provider.getCode(record.authorityAddress,block.number))) deny();
     for (const [name,expected] of Object.entries({owner:g.timelock,coreFactory:g.factory,
       budgetFactory:g.portfolioFactory,administratorOne:record.administratorOne,
       administratorTwo:record.administratorTwo,gasWallet:record.gasWallet})) {
@@ -329,10 +350,10 @@ export async function verifyFinalizedFreshAttempt(provider,record,genesis,accoun
   const proof=await proveAttemptWinner(provider,record,account,index,step,bundle);
   const {finalized,latest}=proof.anchors;
   for (const block of finalized.hash===latest.hash?[finalized]:[finalized,latest])
-    await verifyPrefixAt(provider,record,genesis,account,index,block);
+    await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
   const checked=await assertAnchorStillCanonical(provider,proof.receipt,finalized,latest);
   if (checked.latestTag.hash!==latest.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag);
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
   const [latestNonce,pendingNonce]=await Promise.all([
     provider.getTransactionCount(account,'latest'),provider.getTransactionCount(account,'pending')]);
   if (latestNonce!==pendingNonce || latestNonce<=nonce) deny();
@@ -359,9 +380,9 @@ export async function verifyRecoveredFreshSigning(provider,record,genesis,accoun
   if (!lastAnchor) return;
   for (const block of lastAnchor.anchors.finalized.hash===lastAnchor.anchors.latest.hash
     ?[lastAnchor.anchors.finalized]:[lastAnchor.anchors.finalized,lastAnchor.anchors.latest])
-    await verifyPrefixAt(provider,record,genesis,account,index,block);
+    await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
   const checked=await assertAnchorStillCanonical(provider,lastAnchor.receipt,
     lastAnchor.anchors.finalized,lastAnchor.anchors.latest);
   if (checked.latestTag.hash!==lastAnchor.anchors.latest.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag);
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
 }

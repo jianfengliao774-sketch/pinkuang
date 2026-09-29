@@ -939,10 +939,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   function freshRecoveryBundle(record) {
-    // First Authority creation must bind to the exact server-served reviewed bytecode.
-    if (!record?.steps?.[0]?.attempts?.length
-      && record?.steps?.[0]?.status !== 'failed'
-      && record?.steps?.[0]?.status !== 'replaced') return undefined;
+    // Every recovery uses the exact server-served Authority creation and runtime.
     const bundle = genesisBundle ?? JSON.parse(readFileSync(new URL('../dist/deployment-artifacts.json', import.meta.url), 'utf8'));
     if (artifactContentDigest(bundle).toLowerCase() !== record.genesisArtifactDigest.toLowerCase()
       || record.genesisArtifactDigest.toLowerCase() !== signingBuildDigest())
