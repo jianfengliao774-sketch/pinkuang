@@ -157,7 +157,7 @@ export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHe
     installation: 'npm ci --omit=dev --ignore-scripts', entrypoint: 'node server/index.mjs',
     runtimeModules: RUNTIME_MODULES, files: Object.fromEntries(ordered.map(([name, bytes]) =>
       [name, { sha256: sha256(bytes), bytes: bytes.length }])),
-    activation: 'Deployment console only; product v3, Gas relay and automatic purchase remain disabled.',
+    activation: 'Deployment console only; product, Gas relay and automatic purchase remain disabled.',
   };
   writeFileSync(join(output, 'public/fresh-release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`,
     { flag: 'wx', mode: 0o644 });

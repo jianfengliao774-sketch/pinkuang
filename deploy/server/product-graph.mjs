@@ -17,19 +17,6 @@ const NAMES = [...LIBRARIES,'AtomicDeployment','PoolVault','PoolFactory','ShareM
 const INTEGRATED_NAMES = [...NAMES,'FirstoSale','BudgetPortfolioFactory','BudgetPortfolioVault','portfolioFactory','portfolioShareMarket','portfolioBeacon'];
 const FRESH_AUTHORITY_STEPS = ['deployAuthority','coreOperator','coreTreasury','budgetOperator','budgetTreasury','coreOwner','budgetOwner'];
 const FRESH_ADMINS = ['0x7674fa446D42b1f7f150DC5e678cc525d275Ea53','0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb'];
-const PREVIOUS_MAINNET_FACTORY = '0x2995B10d19056c8C24C57b281C22562a603C571F';
-const PREVIOUS_FIRST_FACTORY = '0xcB24E7F96D81037086A268d6ea63c53f91D412A2';
-const PREVIOUS_PROXY_CODEHASH = '0x8b4f3999050c3baf3e5e7120d4c3b3b6c7efa30c9e041644ce29ca9127a7b7c7';
-const PREVIOUS_IMPLEMENTATIONS = new Map([
-  [PREVIOUS_FIRST_FACTORY.toLowerCase(),{
-    address:'0xcAd161ad0FC52e9526Ee100bCD9f8bE580D20269',
-    codehash:'0xffef1e0547fb55679d6430d0551ffe9d5e89e471fa0b4d8a13507c20171d4a6d'}],
-  [PREVIOUS_MAINNET_FACTORY.toLowerCase(),{
-    address:'0x3208d7b3Df5d1d72f5B9F5F936b6e7151139C8bA',
-    codehash:'0xf999264ca7a38b74598703684f2ada762fd48274e6b3f1ca7a3ebbb17126fbe3'}],
-]);
-const PREVIOUS_FACTORY_ABI = new Interface(['function creationPaused() view returns (bool)',
-  'function machinePool(address,uint256) view returns (address)']);
 const artifacts = { factory:'ERC1967Proxy',shareMarket:'ERC1967Proxy',lens:'PoolLens',beacon:'PoolBeacon',timelock:'PoolTimelock',
   portfolioFactory:'ERC1967Proxy',portfolioShareMarket:'ERC1967Proxy',portfolioBeacon:'PoolBeacon' };
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
@@ -339,32 +326,6 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ['portfolioBeacon','owner',a.timelock],['portfolioBeacon','implementation',a.BudgetPortfolioVault],
     ['portfolioBeacon','OFFICIAL_FACTORY',a.portfolioFactory],['BudgetPortfolioVault','OFFICIAL_FACTORY',a.portfolioFactory]);
   await settleReads(assertions.map(async([name,method,expected])=>check(String(await read(name,method)).toLowerCase()===String(expected).toLowerCase(),`Reviewed binding changed: ${name}.${method}.`)));
-  if (freshFactory) {
-    check(same(await read('factory','PREVIOUS_MAINNET_FACTORY'),PREVIOUS_MAINNET_FACTORY),
-      'Fresh Factory no longer checks the previous mainnet machine registry.');
-    const oldChecks=await settleReads([PREVIOUS_FIRST_FACTORY,PREVIOUS_MAINNET_FACTORY].map(async old=>{
-      const code=await provider.getCode(old,block.number);
-      check(code!=='0x' && same(keccak256(code),PREVIOUS_PROXY_CODEHASH),
-        'Previous Factory proxy runtime changed.');
-      const expected=PREVIOUS_IMPLEMENTATIONS.get(old.toLowerCase());
-      const slot=await provider.getStorage(old,SLOT,block.number);
-      check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,expected.address),
-        'Previous Factory implementation changed.');
-      const implementationCode=await provider.getCode(expected.address,block.number);
-      check(implementationCode!=='0x' && same(keccak256(implementationCode),expected.codehash),
-        'Previous Factory implementation runtime changed.');
-      const paused=PREVIOUS_FACTORY_ABI.decodeFunctionResult('creationPaused',await provider.send('eth_call',[
-        {to:old,data:PREVIOUS_FACTORY_ABI.encodeFunctionData('creationPaused')},tag]))[0];
-      check(paused===true,'Previous Factory creation must be paused before fresh graph activation.');
-      return old;
-    }));
-    check(oldChecks.length===2,'Both previous Factory states are required.');
-    // The old registry's getter must remain callable because FreshPoolFactory
-    // delegates every new reservation to it before committing a machine.
-    PREVIOUS_FACTORY_ABI.decodeFunctionResult('machinePool',await provider.send('eth_call',[
-      {to:PREVIOUS_MAINNET_FACTORY,data:PREVIOUS_FACTORY_ABI.encodeFunctionData('machinePool',[
-        '0x0000000000000000000000000000000000000001',0n])},tag]));
-  }
   await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket'],...(integrated
     ? [['portfolioFactory','BudgetPortfolioFactory'],['portfolioShareMarket','ShareMarket']] : [])].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);
@@ -390,7 +351,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
       : currentRoles?.coreOperator ?? record.input.operator,
     artifactDigest:candidateActive ? security.digest : record.artifactDigest,blockNumber:block.number,
     addresses:{...a},codehash:observedCodehash,
-    ...(freshFactory ? {freshFactoryVerified:true,previousFactories:[PREVIOUS_FIRST_FACTORY,PREVIOUS_MAINNET_FACTORY]} : {}),
+    ...(freshFactory ? {freshFactoryVerified:true} : {}),
     ...(freshAuthority ? {freshAuthority} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,

@@ -32,6 +32,9 @@ export async function assertFreshBuild(dist = defaultDist) {
     if (source.includes('upgrade-genesis/') || source.includes('pinkuang-upgrade-v2/')) {
       throw new Error(`Fresh deployment asset contains a retired upgrade route: ${entry.name}.`);
     }
+    if (/0x(?:2995b10d19056c8c24c57b281c22562a603c571f|cb24e7f96d81037086a268d6ea63c53f91d412a2)/i.test(source)) {
+      throw new Error(`Fresh deployment asset contains a previous Factory address: ${entry.name}.`);
+    }
   }
   return { dist: resolve(dist), files: entries.length + assets.length };
 }

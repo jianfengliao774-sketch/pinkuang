@@ -567,9 +567,8 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.equal(wrappedInspected.status, 'complete');
   assert.equal(sends, beforeWrapped);
   assert.equal(complete.verification!.checks.find(check => check.label === '初始池子数量')?.actual, '0');
-  // The new Factory must remain closed to new reservations until both previous
-  // mainnet Factories are paused. This disposable chain intentionally has no
-  // old-Factory state and cannot satisfy the launch gate.
+  // The new Factory is self-contained and can create pools on a chain without
+  // any previous Factory deployment.
   const provider = new BrowserProvider(wallet);
   const deployedFactory = new Contract(complete.addresses.factory, bundle.artifacts.PoolFactory.abi, await provider.getSigner(account));
   assert.equal((await deployedFactory.lens()).toLowerCase(), complete.addresses.lens.toLowerCase());
@@ -578,12 +577,12 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   const samplePool = { circuits: PROTOCOL_ADDRESSES.TAPEOUT_CIRCUITS, circuitId: 1n,
     targetRaise: 10000n, priceCap: 10000n, directSeller: ZeroAddress, directPrice: 0n,
     fundingDeadline: latest.timestamp + 3600, purchaseDeadline: latest.timestamp + 7200 };
-  await assert.rejects(deployedFactory.createPool(samplePool), /revert/, 'fresh Factory must refuse reservations while older Factories are open');
-  assert.equal(await deployedFactory.poolCount(), 0n);
+  await (await deployedFactory.createPool(samplePool)).wait();
+  assert.equal(await deployedFactory.poolCount(), 1n);
   const count = sends;
   const recovered = await engine().reconcile(complete);
   assert.equal(recovered.status, 'complete');
-  assert.equal(recovered.verification!.checks.find(check => check.label === '当前池子数量')?.actual, '0');
+  assert.equal(recovered.verification!.checks.find(check => check.label === '当前池子数量')?.actual, '1');
   assert.equal(sends, count);
   const stale = structuredClone(complete);
   stale.status = 'paused';

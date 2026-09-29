@@ -1048,15 +1048,6 @@ export class DeploymentEngine {
     roleChecks.forEach((actual, index) => check(roleLabels[index], actual, index < 4));
     const slotAddress = (slot: string) => getAddress(`0x${slot.slice(-40)}`);
     check('Factory UUPS 实现槽', slotAddress(slots[0]), snapshot.addresses[snapshot.kind === 'integrated-v2' ? 'FreshPoolFactory' : 'PoolFactory']);
-    if (snapshot.kind === 'integrated-v2') {
-      const previous = await Promise.all([
-        factory.FIRST_MAINNET_FACTORY(atBlock), factory.PREVIOUS_MAINNET_FACTORY(atBlock),
-        factory.PREVIOUS_POOL_13043(atBlock),
-      ]);
-      check('FreshFactory 第一版工厂绑定', previous[0], '0xcB24E7F96D81037086A268d6ea63c53f91D412A2');
-      check('FreshFactory 当前旧工厂绑定', previous[1], '0x2995B10d19056c8C24C57b281C22562a603C571F');
-      check('FreshFactory 旧矿机池绑定', previous[2], '0x575F3D44aE9cFfF5A5584E7F1dbE056f3e63d792');
-    }
     check('Market UUPS 实现槽', slotAddress(slots[1]), snapshot.addresses.ShareMarket);
     if (requireInitialEmpty) check('初始池子数量', poolCount, 0);
     else checks.push({ label: '当前池子数量', passed: true, actual: poolCount.toString(), expected: '部署完成后允许创建资金池' });

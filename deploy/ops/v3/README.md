@@ -1,5 +1,10 @@
 # Parallel v3 fresh graph cutover draft
 
+**Historical v3 plan, superseded by the independent v4 deployment.** The v3
+genesis and first Authority transaction remain on-chain records. Do not resume
+v3 activation or use the old-Factory pause/cross-check requirements below for
+v4. See `../v4/README.md` for the current deployment handoff.
+
 This directory prepares a separate `/pinkuang-deploy-v3/` console and `/bemine-v3/` product. The offline renderer does not deploy contracts, pause old factories, start services, change nginx, or replace `/bemine-v2/`. The deployment console may be served before genesis with an empty product Factory allowlist, no product record, no Gas credential, and `AUTHORITY_RELAY_ENABLED=0`; that does **not** activate the v3 product. The old v2 site must keep showing the existing pool, its two holders, the active share listing, and withdrawal/claim actions.
 
 The offline renderer requires the completed 16-transaction fresh genesis record, its exact artifact bundle, the completed 7-transaction Authority activation evidence, the frontend genesis manifest, and the **full public** Gas-wallet address copied from the wallet. It refuses the truncated 39-hex address previously seen in a screenshot. It writes a new JSON draft with `activationAllowed:false` and independent v3 runtime/index service configurations.

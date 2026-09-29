@@ -3,7 +3,6 @@ import { ArrowDownToLine, ArrowRight, ArrowUpRight, Blocks, Check, CheckCheck, C
 import MarketPage from './MarketPage';
 import PricingPanel from './PricingPanel';
 import WalletQrChoice from './WalletQrChoice';
-import LegacyCutover from './LegacyCutover';
 import FreshActivationPanel from './FreshActivationPanel';
 import { ArchiveCompletedAction } from './ArchiveAction';
 import { displayDecimal, displayUnits } from './display';
@@ -17,6 +16,7 @@ const EXPLORER = 'https://bscscan.com';
 // The fresh console has no legacy upgrade signing route. Vite removes this
 // dynamic import entirely from the reviewed fresh-mode bundle.
 const UpgradeConsole = import.meta.env.MODE === 'fresh' ? null : lazy(() => import('./UpgradeConsole'));
+const LegacyCutover = import.meta.env.MODE === 'fresh' ? null : lazy(() => import('./LegacyCutover'));
 const short = (value: string) => value.length > 17 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 const protocols = Object.entries(PROTOCOL_ADDRESSES);
 
@@ -148,7 +148,8 @@ export default function App() {
       const serverJournal = await authenticateJournal(option.provider, connected.address);
       let browserStorage: Storage | null = null;
       try { browserStorage = localStorage; } catch { /* Browser storage is optional for new server-backed sessions. */ }
-      if (browserStorage) await migrateLegacyDeployment(serverJournal, browserStorage);
+      if (import.meta.env.MODE !== 'fresh' && browserStorage)
+        await migrateLegacyDeployment(serverJournal, browserStorage);
       const state = await serverJournal.loadDeployment();
       setSelected(option); setWallet(connected); setJournal(serverJournal);
       applyServerDeployment(state);
@@ -303,7 +304,10 @@ export default function App() {
 
         {tab === 'deploy' && <>
           <div className="journey"><div className={wallet ? 'finished' : 'current'}><span>{wallet ? <Check size={16}/> : '01'}</span><section><b>连接钱包</b><small>{wallet ? '钱包已连接' : '确认部署账户'}</small></section></div><i/><div className={report || snapshot ? 'finished' : wallet ? 'current' : ''}><span>{report || snapshot ? <Check size={16}/> : '02'}</span><section><b>检查配置</b><small>核对角色与链上依赖</small></section></div><i/><div className={complete ? 'finished' : snapshot ? 'current' : ''}><span>{complete ? <Check size={16}/> : '03'}</span><section><b>部署与验证</b><small>{complete ? '已完成链上核验' : '确认交易，保存结果'}</small></section></div></div>
-          {(complete || (!snapshot && latestArchivedComplete)) && <LegacyCutover wallet={selected?.provider || null} account={wallet?.address || null} chainId={wallet?.chainId || null}/>}
+          {LegacyCutover && (complete || (!snapshot && latestArchivedComplete))
+            && latestCompleted?.kind !== 'integrated-v2'
+            && <Suspense fallback={null}><LegacyCutover wallet={selected?.provider || null}
+              account={wallet?.address || null} chainId={wallet?.chainId || null}/></Suspense>}
           <div className="deploy-layout"><div className="left-column">
             <section className="card config-card"><div className="card-heading"><div><span className="section-icon"><Blocks size={19}/></span><h2>部署配置</h2></div><span className="subtle-tag">单钱包模式</span></div>
               <div className="network-select"><span className="network-logo">◆</span><div><b>BNB Smart Chain</b><small>主网 · Chain ID 56</small></div><span className="live-tag">MAINNET</span><LockKeyhole size={15}/></div>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertFreshBuild } from './assert-fresh-build.mjs';
@@ -18,6 +18,9 @@ test('fresh package excludes every old upgrade page', async () => {
     await assertFreshBuild(dist);
     await writeFile(join(dist, 'upgrade.html'), '<script>old upgrade</script>');
     await assert.rejects(assertFreshBuild(dist), /upgrade\.html/);
+    await unlink(join(dist, 'upgrade.html'));
+    await writeFile(join(dist, 'assets/main.js'), 'const old="0x2995B10d19056c8C24C57b281C22562a603C571F";');
+    await assert.rejects(assertFreshBuild(dist), /previous Factory address/);
   } finally {
     await rm(dist, { recursive: true, force: true });
   }

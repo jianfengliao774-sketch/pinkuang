@@ -53,14 +53,11 @@ test('legacy RPC failures, absent bytecode and a mistaken new-Factory address ne
   await assert.rejects(f.check('factory', 'createPool', current), /迁移中/);
 });
 
-test('a verified fresh graph can coexist with old pools only after old creation is paused', async () => {
-  const f = fixture(); f.state.count = 1n;
+test('a verified independent fresh graph never reads an old Factory', async () => {
+  const f = fixture(); f.state.count = 1n; f.state.paused = false;
   await verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
     { name:'createPool' }, block, old, fail, { freshGraphVerified:true });
-  f.state.paused = false;
-  await assert.rejects(verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
-    { name:'createPool' }, block, old, fail, { freshGraphVerified:true }),
-  error => error.status === 409 && /尚未停建/.test(error.message));
+  assert.deepEqual(f.state.reads, []);
   f.state.paused = true;
   await assert.rejects(verifyCreationCutover(f.provider, { targetType:'factory', factory:current },
     { name:'createPool' }, block, old, fail, { freshGraphVerified:false }),

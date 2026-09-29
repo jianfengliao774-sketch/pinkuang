@@ -17,6 +17,9 @@ export function legacyFactoryConfiguration(value) {
  * around this read and still performs its normal simulation/nonce/signing checks. */
 export async function verifyCreationCutover(provider, record, decoded, block, legacyFactory, fail,
   { freshGraphVerified = false } = {}) {
+  // A verified independent fresh graph has no migration relationship with an
+  // older Factory. This guard is only for the legacy upgrade path.
+  if (freshGraphVerified) return;
   if (legacyFactory === undefined || !creationActions[record.targetType]?.has(decoded.name)) return;
   const old = legacyFactoryConfiguration(legacyFactory);
   if (getAddress(record.factory) === old) fail(409, '旧项目仍在迁移中，暂不能创建新项目。');
@@ -30,7 +33,7 @@ export async function verifyCreationCutover(provider, record, decoded, block, le
     if (results.some(result => result.status !== 'fulfilled')) throw new Error('Legacy Factory read failed');
     [count, paused] = results.map(result => result.value);
   } catch { fail(503, '暂时无法核对旧项目状态，请稍后再试；本次尚未创建项目。'); }
-  if (count !== 0n && freshGraphVerified !== true)
+  if (count !== 0n)
     fail(409, '旧版本已有项目；只有完成跨版本矿机查重的新部署图才能创建新项目。');
   if (paused !== true) fail(409, '旧版本尚未停建，请运营方先暂停旧版本建池，再创建新项目。');
 }
