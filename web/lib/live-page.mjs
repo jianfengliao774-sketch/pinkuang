@@ -1,9 +1,7 @@
 import { ZeroAddress } from 'ethers';
 import { LiveDataError } from './live-config.mjs';
-import { settleReadRound } from './read-retry.mjs';
 
 const SOURCE_NUMBERS = ['startBlock', 'confirmations', 'indexedThrough', 'indexedTimestamp', 'observedSafeHead'];
-const SOURCE_IDENTITIES = ['factory', 'market', 'indexedBlockHash'];
 const address = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) && value.toLowerCase() !== ZeroAddress;
 const blockHash = value => typeof value === 'string' && /^0x[\da-f]{64}$/i.test(value);
 function checkedSource(result) {
@@ -14,11 +12,15 @@ function checkedSource(result) {
     || SOURCE_NUMBERS.some(key => !Number.isSafeInteger(source[key]) || source[key] < 0)
     || source.confirmations < 1 || source.startBlock > source.indexedThrough || source.indexedThrough !== source.observedSafeHead)
     throw new LiveDataError('invalid_data', '页面读取缺少有效的同块来源。');
+  if (source.readMode === 'verified_snapshot'
+    ? source.stale !== true || source.transactionReady !== false || typeof source.refreshing !== 'boolean'
+    : source.stale === true || source.transactionReady === false)
+    throw new LiveDataError('index_stale', '历史展示快照缺少明确的过期或交易限制标记。');
   return source;
 }
 
-/** Every branch keeps its own full verification; only a complete, same-source round may reach the UI. */
-export async function readPageRound(client, { route, account, marketTab } = {}) {
+/** Only the route's catalog is awaited here; other page sections read independently. */
+export async function readPageRound(client, { route, account, marketTab = 'whole' } = {}) {
   // Copy the route/account before asynchronous work; cancellation remains the caller's epoch guard.
   const name = typeof route === 'string' ? route : route?.route;
   const pool = typeof route === 'object' ? route?.pool : undefined;
@@ -26,29 +28,20 @@ export async function readPageRound(client, { route, account, marketTab } = {}) 
   // Operator permissions, quotes and portfolio creation have independent chain reads.
   // A moving public index must not disable unrelated administrative controls.
   if (name === 'operator') return { catalog: null };
-  const tasks = { catalog: () => client.readPools({ account: owner || ZeroAddress }) };
-  if (name === 'home') tasks.stats = () => client.readStats();
-  if (owner && ['overview', 'rewards', 'market', 'governance'].includes(name))
-    tasks.positions = () => client.readPositions({ account: owner });
+  // Share orders and personal listings own their own read. The whole-miner tab
+  // is the only market tab that needs the public pool catalog.
+  if (name === 'market' && marketTab !== 'whole') return { catalog: null };
+  if (['overview', 'rewards', 'records', 'portfolio'].includes(name) || (name === 'governance' && owner))
+    return { catalog: null };
+  // The detail itself is a complete, independently verified pool read. Do not
+  // hold it behind unrelated catalog, governance or activity snapshots: those
+  // can cross an index sync boundary while this pool remains perfectly valid.
   if (name === 'detail' && pool) {
-    tasks.detail = () => client.readPool({ pool, account: owner || ZeroAddress });
-    tasks.governance = () => client.readGovernance({ pool, account: owner || ZeroAddress });
-    tasks.activity = () => client.readActivity({ pool });
+    const detail = await client.readPool({ pool, account: owner || ZeroAddress });
+    checkedSource(detail);
+    return { detail };
   }
-  if (name === 'market' && (marketTab !== 'mine' || owner))
-    tasks.orders = () => client.readOrders(marketTab === 'mine' ? { seller: owner } : { active: true });
-  if (['records', 'overview', 'rewards'].includes(name))
-    tasks.activity = () => client.readActivity({ account: name === 'records' ? undefined : owner });
-
-  // Fetch index documents together, before any branch's RPC verification can consume the snapshot window.
-  // An integrity/permission failure takes priority over transient failures; all started reads are drained.
-  const result = await settleReadRound(tasks);
-  const expected = checkedSource(result.catalog);
-  for (const branch of Object.values(result)) {
-    const source = checkedSource(branch);
-    if (SOURCE_NUMBERS.some(key => source[key] !== expected[key])
-      || SOURCE_IDENTITIES.some(key => source[key].toLowerCase() !== expected[key].toLowerCase()))
-      throw new LiveDataError('source_changed', '索引已更新，正在重新读取同一区块的页面。');
-  }
-  return result;
+  const catalog = await client.readPools({ account: owner || ZeroAddress });
+  checkedSource(catalog);
+  return { catalog };
 }

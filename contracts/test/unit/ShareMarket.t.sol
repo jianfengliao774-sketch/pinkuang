@@ -246,17 +246,37 @@ contract ShareMarketTest is ShareTransferTestBase {
         assertEq(address(shareMarket).balance, 0);
     }
 
-    function test_zeroPriceOrderTransfersFreelyWithNoFeeOrBnbLiability() public {
-        uint256 id = _list(ALICE, 12, 0);
-        _fill(DAVE, id, 4, 0);
-        _fill(ERIN, id, 8, 0);
-        assertEq(pool.balanceOf(ALICE), 37);
-        assertEq(pool.balanceOf(DAVE), 4);
-        assertEq(pool.balanceOf(ERIN), 8);
+    function test_zeroPriceOrderCannotBeListed() public {
+        vm.prank(ALICE);
+        vm.expectRevert(IShareMarket.InvalidPrice.selector);
+        shareMarket.list(address(pool), 12, 0);
+        assertEq(pool.balanceOf(ALICE), 49);
+        assertEq(pool.balanceOf(DAVE), 0);
+        assertEq(pool.balanceOf(ERIN), 0);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
+        assertEq(shareMarket.nextOrderId(), 1);
         assertEq(shareMarket.bnbOwed(ALICE), 0);
         assertEq(shareMarket.bnbOwed(TREASURY), 0);
         assertEq(shareMarket.totalBnbOwed(), 0);
-        assertFalse(shareMarket.orders(id).active);
+    }
+
+    function test_preUpgradeZeroPriceOrderCannotBeFilledButCanBeCancelled() public {
+        uint256 id = _list(ALICE, 12, 1);
+        bytes32 namespace = 0xdc32f7bcb40b3d9a2ce544bcf40b4e14e3c57b64d5c4c2258289bd394f08cf00;
+        bytes32 orderSlot = keccak256(abi.encode(id, uint256(namespace) + 3));
+        vm.store(address(shareMarket), bytes32(uint256(orderSlot) + 3), bytes32(0));
+        assertEq(shareMarket.orders(id).pricePerUnit, 0);
+
+        vm.prank(DAVE);
+        vm.expectRevert(IShareMarket.InvalidPrice.selector);
+        shareMarket.fill(id, 4);
+        assertEq(shareMarket.orders(id).remaining, 12);
+        assertEq(pool.balanceOf(DAVE), 0);
+        assertEq(_shareVault().lockedShares(ALICE), 12);
+
+        vm.prank(ALICE);
+        shareMarket.cancel(id);
+        assertEq(_shareVault().lockedShares(ALICE), 0);
     }
 
     function test_bothFeesRoundDownPerPartialFill() public {
@@ -365,7 +385,7 @@ contract ShareMarketTest is ShareTransferTestBase {
 
     function test_lockedSharesRemainOwnedWhileBuyerAccumulatesPastFortyNine() public {
         uint256 aliceOrder = _list(ALICE, 20, UNIT_BNB);
-        uint256 bobOrder = _list(BOB, 49, 0);
+        uint256 bobOrder = _list(BOB, 49, UNIT_BNB);
         _fill(BOB, aliceOrder, 20, 20 * UNIT_BNB);
         assertEq(pool.balanceOf(BOB), 69);
         assertEq(_shareVault().lockedShares(BOB), 49);
@@ -520,10 +540,10 @@ contract ShareMarketTest is ShareTransferTestBase {
     }
 
     function test_miningCallbackCannotReenterFillDuringLockedTransfer() public {
-        uint256 id = _list(ALICE, 10, 0);
+        uint256 id = _list(ALICE, 10, UNIT_BNB);
         _queueReward(10000);
         mining.setClaimReentry(address(shareMarket), abi.encodeCall(IShareMarket.fill, (id, uint256(1))));
-        _fill(DAVE, id, 3, 0);
+        _fill(DAVE, id, 3, 3 * UNIT_BNB);
         assertTrue(mining.reentryAttempted());
         assertFalse(mining.reentrySucceeded());
         assertEq(mining.reentryResult(), abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));

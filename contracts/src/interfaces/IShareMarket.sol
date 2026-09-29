@@ -19,6 +19,7 @@ interface IShareMarket {
     error InvalidPool();
     error WrongState();
     error InvalidAmount();
+    error InvalidPrice();
     error InactiveOrder();
     error PaymentMismatch();
     error NothingToClaim();

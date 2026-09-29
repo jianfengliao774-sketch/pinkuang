@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111719" />
+    <meta name="description" content="拼矿独立升级审查入口：核对旧部署与候选代码，再由硬件钱包逐笔确认。" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>拼矿 · 合约升级审查</title>
+    <style>
+      .upgrade-standalone{max-width:1160px;margin:0 auto;padding:34px 22px 72px}
+      .upgrade-standalone>header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:22px}
+      .upgrade-standalone>header h1{font-size:28px;line-height:1.3;color:#182124}
+      .upgrade-standalone>header p{margin-top:7px;color:#687477;font-size:14px}
+      .upgrade-standalone>header a{color:#367d66;font-size:13px;text-decoration:underline;text-underline-offset:3px}
+      .upgrade-entry{padding:22px 25px;margin-bottom:22px}
+      .upgrade-entry h2{font-size:17px;margin-bottom:8px}
+      .upgrade-entry p{color:#647176;font-size:13px;line-height:1.75}
+      .upgrade-entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px}
+      .upgrade-entry label{display:block;font-size:12px;font-weight:700;margin-bottom:6px}
+      .upgrade-entry input[type=file]{width:100%;font-size:12px}
+      .upgrade-entry button{margin:6px 8px 0 0;padding:8px 12px;background:#eaf4ef;color:#216b52;border-radius:6px}
+      .upgrade-entry .upgrade-entry-status{margin-top:9px;color:#536166;overflow-wrap:anywhere}
+      .upgrade-entry .upgrade-entry-error{margin-top:9px;color:#a23d36}
+      @media(max-width:680px){.upgrade-standalone{padding:22px 14px 56px}.upgrade-standalone>header{display:block}.upgrade-standalone>header a{display:inline-block;margin-top:10px}.upgrade-entry-grid{grid-template-columns:1fr}}
+    </style>
+  </head>
+  <body><div id="root"></div><script type="module" src="/src/UpgradeStandalone.tsx"></script></body>
+</html>

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS } from '../lib/live-config.mjs';
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
+import { LiveDataError, loadLiveConfig, validateManifest, createReadProvider, fetchLiveJson, MANIFEST_KEYS,
+  GENESIS_ARTIFACT_DIGEST,
+  validateProductGraph } from '../lib/live-config.mjs';
 import { createLiveDataClient, validateIndexSource } from '../lib/live-data.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
@@ -25,6 +28,11 @@ const params = { circuits: collection, circuitId: 900719925474099312345n,
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
   'function beacon() view returns(address)', 'function VERSION() view returns(uint256)']);
+const saleViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+  'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
+]);
+const referenceDigest = `0x${'ee'.repeat(32)}`;
 function row(changes = {}) { return { pool, status: { validMask: (1n << 17n) - 1n, errorMask: 0n, trustError: 0n }, params,
   state: 2n, unitPriceWei: params.targetRaise / 100n, totalRaised: params.targetRaise, totalSupply: 100n,
   memberCount: 3n, depositPaused: false, purchaseCost: params.priceCap, activatedAt: BigInt(timestamp - 172800),
@@ -42,15 +50,17 @@ function provider(options = {}) {
     calls.push(request); const { method, params: args = [] } = request;
     if (method === 'eth_chainId') return options.wrongChain ? '0x1' : '0x38';
     if (method === 'eth_getBlockByNumber') {
-      const n = args[0] === 'latest' ? 10n : BigInt(args[0]);
+      const n = args[0] === 'latest' ? BigInt(options.latestBlockNumber ?? 10) : BigInt(args[0]);
       return { number: toQuantity(n), timestamp: toQuantity(n === 8n ? timestamp - 2 : timestamp),
         hash: n === 8n ? (options.deploymentReorg ? blockHash : deploymentHash) : options.reorg ? deploymentHash : blockHash };
     }
     if (method === 'eth_getCode') return options.badCode ? '0x6001' : code;
     assert.equal(method, 'eth_call'); assert.equal(args[1], toQuantity(options.blockNumber ?? 10n));
     const { to, data } = args[0];
-    let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket : bindings;
+    let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
+      : to === pool ? abi.PoolVault : bindings;
     let parsed = iface.parseTransaction({ data });
+    if (!parsed && to === shareMarket) { iface = saleViews; parsed = iface.parseTransaction({ data }); }
     if (!parsed) { iface = bindings; parsed = iface.parseTransaction({ data }); }
     const name = parsed.name; let value;
     if (name === 'lens') value = options.wrongBinding ? addr(99) : lens;
@@ -60,19 +70,53 @@ function provider(options = {}) {
     else if (name === 'beacon') value = beacon;
     else if (name === 'VERSION') value = options.lensVersion ?? 1n;
     else if (name === 'poolCount') value = BigInt(options.totalPools ?? rows.length);
-    else if (name === 'positions') value = { blockNumber: 10n, timestamp: BigInt(timestamp),
+    else if (name === 'nextOrderId') value = 2n;
+    else if (name === 'positions') value = { blockNumber: BigInt(options.blockNumber ?? 10), timestamp: BigInt(timestamp),
       totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
       pools: parsed.args[0].map(address => rows.find(r => r.pool === address) ?? row({ pool: address })) };
+    else if (name === 'poolPage') value = { blockNumber: BigInt(options.blockNumber ?? 10), timestamp: BigInt(timestamp),
+      totalPools: BigInt(options.totalPools ?? rows.length), nextCursor: 0n, registryCountValid: true,
+      pools: rows.slice(Number(parsed.args[0]), Number(parsed.args[0] + parsed.args[1])) };
     else if (name === 'bnbOwed') value = 123456789012345678901234n;
     else if (name === 'orders') value = { seller: account, pool, remaining: options.wrongOrder ? 3n : 5n,
       pricePerUnit: 123456789012345678901234n, active: true };
     else if (name === 'orderExpiresAt') value = BigInt(timestamp + 500);
     else if (name === 'governance') value = governance(options.governance ?? {});
+    else if (name === 'proposalPassed') value = options.proposalPassed ?? true;
+    else if (name === 'saleReference') {
+      if (options.referenceReadError) throw new Error('reference unavailable');
+      value = [options.referencePrice ?? 9000n, options.referenceAt ?? BigInt(timestamp - 100),
+        options.referenceDigest ?? referenceDigest];
+    }
+    else if (name === 'saleReview') {
+      if (options.reviewReadError) throw new Error('review unavailable');
+      value = [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n];
+    }
     else throw new Error(`unexpected call ${name}`);
-    return iface.encodeFunctionResult(name, [value]);
+    return iface.encodeFunctionResult(name, ['saleReference', 'saleReview'].includes(name) ? value : [value]);
   } };
 }
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+function verifiedGraph(changes = {}) {
+  const upgraded = changes.stage && changes.stage !== 'genesis';
+  const liveManifest = upgraded ? { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST,
+    portfolioImplementation: addr(101), portfolioFactoryImplementation: addr(102),
+    codehash: { ...pinnedGenesis.codehash, portfolioImplementation: blockHash, portfolioFactoryImplementation: blockHash } }
+    : pinnedGenesis;
+  return { chainId: 56, status: 'verified', stage: upgraded ? changes.stage : 'genesis',
+    artifactDigest: upgraded ? ARTIFACT_DIGEST : pinnedGenesis.artifactDigest,
+    genesisArtifactDigest: pinnedGenesis.artifactDigest, upgradeArtifactDigest: ARTIFACT_DIGEST,
+    operationId: upgraded ? blockHash : null, verifiedBlockNumber: pinnedGenesis.verifiedBlockNumber + 2,
+    verifiedBlockHash: blockHash, factory: pinnedGenesis.factory, portfolioFactory: pinnedGenesis.portfolioFactory,
+    stageActivationBlock: upgraded ? pinnedGenesis.verifiedBlockNumber + 1 : pinnedGenesis.deployment.blockNumber,
+    stageActivationHash: upgraded ? blockHash : pinnedGenesis.deployment.blockHash,
+    creationPaused: upgraded ? true : undefined,
+    operationalReady: false,
+    manifest: { ...liveManifest, verifiedBlockNumber: upgraded ? pinnedGenesis.verifiedBlockNumber + 1 : pinnedGenesis.deployment.blockNumber }, ...changes };
+}
+function configFetcher(graph = verifiedGraph()) {
+  return async url => response(url.endsWith('/data/frontend-manifest.json') ? pinnedGenesis : graph);
+}
 function indexFetcher(routes = {}, inputSource = source) {
   return async url => { const u = new URL(url); assert.equal(u.origin, origin); assert(u.pathname.startsWith('/api/chain-index/'));
     return response({ source: inputSource, data: routes[u.pathname.slice('/api/chain-index'.length)] }); };
@@ -83,24 +127,82 @@ const ordersData = { items: [{ orderId: '7', seller: account, pool, remaining: '
 const client = (routes, options, inputSource = source) => createLiveDataClient(config,
   { provider: provider(options), fetcher: indexFetcher(routes, inputSource), now: () => now });
 
-test('standard manifest loads only from same-origin file; prefixed API paths and no demo fallback', async () => {
+test('page boots only after same-origin genesis and verified product graph agree', async () => {
   const urls = [];
-  const ready = await loadLiveConfig({ origin, basePath: '/bemine/', fetcher: async url => { urls.push(url); return response(manifest); } });
-  assert.deepEqual(urls, [`${origin}/bemine/data/frontend-manifest.json`]);
+  const trustedFetch = configFetcher();
+  const ready = await loadLiveConfig({ origin, basePath: '/bemine/', fetcher: async url => { urls.push(url); return trustedFetch(url); } });
+  assert.deepEqual(urls, [`${origin}/bemine/data/frontend-manifest.json`, `${origin}/bemine/api/journal/product-graph`]);
+  assert.equal(ready.stage, 'genesis'); assert.equal(ready.manifest.artifactDigest, pinnedGenesis.artifactDigest);
   assert.equal(ready.status, 'ready'); assert.equal(ready.rpcUrl, `${origin}/bemine/api/rpc`); assert.equal(ready.indexBaseUrl, `${origin}/bemine/api/chain-index`); assert.equal(ready.journalBase, '/bemine/api/journal');
   const empty = await loadLiveConfig({ origin, fetcher: async () => response({}, 404) });
   assert.equal(empty.status, 'unconfigured'); assert.equal(empty.manifest, undefined);
   assert.throws(() => createLiveDataClient(empty), { code: 'unconfigured' });
 });
 
+test('boot fetches the pinned manifest and product graph concurrently, then validates them together', async () => {
+  const calls = [], releases = new Map();
+  const waiting = loadLiveConfig({ origin, fetcher: url => {
+    calls.push(url);
+    return new Promise(resolve => releases.set(url, resolve));
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  const manifestUrl = `${origin}/data/frontend-manifest.json`;
+  const graphUrl = `${origin}/api/journal/product-graph`;
+  assert.deepEqual(calls, [manifestUrl, graphUrl]);
+  releases.get(graphUrl)(response(verifiedGraph()));
+  releases.get(manifestUrl)(response(pinnedGenesis));
+  assert.equal((await waiting).status, 'ready');
+});
+
 test('manifest identity, artifact, blocks, addresses and RPC allowlist fail closed', async () => {
   for (const change of [{ chainId: 1 }, { schemaVersion: 2 }, { sourceCommit: '' }, { verifiedBlockNumber: 7 },
     { artifactDigest: blockHash }, { codehash: {} }, { lens: factory }]) assert.throws(() => validateManifest({ ...manifest, ...change }));
-  const args = { origin, fetcher: async () => response(manifest), rpcUrl: 'https://unapproved.test/rpc' };
+  const args = { origin, fetcher: configFetcher(), rpcUrl: 'https://unapproved.test/rpc' };
   await assert.rejects(loadLiveConfig(args), { code: 'rpc_not_allowed' });
   const allowed = await loadLiveConfig({ ...args, allowedRpcOrigins: ['https://unapproved.test'] });
   assert.equal(allowed.rpcUrl, args.rpcUrl);
   await assert.rejects(loadLiveConfig({ ...args, rpcUrl: 'http://unapproved.test/rpc', allowedRpcOrigins: ['http://unapproved.test'] }), { code: 'rpc_not_allowed' });
+});
+
+test('upgraded graph chooses candidate ABI without rewriting the pinned genesis file', async () => {
+  const candidate = verifiedGraph({ stage: 'code-upgraded' });
+  const ready = await loadLiveConfig({ origin, fetcher: configFetcher(candidate) });
+  assert.equal(ready.stage, 'code-upgraded');
+  assert.equal(ready.manifest.artifactDigest, ARTIFACT_DIGEST);
+  assert.equal(ready.manifest.portfolioImplementation, candidate.manifest.portfolioImplementation);
+  for (const change of [
+    { stage: 'unknown' }, { status: 'unverified' }, { genesisArtifactDigest: blockHash },
+    { artifactDigest: blockHash }, { operationId: null }, { creationPaused: false },
+    { stageActivationBlock: 0 },
+    { factory: addr(200) }, { manifest: { ...candidate.manifest, lens: addr(201) } },
+  ]) assert.throws(() => validateProductGraph({ ...candidate, ...change }));
+  await assert.rejects(loadLiveConfig({ origin, fetcher: configFetcher({ ...candidate, status: 'unverified' }) }),
+    { code: 'product_graph' });
+  await assert.rejects(loadLiveConfig({ origin, fetcher: async url => url.endsWith('frontend-manifest.json')
+    ? response(pinnedGenesis) : response({}, 503) }), { code: 'http_unavailable' });
+});
+
+test('fresh graph activates only with complete Authority proof and both previous Factories paused', async () => {
+  const authority=addr(200), gasWallet=addr(201), administratorOne=addr(202), administratorTwo=addr(203);
+  const proof={address:authority,gasWallet,administratorOne,administratorTwo,
+    codehash:blockHash,deploymentTxHash:txHash};
+  const v3Genesis={...pinnedGenesis,artifactDigest:ARTIFACT_DIGEST,
+    authority,gasWallet,freshAuthority:proof};
+  const active = verifiedGraph({ stage:'fresh-active', artifactDigest:ARTIFACT_DIGEST,
+    genesisArtifactDigest:ARTIFACT_DIGEST,
+    upgradeArtifactDigest:null, operationId:null, creationPaused:undefined,
+    operationalReady:true, previousFactoriesPaused:true,
+    freshAuthority:{...proof,activationBlock:v3Genesis.verifiedBlockNumber+1,activationHash:blockHash},
+    manifest:{...v3Genesis,verifiedBlockNumber:v3Genesis.verifiedBlockNumber+1} });
+  const accepted=validateProductGraph(active,v3Genesis);
+  assert.equal(accepted.stage,'fresh-active');
+  assert.equal(accepted.freshAuthority.address,authority);
+  for (const change of [{operationalReady:false},{previousFactoriesPaused:false},
+    {freshAuthority:null},{freshAuthority:{...active.freshAuthority,activationHash:deploymentHash}},
+    {operationId:blockHash},{upgradeArtifactDigest:blockHash},
+    {manifest:{...active.manifest,gasWallet:addr(204)}},
+    {manifest:{...active.manifest,freshAuthority:{...proof,codehash:deploymentHash}}}])
+    assert.throws(()=>validateProductGraph({...active,...change},v3Genesis));
 });
 
 test('HTTP provider never requests wallet permission or signs/sends, and checks response ID', async () => {
@@ -310,6 +412,86 @@ test('positions retain zero-share rewards and unknown balances, separating marke
   assert.equal(unknown.items.length, 1); assert.equal(unknown.items[0].claimableBEM, null);
 });
 
+test('temporary index 503 reads confirmed Factory/Lens for pools and wallet shares without inventing an empty page', async () => {
+  const unavailable = async () => response({ error: 'index unavailable' }, 503);
+  const rpc = provider({ latestBlockNumber: 22n, rows: [row({ shares: 99n, lockedShares: 99n, availableShares: 0n })] });
+  const c = createLiveDataClient(config, { provider: rpc, fetcher: unavailable, now: () => now });
+  const catalog = await c.readPools({ account });
+  assert.equal(catalog.source.readMode, 'direct_chain');
+  assert.equal(catalog.items[0].pool, pool);
+  const positions = await c.readPositions({ account });
+  assert.equal(positions.source.readMode, 'direct_chain');
+  assert.equal(positions.items[0].shares, 99n);
+  assert.equal(positions.items[0].lockedShares, 99n);
+  assert.equal(positions.items[0].availableShares, 0n);
+  assert.equal(positions.marketBnbOwed, 123456789012345678901234n);
+  const detail = await c.readPool({ pool, account });
+  assert.equal(detail.item.shares, 99n);
+  const myOrders = await c.readOrders({ seller: account });
+  assert.equal(myOrders.source.readMode, 'direct_chain');
+  assert.equal(myOrders.items[0].orderId, 1n);
+  assert.equal(myOrders.items[0].remaining, 5n);
+  assert(rpc.calls.every(call => !/send|sign/i.test(call.method)));
+  await assert.rejects(c.readPools({ account, cursor: 1 }), { code: 'http_unavailable' });
+});
+
+test('a recent saved index snapshot discovers pools during sync, but Lens still verifies the pinned block', async () => {
+  const snapshotSource = { ...source, readMode: 'verified_snapshot', stale: true, refreshing: true, transactionReady: false };
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/snapshot/pools')
+    ? response({ source: snapshotSource, data: poolsData }) : response({ error: 'syncing' }, 503);
+  const c = createLiveDataClient(config, { provider: provider(), fetcher, now: () => now });
+  const catalog = await c.readPools({ account });
+  assert.equal(catalog.source.readMode, 'verified_snapshot');
+  assert.equal(catalog.source.stale, true);
+  assert.equal(catalog.source.transactionReady, false);
+  assert.equal(catalog.items[0].pool, pool);
+  const wrong = createLiveDataClient(config, { provider: provider(), fetcher: async url =>
+    new URL(url).pathname.endsWith('/v1/snapshot/pools')
+      ? response({ source: { ...snapshotSource, indexedBlockHash: deploymentHash }, data: poolsData })
+      : response({ error: 'syncing' }, 503), now: () => now });
+  await assert.rejects(wrong.readPools({ account }), { code: 'source_reorg' });
+});
+
+test('automatic snapshot responses keep their historical checkedAt and never gain live transaction status', async () => {
+  const historical = { ...source, checkedAt: new Date(now - 10 * 60_000).toISOString(),
+    readMode: 'verified_snapshot', stale: true, refreshing: false, transactionReady: false };
+  const c = client({ '/v1/pools': poolsData, '/v1/orders': ordersData, '/v1/stats': {
+    scope: 'confirmed_indexed_history', registeredPoolCount: '1', everParticipantAddressCount: '0',
+    purchasedCostWei: '0', shareMarketFilledGrossWei: '0', harvestedToMembersBemAtomic: '0',
+  } }, {}, historical);
+  const [catalog, orders, stats] = await Promise.all([c.readPools({ account }), c.readOrders({ active: true }), c.readStats()]);
+  for (const result of [catalog, orders, stats]) {
+    assert.equal(result.source.checkedAt, historical.checkedAt);
+    assert.equal(result.source.stale, true);
+    assert.equal(result.source.transactionReady, false);
+  }
+  for (const bad of [{ stale: false }, { transactionReady: true }, { refreshing: undefined },
+    { readMode: undefined }, { checkedAt: new Date(now - 30 * 60_000 - 1).toISOString() }])
+    assert.throws(() => validateIndexSource({ ...historical, ...bad }, manifest, { now }), { code: 'index_stale' });
+});
+
+test('an older index without the snapshot route falls through to confirmed direct reads', async () => {
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/snapshot/pools')
+    ? response({ error: 'route missing' }, 404) : response({ error: 'syncing' }, 503);
+  const result = await createLiveDataClient(config, { provider: provider({ latestBlockNumber: 22n }), fetcher, now: () => now }).readPools({ account });
+  assert.equal(result.source.readMode, 'direct_chain');
+  assert.equal(result.items[0].pool, pool);
+});
+
+test('pool directory counts exclude portfolio children without reporting missing Factory registrations', async () => {
+  const directory = { ...poolsData, registeredPoolCount: '2', childPoolCount: '1', standalonePoolCount: '1' };
+  const result = await client({ '/v1/pools': directory }, { totalPools: 2 }).readPools({ account });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].pool, pool);
+  await assert.rejects(client({ '/v1/pools': { ...directory, childPoolCount: '0' } }, { totalPools: 2 }).readPools({ account }),
+    { code: 'index_coverage' });
+});
+
+test('index identity mismatch cannot trigger direct chain fallback', async () => {
+  const wrong = client({ '/v1/pools': poolsData }, { latestBlockNumber: 22n }, { ...source, factory: addr(99) });
+  await assert.rejects(wrong.readPools({ account }), { code: 'index_identity' });
+});
+
 test('statistics preserve the indexed history definition and check on-chain registration count', async () => {
   const stats = { scope: 'confirmed_indexed_history', registeredPoolCount: '1', everParticipantAddressCount: '2',
     purchasedCostWei: '123456789012345678901234', shareMarketFilledGrossWei: '5', harvestedToMembersBemAtomic: '6' };
@@ -326,11 +508,76 @@ test('orders are re-read on chain and remain non-executable history candidates',
   await assert.rejects(client({ '/v1/orders': ordersData }).readOrders({ active: false }), { code: 'order_mismatch' });
 });
 
+test('a pruned index block falls back to a fresh confirmed order read', async () => {
+  const base = provider({ latestBlockNumber: 30n, blockNumber: 18n });
+  const rpc = { request(input) {
+    if (input.method === 'eth_getCode' && input.params[1] === '0xa')
+      throw new LiveDataError('rpc_error', '只读 RPC 返回错误或不匹配的响应。');
+    return base.request(input);
+  } };
+  const fetcher = async url => new URL(url).pathname.endsWith('/v1/orders')
+    ? response({ source, data: ordersData }) : response({ error: 'index unavailable' }, 503);
+  const result = await createLiveDataClient(config, { provider: rpc, fetcher, now: () => now }).readOrders({ active: true });
+  assert.equal(result.source.readMode, 'direct_chain');
+  assert.equal(result.source.indexedThrough, 18);
+  assert.equal(result.items[0].orderId, 1n);
+  assert.equal(result.items[0].executable, false);
+});
+
 test('governance reads masks, so unknown eligibility cannot silently be treated as eligible', async () => {
   const result = await client({}).readGovernance({ pool, account });
   assert.equal(result.data.canVote, true); assert.equal(result.data.canExecute, true); assert.equal(result.data.requiredYesCount, 2n);
+  assert.equal(result.data.discounted, false);
   const unknown = await client({}, { governance: { status: { validMask: 1n, errorMask: 1n << 11n, trustError: 0n } } }).readGovernance({ pool, account });
   assert.equal(unknown.data.canVote, null); assert.equal(unknown.data.proposal, null);
+  assert.equal(unknown.data.discounted, null); assert.equal(unknown.data.canExecute, null);
+  const noProposal = await client({}, { governance: { activeProposalId: 0n, canExecute: true,
+    discounted: true, passed: true } }).readGovernance({ pool, account });
+  assert.equal(noProposal.data.discounted, null);
+  assert.equal(noProposal.data.passed, null);
+  assert.equal(noProposal.data.canExecute, null);
+});
+
+test('governance ignores the fixed old Lens sale threshold after the dual-majority Vault upgrade', async () => {
+  const discounted = { ...proposal, price: 9000n, yesShares: 51n };
+  const result = await client({}, { governance: { proposal: discounted, discounted: true,
+    requiredYesShares: 60n, passed: false, canExecute: false } }).readGovernance({ pool, account });
+  assert.equal(result.data.requiredYesShares, 51n);
+  assert.equal(result.data.passed, true);
+  assert.equal(result.data.discounted, false, 'the current Firsto reference, not purchase cost, sets review need');
+  assert.equal(result.data.canExecute, true);
+  await assert.rejects(client({}, { governance: { proposal: discounted }, proposalPassed: false })
+    .readGovernance({ pool, account }), { code: 'governance_mismatch' });
+});
+
+test('genesis governance retains its on-chain 60-share discount rule until activation', async () => {
+  const oldConfig = { ...config, stage: 'genesis', manifest: { ...manifest, artifactDigest: GENESIS_ARTIFACT_DIGEST } };
+  const discounted = { ...proposal, price: 9000n, yesShares: 55n };
+  const c = createLiveDataClient(oldConfig, { provider: provider({ proposalPassed: false,
+    governance: { proposal: discounted, discounted: true, requiredYesShares: 60n,
+      passed: false, canExecute: false } }), fetcher: indexFetcher(), now: () => now });
+  const result = await c.readGovernance({ pool, account });
+  assert.equal(result.data.requiredYesShares, 60n);
+  assert.equal(result.data.passed, false);
+  assert.equal(result.data.canExecute, false);
+  assert.equal(result.data.saleReference, null);
+});
+
+test('governance never carries Lens canExecute through a missing reference or mismatched review', async () => {
+  const below = { ...proposal, price: 8000n, yesShares: 51n };
+  for (const options of [{ referenceAt: BigInt(timestamp - 901) },
+    { referenceDigest: `0x${'00'.repeat(32)}` }, { referenceReadError: true },
+    { reviewStatus: 0n }, { reviewStatus: 1n, reviewPrice: 7999n },
+    { reviewStatus: 2n, reviewPrice: 8000n }, { reviewReadError: true }]) {
+    const result = await client({}, { ...options, governance: { proposal: below, canExecute: true } }).readGovernance({ pool, account });
+    assert.equal(result.data.passed, true);
+    assert.equal(result.data.canExecute, false);
+  }
+  const approved = await client({}, { governance: { proposal: below, canExecute: false },
+    reviewStatus: 1n, reviewPrice: 8000n }).readGovernance({ pool, account });
+  assert.equal(approved.data.discounted, true);
+  assert.equal(approved.data.reviewApproved, true);
+  assert.equal(approved.data.canExecute, true);
 });
 
 test('activity pagination validates tuple order and keeps event amounts as exact strings', async () => {

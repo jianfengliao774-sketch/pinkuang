@@ -23,3 +23,13 @@
 .preflight-card>p{font-size:11px;line-height:1.8;color:#839094;margin:13px 24px}
 .preflight-card details{margin:0 24px;font-size:11px;color:#7f8f92}.preflight-card summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}.preflight-card summary::-webkit-details-marker{display:none}.preflight-card details[open] summary svg{transform:rotate(180deg)}.preflight-card ul{margin:10px 0 0;padding-left:18px;line-height:1.8}
 @media(max-width:680px){.progress-actions{gap:6px}.progress-actions .small-button{font-size:0;gap:0;padding:6px}.progress-actions .small-button svg{width:15px;height:15px}.next-action{margin:15px 18px 2px}.preflight-facts{padding:0 18px;grid-template-columns:1fr 1fr}.preflight-facts>div:last-child{grid-column:1/-1}.preflight-card>p,.preflight-card details{margin-left:18px;margin-right:18px}}
+.legacy-cutover{margin-bottom:24px;padding-bottom:20px}
+.legacy-cutover>.card-heading{margin-bottom:12px}
+.legacy-cutover>p{margin:12px 24px;line-height:1.65;overflow-wrap:anywhere}
+.legacy-cutover>.small-button{margin:12px 24px 0}
+.legacy-cutover .budget-recovery{padding:8px 24px 0}
+.legacy-cutover .budget-recovery .small-button{margin-top:12px}
+.legacy-cutover .budget-recovery .text-button{margin-left:12px}
+.legacy-cutover .preflight-facts{padding-top:4px;padding-bottom:4px}
+.legacy-cutover .success-inline{display:flex;align-items:center;gap:8px}
+.legacy-cutover a{text-decoration:underline;text-underline-offset:3px}

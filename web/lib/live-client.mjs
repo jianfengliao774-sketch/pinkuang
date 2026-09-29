@@ -54,6 +54,12 @@ export async function indexPage(config, path, fetchImpl) {
       !same(result.source.factory, config.factory) || !same(result.source.market, config.market)) {
     throw new Error('Server index identity or completeness changed.');
   }
+  const saved = result.source.readMode === 'verified_snapshot';
+  if (saved ? result.source.stale !== true || result.source.transactionReady !== false
+      || !Number.isFinite(Date.parse(result.source.checkedAt))
+      || Date.now() - Date.parse(result.source.checkedAt) > 30 * 60 * 1000
+    : result.source.stale === true || result.source.transactionReady === false)
+    throw new Error('Historical index data is display-only and must be marked stale.');
   return result;
 }
 
@@ -172,7 +178,7 @@ async function recordAndSend({ wallet, config, account, pool, target, transactio
 /** One wallet transaction at a time. Pool state is reread before the server records its exact intent. */
 export async function sendLivePoolAction({ wallet, config, account, pool, action, quantity, fetchImpl, onState = () => {} }) {
   await prepareLiveSend({ wallet, config, account, fetchImpl, onState });
-  const snapshot = await readPoolSnapshot(wallet, { factory: config.factory, account, pools: [pool] });
+  const snapshot = await readPoolSnapshot(wallet, { factory: config.factory, lens: config.lens, account, pools: [pool] });
   if (!same(snapshot.lens, config.lens)) throw new Error('Configured Lens differs from on-chain Factory.');
   const transaction = personalPoolAction(snapshot, pool, account, action, quantity);
   return recordAndSend({ wallet, config, account, pool, target: pool, transaction, fetchImpl, onState });
@@ -184,7 +190,7 @@ export async function sendLiveMarketAction({ wallet, config, account, action, fe
   const prepared = await prepareMarketAction(wallet, { factory: config.factory, market: config.market, account, action });
   const pool = prepared.quote.pool ?? config.market;
   const extra = action.kind === 'fill' ? { expected: { seller: action.expectedSeller,
-    pricePerUnitWei: action.expectedPricePerUnitWei } } : action.kind === 'list' ? { allowFree: action.allowFree === true } : {};
+    pricePerUnitWei: action.expectedPricePerUnitWei } } : {};
   return recordAndSend({ wallet, config, account, pool, target: config.market,
     transaction: prepared.transaction, extra, fetchImpl, onState });
 }

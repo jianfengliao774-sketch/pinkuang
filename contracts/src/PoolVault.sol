@@ -22,6 +22,10 @@ import {PoolVaultState} from "./PoolVaultState.sol";
 import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
 
+interface IPoolTreasuryTimelock {
+    function timelock() external view returns (address);
+}
+
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
@@ -56,6 +60,8 @@ contract PoolVault is
     /// @dev Shared by all proxies behind this implementation; every upgrade must preserve this factory binding.
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address public immutable OFFICIAL_FACTORY;
+
+    event TreasuryMigrated(address indexed previousTreasury, address indexed nextTreasury);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address officialFactory_) {
@@ -631,6 +637,24 @@ contract PoolVault is
 
     function treasury() external view returns (address) {
         return _vaultStorage().treasury;
+    }
+
+    /// @notice Moves only future platform fees. Amounts already owed to the old
+    /// treasury remain its claimable balance and are never reassigned.
+    /// @dev Existing pools use the Factory's 48-hour Timelock, not its owner or operator.
+    function migrateTreasury(address expectedOld, address next) external nonReentrant {
+        if (msg.sender != IPoolTreasuryTimelock(OFFICIAL_FACTORY).timelock()) revert Unauthorized();
+        VaultStorage storage s = _vaultStorage();
+        if (s.factory != OFFICIAL_FACTORY || next == address(0) || next == expectedOld || s.treasury != expectedOld) {
+            revert InvalidParameters();
+        }
+        if (s.state == State.Active || s.state == State.Listed) {
+            // Settle every pending mining reward before switching the recipient.
+            // A failed or incomplete protocol claim leaves the old treasury intact.
+            _harvest(true);
+        }
+        s.treasury = next;
+        emit TreasuryMigrated(expectedOld, next);
     }
 
     function unitPriceWei() external view returns (uint256) {

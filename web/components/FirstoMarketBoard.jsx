@@ -17,11 +17,13 @@ const time = (stamp, locale) => Number.isFinite(stamp) && stamp > 0
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }) : '—';
+let recentBoard = null;
 
 /** Public Firsto quotes only. No wallet provider, account read, signature or transaction path. */
-export default function FirstoMarketBoard() {
+export default function FirstoMarketBoard({ refreshKey = 0 }) {
   const { locale } = useI18n();
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => recentBoard && Date.now() - recentBoard.savedAt < 600_000
+    ? recentBoard.data : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -37,10 +39,13 @@ export default function FirstoMarketBoard() {
     const sequence = request.current.sequence, abort = new AbortController();
     request.current.abort = abort;
     request.current.timer = setTimeout(() => abort.abort(), 15_000);
-    setBusy(true); setError(''); setData(null);
+    setBusy(true); setError('');
     try {
       const result = await readFirstoMarketBoard({ page, viewId, signal: abort.signal });
-      if (sequence === request.current.sequence) { setData(result); setNow(Date.now()); }
+      if (sequence === request.current.sequence) {
+        recentBoard = { savedAt: Date.now(), data: result };
+        setData(result); setNow(Date.now());
+      }
     } catch (problem) {
       if (sequence === request.current.sequence) setError(problem?.name === 'AbortError'
         ? text(locale, '读取市场超时，请刷新重试。', 'Market request timed out. Refresh to retry.')
@@ -51,10 +56,10 @@ export default function FirstoMarketBoard() {
   }
 
   useEffect(() => {
-    void load();
+    void load(data?.page || 1);
     const tick = setInterval(() => setNow(Date.now()), 15_000);
     return () => { clearInterval(tick); invalidate(); };
-  }, []);
+  }, [refreshKey]);
 
   const referenceFresh = data?.reference && now <= data.reference.observedAt + MAX_QUOTE_AGE_MS;
   const reference = referenceFresh ? data.reference : null;

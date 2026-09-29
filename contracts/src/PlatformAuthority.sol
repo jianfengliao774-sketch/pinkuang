@@ -55,6 +55,12 @@ interface IAuthorityPool {
     function withdrawBnb() external;
 }
 
+interface IAuthorityBudgetPool {
+    function spentWei() external view returns (uint256);
+    function buyOfficial(address child, uint256 listingId) external;
+    function buyFirsto(address child, bytes calldata encodedOrder) external;
+}
+
 /// @notice Timelock-owned operator and fee recipient for both BEMine factories.
 /// @dev The relayer pays gas but cannot approve a discounted sale or redirect fees without an admin signature.
 contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
@@ -66,6 +72,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     bytes32 public constant REVIEW_CHILD_SALE = keccak256("REVIEW_CHILD_SALE");
     bytes32 public constant SALE_REFERENCE = keccak256("SALE_REFERENCE");
     bytes32 public constant CLAIM_FEES = keccak256("CLAIM_FEES");
+    bytes32 public constant APPROVED_OPERATION = keccak256("APPROVED_OPERATION");
+    bytes32 public constant BUY_BUDGET_OFFICIAL = keccak256("BUY_BUDGET_OFFICIAL");
+    bytes32 public constant BUY_BUDGET_FIRSTO = keccak256("BUY_BUDGET_FIRSTO");
     address public constant BEM = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
 
     address public immutable coreFactory;
@@ -82,11 +91,13 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     error InvalidAction();
     error InvalidSignature();
     error TransferFailed();
+    error OverMaxCost();
 
     event AdministratorsChanged(address indexed first, address indexed second);
     event GasWalletChanged(address indexed previous, address indexed next);
     event AdminAction(address indexed administrator, bytes32 indexed kind, address indexed target, uint256 nonce);
     event FeesClaimed(address indexed administrator, uint256 bnbAmount, uint256 bemAmount);
+    event NonceInvalidated(address indexed administrator, uint256 previous, uint256 next);
 
     constructor(address coreFactory_, address budgetFactory_, address first, address second, address gasWallet_)
         Ownable(IAuthorityFactory(coreFactory_).timelock())
@@ -193,9 +204,25 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         IAuthorityMarket(market).setSaleReference(pool, priceWei, observedAt, digest);
     }
 
-    /// @notice Only routine operator calls may be relayed without an admin signature.
+    /// @notice Only mining calls may be relayed without an admin signature.
     function executeOperation(address target, bytes calldata data) external nonReentrant returns (bytes memory result) {
         if (msg.sender != gasWallet) revert Unauthorized();
+        if (data.length < 4) revert InvalidAction();
+        bytes4 selector = bytes4(data[:4]);
+        if (!IAuthorityFactory(coreFactory).isPool(target) || selector != bytes4(keccak256("mine(bytes)"))) {
+            revert InvalidAction();
+        }
+        return _callTarget(target, data);
+    }
+
+    /// @notice A signed exact calldata payload is required for project/child creation or a deposit pause.
+    function executeApprovedOperation(
+        address target,
+        bytes calldata data,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external nonReentrant returns (bytes memory result) {
         if (data.length < 4) revert InvalidAction();
         bytes4 selector = bytes4(data[:4]);
         bool allowed;
@@ -208,13 +235,72 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         } else if (target == budgetFactory) {
             allowed = selector == IAuthorityBudgetOperations.createPortfolio.selector;
         } else if (IAuthorityFactory(coreFactory).isPool(target)) {
-            allowed =
-                selector == bytes4(keccak256("mine(bytes)")) || selector == bytes4(keccak256("setDepositPaused(bool)"));
-        } else if (IAuthorityFactory(budgetFactory).isPool(target)) {
-            allowed = selector == bytes4(keccak256("buyOfficial(address,uint256)"))
-                || selector == bytes4(keccak256("buyFirsto(address,bytes)"));
+            allowed = selector == bytes4(keccak256("setDepositPaused(bool)"));
         }
         if (!allowed) revert InvalidAction();
+        _authorize(APPROVED_OPERATION, target, keccak256(data), nonce, deadline, signature);
+        return _callTarget(target, data);
+    }
+
+    /// @notice The gas wallet can pay for a budget purchase only within one signed exact listing and cost ceiling.
+    function buyBudgetOfficial(
+        address portfolio,
+        address child,
+        uint256 listingId,
+        uint256 maxCost,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external nonReentrant returns (uint256 cost) {
+        if (!IAuthorityFactory(budgetFactory).isPool(portfolio) || maxCost == 0) revert InvalidTarget();
+        _authorize(
+            BUY_BUDGET_OFFICIAL, portfolio, keccak256(abi.encode(child, listingId, maxCost)), nonce, deadline, signature
+        );
+        IAuthorityBudgetPool project = IAuthorityBudgetPool(portfolio);
+        uint256 spentBefore = project.spentWei();
+        project.buyOfficial(child, listingId);
+        cost = project.spentWei() - spentBefore;
+        if (cost == 0 || cost > maxCost) revert OverMaxCost();
+    }
+
+    /// @notice The signed order hash binds all Firsto fields, while maxCost limits actual on-chain spend.
+    function buyBudgetFirsto(
+        address portfolio,
+        address child,
+        bytes calldata encodedOrder,
+        uint256 maxCost,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external nonReentrant returns (uint256 cost) {
+        if (!IAuthorityFactory(budgetFactory).isPool(portfolio) || maxCost == 0 || encodedOrder.length == 0) {
+            revert InvalidTarget();
+        }
+        _authorize(
+            BUY_BUDGET_FIRSTO,
+            portfolio,
+            keccak256(abi.encode(child, keccak256(encodedOrder), maxCost)),
+            nonce,
+            deadline,
+            signature
+        );
+        IAuthorityBudgetPool project = IAuthorityBudgetPool(portfolio);
+        uint256 spentBefore = project.spentWei();
+        project.buyFirsto(child, encodedOrder);
+        cost = project.spentWei() - spentBefore;
+        if (cost == 0 || cost > maxCost) revert OverMaxCost();
+    }
+
+    /// @notice An administrator can revoke all of their outstanding signatures without the gas wallet.
+    function invalidateNonce(uint256 next) external {
+        if (msg.sender != administratorOne && msg.sender != administratorTwo) revert Unauthorized();
+        uint256 previous = nonces[msg.sender];
+        if (next <= previous) revert InvalidAction();
+        nonces[msg.sender] = next;
+        emit NonceInvalidated(msg.sender, previous, next);
+    }
+
+    function _callTarget(address target, bytes calldata data) private returns (bytes memory result) {
         (bool success, bytes memory response) = target.call(data);
         if (!success) assembly { revert(add(response, 32), mload(response)) }
         return response;
@@ -286,7 +372,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         uint256 deadline,
         bytes calldata signature
     ) private {
-        if (msg.sender != gasWallet) revert Unauthorized();
+        if (msg.sender != gasWallet && msg.sender != signer) revert Unauthorized();
         if (block.timestamp > deadline || nonce != nonces[signer]) revert InvalidSignature();
         if (signer != administratorOne && signer != administratorTwo) revert InvalidSignature();
         if (ECDSA.recover(_actionDigest(kind, target, paramsHash, nonce, deadline), signature) != signer) {

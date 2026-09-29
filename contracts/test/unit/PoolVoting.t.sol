@@ -374,7 +374,7 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_lockedSharesRetainBeneficialOwnerVoteAndCancellationDoesNotResetVote() public {
         vm.prank(ALICE);
-        uint256 orderId = shareMarket.list(address(pool), 49, 0);
+        uint256 orderId = shareMarket.list(address(pool), 49, 1);
         _ready();
         uint256 id = _propose(BOB);
         assertEq(_shareVault().lockedShares(ALICE), 49);
@@ -688,7 +688,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         uint256 orderId;
         if (route == 2) {
             vm.prank(ALICE);
-            orderId = shareMarket.list(address(pool), 49, 0);
+            orderId = shareMarket.list(address(pool), 49, 1);
         }
         uint256 id = _propose(ALICE);
         if (route == 0) {

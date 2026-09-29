@@ -140,6 +140,7 @@ export function createLiveBrowserFixture({ account = FIXTURE_ACCOUNT, timestamp 
       case 'governance': result = governance(parsed.args[0], parsed.args[1]); break;
       case 'bnbOwed': result = match(to, shareMarket) ? match(parsed.args[0], account) ? parseEther('0.067') : 0n : position(rowFor(to), parsed.args[0]).bnbOwed; break;
       case 'activeMembers': result = [account, FIXTURE_OTHER_ACCOUNT, address(0xca11)]; break;
+      case 'memberCount': result = rowFor(to).memberCount; break;
       case 'state': result = rowFor(to).state; break;
       case 'purchaseCost': result = rowFor(to).purchaseCost; break;
       case 'activatedAt': result = rowFor(to).activatedAt; break;

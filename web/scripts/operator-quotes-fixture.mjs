@@ -26,6 +26,7 @@ function dataFixture({ series = 'TapeOut', now = Date.now() } = {}) {
   const collection = OFFICIAL_COLLECTIONS[series];
   const row = { collection, tokenId: '16480', processorName: series, owner: seller,
     category: 'official_mining', classification: 'official_mining',
+    listingReference: { priceWei: '34992000000000000', dailyCapacityPriceWei: '8100000000000000000' },
     bestAsk: { id: askId, account: seller, venue: 'firsto', priceWei: '2355000000000000001', buyerCostWei: '2378550000000000002',
       expiresAt: new Date(now + 86400000).toISOString(), status: 'open', execution: { kind: 'signed_ask', chainId: 56,
         exchange, maker: seller, feeBps: 100, schemaVersion: '2', collection, tokenId: '16480', priceWei: '2355000000000000001' } },
@@ -84,7 +85,7 @@ function apiFixture(data, { referenceFails = false, invalidJson = false } = {}) 
   return { requests, fetcher: async (input, init) => {
     requests.push({ input, init }); assert.equal(init.method, 'GET'); assert.equal(init.credentials, 'omit');
     const path = new URL(input, 'https://local.example').pathname;
-    assert(path.startsWith(QUOTE_BASE + '/v1/'));
+    assert(path.startsWith(QUOTE_BASE + '/v1/'), `Unexpected quote path ${path}; expected ${QUOTE_BASE}/v1/`);
     if (path.endsWith('/circuit-holders') && referenceFails) return new Response('Unavailable', { status: 503 });
     const value = path.endsWith('/circuits') ? data.page : path.endsWith('/circuit-holders') ? data.referenceRaw : data.detail;
     return new Response(invalidJson && path.endsWith('/circuits') ? '{"rows":' : JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });

@@ -41,14 +41,14 @@ export default function LiveYieldChart({ data, locale, days, onDays }) {
         <div>
           <span>{L("本期归集", "Collected in this period")}</span>
           <strong>
-            {amount(total, 8, 8)} <small>BEM</small>
+            {amount(total, 8)} <small>BEM</small>
           </strong>
         </div>
         {data?.account && (
           <div>
             <span>{L("本人实际领取", "Personally claimed")}</span>
             <strong>
-              {amount(claimed, 8, 8)} <small>BEM</small>
+              {amount(claimed, 8)} <small>BEM</small>
             </strong>
           </div>
         )}
@@ -58,15 +58,15 @@ export default function LiveYieldChart({ data, locale, days, onDays }) {
           className="live-yield-bars"
           role="img"
           aria-label={L(
-            `本期矿池归集 ${amount(total, 8, 8)} BEM，${days} 天`,
-            `Pool collected ${amount(total, 8, 8)} BEM over ${days} days`,
+            `本期矿池归集 ${amount(total, 8)} BEM，${days} 天`,
+            `Pool collected ${amount(total, 8)} BEM over ${days} days`,
           )}
         >
           {rows.map((row) => (
             <div
               className="live-yield-column"
               key={row.date}
-              title={`${row.date}: ${amount(row.poolHarvestNetAtomic, 8, 8)} BEM`}
+              title={`${row.date}: ${amount(row.poolHarvestNetAtomic, 8)} BEM`}
             >
               <span
                 style={{

@@ -1,5 +1,7 @@
-import { getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
-import { abi } from './chain-client.mjs';
+import { Interface, getAddress, hexlify, toUtf8Bytes, toQuantity } from 'ethers';
+import { abi, ARTIFACT_DIGEST } from './chain-client.mjs';
+import genesisContracts from './contracts.genesis.json' with { type: 'json' };
+import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson, validateProductGraph } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
@@ -8,21 +10,31 @@ const ZERO = `0x${'0'.repeat(40)}`;
 const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeFirstoSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
 const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createBudgetChildPool']);
 const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
+const genesisAbi = Object.freeze(Object.fromEntries(Object.entries(genesisContracts.abis)
+  .map(([name, fragments]) => [name, new Interface(fragments)])));
 const active = new Set();
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+const sameNullable = (a, b) => a == null && b == null || same(a, b);
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const address = value => { const result = getAddress(value); requireValue(result !== ZERO, '不能使用零地址。'); return result; };
-const exact = value => {
-  requireValue(typeof value === 'bigint' || typeof value === 'string' && /^(?:0|[1-9]\d*|0x[0-9a-f]+)$/i.test(value), '交易金额必须使用精确整数。');
+const exact = (value, label = '交易金额') => {
+  requireValue(typeof value === 'bigint' || typeof value === 'string' && /^(?:0|[1-9]\d*|0x[0-9a-f]+)$/i.test(value), `${label}必须使用精确整数。`);
   const result = BigInt(value); requireValue(result >= 0n && result < 2n ** 256n, '整数超出合约范围。'); return result;
 };
-/** Timestamp checkpoints can require new storage between estimation and inclusion. Unused Gas is not charged. */
-export function productGasLimit(estimate) {
-  const amount = exact(estimate);
-  requireValue(amount > 0n, 'Gas 估算无效。');
-  const proportional = (amount * 120n + 99n) / 100n;
-  const checkpointReserve = amount + 100000n;
-  return proportional > checkpointReserve ? proportional : checkpointReserve;
+// Some EIP-1193 wallets return small RPC quantities as numbers. Accept only values
+// that JavaScript can represent exactly; never coerce an imprecise Wei amount.
+const rpcQuantity = (value, label) => typeof value === 'number'
+  ? (requireValue(Number.isSafeInteger(value) && value >= 0, `${label}不是精确的非负整数。`), BigInt(value))
+  : exact(value, label);
+// Fixed submission limits avoid a wallet-side estimate and keep simple market
+// orders from reserving the full complex-vault Gas budget. These are caps, not
+// claims that a transaction will succeed. Unused Gas is not charged.
+export function productGasLimit(kind, targetType) {
+  if (targetType === 'market' || targetType === 'portfolioMarket') {
+    if (kind === 'list' || kind === 'cancel' || kind === 'expire' || kind === 'withdrawBnb') return 1_000_000n;
+    if (kind === 'fill') return 3_000_000n;
+  }
+  return 5_000_000n;
 }
 const emit = (callback, state) => { try { callback?.(state); } catch { /* UI callbacks cannot erase a persisted transaction. */ } };
 export class JournalError extends Error { constructor(status, message) { super(message); this.status = status; } }
@@ -45,7 +57,7 @@ export async function requireWallet(provider, account) {
     chain: () => provider.request({ method: 'eth_chainId' }),
     accounts: () => provider.request({ method: 'eth_accounts' }),
   });
-  requireValue(exact(chain) === 56n, '请将钱包切换至 BSC 主网。');
+  requireValue(rpcQuantity(chain, '钱包链号') === 56n, '请将钱包切换至 BSC 主网。');
   requireValue(Array.isArray(accounts) && same(accounts[0], account), '钱包账户已变化，请重新连接后确认。');
   return address(accounts[0]);
 }
@@ -55,7 +67,7 @@ export async function connectWallet(provider) {
   const accounts = await provider.request({ method: 'eth_requestAccounts' });
   requireValue(Array.isArray(accounts) && accounts.length, '钱包未提供账户。');
   const owner = address(accounts[0]);
-  if (exact(await provider.request({ method: 'eth_chainId' })) !== 56n) {
+  if (rpcQuantity(await provider.request({ method: 'eth_chainId' }), '钱包链号') !== 56n) {
     try {
       await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] });
     } catch (error) {
@@ -115,28 +127,68 @@ export async function abandonPrepared({ account, config = {}, fetcher = globalTh
 }
 function normalize(config, transaction, action) {
   requireValue(config?.status === 'ready' && Number(config.chainId) === 56, '当前尚未配置已验证的 BSC 部署。');
+  if (config.manifest) {
+    const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
+    requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
+      && same(config.artifactDigest, expected), '产品阶段或合约摘要已变化，请刷新页面。');
+  }
   const budgetTarget = typeof action === 'object' && ['portfolioFactory', 'portfolio', 'portfolioMarket'].includes(action?.targetType);
   requireValue(!budgetTarget || config.kind === 'integrated-v2' && config.portfolioFactory && config.portfolioMarket, '预算部署尚未核验。');
   const factory = address(budgetTarget ? config.portfolioFactory : config.factory), target = address(transaction.to), account = address(transaction.from);
-  requireValue(exact(transaction.chainId) === 56n, '交易目标或网络错误。');
+  requireValue(exact(transaction.chainId, '交易链号') === 56n, '交易目标或网络错误。');
   const targetType = budgetTarget ? same(target, factory) ? 'portfolioFactory' : same(target, config.portfolioMarket) ? 'portfolioMarket' : 'portfolio'
     : same(target, factory) ? 'factory' : config.shareMarket && same(target, config.shareMarket) ? 'market' : 'pool';
   requireValue(!budgetTarget || targetType === action.targetType, '预算操作目标类型不一致。');
-  const contract = targetType === 'portfolioFactory' ? abi.BudgetPortfolioFactory : targetType === 'portfolio' ? abi.BudgetPortfolioVault
-    : targetType === 'factory' ? abi.PoolFactory : targetType === 'pool' ? abi.PoolVault : abi.ShareMarket;
+  const interfaces = config.stage === 'genesis' ? genesisAbi : abi;
+  const contract = targetType === 'portfolioFactory' ? interfaces.BudgetPortfolioFactory : targetType === 'portfolio' ? interfaces.BudgetPortfolioVault
+    : targetType === 'factory' ? interfaces.PoolFactory : targetType === 'pool' ? interfaces.PoolVault : interfaces.ShareMarket;
   const allowed = targetType === 'portfolioFactory' ? new Set(['createPortfolio']) : targetType === 'portfolio' ? PORTFOLIO_ACTIONS
     : targetType === 'factory' ? FACTORY_ACTIONS : targetType === 'pool' ? POOL_ACTIONS : MARKET_ACTIONS;
-  const value = exact(transaction.value ?? '0'), data = transaction.data;
+  const value = exact(transaction.value ?? '0', '交易金额'), data = transaction.data;
   requireValue(typeof data === 'string' && /^0x(?:[0-9a-f]{2}){4,2048}$/i.test(data), '交易 calldata 格式错误。');
   const decoded = contract.parseTransaction({ data, value });
   const kind = typeof action === 'string' ? action : action?.kind;
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
+  if (config.manifest && config.stage !== 'genesis') {
+    const oldContract = targetType === 'portfolioFactory' ? genesisAbi.BudgetPortfolioFactory
+      : targetType === 'portfolio' ? genesisAbi.BudgetPortfolioVault : targetType === 'factory' ? genesisAbi.PoolFactory
+        : targetType === 'pool' ? genesisAbi.PoolVault : genesisAbi.ShareMarket;
+    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true,
+      '新合约操作须等待权限、Gas 服务和产品接线全部核验完成。');
+  }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
   if (decoded.name === 'buyFromFirsto') {
     requireValue(decoded.args[0] === 0n, 'Firsto 批量挂单尚未开放。'); decodeFirstoOrder(decoded.args[1]);
   }
   return { factory, target, targetType, account, value, data: data.toLowerCase(), action: { kind: decoded.name } };
+}
+export function validateProductTransactionStage(config, transaction, action) {
+  return normalize(config, transaction, action);
+}
+
+async function requireCurrentProductStage(config, fetcher) {
+  if (!config.manifest) return; // Legacy isolated test fixtures never reach production boot.
+  requireValue(typeof config.productGraphUrl === 'string' && typeof config.origin === 'string',
+    '缺少已核验的产品阶段，请刷新页面。');
+  const url = new URL(config.productGraphUrl);
+  requireValue(url.origin === config.origin && url.pathname.endsWith('/api/journal/product-graph')
+    && !url.search && !url.hash, '产品阶段必须由本站核验服务提供。');
+  const graph = validateProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }));
+  requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
+    && same(graph.manifest.factory, config.factory)
+    && same(graph.manifest.shareMarket, config.shareMarket)
+    && same(graph.manifest.portfolioFactory, config.portfolioFactory)
+    && graph.verifiedBlockNumber >= config.manifest.verifiedBlockNumber
+    && graph.stageActivationBlock === config.stageActivationBlock
+    && same(graph.stageActivationHash, config.stageActivationHash)
+    && sameNullable(graph.operationId, config.operationId)
+    && graph.operationalReady === config.operationalReady
+    && (config.stage !== 'fresh-active' || graph.previousFactoriesPaused === true
+      && same(graph.freshAuthority?.address, config.freshAuthority?.address)
+      && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
+      && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),
+  '链上产品阶段已变化，请刷新页面后重新确认交易。');
 }
 function validateResult(result, account, record, hash) {
   requireValue(result?.finalized === true && ['confirmed','reverted','cancelled','replaced'].includes(result.status)
@@ -218,7 +270,7 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
     requireValue(tx && same(tx.from, owner) && same(tx.to, owner) && tx.chainId === '0x38'
       && tx.nonce === toQuantity(nonce) && tx.data === '0x' && tx.value === '0x0'
       && tx.gas === '0x5208' && tx.type === '0x0', '取消交易必须是原 nonce 的零金额自转。');
-    const gasPrice = exact(tx.gasPrice), gas = 21_000n;
+    const gasPrice = exact(tx.gasPrice, '取消交易 Gas 单价'), gas = 21_000n;
     requireValue(gasPrice > 0n && gasPrice <= 3_000_000_000n && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000')
       && gas * gasPrice <= exact(config.maxTransactionGasWei ?? '10000000000000000'), '取消交易 Gas 费用超出页面限制。');
     const cancellation = ack.record.cancellationRequests?.at(-1);
@@ -226,7 +278,6 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       && ack.record.cancellationRequests.length === (record.cancellationRequests?.length ?? 0) + 1,
     '服务器没有保存取消签名意图，已停止发送。');
     record = ack.record;
-    await requireWallet(provider, owner);
     const [latest, pending, code, balance, current] = await Promise.all([
       provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
       provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
@@ -234,13 +285,12 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       provider.request({ method: 'eth_getBalance', params: [owner, 'latest'] }),
       readPending({ account: owner, config, fetcher }),
     ]);
-    requireValue(exact(latest) === nonce && exact(pending) >= nonce && exact(pending) <= nonce + 1n,
+    requireValue(rpcQuantity(latest, '钱包最新 nonce') === nonce && rpcQuantity(pending, '钱包待处理 nonce') >= nonce && rpcQuantity(pending, '钱包待处理 nonce') <= nonce + 1n,
       '原 nonce 已变化或钱包还有其他待处理交易，请先核对钱包交易哈希。');
     requireValue(code === '0x', '此钱包不支持页面内取消，请使用钱包自身的恢复功能。');
-    requireValue(exact(balance) >= gas * gasPrice, 'BNB 余额不足以支付取消交易的 Gas。');
+    requireValue(rpcQuantity(balance, '钱包 BNB 余额') >= gas * gasPrice, 'BNB 余额不足以支付取消交易的 Gas。');
     requireValue(current.revision === ack.revision && current.record?.nonce === record.nonce
       && same(current.record.account, owner), '待处理记录已变化，请重新核对后再取消。');
-    await provider.request({ method: 'eth_call', params: [{ from: owner, to: owner, value:'0x0',data:'0x',gas:'0x5208' }, 'latest'] });
     await requireWallet(provider, owner);
     emit(onState, { status:'awaiting-signature', operation:'cancel-pending', record, gasLimit:gas.toString(),
       gasPriceWei:gasPrice.toString(), maxGasWei:(gas * gasPrice).toString() });
@@ -273,6 +323,7 @@ export async function sendProductTransaction({ provider, config, transaction, ac
   let record, hash, revision;
   try {
     emit(onState, { status: 'preparing' });
+    await requireCurrentProductStage(config, fetcher);
     // Independent reads overlap, but every started read settles before an intent can be saved.
     const { session, view } = await settleReadRound({
       wallet: () => requireWallet(provider, account),
@@ -283,37 +334,53 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     requireValue(!view.record, '这个钱包有待核对交易，请先核对回执；不要重复发送。');
     revision = view.revision;
     const unsigned = { from: account, to: target, data, value: toQuantity(value) };
-    const { latest, pending, estimate, price, balance } = await settleReadRound({
-      simulation: () => provider.request({ method: 'eth_call', params: [unsigned, 'latest'] }),
+    // The wallet confirmation displays a bounded gas limit. Do not run a
+    // transaction simulation or dynamic gas estimate during submission.
+    const { latest, pending, price, balance } = await settleReadRound({
       latest: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
       pending: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
-      estimate: () => provider.request({ method: 'eth_estimateGas', params: [unsigned] }),
       price: () => provider.request({ method: 'eth_gasPrice' }),
       balance: () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] }),
     });
-    const nonce = exact(latest), gas = productGasLimit(estimate), gasPrice = exact(price);
-    requireValue(nonce === exact(pending) && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
+    const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(normalized.action.kind, targetType), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
+    requireValue(nonce === rpcQuantity(pending, '钱包待处理 nonce') && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
     requireValue(gas > 0n && gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n
       && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000') && gas * gasPrice <= exact(config.maxTransactionGasWei ?? '10000000000000000'), 'Gas 费用超出页面限制，请稍后重试。');
-    requireValue(exact(balance) >= value + gas * gasPrice, 'BNB 余额不足以支付款项和 Gas。');
+    requireValue(rpcQuantity(balance, '钱包 BNB 余额') >= value + gas * gasPrice, 'BNB 余额不足以支付款项和 Gas。');
     const prepared = { version: 2, chainId: 56, account, factory, target, targetType, nonce: Number(nonce),
       action: normalized.action, data, value: value.toString(), gas: gas.toString(), gasPrice: gasPrice.toString(), submittedAt: new Date().toISOString() };
     emit(onState, { status: 'recording-intent' });
-    const ack = await request(config, 'market', 'PUT', { record: prepared, expectedRevision: revision }, account, fetcher);
-    requireValue(Number.isSafeInteger(ack.revision) && ack.revision === revision + 1, '签名前记录未得到可靠确认，已停止发送。');
-    record = prepared; revision = ack.revision;
-    emit(onState, { status: 'authorizing' });
-    const permit = await request(config, 'market/arm', 'POST', { expectedRevision: revision }, account, fetcher);
-    requireValue(permit.revision === revision + 1 && permit.record
+    let permit, fastAuthorized = false;
+    try {
+      permit = await request(config, 'market/prepare-and-arm', 'POST',
+        { record: prepared, expectedRevision: revision }, account, fetcher);
+      record = prepared;
+      fastAuthorized = true;
+    } catch (error) {
+      // A 404 identifies an older runtime. Every other failure may have persisted
+      // a one-use signing permission, so never retry through the legacy route.
+      if (!(error instanceof JournalError) || error.status !== 404) throw error;
+      const ack = await request(config, 'market', 'PUT', { record: prepared, expectedRevision: revision }, account, fetcher);
+      requireValue(Number.isSafeInteger(ack.revision) && ack.revision === revision + 1, '签名前记录未得到可靠确认，已停止发送。');
+      record = prepared;
+      emit(onState, { status: 'authorizing' });
+      permit = await request(config, 'market/arm', 'POST', { expectedRevision: ack.revision }, account, fetcher);
+    }
+    requireValue(permit.revision === revision + 2 && permit.record
       && ['version','chainId','nonce','data','value','gas','gasPrice','submittedAt','targetType'].every(key => permit.record[key] === prepared[key])
       && same(permit.record.account, account) && same(permit.record.factory, factory) && same(permit.record.target, target)
       && permit.record.action?.kind === normalized.action.kind, '签名许可与确认内容不一致，已停止发送。');
     const expectedTx = { ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' };
     requireValue(permit.transaction && Object.entries(expectedTx).every(([key, value]) => same(permit.transaction[key], value)), '签名许可交易内容不一致，已停止发送。');
     record = permit.record; revision = permit.revision;
-    await requireWallet(provider, account);
-    const [lastNonce, pendingNonce] = await Promise.all(['latest','pending'].map(tag => provider.request({ method: 'eth_getTransactionCount', params: [account, tag] })));
-    requireValue(exact(lastNonce) === nonce && exact(pendingNonce) === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
+    if (fastAuthorized) emit(onState, { status: 'authorizing' });
+    const { wallet: finalWallet, lastNonce, pendingNonce } = await settleReadRound({
+      wallet: () => requireWallet(provider, account),
+      lastNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
+      pendingNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
+    });
+    requireValue(same(finalWallet, account), '签名前钱包账户已变化，请重新连接后确认。');
+    requireValue(rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
     emit(onState, { status: 'awaiting-signature', record, gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
     hash = await provider.request({ method: 'eth_sendTransaction', params: [{ ...unsigned, chainId: '0x38', nonce: toQuantity(nonce), gas: toQuantity(gas), gasPrice: toQuantity(gasPrice), type: '0x0' }] });
     requireValue(typeof hash === 'string' && HASH.test(hash), '钱包未返回有效哈希，发送结果待核对。');

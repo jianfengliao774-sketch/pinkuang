@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ZeroAddress, getAddress } from 'ethers';
+import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { abandonPreparedIntent, cancelLiveIntent, liveConfig, sendLiveGovernanceAction, sendLiveMarketAction, sendLivePoolAction } from '../lib/live-client.mjs';
+import { abandonPreparedIntent, cancelLiveIntent, indexPage, liveConfig, sendLiveGovernanceAction, sendLiveMarketAction, sendLivePoolAction } from '../lib/live-client.mjs';
 
 const addr = number => getAddress(`0x${number.toString(16).padStart(40, '0')}`);
 const factory = addr(1), lens = addr(2), pool = addr(3), account = addr(4), collection = addr(5), market = addr(6);
 const config = { chainId: 56, factory, lens, market, journal: true, artifactDigest: ARTIFACT_DIGEST };
+const saleViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+]);
 const hash = `0x${'a'.repeat(64)}`;
 function row({ totalSupply = 0n } = {}) {
   return { pool, status: { validMask: (1n << 17n) - 1n, errorMask: 0n, trustError: 0n },
@@ -212,9 +215,15 @@ test('governance proposal uses the same durable wallet journal and registered po
     }
     assert.equal(method, 'eth_call');
     if (params[1] === 'latest') { assert.equal(params[0].to, pool); return '0x'; }
-    const tx = params[0], iface = tx.to === factory ? abi.PoolFactory : abi.PoolVault;
+    const tx = params[0];
+    if (tx.to === market) {
+      const sale = saleViews.parseTransaction(tx);
+      if (sale?.name === 'saleReference') return saleViews.encodeFunctionResult('saleReference',
+        [10000n, 999900n, `0x${'ee'.repeat(32)}`]);
+    }
+    const iface = tx.to === factory ? abi.PoolFactory : tx.to === market ? abi.ShareMarket : abi.PoolVault;
     const parsed = iface.parseTransaction(tx);
-    const value = { isPool: true, factory, OFFICIAL_FACTORY: factory, state: 2n,
+    const value = { isPool: true, factory, shareMarket: market, OFFICIAL_FACTORY: factory, state: 2n,
       purchaseCost: 10000n, activatedAt: 1n, activeProposalId: 0n, nextProposalId: 1n,
       lastProposed: 0n, balanceOf: 100n, listedProposalId: 0n, expiresAt: 0n, salePrice: 0n }[parsed.name];
     return iface.encodeFunctionResult(parsed.name, [value]);

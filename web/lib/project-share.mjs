@@ -13,6 +13,13 @@ const STATES = new Set(['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refu
 const COLLECTION_NAMES = new Set(['TapeOut', 'Behemoth']);
 export const validShareBasePath = value => typeof value === 'string' && /^\/bemine(?:-[a-z0-9_-]+)?\/?$/.test(value);
 
+/** Keep generated invitations on the same deployed product version. */
+export function publicShareBaseForPath(basePath = '') {
+  if (basePath === '') return DEFAULT_PUBLIC_SHARE_BASE;
+  if (!validShareBasePath(basePath)) return null;
+  return `https://tapeout.cc.cd${basePath.replace(/\/$/, '')}/`;
+}
+
 function address(value) {
   return typeof value === 'string' && ADDRESS.test(value) && value.toLowerCase() !== ZERO_ADDRESS
     ? value.toLowerCase() : null;

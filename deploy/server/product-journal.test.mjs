@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { Interface, Wallet, getAddress } from 'ethers';
-import { createJournalService, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi,
+import { createJournalService, createProductVerifierProvider, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi,
   PRODUCT_PORTFOLIO_ABI as portfolioAbi,PRODUCT_PORTFOLIO_FACTORY_ABI as portfolioFactoryAbi } from './journal-api.mjs';
 import { JournalStore } from './journal-store.mjs';
 import { parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
@@ -16,6 +16,25 @@ const factory = addr(1), pool = addr(2), market = addr(3), wallet = Wallet.creat
 const origin = 'http://127.0.0.1:4173';
 const graphVerifier = async()=>{};
 const verifyProductIntent=(provider,record,allow)=>verifyWithGraph(provider,record,allow,graphVerifier);
+
+test('signing verifier sends independent graph reads to an RPC that cannot answer batches',async()=>{
+  const seen=[];
+  const server=createServer(async(req,res)=>{
+    const chunks=[];for await(const chunk of req)chunks.push(chunk);
+    const body=JSON.parse(Buffer.concat(chunks).toString());seen.push(body);
+    res.setHeader('Content-Type','application/json');
+    if(Array.isArray(body)){res.end(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32600,message:'batch unavailable'}}));return;}
+    res.end(JSON.stringify({jsonrpc:'2.0',id:body.id,result:body.method==='eth_chainId'?'0x38':'0x'}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const provider=createProductVerifierProvider(`http://127.0.0.1:${server.address().port}`);
+  try{
+    const result=await Promise.all(Array.from({length:24},(_,i)=>provider.send('eth_call',
+      [{to:factory,data:`0x${i.toString(16).padStart(8,'0')}`},'latest'])));
+    assert.equal(result.length,24);assert(result.every(value=>value==='0x'));
+    assert(seen.length>=24);assert(seen.every(body=>!Array.isArray(body)));
+  }finally{provider.destroy();await new Promise(resolve=>server.close(resolve));}
+});
 
 async function firstoIntentProof(options = {}) {
   const source=await signedSource(),order=parseFirstoSignedAsk(source,{collection,tokenId:'7',owner:source.account,now});
@@ -49,6 +68,7 @@ function proof(record = intent()) {
   const state = { mined:false, registered:true, chain:'0x38', final:101, fail:false, nonce:7, txHash:hash(77),
     target:record.target, data:record.data, value:BigInt(record.value), status:1, logs:[],accountCode:'0x',
     balance:10n**18n,gasPrice:1_000_000_000n,estimate:50000n,operator:account,graphFailed:false,graphChecks:0,
+    simulations:0,estimates:0,
     registry:[true,true,0n,0n],reservedPool:addr(0),legacyCount:0n,legacyPaused:true };
   const event = (user = account, shares = 2n, amount = 20n, address = pool) => ({ address,transactionHash:hash(77),blockHash:hash(100),
     ...(record.targetType==='portfolio'?portfolioAbi.encodeEventLog(portfolioAbi.getEvent('Deposited'),[user,shares,amount])
@@ -60,7 +80,7 @@ function proof(record = intent()) {
       if (method === 'eth_chainId') return state.chain;
       assert.equal(method,'eth_call');
       const [tx] = params;
-      if (tx.from) return '0x';
+      if (tx.from) {state.simulations++;return '0x';}
       const parsed = views.parseTransaction(tx);
       if (parsed.name==='buyerFeeBps' && state.buyerFeeMissing) return '0x';
       if (parsed.name==='machineRegistryStatus') return state.registry===null?'0x':views.encodeFunctionResult(parsed.name,state.registry);
@@ -73,7 +93,7 @@ function proof(record = intent()) {
     getCode:async target=> target.toLowerCase()===account ? state.accountCode : '0x6000',
     getBalance:async()=>state.balance,
     getFeeData:async()=>({gasPrice:state.gasPrice}),
-    estimateGas:async()=>state.estimate,
+    estimateGas:async()=>{state.estimates++;return state.estimate;},
     getTransactionCount:async(_target,tag)=> state.mined ? state.nonce+1 : tag==='pending' ? state.pendingNonce??state.nonce : state.nonce,
     getBlock:async tag => tag === 'latest' ? {number:102,hash:hash(102)} : tag === 'finalized' ? {number:state.final,hash:hash(state.final)}
       : {number:Number(tag),hash:hash(Number(tag)),transactions:state.membership===false?[]:[state.txHash]},
@@ -162,6 +182,18 @@ test('new project signing refuses a legacy/incomplete registry and a machine alr
   }
 });
 
+test('genesis product graph rejects the candidate-only budget child selector before reserving a nonce',async()=>{
+  const p=proof(),allow=new Set([factory.toLowerCase()]);
+  const params=[addr(4),1,1000,1000,addr(0),0,2000,3000];
+  const record=intent('createBudgetChildPool',[params,addr(99)],'0','factory');
+  await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({
+    factory,artifactDigest:hash(1),productKind:'pool',
+  })),/verified upgraded Factory/);
+  await assert.rejects(verifyWithGraph(p.provider,record,allow,async()=>({
+    factory,artifactDigest:hash(2),productKind:'pool',securityUpgrade:{operationId:hash(3)},
+  })),/Budget child subscriber is not a registered project/);
+});
+
 test('cutover is checked before journal persistence and again before a creation signing permission',async()=>{
   const params=[addr(4),1,1000,1000,addr(0),0,2000,3000],record=intent('createPool',[params],'0','factory');
   const f=await fixture({record,legacyFactory:addr(10)});
@@ -176,6 +208,41 @@ test('cutover is checked before journal persistence and again before a creation 
     assert.equal(denied.status,409);assert.match(denied.body.error,/尚未停建/);
     f.state.legacyPaused=true;
     const armed=await f.request('market/arm','POST',{expectedRevision:saved.body.revision});assert.equal(armed.status,200);
+  }finally{await f.close();}
+});
+
+test('atomic product authorization verifies once and durably saves one signing permission',async()=>{
+  const f=await fixture();
+  try{
+    const record=intent();
+    f.state.registered=false;
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})).status,409);
+    assert.equal((await f.request('market')).body.record,null);
+    f.state.registered=true;
+    const granted=await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0});
+    assert.equal(granted.status,200);
+    assert.equal(granted.body.revision,2);
+    assert.equal(granted.body.transaction.nonce,'0x7');
+    assert.equal(granted.body.transaction.data,record.data);
+    assert.equal(f.state.simulations,0);
+    assert.equal(f.state.estimates,0);
+    assert.equal(f.state.graphChecks,2,'one rejected and one accepted request each verify only once');
+    const saved=(await f.request('market')).body;
+    assert.equal(saved.revision,2);assert.deepEqual(saved.record,record);
+    assert.equal(saved.canAbandon,false,'a granted signing permission cannot be discarded as an unused preparation');
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})).status,409);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:2})).status,409);
+  }finally{await f.close();}
+});
+
+test('concurrent atomic signing requests cannot authorize two wallet sends',async()=>{
+  const f=await fixture();
+  try{
+    const record=intent();
+    const responses=await Promise.all([f.request('market/prepare-and-arm','POST',{record,expectedRevision:0}),
+      f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})]);
+    assert.deepEqual(responses.map(x=>x.status).sort(),[200,409]);
+    assert.equal((await f.request('market')).body.revision,2);
   }finally{await f.close();}
 });
 
@@ -359,8 +426,8 @@ test('one durable signing permission survives concurrent tabs, stale revisions a
   } finally {await f.close();}
 });
 
-test('signing permission rechecks graph, nonce, Gas estimate/price and balance after persistence',async()=>{
-  for (const change of [{nonce:8},{pendingNonce:8},{estimate:100001n},{gasPrice:1000000001n},{balance:1n},{graphFailed:true}]) {
+test('signing permission rechecks graph, nonce, Gas price and balance after persistence',async()=>{
+  for (const change of [{nonce:8},{pendingNonce:8},{gasPrice:1000000001n},{balance:1n},{graphFailed:true}]) {
     const f=await fixture();
     try {
       assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);

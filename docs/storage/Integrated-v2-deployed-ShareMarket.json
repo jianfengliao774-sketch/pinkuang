@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "contract": "src/ShareMarket.sol:ShareMarket",
+  "provenance": {
+    "kind": "integrated-v2-mainnet-genesis",
+    "commit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "sourceSha256": "68d67534e85de5346a001665d19a95c70a2e38e4de1f75a655e759417d330225",
+    "compiler": "0.8.24",
+    "optimizerRuns": 200,
+    "evmVersion": "shanghai",
+    "originalBuildInfoSha256": "1afbba2aaf96c6c9dd31e8bed94f8bdd39fc3750cdf020e14b85e2e7213a070f",
+    "preparedBuildInfoSha256": "09531580dd2709537bebe2df94bb986caf3f1cd59f9710f274c17a9ab885c3d1",
+    "deployedArtifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "deployedImplementation": "0xd267a316DB511341c186792Ccb3bE956cdd9559A",
+    "verifiedCodehash": "0x358eaf0b82facb8475375687de1ae017de816e297eda8f9708ee3179948099e5"
+  },
+  "layout": {
+    "solcVersion": "0.8.24",
+    "storage": [],
+    "types": {
+      "t_address": {
+        "label": "address"
+      },
+      "t_uint256": {
+        "label": "uint256"
+      },
+      "t_mapping(t_uint256,t_struct(Order)85376_storage)": {
+        "label": "mapping(uint256 => struct IShareMarket.Order)"
+      },
+      "t_struct(Order)85376_storage": {
+        "label": "struct IShareMarket.Order",
+        "members": [
+          {
+            "label": "seller",
+            "type": "t_address"
+          },
+          {
+            "label": "pool",
+            "type": "t_address"
+          },
+          {
+            "label": "remaining",
+            "type": "t_uint256"
+          },
+          {
+            "label": "pricePerUnit",
+            "type": "t_uint256"
+          },
+          {
+            "label": "active",
+            "type": "t_bool"
+          }
+        ]
+      },
+      "t_bool": {
+        "label": "bool"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "label": "mapping(address => uint256)"
+      },
+      "t_mapping(t_uint256,t_uint64)": {
+        "label": "mapping(uint256 => uint64)"
+      },
+      "t_uint64": {
+        "label": "uint64"
+      }
+    },
+    "namespaces": {
+      "erc7201:tapeout.storage.ShareMarket": [
+        {
+          "contract": "ShareMarket",
+          "label": "factory",
+          "type": "t_address",
+          "src": "src/ShareMarket.sol:23"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "timelock",
+          "type": "t_address",
+          "src": "src/ShareMarket.sol:24"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "nextOrderId",
+          "type": "t_uint256",
+          "src": "src/ShareMarket.sol:25"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "orders",
+          "type": "t_mapping(t_uint256,t_struct(Order)85376_storage)",
+          "src": "src/ShareMarket.sol:26"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "bnbOwed",
+          "type": "t_mapping(t_address,t_uint256)",
+          "src": "src/ShareMarket.sol:27"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "totalBnbOwed",
+          "type": "t_uint256",
+          "src": "src/ShareMarket.sol:28"
+        },
+        {
+          "contract": "ShareMarket",
+          "label": "orderExpiries",
+          "type": "t_mapping(t_uint256,t_uint64)",
+          "src": "src/ShareMarket.sol:30"
+        }
+      ],
+      "erc7201:openzeppelin.storage.ReentrancyGuard": [
+        {
+          "contract": "ReentrancyGuardUpgradeable",
+          "label": "_status",
+          "type": "t_uint256",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol:40"
+        }
+      ],
+      "erc7201:openzeppelin.storage.Initializable": [
+        {
+          "contract": "Initializable",
+          "label": "_initialized",
+          "type": "t_uint64",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:69"
+        },
+        {
+          "contract": "Initializable",
+          "label": "_initializing",
+          "type": "t_bool",
+          "src": "../node_modules/@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:73"
+        }
+      ]
+    }
+  }
+}

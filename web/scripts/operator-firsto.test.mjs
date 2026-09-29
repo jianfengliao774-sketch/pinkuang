@@ -71,7 +71,7 @@ test('registry transport failure cannot be mistaken for an old compatible deploy
   await assert.rejects(readMachineRegistry({ request: async () => { throw failure; } }, { factory: (await operatorFirstoFixture()).config.factory }), error => error === failure);
 });
 
-test('manual official listing blocks optimal and unverified miners before wallet simulation', async () => {
+test('manual official listing blocks optimal and unverified miners without wallet simulation', async () => {
   const bad = [
     [{ optimal: true }, /最优矿机/],
     [{ verifWeight: 0n }, /验证权重为零/],
@@ -87,7 +87,7 @@ test('manual official listing blocks optimal and unverified miners before wallet
   const preview = await prepareAdminAction({ provider: eligible.provider, config: eligible.config,
     account: eligible.account, kind: 'buyFromMarket', pool: eligible.pool, listingId: '45' });
   assert.equal(abi.PoolVault.parseTransaction(preview.transaction).name, 'buyFromMarket');
-  assert.equal(eligible.simulations.length, 1);
+  assert.equal(eligible.simulations.length, 0);
 });
 
 test('missing or unfinished registry rejects every new creation path, even with an official quote or manual parameters', async () => {
@@ -118,7 +118,7 @@ test('pool automatically discovers original Firsto order; preview freezes bytes 
   assert.deepEqual(confirmed.transaction, preview.transaction); assert.equal(f.api.requests.length, requests);
   f.state.cancelled = true;
   await assert.rejects(prepareAdminAction({ provider: f.provider, config: f.config, account: f.account, ...preview.request }), /撤销/);
-  assert.equal(f.api.requests.length, requests); assert.equal(f.simulations.length, 2);
+  assert.equal(f.api.requests.length, requests); assert.equal(f.simulations.length, 0);
 });
 
 test('automatic purchase takes the official listing first without reading Firsto, even when Firsto is unavailable', async t => {
@@ -130,7 +130,7 @@ test('automatic purchase takes the official listing first without reading Firsto
   assert.equal(parsed.name, 'buyFromMarket'); assert.equal(parsed.args[0], 45n);
   assert.equal(preview.kind, 'buyFromMarket'); assert.equal(preview.official.priceWei, '4000000000000000');
   assert.equal(preview.official.verifiedWeight, '61');
-  assert.equal(f.api.requests.length, 0); assert.equal(f.simulations.length, 2);
+  assert.equal(f.api.requests.length, 0); assert.equal(f.simulations.length, 0);
   const unchanged = await prepareAdminAction({ provider: f.provider, config: f.config, account: f.account, ...preview.request });
   assert.equal(sameAdminPurchasePreview(preview, unchanged), true);
   f.officialMarket.listing.price = 4500000000000000n;
@@ -151,7 +151,7 @@ test('automatic purchase checks the official price cap before falling back to a 
   const preview = await prepareAdminAction({ provider: f.provider, config: f.config, account: f.account,
     kind: 'autoPurchase', pool: f.pool });
   assert.equal(preview.kind, 'buyFromFirsto'); assert(preview.firsto);
-  assert(f.api.requests.length > 0); assert.equal(f.simulations.length, 1);
+  assert(f.api.requests.length > 0); assert.equal(f.simulations.length, 0);
   assert.equal(abi.PoolVault.parseTransaction(preview.transaction).name, 'buyFromFirsto');
 });
 
@@ -200,9 +200,7 @@ test('an original official miner below the locked minimum weight yields to a qua
   assert.equal(preview.kind, 'buyAlternativeFromMarket');
   assert.equal(preview.official.tokenId, '8');
   assert.equal(preview.official.verifiedWeight, '80');
-  assert(f.simulations.length > 0 && f.simulations.every(call =>
-    abi.PoolVault.parseTransaction(call.params[0]).name === 'buyAlternativeFromMarket'),
-  'the ineligible original must not be simulated as a purchase');
+  assert.equal(f.simulations.length, 0, 'preview must not simulate either purchase route');
 });
 
 test('a stale original seller hint cannot suppress another executable official miner', async t => {
@@ -218,17 +216,20 @@ test('a stale original seller hint cannot suppress another executable official m
   assert.equal(preview.kind, 'buyAlternativeFromMarket'); assert.equal(preview.official.tokenId, '8');
 });
 
-test('a reverting official purchase is uncertain and never licenses a Firsto fallback', async t => {
+test('an on-chain execution failure cannot be inferred from read-only quotes or license a Firsto fallback', async t => {
   const f = await operatorFirstoFixture({ flexible: true, alternativeExecutable: false,
     alternativeListing: { valid: true, price: 4000000000000000n } });
   f.state.registryPool = f.pool;
   t.mock.method(globalThis, 'fetch', marketFetcher(f, officialCandidates(f, { candidates: [alternative(f)] }), { firsto: false }));
-  await assert.rejects(prepareAdminAction({ provider: f.provider, config: f.config, account: f.account,
-    kind: 'autoPurchase', pool: f.pool }), /官网候选购机模拟未通过/);
+  const alternativePreview = await prepareAdminAction({ provider: f.provider, config: f.config, account: f.account,
+    kind: 'autoPurchase', pool: f.pool });
+  assert.equal(alternativePreview.kind, 'buyAlternativeFromMarket');
   const original = await operatorFirstoFixture({ officialListing: true, originalExecutable: false });
   original.state.registryPool = original.pool;
-  await assert.rejects(prepareAdminAction({ provider: original.provider, config: original.config,
-    account: original.account, kind: 'autoPurchase', pool: original.pool }), /官网原目标挂单仍符合/);
+  const originalPreview = await prepareAdminAction({ provider: original.provider, config: original.config,
+    account: original.account, kind: 'autoPurchase', pool: original.pool });
+  assert.equal(originalPreview.kind, 'buyFromMarket');
+  assert.equal(f.simulations.length, 0); assert.equal(original.simulations.length, 0);
   assert.equal(f.api.requests.length, 0);
 });
 
@@ -261,7 +262,7 @@ test('complete empty official scan permits Firsto, while failed/incomplete scans
   assert.equal(f.api.requests.length, apiCount);
 });
 
-test('fee-inclusive cap, target identity and pool registration are checked before Firsto simulation', async t => {
+test('fee-inclusive cap, target identity and pool registration are checked without Firsto simulation', async t => {
   const f = await operatorFirstoFixture(); f.state.registryPool = f.pool;
   t.mock.method(globalThis, 'fetch', f.api.fetcher);
   const input = { provider: f.provider, config: f.config, account: f.account, kind: 'buyFromFirsto', pool: f.pool };
@@ -273,5 +274,5 @@ test('fee-inclusive cap, target identity and pool registration are checked befor
   await assert.rejects(prepareAdminAction({ ...input, ...preview.request }), /不是矿池原目标/);
   f.rows[0].params.circuitId = 7n; f.state.registryPool = ZeroAddress;
   await assert.rejects(prepareAdminAction({ ...input, ...preview.request }), /登记不属于/);
-  assert.equal(f.simulations.length, 1);
+  assert.equal(f.simulations.length, 0);
 });

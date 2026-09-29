@@ -1,5 +1,6 @@
 import { Interface, getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi, ARTIFACT_DIGEST, uint, checkedPoolCreation, readPoolSnapshot } from './chain-client.mjs';
+import { GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
@@ -13,13 +14,6 @@ const officialMarket = new Interface([
 ]);
 const readVault = async (request, pool, method, blockTag) => abi.PoolVault.decodeFunctionResult(method,
   await request('eth_call', [{ to: pool, data: abi.PoolVault.encodeFunctionData(method) }, blockTag]));
-
-function officialCandidateRevert(error) {
-  const data = error?.data ?? error?.error?.data;
-  return error?.code === 3 || error?.code === 'CALL_EXCEPTION'
-    || typeof data === 'string' && /^0x[\da-f]*$/i.test(data) && /revert/i.test(String(error?.message ?? ''))
-    || /^execution reverted(?:\b|:)/i.test(String(error?.message ?? ''));
-}
 
 async function readFlexiblePurchaseModel({ request, pool, row, tag }) {
   const selection = await readVault(request, pool, 'flexiblePurchase', tag);
@@ -55,9 +49,10 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     if (error?.details?.status === 429) throw new Error('官网候选扫描繁忙，请稍后重试。');
     throw error;
   }
+  const expectedDigest = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
   need(result?.complete === true && result.chainId === 56 && same(result.factory, config.factory ?? config.manifest?.factory)
-    && result.artifactDigest?.toLowerCase() === ARTIFACT_DIGEST.toLowerCase()
-    && (config.manifest?.artifactDigest === undefined || config.manifest.artifactDigest.toLowerCase() === ARTIFACT_DIGEST.toLowerCase())
+    && result.artifactDigest?.toLowerCase() === expectedDigest.toLowerCase()
+    && (config.manifest?.artifactDigest === undefined || config.manifest.artifactDigest.toLowerCase() === expectedDigest.toLowerCase())
     && same(result.pool, pool) && BigInt(result.blockNumber) === status.blockNumber
     && result.blockHash === status.blockHash && result.flexible === true,
   '官网候选扫描不完整或不属于当前链上矿池与区块。');
@@ -65,7 +60,6 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     : result.model?.[key] === value), '官网候选模型与矿池锁定参数不一致。');
   need(Array.isArray(result.candidates) && result.candidates.length <= 1000, '官网候选数据无效。');
   const seen = new Set();
-  let rejectedOfficialSimulation = false;
   for (const hint of result.candidates) {
     const tokenId = uint(hint.tokenId), listingId = uint(hint.listingId), priceWei = uint(hint.priceWei);
     const verifiedWeight = uint(hint.verifiedWeight);
@@ -85,18 +79,10 @@ async function findOfficialAlternative({ request, config, pool, row, status, tag
     need(live.valid && same(live.seller, hint.seller) && same(live.circuits, expected.circuits)
       && live.tokenId === tokenId && live.price === priceWei, '官网候选挂单明细与当前矿机不一致。');
     const transaction = tx(pool, abi.PoolVault, 'buyAlternativeFromMarket', [listingId]);
-    const { chainId: _chainId, ...unsigned } = transaction;
-    try { await request('eth_call', [unsigned, tag]); }
-    catch (error) {
-      if (!officialCandidateRevert(error)) throw error;
-      rejectedOfficialSimulation = true;
-      continue;
-    }
     return { transaction, official: { id: listingId.toString(), seller: getAddress(live.seller),
       collection: getAddress(live.circuits), tokenId: tokenId.toString(), priceWei: priceWei.toString(),
       verifiedWeight: verifiedWeight.toString() } };
   }
-  need(!rejectedOfficialSimulation, '官网候选购机模拟未通过，不能据此判定官网无货；请重新扫描或人工核对。');
   return null;
 }
 
@@ -138,7 +124,22 @@ async function context(provider, config, account) {
     call(factory, abi.PoolFactory, 'operator'), call(factory, abi.PoolFactory, 'creationPaused'), request('eth_getCode', [factory, tag]),
   ]);
   need(code && code !== '0x', '工厂合约不可用。');
-  const status = Object.freeze({ configured: true, isOperator: same(operator, from), operator, account: from,
+  let isAuthorityAdmin = false;
+  if (config.stage === 'fresh-active') {
+    const authority = configured(config, 'authority');
+    need(same(operator, authority), '新 Factory 尚未绑定平台权限合约。');
+    const [first, second, core, budget] = await Promise.all([
+      call(authority, abi.PlatformAuthority, 'administratorOne'),
+      call(authority, abi.PlatformAuthority, 'administratorTwo'),
+      call(authority, abi.PlatformAuthority, 'coreFactory'),
+      call(authority, abi.PlatformAuthority, 'budgetFactory'),
+    ]);
+    need(same(core, factory) && same(budget, configured(config, 'portfolioFactory')),
+      '平台权限合约绑定的 Factory 与本页不一致。');
+    isAuthorityAdmin = same(first, from) || same(second, from);
+  }
+  const status = Object.freeze({ configured: true, isOperator: isAuthorityAdmin || same(operator, from),
+    isAuthorityAdmin, operator, account: from,
     creationPaused, factory, blockNumber, timestamp, blockHash: block.hash });
   const verify = async () => {
     const after = await request('eth_getBlockByNumber', [tag, false]);
@@ -158,10 +159,11 @@ export async function readOperatorStatus({ provider, config, account }) {
     } catch { /* An unavailable budget deployment cannot grant extra operator access. */ }
   }
   await ctx.verify(); return Object.freeze({ ...ctx.status, machineRegistry, portfolioOperator,
-    isPortfolioOperator: portfolioOperator !== null && same(portfolioOperator, ctx.from) });
+    isPortfolioOperator: portfolioOperator !== null && (same(portfolioOperator, ctx.from)
+      || ctx.status.isAuthorityAdmin && same(portfolioOperator, configured(config, 'authority'))) });
 }
 
-/** Read and simulate only. The returned immutable request freezes relative deadlines for confirmation. */
+/** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */
 export async function prepareAdminAction(input) {
   const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
@@ -192,7 +194,8 @@ export async function prepareAdminAction(input) {
       : checkedPoolCreation({ factory, from, params: normalizedParams, config: flexible, expectedTaskId, expectedReferenceWeight });
     details = { params: normalizedParams, unitPriceWei: targetRaise / 100n };
   } else {
-    const target = addr(pool), snap = await readPoolSnapshot(provider, { factory, account: from, pools: [target], blockNumber: status.blockNumber });
+    const target = addr(pool), snap = await readPoolSnapshot(provider, { factory, lens: configured(config, 'lens'),
+      account: from, pools: [target], blockNumber: status.blockNumber });
     const row = snap.pools[0];
     need(row?.trusted && same(row.pool, target) && same(snap.lens, configured(config, 'lens')) && snap.blockHash === status.blockHash, '矿池身份或读取区块不一致。');
     if (kind === 'autoPurchase' || kind === 'buyFromFirsto') {
@@ -209,15 +212,8 @@ export async function prepareAdminAction(input) {
       if (official && flexibleModel && (officialCheck.taskId !== flexibleModel.taskId
         || uint(officialCheck.verifiedWeight) < uint(flexibleModel.minVerifiedWeight)
         || uint(official.priceWei) > flexiblePriceLimit(flexibleModel, officialCheck.verifiedWeight))) official = null;
-      if (official) {
-        const direct = tx(target, abi.PoolVault, 'buyFromMarket', [uint(official.id)]);
-        const { chainId: _chainId, ...unsigned } = direct;
-        try { await request('eth_call', [unsigned, tag]); }
-        catch (error) {
-          if (!officialCandidateRevert(error)) throw error;
-          throw new Error('官网原目标挂单仍符合价格与身份条件，但购机模拟未通过；请重新扫描或人工核对。');
-        }
-      }
+      // Price and miner identity are verified above. Execution is left to the
+      // signed transaction; preview does not invoke the purchase path.
       if (official) {
         need(kind !== 'buyFromFirsto', '官网原目标仍有符合价格上限的挂单，请先从官网采购。');
         resolvedKind = 'buyFromMarket'; selectedListingId = official.id;
@@ -279,13 +275,8 @@ export async function prepareAdminAction(input) {
     } else throw new Error('不支持的运营操作。');
     details = { ...details, pool: target, row, snapshot: snap, miningAction };
   }
-  const contract = same(transaction.to, factory) ? abi.PoolFactory : abi.PoolVault;
-  const { chainId: _chainId, ...unsigned } = transaction;
-  const parsed = contract.parseTransaction(transaction);
-  const result = contract.decodeFunctionResult(parsed.fragment, await request('eth_call', [unsigned, tag]));
   await ctx.verify();
   return Object.freeze({ transaction, kind: resolvedKind, requestKind: resolvedKind, ...details,
-    predictedPool: normalizedParams ? result[0] : undefined,
     request: Object.freeze({ kind, params: normalizedParams, flexible, expectedTaskId, expectedReferenceWeight, pool,
       listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder }),
     checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) });

@@ -18,7 +18,7 @@ async function open({ isOperator = false, deferred = false } = {}) {
   page.setDefaultTimeout(15000); page.on('pageerror', error => errors.push(error.message));
   const fixture = await installLiveFixture(page, { isOperator }); fixtures.push(fixture);
   await page.goto(`${base.replace(/\/$/, '')}/#operator`);
-  await page.locator('[data-operator-access="disconnected"]').waitFor();
+  await page.waitForURL(/#home$/);
   await page.evaluate(({ selector, account, deferred }) => {
     const original = window.ethereum.request.bind(window.ethereum);
     window.__operatorMode = deferred ? 'defer' : 'normal';
@@ -54,14 +54,16 @@ async function connect(page) {
   await page.locator('header').getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
   await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.evaluate(() => { location.hash = 'operator'; });
 }
 async function hidden(page, state) {
-  await page.locator(`[data-operator-access="${state}"]`).waitFor();
+  if (['disconnected', 'denied'].includes(state)) await page.waitForURL(/#home$/);
+  else await page.locator(`[data-operator-access="${state}"]`).waitFor();
   assert.equal(await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).count(), 0);
   assert.equal(await page.locator('.live-operator, .operator-identity, .operator-grid, .operator-import, .operator-confirm').count(), 0);
   assert.equal(await page.locator('.deployment-console-link').count(), 0);
   assert.equal(await page.getByRole('button', { name: '创建首个项目', exact: true }).count(), 0);
-  const text = await page.locator('[data-operator-access]').innerText();
+  const text = await page.locator('main').innerText();
   assert(!text.includes(FIXTURE_CONTRACTS.factory) && !text.includes(FIXTURE_OTHER_ACCOUNT) && !text.includes('Factory'));
 }
 async function verified(page) {
@@ -73,11 +75,14 @@ async function verified(page) {
 try {
   const guest = await open();
   await hidden(guest.page, 'disconnected');
+  assert.equal(await guest.page.getByText('此页面仅限授权运营人员', { exact: true }).count(), 0);
   assert.equal(guest.fixture.walletRequests.filter(row => row.method === 'eth_requestAccounts').length, 0);
   await guest.page.screenshot({ path: join(output, 'operator-disconnected.png'), animations: 'disabled' });
-  checks.push('unconnected direct #operator route has no menu, form, deployment link or operator/factory disclosure');
+  checks.push('unconnected direct #operator route returns home without a false access-denied message');
   await connect(guest.page); await hidden(guest.page, 'denied');
-  checks.push('a connected non-operator has the same restricted UI after verified on-chain lookup');
+  assert.equal(await guest.page.getByText('此页面仅限授权运营人员', { exact: true }).count(), 0);
+  assert.equal(await guest.page.locator('.live-operator').count(), 0);
+  checks.push('a connected non-operator is returned to the home page after on-chain permission lookup');
   await guest.page.close();
 
   const owner = await open({ isOperator: true, deferred: true });

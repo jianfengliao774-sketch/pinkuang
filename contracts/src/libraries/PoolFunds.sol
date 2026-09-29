@@ -98,9 +98,16 @@ library PoolFunds {
 
     function materializePurchase(PoolVaultState.VaultStorage storage s, address member, uint256 shares) external {
         if (!_hasPurchase(s.state) || s.surplusSettled[member]) return;
-        uint256 amount = _pending(s, member, shares);
-        s.surplusSettled[member] = true;
+        uint256 amount = shares * s.surplusPerShareWei;
         s.surplusOutstandingWei -= amount;
+        // A budget project is the sole holder of all 100 child shares. Its exact
+        // purchase surplus belongs to that same holder, including the <100 wei
+        // division tail. The old per-share path remains unchanged for split pools.
+        if (shares == TOTAL_SHARES) {
+            amount += s.surplusRemainder;
+            s.surplusRemainder = 0;
+        }
+        s.surplusSettled[member] = true;
         _credit(s, member, amount);
         emit PurchaseSurplusSettled(member, shares, amount);
     }
@@ -127,7 +134,9 @@ library PoolFunds {
         returns (uint256)
     {
         if (!_hasPurchase(s.state) || s.surplusSettled[member]) return 0;
-        return shares * s.surplusPerShareWei;
+        uint256 amount = shares * s.surplusPerShareWei;
+        if (shares == TOTAL_SHARES) amount += s.surplusRemainder;
+        return amount;
     }
 
     function _hasPurchase(IPoolVault.State state) private pure returns (bool) {

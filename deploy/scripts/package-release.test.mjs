@@ -13,6 +13,7 @@ function fixture() {
   const write = (name, body) => { const path = join(deployDir, name); mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, body); };
   const bundle = JSON.stringify({ sourceCommit: sourceHead, artifacts: { FirstoSale: {}, AtomicDeployment: {}, BudgetPortfolioFactory: {}, BudgetPortfolioVault: {} } });
   write('public/deployment-artifacts.json', bundle); write('dist/deployment-artifacts.json', bundle);
+  write('public/upgrade-genesis/genesis-artifacts.json', JSON.stringify({sourceCommit:'b'.repeat(40),artifacts:{genesis:true}}));
   const digest = servedArtifactDigest(join(deployDir, 'public/deployment-artifacts.json'));
   write('dist/assets/app.js', `const digest=${JSON.stringify(digest)};`); write('dist/index.html', '<script src="./assets/app.js"></script>');
   write('server/index.mjs', "import '../scripts/official-market-discovery.mjs';\nimport '../src/firsto-purchase.mjs';\nexport const ready=true;\n");
@@ -34,6 +35,7 @@ test('release directory includes runtime discovery and index artifact, with veri
   assert.deepEqual(manifest.runtimeSources, ['src/firsto-purchase.mjs']);
   assert(!existsSync(join(f.outDir, 'scripts/purchase-keeper.mjs')));
   assert(existsSync(join(f.outDir, 'public/deployment-artifacts.json')));
+  assert(existsSync(join(f.outDir, 'public/upgrade-genesis/genesis-artifacts.json')));
   for (const [name, info] of Object.entries(manifest.files)) {
     const bytes = readFileSync(join(f.outDir, name));
     assert.equal(info.bytes, bytes.length); assert.equal(info.sha256, createHash('sha256').update(bytes).digest('hex'));
@@ -56,6 +58,12 @@ test('packager refuses missing runtime imports, changed artifact and stale compi
     ['dist/deployment-artifacts.json', '{}', /match public artifact/],
     ['dist/assets/app.js', 'const oldBuild=true;', /current artifact digest/],
   ]) { const f=fixture(); f.write(name, body); assert.throws(() => packageRelease(f), expected); assert(!existsSync(f.outDir)); }
+});
+
+test('packager refuses a missing or overwritten independently preserved genesis bundle', () => {
+  const f=fixture(); f.write('public/upgrade-genesis/genesis-artifacts.json',readFileSync(join(f.deployDir,'public/deployment-artifacts.json')));
+  assert.throws(() => packageRelease(f), /genesis bundle must be preserved separately/);
+  assert(!existsSync(f.outDir));
 });
 
 test('packager requires a new absolute output outside the source checkout', () => {

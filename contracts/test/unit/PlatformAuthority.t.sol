@@ -10,6 +10,7 @@ contract AuthorityFactoryMock {
     address public shareMarket;
     mapping(address => bool) public isPool;
     address public operator;
+    address public lastSubscriber;
 
     constructor(address timelock_) {
         timelock = timelock_;
@@ -30,6 +31,17 @@ contract AuthorityFactoryMock {
     function createPool(IPoolVault.PoolParams calldata) external view returns (address) {
         require(msg.sender == operator, "operator");
         return address(0x1234);
+    }
+
+    function createBudgetChildPool(IPoolVault.PoolParams calldata, address subscriber) external returns (address) {
+        require(msg.sender == operator, "operator");
+        lastSubscriber = subscriber;
+        return address(0x5678);
+    }
+
+    function createPortfolio(uint256, uint256, uint256, uint64, uint64) external view returns (address) {
+        require(msg.sender == operator, "operator");
+        return address(0x9ABC);
     }
 }
 
@@ -77,6 +89,11 @@ contract AuthorityPoolMock {
     uint256 public reviewedProposal;
     bool public reviewedApproval;
     mapping(address => uint256) public bnbOwed;
+    uint256 public spentWei;
+    uint256 public nextCost;
+    address public purchasedChild;
+    uint256 public purchasedListing;
+    bytes32 public purchasedOrderHash;
 
     constructor(address treasury_) {
         treasury = treasury_;
@@ -90,6 +107,29 @@ contract AuthorityPoolMock {
         require(msg.sender == operator, "operator");
         reviewedProposal = proposalId;
         reviewedApproval = approved;
+    }
+
+    function setNextCost(uint256 cost) external {
+        nextCost = cost;
+    }
+
+    function buyOfficial(address child, uint256 listingId) external {
+        require(msg.sender == operator, "operator");
+        spentWei += nextCost;
+        purchasedChild = child;
+        purchasedListing = listingId;
+    }
+
+    function buyFirsto(address child, bytes calldata encodedOrder) external {
+        require(msg.sender == operator, "operator");
+        spentWei += nextCost;
+        purchasedChild = child;
+        purchasedOrderHash = keccak256(encodedOrder);
+    }
+
+    function mine(bytes calldata data) external view returns (bytes memory) {
+        require(msg.sender == operator, "operator");
+        return data;
     }
 
     function fundFee(address beneficiary) external payable {
@@ -145,6 +185,7 @@ contract PlatformAuthorityTest is Test {
         core.setPool(address(pool));
         budget.setPool(address(pool));
         core.setOperator(address(authority));
+        budget.setOperator(address(authority));
         market.setOperator(address(authority));
         pool.setOperator(address(authority));
         AuthorityBemMock token = new AuthorityBemMock();
@@ -202,11 +243,12 @@ contract PlatformAuthorityTest is Test {
             1,
             block.timestamp + 1 hours
         );
+        // A signing administrator may submit directly if the Gas wallet withholds the action.
         vm.prank(first);
-        vm.expectRevert(PlatformAuthority.Unauthorized.selector);
         authority.reviewSale(
             address(market), address(pool), 8, 9 ether, true, 1, block.timestamp + 1 hours, nextProposal
         );
+        assertEq(market.reviewedProposal(), 8);
 
         bytes32 childParams = keccak256(abi.encode(uint256(4), false));
         bytes memory secondSig =
@@ -345,15 +387,147 @@ contract PlatformAuthorityTest is Test {
         IPoolVault.PoolParams memory params;
         bytes memory callData = abi.encodeWithSelector(AuthorityFactoryMock.createPool.selector, params);
         vm.prank(RELAYER);
-        bytes memory result = authority.executeOperation(address(core), callData);
-        assertEq(abi.decode(result, (address)), address(0x1234));
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeOperation(address(core), callData);
+        bytes memory childData =
+            abi.encodeWithSelector(AuthorityFactoryMock.createBudgetChildPool.selector, params, address(pool));
         vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidAction.selector);
-        authority.executeOperation(
-            address(core), abi.encodeWithSelector(AuthorityFactoryMock.setOperator.selector, RELAYER)
+        authority.executeOperation(address(core), childData);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature =
+            _sign(FIRST_KEY, authority.APPROVED_OPERATION(), address(core), keccak256(callData), 0, deadline);
+        vm.prank(RELAYER);
+        bytes memory result = authority.executeApprovedOperation(address(core), callData, 0, deadline, signature);
+        assertEq(abi.decode(result, (address)), address(0x1234));
+        bytes memory childSig =
+            _sign(SECOND_KEY, authority.APPROVED_OPERATION(), address(core), keccak256(childData), 0, deadline);
+        vm.prank(RELAYER);
+        assertEq(
+            abi.decode(authority.executeApprovedOperation(address(core), childData, 0, deadline, childSig), (address)),
+            address(0x5678)
+        );
+        assertEq(core.lastSubscriber(), address(pool));
+        bytes memory portfolioData = abi.encodeWithSelector(
+            AuthorityFactoryMock.createPortfolio.selector,
+            100 ether,
+            10 ether,
+            1 ether,
+            uint64(block.timestamp + 1 days),
+            uint64(block.timestamp + 2 days)
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeOperation(address(budget), portfolioData);
+        bytes memory portfolioSig =
+            _sign(FIRST_KEY, authority.APPROVED_OPERATION(), address(budget), keccak256(portfolioData), 1, deadline);
+        vm.prank(RELAYER);
+        assertEq(
+            abi.decode(
+                authority.executeApprovedOperation(address(budget), portfolioData, 1, deadline, portfolioSig), (address)
+            ),
+            address(0x9ABC)
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), callData, 0, deadline, signature);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeApprovedOperation(
+            address(core),
+            abi.encodeWithSelector(AuthorityFactoryMock.setOperator.selector, RELAYER),
+            0,
+            deadline,
+            signature
         );
         vm.prank(first);
         vm.expectRevert(PlatformAuthority.Unauthorized.selector);
         authority.executeOperation(address(core), callData);
+        bytes memory mineData = abi.encodeWithSelector(AuthorityPoolMock.mine.selector, hex"1234");
+        vm.prank(RELAYER);
+        assertEq(abi.decode(authority.executeOperation(address(pool), mineData), (bytes)), hex"1234");
+    }
+
+    function testBudgetPurchasesRequireExactSingleAdminSignatureAndCostCeiling() public {
+        address child = address(0xCAFE);
+        uint256 deadline = block.timestamp + 1 hours;
+        pool.setNextCost(3 ether);
+        bytes memory officialSig = _sign(
+            FIRST_KEY,
+            authority.BUY_BUDGET_OFFICIAL(),
+            address(pool),
+            keccak256(abi.encode(child, uint256(17), uint256(3 ether))),
+            0,
+            deadline
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeOperation(
+            address(pool), abi.encodeWithSelector(AuthorityPoolMock.buyOfficial.selector, child, uint256(17))
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.buyBudgetOfficial(address(pool), child, 18, 3 ether, 0, deadline, officialSig);
+        pool.setNextCost(4 ether);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.OverMaxCost.selector);
+        authority.buyBudgetOfficial(address(pool), child, 17, 3 ether, 0, deadline, officialSig);
+        assertEq(pool.spentWei(), 0, "over-ceiling official purchase must roll back");
+        pool.setNextCost(3 ether);
+        vm.prank(RELAYER);
+        assertEq(authority.buyBudgetOfficial(address(pool), child, 17, 3 ether, 0, deadline, officialSig), 3 ether);
+        assertEq(pool.purchasedChild(), child);
+        assertEq(pool.purchasedListing(), 17);
+        assertEq(authority.nonces(first), 1);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.buyBudgetOfficial(address(pool), child, 17, 3 ether, 0, deadline, officialSig);
+
+        bytes memory order = hex"1234abcd";
+        bytes memory expensiveSig = _sign(
+            SECOND_KEY,
+            authority.BUY_BUDGET_FIRSTO(),
+            address(pool),
+            keccak256(abi.encode(child, keccak256(order), uint256(2 ether))),
+            0,
+            deadline
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.buyBudgetFirsto(address(pool), child, hex"1234abce", 2 ether, 0, deadline, expensiveSig);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.OverMaxCost.selector);
+        authority.buyBudgetFirsto(address(pool), child, order, 2 ether, 0, deadline, expensiveSig);
+        assertEq(authority.nonces(second), 0, "failed cost ceiling must not consume signature");
+        assertEq(pool.spentWei(), 3 ether, "failed purchase must roll back project spending");
+        pool.setNextCost(2 ether);
+        vm.prank(RELAYER);
+        assertEq(authority.buyBudgetFirsto(address(pool), child, order, 2 ether, 0, deadline, expensiveSig), 2 ether);
+        assertEq(pool.purchasedOrderHash(), keccak256(order));
+    }
+
+    function testAdministratorCanInvalidateOwnNonceAndSubmitWithoutRelayer() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        IPoolVault.PoolParams memory params;
+        bytes memory data = abi.encodeWithSelector(AuthorityFactoryMock.createPool.selector, params);
+        bytes memory expiredByNonce =
+            _sign(FIRST_KEY, authority.APPROVED_OPERATION(), address(core), keccak256(data), 0, deadline);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.Unauthorized.selector);
+        authority.invalidateNonce(1);
+        vm.prank(first);
+        authority.invalidateNonce(1);
+        assertEq(authority.nonces(first), 1);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, expiredByNonce);
+        bytes memory current =
+            _sign(FIRST_KEY, authority.APPROVED_OPERATION(), address(core), keccak256(data), 1, deadline);
+        vm.prank(first);
+        assertEq(
+            abi.decode(authority.executeApprovedOperation(address(core), data, 1, deadline, current), (address)),
+            address(0x1234)
+        );
+        assertEq(authority.nonces(first), 2);
     }
 }

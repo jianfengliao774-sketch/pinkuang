@@ -62,6 +62,8 @@ test('RPC rejects writes, URL override, malformed or oversized input before any 
 test('index allows only known GET endpoints and bounded unique query parameters', async t => {
   const f = await fixture(t);
   for (const path of ['/health', '/v1/stats', '/v1/pools?cursor=0&limit=20', `/v1/accounts/${address}/pools`,
+    '/v1/snapshot/pools?cursor=0&limit=20', '/v1/snapshot/portfolios?limit=20', '/v1/snapshot/stats',
+    `/v1/snapshot/orders?active=true&seller=${address}&limit=20`,
     `/v1/orders?pool=${address}&seller=${address}&active=true&cursor=8`, `/v1/activity?cursor=10:2:1&account=${address}`,
     `/v1/yield?pool=${address}&days=30`]) assert.equal((await f.get(`/api/chain-index${path}`)).status, 200);
   assert(f.calls.every(call => call.url.startsWith('http://127.0.0.1:4180/') && call.init.method === 'GET'));
@@ -83,6 +85,52 @@ test('proxy preserves incomplete index 503 and refuses redirected/HTML/mismatche
     () => json({ jsonrpc: '2.0', id: 9, result: '0x38' }), () => json({ jsonrpc: '2.0', id: 1, result: '0x38', error: {} })]) {
     const f = await fixture(t, { upstream }); assert.equal((await f.post(rpc())).status, 502);
   }
+});
+
+test('server reuses only a recent complete public source; browser and private reads stay uncached', async t => {
+  let clock = Date.now(), indexCalls = 0;
+  const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
+    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date(clock).toISOString() };
+  const f = await fixture(t, { now: () => clock, publicSourceTtlMs: 30000,
+    upstream: (_url, init) => {
+      if (init.method === 'POST') return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
+      indexCalls++;
+      return indexCalls === 1 ? json({ source, data: { items: [] } })
+        : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' }, data: null }, 503);
+    } });
+  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
+  const cached = await f.get('/api/chain-index/health');
+  assert.equal(cached.status, 200);
+  assert.equal(cached.headers.get('x-bemine-server-cache'), 'hit');
+  assert.deepEqual(await cached.json(), { source });
+  assert.equal(indexCalls, 1, 'the server answers health from its own cache');
+  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 503, 'catalog is never served stale');
+  assert.equal((await f.post(rpc())).status, 200, 'RPC is never served stale');
+  clock += 30000;
+  assert.equal((await f.get('/api/chain-index/health')).status, 503, 'expired source is not served');
+});
+
+test('server reuses exact pinned reads while live headers and latest simulations stay fresh', async t => {
+  let clock = Date.now(), reads = 0;
+  const f = await fixture(t, { now: () => clock, pinnedRpcTtlMs: 1000,
+    upstream: (_url, init) => {
+      const request = JSON.parse(init.body); reads++;
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6001' });
+    } });
+  const pinned = rpc('eth_getCode', [address, '0xa']);
+  assert.equal((await (await f.post(pinned)).json()).result, '0x6001');
+  const hit = await f.post({ ...pinned, id: 2 });
+  assert.equal(hit.headers.get('x-bemine-server-cache'), 'hit');
+  assert.equal((await hit.json()).id, 2);
+  assert.equal(reads, 1);
+  await f.post(rpc('eth_getBlockByNumber', ['0xa', false]));
+  await f.post(rpc('eth_getBlockByNumber', ['0xa', false]));
+  await f.post(rpc('eth_call', [{ to: address, data: '0x' }, 'latest']));
+  await f.post(rpc('eth_call', [{ to: address, data: '0x' }, 'latest']));
+  assert.equal(reads, 5, 'canonical header checks and latest simulations are never cached');
+  clock += 1000;
+  await f.post(pinned);
+  assert.equal(reads, 6, 'a pinned result expires at its TTL');
 });
 
 test('oversized upstream bodies, timeout and exhausted concurrency are bounded', async t => {

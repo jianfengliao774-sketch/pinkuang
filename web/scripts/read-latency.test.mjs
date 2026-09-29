@@ -38,8 +38,7 @@ function measuredProvider({ latency = 0, intercept = async (_input, _meta, origi
     try {
       await delay(typeof latency === 'function' ? latency(input, meta) : latency);
       return await intercept(input, meta, async () => {
-        // The shared browser fixture only simulates deposit. These two ABI-only simulation
-        // replies keep the latency benchmark read-only; contract execution is tested elsewhere.
+        // Keep a fixture reply for older benchmark variants that request a simulated trade.
         if (meta.simulated && ['list', 'fill'].includes(meta.name)) {
           assert.equal(input.params[0].from, FIXTURE_ACCOUNT);
           assert.equal(input.params[0].to, FIXTURE_CONTRACTS.shareMarket);
@@ -66,7 +65,7 @@ async function runAction(kind, options = {}) {
   assert.equal(BigInt(result.transaction.value), kind === 'deposit' ? parseEther('0.286')
     : kind === 'fill' ? fillGross + fillGross / 100n : 0n);
   assert(measured.trace.filter(row => row.method === 'eth_call').every(row => row.blockTag === '0x64'));
-  assert.equal(measured.trace.filter(row => row.simulated).length, 1);
+  assert.equal(measured.trace.filter(row => row.simulated).length, 0);
   return { ...measured, elapsedMs, result };
 }
 
@@ -83,19 +82,17 @@ if (process.argv.includes('--benchmark')) {
       transaction: result.transaction, checkedBlock: result.checkedBlock, trace });
   }
   const report = { measuredAt: new Date().toISOString(), sourceSha256, artificialRpcLatencyMs: 100,
-    environment: 'local createLiveBrowserFixture; list/fill simulation returns ABI-only fixture data, no live chain', cases };
+    environment: 'local createLiveBrowserFixture; no transaction simulation or live chain', cases };
   await writeFile(output, JSON.stringify(report, (_key, value) => typeof value === 'bigint' ? value.toString() : value, 2));
   console.log(JSON.stringify(cases.map(({ kind, elapsedMs, rpcCount, peakActive }) => ({ kind, elapsedMs, rpcCount, peakActive })), null, 2));
 } else {
-  test('parallel previews retain pinned reads, amounts, simulations and both final canonical checks', async () => {
+  test('parallel previews retain pinned reads, amounts and both final canonical checks without simulation', async () => {
     for (const kind of Object.keys(inputs)) {
       const { trace, peakActive } = await runAction(kind, { latency: 5 });
       assert(peakActive >= 3, 'independent lens reads should overlap');
       assert.equal(trace.filter(row => row.name === 'eth_chainId').length, 4);
       assert.equal(trace.filter(row => row.name === 'eth_getBlockByNumber').length, 4);
-      const simulation = trace.find(row => row.simulated);
-      const finalChecks = trace.filter(row => row.started >= simulation.finished);
-      assert.deepEqual(finalChecks.map(row => row.name).sort(), ['eth_chainId', 'eth_getBlockByNumber']);
+      assert.deepEqual(trace.slice(-2).map(row => row.name).sort(), ['eth_chainId', 'eth_getBlockByNumber']);
     }
   });
 
@@ -110,6 +107,23 @@ if (process.argv.includes('--benchmark')) {
     const snapshot = readPoolSnapshot(measured.provider, { factory: config.factory, account: FIXTURE_ACCOUNT, pools });
     pools[0] = FIXTURE_POOLS.active;
     assert.equal((await snapshot).pools[0].pool, FIXTURE_POOLS.funding, 'caller mutation cannot change the scheduled read');
+  });
+
+  test('a pinned Lens reads the page alongside the Factory binding and still rejects a changed binding', async () => {
+    const measured = measuredProvider({ latency: (_input, meta) => meta.name === 'lens' ? 40 : 0 });
+    const page = await readPoolSnapshot(measured.provider, { factory: config.factory, lens: config.lens,
+      account: FIXTURE_ACCOUNT, pools: [FIXTURE_POOLS.funding] });
+    assert.equal(page.lens, config.lens);
+    const factoryBinding = measured.trace.find(row => row.name === 'lens');
+    const positions = measured.trace.find(row => row.name === 'positions');
+    assert(positions.started < factoryBinding.finished, 'Lens page must overlap the live Factory binding');
+    assert.equal(measured.active, 0);
+
+    const changed = measuredProvider({ intercept: async (_input, meta, original) => meta.name === 'lens'
+      ? abi.PoolFactory.encodeFunctionResult('lens', [FIXTURE_POOLS.active]) : original() });
+    await assert.rejects(readPoolSnapshot(changed.provider, { factory: config.factory, lens: config.lens,
+      account: FIXTURE_ACCOUNT, pools: [FIXTURE_POOLS.funding] }), /Configured Lens differs/);
+    assert.equal(changed.active, 0);
   });
 
   test('initial RPC failure drains the parallel block request and never starts contract reads', async () => {
@@ -154,14 +168,14 @@ if (process.argv.includes('--benchmark')) {
     }
   });
 
-  test('final canonical block or chain changes reject and drain both checks after simulation', async () => {
+  test('final canonical block or chain changes reject and drain both checks', async () => {
     for (const fault of ['chain', 'hash', 'number', 'timestamp']) {
-      let simulated = false;
-      const measured = measuredProvider({ latency: (_input, meta) => simulated && ['eth_chainId', 'eth_getBlockByNumber'].includes(meta.name) ? 20 : 0,
+      const counts={eth_chainId:0,eth_getBlockByNumber:0};
+      const measured = measuredProvider({ latency: (_input, meta) => ['eth_chainId', 'eth_getBlockByNumber'].includes(meta.name) ? 20 : 0,
         intercept: async (_input, meta, original) => {
-          if (meta.simulated) { simulated = true; return original(); }
-          if (simulated && fault === 'chain' && meta.name === 'eth_chainId') return '0x1';
-          if (simulated && meta.name === 'eth_getBlockByNumber' && fault !== 'chain') {
+          if (Object.hasOwn(counts,meta.name)) counts[meta.name]++;
+          if (counts.eth_chainId===4 && fault === 'chain' && meta.name === 'eth_chainId') return '0x1';
+          if (counts.eth_getBlockByNumber===4 && meta.name === 'eth_getBlockByNumber' && fault !== 'chain') {
             const header = await original();
             return { ...header, [fault]: fault === 'hash' ? `0x${'ee'.repeat(32)}` : '0x1' };
           }
@@ -169,20 +183,17 @@ if (process.argv.includes('--benchmark')) {
         } });
       await assert.rejects(prepareProductAction({ provider: measured.provider, config, account: FIXTURE_ACCOUNT, ...inputs.fill }), /Chain changed/);
       assert.equal(measured.active, 0, fault);
-      assert.equal(measured.trace.filter(row => row.simulated).length, 1, 'only one simulation; no automatic retry');
+      assert.equal(measured.trace.filter(row => row.simulated).length, 0);
       assert.equal(measured.trace.filter(row => row.name === 'eth_chainId').length, 4);
       assert.equal(measured.trace.filter(row => row.name === 'eth_getBlockByNumber').length, 4);
     }
   });
 
-  test('a failed simulation is never retried and cannot return an unsigned preview', async () => {
-    const measured = measuredProvider({ intercept: async (_input, meta, original) => {
-      if (meta.simulated) throw new Error('simulation rejected'); return original();
-    } });
-    await assert.rejects(prepareProductAction({ provider: measured.provider, config, account: FIXTURE_ACCOUNT, ...inputs.deposit }), /simulation rejected/);
-    assert.equal(measured.active, 0);
-    assert.equal(measured.trace.filter(row => row.simulated).length, 1);
-    assert.equal(measured.trace.at(-1).simulated, true, 'no work continues after rejected simulation');
+  test('share previews never request a transaction simulation', async () => {
+    for(const kind of Object.keys(inputs)){
+      const measured=await runAction(kind);
+      assert(!measured.trace.some(row=>row.simulated));
+    }
   });
 
   test('repeated previews reread latest prices and positions; no previous quote is cached', async () => {

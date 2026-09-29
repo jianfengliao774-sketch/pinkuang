@@ -15,6 +15,9 @@ const abi = new Interface([
   'function setSaleReference(address,address,uint128,uint64,bytes32,uint256,uint256,bytes)',
   'function claimFees(address[],address[],address,uint256,uint256,bytes)',
   'function executeOperation(address,bytes) returns(bytes)',
+  'function executeApprovedOperation(address,bytes,uint256,uint256,bytes) returns(bytes)',
+  'function buyBudgetOfficial(address,address,uint256,uint256,uint256,uint256,bytes) returns(uint256)',
+  'function buyBudgetFirsto(address,address,bytes,uint256,uint256,uint256,bytes) returns(uint256)',
 ]);
 const coder = AbiCoder.defaultAbiCoder();
 const TYPES = { Action: [
@@ -24,20 +27,37 @@ const TYPES = { Action: [
 ] };
 const kindHash = name => keccak256(toUtf8Bytes(name));
 const same = (a, b) => getAddress(a) === getAddress(b);
+const mineSelector = new Interface(['function mine(bytes)']).getFunction('mine').selector;
+const calldata = data => typeof data === 'string' && /^0x[0-9a-f]{8}(?:[0-9a-f]{2})*$/i.test(data);
+
+export async function authorityGasLimit(provider, transaction, fixedLimit) {
+  if (fixedLimit !== undefined) {
+    const value = BigInt(fixedLimit);
+    if (value <= 0n) throw new Error('Authority Gas limit must be positive.');
+    return value;
+  }
+  const estimate = await provider.estimateGas(transaction);
+  return (estimate * 120n + 99n) / 100n;
+}
 
 export function prepareAuthorityCall(command) {
   const authority = getAddress(command.authority);
+  const expectedCodehash = command.expectedCodehash;
+  if (expectedCodehash !== undefined && !/^0x[0-9a-f]{64}$/i.test(expectedCodehash)) {
+    throw new Error('Expected Authority runtime codehash is invalid.');
+  }
   const kind = command.kind;
-  if (!['reviewSale', 'reviewChildSale', 'setSaleReference', 'claimFees', 'executeOperation'].includes(kind)) {
+  if (!['reviewSale', 'reviewChildSale', 'setSaleReference', 'claimFees', 'executeOperation',
+    'executeApprovedOperation', 'buyBudgetOfficial', 'buyBudgetFirsto'].includes(kind)) {
     throw new Error('Unsupported authority action.');
   }
   const args = command.args;
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Missing action parameters.');
   if (kind === 'executeOperation') {
-    if (typeof args.data !== 'string' || !/^0x[0-9a-f]{8}(?:[0-9a-f]{2})*$/i.test(args.data)) {
-      throw new Error('Routine operation calldata is invalid.');
-    }
-    return { authority, kind, data: abi.encodeFunctionData(kind, [getAddress(args.target), args.data]) };
+    if (!calldata(args.data) || args.data.slice(0,10).toLowerCase() !== mineSelector)
+      throw new Error('Only a registered miner mine(bytes) call can be relayed without an administrator signature.');
+    return { authority, expectedCodehash, kind,
+      data: abi.encodeFunctionData(kind, [getAddress(args.target), args.data]) };
   }
   const nonce = BigInt(command.nonce), deadline = BigInt(command.deadline);
   if (nonce < 0n || deadline <= 0n || typeof command.signature !== 'string' || !/^0x[0-9a-f]{130}$/i.test(command.signature)) {
@@ -60,6 +80,26 @@ export function prepareAuthorityCall(command) {
       [getAddress(args.pool), args.priceWei, args.observedAt, args.digest]));
     data = abi.encodeFunctionData(kind, [target, args.pool, args.priceWei, args.observedAt,
       args.digest, nonce, deadline, command.signature]);
+  } else if (kind === 'executeApprovedOperation') {
+    if (!calldata(args.data)) throw new Error('Approved operation calldata is invalid.');
+    target = getAddress(args.target);
+    paramsHash = keccak256(args.data);
+    data = abi.encodeFunctionData(kind, [target,args.data,nonce,deadline,command.signature]);
+  } else if (kind === 'buyBudgetOfficial') {
+    target = getAddress(args.portfolio);
+    const child = getAddress(args.child), listingId = BigInt(args.listingId), maxCost = BigInt(args.maxCost);
+    if (listingId < 0n || maxCost <= 0n) throw new Error('Budget listing and maxCost are invalid.');
+    paramsHash = keccak256(coder.encode(['address','uint256','uint256'],[child,listingId,maxCost]));
+    data = abi.encodeFunctionData(kind,[target,child,listingId,maxCost,nonce,deadline,command.signature]);
+  } else if (kind === 'buyBudgetFirsto') {
+    target = getAddress(args.portfolio);
+    const child = getAddress(args.child), maxCost = BigInt(args.maxCost);
+    if (maxCost <= 0n || typeof args.encodedOrder !== 'string'
+      || !/^0x[0-9a-f]+$/i.test(args.encodedOrder) || args.encodedOrder.length % 2 !== 0)
+      throw new Error('Budget Firsto order or maxCost is invalid.');
+    paramsHash = keccak256(coder.encode(['address','bytes32','uint256'],
+      [child,keccak256(args.encodedOrder),maxCost]));
+    data = abi.encodeFunctionData(kind,[target,child,args.encodedOrder,maxCost,nonce,deadline,command.signature]);
   } else {
     target = authority;
     signer = getAddress(args.recipient);
@@ -70,10 +110,12 @@ export function prepareAuthorityCall(command) {
   }
   const domain = { name: 'BEMine Platform Authority', version: '1', chainId: 56, verifyingContract: authority };
   const value = { kind: kindHash({ reviewSale: 'REVIEW_SALE', reviewChildSale: 'REVIEW_CHILD_SALE',
-    setSaleReference: 'SALE_REFERENCE', claimFees: 'CLAIM_FEES' }[kind]), target, paramsHash, nonce, deadline };
+    setSaleReference: 'SALE_REFERENCE', claimFees: 'CLAIM_FEES',
+    executeApprovedOperation:'APPROVED_OPERATION',buyBudgetOfficial:'BUY_BUDGET_OFFICIAL',
+    buyBudgetFirsto:'BUY_BUDGET_FIRSTO' }[kind]), target, paramsHash, nonce, deadline };
   const recovered = verifyTypedData(domain, TYPES, value, command.signature);
   if (signer && !same(recovered, signer)) throw new Error('Fee recipient must be the administrator who signed.');
-  return { authority, kind, data, signer: recovered, nonce, deadline, domain, types: TYPES, value };
+  return { authority, expectedCodehash, kind, data, signer: recovered, nonce, deadline, domain, types: TYPES, value };
 }
 
 export function parseAuthorityArguments(args) {
@@ -101,9 +143,12 @@ export function parseAuthorityArguments(args) {
 }
 
 export async function runAuthorityRelay(provider, options, signer = null) {
-  const command = JSON.parse(readFileSync(options.command, 'utf8'));
+  const command = options.commandObject ?? JSON.parse(readFileSync(options.command, 'utf8'));
   const prepared = prepareAuthorityCall(command);
   if ((await provider.getNetwork()).chainId !== 56n) throw new Error('Authority relay only supports BSC mainnet.');
+  if (options.send && !prepared.expectedCodehash) {
+    throw new Error('Send mode requires the independently reviewed Authority runtime codehash.');
+  }
   let journal;
   if (options.send) {
     if (!signer) throw new Error('Send mode requires the Gas wallet credential.');
@@ -112,9 +157,13 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     journal = readJournal(options.journal, journalOptions);
     if (journal.transaction && !same(journal.transaction.from, signer.address)) throw new Error('Journal belongs to another Gas wallet.');
     const pending = await reconcilePending(provider, journalOptions, journal);
-    if (pending) return { status: pending.status, hash: pending.hash, message: pending.message };
+    if (pending) return { status: journal.transaction?.phase === 'signed'
+        && pending.status === 'pending-not-indexed' ? 'broadcast-result-unknown' : pending.status,
+      hash: pending.hash, kind: journal.transaction?.kind,
+      message: pending.message };
     if (['reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction?.phase)) {
-      return { status: 'previous-operation-failed-review-required', hash: journal.transaction.hash };
+      return { status: 'previous-operation-failed-review-required', hash: journal.transaction.hash,
+        kind: journal.transaction.kind };
     }
   }
   const authority = new Contract(prepared.authority, abi, provider);
@@ -122,6 +171,9 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     provider.getCode(prepared.authority), authority.administratorOne(), authority.administratorTwo(), authority.gasWallet(),
   ]);
   if (code === '0x') throw new Error('Authority contract has no code.');
+  if (prepared.expectedCodehash && keccak256(code).toLowerCase() !== prepared.expectedCodehash.toLowerCase()) {
+    throw new Error('Authority runtime differs from the reviewed deployment proof.');
+  }
   if (prepared.signer && !same(prepared.signer, first) && !same(prepared.signer, second)) {
     throw new Error('Signature is not from a current administrator.');
   }
@@ -132,23 +184,26 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   if (!options.send) return { status: 'read-only', kind: prepared.kind, authority: prepared.authority,
     signer: prepared.signer, gasWallet: getAddress(gasWallet), calldataHash: keccak256(prepared.data) };
   if (!signer || !same(signer.address, gasWallet)) throw new Error('Keeper credential is not the current authority Gas wallet.');
-  const [gasEstimate, fee, balance, latestNonce, pendingNonce, latestBlock] = await Promise.all([
-    provider.estimateGas({ from: signer.address, to: prepared.authority, data: prepared.data, value: 0n }),
+  // The authenticated web relay uses a bounded per-action gas limit so an
+  // eth_estimateGas simulation does not delay opening the hardware-wallet flow.
+  // The standalone CLI retains its conservative estimate by default.
+  const [gasLimit, fee, balance, latestNonce, pendingNonce, latestBlock] = await Promise.all([
+    authorityGasLimit(provider,
+      { from: signer.address, to: prepared.authority, data: prepared.data, value: 0n }, options.gasLimit),
     provider.getFeeData(), provider.getBalance(signer.address),
     provider.getTransactionCount(signer.address, 'latest'), provider.getTransactionCount(signer.address, 'pending'),
     provider.getBlock('latest'),
   ]);
   if (latestNonce !== pendingNonce) return { status: 'gas-wallet-has-pending-transaction' };
   if (!fee.gasPrice || fee.gasPrice > options.maxGasPrice) return { status: 'gas-price-over-limit' };
-  const gasLimit = (gasEstimate * 120n + 99n) / 100n;
-  if (!latestBlock || gasLimit > latestBlock.gasLimit) return { status: 'gas-exceeds-block-limit' };
+  if (!latestBlock || gasLimit <= 0n || gasLimit > latestBlock.gasLimit) return { status: 'gas-exceeds-block-limit' };
   const budget = gasBudget(journal, gasLimit, fee.gasPrice, options.maxGasWei);
   if (!budget.allowed || balance < budget.reservedFee) return { status: 'gas-budget-or-balance-exceeded' };
   const raw = await signer.signTransaction({ type: 0, chainId: 56, to: prepared.authority,
     data: prepared.data, value: 0n, nonce: latestNonce, gasLimit, gasPrice: fee.gasPrice });
   const hash = keccak256(raw);
   if (journal.transaction) journal.previousTransaction = journal.transaction;
-  journal.transaction = { phase: 'signed', from: signer.address, nonce: latestNonce, to: prepared.authority,
+  journal.transaction = { phase: 'signed', kind: prepared.kind, from: signer.address, nonce: latestNonce, to: prepared.authority,
     data: prepared.data, value: '0', createdAt: new Date().toISOString(), hash, speedUps: 0,
     attempts: [{ kind: 'purchase', raw, hash, gasLimit: gasLimit.toString(), gasPrice: fee.gasPrice.toString(),
       createdAt: new Date().toISOString(), broadcastCount: 0 }] };
@@ -195,7 +250,8 @@ export async function main(args = process.argv.slice(2)) {
     const provider = new JsonRpcProvider(request);
     let signer = null;
     if (options.send) {
-      signer = new Wallet(readKeeperPrivateKey(), provider);
+      try { signer = new Wallet(readKeeperPrivateKey(), provider); }
+      catch { throw new Error('Gas credential is unavailable or invalid.'); }
       mkdirSync(dirname(options.journal), { recursive: true, mode: 0o700 });
       if ((statSync(dirname(options.journal)).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
       releaseWallet = acquireWalletLock(signer.address, options.journal);

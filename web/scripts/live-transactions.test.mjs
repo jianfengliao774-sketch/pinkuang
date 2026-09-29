@@ -2,15 +2,52 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
-import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce, productGasLimit } from '../lib/live-transactions.mjs';
+import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce,
+  productGasLimit, validateProductTransactionStage } from '../lib/live-transactions.mjs';
+import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
+import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
 const account=addr(1),factory=addr(2),pool=addr(3),market=addr(4);
 const config={status:'ready',chainId:56,factory,shareMarket:market,journalBase:'/api/journal',origin:'https://bemine.example'};
-test('Gas reserve covers a new timestamp checkpoint while preserving the proportional bound for larger calls',()=>{
-  assert.equal(productGasLimit('156817'),256817n);
-  assert(productGasLimit('156817') > 201698n);
-  assert.equal(productGasLimit('1000001'),1200002n);
-  for(const value of ['0','-1','1.1',NaN])assert.throws(()=>productGasLimit(value));
+test('genesis stage accepts old selectors but rejects candidate-only Factory methods', () => {
+  const base = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    manifest: pinnedGenesis, stage: 'genesis', artifactDigest: pinnedGenesis.artifactDigest };
+  const oldCall = { from: account, to: pool, chainId: '0x38', value: '0',
+    data: abi.PoolVault.encodeFunctionData('claim') };
+  assert.equal(validateProductTransactionStage(base, oldCall, 'claim').action.kind, 'claim');
+  const params = { circuits: addr(88), circuitId: 1n, targetRaise: 100n, priceCap: 100n,
+    directSeller: addr(89), directPrice: 0n, fundingDeadline: 1000n, purchaseDeadline: 2000n };
+  const newCall = { from: account, to: pinnedGenesis.factory, chainId: '0x38', value: '0',
+    data: abi.PoolFactory.encodeFunctionData('createBudgetChildPool', [params, account]) };
+  assert.throws(() => validateProductTransactionStage(base, newCall, 'createBudgetChildPool'));
+  const upgraded = { ...base, stage: 'code-upgraded', artifactDigest: ARTIFACT_DIGEST,
+    manifest: { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST } };
+  assert.throws(() => validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool'));
+  upgraded.operationalReady = true;
+  assert.equal(validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool').action.kind, 'createBudgetChildPool');
+  assert.throws(() => validateProductTransactionStage({ ...upgraded, artifactDigest: pinnedGenesis.artifactDigest }, oldCall, 'claim'));
+});
+
+test('a stale or unverified graph blocks before wallet access or intent persistence', async () => {
+  const secureConfig = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
+    portfolioFactory: pinnedGenesis.portfolioFactory, manifest: pinnedGenesis, stage: 'genesis',
+    artifactDigest: pinnedGenesis.artifactDigest, productGraphUrl: 'https://bemine.example/api/journal/product-graph' };
+  let walletCalls = 0, networkCalls = 0;
+  const provider = { request: async () => { walletCalls++; throw new Error('wallet must remain untouched'); } };
+  const fetcher = async () => { networkCalls++; return new Response(JSON.stringify({ status: 'unverified' }),
+    { status: 200, headers: { 'content-type': 'application/json' } }); };
+  await assert.rejects(sendProductTransaction({ provider, config: secureConfig,
+    transaction: { from: account, to: pool, chainId: '0x38', value: '0', data: abi.PoolVault.encodeFunctionData('claim') },
+    action: 'claim', fetcher }), { code: 'product_graph' });
+  assert.equal(networkCalls, 1); assert.equal(walletCalls, 0);
+});
+test('fixed Gas caps give simple market actions less reservation without running estimates',()=>{
+  for(const kind of ['list','cancel','expire','withdrawBnb']) assert.equal(productGasLimit(kind,'market'),1_000_000n);
+  assert.equal(productGasLimit('fill','market'),3_000_000n);
+  assert.equal(productGasLimit('list','portfolioMarket'),1_000_000n);
+  assert.equal(productGasLimit('fill','portfolioMarket'),3_000_000n);
+  assert.equal(productGasLimit('deposit','pool'),5_000_000n);
+  assert.equal(productGasLimit('withdrawBnb','pool'),5_000_000n);
 });
 const transaction=(name='deposit',args=[2],value='20',target=pool)=>({from:account,to:target,chainId:'0x38',
   data:(target===market?abi.ShareMarket:abi.PoolVault).encodeFunctionData(name,args),value});
@@ -23,12 +60,12 @@ function fixture(options={}){
     if(method==='eth_chainId')return state.chain;
     if(method==='eth_accounts'||method==='eth_requestAccounts')return [state.account];
     if(method==='personal_sign')return `0x${'12'.repeat(65)}`;
-    if(method==='eth_call'){if(state.simulationFail)throw new Error('simulation reverted');return '0x';}
-    if(method==='eth_getTransactionCount')return `0x${(params[1]==='pending'?state.pendingNonce:state.nonce).toString(16)}`;
-    if(method==='eth_getBalance')return `0x${state.balance.toString(16)}`;
+    if(method==='eth_call')return '0x';
+    if(method==='eth_getTransactionCount')return state.quantityNumbers?Number(params[1]==='pending'?state.pendingNonce:state.nonce):`0x${(params[1]==='pending'?state.pendingNonce:state.nonce).toString(16)}`;
+    if(method==='eth_getBalance')return state.quantityNumbers?Number(state.balance):`0x${state.balance.toString(16)}`;
     if(method==='eth_getCode')return state.accountCode??'0x';
-    if(method==='eth_gasPrice')return `0x${state.price.toString(16)}`;
-    if(method==='eth_estimateGas')return `0x${state.gas.toString(16)}`;
+    if(method==='eth_gasPrice'){if(state.priceFail)throw new Error('gas price unavailable');return state.quantityNumbers?Number(state.price):`0x${state.price.toString(16)}`;}
+    if(method==='eth_estimateGas')assert.fail('dynamic gas estimation is disabled for product submission');
     if(method==='eth_sendTransaction'){
       assert(state.record,'Server intent ACK must precede wallet send');
       if(state.rejectWallet)throw Object.assign(new Error('rejected'),{code:4001});
@@ -52,6 +89,19 @@ function fixture(options={}){
     }
     if(path==='session'&&method==='POST'){state.authenticated=true;return response(200,{account});}
     if(path==='market'&&method==='GET')return response(200,{record:state.record,revision:state.revision});
+    if(path==='market/prepare-and-arm'&&method==='POST'){
+      if(!state.fastAuthorization)return response(404,{error:'Unknown journal route.'});
+      if(state.armFail)return response(409,{error:'Signature permission already consumed'});
+      if(state.record||body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
+      state.record=structuredClone(body.record);state.revision+=2;
+      if(state.afterAck)state.afterAck(state);
+      const r=state.record;
+      const transaction={from:r.account,to:r.target,chainId:'0x38',nonce:`0x${BigInt(r.nonce).toString(16)}`,
+        data:r.data,value:`0x${BigInt(r.value).toString(16)}`,gas:`0x${BigInt(r.gas).toString(16)}`,
+        gasPrice:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x0',...state.permitTransaction};
+      if(state.armAckLost)throw new Error('Signature permission ACK lost');
+      return response(200,{revision:state.revision,record:structuredClone(r),transaction});
+    }
     if(path==='market/arm'&&method==='POST'){
       if(state.armFail)return response(409,{error:'Signature permission already consumed'});
       if(!state.record||body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
@@ -134,9 +184,69 @@ test('deposit uses exact integer payment, ACK before one wallet send, and verifi
   assert(!f.calls.some(x=>['personal_sign','eth_requestAccounts'].includes(x.method)));
 });
 
-test('without durable ACK, session, simulation, nonce, funds or gas checks no wallet send occurs',async()=>{
-  for(const options of [{ackFail:true},{initialAckLost:true},{authenticated:false},{simulationFail:true},{chain:'0x1'},
-    {pendingNonce:8n},{balance:1n},{price:4000000000n},{gas:6000000n}]){
+test('wallet safe-number RPC quantities are accepted without changing the zero-value create-pool transaction',async()=>{
+  const f=fixture({chain:56,quantityNumbers:true,balance:8000000000000000n});
+  const data=abi.PoolFactory.encodeFunctionData('createPool',[{
+    circuits:addr(5),circuitId:13043n,targetRaise:44000000000000000n,priceCap:40000000000000000n,
+    directSeller:addr(0),directPrice:0n,fundingDeadline:2000000000n,purchaseDeadline:2000172800n,
+  }]);
+  const result=await sendProductTransaction({provider:f.provider,config,transaction:{from:account,to:factory,chainId:'0x38',data,value:'0x0'},
+    action:'createPool',fetcher:f.fetcher});
+  assert.equal(result.status,'confirmed');
+  const sends=f.calls.filter(x=>x.method==='eth_sendTransaction');
+  assert.equal(sends.length,1);assert.equal(sends[0].params[0].value,'0x0');
+});
+
+test('new runtime saves and arms once before a single wallet request',async()=>{
+  const f=fixture({fastAuthorization:true});
+  const result=await f.send();
+  assert.equal(result.status,'confirmed');
+  assert(!f.calls.some(x=>['eth_call','eth_estimateGas'].includes(x.method)),'submission does not simulate the transaction');
+  const authorized=f.calls.filter(x=>x.url?.endsWith('/market/prepare-and-arm'));
+  assert.equal(authorized.length,1);
+  assert.equal(f.calls.filter(x=>x.url?.endsWith('/market/arm')).length,0);
+  assert.equal(f.calls.filter(x=>x.url?.endsWith('/market')&&x.method==='PUT'&&!x.body.record.hash).length,0);
+  assert( f.calls.indexOf(authorized[0]) < f.calls.findIndex(x=>x.method==='eth_sendTransaction'));
+  assert.equal(f.calls.filter(x=>x.method==='eth_sendTransaction').length,1);
+});
+
+test('final wallet identity and both nonce checks overlap after the server permission',async()=>{
+  const f=fixture({fastAuthorization:true}), original=f.provider.request.bind(f.provider), seen=new Set();
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const timer=setTimeout(release,1500);
+  f.provider.request=async payload=>{
+    if(f.state.record && ['eth_chainId','eth_accounts','eth_getTransactionCount'].includes(payload.method)){
+      seen.add(payload.method==='eth_getTransactionCount'?`nonce-${payload.params[1]}`:payload.method);
+      if(seen.size===4)release();
+      await gate;
+    }
+    return original(payload);
+  };
+  try{
+    assert.equal((await f.send()).status,'confirmed');
+    assert.equal(seen.size,4);
+  }finally{clearTimeout(timer);release();}
+});
+
+test('lost atomic signing ACK cannot prompt a second wallet send',async()=>{
+  const f=fixture({fastAuthorization:true,armAckLost:true});
+  await assert.rejects(f.send(),/Signature permission ACK lost/);
+  assert(f.state.record);
+  assert(!f.calls.some(x=>x.method==='eth_sendTransaction'));
+  await assert.rejects(f.send(),/待核对/);
+});
+
+test('unsafe numeric wallet balance is rejected before an intent is written or a wallet is prompted',async()=>{
+  const f=fixture({quantityNumbers:true,balance:10n**25n});
+  await assert.rejects(f.send(),/钱包 BNB 余额不是精确的非负整数/);
+  assert.equal(f.state.record,null);
+  assert(!f.calls.some(x=>x.method==='eth_sendTransaction'));
+});
+
+test('without durable ACK, session, nonce, funds or gas-price checks no wallet send occurs',async()=>{
+  for(const options of [{ackFail:true},{initialAckLost:true},{authenticated:false},{priceFail:true},{chain:'0x1'},
+    {pendingNonce:8n},{balance:1n},{price:4000000000n}]){
     const f=fixture(options);await assert.rejects(f.send());
     assert(!f.calls.some(x=>x.method==='eth_sendTransaction'),JSON.stringify(options,(_k,v)=>typeof v==='bigint'?v.toString():v));
     if(options.initialAckLost)assert(f.state.record,'Lost ACK still leaves a durable intent');
@@ -185,6 +295,7 @@ test('all product actions and market actions use the same intent slot; arbitrary
     const f=fixture();const result=await f.send(name,args,value,target);assert.equal(result.status,'confirmed',name);
     const initial=f.calls.find(x=>x.method==='PUT').body.record;
     assert.equal(initial.targetType,target===pool?'pool':'market');assert.equal(initial.action.kind,name);
+    assert.equal(initial.gas,productGasLimit(name,initial.targetType).toString());
   }
   const f=fixture();await assert.rejects(f.send('approve',[addr(9),1],'0'),/允许/);
   assert.equal(f.calls.length,0);
@@ -260,12 +371,12 @@ test('independent preflight reads overlap while intent ACK and signing permissio
   const f=fixture(), original=f.provider.request.bind(f.provider), states=[];
   const groups=[new Set(),new Set()], release=[], gates=groups.map((_,i)=>new Promise(resolve=>{release[i]=resolve;}));
   const timers=groups.map((_,i)=>setTimeout(()=>release[i](),1500));
-  const enter=async(i,name)=>{groups[i].add(name);if(groups[i].size===[4,6][i])release[i]();await gates[i];};
+  const enter=async(i,name)=>{groups[i].add(name);if(groups[i].size===[4,4][i])release[i]();await gates[i];};
   let phase=0;
   f.provider.request=async payload=>{
     const {method,params}=payload;
     if(phase===0&&['eth_chainId','eth_accounts'].includes(method))await enter(0,method);
-    if(phase===1&&['eth_call','eth_estimateGas','eth_gasPrice','eth_getBalance','eth_getTransactionCount'].includes(method))
+    if(phase===1&&['eth_gasPrice','eth_getBalance','eth_getTransactionCount'].includes(method))
       await enter(1,method==='eth_getTransactionCount'?method+params[1]:method);
     return original(payload);
   };
@@ -276,7 +387,7 @@ test('independent preflight reads overlap while intent ACK and signing permissio
     }
     if(init.method==='PUT'){
       assert.equal(groups[0].size,4,'initial reads must overlap');
-      assert.equal(groups[1].size,6,'simulation, Gas, balance and both nonces must overlap');phase=2;
+      assert.equal(groups[1].size,4,'Gas price, balance and both nonces must overlap');phase=2;
     }
     return f.fetcher(url,init);
   };
@@ -290,8 +401,8 @@ test('independent preflight reads overlap while intent ACK and signing permissio
   }finally{timers.forEach(clearTimeout);release.forEach(resolve=>resolve());}
 });
 
-test('failed parallel simulation drains reads and retains the wallet lane without signing',async()=>{
-  const f=fixture({simulationFail:true}), original=f.provider.request.bind(f.provider);
+test('failed parallel gas-price read drains reads and retains the wallet lane without signing',async()=>{
+  const f=fixture({priceFail:true}), original=f.provider.request.bind(f.provider);
   let release, balanceStarted;
   const waiting=new Promise(resolve=>{release=resolve;}), started=new Promise(resolve=>{balanceStarted=resolve;});
   f.provider.request=async payload=>{
@@ -299,7 +410,7 @@ test('failed parallel simulation drains reads and retains the wallet lane withou
     return original(payload);
   };
   let settled=false;
-  const send=f.send().then(()=>assert.fail('simulation must fail'),error=>{assert.match(error.message,/simulation/);settled=true;});
+  const send=f.send().then(()=>assert.fail('gas price must fail'),error=>{assert.match(error.message,/gas price/);settled=true;});
   const timer=setTimeout(release,1500);
   try{
     await started;

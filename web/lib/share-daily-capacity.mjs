@@ -33,8 +33,9 @@ export function shareDailyCapacityPriceWei(pricePerUnitWei, estimated24hAtomic) 
  */
 export async function readShareDailyCapacityPrice(provider, {
   factory: factoryInput, pool: poolInput, pricePerUnitWei,
+  allowUnownedTarget = false,
   blockNumber, now = Date.now(), quoteLoader = (collection, tokenId) =>
-    fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE }),
+    fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE, displayOnly: true }),
 } = {}) {
   try {
     if (!provider?.request || !Number.isSafeInteger(now) || now <= 0 || typeof quoteLoader !== 'function') {
@@ -46,12 +47,12 @@ export async function readShareDailyCapacityPrice(provider, {
     const request = (method, params = []) => provider.request({ method, params });
     if (BigInt(await request('eth_chainId')) !== CHAIN_ID) return unavailable('wrong_chain');
     const requestedTag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
-    const block = await request('eth_getBlockByNumber', [requestedTag, false]);
-    const pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
-    const pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
+    let block = await request('eth_getBlockByNumber', [requestedTag, false]);
+    let pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
+    let pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
     if (pinnedAt === null || (blockNumber !== undefined && pinnedNumber !== uint(blockNumber)) ||
         pinnedAt > now + 30_000 || now - pinnedAt > MAX_QUOTE_AGE_MS) return unavailable('invalid_block');
-    const tag = toQuantity(pinnedNumber);
+    let tag = toQuantity(pinnedNumber);
     const call = async (address, iface, name, args = []) => {
       const result = await request('eth_call', [{ to: address, data: iface.encodeFunctionData(name, args) }, tag]);
       return iface.decodeFunctionResult(name, result)[0];
@@ -65,14 +66,14 @@ export async function readShareDailyCapacityPrice(provider, {
     const collection = getAddress(params.circuits), tokenId = uint(params.circuitId).toString();
     if (!OFFICIAL.has(collection.toLowerCase())) return unavailable('unsupported_miner');
     const owner = await call(collection, NFT, 'ownerOf', [tokenId]);
-    if (getAddress(owner) !== pool) return unavailable('miner_not_in_pool');
+    if (getAddress(owner) !== pool && !allowUnownedTarget) return unavailable('miner_not_in_pool');
 
     // The exact Firsto detail endpoint covers pool-owned NFTs even when they
     // have no active sell order or are absent from three pages of text search.
     const detail = await quoteLoader(collection, tokenId);
     const asset = detail?.asset, mining = asset?.mining;
     if (!asset || !mining || getAddress(asset.collection) !== collection ||
-        exactDecimal(asset.tokenId)?.toString() !== tokenId || getAddress(asset.owner) !== pool ||
+        exactDecimal(asset.tokenId)?.toString() !== tokenId || getAddress(asset.owner) !== getAddress(owner) ||
         asset.category !== 'official_mining' || asset.classification !== 'official_mining' ||
         mining.tokenSymbol !== 'BEM' || mining.tokenDecimals !== 8 || mining.status !== 'verified') {
       return unavailable('quote_identity');
@@ -80,7 +81,26 @@ export async function readShareDailyCapacityPrice(provider, {
     const dailyAtomic = exactDecimal(mining.estimated24hAtomic);
     if (dailyAtomic === null || dailyAtomic === 0n) return unavailable('missing_output');
     const miningSourceBlock = exactDecimal(mining.sourceBlock);
-    if (miningSourceBlock === null || miningSourceBlock > pinnedNumber) return unavailable('stale_quote');
+    if (miningSourceBlock === null) return unavailable('stale_quote');
+    // The external request can finish after the initially pinned block. For a
+    // live read only, pin again and recheck every identity at the newer block.
+    // Explicit historical reads never advance beyond the requested snapshot.
+    if (miningSourceBlock > pinnedNumber) {
+      if (blockNumber !== undefined) return unavailable('stale_quote');
+      block = await request('eth_getBlockByNumber', ['latest', false]);
+      pinnedNumber = /^0x[\da-f]+$/i.test(block?.number ?? '') ? BigInt(block.number) : null;
+      pinnedAt = pinnedNumber === null ? null : blockTime(block, pinnedNumber);
+      if (pinnedAt === null || pinnedNumber < miningSourceBlock || pinnedAt > now + 30_000 ||
+          now - pinnedAt > MAX_QUOTE_AGE_MS) return unavailable('stale_quote');
+      tag = toQuantity(pinnedNumber);
+      const [registeredNow, backlinkNow, paramsNow, ownerNow] = await Promise.all([
+        call(factory, abi.PoolFactory, 'isPool', [pool]), call(pool, abi.PoolVault, 'factory'),
+        call(pool, abi.PoolVault, 'params'), call(collection, NFT, 'ownerOf', [tokenId]),
+      ]);
+      if (!registeredNow || getAddress(backlinkNow) !== factory) return unavailable('untrusted_pool');
+      if (getAddress(paramsNow.circuits) !== collection || uint(paramsNow.circuitId).toString() !== tokenId ||
+          getAddress(ownerNow) !== getAddress(owner)) return unavailable('quote_identity');
+    }
     const sourceTag = toQuantity(miningSourceBlock);
     const sourceHeader = sourceTag === tag ? block : await request('eth_getBlockByNumber', [sourceTag, false]);
     const observedAt = blockTime(sourceHeader, miningSourceBlock);
@@ -97,6 +117,10 @@ export async function readShareDailyCapacityPrice(provider, {
       miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS,
       estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
       priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
+      marketReferencePriceWei: (() => {
+        const value = exactDecimal(asset.listingReference?.dailyCapacityPriceWei);
+        return value !== null && value > 0n ? value : null;
+      })(),
       sourceUrl: FIRSTO_SOURCE,
       basis: 'gross_estimated_output' });
   } catch {

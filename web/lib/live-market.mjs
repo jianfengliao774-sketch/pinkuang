@@ -32,7 +32,7 @@ async function batches(items, size, fn) {
 
 /**
  * Discovery IDs are untrusted. Read them from the reviewed Factory's Market at
- * one block before quoting. The caller must simulate again before signing.
+ * one block before quoting. The caller must recheck the order before signing.
  */
 export async function readMarketSnapshot(provider, {
   factory: configuredFactory, market: configuredMarket, account = ZeroAddress,
@@ -117,7 +117,7 @@ export function marketAction(snapshot, from, action) {
     const listingGross = unitPriceWei * amount;
     requireMarket(listingGross + listingGross / 100n <= MAX_UINT256,
       'Share listing plus buyer fee overflows the market.');
-    requireMarket(unitPriceWei > 0n || action.allowFree === true, 'A zero-price listing needs explicit confirmation.');
+    requireMarket(unitPriceWei > 0n, 'The listing price must be positive.');
     const holding = position(pool);
     requireMarket(holding && holding.state === 2n && holding.tradingAllowed === true,
       'Pool is not active or share trading is frozen.');

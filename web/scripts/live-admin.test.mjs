@@ -38,7 +38,8 @@ test('operator panel checks current Factory authority and only prepares a zero-v
   assert.equal(parsed.name, 'createPool'); assert.equal(parsed.args[0].circuitId, 7n);
   assert.equal(parsed.args[0].targetRaise, 11000n); assert.equal(parsed.args[0].priceCap, 10000n);
   assert.equal(parsed.args[0].directSeller, ZeroAddress); assert.equal(parsed.args[0].directPrice, 0n);
-  assert.equal(result.unitPriceWei, 110n); assert.equal(result.predictedPool, pool);
+  assert.equal(result.unitPriceWei, 110n); assert.equal(result.predictedPool, undefined);
+  assert.equal(f.simulated.length, 0);
   assert.equal(result.transaction.value, '0x0'); assert.equal(result.transaction.from, account);
   assert.deepEqual(f.sent, []);
 });

@@ -106,6 +106,11 @@ export class ChainIndex {
       CREATE TABLE IF NOT EXISTS pools (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL, collection TEXT NOT NULL, circuit_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolios (address TEXT PRIMARY KEY, created_block INTEGER NOT NULL,budget TEXT NOT NULL,absolute_cap TEXT NOT NULL,unit_cap TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS portfolio_children (address TEXT PRIMARY KEY,portfolio TEXT NOT NULL,purchased_block INTEGER NOT NULL,collection TEXT NOT NULL,token_id TEXT NOT NULL,cost TEXT NOT NULL,official INTEGER NOT NULL);`);
+    this.db.exec('CREATE TABLE IF NOT EXISTS verified_display_snapshot (id INTEGER PRIMARY KEY CHECK(id = 1), source TEXT NOT NULL, pools TEXT NOT NULL, stats TEXT)');
+    if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'portfolios'))
+      this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN portfolios TEXT');
+    if (!this.db.prepare('PRAGMA table_info(verified_display_snapshot)').all().some(column => column.name === 'orders'))
+      this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN orders TEXT');
     const identity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
@@ -119,7 +124,11 @@ export class ChainIndex {
     this.observedSafeHead = null;
     this.checkedAt = null;
     this.syncing = false;
+    this.syncSettled = null;
+    this.lastFailureStage = null;
+    this.lastScanPhase = null;
     this.cachedStats = null;
+    this.snapshotTrusted = false;
   }
 
   close() { this.db.close(); }
@@ -138,6 +147,14 @@ export class ChainIndex {
       complete: this.ready && this.lastError === null && indexedThrough === this.observedSafeHead,
       checkedAt: this.checkedAt, unknownReason: this.lastError ?? (this.ready ? null : 'index_not_caught_up'),
     };
+  }
+
+  async waitForSync(timeoutMs) {
+    if (!this.syncing || !this.syncSettled) return;
+    let timer;
+    try {
+      await Promise.race([this.syncSettled, new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); })]);
+    } finally { clearTimeout(timer); }
   }
 
   async _call(to, method, args, blockNumber) {
@@ -183,6 +200,8 @@ export class ChainIndex {
       throw new Error('Event history is incomplete for the configured deployment start block.');
     }
     if (this.portfolioFactory) {
+      if (this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children c LEFT JOIN pools p ON p.address = c.address WHERE p.address IS NULL').get().n !== 0)
+        throw new Error('Event history is incomplete for budget child registration.');
       const count=await this._call(this.portfolioFactory,'portfolioCount',[],blockNumber);
       const orders=await this._call(this.portfolioMarket,'nextOrderId',[],blockNumber);
       if (count!==BigInt(this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n)
@@ -204,6 +223,11 @@ export class ChainIndex {
       this.db.prepare('DELETE FROM portfolio_children WHERE purchased_block > ?').run(number);
       this.db.prepare('DELETE FROM headers WHERE number > ?').run(number);
       this._setIndexedThrough(number);
+      const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
+      if (saved && JSON.parse(saved.source).indexedThrough > number) {
+        this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+        this.snapshotTrusted = false;
+      }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -252,28 +276,10 @@ export class ChainIndex {
   }
 
   async _scanChunk(fromBlock, toBlock) {
-    const headers = [];
-    // Fetch a small, fixed batch concurrently, then validate in chain order.
-    // allSettled drains every in-flight read before failure releases the sync lock.
-    for (let first = fromBlock; first <= toBlock; first += 8) {
-      const numbers = Array.from({ length: Math.min(8, toBlock - first + 1) }, (_, offset) => first + offset);
-      const batch = await Promise.allSettled(numbers.map(async number => {
-        const header = normalizeBlock(await this.provider.getBlock(number));
-        if (header.number !== number) throw new Error('RPC returned a different block number.');
-        return header;
-      }));
-      for (const result of batch) {
-        if (result.status === 'rejected') throw result.reason;
-        const header = result.value;
-        const parent = headers.at(-1) ?? this._header(header.number - 1);
-        if (parent && header.parentHash !== parent.hash) throw new Error('Chain changed during header scan.');
-        headers.push(header);
-      }
-    }
-    // These registered global addresses do not depend on discovery in this chunk.
-    // Drain every request before throwing, so a failed scan cannot leave old reads
-    // running after the sync lock is released or during a new scan/shutdown.
-    const globalReads = await Promise.allSettled([
+    this.lastScanPhase = 'headers';
+    // Global event queries need only the numeric range. Overlap them with
+    // header reads, then drain both sides before validating or committing.
+    const globalReadsPromise = Promise.allSettled([
       this._logs('factory', [this.factory], fromBlock, toBlock),
       this._logs('market', [this.market], fromBlock, toBlock),
       ...(this.portfolioFactory ? [
@@ -281,11 +287,39 @@ export class ChainIndex {
         this._logs('portfolioMarket', [this.portfolioMarket], fromBlock, toBlock),
       ] : []),
     ]);
-    const failedGlobal = globalReads.find(result => result.status === 'rejected');
-    if (failedGlobal) throw failedGlobal.reason;
+    const headers = [];
+    // Fetch a small, fixed batch concurrently, then validate in chain order.
+    // allSettled drains every in-flight read before failure releases the sync lock.
+    let headerFailure;
+    try {
+      for (let first = fromBlock; first <= toBlock; first += 8) {
+        const numbers = Array.from({ length: Math.min(8, toBlock - first + 1) }, (_, offset) => first + offset);
+        const batch = await Promise.allSettled(numbers.map(async number => {
+          const header = normalizeBlock(await this.provider.getBlock(number));
+          if (header.number !== number) throw new Error('RPC returned a different block number.');
+          return header;
+        }));
+        for (const result of batch) {
+          if (result.status === 'rejected') throw result.reason;
+          const header = result.value;
+          const parent = headers.at(-1) ?? this._header(header.number - 1);
+          if (parent && header.parentHash !== parent.hash) throw new Error('Chain changed during header scan.');
+          headers.push(header);
+        }
+      }
+    } catch (error) { headerFailure = error; }
+    // Even a failed header scan must drain started log reads before unlocking sync.
+    const globalReads = await globalReadsPromise;
+    if (headerFailure) throw headerFailure;
+    const failedGlobal = globalReads.findIndex(result => result.status === 'rejected');
+    if (failedGlobal >= 0) {
+      this.lastScanPhase = ['factory_logs', 'market_logs', 'portfolio_factory_logs', 'portfolio_market_logs'][failedGlobal];
+      throw globalReads[failedGlobal].reason;
+    }
     const [factoryLogs, marketLogs, portfolioFactoryLogs, portfolioMarketLogs] = globalReads.map(result => result.value);
     const existing = this.db.prepare('SELECT address FROM pools').all().map(row => row.address);
     const created = [];
+    this.lastScanPhase = 'registration';
     for (const log of factoryLogs.filter(log => log.name === 'PoolCreated')) {
       const pool = exactAddress(log.args.pool);
       if (!existing.includes(pool) && !created.some(entry => entry.address === pool)) {
@@ -293,9 +327,11 @@ export class ChainIndex {
         created.push({ address: pool, createdBlock: log.blockNumber, collection: exactAddress(log.args.circuits), circuitId: log.args.circuitId });
       }
     }
+    this.lastScanPhase = 'pool_logs';
     const poolLogs = await this._logs('pool', [...new Set([...existing, ...created.map(entry => entry.address)])], fromBlock, toBlock);
     const portfolioLogs=[],newPortfolios=[],newChildren=[];
     if (this.portfolioFactory) {
+      this.lastScanPhase = 'portfolio_registration';
       const factoryEvents=portfolioFactoryLogs;
       const known=this.db.prepare('SELECT address FROM portfolios').all().map(row=>row.address);
       for (const log of factoryEvents) {
@@ -307,6 +343,7 @@ export class ChainIndex {
           throw new Error('Budget project is not registered to the configured graph.');
         newPortfolios.push({address,createdBlock:log.blockNumber,...log.args});
       }
+      this.lastScanPhase = 'portfolio_logs';
       const events=await this._logs('portfolio',[...known,...newPortfolios.map(row=>row.address)],fromBlock,toBlock);
       const corePools=new Set([...existing,...created.map(row=>row.address)]);
       for (const log of events.filter(row=>row.name==='ChildPurchased')) {
@@ -333,6 +370,7 @@ export class ChainIndex {
       if (seen.has(key)) throw new Error('RPC returned duplicate log identity.');
       seen.add(key);
     }
+    this.lastScanPhase = 'tip_header';
     const canonicalTip = normalizeBlock(await this.provider.getBlock(toBlock));
     if (canonicalTip.number !== toBlock || canonicalTip.hash !== headers.at(-1).hash) {
       throw new Error('Chain changed before index commit.');
@@ -357,21 +395,37 @@ export class ChainIndex {
   async sync() {
     if (this.syncing) throw new Error('Index sync already running.');
     this.syncing = true;
-    this.ready = false;
+    let resolveSync;
+    this.syncSettled = new Promise(resolve => { resolveSync = resolve; });
+    let stage = 'latest_header';
+    this.lastScanPhase = null;
     try {
       const latest = normalizeBlock(await this.provider.getBlock('latest'));
       const safeHead = latest.number - this.confirmations;
       if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
       this.observedSafeHead = safeHead;
+      // A load-balanced RPC can briefly report a shorter latest chain. That
+      // alone is not proof of a reorg and must not erase committed history.
+      // Reconcile by hash once the endpoint can serve the indexed tip again.
+      stage = 'safe_head';
+      if (this.indexedThrough > safeHead) throw new Error('RPC safe head regressed below the indexed tip.');
+      stage = 'deployment';
       await this._verifyDeployment(safeHead);
-      // A shorter replacement chain cannot supply our old tip by number. Drop
-      // that tail first, then compare the remaining stored headers normally.
-      if (this.indexedThrough > safeHead) this._rollback(safeHead);
+      stage = 'reconcile';
       await this._reconcile();
+      const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
+      if (saved && !this.snapshotTrusted) {
+        const source = JSON.parse(saved.source);
+        this.snapshotTrusted = source.indexedThrough <= this.indexedThrough
+          && normalizeBlock(await this.provider.getBlock(source.indexedThrough)).hash === source.indexedBlockHash;
+        if (!this.snapshotTrusted) this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+      }
       const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync);
+      stage = 'scan';
       for (let from = this.indexedThrough + 1; from <= until; from += this.scanRange) {
         await this._scanChunk(from, Math.min(until, from + this.scanRange - 1));
       }
+      stage = 'canonical_tip';
       if (this.indexedThrough >= this.startBlock) {
         const stored = this._header(this.indexedThrough);
         if (stored.hash !== normalizeBlock(await this.provider.getBlock(this.indexedThrough)).hash) {
@@ -379,20 +433,66 @@ export class ChainIndex {
           throw new Error('Chain changed after index commit; retry sync.');
         }
       }
+      stage = 'history_complete';
       if (this.indexedThrough === safeHead) await this._verifyHistoryComplete(safeHead);
       this.lastError = null;
       this.checkedAt = new Date().toISOString();
       this.ready = this.indexedThrough === safeHead;
+      stage = 'snapshot';
+      if (this.ready) this._captureVerifiedSnapshot();
+      this.lastFailureStage = null;
       return this.status();
     } catch (error) {
+      this.lastFailureStage = stage === 'scan' && this.lastScanPhase ? `scan_${this.lastScanPhase}` : stage;
       // Status is public. Never echo provider errors, which may contain an RPC
       // URL with credentials or an upstream response body.
       this.lastError = error instanceof Error && error.message === 'RPC is not BSC mainnet (56).'
         ? 'wrong_chain' : error instanceof Error && error.message.startsWith('Event history is incomplete')
-          ? 'incomplete_history' : 'sync_failed';
+          ? 'incomplete_history' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
+            ? 'rpc_lagging' : 'sync_failed';
       this.checkedAt = new Date().toISOString();
       throw error;
-    } finally { this.syncing = false; }
+    } finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
+  }
+
+  _captureVerifiedSnapshot() {
+    const source = this.status();
+    if (!source.complete) throw new Error('Only a fully verified source can be saved.');
+    const pools = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT 501').all();
+    const portfolios = this.db.prepare('SELECT address,created_block AS createdBlock,budget AS budgetWei,absolute_cap AS absoluteCapWei,unit_cap AS unitCapWei FROM portfolios ORDER BY created_block,address LIMIT 501').all()
+      .map(row => ({ ...row, kind: 'portfolio', factory: this.portfolioFactory }));
+    if (pools.length > 500 || portfolios.length > 500) return;
+    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
+    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    const portfolioCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
+    if (pools.length !== registeredPoolCount - childPoolCount) throw new Error('Verified pool directory is incomplete.');
+    if (portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
+    const orderCount = this.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'market' AND name = 'OrderListed'").get().n;
+    let orders = null;
+    if (orderCount <= 500) {
+      const page = this.orders({ limit: 500, allowSnapshotLimit: true });
+      orders = page.items;
+      if (page.nextCursor !== null || orders.length !== orderCount) throw new Error('Verified order directory is incomplete.');
+    }
+    const logCount = this.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
+    const stats = logCount <= 10_000 ? this.stats() : null;
+    const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
+      childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length), portfolioCount: String(portfolioCount) };
+    this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
+      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null,
+        JSON.stringify(portfolios), orders ? JSON.stringify(orders) : null);
+    this.snapshotTrusted = true;
+  }
+
+  verifiedDisplaySnapshot() {
+    if (!this.snapshotTrusted) return null;
+    const saved = this.db.prepare('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot WHERE id = 1').get();
+    if (!saved) return null;
+    const source = JSON.parse(saved.source);
+    if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
+    return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
+      portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null,
+      orders: saved.orders ? JSON.parse(saved.orders) : null };
   }
 
   _allLogs({ kind, address, names, fromTimestamp } = {}) {
@@ -424,7 +524,11 @@ export class ChainIndex {
     integer(cursor, 'cursor'); integer(limit, 'limit', 1);
     if (limit > 50) throw new Error('Page limit exceeds 50.');
     const rows = this.db.prepare('SELECT address,created_block AS createdBlock,collection,circuit_id AS circuitId FROM pools WHERE address NOT IN (SELECT address FROM portfolio_children) ORDER BY created_block,address LIMIT ? OFFSET ?').all(limit + 1, cursor);
-    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? cursor + limit : null };
+    const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n;
+    const childPoolCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolio_children').get().n;
+    return { items: rows.slice(0, limit), nextCursor: rows.length > limit ? cursor + limit : null,
+      registeredPoolCount: String(registeredPoolCount), childPoolCount: String(childPoolCount),
+      standalonePoolCount: String(registeredPoolCount - childPoolCount) };
   }
 
   portfolios({cursor=0,limit=20,account}={}) {
@@ -511,12 +615,12 @@ export class ChainIndex {
     return { items: sorted.slice(cursor, cursor + limit), nextCursor: cursor + limit < sorted.length ? cursor + limit : null };
   }
 
-  orders({ pool, seller, active, cursor, limit = 20, portfolio = false } = {}) {
+  orders({ pool, seller, active, cursor, limit = 20, portfolio = false, allowSnapshotLimit = false } = {}) {
     const targetPool = pool === undefined ? null : exactAddress(pool);
     const targetSeller = seller === undefined ? null : exactAddress(seller);
     if (active !== undefined && typeof active !== 'boolean') throw new Error('Invalid active filter.');
     if (cursor !== undefined && !/^[1-9]\d*$/.test(String(cursor))) throw new Error('Invalid order cursor.');
-    integer(limit, 'limit', 1); if (limit > 50) throw new Error('Page limit exceeds 50.');
+    integer(limit, 'limit', 1); if (limit > (allowSnapshotLimit === true ? 500 : 50)) throw new Error('Page limit exceeds 50.');
     const orders = new Map();
     for (const event of this._allLogs({ kind: portfolio ? 'portfolioMarket' : 'market', names: ['OrderListed', 'OrderExpirySet', 'OrderFilled', 'OrderCancelled'] })) {
       const a = event.args;
@@ -532,7 +636,7 @@ export class ChainIndex {
     const at = this.status().indexedTimestamp;
     const filtered = [...orders.values()].map(order => ({ ...order,
       openAtSourceBlock: BigInt(order.remaining) > 0n && order.expiresAt !== null && Number(order.expiresAt) > at,
-      executable: false, // Always re-read and simulate on-chain before a wallet signature.
+      executable: false, // Re-read current order and pool state before a wallet signature.
     })).filter(order => (!targetPool || order.pool === targetPool) && (!targetSeller || order.seller === targetSeller)
       && (active === undefined || order.openAtSourceBlock === active)
       && (cursor === undefined || BigInt(order.orderId) < BigInt(cursor)))

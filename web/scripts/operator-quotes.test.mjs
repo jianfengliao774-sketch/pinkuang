@@ -7,15 +7,26 @@ const checkMinerOnchain = (provider, quote) => checkMiner(provider, quote, { con
 const loadOperatorQuote = input => loadQuote({ config, ...input });
 
 test('listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic', () => {
-  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.130');
-  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.123');
-  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.333');
-  assert.equal(listingDailyCapacityPrice('1', '1'), '0.000');
-  assert.equal(listingDailyCapacityPrice('123499999999999999', '100000000'), '0.123');
-  assert.equal(listingDailyCapacityPrice('123500000000000000', '100000000'), '0.124');
+  assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.13000');
+  assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.12346');
+  assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.33333');
+  assert.equal(listingDailyCapacityPrice('1', '1'), '<0.00001');
+  assert.equal(listingDailyCapacityPrice('123499999999999999', '100000000'), '0.12350');
+  assert.equal(listingDailyCapacityPrice('123500000000000000', '100000000'), '0.12350');
   for (const [ask, daily] of [[null, '100000000'], ['1000000000000000000', null], ['0', '100000000'], ['1000000000000000000', '0']])
     assert.equal(listingDailyCapacityPrice(ask, daily), null);
   assert.throws(() => listingDailyCapacityPrice('-1', '100000000'));
+});
+
+test('Firsto same-model reference stays distinct from the executable ask and both market sorts are forwarded', async () => {
+  const data = dataFixture(), api = apiFixture(data);
+  const page = await listOperatorQuotes({}, { fetcher: api.fetcher });
+  assert.equal(page.rows[0].listingReference.dailyCapacityPriceWei, '8100000000000000000');
+  assert.notEqual(page.rows[0].listingReference.priceWei, page.rows[0].ask.priceWei);
+  assert.match(api.requests[0].input, /sort=daily_capacity_price_low/);
+  await listOperatorQuotes({ sort: 'price_low' }, { fetcher: api.fetcher });
+  assert.match(api.requests[1].input, /sort=price_low/);
+  assert.match(api.requests[1].input, /miningStatus=verified/);
 });
 
 test('quote selection uses exact official NFT/Mining/Market ABI and pins every read to one BSC block', async () => {

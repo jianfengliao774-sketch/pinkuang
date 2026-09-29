@@ -1,5 +1,6 @@
 import { BrowserProvider, getAddress } from 'ethers';
 import type { DeploymentSnapshot } from './deployment';
+import type { FreshActivationRecord } from './fresh-activation';
 import type { MarketJournalStorage } from './market';
 import type { WalletProvider } from './wallet';
 
@@ -39,6 +40,7 @@ type MarketView = Versioned<unknown>;
 /** The server is the only durable journal. This class keeps revisions in memory solely for CAS. */
 export class ServerJournal {
   private deploymentRevision = 0;
+  private freshActivationRevision = 0;
   private marketRevision = 0;
   private readonly marketAdapter: MarketJournalStorage;
 
@@ -85,6 +87,33 @@ export class ServerJournal {
 
   async readLatestDeployment(): Promise<DeploymentSnapshot | null> {
     return (await this.loadDeployment()).record;
+  }
+
+  async loadFreshActivation(): Promise<FreshActivationRecord | null> {
+    const view = await this.request<Versioned<FreshActivationRecord>>('fresh-activation');
+    if (!Number.isSafeInteger(view.revision) || view.revision < 0
+      || view.record && (view.record.chainId !== 56 || view.record.account.toLowerCase() !== this.account.toLowerCase()))
+      throw new Error('服务器的新合约激活记录与当前钱包不匹配。');
+    this.freshActivationRevision = view.revision;
+    return view.record;
+  }
+
+  async freshActivationCredentialStatus(): Promise<{ credentialVerified: boolean; gasWallet: string | null }> {
+    const status = await this.request<{ credentialVerified: boolean; gasWallet: string | null }>('fresh-activation/config');
+    if (!status || typeof status.credentialVerified !== 'boolean'
+      || status.gasWallet !== null && (typeof status.gasWallet !== 'string'
+        || getAddress(status.gasWallet) !== status.gasWallet)
+      || status.credentialVerified !== (status.gasWallet !== null))
+      throw new Error('服务器 Gas 钱包凭据状态格式异常。');
+    return status;
+  }
+
+  async saveFreshActivation(record: FreshActivationRecord): Promise<void> {
+    if (record.chainId !== 56 || record.account.toLowerCase() !== this.account.toLowerCase())
+      throw new Error('激活记录与当前钱包不匹配。');
+    const result = await this.request<{ revision: number }>('fresh-activation', 'PUT',
+      { record, expectedRevision: this.freshActivationRevision });
+    this.freshActivationRevision = result.revision;
   }
 
   async readCurrentNonce(): Promise<{ latest: number; pending: number }> {

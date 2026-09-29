@@ -20,12 +20,12 @@ export function shareQuantity(value) {
 }
 
 /** Prices are decimal BNB strings (or whole-BNB bigint), never binary floating-point Numbers. */
-export function exactPrice(value, { allowZero = false } = {}) {
+export function exactPrice(value) {
   assert(typeof value === 'string' || typeof value === 'bigint', '金额须使用精确十进制字符串 / Use an exact decimal amount.');
   const text = String(value);
   assert(text === text.trim() && /^(0|[1-9]\d{0,77})(\.\d{1,18})?$/.test(text), '请输入精确 BNB 金额，最多 18 位小数 / Enter an exact BNB amount.');
   const result = parseEther(text);
-  assert(result < 2n ** 256n && (allowZero ? result >= 0n : result > 0n), '价格超出范围 / Price is outside the allowed range.');
+  assert(result < 2n ** 256n && result > 0n, '价格必须大于零 / Price must be greater than zero.');
   return result;
 }
 
@@ -35,8 +35,8 @@ function id(value) {
 }
 
 /**
- * All reads and the initial simulation use one canonical latest block. This returns an unsigned
- * preview, never a signature or send; the transaction service must simulate latest again before signing.
+ * All read-only checks use one canonical latest block. This returns an unsigned
+ * preview, never a signature or send. The journal checks exact calldata before signing.
  */
 export async function prepareProductAction({ provider, config, account, pool, kind, quantity, price, proposalId, support, orderId,
   priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch,
@@ -70,12 +70,6 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     to: address(to), data: contract.encodeFunctionData(method, args), value: toQuantity(uint(value)) });
 
   async function finish(transaction, details = {}) {
-    const { chainId: _chainId, ...unsigned } = transaction;
-    // The return bytes must also match the ABI, including calls returning booked amounts/order IDs.
-    const contract = market && same(transaction.to, market) ? abi.ShareMarket : abi.PoolVault;
-    const parsed = contract.parseTransaction(transaction);
-    const output = await request('eth_call', [unsigned, blockTag]);
-    contract.decodeFunctionResult(parsed.fragment, output);
     const { after, finalChain } = await settleReadRound({
       after: () => request('eth_getBlockByNumber', [blockTag, false]),
       finalChain: () => request('eth_chainId'),
@@ -88,7 +82,7 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   }
 
   async function poolSnapshot(target) {
-    const snapshot = await readPoolSnapshot(provider, { factory, account: from, pools: [target], blockNumber });
+    const snapshot = await readPoolSnapshot(provider, { factory, lens, account: from, pools: [target], blockNumber });
     const row = snapshot.pools[0];
     assert(same(snapshot.lens, lens) && snapshot.blockHash.toLowerCase() === block.hash.toLowerCase() && snapshot.timestamp === timestamp,
       '矿池读取与部署或区块不一致 / Pool deployment or block mismatch.');
@@ -166,11 +160,12 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     const qty = shareQuantity(quantity);
     assert(row.state === 2n && row.shareTradingAllowed === true && row.availableShares !== null && row.availableShares >= qty,
       '可售份额不足或当前暂停转让 / Shares unavailable or trading paused.');
-    const priceWei = exactPrice(price, { allowZero: true });
+    const priceWei = exactPrice(price);
     const listingGross = priceWei * qty;
     assert(listingGross + listingGross / 100n < 2n ** 256n,
       '挂牌金额加买方手续费超出合约范围 / Listing plus buyer fee overflows the market.');
-    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, priceWei]), { ...details, quantity: qty });
+    return finish(tx(market, abi.ShareMarket, 'list', [target, qty, priceWei]),
+      { ...details, quantity: qty, listingGrossWei: listingGross });
   }
   if (kind === 'withdrawDeposit') {
     assert(row.state === 0n && row.shares !== null && row.shares > 0n, '当前不可撤回认购 / Subscription cannot be withdrawn now.');

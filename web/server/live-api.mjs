@@ -162,7 +162,7 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
     if (lower(poolFactory) !== lower(factory) || lower(officialFactory) !== lower(factory)) fail(400, 'Pool Factory identity mismatch.');
     return vault;
   };
-  async function marketIntent({ parsed, account, pool, value, expected, allowFree, requireExpected = true }) {
+  async function marketIntent({ parsed, account, pool, value, expected, requireExpected = true }) {
     if (!parsed || !MARKET_ACTIONS.has(parsed.name)) fail(400, 'Unsupported ShareMarket action.');
     if (await marketContract.feeBps() !== 100n) fail(503, 'Reviewed ShareMarket fee changed.');
     const method = parsed.name;
@@ -181,7 +181,7 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
       const [listedPool, amount, price] = parsed.args;
       if (lower(listedPool) !== lower(pool) || amount < 1n || amount > 100n ||
           price > MAX_UINT256 / amount || value !== 0n ||
-          price === 0n && requireExpected && allowFree !== true) fail(400, 'Invalid Market listing amount, price or pool.');
+          price === 0n && requireExpected) fail(400, 'Invalid Market listing amount, price or pool.');
       vault = await knownPool(pool);
       const [state, tradable, available] = await Promise.all([
         vault.state(), vault.shareTradingAllowed(), vault.availableShares(account),
@@ -416,7 +416,7 @@ export function createLiveApi(config, { provider = new JsonRpcProvider(config.rp
             fail(400, 'Invalid ShareMarket calldata.');
           }
           action = await marketIntent({ parsed, account, pool, value: BigInt(input.value),
-            expected: input.expected, allowFree: input.allowFree });
+            expected: input.expected });
         } else {
           if (lower(target) !== lower(pool)) fail(400, 'A pool transaction must target its registered pool.');
           const vault = await knownPool(pool);

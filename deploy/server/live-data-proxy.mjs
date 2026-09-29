@@ -58,6 +58,8 @@ export function validateIndexRequest(url) {
   const route = url.pathname.slice('/api/chain-index'.length);
   const routes = {
     '/health': [], '/v1/stats': [], '/v1/pools': ['cursor', 'limit'], '/v1/portfolios':['cursor','limit'],
+    '/v1/snapshot/pools': ['cursor', 'limit'], '/v1/snapshot/portfolios': ['cursor', 'limit'],
+    '/v1/snapshot/stats': [], '/v1/snapshot/orders': ['pool', 'seller', 'active', 'cursor', 'limit'],
     '/v1/orders': ['pool', 'seller', 'active', 'cursor', 'limit'],
     '/v1/portfolio-orders':['pool','seller','active','cursor','limit'],
     '/v1/activity': ['pool', 'account', 'cursor', 'limit'],
@@ -128,11 +130,46 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
 }
 
 export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
-  timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24 } = {}) {
+  timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
+  publicSourceTtlMs = 30000, pinnedRpcTtlMs = 60000, now = Date.now } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
-  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent }))
+  for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent, publicSourceTtlMs, pinnedRpcTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
   let concurrent = 0;
+  const pinnedRpc = new Map(), pendingRpc = new Map();
+  const pinnedKey = payload => ['eth_call', 'eth_getCode'].includes(payload.method) && QUANTITY.test(payload.params[1])
+    ? JSON.stringify([payload.method, payload.params]) : null;
+  const readRpc = async (payload, key) => {
+    let pending = key && pendingRpc.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
+        requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
+          && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
+        return value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+      })();
+      if (key) pendingRpc.set(key, pending);
+    }
+    try {
+      const value = await pending;
+      if (key && typeof value.result === 'string' && value.result.length <= 65536) {
+        pinnedRpc.delete(key);
+        pinnedRpc.set(key, { value, until: now() + pinnedRpcTtlMs });
+        if (pinnedRpc.size > 256) pinnedRpc.delete(pinnedRpc.keys().next().value);
+      }
+      return value;
+    } finally { if (key && pendingRpc.get(key) === pending) pendingRpc.delete(key); }
+  };
+  // Only the public index source is cached. The client rechecks its block hash
+  // against BSC; account balances, quotes and transaction reads are never cached.
+  let publicSource = null;
+  const rememberSource = value => {
+    const source = value?.source;
+    if (source?.complete !== true || source.unknownReason !== null || source.chainId !== 56 ||
+      !Number.isSafeInteger(source.indexedThrough) || !/^0x[\da-f]{64}$/i.test(source.indexedBlockHash ?? '') ||
+      !Number.isFinite(Date.parse(source.checkedAt))) return;
+    publicSource = { body: { source }, until: now() + publicSourceTtlMs };
+  };
   const allowRpc = createRequestLimiter({ perClient: 300 });
   return Object.freeze({ async handle(req, res) {
     const send = (status, value) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -149,19 +186,25 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         requireValue(!url.search && !url.hash, 400, 'RPC does not accept URL parameters.');
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');
         const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }));
-        const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
-        requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
-          && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
-        return send(200, value.error ? { jsonrpc: '2.0', id: payload.id, error: { code: -32000, message: 'Upstream rejected the read request.' } }
-          : { jsonrpc: '2.0', id: payload.id, result: value.result });
+        const key = pinnedKey(payload), cached = key && pinnedRpc.get(key);
+        const hit = cached && now() < cached.until;
+        if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
+        else if (cached) pinnedRpc.delete(key);
+        const value = hit ? cached.value : await readRpc(payload, key);
+        return send(200, { jsonrpc: '2.0', id: payload.id, ...value });
       }
       requireValue(url.pathname.startsWith('/api/chain-index/'), 404, 'Unknown data route.');
       requireValue(req.method === 'GET', 405, 'Index requires GET.');
       const route = validateIndexRequest(url);
       requireValue(indexUrl, 503, 'Read-only index is not configured.');
+      if (route === '/health' && publicSource && now() < publicSource.until) {
+        res.setHeader('X-Bemine-Server-Cache', 'hit');
+        return send(200, publicSource.body);
+      }
       const upstream = new URL(`${indexUrl.replace(/\/$/, '')}${route}`); upstream.search = url.search;
       const { status, value } = await fetchJson(upstream.href, { method: 'GET' }, { fetcher, timeoutMs, maxResponseBytes });
       requireValue([200, 400, 503].includes(status), 502, 'Read-only index is unavailable.');
+      if (status === 200) rememberSource(value);
       return send(status, value);
     } catch (error) { if (!res.destroyed && !res.writableEnded) send(error instanceof ProxyError ? error.status : 502,
       { error: error instanceof ProxyError ? error.message : 'Read-only data service is unavailable.' }); }

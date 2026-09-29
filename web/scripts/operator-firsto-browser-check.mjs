@@ -62,9 +62,9 @@ try {
   await page.locator('header').getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
   await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
-  await page.getByRole('button', { name: '浏览 Firsto 候选', exact: true }).click();
+  await page.getByRole('button', { name: '链上核对并选择', exact: true }).waitFor();
   await page.getByRole('button', { name: '链上核对并选择', exact: true }).click();
-  await page.getByText('矿池总支出 0.005 BNB', { exact: true }).waitFor();
+  await page.getByText('矿池总支出 0.00500 BNB', { exact: true }).waitFor();
   await page.getByRole('button', { name: '填入建池表单', exact: true }).click();
   assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '0.005050000000000001');
   checks.push('Firsto selected quote fills fee-inclusive cap');
@@ -77,8 +77,8 @@ try {
   await page.getByRole('button', { name: '先查官网并预览购机', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '确认运营操作' }); await modal.waitFor();
   const text = await modal.innerText();
-  assert.match(text, /TapeOut #7/); assert.match(text, /0.005 BNB（由矿池余额支付）/);
-  assert.match(text, /仅 Gas，不从运营钱包转入购机款/); assert.match(text, /0.000 BNB/);
+  assert.match(text, /TapeOut #7/); assert.match(text, /0.00500 BNB（由矿池余额支付）/);
+  assert.match(text, /仅 Gas，不从运营钱包转入购机款/); assert.match(text, /0.00000 BNB/);
   assert.equal(f.simulations.length, 1); assert.deepEqual(forbidden, []);
   await page.screenshot({ path: join(output, 'firsto-pool-funded-preview.png'), fullPage: true, animations: 'disabled' });
   checks.push('one click reads original target and previews exact seller price, source fee, pool gross and wallet Gas only');
@@ -102,8 +102,8 @@ try {
   assert(await page.getByRole('button', { name: '先查官网并预览购机', exact: true }).isEnabled());
   await page.getByRole('button', { name: '先查官网并预览购机', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '尚未开放 Firsto 采购' }).waitFor();
-  assert(await page.getByRole('button', { name: '浏览 Firsto 候选', exact: true }).isEnabled());
-  await page.getByRole('button', { name: '浏览 Firsto 候选', exact: true }).click();
+  assert(await page.getByRole('button', { name: '刷新日产能价候选', exact: true }).isEnabled());
+  await page.getByRole('button', { name: '刷新日产能价候选', exact: true }).click();
   await page.getByRole('button', { name: '链上核对并选择', exact: true }).click();
   await page.getByText('当前工厂版本尚未开放 Firsto 合约采购。', { exact: true }).waitFor();
   assert(await page.getByRole('button', { name: '填入建池表单', exact: true }).isDisabled());
@@ -125,7 +125,7 @@ try {
   await page.getByRole('button', { name: '先查官网并预览购机', exact: true }).click();
   await modal.waitFor();
   await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), FIXTURE_OTHER_ACCOUNT);
-  await page.getByText('此页面仅限授权运营人员', { exact: true }).waitFor();
+  await page.waitForURL(/#home$/);
   assert.equal(await modal.count(), 0); assert.deepEqual(forbidden, []);
   checks.push('account switch invalidates Firsto procurement preview without signing');
   assert.deepEqual(errors, []);

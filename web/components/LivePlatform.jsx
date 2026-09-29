@@ -1,5 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
+import { readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
 import {
@@ -38,6 +40,7 @@ import SiteOverview from "./SiteOverview";
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
+import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios from "./LivePortfolios";
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
@@ -49,11 +52,15 @@ import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-disc
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
+import { approvedOperatorCall, authorityActionStatus, signAuthorityAction, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
+import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
-import { createReadOnlyHttpProvider, loadLiveConfig } from "../lib/live-config.mjs";
+import { createReadOnlyHttpProvider, fetchLiveJson, loadLiveConfig, validateProductGraph } from "../lib/live-config.mjs";
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
+import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
+import { readCurrentPoolMembers } from "../lib/live-members.mjs";
 import {
   connectWallet,
   authenticate,
@@ -65,7 +72,7 @@ import {
 } from "../lib/live-transactions.mjs";
 import { prepareProductAction } from "../lib/live-actions.mjs";
 import { shareListingView } from "../lib/share-listing-view.mjs";
-import { displayDecimal } from "../lib/amount-display.mjs";
+import { displayDecimal, displayGasFee, displayPreciseAmount } from "../lib/amount-display.mjs";
 import { abi, readPoolSnapshot } from "../lib/chain-client.mjs";
 import {
   amount,
@@ -79,11 +86,12 @@ import {
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
   process.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL,
 );
 const publicBaseUrl =
-  process.env.NEXT_PUBLIC_BEMINE_PUBLIC_URL || "https://tapeout.cc.cd/bemine/";
+  process.env.NEXT_PUBLIC_BEMINE_PUBLIC_URL || publicShareBaseForPath(basePath);
 const navigation = [
   ["home", "拼矿总览", "BEMine overview", Blocks],
   ["overview", "资产总览", "My portfolio", LayoutDashboard],
@@ -212,9 +220,11 @@ export default function LivePlatform() {
     [detail, setDetail] = useState(null),
     [governance, setGovernance] = useState(null),
     [members, setMembers] = useState([]),
+    [membersRead, setMembersRead] = useState({ status: "idle" }),
     [orders, setOrders] = useState([]),
     [activity, setActivity] = useState([]),
     [source, setSource] = useState(null);
+  const [detailPreview, setDetailPreview] = useState(null);
   const [poolCursor, setPoolCursor] = useState(null),
     [positionCursor, setPositionCursor] = useState(null),
     [orderCursor, setOrderCursor] = useState(null),
@@ -224,18 +234,35 @@ export default function LivePlatform() {
     [yieldDays, setYieldDays] = useState(30);
   const [loadedRoute, setLoadedRoute] = useState("");
   const [orderCapacity, setOrderCapacity] = useState({});
+  const [poolCapacity, setPoolCapacity] = useState({});
   const [capacityNow, setCapacityNow] = useState(0);
+  const [poolQuoteRevision, setPoolQuoteRevision] = useState(0);
   const [loadedAccount, setLoadedAccount] = useState(null);
+  const [positionsAccount, setPositionsAccount] = useState(null);
   const [operator, setOperator] = useState(null);
   const [positionsLoaded, setPositionsLoaded] = useState(false);
+  const [positionsReadLoading, setPositionsReadLoading] = useState(false);
+  const [marketOrdersLoading, setMarketOrdersLoading] = useState(false);
+  const [positionsReadError, setPositionsReadError] = useState("");
+  const [marketOrdersError, setMarketOrdersError] = useState("");
+  const [positionsReadSource, setPositionsReadSource] = useState(null);
+  const [marketOrderSource, setMarketOrderSource] = useState(null);
+  const [activityReadLoading, setActivityReadLoading] = useState(false);
+  const [activityReadError, setActivityReadError] = useState("");
+  const [activityReadSource, setActivityReadSource] = useState(null);
+  const [statsReadError, setStatsReadError] = useState("");
+  const [statsSource, setStatsSource] = useState(null);
   const [notificationClaim, setNotificationClaim] = useState(null);
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
+  const [cachedPage, setCachedPage] = useState(false);
   const [loading, setLoading] = useState(false),
     [busy, setBusy] = useState(false),
     [transactionStage, setTransactionStage] = useState(null),
+    [transactionGasWei, setTransactionGasWei] = useState(null),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
-    [refresh, setRefresh] = useState(0);
+    [refresh, setRefresh] = useState(0),
+    [operatorRefresh, setOperatorRefresh] = useState(0);
   const [modal, setModal] = useState(null),
     [quantity, setQuantity] = useState("1"),
     [price, setPrice] = useState(""),
@@ -243,12 +270,17 @@ export default function LivePlatform() {
     [pending, setPending] = useState(null),
     [recoveryHash, setRecoveryHash] = useState("");
   const [query, setQuery] = useState(""),
-    [filter, setFilter] = useState("all"),
+    [filter, setFilter] = useState("Funding"),
     [sort, setSort] = useState("funded"),
     [filtersOpen, setFiltersOpen] = useState(false),
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares");
   const epoch = useRef(0),
+    pageCache = useRef(new WeakMap()),
+    readCache = useRef(new WeakMap()),
+    positionsReadEpoch = useRef(0),
+    marketOrdersEpoch = useRef(0),
+    activityReadEpoch = useRef(0),
     capacityEpoch = useRef(0),
     modalRef = useRef(null),
     restoreFocus = useRef(null),
@@ -259,6 +291,14 @@ export default function LivePlatform() {
     lastConfirmed = useRef(null),
     walletEpoch = useRef(0),
     activeModal = useRef(null);
+  const lastPageRefresh = useRef(new Map());
+  const portfolioRead = useRef({ busy: false, failed: false });
+  const capacityDisplay = useRef({ pools: {}, orders: {} });
+  const refreshState = useRef(null);
+  capacityDisplay.current = { pools: poolCapacity, orders: orderCapacity };
+  refreshState.current = { loading: loading || positionsReadLoading || marketOrdersLoading || activityReadLoading,
+    busy, modal: !!modal, pending: !!pending,
+    failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
   useEffect(() => {
     if (modal?.type !== 'connect-wallet') cancelWalletScan();
@@ -278,18 +318,26 @@ export default function LivePlatform() {
   // Reject it during render, before the effect cleanup, when any identity changes.
   const operatorContextCurrent = !!wallet && !!account && !!config
     && connectedWallet.current === wallet && operator?.provider === wallet
-    && operator.walletRevision === walletRevision && operator.refresh === refresh
+    && operator.walletRevision === walletRevision && operator.refresh === operatorRefresh
     && operator.deployment === boot && same(operator.account, account)
     && same(operator.factory, config.factory);
   const isOperator = operatorContextCurrent && operator.status === 'verified'
-    && operator.configured === true && operator.isOperator === true && same(operator.operator, account)
+    && operator.configured === true && operator.isOperator === true
+    && (same(operator.operator, account) || config.stage === 'fresh-active'
+      && operator.isAuthorityAdmin === true && same(operator.operator, config.authority))
     && !connectingId && !connectionLock.current;
   const isPortfolioOperator = operatorContextCurrent && operator.status === 'verified' && operator.isPortfolioOperator === true
-    && same(operator.portfolioOperator, account) && !connectingId && !connectionLock.current;
+    && (same(operator.portfolioOperator, account) || config.stage === 'fresh-active'
+      && operator.isAuthorityAdmin === true && same(operator.portfolioOperator, config.authority))
+    && !connectingId && !connectionLock.current;
   const hasOperatorAccess = isOperator || isPortfolioOperator;
   const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
     : hasOperatorAccess ? 'verified' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
       : operator.status === 'error' ? 'unavailable' : 'denied';
+
+  useEffect(() => {
+    if (route.route === 'operator' && ['disconnected', 'denied'].includes(operatorAccess)) location.hash = 'home';
+  }, [route.route, operatorAccess]);
 
   useEffect(() => {
     const service = createWalletDiscovery(window, setWallets);
@@ -303,7 +351,7 @@ export default function LivePlatform() {
     setOperator(null);
     if (wallet && account && config) {
       const binding = { provider: wallet, account, factory: config.factory,
-        walletRevision, refresh, deployment: boot };
+        walletRevision, refresh: operatorRefresh, deployment: boot };
       const current = () => active && connectedWallet.current === wallet && walletEpoch.current === walletRevision;
       setOperator({ ...binding, status: 'checking' });
       readOperatorStatus({ provider: wallet, config, account }).then(result => {
@@ -311,7 +359,7 @@ export default function LivePlatform() {
       }).catch(() => { if (current()) setOperator({ ...binding, status: 'error' }); });
     }
     return () => { active = false; };
-  }, [wallet, account, boot, refresh, walletRevision]);
+  }, [wallet, account, boot, operatorRefresh, walletRevision]);
 
   useEffect(() => {
     try {
@@ -440,7 +488,10 @@ export default function LivePlatform() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const openAction = (kind, pool, extra = {}) => {
-    if (loading || busy) return;
+    if (busy || (loading && !['overview', 'rewards', 'market'].includes(route.route))
+      || (['overview', 'rewards', 'market'].includes(route.route)
+      && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
+      && (positionsReadLoading || !!positionsReadError))) return;
     setError("");
     if (
       kind === "list" &&
@@ -456,7 +507,13 @@ export default function LivePlatform() {
     setPrice("");
     setModal({ type: "action", kind, pool, ...extra });
   };
-  const openDetails = (pool) => go("detail", pool.pool);
+  const openDetails = (pool) => {
+    // This row was verified by the preceding catalog read. Show its public
+    // facts immediately while the new detail read runs; it cannot authorize a
+    // wallet action and is never persisted in browser storage.
+    setDetailPreview(pool);
+    go("detail", pool.pool);
+  };
   const date = (value) =>
     value == null
       ? "—"
@@ -468,7 +525,7 @@ export default function LivePlatform() {
   const capacityCell = (order) => {
     const capacity = orderCapacity[order.pool?.toLowerCase()];
     if (capacity?.available && capacity.validUntil > capacityNow) return <>
-      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic), 18, 6)}</strong>
+      <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic))}</strong>
       <small>Firsto · {new Date(capacity.observedAt).toLocaleString(locale === "en" ? "en-GB" : "zh-CN")}</small>
     </>;
     if (capacity?.loading) return L("计算中…", "Loading…");
@@ -479,6 +536,27 @@ export default function LivePlatform() {
   const accountNeeded = ["overview", "rewards"].includes(route.route);
 
   useEffect(() => {
+    if (!client || refreshIntervalMs(route.route) === null) return;
+    const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+    lastPageRefresh.current.set(page, Date.now());
+    const check = () => {
+      const state = refreshState.current;
+      const now = Date.now();
+      if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
+        visible: document.visibilityState === 'visible',
+        busy: state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy,
+        failed: state.failed || portfolioRead.current.failed })) return;
+      lastPageRefresh.current.set(page, now);
+      setRefresh(value => value + 1);
+    };
+    const timer = setInterval(check, 5_000);
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => { clearInterval(timer); window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check); };
+  }, [client, route.route, route.pool, account]);
+
+  useEffect(() => {
     if (!client) return;
     if (route.route === 'notifications') {
       setLoadedRoute('notifications'); setLoading(false); setError(''); setReadRetry(null); setReadFailed(false);
@@ -487,30 +565,51 @@ export default function LivePlatform() {
     let cancelled = false;
     const revision = ++epoch.current;
     const current = () => !cancelled && revision === epoch.current;
+    const accountKey = account?.toLowerCase() || '';
+    const pageKey = JSON.stringify([route.route, route.pool?.toLowerCase() || '', accountKey,
+      route.route === 'market' ? marketTab : '']);
+    const cache = pageCache.current.get(client);
+    const saved = cache?.get(pageKey);
+    const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
+    const persisted = recent(saved) ? null : readDisplaySnapshot(displayStorage(), client.manifest, pageKey);
+    const needsCatalog = ['home', 'pools'].includes(route.route)
+      || route.route === 'market' && marketTab === 'whole' || (route.route === 'governance' && !account);
+    const shared = needsCatalog && !recent(saved) && !persisted
+      ? [...(cache?.values() || [])].reverse().find(entry => recent(entry) && entry.account === accountKey && entry.result.catalog)
+      : null;
+    const cached = recent(saved) ? saved.result : persisted || (shared ? { catalog: shared.result.catalog } : null);
+    const showResult = result => {
+      if (result.catalog) {
+        setPools(result.catalog.items.map(viewPool));
+        setPoolCursor(result.catalog.nextCursor);
+        setSource(result.catalog.source);
+      }
+      if (result.detail) {
+        setDetail(viewPool(result.detail.item));
+        setSource(result.detail.source);
+      }
+      if (result.governance) setGovernance(result.governance.data);
+      setLoadedAccount(account);
+    };
     const clearRound = progress => {
       setReadRetry(progress.attempt > 1 ? progress : null);
       setReadFailed(false);
-      setLoadedRoute("");
+      setCachedPage(!!cached);
+      setLoadedRoute(cached || (!needsCatalog && route.route !== 'detail')
+        ? route.route + (route.pool ? `/${route.pool}` : '') : '');
       setLoadedAccount(null);
-      setPositionsLoaded(false);
-      setPools([]);
-      setPositions([]);
-      setMarketCredit(null);
       setLoading(true);
       setError("");
-      setDetail(null);
-      setGovernance(null);
-      setMembers([]);
-      setOrders([]);
-      setActivity([]);
-      setStats(null);
-      setSource(null);
-      setYieldData(null);
       setPrepared(null);
-      setPoolCursor(null);
-      setPositionCursor(null);
-      setOrderCursor(null);
-      setActivityCursor(null);
+      // The route's sections own their data. Keep verified display values visible
+      // while this page revalidates, instead of clearing unrelated panels.
+      if (!cached && progress.attempt === 1) {
+        if (needsCatalog) { setPools([]); setPoolCursor(null); }
+        if (route.route === 'detail') { setDetail(null); setGovernance(null); setMembers([]);
+          setMembersRead({ status: 'idle' }); setYieldData(null); }
+        setSource(null);
+      }
+      if (cached) showResult(cached);
     };
     async function load() {
       return readPageRound(client, { route, account, marketTab });
@@ -519,36 +618,25 @@ export default function LivePlatform() {
       onRetry: progress => { if (current()) setReadRetry(progress); } })
       .then((result) => {
         if (result === READ_CANCELLED || !current()) return;
-        if (result.catalog) {
-          setPools(result.catalog.items.map(viewPool));
-          setPoolCursor(result.catalog.nextCursor);
-          setSource(result.catalog.source);
+        if (result.catalog || result.detail) {
+          let entries = pageCache.current.get(client);
+          if (!entries) { entries = new Map(); pageCache.current.set(client, entries); }
+          entries.delete(pageKey);
+          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, result });
+          if (entries.size > 8) entries.delete(entries.keys().next().value);
+          writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
         }
-        if (result.stats) setStats(result.stats.data);
-        if (result.positions) {
-          setPositions(result.positions.items.map(viewPool));
-          setPositionCursor(result.positions.nextCursor);
-          setPositionsLoaded(true);
-          setMarketCredit(result.positions.marketBnbOwed);
-        }
-        if (result.detail) setDetail(viewPool(result.detail.item));
-        if (result.governance) setGovernance(result.governance.data);
-        if (result.orders) {
-          setOrders(result.orders.items);
-          setOrderCursor(result.orders.nextCursor);
-        }
-        if (result.activity) {
-          setActivity(result.activity.items);
-          setActivityCursor(result.activity.nextCursor);
-        }
-        setLoadedAccount(account);
+        showResult(result);
+        if (result.detail) setDetailPreview(null);
+        setCachedPage(false);
       })
       .catch((e) => {
         if (current()) {
           setError(textError(e));
           setReadFailed(true);
-          setPools([]);
-          setPositions([]);
+          // A failed revalidation must not turn the last verified display into
+          // an apparent empty account. Transaction paths still require fresh reads.
+          setCachedPage(!!cached);
         }
       })
       .finally(() => {
@@ -562,18 +650,240 @@ export default function LivePlatform() {
       cancelled = true;
       epoch.current++;
     };
-  }, [client, account, route.route, route.pool, refresh, marketTab]);
+  }, [client, account, route.route, route.pool, marketTab, refresh]);
 
   useEffect(() => {
-    if (route.route !== "market") return;
+    if (!client || !['overview', 'rewards', 'governance', 'market'].includes(route.route)) return;
+    let cancelled = false;
+    ++positionsReadEpoch.current;
+    const owner = account?.toLowerCase();
+    setPositionsReadError('');
+    setPositionsReadSource(null);
+    if (!owner) {
+      setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
+      setPositionsReadLoading(false);
+      return;
+    }
+    const cacheKey = `positions:${owner}`;
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setPositions(cached.items.map(viewPool));
+      setPositionCursor(cached.nextCursor);
+      setPositionsLoaded(true);
+      setPositionsAccount(account);
+      setMarketCredit(cached.marketBnbOwed);
+      setPositionsReadSource(cached.source);
+      if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(cached.source);
+    } else {
+      setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
+    }
+    setPositionsReadLoading(true);
+    retryReadRound(() => client.readPositions({ account }), { isCurrent: () => !cancelled })
+      .then(result => {
+        if (cancelled || result === READ_CANCELLED) return;
+        setPositions(result.items.map(viewPool));
+        setPositionCursor(result.nextCursor);
+        setPositionsLoaded(true);
+        setPositionsAccount(account);
+        setMarketCredit(result.marketBnbOwed);
+        setPositionsReadSource(result.source);
+        if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(result.source);
+        let entries = readCache.current.get(client);
+        if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
+        entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
+      })
+      .catch(error => { if (!cancelled) setPositionsReadError(textError(error)); })
+      .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
+    return () => { cancelled = true; ++positionsReadEpoch.current; };
+  }, [client, account, route.route, refresh]);
+
+  useEffect(() => {
+    if (!client || route.route !== 'market') return;
+    let cancelled = false;
+    ++marketOrdersEpoch.current;
+    setMarketOrdersError('');
+    setMarketOrderSource(null);
+    if (marketTab === 'whole' || (marketTab === 'mine' && !account)) {
+      setOrders([]); setOrderCursor(null); setMarketOrdersLoading(false);
+      return;
+    }
+    const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setOrders(cached.items);
+      setOrderCursor(cached.nextCursor);
+      setMarketOrderSource(cached.source);
+    } else {
+      setOrders([]); setOrderCursor(null);
+    }
+    setMarketOrdersLoading(true);
+    retryReadRound(() => client.readOrders(marketTab === 'mine' ? { seller: account } : { active: true }),
+      { isCurrent: () => !cancelled })
+      .then(result => {
+        if (cancelled || result === READ_CANCELLED) return;
+        setOrders(result.items);
+        setOrderCursor(result.nextCursor);
+        setMarketOrderSource(result.source);
+        let entries = readCache.current.get(client);
+        if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
+        entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
+      })
+      .catch(error => { if (!cancelled) setMarketOrdersError(textError(error)); })
+      .finally(() => { if (!cancelled) setMarketOrdersLoading(false); });
+    return () => { cancelled = true; ++marketOrdersEpoch.current; };
+  }, [client, account, route.route, marketTab, refresh]);
+
+  useEffect(() => {
+    if (!client || !['records', 'overview', 'rewards'].includes(route.route)) return;
+    let cancelled = false;
+    ++activityReadEpoch.current;
+    const owner = route.route === 'records' ? undefined : account;
+    setActivityReadError('');
+    setActivityReadSource(null);
+    if (route.route !== 'records' && !owner) {
+      setActivity([]); setActivityCursor(null); setActivityReadLoading(false);
+      return;
+    }
+    const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+    if (cached) {
+      setActivity(cached.items);
+      setActivityCursor(cached.nextCursor);
+      setActivityReadSource(cached.source);
+      if (route.route === 'records') setSource(cached.source);
+    } else {
+      setActivity([]); setActivityCursor(null);
+    }
+    setActivityReadLoading(true);
+    retryReadRound(() => client.readActivity({ account: owner }), { isCurrent: () => !cancelled })
+      .then(result => {
+        if (cancelled || result === READ_CANCELLED) return;
+        setActivity(result.items);
+        setActivityCursor(result.nextCursor);
+        setActivityReadSource(result.source);
+        if (route.route === 'records') setSource(result.source);
+        let entries = readCache.current.get(client);
+        if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
+        entries.set(cacheKey, { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
+      })
+      .catch(error => { if (!cancelled) setActivityReadError(textError(error)); })
+      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
+    return () => { cancelled = true; ++activityReadEpoch.current; };
+  }, [client, account, route.route, refresh]);
+
+  useEffect(() => {
+    if (!client || route.route !== 'home') return;
+    let cancelled = false;
+    setStatsReadError('');
+    const memory = readCache.current.get(client)?.get('stats');
+    const cached = memory && Date.now() - memory.savedAt < 120_000 ? memory.result
+      : readDisplaySnapshot(displayStorage(), client.manifest, 'stats');
+    setStats(cached?.data ?? null);
+    setStatsSource(cached?.source ?? null);
+    retryReadRound(() => client.readStats(), { isCurrent: () => !cancelled })
+      .then(result => {
+        if (cancelled || result === READ_CANCELLED) return;
+        setStats(result.data);
+        setStatsSource(result.source);
+        let entries = readCache.current.get(client);
+        if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
+        entries.set('stats', { savedAt: Date.now(), result });
+        writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
+      })
+      .catch(error => { if (!cancelled) setStatsReadError(textError(error)); });
+    return () => { cancelled = true; };
+  }, [client, route.route, refresh]);
+
+  useEffect(() => {
+    if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
+    let cancelled = false;
+    const pool = route.pool;
+    const owner = account || ZeroAddress;
+    const governanceKey = `pool-governance:${pool.toLowerCase()}:${owner.toLowerCase()}`;
+    const activityKey = `pool-activity:${pool.toLowerCase()}`;
+    const governanceCache = readDisplaySnapshot(displayStorage(), client.manifest, governanceKey);
+    const activityCache = readDisplaySnapshot(displayStorage(), client.manifest, activityKey);
+    if (governanceCache) setGovernance(governanceCache.data);
+    if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor); }
+    void client.readGovernance({ pool, account: owner })
+      .then(result => { if (!cancelled) { setGovernance(result.data);
+        writeDisplaySnapshot(displayStorage(), client.manifest, governanceKey, result); } })
+      .catch(() => { if (!cancelled && !governanceCache) setGovernance(null); });
+    void client.readActivity({ pool })
+      .then(result => {
+        if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
+          writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
+      })
+      .catch(() => { if (!cancelled && !activityCache) { setActivity([]); setActivityCursor(null); } });
+    return () => { cancelled = true; };
+  }, [client, account, route.route, route.pool, detail, loading, refresh]);
+
+  useEffect(() => {
+    if (!["market", "pools", "detail"].includes(route.route)) return;
     setCapacityNow(Date.now());
     const timer = setInterval(() => setCapacityNow(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, [route.route]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (!client || !config) { setPoolCapacity({}); return; }
+    setPoolCapacity(previous => Object.fromEntries(Object.entries(previous)
+      .filter(([, quote]) => quote?.validUntil > Date.now())));
+    if (loading || !['pools', 'detail', 'overview', 'market'].includes(route.route)) return;
+    const rows = route.route === 'detail' ? (detail ? [detail] : [])
+      : route.route === 'pools' ? pools
+        : route.route === 'market' ? (marketTab === 'whole' ? pools.filter(row => row.status === 'Listed') : [])
+          : positions;
+    if (!rows.length) return;
+    const provider = createReadOnlyHttpProvider(config);
+    const uniqueRows = [...new Map(rows.filter(row => row?.pool).map(row => [row.pool.toLowerCase(), row])).values()];
+    let next = 0;
+    const worker = async () => {
+      while (!cancelled && next < uniqueRows.length) {
+        const row = uniqueRows[next++];
+        if (!row?.trusted || !row.params || row.unitPriceWei === null) continue;
+        const key = row.pool.toLowerCase();
+        const previous = capacityDisplay.current.pools[key];
+        if (previous?.available && previous.validUntil > Date.now()
+          && previous.forPriceWei === row.unitPriceWei.toString()) continue;
+        const saved = readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
+        if (saved && !cancelled) {
+          setPoolCapacity(previous => ({ ...previous, [key]: saved }));
+          // A valid identity- and price-bound display quote can be reused until
+          // its stated expiry; page refreshes need not re-spend the shared quota.
+          if (saved.validUntil > Date.now() + 30_000) continue;
+        }
+        setPoolCapacity(previous => ({ ...previous, [key]: { ...previous[key], loading: true } }));
+        const quote = await readShareDailyCapacityPrice(provider, {
+          factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
+          allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
+        });
+        if (!cancelled) {
+          const displayed = { ...quote, forPriceWei: row.unitPriceWei.toString() };
+          if (quote.available) writeCapacityDisplay(displayStorage(), client.manifest, displayed);
+          setPoolCapacity(previous => !quote.available && previous[key]?.available
+            && previous[key].validUntil > Date.now() ? previous : { ...previous, [key]: displayed });
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(2, uniqueRows.length) }, worker));
+    return () => { cancelled = true; };
+  }, [client, route.route, marketTab, pools, positions, detail, boot, refresh, loading, poolQuoteRevision]);
+
+  useEffect(() => {
     const revision = ++capacityEpoch.current;
-    setOrderCapacity({});
+    setOrderCapacity(previous => Object.fromEntries(Object.entries(previous)
+      .filter(([, quote]) => quote?.validUntil > Date.now())));
     if (!client || route.route !== "market" || marketTab === "whole" || !orders.length || !config) return;
     const provider = createReadOnlyHttpProvider(config);
     const firstByPool = new Map();
@@ -583,13 +893,17 @@ export default function LivePlatform() {
     }
     // Limit automatic lookups against the shared Firsto quota. Others are explicit.
     void Promise.all([...firstByPool].slice(0, 2).map(async ([key, order]) => {
+      const cached = capacityDisplay.current.orders[key];
+      if (cached?.available && cached.validUntil > Date.now()
+        && cached.forPriceWei === order.pricePerUnitWei.toString()) return;
       setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
       const result = await readShareDailyCapacityPrice(provider, {
         factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
       });
       if (capacityEpoch.current !== revision) return;
       setCapacityNow(Date.now());
-      setOrderCapacity(previous => ({ ...previous, [key]: result }));
+      setOrderCapacity(previous => ({ ...previous,
+        [key]: { ...result, forPriceWei: order.pricePerUnitWei.toString() } }));
     }));
     return () => { capacityEpoch.current++; };
   }, [client, route.route, marketTab, orders, boot]);
@@ -610,7 +924,10 @@ export default function LivePlatform() {
 
   useEffect(() => {
     let cancelled = false;
-    setYieldData(null);
+    const yieldKey = `pool-yield:${route.pool?.toLowerCase() || ''}:${account?.toLowerCase() || 'public'}:${yieldDays}`;
+    const cached = client && route.route === 'detail' && route.pool
+      ? readDisplaySnapshot(displayStorage(), client.manifest, yieldKey) : null;
+    setYieldData(cached?.data || null);
     if (client && route.route === "detail" && route.pool && source)
       client
         .readYield({
@@ -620,7 +937,8 @@ export default function LivePlatform() {
           source,
         })
         .then((result) => {
-          if (!cancelled) setYieldData(result.data);
+          if (!cancelled) { setYieldData(result.data);
+            writeDisplaySnapshot(displayStorage(), client.manifest, yieldKey, result); }
         })
         .catch(() => {});
     return () => {
@@ -693,7 +1011,10 @@ export default function LivePlatform() {
     const reported = typeof state === 'string' ? state : state.status;
     const stage = reported === 'pending' && typeof state === 'object' && !state.hash ? 'needs-verification' : reported;
     setTransactionStage(stage);
-    setMessage(L(...(transactionLabels[stage] || transactionLabels.rechecking)));
+    const gasWei = stage === 'awaiting-signature' && typeof state === 'object' ? state.maxGasWei : null;
+    setTransactionGasWei(gasWei ?? null);
+    const label = L(...(transactionLabels[stage] || transactionLabels.rechecking));
+    setMessage(gasWei == null ? label : `${label} · ${L('Gas 费用上限', 'Maximum Gas fee')} ${displayGasFee(gasWei)} BNB`);
   }
   async function connectJournal({ inspect = true, onState } = {}) {
     const context = walletEpoch.current;
@@ -756,16 +1077,7 @@ export default function LivePlatform() {
         revision === epoch.current &&
         activeModal.current === target
       )
-        setPrepared({ ...result, forModal: target, input,
-          previewBindings: target.kind === 'completeFirstoSale' ? {
-            expectedPriceWei: result.quote.priceWei.toString(),
-            expectedProposalId: result.quote.proposalId.toString(),
-            expectedFeeBps: result.quote.feeBps.toString(),
-            expectedFeeEpoch: result.quote.feeEpoch.toString(),
-          } : target.kind === 'fill' ? {
-            expectedSeller: result.order.seller,
-            expectedPricePerUnitWei: result.order.pricePerUnitWei.toString(),
-          } : {} });
+        setPrepared({ ...result, forModal: target });
     } catch (e) {
       if (context === walletEpoch.current && activeModal.current === target)
         setError(textError(e));
@@ -809,6 +1121,7 @@ export default function LivePlatform() {
     setPrepared(null);
     setModal(null);
     setRefresh((v) => v + 1);
+    if (route.route === 'operator') setOperatorRefresh(v => v + 1);
     if (result.status === "confirmed" && result.finalized === true && result.action === "claim")
       setNotificationClaim(result);
     setMessage(
@@ -853,6 +1166,7 @@ export default function LivePlatform() {
       try {
         const snapshot = await readPoolSnapshot(wallet, {
           factory: config.factory,
+          lens: config.lens,
           account,
           pools: [deposit.poolAddress],
         });
@@ -872,6 +1186,72 @@ export default function LivePlatform() {
       }
     }
   }
+  // A returned transaction hash is recovery evidence, never permission to send
+  // again. Poll the read-only journal until its canonical receipt is final.
+  useEffect(() => {
+    const hash = pending?.hash || pending?.recoveryHashes?.at(-1);
+    if (!hash || !account || !config) return;
+    const owner = account, context = walletEpoch.current, started = Date.now();
+    let cancelled = false, timer;
+    const poll = async () => {
+      if (cancelled || context !== walletEpoch.current) return;
+      if (submissionLock.current || busy) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      try {
+        const result = await recoverPending({ config, account: owner, hash });
+        if (cancelled || context !== walletEpoch.current) return;
+        if (result.status !== 'pending') {
+          await handleResult(result, context);
+          return;
+        }
+      } catch { /* Keep the saved hash available for manual recovery. */ }
+      if (Date.now() - started < 90_000) timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [pending?.hash, pending?.recoveryHashes?.at(-1), account, config, busy]);
+  async function submitFreshAuthority(kind, args, current) {
+    if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account)
+      throw new Error('当前钱包没有新合约管理员权限。');
+    const previous = await authorityActionStatus(config, account);
+    if (previous?.status && !['idle', 'confirmed', 'failed'].includes(previous.status))
+      throw new Error('已有管理员代付交易待确认；先核对状态，不能重复发送。');
+    if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
+    const command = await signAuthorityAction({ provider: wallet, config, account, kind, args });
+    if (!current()) throw new Error('签名期间页面或钱包已改变；请先核对管理员代付状态。');
+    // A network error after submission is ambiguous. The relay journal is the
+    // source of truth; never resend the same signed command automatically.
+    let result;
+    try { result = await submitAuthorityAction(config, account, command); }
+    catch (problem) {
+      const status = await authorityActionStatus(config, account).catch(() => null);
+      if (status?.status && status.status !== 'idle') result = status;
+      else throw problem;
+    }
+    if (current()) {
+      setMessage(result.hash ? `Gas 钱包交易已提交：${result.hash}。请等待链上确认。`
+        : '管理员签名已提交，请在运营工作台核对代付状态。');
+      setOperatorRefresh(value => value + 1);
+      setRefresh(value => value + 1);
+    }
+    return result;
+  }
+  async function sendFreshAuthority(kind, args) {
+    if (busy || submissionLock.current || !isOperator || !wallet || !account)
+      throw new Error('管理员权限或交易状态已变化，请重新读取。');
+    const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
+    submissionLock.current = ticket; setBusy(true); setError('');
+    const current = () => revision === walletEpoch.current && page === routeIdentity.current;
+    try {
+      await connectJournal({ inspect: false });
+      return await submitFreshAuthority(kind, args, current);
+    } finally {
+      if (submissionLock.current === ticket) submissionLock.current = null;
+      setBusy(false);
+    }
+  }
   async function sendPortfolio(confirmed, input) {
     if (busy || submissionLock.current || !wallet || !account) throw new Error('请等待当前操作完成。');
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
@@ -882,6 +1262,8 @@ export default function LivePlatform() {
       if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
       const checked = await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
+      if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
       const result = await sendProductTransaction({ provider: wallet, config, transaction: checked.transaction,
         action: checked.action, onState: state => { if (current()) showTransactionProgress(state); } });
       if (revision === walletEpoch.current) await handleResult(result, revision);
@@ -930,17 +1312,13 @@ export default function LivePlatform() {
       progress('authenticating');
       await connectJournal({ inspect: false, onState: progress });
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
-      progress('rechecking');
-      const checked = await prepareProductAction({ ...confirmed.input,
-        ...(confirmed.previewBindings || {}), expectedPool: confirmed.pool || undefined,
-        expectedAccount: owner });
-      if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction))
-        throw new Error(L("交易内容或价格已变化，请返回并重新预览。", "Transaction or price changed. Preview again."));
+      // The journal verifies the exact previewed calldata, target, value and live
+      // contract bindings. Repeating the entire preview delays wallet opening.
       const result = await sendProductTransaction({
         provider: wallet,
         config,
-        transaction: checked.transaction,
-        action: { kind: checked.kind },
+        transaction: confirmed.transaction,
+        action: { kind: confirmed.kind },
         onState: progress,
       });
       if (requestEpoch === walletEpoch.current)
@@ -997,6 +1375,11 @@ export default function LivePlatform() {
       if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction)
         || !sameAdminPurchasePreview(preview, checked))
         throw new Error(L("运营操作参数已变化，请重新预览。", "Operation changed. Preview again."));
+      if (config?.stage === 'fresh-active') {
+        if (!['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(checked.kind))
+          throw new Error('新管理员 Gas 代付购机功能尚未启用；建池可先签名提交。');
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
+      }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
         onState: state => { if (current()) showTransactionProgress(state); } });
@@ -1064,6 +1447,9 @@ export default function LivePlatform() {
   }
   async function more(kind) {
     const revision = epoch.current;
+    const positionsRevision = positionsReadEpoch.current;
+    const ordersRevision = marketOrdersEpoch.current;
+    const activityRevision = activityReadEpoch.current;
     setBusy(true);
     setError("");
     try {
@@ -1080,18 +1466,18 @@ export default function LivePlatform() {
         const result = await client.readPositions({
           account,
           cursor: positionCursor,
-          source,
+          source: positionsReadSource,
         });
-        if (revision !== epoch.current) return;
+        if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return;
         setPositions((old) => [...old, ...result.items.map(viewPool)]);
         setPositionCursor(result.nextCursor);
       } else if (kind === "orders") {
         const result = await client.readOrders({
           ...(marketTab === "mine" ? { seller: account } : { active: true }),
           cursor: orderCursor,
-          source,
+          source: marketOrderSource,
         });
-        if (revision !== epoch.current) return;
+        if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return;
         setOrders((old) => [...old, ...result.items]);
         setOrderCursor(result.nextCursor);
       } else {
@@ -1101,9 +1487,9 @@ export default function LivePlatform() {
             ? account
             : undefined,
           cursor: activityCursor,
-          source,
+          source: route.route === 'detail' ? source : activityReadSource,
         });
-        if (revision !== epoch.current) return;
+        if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return;
         setActivity((old) => [...old, ...result.items]);
         setActivityCursor(result.nextCursor);
       }
@@ -1114,33 +1500,28 @@ export default function LivePlatform() {
     }
   }
   async function readMembers() {
-    if (!client || !detail || !source) return;
+    if (!client || !detail || !config) return;
     const revision = epoch.current;
-    setBusy(true);
+    setMembersRead({ status: "loading" });
     try {
-      const block = `0x${BigInt(source.indexedThrough).toString(16)}`;
-      const result = await client.provider.request({
-        method: "eth_call",
-        params: [
-          {
-            to: detail.pool,
-            data: abi.PoolVault.encodeFunctionData("activeMembers"),
-          },
-          block,
-        ],
+      const result = await readCurrentPoolMembers(client.provider, {
+        factory: config.factory, pool: detail.pool,
       });
-      const addresses = abi.PoolVault.decodeFunctionResult(
-        "activeMembers",
-        result,
-      )[0];
-      if (addresses.length > 100) throw new Error("Unexpected holder count");
-      if (revision === epoch.current) setMembers(addresses);
+      if (revision === epoch.current) {
+        setMembers(result.members);
+        setMembersRead({ status: "ready", blockNumber: result.blockNumber });
+      }
     } catch (e) {
-      if (revision === epoch.current) setError(textError(e));
-    } finally {
-      setBusy(false);
+      if (revision === epoch.current) {
+        setMembers([]);
+        setMembersRead({ status: "error", error: textError(e) });
+      }
     }
   }
+  useEffect(() => {
+    if (route.route === 'detail' && detailTab === 'members' && detail?.pool && client && !loading)
+      void readMembers();
+  }, [client, route.route, detail?.pool, detailTab, source?.indexedThrough, loading]);
   const heading = (title, subtitle, action) => (
     <div className="page-heading">
       <div>
@@ -1154,7 +1535,22 @@ export default function LivePlatform() {
   const refreshButton = (
     <Button
       secondary
-      onClick={() => boot.status === "ready" ? setRefresh((v) => v + 1) : setBootAttempt((v) => v + 1)}
+      onClick={() => {
+        if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
+        const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+        lastPageRefresh.current.set(page, Date.now());
+        setRefresh(v => v + 1);
+        // Refresh page data immediately; only rebootstrap the page if the
+        // independently verified contract stage actually changed.
+        void fetchLiveJson(boot.productGraphUrl, { maxBytes: 65536 })
+          .then(validateProductGraph)
+          .then(graph => {
+            if (graph.stage !== boot.stage || graph.artifactDigest !== boot.artifactDigest
+              || graph.stageActivationBlock !== boot.stageActivationBlock
+              || graph.operationalReady !== boot.operationalReady) setBootAttempt(v => v + 1);
+          })
+          .catch(error => setError(textError(error)));
+      }}
       disabled={loading || busy || boot.status === "loading"}
     >
       <RefreshCw size={16} />
@@ -1165,6 +1561,17 @@ export default function LivePlatform() {
       ? sumKnown(positions, "claimableBEM")
       : null,
     poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const currentPoolQuote = p => {
+    const quote = p && poolCapacity[p.pool.toLowerCase()];
+    return quote?.available && quote.validUntil > capacityNow
+      && quote.collection.toLowerCase() === p.params?.circuits?.toLowerCase()
+      && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
+  };
+  const poolQuotePlaceholder = p => !["pools", "detail"].includes(route.route) ? "—" : poolCapacity[p.pool.toLowerCase()]?.loading
+    ? L("读取中…", "Loading…")
+    : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
+      {L("重新读取", "Retry")}
+    </button>;
   const filtered = pools
     .filter(
       (p) =>
@@ -1176,7 +1583,10 @@ export default function LivePlatform() {
           .includes(query.toLowerCase()),
     )
     .sort((a, b) =>
-      sort === "price"
+      sort === "capacity"
+        ? compare(currentPoolQuote(a)?.marketReferencePriceWei,
+          currentPoolQuote(b)?.marketReferencePriceWei)
+        : sort === "price"
         ? compare(a.unitPriceWei, b.unitPriceWei)
         : sort === "id"
           ? compareToken(a.tokenId, b.tokenId)
@@ -1192,23 +1602,27 @@ export default function LivePlatform() {
   const moreButton = (cursor, kind) =>
     cursor !== null && cursor !== undefined ? (
       <div className="live-more">
-        <Button secondary disabled={loading || busy} onClick={() => more(kind)}>
+        <Button secondary disabled={busy || (kind === 'pools' && loading) || (
+          kind === 'positions' ? positionsReadLoading || !!positionsReadError
+            : kind === 'orders' ? marketOrdersLoading || !!marketOrdersError
+              : kind === 'activity' && route.route !== 'detail' ? activityReadLoading || !!activityReadError : false)} onClick={() => more(kind)}>
           {L("加载更多", "Load more")}
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false) => (
+  const poolTable = (rows, holdings = false, hideStatus = false) => (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             <th>{L("矿机 / 项目", "Miner / pool")}</th>
-            <th>{L("状态", "Status")}</th>
+            {!hideStatus && <th>{L("状态", "Status")}</th>}
             <th>
               {holdings ? L("我的份额", "My shares") : L("已募集", "Funded")}
             </th>
             <th>{L("每份金额", "Price per share")}</th>
             <th>{L("预计日产 BEM", "Estimated BEM / day")}</th>
+            <th>{L("日产能价", "Daily capacity price")}</th>
             <th />
           </tr>
         </thead>
@@ -1226,20 +1640,35 @@ export default function LivePlatform() {
                   </span>
                 </button>
               </td>
-              <td>
+              {!hideStatus && <td>
                 <StateBadge state={p.status} L={L} />
-              </td>
+              </td>}
               <td>
                 {holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} /
                 100
               </td>
-              <td className="num">{amount(p.unitPriceWei)} BNB</td>
-              <td>—</td>
+              <td className="num">{displayPreciseAmount(p.unitPriceWei)} BNB</td>
+              <td title={currentPoolQuote(p)?.cached
+                ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window') : undefined}>{currentPoolQuote(p)
+                ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
+                : poolQuotePlaceholder(p)}</td>
+              <td className="num" title={currentPoolQuote(p)?.cached
+                ? L('此前核验的 Firsto 参考价，仍在有效期内；单位：BNB / (BEM/天)', 'Previously verified Firsto reference, still within its validity window; unit: BNB / (BEM/day)')
+                : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{currentPoolQuote(p)?.marketReferencePriceWei != null
+                ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
+                : poolQuotePlaceholder(p)}</td>
               <td>
-                {holdings && p.shares > 0n && <button className="btn secondary" disabled={loading || busy || !!pending || !shareListingView(p).allowed}
+                {holdings && p.shares > 0n && <button className="btn secondary" disabled={positionsReadLoading || !!positionsReadError || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   {L('挂单出售', 'List shares')}
                 </button>}
+                {holdings && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
+                  {p.status === 'Funding' || p.status === 'Funded'
+                    ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
+                    : p.status === 'Active' && p.availableShares === 0n
+                      ? L('份额已锁定', 'Shares are locked')
+                      : L('当前状态不可挂牌', 'Listing unavailable in this state')}
+                </small>}
                 <button className="text-button" onClick={() => openDetails(p)}>
                   {L("查看矿机", "View miner")}
                   <ArrowRight size={16} />
@@ -1252,12 +1681,16 @@ export default function LivePlatform() {
       {rows.length === 0 && (
         <Empty
           title={
-            loading || boot.status === 'loading'
+            (holdings ? positionsReadLoading : loading || boot.status === 'loading')
               ? L("正在核对合约和链上项目，请稍候…", "Checking contracts and on-chain pools…")
-              : !source ? L("项目数据暂不可用", "Project data is unavailable")
+              : holdings && positionsReadError
+                ? L("份额读取失败，请刷新重试", "Could not read shares. Please refresh.")
+              : !(holdings ? positionsReadSource : source) ? L("项目数据暂不可用", "Project data is unavailable")
                 : !holdings && pools.length === 0 ? L("尚未创建拼矿项目", "No pools have been created yet")
                   : holdings ? L("暂无持仓和待领取权益", "No positions or outstanding entitlements")
-                    : L("暂无匹配项目", "No matching pools")
+                    : route.route === 'market' && marketTab === 'whole'
+                      ? L('暂无整机在售；募集中和挖矿中的项目不在此列', 'No whole miners for sale; funding and operating pools are not listed here')
+                      : L("暂无匹配项目", "No matching pools")
           }
         >
           {!loading && source && !holdings && pools.length === 0 && <>
@@ -1289,9 +1722,9 @@ export default function LivePlatform() {
                   <td>{row.blockNumber}</td>
                   <td>{eventName(row.event ?? row.name, L)}</td>
                   <td>{(row.event ?? row.name) === 'OrderFilled'
-                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross, 18, 8)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee, 18, 8)} BNB`
+                    ? `${L('成交基价', 'Base price')} ${amount(row.fields?.gross)} BNB · ${L('卖方费用', 'Seller fee')} ${amount(row.fields?.fee)} BNB`
                     : (row.event ?? row.name) === 'BuyerFeeCharged'
-                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee, 18, 8)} BNB`
+                      ? `${L('买方费用', 'Buyer fee')} ${amount(row.fields?.buyerFee)} BNB`
                       : '—'}</td>
                   <td>
                     {shortAddress(row.contract ?? row.address ?? row.pool)}
@@ -1315,21 +1748,29 @@ export default function LivePlatform() {
             })}
           </tbody>
         </table>
-        {!activity.length && (
-          <Empty title={L("暂无已确认记录", "No confirmed records")} />
-        )}
+        {!activity.length && <Empty title={activityReadLoading && route.route !== 'detail'
+          ? L('正在读取记录…', 'Loading records…')
+          : activityReadError && route.route !== 'detail'
+            ? L('记录读取失败，请刷新重试', 'Could not read records. Please refresh.')
+            : L("暂无已确认记录", "No confirmed records")} />}
       </div>
+      {activityReadError && route.route !== 'detail' && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
       {moreButton(activityCursor, "activity")}
     </>
   );
   function renderGovernance() {
     return <section className="panel"><LiveGovernance
       key={`${detail?.pool || ''}:${account || ''}`}
-      selectedPool={detail?.pool} config={config} account={account} wallet={wallet}
+      selectedPool={detail?.pool} capacityQuote={currentPoolQuote(detail)} config={config} account={account} wallet={wallet}
       readProvider={client?.provider} disabled={loading || busy || !!pending}
       onConnect={connect} onError={problem => setError(textError(problem))}
       onAction={sendGovernanceAction} /></section>;
   }
+
+  const pageSource = route.route === 'market' && marketTab !== 'whole' ? marketOrderSource : source;
+  const displaySources = route.route === 'home' ? [pageSource, statsSource]
+    : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
+  const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
 
   return (
     <div
@@ -1466,7 +1907,7 @@ export default function LivePlatform() {
         <main aria-busy={loading} data-ready-route={loadedRoute}>
           <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
             account={account} wallet={wallet} config={config} locale={locale} route={route.route}
-            positions={same(loadedAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
+            positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
             blocked={busy || !!modal || loading} onConnect={connect} onOpen={() => go('notifications')}
             isCurrent={() => connectedWallet.current === wallet && walletEpoch.current === walletRevision}/>
           {boot.status !== "ready" && (
@@ -1504,6 +1945,15 @@ export default function LivePlatform() {
             <RefreshCw size={18}/><span>{L(`数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`,
               `Data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`)}</span>
           </div>}
+          {loading && cachedPage && <div className="live-notice" role="status">
+            <RefreshCw size={18}/><span>{L('显示上次核验的数据，正在更新；交易需等待最新核对。', 'Showing previously verified data while refreshing; transactions wait for a fresh check.')}</span>
+          </div>}
+          {historicalSource && <div className="live-notice" role="status">
+            <AlertCircle size={18}/><span>{L(
+              `历史展示快照 · 区块 #${historicalSource.indexedThrough} · 核验于 ${new Date(historicalSource.checkedAt).toLocaleString('zh-CN')}。索引${historicalSource.refreshing ? '正在同步' : '尚未追平'}；列表不代表当前可成交状态，交易预览会重新核对最新链上状态。`,
+              `Historical display snapshot · block #${historicalSource.indexedThrough} · verified ${new Date(historicalSource.checkedAt).toLocaleString('en-GB')}. Index ${historicalSource.refreshing ? 'is syncing' : 'has not caught up'}; listings may have changed. Transaction previews recheck current on-chain state.`,
+            )}</span>
+          </div>}
           {error && (
             <div className="live-notice error" role="alert">
               <AlertCircle size={18} />
@@ -1531,6 +1981,10 @@ export default function LivePlatform() {
               </button>
             </div>
           )}
+          {positionsReadError && account && ['overview', 'rewards', 'governance', 'market'].includes(route.route) &&
+            <div className="live-notice error" role="alert"><AlertCircle size={18}/><span>{positionsReadError}</span></div>}
+          {statsReadError && route.route === 'home' &&
+            <div className="live-notice error" role="alert"><AlertCircle size={18}/><span>{statsReadError}</span></div>}
           {pending && (
             <section className="panel live-pending">
               <strong>
@@ -1713,10 +2167,10 @@ export default function LivePlatform() {
                 <div className="live-toolbar">
                   <div className="tabs">
                     {[
-                      ["all", "项目总览", "Overview"],
                       ["Funding", "募集中", "Funding"],
                       ["Active", "挖矿中", "Operating"],
                       ["Listed", "整机出售中", "For sale"],
+                      ["all", "项目总览", "Overview"],
                     ].map(([id, zh, en]) => (
                       <button
                         key={id}
@@ -1765,6 +2219,9 @@ export default function LivePlatform() {
                         <option value="price">
                           {L("每份金额从低到高", "Lowest price per share")}
                         </option>
+                        <option value="capacity">
+                          {L("日产能价从低到高", "Lowest daily capacity price")}
+                        </option>
                         <option value="id">
                           {L("矿机编号从低到高", "Lowest miner ID")}
                         </option>
@@ -1778,7 +2235,7 @@ export default function LivePlatform() {
                     </small>
                   </div>
                 )}
-                {poolTable(filtered)}
+                {poolTable(filtered, false, filter === "Funding")}
                 {moreButton(poolCursor, "pools")}
               </section>
             </>
@@ -1792,17 +2249,25 @@ export default function LivePlatform() {
                 )}
               </Empty>
             ) : !detail ? (
-              <Empty
-                title={
-                  loading
-                    ? L("正在核对矿机信息…", "Checking miner information…")
-                    : L("暂时无法读取该项目", "This project is unavailable")
-                }
+              detailPreview && same(detailPreview.pool, route.pool) ? (
+                <section className="panel detail-summary" aria-label={L('上次核对的矿池资料', 'Previously verified pool information')}>
+                  <div className="detail-heading">
+                    <Chip pool={detailPreview}/>
+                    <div><h1>{detailPreview.name} <span>#{detailPreview.tokenId}</span></h1><small>{shortAddress(detailPreview.pool)}</small></div>
+                    <StateBadge state={detailPreview.status} L={L}/>
+                  </div>
+                  <p>{L('上次核对的每份金额', 'Previously verified price per share')}：
+                    <strong>{displayPreciseAmount(detailPreview.unitPriceWei)} BNB</strong></p>
+                  <p className="subtle-note">{loading
+                    ? L('正在更新链上资料；更新完成后才能认购。', 'Refreshing on-chain data; subscription opens after verification.')
+                    : L('最新资料暂不可用，请刷新后认购。', 'Current data is unavailable; refresh before subscribing.')}</p>
+                </section>
+              ) : <Empty
+                title={loading ? L("正在核对矿机信息…", "Checking miner information…")
+                  : L("暂时无法读取该项目", "This project is unavailable")}
               >
-                {L(
-                  "项目开放并完成链上核对后，才能参与认购。",
-                  "Subscription is available once the project is open and verified.",
-                )}
+                {L("项目开放并完成链上核对后，才能参与认购。",
+                  "Subscription is available once the project is open and verified.")}
               </Empty>
             ) : (
               <>
@@ -1862,7 +2327,9 @@ export default function LivePlatform() {
                             : L(...statuses[detail.status])}
                         </span>
                         <span>
-                          {L("预计日产", "Estimated daily output")}：— BEM
+                          {L("预计日产", "Estimated daily output")}：{currentPoolQuote(detail)
+                            ? displayPreciseAmount(currentPoolQuote(detail).estimated24hAtomic, 8)
+                            : '—'} BEM
                         </span>
                       </div>
                     </section>
@@ -1878,7 +2345,6 @@ export default function LivePlatform() {
                           className={detailTab === key ? "selected" : ""}
                           onClick={() => {
                             setDetailTab(key);
-                            if (key === "members") void readMembers();
                           }}
                         >
                           {L(zh, en)}
@@ -2019,7 +2485,15 @@ export default function LivePlatform() {
                             ? L("当前认购人数", "Current subscribers")
                             : L("当前持有人", "Current holders")}
                         </h2>
-                        {members.length ? (
+                        {membersRead.status === "loading" ? (
+                          <p className="subtle-note">{L("正在核对最新链上持有人…", "Checking current on-chain holders…")}</p>
+                        ) : membersRead.status === "error" ? (
+                          <div role="alert">
+                            <p>{L("持有人地址暂时无法读取，请重试。", "Holder addresses are temporarily unavailable. Please retry.")}</p>
+                            <p className="subtle-note">{membersRead.error}</p>
+                            <Button secondary onClick={() => void readMembers()}>{L("重新读取持有人", "Retry holders")}</Button>
+                          </div>
+                        ) : membersRead.status === "ready" && members.length ? (
                           members.map((address) => (
                             <a
                               className="live-holder"
@@ -2032,14 +2506,17 @@ export default function LivePlatform() {
                               <ArrowUpRight size={15} />
                             </a>
                           ))
-                        ) : (
+                        ) : membersRead.status === "ready" ? (
                           <Empty
                             title={L(
                               "暂无可显示的持有人地址",
                               "No holder addresses to show",
                             )}
                           />
-                        )}
+                        ) : null}
+                        {membersRead.status === "ready" && <p className="subtle-note">
+                          {L(`最新链上区块 #${membersRead.blockNumber}`, `Current on-chain block #${membersRead.blockNumber}`)}
+                        </p>}
                       </section>
                     )}
                   </div>
@@ -2054,9 +2531,14 @@ export default function LivePlatform() {
                       )}
                     </h2>
                     <div className="unit-price">
-                      {amount(detail.unitPriceWei)}{" "}
+                      {displayPreciseAmount(detail.unitPriceWei)}{" "}
                       <small>BNB / {L("份", "share")}</small>
                     </div>
+                    <p className="order-rule purchase-explanation">
+                      {L('日产能参考价', 'Daily capacity reference')}：{currentPoolQuote(detail)?.marketReferencePriceWei != null
+                        ? `${displayPreciseAmount(currentPoolQuote(detail).marketReferencePriceWei)} BNB / (BEM/${L('天', 'day')})`
+                        : '—'}
+                    </p>
                     <p className="order-rule purchase-explanation">
                       {L(
                         "每份对应本池 1% 的份额。",
@@ -2068,8 +2550,8 @@ export default function LivePlatform() {
                         "为确保购机成功，用户会按矿机出售价格额外预付 10%；购机成功后余款按照份额等比退还",
                         "To help complete the miner purchase, subscribers prepay an extra 10% of its sale price. After a successful purchase, the remaining funds are refunded in proportion to their shares.",
                       ) : L(
-                        `本池募集总额 ${amount(detail.params?.targetRaise)} BNB，购机价格上限 ${amount(detail.params?.priceCap)} BNB；购机后的余款按份额记入可领取余额。`,
-                        `This pool raises ${amount(detail.params?.targetRaise)} BNB with a ${amount(detail.params?.priceCap)} BNB purchase cap. Remaining funds after purchase are credited to holders proportionally.`,
+                        `本池募集总额 ${displayPreciseAmount(detail.params?.targetRaise)} BNB，购机价格上限 ${displayPreciseAmount(detail.params?.priceCap)} BNB；购机后的余款按份额记入可领取余额。`,
+                        `This pool raises ${displayPreciseAmount(detail.params?.targetRaise)} BNB with a ${displayPreciseAmount(detail.params?.priceCap)} BNB purchase cap. Remaining funds after purchase are credited to holders proportionally.`,
                       )}
                     </p>
                     {detail.status === "Funding" ? (
@@ -2102,7 +2584,7 @@ export default function LivePlatform() {
                       <>
                         <div className="ownership">
                           <span>{L("整机售价", "Miner sale price")}</span>
-                          <strong>{amount(governance?.salePrice)} BNB</strong>
+                          <strong>{displayPreciseAmount(governance?.salePrice)} BNB</strong>
                         </div>
                         <Button
                           disabled={loading ||
@@ -2141,7 +2623,7 @@ export default function LivePlatform() {
                         onClick={() => openAction("withdrawBnb", detail)}
                       >
                         {L("领取", "Claim")}{" "}
-                        {amount(account ? detail.bnbOwed : null)} BNB
+                        {displayPreciseAmount(account ? detail.bnbOwed : null)} BNB
                       </Button>
                       {detail.status === "Active" && (
                         <Button
@@ -2214,7 +2696,7 @@ export default function LivePlatform() {
                   note={
                     <button
                       className="text-button"
-                      disabled={loading || !marketCredit || busy}
+                      disabled={loading || positionsReadLoading || !!positionsReadError || !marketCredit || busy}
                       onClick={() => openAction("marketWithdraw", null)}
                     >
                       {L("领取市场款项", "Withdraw market proceeds")}
@@ -2253,21 +2735,21 @@ export default function LivePlatform() {
                             <div className="live-actions">
                               <Button
                                 secondary
-                                disabled={loading || busy || !p.claimableBEM}
+                                disabled={loading || positionsReadLoading || !!positionsReadError || busy || !p.claimableBEM}
                                 onClick={() => openAction("claim", p)}
                               >
                                 {L("领 BEM", "Claim BEM")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={loading || busy || !p.bnbOwed}
+                                disabled={loading || positionsReadLoading || !!positionsReadError || busy || !p.bnbOwed}
                                 onClick={() => openAction("withdrawBnb", p)}
                               >
                                 {L("领 BNB", "Claim BNB")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={loading ||
+                                disabled={loading || positionsReadLoading || !!positionsReadError ||
                                   busy ||
                                   !["Active", "Listed"].includes(p.status)
                                 }
@@ -2282,7 +2764,11 @@ export default function LivePlatform() {
                     </tbody>
                   </table>
                   {!positions.length && (
-                    <Empty title={L("暂无可领取项目", "No claimable pools")} />
+                    <Empty title={positionsReadLoading
+                      ? L('正在读取份额…', 'Loading shares…')
+                      : positionsReadError
+                        ? L('份额读取失败，请刷新重试', 'Could not read shares. Please refresh.')
+                        : L("暂无可领取项目", "No claimable pools")} />
                   )}
                 </div>
                 {moreButton(positionCursor, "positions")}
@@ -2363,7 +2849,12 @@ export default function LivePlatform() {
                             <td>{o.remaining?.toString() ?? "—"}</td>
                             <td>{amount(o.pricePerUnitWei)} BNB</td>
                             <td>{capacityCell(o)}</td>
-                            <td>{shortAddress(o.seller)}</td>
+                            <td>
+                              {shortAddress(o.seller)}
+                              {same(o.seller, account) && <small className="live-order-state">
+                                {L("这是你的挂单；购买请切换买家钱包", "Your order; switch to a buyer wallet to purchase")}
+                              </small>}
+                            </td>
                             <td>
                               {date(o.expiresAt)}
                               {o.active !== true ? (
@@ -2371,7 +2862,7 @@ export default function LivePlatform() {
                                   {L("已结束", "Closed")}
                                 </small>
                               ) : o.expiresAt <=
-                                BigInt(source?.indexedTimestamp ?? 0) ? (
+                                BigInt(marketOrderSource?.indexedTimestamp ?? 0) ? (
                                 <small className="live-order-state">
                                   {L(
                                     "已到期 · 待解锁",
@@ -2383,18 +2874,15 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={loading ||
-                                  !account ||
+                                disabled={!account ||
                                   busy ||
-                                  o.active !== true ||
-                                  (!same(o.seller, account) &&
-                                    o.shareTradingAllowed !== true)
+                                  o.active !== true
                                 }
                                 onClick={() =>
                                   openAction(
                                     same(o.seller, account)
                                       ? o.expiresAt <=
-                                        BigInt(source?.indexedTimestamp ?? 0)
+                                        BigInt(marketOrderSource?.indexedTimestamp ?? 0)
                                         ? "expire"
                                         : "cancel"
                                       : "fill",
@@ -2405,7 +2893,7 @@ export default function LivePlatform() {
                               >
                                 {same(o.seller, account)
                                   ? o.expiresAt <=
-                                    BigInt(source?.indexedTimestamp ?? 0)
+                                    BigInt(marketOrderSource?.indexedTimestamp ?? 0)
                                     ? L("解锁份额", "Unlock shares")
                                     : L("撤单", "Cancel")
                                   : L("买入份额", "Buy shares")}
@@ -2418,8 +2906,10 @@ export default function LivePlatform() {
                     {!orders.length && (
                       <Empty
                         title={
-                          loading
+                          marketOrdersLoading
                             ? L("正在读取订单…", "Loading orders…")
+                            : marketOrdersError
+                              ? L("订单读取失败，请刷新重试", "Could not read orders. Please refresh.")
                             : marketTab === "mine" && !account
                               ? L(
                                   "连接钱包查看本人挂单",
@@ -2430,6 +2920,7 @@ export default function LivePlatform() {
                       />
                     )}
                   </div>
+                  {marketOrdersError && <p className="live-dialog-error" role="alert">{marketOrdersError}</p>}
                   {moreButton(orderCursor, "orders")}
                   {!!orders.length && <p className="subtle-note">{L("日产能价按该挂单每份价格 × 100 ÷ 当前矿机预计日产出计算，属于毛产能估算；实际收益另按合约费率结算。产能来源过期或未核验时不显示价格，不影响链上买卖。", "Capacity price is each share order's price × 100 ÷ estimated daily miner output. This gross estimate is not a return guarantee; unavailable estimates do not affect on-chain trading.")}</p>}
                 </section>
@@ -2447,7 +2938,7 @@ export default function LivePlatform() {
                   </div>
                 </div>
                 {account ? (
-                  poolTable(positions.filter((p) => p.status === "Active"), true)
+                  poolTable(positions, true)
                 ) : (
                   <Empty
                     title={L(
@@ -2460,11 +2951,12 @@ export default function LivePlatform() {
               </section>
             </>
           )}
-          {route.route === "market" && <FirstoMarketBoard />}
+          {route.route === "market" && <FirstoMarketBoard refreshKey={refresh} />}
           {['pools','overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={loading || busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
+            onReadStateChange={state => { portfolioRead.current = state; }}
             onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>}
 
           {route.route === "governance" && (
@@ -2508,10 +3000,11 @@ export default function LivePlatform() {
                   ["Active", "Listed"].includes(p.status),
                 ) && (
                   <Empty
-                    title={L(
-                      "暂无可显示的矿机决策",
-                      "No miner decisions to show",
-                    )}
+                    title={account && positionsReadLoading
+                      ? L('正在读取份额与决策…', 'Loading shares and decisions…')
+                      : account && positionsReadError
+                        ? L('份额读取失败，请刷新重试', 'Could not read shares. Please refresh.')
+                        : L('暂无可显示的矿机决策', 'No miner decisions to show')}
                   />
                 )}
               </section>
@@ -2521,14 +3014,17 @@ export default function LivePlatform() {
               )}
             </>
           )}
-          {route.route === 'operator' && (hasOperatorAccess ? <>
+          {route.route === 'operator' && !['disconnected', 'denied'].includes(operatorAccess) && (hasOperatorAccess ? <>
             {heading(L('运营工作台', 'Pool operations'), L('创建矿池、购机与管理矿机。', 'Create pools, purchase and manage miners.'))}
             {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}:${refresh}`} config={config} wallet={wallet} account={account}
               operator={operator} disabled={loading || busy || !!pending} onSend={sendAdminAction}
-              onRefresh={() => setRefresh(value => value + 1)}/>}
+              gasFeeWei={transactionGasWei}
+              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
+            {isOperator && config?.stage === 'fresh-active' && <FreshAuthorityConsole config={config} account={account}
+              wallet={wallet} disabled={loading || busy || !!pending} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={loading || busy || !!pending} onConnect={connect} onSend={sendPortfolio}
-              onSendQueue={sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
+              onSendQueue={config?.stage === 'fresh-active' ? undefined : sendBudgetQueueStep} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
           </> : <section className="panel" data-operator-access={operatorAccess}>
             <Empty title={operatorAccess === 'checking'
@@ -2543,7 +3039,7 @@ export default function LivePlatform() {
             <div className="live-actions">
               <Button secondary onClick={() => go('home')}>{L('返回拼矿首页', 'Back to home')}</Button>
               {wallet && account && operatorAccess !== 'checking' && <Button secondary disabled={busy}
-                onClick={() => setRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
+              onClick={() => setOperatorRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
             </div>
           </section>)}
           {route.route === "records" && (
@@ -2586,9 +3082,11 @@ export default function LivePlatform() {
               )}
             </span>
             {route.route !== 'notifications' && <span>
-              {source
-                ? L("数据区块", "Data block") +
-                  ` ${source.indexedBlock ?? source.indexedThrough ?? source.blockNumber ?? "—"}`
+              {pageSource
+                ? L(pageSource.stale ? "历史快照区块" : "数据区块", pageSource.stale ? "Historical snapshot block" : "Data block") +
+                  ` ${pageSource.indexedBlock ?? pageSource.indexedThrough ?? pageSource.blockNumber ?? "—"}`
+                : route.route === 'portfolio'
+                  ? L('预算项目独立核对', 'Portfolio data verified separately')
                 : boot.status === 'loading' || loading
                   ? L("正在核对链上数据", "Checking on-chain data")
                   : L("数据暂不可用", "Data temporarily unavailable")}
@@ -2835,28 +3333,25 @@ export default function LivePlatform() {
                             {modal.kind === 'list' && <>
                               <div><span>{L('挂牌份数', 'Listed shares')}</span><strong>{quantity}</strong></div>
                               <div><span>{L('每份挂牌价', 'Ask per share')}</span><strong title={`${price} BNB`}>{displayDecimal(price)} BNB</strong></div>
+                              <div><span>{L('全部成交基价', 'Total asking price')}</span><strong>{amount(prepared.listingGrossWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'fill' && prepared.marketTrade && <>
-                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei)} BNB</strong></div>
+                              <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei)} BNB</strong></div>
+                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'completeFirstoSale' && prepared.quote && <>
-                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei, 18, 18)} BNB</strong></div>
-                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei, 18, 18)} BNB</strong></div>
+                              <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei)} BNB</strong></div>
+                              <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei)} BNB</strong></div>
+                              <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei)} BNB</strong></div>
+                              <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei)} BNB</strong></div>
                               <p>{L('同笔完成收益结清与 Firsto 成交；暂不向 Firsto 外部页面发布挂单。', 'Rewards settle in the same Firsto trade. External Firsto website listings are not enabled.')}</p>
                             </>}
                             <div>
-                              <span>{L("支付金额", "Payment")}</span>
+                              <span>{modal.kind === 'list' ? L("本次钱包支付（另付 Gas）", "Wallet payment (plus Gas)") : L("支付金额", "Payment")}</span>
                               <strong>
-                                {amount(
-                                  BigInt(prepared.transaction.value),
-                                  18,
-                                  18,
-                                )}{" "}
+                                {amount(BigInt(prepared.transaction.value))}{" "}
                                 BNB
                               </strong>
                             </div>
@@ -2877,8 +3372,8 @@ export default function LivePlatform() {
                           </div>
                           <p className="inline-note">
                             {L(
-                              "金额显示四舍五入至三位小数，交易仍使用原始精确值。请在钱包核对金额与 Gas；以链上确认为准。",
-                              "Amounts are displayed rounded to three decimals; transactions retain their exact original values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
+                              "金额显示至五位小数；不足 0.00001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
+                              "Amounts are displayed to five decimals; positive amounts below 0.00001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
                             )}
                           </p>
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">
@@ -2932,6 +3427,7 @@ export default function LivePlatform() {
   );
 }
 function compare(a, b) {
+  if (a == null && b == null) return 0;
   if (a == null) return 1;
   if (b == null) return -1;
   return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;

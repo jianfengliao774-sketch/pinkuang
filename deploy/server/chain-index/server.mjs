@@ -24,6 +24,9 @@ export function serverConfiguration(env = process.env) {
   if (!/^https:\/\//.test(rpc)) throw new Error('CHAIN_INDEX_RPC_URL must use HTTPS.');
   const logsRpc = env.CHAIN_INDEX_LOGS_RPC_URL || null;
   if (logsRpc && !/^https:\/\//.test(logsRpc)) throw new Error('CHAIN_INDEX_LOGS_RPC_URL must use HTTPS.');
+  const fallbackLogsRpc = env.CHAIN_INDEX_LOGS_FALLBACK_RPC_URL || null;
+  if (fallbackLogsRpc && !/^https:\/\//.test(fallbackLogsRpc)) throw new Error('CHAIN_INDEX_LOGS_FALLBACK_RPC_URL must use HTTPS.');
+  if (fallbackLogsRpc && fallbackLogsRpc === (logsRpc || rpc)) throw new Error('Fallback logs RPC must differ from the primary logs RPC.');
   const host = env.CHAIN_INDEX_HOST || '127.0.0.1';
   if (host !== '127.0.0.1' && host !== '::1') throw new Error('Bind the index only to loopback; use an authenticated/rate-limited reverse proxy.');
   const port = exactNumber(env.CHAIN_INDEX_PORT || '4180', 'port');
@@ -31,7 +34,7 @@ export function serverConfiguration(env = process.env) {
   const scanRange = exactNumber(env.CHAIN_INDEX_SCAN_RANGE ?? '100', 'scan range');
   if (scanRange < 1 || scanRange > 500) throw new Error('Scan range must be between 1 and 500 blocks.');
   if(Boolean(env.CHAIN_INDEX_PORTFOLIO_FACTORY)!==Boolean(env.CHAIN_INDEX_PORTFOLIO_MARKET))throw new Error('Configure both portfolio Factory and market.');
-  return { rpc, logsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), host, port, dbPath: required(env, 'CHAIN_INDEX_DB'), factory: required(env, 'CHAIN_INDEX_FACTORY'),
+  return { rpc, logsRpc, fallbackLogsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), host, port, dbPath: required(env, 'CHAIN_INDEX_DB'), factory: required(env, 'CHAIN_INDEX_FACTORY'),
     ...(env.CHAIN_INDEX_PORTFOLIO_FACTORY?{portfolioFactory:env.CHAIN_INDEX_PORTFOLIO_FACTORY,portfolioMarket:env.CHAIN_INDEX_PORTFOLIO_MARKET}:{}),
     market: required(env, 'CHAIN_INDEX_MARKET'), startBlock: exactNumber(required(env, 'CHAIN_INDEX_START_BLOCK'), 'start block'),
     confirmations: exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12', 'confirmations'), scanRange };
@@ -49,6 +52,19 @@ function readProvider(rpc, timeout = 12_000) {
   });
 }
 
+export function chainIndexFailureMessage(index, error) {
+  const code = typeof error?.code === 'string' && /^[A-Z_]{2,30}$/.test(error.code) ? error.code : 'unknown';
+  const rpcCodeValue = error?.error?.code ?? error?.info?.error?.code;
+  const rpcCode = Number.isSafeInteger(rpcCodeValue) ? rpcCodeValue : 'unknown';
+  const httpStatusValue = error?.statusCode ?? error?.info?.response?.statusCode ?? error?.info?.response?.status;
+  const httpStatus = Number.isInteger(httpStatusValue) && httpStatusValue >= 100 && httpStatusValue <= 599
+    ? httpStatusValue : 'unknown';
+  const method = ['eth_chainId', 'eth_call', 'eth_getBlockByNumber', 'eth_getCode', 'eth_getLogs'].includes(error?.rpcMethod)
+    ? error.rpcMethod : 'unknown';
+  const type = typeof error?.name === 'string' && /^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'unknown';
+  return `Chain index unavailable: ${index.status().unknownReason}; stage=${index.lastFailureStage ?? 'unknown'}; method=${method}; type=${type}; code=${code}; rpcCode=${rpcCode}; httpStatus=${httpStatus}`;
+}
+
 export async function startChainIndex(config) {
   const logsTimeoutMs = logsTimeout(config.logsTimeoutMs);
   const primary = readProvider(config.rpc);
@@ -56,21 +72,56 @@ export async function startChainIndex(config) {
   // including when both roles point at the same URL.
   const logsRpc = config.logsRpc || config.rpc;
   const logs = logsRpc !== config.rpc || logsTimeoutMs !== 12_000 ? readProvider(logsRpc, logsTimeoutMs) : primary;
-  const providers = [...new Set([primary, logs])];
+  const fallbackLogs = config.fallbackLogsRpc ? readProvider(config.fallbackLogsRpc, logsTimeoutMs) : null;
+  const providers = [...new Set([primary, logs, fallbackLogs].filter(Boolean))];
+  let verifiedTips = new Map();
+  async function observedRead(method, operation) {
+    try { return await operation(); }
+    catch (error) {
+      // Preserve the original error for the sync loop, but expose only this
+      // fixed method name in diagnostics. Provider messages may contain URLs.
+      if (error && typeof error === 'object') {
+        try { error.rpcMethod ??= method; } catch { /* immutable upstream error */ }
+      }
+      throw error;
+    }
+  }
+  async function checkedLogs(source, filter) {
+    if (source !== primary) {
+      const key = `${source === logs ? 'primary' : 'fallback'}:${filter.toBlock}`;
+      if (!verifiedTips.has(key)) {
+        const proof = Promise.all([primary.getBlock(filter.toBlock), source.getBlock(filter.toBlock)]).then(([canonical, served]) => {
+          if (!canonical?.hash || !served?.hash || canonical.number !== filter.toBlock
+            || served.number !== filter.toBlock || canonical.hash.toLowerCase() !== served.hash.toLowerCase())
+            throw new Error('Logs RPC is behind or differs from the canonical chain.');
+        });
+        verifiedTips.set(key, proof);
+      }
+      await verifiedTips.get(key);
+    }
+    return source.getLogs(filter);
+  }
   const provider = Object.freeze({
-    send: async (method, params) => {
-      if (method === 'eth_chainId' && logs !== primary) {
-        const [chainId, logsChainId] = await Promise.all([primary.send(method, params), logs.send(method, params)]);
-        if (!/^0x[0-9a-f]+$/i.test(logsChainId) || BigInt(logsChainId) !== 56n)
+    send: (method, params) => observedRead(method === 'eth_chainId' ? method : 'other', async () => {
+      if (method === 'eth_chainId') {
+        verifiedTips = new Map();
+        const ids = await Promise.all(providers.map(source => source.send(method, params)));
+        if (ids.some(id => !/^0x[0-9a-f]+$/i.test(id) || BigInt(id) !== 56n))
           throw new Error('RPC is not BSC mainnet (56).');
-        return chainId;
+        return ids[0];
       }
       return primary.send(method, params);
-    },
-    call: primary.call.bind(primary),
-    getBlock: primary.getBlock.bind(primary),
-    getCode: primary.getCode.bind(primary),
-    getLogs: logs.getLogs.bind(logs),
+    }),
+    call: (...args) => observedRead('eth_call', () => primary.call(...args)),
+    getBlock: (...args) => observedRead('eth_getBlockByNumber', () => primary.getBlock(...args)),
+    getCode: (...args) => observedRead('eth_getCode', () => primary.getCode(...args)),
+    getLogs: filter => observedRead('eth_getLogs', async () => {
+      try { return await checkedLogs(logs, filter); }
+      catch (error) {
+        if (!fallbackLogs) throw error;
+        return checkedLogs(fallbackLogs, filter);
+      }
+    }),
   });
   let index;
   let server;
@@ -98,7 +149,10 @@ export async function startChainIndex(config) {
   async function tick() {
     if (stopped) return;
     try { await index.sync(); consecutiveFailures = 0; }
-    catch { consecutiveFailures = Math.min(consecutiveFailures + 1, 5); console.error(`Chain index unavailable: ${index.status().unknownReason}`); }
+    catch (error) {
+      consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
+      console.error(chainIndexFailureMessage(index, error));
+    }
     const delay = consecutiveFailures ? Math.min(60_000, 4_000 * 2 ** (consecutiveFailures - 1))
       : index.status().complete ? 10_000 : 1_000;
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);

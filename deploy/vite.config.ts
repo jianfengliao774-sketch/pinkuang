@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,10 +19,13 @@ const sourcePath = fileURLToPath(new URL('../contracts/src/', import.meta.url));
 const configPath = fileURLToPath(new URL('./vite.config.ts', import.meta.url));
 const builderPath = fileURLToPath(new URL('./scripts/build-artifacts.mjs', import.meta.url));
 const foundryPath = fileURLToPath(new URL('../contracts/foundry.toml', import.meta.url));
+const deployDir = fileURLToPath(new URL('./', import.meta.url));
 const buildInputs = new Set([configPath, builderPath, foundryPath]);
 const fileHash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const standaloneUpgrade = mode === 'upgrade';
+  const freshDeployment = mode === 'fresh';
   const digest = verifiedBuildDigest();
   const builderHash = fileHash(builderPath);
   const configHash = fileHash(configPath);
@@ -30,7 +33,7 @@ export default defineConfig(() => {
     if (fileHash(builderPath) !== builderHash || fileHash(configPath) !== configHash) throw new Error('Build scripts changed.');
     assertCurrentArtifactInputs(digest);
   };
-  return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest) }, plugins: [react(), {
+  const runtimePlugins: Plugin[] = [{
   name: 'refresh-deployment-artifact-digest',
   configureServer(server) {
     // Vite's define value is frozen at startup. Regenerating the public artifact
@@ -74,5 +77,17 @@ export default defineConfig(() => {
     server.middlewares.use((req, res, next) => { if (req.url?.startsWith('/api/journal/')) service.handle(req, res); else next(); });
     server.httpServer?.once('close', () => { void service.close(); });
   },
-}], base: './', build: { chunkSizeWarningLimit: 800 } };
+}];
+  return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest) },
+    // Fresh releases copy only their reviewed public files after bundling.
+    // Vite's normal publicDir also contains retired upgrade genesis records.
+    publicDir: freshDeployment ? false : undefined,
+    plugins: [react(), ...(standaloneUpgrade ? [] : runtimePlugins)], base: './', build: {
+    chunkSizeWarningLimit: 800,
+    outDir: standaloneUpgrade ? 'dist-upgrade' : 'dist',
+    rollupOptions: { input: standaloneUpgrade
+      ? resolve(deployDir, 'upgrade.html')
+      : freshDeployment ? resolve(deployDir, 'index.html')
+        : { main: resolve(deployDir, 'index.html'), upgrade: resolve(deployDir, 'upgrade.html') } },
+  } };
 });

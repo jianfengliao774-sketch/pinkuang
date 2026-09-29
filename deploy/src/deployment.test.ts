@@ -349,7 +349,8 @@ test('wallet change after the saved intent still blocks the signature', async ()
   } });
   await assert.rejects(guarded.start(input), /钱包账户已改变/);
   assert.equal(broadcasts, 0);
-  assert.equal(snapshot?.steps[0].status, 'waiting');
+  assert.equal(snapshot?.steps[0].status, 'rejected');
+  assert.equal(snapshot?.steps[0].rejectionKind, 'pre-send');
 });
 
 test('a changed server artifact after the saved intent blocks eth_sendTransaction', async () => {
@@ -366,7 +367,8 @@ test('a changed server artifact after the saved intent blocks eth_sendTransactio
   await assert.rejects(stale.start(input), /旧版合约产物/);
   assert.equal(checks, 1);
   assert.equal(sends, before, 'no wallet send should occur after the server build check fails');
-  assert.equal(snapshot?.steps[0].status, 'signing', 'the write-ahead intent remains durable and cannot be silently retried');
+  assert.equal(snapshot?.steps[0].status, 'rejected', 'the wallet was never called, so the intent can be manually retried after a fresh nonce check');
+  assert.equal(snapshot?.steps[0].rejectionKind, 'pre-send');
   assert.equal(snapshot?.status, 'paused');
 });
 
@@ -381,7 +383,8 @@ test('wallet account change after broadcast still verifies that receipt and bloc
   } };
   await assert.rejects(engine(switching).start(input), /钱包账户已改变/);
   assert.equal(snapshot?.steps[0].status, 'confirmed');
-  assert.equal(snapshot?.steps[1].status, 'waiting');
+  assert.equal(snapshot?.steps[1].status, 'rejected');
+  assert.equal(snapshot?.steps[1].rejectionKind, 'pre-send');
   assert.equal(sendsFromThisWallet, 1, 'the changed wallet must never sign a second step');
 });
 
@@ -525,21 +528,23 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   assert.equal(wrappedInspected.status, 'complete');
   assert.equal(sends, beforeWrapped);
   assert.equal(complete.verification!.checks.find(check => check.label === '初始池子数量')?.actual, '0');
-  // Create a real pool on the disposable chain. Subsequent deployment reconciliation
-  // must accept legitimate business activity rather than insist the factory stays empty.
+  // The new Factory must remain closed to new reservations until both previous
+  // mainnet Factories are paused. This disposable chain intentionally has no
+  // old-Factory state and cannot satisfy the launch gate.
   const provider = new BrowserProvider(wallet);
   const deployedFactory = new Contract(complete.addresses.factory, bundle.artifacts.PoolFactory.abi, await provider.getSigner(account));
   assert.equal((await deployedFactory.lens()).toLowerCase(), complete.addresses.lens.toLowerCase());
   const latest = await provider.getBlock('latest');
   assert(latest);
-  await (await deployedFactory.createPool({ circuits: PROTOCOL_ADDRESSES.TAPEOUT_CIRCUITS, circuitId: 1n,
+  const samplePool = { circuits: PROTOCOL_ADDRESSES.TAPEOUT_CIRCUITS, circuitId: 1n,
     targetRaise: 10000n, priceCap: 10000n, directSeller: ZeroAddress, directPrice: 0n,
-    fundingDeadline: latest.timestamp + 3600, purchaseDeadline: latest.timestamp + 7200 })).wait();
-  assert.equal(await deployedFactory.poolCount(), 1n);
+    fundingDeadline: latest.timestamp + 3600, purchaseDeadline: latest.timestamp + 7200 };
+  await assert.rejects(deployedFactory.createPool(samplePool), /revert/, 'fresh Factory must refuse reservations while older Factories are open');
+  assert.equal(await deployedFactory.poolCount(), 0n);
   const count = sends;
   const recovered = await engine().reconcile(complete);
   assert.equal(recovered.status, 'complete');
-  assert.equal(recovered.verification!.checks.find(check => check.label === '当前池子数量')?.actual, '1');
+  assert.equal(recovered.verification!.checks.find(check => check.label === '当前池子数量')?.actual, '0');
   assert.equal(sends, count);
   const stale = structuredClone(complete);
   stale.status = 'paused';

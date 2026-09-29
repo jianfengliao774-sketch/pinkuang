@@ -1,7 +1,8 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint, readPoolSnapshot, hasPosition, assetKey } from './chain-client.mjs';
-import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS } from './live-config.mjs';
-import { settleReadRound } from './read-retry.mjs';
+import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
+import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate } from './sale-governance-gate.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -15,7 +16,7 @@ const sameAddress = (a, b) => liveAddress(a) === liveAddress(b);
 const good = (s, bit) => (BigInt(s.validMask) & (1n << BigInt(bit))) !== 0n && (BigInt(s.errorMask) & (1n << BigInt(bit))) === 0n;
 const sameSource = (a, b) => a.chainId === b.chainId && a.factory === b.factory && a.market === b.market
   && a.startBlock === b.startBlock && a.indexedThrough === b.indexedThrough && a.indexedBlockHash === b.indexedBlockHash
-  && a.indexedTimestamp === b.indexedTimestamp;
+  && a.indexedTimestamp === b.indexedTimestamp && a.readMode === b.readMode && a.stale === b.stale;
 
 async function verifyInParallel(checks) {
   let next = 0, failed = false, failure;
@@ -31,15 +32,20 @@ async function verifyInParallel(checks) {
   if (failed) throw failure;
 }
 
-export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs = 120000 } = {}) {
+export function validateIndexSource(input, manifest, { now = Date.now(), maxAgeMs } = {}) {
   insist(input && input.chainId === 56 && sameAddress(input.factory, manifest.factory)
     && sameAddress(input.market, manifest.shareMarket), 'index_identity', '索引合约身份与部署清单不一致。');
+  const displaySnapshot = input.readMode === 'verified_snapshot';
+  insist(displaySnapshot ? input.stale === true && input.transactionReady === false && typeof input.refreshing === 'boolean'
+    : input.stale !== true && input.transactionReady !== false,
+  'index_stale', '历史展示快照缺少明确的过期或交易限制标记。');
   insist(input.complete === true && input.unknownReason === null, 'index_incomplete', '索引尚未完整核验，请稍后刷新。');
   for (const key of ['startBlock', 'confirmations', 'indexedThrough', 'indexedTimestamp', 'observedSafeHead']) safeInt(input[key], key);
   insist(input.startBlock <= manifest.deployment.blockNumber && input.indexedThrough >= manifest.verifiedBlockNumber
     && input.indexedThrough === input.observedSafeHead && input.confirmations >= 1 && hash(input.indexedBlockHash), 'index_coverage', '索引覆盖或安全区块无效。');
   const checkedAt = Date.parse(input.checkedAt);
-  insist(Number.isFinite(checkedAt) && checkedAt <= now + 30000 && now - checkedAt <= maxAgeMs, 'index_stale', '索引核验已过期，请刷新。');
+  const allowedAge = Math.min(maxAgeMs ?? (displaySnapshot ? 30 * 60 * 1000 : 120000), displaySnapshot ? 30 * 60 * 1000 : 120000);
+  insist(Number.isFinite(checkedAt) && checkedAt <= now + 30000 && now - checkedAt <= allowedAge, 'index_stale', '索引核验已过期，请刷新。');
   return Object.freeze({ ...input, factory: getAddress(input.factory), market: getAddress(input.market), indexedBlockHash: input.indexedBlockHash.toLowerCase() });
 }
 
@@ -60,7 +66,7 @@ export function livePoolModel(row, snapshot) {
 /** Index discovers history; all balances/orders/eligibility are independently re-read at its canonical source block. */
 export function createLiveDataClient(config, { provider, fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   insist(config?.status === 'ready', 'unconfigured', '尚未配置已核验的正式合约。');
-  const manifest = validateManifest(config.manifest);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   const rpc = provider ?? createReadOnlyHttpProvider(config, { fetcher });
   const request = (method, params = []) => rpc.request({ method, params });
   const indexBase = new URL(config.indexBaseUrl);
@@ -138,14 +144,73 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     await ensureCanonical(source);
     return { source, data: response.data };
   }
+  async function savedSnapshotRead(path, query = {}) {
+    const url = new URL(`${indexBase.href.replace(/\/$/, '')}/v1/snapshot${path}`);
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    const response = await fetchLiveJson(url.href, { fetcher });
+    insist(response?.source?.readMode === 'verified_snapshot', 'index_identity', '服务端快照来源无效。');
+    const source = validateIndexSource(response.source, manifest, { now: now(), maxAgeMs: 30 * 60 * 1000 });
+    await verifyDeployment({ blockNumber: BigInt(source.indexedThrough) });
+    await ensureCanonical(source);
+    return { source, data: response.data };
+  }
   async function sourceFor(expected) { return (await indexRead('/health', {}, expected)).source; }
   const pageLimit = value => { safeInt(value, 'limit'); insist(value >= 1 && value <= 20, 'page_limit', '每页读取 1–20 条。'); return value; };
+  // The event index can temporarily be unavailable while the Factory and Lens
+  // remain readable. Use only a confirmed, manifest-verified chain snapshot;
+  // never turn an index identity/integrity error into an apparently empty page.
+  async function directSource() {
+    const tip = await blockHeader();
+    const confirmations = 12n;
+    insist(tip.number >= BigInt(manifest.verifiedBlockNumber) + confirmations, 'deployment_block', '合约部署尚未获得足够确认。');
+    const verified = await verifyDeployment({ blockNumber: tip.number - confirmations });
+    const b = await blockHeader(verified.blockNumber);
+    insist(b.hash === verified.blockHash, 'source_reorg', '链上区块已变化，请刷新。');
+    return Object.freeze({ chainId: 56, factory: manifest.factory, market: manifest.shareMarket,
+      startBlock: manifest.deployment.blockNumber, confirmations: Number(confirmations),
+      indexedThrough: Number(b.number), indexedBlockHash: b.hash, indexedTimestamp: Number(b.timestamp),
+      observedSafeHead: Number(b.number), complete: true, unknownReason: null,
+      checkedAt: new Date(now()).toISOString(), readMode: 'direct_chain' });
+  }
+  async function directPage({ account = ZeroAddress, cursor = 0, limit = 20, holdings = false }) {
+    const source = await directSource();
+    const owner = getAddress(account);
+    const first = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: owner,
+      offset: BigInt(cursor), limit: BigInt(limit), blockNumber: BigInt(source.indexedThrough) });
+    insist(sameAddress(first.lens, manifest.lens) && first.blockHash.toLowerCase() === source.indexedBlockHash
+      && first.timestamp === BigInt(source.indexedTimestamp) && first.totalPools !== null,
+    'source_reorg', '链上项目读取与已核验区块不一致。');
+    const total = first.totalPools;
+    insist(total <= 500n, 'direct_scan_limit', '项目数量超出直读上限，请等待索引恢复。');
+    insist(BigInt(cursor) <= total && first.pools.length <= limit, 'pool_response', '链上项目分页无效。');
+    const rows = [...first.pools];
+    if (holdings) {
+      // Account discovery needs the complete registry. A partial scan must
+      // never be presented as an empty or complete holdings list.
+      for (let offset = BigInt(cursor + first.pools.length); offset < total; offset += 20n) {
+        const part = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: owner,
+          offset, limit: 20n, blockNumber: BigInt(source.indexedThrough) });
+        insist(sameAddress(part.lens, manifest.lens) && part.blockHash.toLowerCase() === source.indexedBlockHash
+          && part.timestamp === BigInt(source.indexedTimestamp) && part.totalPools === total
+          && part.pools.length === Number(total - offset < 20n ? total - offset : 20n),
+        'source_reorg', '链上持仓扫描不完整。');
+        rows.push(...part.pools);
+      }
+    }
+    const after = await blockHeader(BigInt(source.indexedThrough));
+    insist(after.hash === source.indexedBlockHash, 'source_reorg', '读取期间发生区块变化。');
+    const items = rows.filter(row => !holdings || hasPosition(row)).map(row => livePoolModel(row, first));
+    insist(!holdings || items.length <= limit, 'direct_scan_limit', '持仓超过直读分页上限，请等待索引恢复。');
+    const nextCursor = holdings ? null : BigInt(cursor + rows.length) < total ? cursor + rows.length : null;
+    return Object.freeze({ source, items, nextCursor, snapshot: first });
+  }
+  const canReadDirect = (error, expected, cursor) => !expected && cursor === 0 && isRetryableReadError(error);
   function page(data, limit) { insist(data && Array.isArray(data.items) && data.items.length <= limit
     && Object.hasOwn(data, 'nextCursor'), 'invalid_page', '索引分页响应无效。'); return data; }
   async function positionsAt(addresses, account, source) {
     const normalized = addresses.map(liveAddress);
     insist(new Set(normalized).size === normalized.length, 'duplicate_pool', '索引包含重复项目地址。');
-    const snapshot = await readPoolSnapshot(rpc, { factory: manifest.factory, account: account ?? ZeroAddress,
+    const snapshot = await readPoolSnapshot(rpc, { factory: manifest.factory, lens: manifest.lens, account: account ?? ZeroAddress,
       pools: normalized, blockNumber: BigInt(source.indexedThrough) });
     insist(sameAddress(snapshot.lens, manifest.lens) && snapshot.blockHash.toLowerCase() === source.indexedBlockHash
       && snapshot.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '聚合读取与索引区块不一致。');
@@ -160,23 +225,54 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   }
   async function readPools({ account, cursor = 0, limit = 20, source: expected } = {}) {
     safeInt(cursor, 'cursor'); pageLimit(limit);
-    const { source, data } = await indexRead('/v1/pools', { cursor, limit }, expected);
+    let indexed;
+    try { indexed = await indexRead('/v1/pools', { cursor, limit }, expected); }
+    catch (error) {
+      if (!canReadDirect(error, expected, cursor)) throw error;
+      try { indexed = await savedSnapshotRead('/pools', { cursor, limit }); }
+      catch (snapshotError) {
+        if (!isRetryableReadError(snapshotError)
+          && !(snapshotError?.code === 'http_unavailable' && snapshotError.details?.status === 404)) throw snapshotError;
+        return directPage({ account, cursor, limit });
+      }
+    }
+    const { source, data } = indexed;
     page(data, limit); numericCursor(data, cursor);
     for (const row of data.items) { liveAddress(row.address); liveAddress(row.collection); exact(row.circuitId, 'circuitId');
       safeInt(row.createdBlock, 'createdBlock'); insist(row.createdBlock <= source.indexedThrough, 'invalid_data', '项目创建区块超出索引范围。'); }
     const snapshot = await positionsAt(data.items.map(row => row.address), account, source);
-    insist(snapshot.totalPools !== null && BigInt(cursor + data.items.length) <= snapshot.totalPools
-      && (data.nextCursor === null ? BigInt(cursor + data.items.length) >= snapshot.totalPools : BigInt(data.nextCursor) < snapshot.totalPools), 'index_coverage', '项目分页与同块工厂总数不一致。');
+    const registered = data.registeredPoolCount === undefined ? snapshot.totalPools : exact(data.registeredPoolCount, 'registeredPoolCount');
+    const child = data.childPoolCount === undefined ? 0n : exact(data.childPoolCount, 'childPoolCount');
+    const standalone = data.standalonePoolCount === undefined ? registered : exact(data.standalonePoolCount, 'standalonePoolCount');
+    insist(snapshot.totalPools !== null && registered === snapshot.totalPools && standalone + child === registered
+      && BigInt(cursor + data.items.length) <= standalone
+      && (data.nextCursor === null ? BigInt(cursor + data.items.length) >= standalone : BigInt(data.nextCursor) < standalone),
+    'index_coverage', '项目分页与同块工厂总数不一致。');
     return Object.freeze({ source, items: snapshot.pools.map(row => livePoolModel(row, snapshot)), nextCursor: data.nextCursor, snapshot });
   }
   async function readPool({ pool, account, source: expected } = {}) {
-    const source = await sourceFor(expected), snapshot = await positionsAt([liveAddress(pool)], account, source);
+    let source;
+    try { source = await sourceFor(expected); }
+    catch (error) {
+      if (!canReadDirect(error, expected, 0)) throw error;
+      source = await directSource();
+    }
+    const snapshot = await positionsAt([liveAddress(pool)], account, source);
     insist(snapshot.pools[0]?.trusted, 'untrusted_pool', '该项目未通过官方工厂身份核验。');
     return Object.freeze({ source, item: livePoolModel(snapshot.pools[0], snapshot), snapshot });
   }
   async function readPositions({ account, cursor = 0, limit = 20, source: expected } = {}) {
     const owner = liveAddress(account); safeInt(cursor, 'cursor'); pageLimit(limit);
-    const { source, data } = await indexRead(`/v1/accounts/${owner}/pools`, { cursor, limit }, expected);
+    let indexed;
+    try { indexed = await indexRead(`/v1/accounts/${owner}/pools`, { cursor, limit }, expected); }
+    catch (error) {
+      if (!canReadDirect(error, expected, cursor)) throw error;
+      const result = await directPage({ account: owner, cursor, limit, holdings: true });
+      const marketBnbOwed = (await call(manifest.shareMarket, abi.ShareMarket, 'bnbOwed', [owner], BigInt(result.source.indexedThrough)))[0];
+      await ensureCanonical(result.source);
+      return Object.freeze({ ...result, marketBnbOwed });
+    }
+    const { source, data } = indexed;
     page(data, limit); numericCursor(data, cursor);
     const snapshot = await positionsAt(data.items, owner, source);
     const marketBnbOwed = (await call(manifest.shareMarket, abi.ShareMarket, 'bnbOwed', [owner], snapshot.blockNumber))[0];
@@ -185,7 +281,13 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       nextCursor: data.nextCursor, snapshot, marketBnbOwed });
   }
   async function readStats({ source: expected } = {}) {
-    const { source, data } = await indexRead('/v1/stats', {}, expected);
+    let indexed;
+    try { indexed = await indexRead('/v1/stats', {}, expected); }
+    catch (error) {
+      if (!canReadDirect(error, expected, 0)) throw error;
+      indexed = await savedSnapshotRead('/stats');
+    }
+    const { source, data } = indexed;
     insist(data?.scope === 'confirmed_indexed_history', 'invalid_data', '平台统计口径无效。');
     const values = { scope: data.scope, estimatedDailyBemAtomic: null, currentlyActivePoolCount: null };
     for (const field of ['registeredPoolCount', 'everParticipantAddressCount', 'purchasedCostWei', 'shareMarketFilledGrossWei', 'harvestedToMembersBemAtomic']) values[field] = exact(data[field], field);
@@ -202,7 +304,47 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     pageLimit(limit); if (pool) pool = liveAddress(pool); if (seller) seller = liveAddress(seller);
     insist(active === undefined || typeof active === 'boolean', 'invalid_query', '订单状态筛选无效。');
     if (cursor !== undefined) insist(/^[1-9]\d*$/.test(String(cursor)), 'invalid_cursor', '订单游标无效。');
-    const { source, data } = await indexRead('/v1/orders', { pool, seller, active, cursor, limit }, expected); page(data, limit);
+    let indexed;
+    try { indexed = await indexRead('/v1/orders', { pool, seller, active, cursor, limit }, expected); }
+    catch (error) {
+      if (!isRetryableReadError(error)) throw error;
+      try {
+        indexed = await savedSnapshotRead('/orders', { pool, seller, active, cursor, limit });
+        if (expected) insist(sameSource(indexed.source, expected), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
+      } catch (snapshotError) {
+        if (!canReadDirect(error, expected, cursor === undefined ? 0 : 1)
+          || !isRetryableReadError(snapshotError)
+            && !(snapshotError?.code === 'http_unavailable' && snapshotError.details?.status === 404)) throw snapshotError;
+      }
+      if (!indexed) {
+      const source = await directSource();
+      const nextId = (await call(manifest.shareMarket, abi.ShareMarket, 'nextOrderId', [], BigInt(source.indexedThrough)))[0];
+      insist(nextId <= 501n, 'direct_scan_limit', '订单数量超出直读上限，请等待索引恢复。');
+      const candidates = [];
+      for (let id = nextId - 1n; id > 0n; id--) {
+        const raw = (await call(manifest.shareMarket, abi.ShareMarket, 'orders', [id], BigInt(source.indexedThrough)))[0];
+        const expiresAt = (await call(manifest.shareMarket, abi.ShareMarket, 'orderExpiresAt', [id], BigInt(source.indexedThrough)))[0];
+        if (raw.seller === ZeroAddress || raw.pool === ZeroAddress) continue;
+        const open = raw.active && raw.remaining > 0n && expiresAt > BigInt(source.indexedTimestamp);
+        if ((pool && !sameAddress(raw.pool, pool)) || (seller && !sameAddress(raw.seller, seller))
+          || (active !== undefined && open !== active)) continue;
+        candidates.push({ id: id.toString(), orderId: id, pool: getAddress(raw.pool), seller: getAddress(raw.seller),
+          remaining: raw.remaining, shares: raw.remaining, pricePerUnitWei: raw.pricePerUnit,
+          expiresAt, active: raw.active, openAtSourceBlock: open, executable: false, requiresLatestSimulation: true });
+      }
+      insist(candidates.length <= limit, 'direct_scan_limit', '订单超过直读分页上限，请等待索引恢复。');
+      const snapshot = await positionsAt([...new Set(candidates.map(row => row.pool))], undefined, source);
+      const pools = new Map(snapshot.pools.map(row => [getAddress(row.pool), row]));
+      const items = candidates.map(row => {
+        const verified = pools.get(row.pool);
+        insist(verified?.trusted, 'untrusted_pool', '订单项目未通过官方工厂核验。');
+        return Object.freeze({ ...row, shareTradingAllowed: verified.shareTradingAllowed });
+      });
+      await ensureCanonical(source);
+      return Object.freeze({ source, items, nextCursor: null, snapshot });
+      }
+    }
+    const { source, data } = indexed; page(data, limit);
     const seen = new Set(); let last = cursor === undefined ? null : uint(String(cursor));
     const candidates = data.items.map(row => {
       const orderId = exact(row.orderId, 'orderId'); insist(orderId > 0n && !seen.has(row.orderId) && (last === null || orderId < last), 'invalid_order', '订单编号或排序无效。');
@@ -235,9 +377,53 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     insist(g.status.trustError === 0n && good(g.status, 0), 'untrusted_pool', '该治理项目未通过官方身份核验。');
     const result = { pool, account, status: { validMask: g.status.validMask, errorMask: g.status.errorMask, trustError: g.status.trustError } };
     const bits = { state: 1, activeProposalId: 2, proposal: 3, purchaseCost: 4, hasVoted: 5, snapshotShares: 6,
-      listedProposalId: 7, expiresAt: 8, salePrice: 9, requiredYesCount: 10, requiredYesShares: 10, discounted: 10, passed: 10,
-      canVote: 11, canCancelExpired: 12, canExecute: 13 };
+      listedProposalId: 7, expiresAt: 8, salePrice: 9, canVote: 11, canCancelExpired: 12 };
     for (const [key, bit] of Object.entries(bits)) result[key] = good(g.status, bit) ? g[key] : null;
+    // The immutable Lens derives both its discount flag and execution eligibility
+    // from the old purchase-cost rule. Never expose those fields from the Lens.
+    Object.assign(result, { requiredYesCount: null, requiredYesShares: null, discounted: null,
+      passed: null, canExecute: null, reviewRequired: null, reviewApproved: null,
+      saleReference: null, saleReview: null });
+    if (result.activeProposalId > 0n && result.proposal !== null) {
+      const p = result.proposal;
+      insist(p.snapshotTotalShares === 100n && p.snapshotMemberCount > 0n && p.snapshotMemberCount <= 100n
+        && p.yesCount <= p.snapshotMemberCount && p.yesShares <= p.snapshotTotalShares,
+      'governance_mismatch', '治理投票快照无效。');
+      const requiredYesCount = p.snapshotMemberCount / 2n + 1n;
+      // The still-active genesis Vault has a 60-share discount threshold. Once
+      // the Timelock batch executes, the new Vault always uses dual majority.
+      const oldDiscount = config.stage === 'genesis' && result.purchaseCost !== null
+        && p.price < result.purchaseCost;
+      const requiredYesShares = oldDiscount ? 60n : p.snapshotTotalShares / 2n + 1n;
+      const expectedPassed = p.snapshotTs + 86400n === p.endsAt && p.price > 0n
+        && p.yesCount >= requiredYesCount && p.yesShares >= requiredYesShares;
+      const passed = (await call(pool, abi.PoolVault, 'proposalPassed', [result.activeProposalId], BigInt(source.indexedThrough)))[0];
+      insist(passed === expectedPassed, 'governance_mismatch', '链上提案门槛与双过半规则不一致。');
+      result.requiredYesCount = requiredYesCount;
+      result.requiredYesShares = requiredYesShares;
+      result.passed = passed;
+      if (config.stage === 'genesis') {
+        result.discounted = oldDiscount;
+        result.canExecute = passed && result.state === 2n && !p.executed
+          && BigInt(source.indexedTimestamp) < p.endsAt;
+        // Genesis ShareMarket has no review interface; do not display a review proof.
+        await ensureCanonical(source);
+        return Object.freeze({ source, data: Object.freeze(result) });
+      }
+      try {
+        result.saleReference = await readSaleReference(request, manifest.shareMarket, pool,
+          BigInt(source.indexedThrough), BigInt(source.indexedTimestamp));
+      } catch (error) { result.saleReference = Object.freeze({ available: false,
+        reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
+      if (result.saleReference.available && p.price < result.saleReference.priceWei) {
+        try { result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
+          result.activeProposalId, BigInt(source.indexedThrough)); }
+        catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
+      }
+      const gate = saleExecutionGate({ proposal: p, passed, state: result.state,
+        timestamp: BigInt(source.indexedTimestamp), reference: result.saleReference, review: result.saleReview });
+      Object.assign(result, gate);
+    }
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });
   }
   async function readActivity({ pool, account, cursor, limit = 20, source: expected } = {}) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_PUBLIC_SHARE_BASE, validatePublicBaseUrl, buildProjectShareUrl, isConfirmedDeposit, createProjectShare } from '../lib/project-share.mjs';
+import { DEFAULT_PUBLIC_SHARE_BASE, publicShareBaseForPath, validatePublicBaseUrl, buildProjectShareUrl, isConfirmedDeposit, createProjectShare } from '../lib/project-share.mjs';
 import { SHARE_MOTTO_COUNT, shareMotto } from '../lib/share-copy.mjs';
 import { SHARE_ARTWORKS } from '../lib/share-artwork.mjs';
 import { makeArtworkShareUrl } from '../lib/share-landing.mjs';
@@ -12,6 +12,14 @@ const project = { poolAddress: pool, name: 'TapeOut', circuitId: '16210', state:
 const confirmed = { action: 'deposit', status: 'confirmed', poolAddress: pool, transactionHash: hash, finalized: true,
   receipt: { status: 1, to: pool, transactionHash: hash } };
 const model = (overrides = {}) => createProjectShare({ publicBaseUrl: DEFAULT_PUBLIC_SHARE_BASE, project, confirmation: confirmed, ...overrides });
+
+test('share links follow the deployed product path', () => {
+  const base = publicShareBaseForPath('/bemine-v2');
+  assert.equal(base, 'https://tapeout.cc.cd/bemine-v2/');
+  assert.equal(new URL(buildProjectShareUrl(base, pool, 'tg')).pathname, '/bemine-v2/');
+  assert.equal(publicShareBaseForPath(''), DEFAULT_PUBLIC_SHARE_BASE);
+  assert.equal(publicShareBaseForPath('//evil.example'), null);
+});
 
 test('only the explicitly trusted HTTPS deployment base is shareable', () => {
   assert.equal(validatePublicBaseUrl(DEFAULT_PUBLIC_SHARE_BASE), DEFAULT_PUBLIC_SHARE_BASE);

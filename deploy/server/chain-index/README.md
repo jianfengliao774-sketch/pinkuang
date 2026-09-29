@@ -21,7 +21,7 @@ npm run start:chain-index
 
 私有故障诊断应只记录固定角色（primary/logs）、方法白名单、数字区块范围、耗时、受限错误码（如 TIMEOUT/SERVER_ERROR、数字JSON-RPC码）和HTTP状态码；不要记录RPC URL、请求/响应body、headers、错误message或堆栈。对外 `/health` 继续只报告 `sync_failed` 等既有有限原因，不把失败当空列表或沿用未验收快照。
 
-每个响应的 `source` 含固定合约身份、已索引区块号/哈希/时间、安全头和 `complete`。追赶、RPC 错误、重组或身份不匹配时，除 `/health` 外返回 HTTP 503，`data:null`。金额、NFT 编号、订单编号都是十进制字符串；时间戳为秒。分页上限 50。
+每个响应的 `source` 含固定合约身份、已索引区块号/哈希/时间、安全头和 `complete`。正常同步开始时保留上一轮成功状态；发现更高安全头后，未追平的实时读返回 HTTP 503。`/v1/pools`、`/v1/portfolios`、`/v1/stats`、`/v1/orders` 可在同步或 RPC 故障时返回最近 30 分钟内的已验证展示快照，`source.readMode=verified_snapshot`、`source.stale=true`，并以 `source.refreshing` 标示当前是否正在同步；缺少对应完整快照仍为 503。快照的 `complete=true` 只说明其历史固定块曾完整核验，所有快照都标 `transactionReady=false`，不能作为交易授权。其他读接口及签名前核验保持新鲜度门禁。短暂的 RPC 安全头回退报告 `rpc_lagging`，不会仅凭低高度删除已提交历史。金额、NFT 编号、订单编号都是十进制字符串；时间戳为秒。分页上限 50。
 
 | 接口 | 数据范围 |
 | --- | --- |
@@ -29,7 +29,7 @@ npm run start:chain-index
 | `GET /v1/pools?cursor=0&limit=20` | 已注册池地址、初始 NFT 身份，供页面再用同块 Lens 读取当前状态 |
 | `GET /v1/stats` | 已确认历史口径：注册池数、去重曾参与地址数、实际购机花费、份额市场成交总额、池级归集净额；估计日产和当前活跃池数为 `null` |
 | `GET /v1/accounts/{wallet}/pools?cursor=0&limit=20` | 曾认购、持有、交易或领取的池，包括现已零份额的钱包；**不是当前持仓** |
-| `GET /v1/orders?pool=&seller=&active=true&cursor=&limit=20` | 历史订单重放后的未成交/未过期候选；`executable:false`，任何成交前必须重新读取市场订单、池状态并模拟 |
+| `GET /v1/orders?pool=&seller=&active=true&cursor=&limit=20` | 历史订单重放后的未成交/未过期候选；`executable:false`，任何成交前必须重新读取市场订单与池状态；索引不能保证交易执行成功 |
 | `GET /v1/activity?pool=&account=&cursor=&limit=20` | 区块、交易、日志索引和原始精确字段；游标形如 `block:transactionIndex:logIndex` |
 | `GET /v1/yield?pool=0x...&account=0x...&days=30` | `scope=pool` 的每日池净归集，及可选钱包**实际领取** BEM；个人未领的每日应计收益为 `null` |
 

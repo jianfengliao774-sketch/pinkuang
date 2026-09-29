@@ -36,7 +36,14 @@ try {
       else if (path === 'notifications/capabilities' && method === 'GET') body = {enabled:false};
       else if (path === 'market/result' && method === 'GET') body = { result: null };
       else if (path === 'market' && method === 'GET') body = { revision, record, canAbandon: false };
-      else if (path === 'market' && method === 'PUT') {
+      else if (path === 'market/prepare-and-arm' && method === 'POST') {
+        assert.equal(input.expectedRevision, revision); assert.equal(record, null);
+        checked({ from: input.record.account, to: input.record.target, data: input.record.data, value: input.record.value });
+        assert.equal(input.record.action.kind, kind); record = input.record; revision += 2; armed = true; trace.push('atomic-ack');
+        body = { revision, record, transaction: { from: record.account, to: record.target, data: record.data,
+          value: toQuantity(record.value), nonce: toQuantity(record.nonce), gas: toQuantity(record.gas),
+          gasPrice: toQuantity(record.gasPrice), chainId: '0x38', type: '0x0' } };
+      } else if (path === 'market' && method === 'PUT') {
         assert.equal(input.expectedRevision, revision); checked({ from: input.record.account, to: input.record.target, data: input.record.data, value: input.record.value });
         assert.equal(input.record.action.kind, kind); record = input.record; revision++; trace.push(record.hash ? 'hash-ack' : 'intent-ack'); body = { revision, record };
       } else if (path === 'market/arm' && method === 'POST') {
@@ -72,11 +79,14 @@ try {
     if (kind === 'list') await page.getByLabel('每份价格 · BNB', { exact: true }).fill('0.075500000000000001');
     await page.getByRole('button', { name: '核对交易金额', exact: true }).click();
     await page.getByRole('button', { name: '确认并前往钱包', exact: true }).waitFor();
-    assert.match(await page.locator('.confirm-lines').filter({hasText:'支付金额'}).innerText(), kind === 'fill' ? /0\.245 BNB/ : /0\.000 BNB/);
+    const confirmation = await page.locator('.confirm-lines').filter({hasText:kind === 'fill' ? '支付金额' : '全部成交基价'}).innerText();
+    assert.match(confirmation, kind === 'fill' ? /0\.24543 BNB/ : /0\.22650 BNB/);
+    if (kind === 'list') assert.match(confirmation, /本次钱包支付（另付 Gas）\s*0\.00000 BNB/);
     assert.equal(sends.length, 0, 'preview cannot send');
     await page.getByRole('button', { name: '确认并前往钱包', exact: true }).click();
     await page.getByText('有一笔交易等待核对', { exact: true }).waitFor();
-    assert.equal(sends.length, 1); assert(trace.indexOf('intent-ack') < trace.indexOf('permit-ack')); assert(trace.indexOf('permit-ack') < trace.indexOf('send'));
+    assert.equal(sends.length, 1); assert(trace.indexOf('atomic-ack') < trace.indexOf('send'));
+    assert(!trace.includes('intent-ack') && !trace.includes('permit-ack'));
     assert.equal(await page.getByText('认购已确认', { exact: true }).count(), 0);
     checks.push({ kind, directFromHoldings:kind==='list', exactRawPricePreserved:true, calldata: expectedData, valueWei: expectedValue.toString(), trace }); await page.close();
   }

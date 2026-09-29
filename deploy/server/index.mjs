@@ -7,16 +7,22 @@ import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { servedArtifactDigest } from './artifact-digest.mjs';
 import { startOptionalNotifications } from './notifications/runtime.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
+import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
-export function createDeploymentServer({ journalService, liveDataProxy } = {}) { return createServer(async (req, res) => {
+export function createDeploymentServer({ journalService, liveDataProxy, authorityRelayService } = {}) { return createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https: wss://relay.walletconnect.com wss://relay.walletconnect.org; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   let pathname;
   try { pathname = new URL(req.url, 'http://localhost').pathname; }
   catch { res.statusCode = 400; res.end('Invalid request URL'); return; }
+  if (pathname === '/api/journal/authority-relay' || pathname === '/api/journal/authority-relay/status') {
+    if (authorityRelayService) authorityRelayService.handle(req, res);
+    else { res.statusCode = 503; res.setHeader('Cache-Control', 'no-store'); res.end('Authority relay is not active'); }
+    return;
+  }
   if (pathname === '/api/rpc' || pathname.startsWith('/api/rpc/') || pathname === '/api/chain-index' || pathname.startsWith('/api/chain-index/')) {
     if (liveDataProxy) await liveDataProxy.handle(req, res);
     else { res.statusCode = 503; res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify({ error: 'Read-only data service is not configured.' })); }
@@ -56,11 +62,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
-  const server = createDeploymentServer({ journalService, liveDataProxy });
+  const authorityRelayService = createAuthorityRelayService(authorityRelayConfiguration());
+  const server = createDeploymentServer({ journalService, liveDataProxy, authorityRelayService });
   server.listen(port, host, () => {
     console.log(`拼矿部署台：http://${host}:${port}`);
   });
   for (const signal of ['SIGINT','SIGTERM']) process.once(signal, () => {
-    server.close(() => { void Promise.all([journalService.close(), notifications?.close()]).then(() => process.exit(0)); });
+    server.close(() => { void Promise.all([journalService.close(), authorityRelayService?.close(),
+      notifications?.close()]).then(() => process.exit(0)); });
   });
 }

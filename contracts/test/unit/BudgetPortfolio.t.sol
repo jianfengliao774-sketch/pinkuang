@@ -190,6 +190,24 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.stopPrank();
     }
 
+    function _completeChildSale(IFundingVault child, uint256 price) private {
+        vm.prank(ALICE);
+        uint256 proposalId = project.proposeChildSale(address(child), price, price, uint64(block.timestamp));
+        vm.prank(ALICE);
+        project.voteChildSale(proposalId, true);
+        vm.prank(BOB);
+        project.voteChildSale(proposalId, true);
+        vm.prank(OPERATOR);
+        coreShareMarket.setSaleReference(
+            address(child), uint128(price), uint64(block.timestamp), keccak256("child-sale-claim-retry")
+        );
+        project.executeChildSale(proposalId);
+        uint256 childProposalId = PoolVault(payable(address(child))).listedProposalId();
+        vm.deal(CAROL, price);
+        vm.prank(CAROL);
+        PoolVault(payable(address(child))).completeFirstoSale{value: price}(childProposalId, price, 0, 1);
+    }
+
     function test_twoMachinesOneHundredSharesAndExactRefunds() public {
         _subscribe(ALICE, 60);
         _subscribe(BOB, 40);
@@ -230,6 +248,27 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.childCount(), 1);
         assertEq(project.spentWei(), 5 ether);
         assertEq(address(project).balance, 8 ether);
+        assertEq(child.bnbOwed(address(project)), 0);
+        assertEq(nft.ownerOf(params.circuitId), address(child));
+    }
+
+    function test_oddOfficialPriceReturnsEveryWeiToSoleProjectHolder() public {
+        _subscribe(ALICE, 100);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId += 11;
+        params.targetRaise = 5 ether;
+        params.priceCap = 5 ether;
+        IFundingVault child = _createBudgetPool(params);
+        uint96 price = uint96(5 ether - 1);
+        uint256 listingId = _list(params.circuitId, price);
+
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(child), listingId);
+
+        assertEq(project.childCount(), 1);
+        assertEq(project.spentWei(), price);
+        assertEq(address(project).balance, 13 ether - price);
+        assertEq(address(child).balance, 0);
         assertEq(child.bnbOwed(address(project)), 0);
         assertEq(nft.ownerOf(params.circuitId), address(child));
     }
@@ -457,6 +496,87 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(address(project).balance, 0);
     }
 
+    function test_closedChildClaimFailureDoesNotBlockSaleProceedsAndCanRetry() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        _completeChildSale(pool, 4 ether);
+
+        uint256 childBem = PoolVault(payable(address(pool))).claimable(address(project));
+        assertGt(childBem, 0);
+        vm.mockCallRevert(
+            address(pool), abi.encodeWithSelector(IPoolVault.claim.selector), "child BEM claim unavailable"
+        );
+        vm.expectRevert();
+        project.collectChildBem(address(pool));
+
+        assertEq(project.settleChildSale(), 3.96 ether);
+        assertEq(project.activeProposalId(), 0);
+        assertEq(project.activeChildCount(), 0);
+        assertEq(uint256(project.state()), uint256(IPoolVault.State.Closed));
+        assertEq(project.claimableBem(ALICE), 0, "unreceived BEM cannot become a parent liability");
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 7.146 ether);
+        vm.prank(BOB);
+        assertEq(project.withdrawBnb(), 4.764 ether);
+
+        vm.clearMockedCalls();
+        uint256 collected = project.collectChildBem(address(pool));
+        assertEq(collected, childBem);
+        assertEq(project.claimableBem(ALICE), collected * 60 / 100);
+        assertEq(project.claimableBem(BOB), collected * 40 / 100);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), collected * 60 / 100);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), collected * 40 / 100);
+    }
+
+    function test_soldChildDelayedBemFollowsTransferredSharesWithAnotherChildActive() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        IFundingVault second = _buyTwo();
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        mining.configure(address(nft), defaultParams.circuitId + 1, 2_000_000, 0);
+        _completeChildSale(pool, 4 ether);
+
+        vm.mockCallRevert(
+            address(pool), abi.encodeWithSelector(IPoolVault.claim.selector), "child BEM claim unavailable"
+        );
+        assertEq(project.settleChildSale(), 3.96 ether);
+        assertEq(project.activeChildCount(), 1);
+        assertEq(uint256(project.state()), uint256(IPoolVault.State.Active));
+        assertTrue(project.shareTradingAllowed());
+        vm.expectRevert();
+        project.collectChildBem(address(pool));
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 3.813 ether);
+        vm.prank(BOB);
+        assertEq(project.withdrawBnb(), 2.542 ether);
+
+        vm.prank(ALICE);
+        project.transfer(BOB, 10);
+        assertEq(project.balanceOf(ALICE), 50);
+        assertEq(project.balanceOf(BOB), 50);
+        vm.clearMockedCalls();
+        uint256 soldBem = project.collectChildBem(address(pool));
+        assertEq(project.claimableBem(ALICE), soldBem / 2);
+        assertEq(project.claimableBem(BOB), soldBem / 2);
+        uint256 activeBem = project.collectChildBem(address(second));
+        assertEq(project.claimableBem(ALICE), (soldBem + activeBem) / 2);
+        assertEq(project.claimableBem(BOB), (soldBem + activeBem) / 2);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), (soldBem + activeBem) / 2);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), (soldBem + activeBem) / 2);
+    }
+
     function test_shareMarketChargesBothSidesAndMovesUnclaimedBemToBuyer() public {
         _subscribe(ALICE, 100);
         uint256 listing = _list(defaultParams.circuitId, 5 ether);
@@ -470,6 +590,9 @@ contract BudgetPortfolioTest is FundingTestBase {
 
         vm.prank(ALICE);
         uint256 orderId = shareMarket.list(address(project), 10, 0.1 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.RewardsLocked.selector);
+        project.claimBem();
         vm.deal(BOB, 1.01 ether);
         vm.prank(BOB);
         shareMarket.fill{value: 1.01 ether}(orderId, 10);
@@ -478,8 +601,35 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.balanceOf(BOB), 10);
         assertEq(project.claimableBem(ALICE), beforeBem * 90 / 100);
         assertEq(project.claimableBem(BOB), beforeBem / 10);
+        vm.prank(BOB);
+        assertEq(project.claimBem(), beforeBem / 10);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), beforeBem * 90 / 100);
         assertEq(shareMarket.bnbOwed(ALICE), 0.99 ether);
         assertEq(shareMarket.bnbOwed(TREASURY), 0.02 ether);
+    }
+
+    function test_sellerCanClaimBemAfterCancellingShareOrder() public {
+        _subscribe(ALICE, 100);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        mining.configure(address(nft), defaultParams.circuitId, 1_000_000, 0);
+        project.collectChildBem(address(pool));
+        uint256 pending = project.claimableBem(ALICE);
+
+        vm.prank(ALICE);
+        uint256 orderId = shareMarket.list(address(project), 10, 0.1 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.RewardsLocked.selector);
+        project.claimBem();
+
+        vm.prank(ALICE);
+        shareMarket.cancel(orderId);
+        vm.prank(ALICE);
+        assertEq(project.claimBem(), pending);
     }
 
     function test_belowMarketSaleNeedsPlatformReviewAfterDoubleMajority() public {
@@ -608,6 +758,26 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.prank(ALICE);
         vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
         project.transfer(BOB, 1);
+    }
+
+    function test_executedChildSaleCannotBeOverwrittenAfterRoundCooldown() public {
+        _subscribe(ALICE, 100);
+        IFundingVault second = _buyTwo();
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 proposal = project.proposeChildSale(address(pool), 6 ether, 0, 0);
+        vm.prank(ALICE);
+        project.voteChildSale(proposal, true);
+        _saleReference(6 ether);
+        project.executeChildSale(proposal);
+
+        vm.warp(block.timestamp + 7 days);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.ProposalActive.selector);
+        project.proposeChildSale(address(second), 6 ether, 0, 0);
+        assertEq(project.activeProposalId(), proposal);
+        assertFalse(project.shareTradingAllowed());
     }
 
     function test_externalChildCancellationCannotFreezePortfolioForever() public {

@@ -82,6 +82,11 @@ def verify_release(root,expected_hash,source_head):
     parsed=json.loads(frontend);assert parsed.get('kind')=='integrated-v2' and parsed.get('chainId')==56 and parsed.get('artifactDigest')==CONFIG['artifactDigest']
     return value
 
+def verify_base_path_assets(root):
+    html=regular(root/html_name)
+    assert b'"/bemine-v2/_next/static/' in html,'Build product with NEXT_PUBLIC_BASE_PATH=/bemine-v2'
+    assert b'"/_next/static/' not in html,'Unprefixed Next assets would fail to load'
+
 def link_target():
     directory(current.parent);assert current.is_symlink(),'Existing current symlink required'
     target=os.readlink(current);assert pathlib.Path(target).is_absolute() and pathlib.Path(target).parent==base,'Unexpected current target'
@@ -154,6 +159,7 @@ def activate(state):
     assert link_target()==str(previous),'Current target differs from prepared target'
     verify_release(previous,CONFIG['previousManifestSha256'],CONFIG['previousSourceHead'])
     verify_release(candidate,CONFIG['manifestSha256'],CONFIG['sourceHead'])
+    verify_base_path_assets(candidate)
     assert protected_surface()==state['protected'],'Protected service/config/database identity changed since prepare'
     attempted=False
     try:
@@ -175,6 +181,7 @@ def main():
             assert link_target()==str(previous)
             verify_release(previous,CONFIG['previousManifestSha256'],CONFIG['previousSourceHead'])
             verify_release(candidate,CONFIG['manifestSha256'],CONFIG['sourceHead'])
+            verify_base_path_assets(candidate)
             verify_public(previous)
             snapshot=protected_surface();backup.mkdir(mode=0o700,exist_ok=False)
             state={'configDigest':sha(state_bytes(CONFIG)),'priorTarget':str(previous),'candidateTarget':str(candidate),

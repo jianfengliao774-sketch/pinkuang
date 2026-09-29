@@ -56,8 +56,10 @@ export function hasPosition(row) {
  * never a catalog row. Pin one block for all calls and reject a reorg before returning.
  * No wallet requests, signing, account permissions, sends, polling or RPC URL handling.
  */
-export async function readPoolSnapshot(provider, { factory: factoryInput, account = ZeroAddress, pools, offset = 0n, limit = 20n, blockNumber }) {
+export async function readPoolSnapshot(provider, { factory: factoryInput, lens: expectedLensInput,
+  account = ZeroAddress, pools, offset = 0n, limit = 20n, blockNumber }) {
   const factory = address(factoryInput), owner = getAddress(account);
+  const expectedLens = expectedLensInput === undefined ? null : address(expectedLensInput);
   // Validate and copy caller input before starting any concurrent reads.
   let snapshotMethod, snapshotArgs;
   if (pools !== undefined) {
@@ -81,14 +83,18 @@ export async function readPoolSnapshot(provider, { factory: factoryInput, accoun
     const data = contract.encodeFunctionData(method, args);
     return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data }, blockTag]));
   }
-  const lens = address((await call(factory, abi.PoolFactory, 'lens'))[0]);
-  // These calls share one block. A failed binding still drains every started read;
-  // no snapshot is exposed until both lens bindings have been verified.
-  const { lensFactory, version, rows } = await settleReadRound({
+  // A deployment-pinned Lens lets its binding and data read overlap at one
+  // block. The Factory getter still verifies that the pinned address is live.
+  const lens = expectedLens ?? address((await call(factory, abi.PoolFactory, 'lens'))[0]);
+  // A failed binding still drains every started read before exposing data.
+  const { factoryLens, lensFactory, version, rows } = await settleReadRound({
+    ...(expectedLens ? { factoryLens: () => call(factory, abi.PoolFactory, 'lens') } : {}),
     lensFactory: () => call(lens, abi.PoolLens, 'factory'),
     version: () => call(lens, abi.PoolLens, 'VERSION'),
     rows: () => call(lens, abi.PoolLens, snapshotMethod, snapshotArgs),
   });
+  requireCondition(!expectedLens || getAddress(factoryLens[0]) === expectedLens,
+    'Configured Lens differs from on-chain Factory.');
   requireCondition(getAddress(lensFactory[0]) === factory, 'Lens belongs to a different Factory.');
   requireCondition(version[0] === 1n, 'Unsupported Lens version.');
   const snapshot = rows[0];
@@ -107,7 +113,7 @@ function transaction(from, to, contract, method, args = [], value = 0n) {
   return Object.freeze({ chainId: '0x38', from: address(from), to: address(to), data: contract.encodeFunctionData(method, args), value: toQuantity(value) });
 }
 
-/** Unsigned direct calls only. Re-read and simulate immediately before a user's signature. */
+/** Unsigned direct calls only. Re-read contract state before a user's signature. */
 export function personalPoolAction(snapshot, pool, from, action, quantity) {
   const owner = address(from), target = address(pool);
   requireCondition(snapshot.chainId === CHAIN_ID && snapshot.account === owner, 'Snapshot belongs to another wallet or chain.');

@@ -63,7 +63,7 @@ test('HTTP 403 status survives fetch wrapping and does not retry', async () => {
 
 test('recoverable reads stop at seven attempts with bounded backoff and preserve the final error', async () => {
   for (const error of [problem('http_unavailable', 502), problem('http_unavailable', 503),
-    problem('http_unavailable', 504), problem('index_incomplete'), problem('index_stale'), problem('source_changed')]) {
+    problem('http_unavailable', 504), problem('index_incomplete'), problem('index_stale'), problem('source_changed'), problem('rpc_error')]) {
     let attempts = 0; const delays = [];
     await assert.rejects(retryReadRound(async () => { attempts++; throw error; }, {
       wait: async ms => { delays.push(ms); },

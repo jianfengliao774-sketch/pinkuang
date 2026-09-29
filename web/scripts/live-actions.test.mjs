@@ -5,6 +5,10 @@ import { firstoProvider, runtime } from '../../deploy/scripts/fixtures/firsto-or
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { Interface } from 'ethers';
 const capability = new Interface(['function controlledFirstoSaleVersion() view returns(uint8)']);
+const saleViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+  'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
+]);
 import { abi } from '../lib/chain-client.mjs';
 import { shareQuantity, exactPrice, prepareProductAction } from '../lib/live-actions.mjs';
 
@@ -48,6 +52,13 @@ function mock(options = {}) {
     }
     if (method === 'eth_getCode') return '0x1234';
     assert.equal(method, 'eth_call', 'preparation may only read'); assert.equal(args[1], '0xa', 'every call is pinned');
+    if (args[0].to === market) {
+      const sale = saleViews.parseTransaction(args[0]);
+      if (sale?.name === 'saleReference') return saleViews.encodeFunctionResult('saleReference',
+        [options.referencePrice ?? 800n, options.referenceAt ?? now - 100n, `0x${'ee'.repeat(32)}`]);
+      if (sale?.name === 'saleReview') return saleViews.encodeFunctionResult('saleReview',
+        [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n]);
+    }
     const inputTx = args[0], iface = inputTx.to === factory ? abi.PoolFactory : inputTx.to === lens ? abi.PoolLens
       : inputTx.to === market ? abi.ShareMarket : abi.PoolVault;
     const decoded = iface.parseTransaction(inputTx); assert.ok(decoded, 'known ABI');
@@ -108,10 +119,10 @@ test('BNB prices preserve every wei and reject floating-point rounding or uint o
   for (const value of [0.1, 1, NaN, Infinity, null, undefined, '01', '1.', '.1', ' 1', '1e3', '-1',
     '0', '1.0000000000000000001', formatEther(1n << 256n), '1'.repeat(1000), { toString: () => '1' }])
     assert.throws(() => exactPrice(value));
-  assert.equal(exactPrice('0', { allowZero: true }), 0n);
+  assert.throws(() => exactPrice('0'), /greater than zero/);
 });
 
-test('deposit binds exact total, sender, pool and one block; returns only after successful simulation', async () => {
+test('deposit binds exact total, sender, pool and one block without transaction simulation', async () => {
   const rpc = mock({ row: { state: 0n, totalSupply: 90n } });
   const result = await prepare(rpc, { kind: 'deposit', quantity: '4' });
   assert.equal(BigInt(result.transaction.value), 4000000000000000004n);
@@ -119,10 +130,9 @@ test('deposit binds exact total, sender, pool and one block; returns only after 
   assert.equal(decoded.name, 'deposit'); assert.equal(decoded.args[0], 4n);
   assert.equal(result.transaction.from, account); assert.equal(result.transaction.to, pool);
   assert.equal(result.checkedBlock.blockHash, blockHash); assert.equal(result.checkedBlock.blockNumber, 10n);
-  assert.equal(simulations(rpc).length, 1); assert.equal(simulations(rpc)[0].name, 'deposit');
-  assert.equal(simulations(rpc)[0].transaction.value, result.transaction.value);
+  assert.equal(simulations(rpc).length, 0);
   assert(rpc.requests.every(r => ['eth_call', 'eth_chainId', 'eth_getBlockByNumber'].includes(r.method)));
-  for (const options of [{ simulationFails: true }, { wrongChain: true }, { flipChain: true }, { reorg: true }])
+  for (const options of [{ wrongChain: true }, { flipChain: true }, { reorg: true }])
     await assert.rejects(prepare(mock({ ...options, row: { state: 0n, totalSupply: 90n } }), { kind: 'deposit', quantity: '4' }));
 });
 
@@ -151,7 +161,7 @@ test('claims and BNB withdrawals allow former holders but never fabricate unknow
     await assert.rejects(prepare(mock({ row: { [field]: 0n } }), { kind }));
     await assert.rejects(prepare(mock({ row: { status: status(allPool, 1n << bit) } }), { kind }));
   }
-  await assert.rejects(prepare(mock({ badSimulationReturn: true }), { kind: 'claim' }));
+  assert.equal((await prepare(mock({ badSimulationReturn: true }), { kind: 'claim' })).kind, 'claim');
   for (const state of [2n, 3n]) assert.equal((await prepare(mock({ row: { state } }), { kind: 'harvest' })).kind, 'harvest');
   for (const state of [0n, 1n, 4n, 5n]) await assert.rejects(prepare(mock({ row: { state } }), { kind: 'harvest' }));
 });
@@ -168,15 +178,17 @@ test('withdrawal and failure finalization follow exact state and deadline bounda
   await assert.rejects(prepare(mock({ row: { state: 5n } }), { kind: 'finalizeFailure' }));
 });
 
-test('market ABI tuple, price multiplication, gift listing and withdrawal action name match contracts', async () => {
+test('market ABI tuple, price multiplication, positive listing and withdrawal action name match contracts', async () => {
   const fill = await prepare(mock(), { kind: 'fill', orderId: '7', quantity: '3' });
   const gross = 2702159776422297937035n;
   assert.equal(BigInt(fill.transaction.value), gross + gross / 100n);
   assert.deepEqual(fill.marketTrade, { grossWei: gross, buyerFeeWei: gross / 100n, sellerFeeWei: gross / 100n,
     buyerPaymentWei: gross + gross / 100n, sellerNetWei: gross - gross / 100n });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(fill.transaction).args], [7n, 3n]);
-  const listing = await prepare(mock(), { kind: 'list', quantity: '4', price: '0' });
-  assert.deepEqual([...abi.ShareMarket.parseTransaction(listing.transaction).args], [pool, 4n, 0n]);
+  await assert.rejects(prepare(mock(), { kind: 'list', quantity: '4', price: '0' }), /greater than zero/);
+  const paidListing = await prepare(mock({ row: { shares: 99n, availableShares: 99n } }), { kind: 'list', quantity: '99', price: '0.005' });
+  assert.equal(paidListing.listingGrossWei, 495000000000000000n);
+  assert.equal(BigInt(paidListing.transaction.value), 0n);
   await assert.rejects(prepare(mock({ row: { availableShares: 100n } }), { kind: 'list', quantity: '100',
     price: formatEther(((1n << 256n) - 1n) / 100n) }), /buyer fee overflows/);
   const withdrawn = await prepare(mock(), { kind: 'marketWithdraw' });

@@ -30,7 +30,7 @@ function minerEligibilityIssue(miner) {
 export { QUOTE_BASE };
 export const QUOTE_SOURCE = 'https://tapeout.firsto.ai/circuits';
 /** Exact BNB per estimated daily BEM for the displayed market ask; never use the fundraising reserve. */
-export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 3) {
+export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 5) {
   if (priceWei == null || estimated24hAtomic == null) return null;
   const price = uint(priceWei), yieldAtomic = uint(estimated24hAtomic);
   if (price === 0n || yieldAtomic === 0n) return null;
@@ -40,6 +40,7 @@ export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals
   const denominator = yieldAtomic * 10_000_000_000n;
   const rounded = (price * scale + denominator / 2n) / denominator;
   if (decimals === 0) return rounded.toString();
+  if (rounded === 0n) return `<0.${'0'.repeat(decimals - 1)}1`;
   return `${rounded / scale}.${(rounded % scale).toString().padStart(decimals, '0')}`;
 }
 export function operatorQuoteError(error) {
