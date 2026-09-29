@@ -24,8 +24,20 @@ RELEASE_ID="v4-audit-$(git rev-parse --short=12 HEAD)"
 PACKAGE_DIR="/tmp/${RELEASE_ID}-package"
 ARCHIVE="/tmp/${RELEASE_ID}.tar.gz"
 node deploy/scripts/package-fresh-console.mjs --out "$PACKAGE_DIR"
-tar -C "$PACKAGE_DIR" -czf "$ARCHIVE" dist public server shared scripts src package.json package-lock.json
+COPYFILE_DISABLE=1 tar -C "$PACKAGE_DIR" -czf "$ARCHIVE" dist public server shared scripts src package.json package-lock.json
 shasum -a 256 "$ARCHIVE" deploy/ops/v4/update-console.remote.py deploy/ops/v4/activate-console.remote.py
+```
+
+在 macOS 上必须禁用 `tar` 的 AppleDouble (`._*`) 元数据，否则远端安全校验会拒绝归档。
+本地先用归档校验器检查包内容：
+
+```sh
+python3 - "$ARCHIVE" <<'PY'
+from pathlib import Path
+import runpy
+import sys
+runpy.run_path('deploy/ops/v4/activate-console.remote.py')['validate_archive'](Path(sys.argv[1]))
+PY
 ```
 
 核对打包输出中的 `sourceHead` 与 `SOURCE_HEAD` 一致，并记录三项哈希。包中只有
