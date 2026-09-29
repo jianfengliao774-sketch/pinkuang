@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { assertPinnedSourceUnchanged, packageFreshConsole, RUNTIME_MODULES,
+import { assertPinnedSourceUnchanged, packageFreshConsole, packageFreshProductBackend,
+  PRODUCT_BACKEND_MODULES, RUNTIME_MODULES,
   verifyRuntimeClosure } from './package-fresh-console.mjs';
 import { servedArtifactDigest } from '../server/artifact-digest.mjs';
+import { fixture, addr } from '../ops/v4/fresh-cutover-fixture.mjs';
 
 const deploy = fileURLToPath(new URL('../', import.meta.url));
 
@@ -48,6 +50,15 @@ test('fresh console runtime allowlist includes the complete static import closur
   assert.throws(() => verifyRuntimeClosure(missing), /Missing packaged runtime module/);
   assert.throws(() => verifyRuntimeClosure(files, [...RUNTIME_MODULES, 'scripts/treasury-collector.mjs']),
     /unreachable modules/);
+});
+
+test('independent product backend package closes both API and index entrypoints', () => {
+  const files=new Map(PRODUCT_BACKEND_MODULES.map(name=>[name,readFileSync(join(deploy,name))]));
+  assert.equal(verifyRuntimeClosure(files,PRODUCT_BACKEND_MODULES,
+    ['server/index.mjs','server/chain-index/server.mjs']),PRODUCT_BACKEND_MODULES.length);
+  files.delete('server/chain-index/portfolio-notifications.mjs');
+  assert.throws(()=>verifyRuntimeClosure(files,PRODUCT_BACKEND_MODULES,
+    ['server/index.mjs','server/chain-index/server.mjs']),/Missing packaged runtime module/);
 });
 
 test('pre-genesis package contains only fresh dist and required runtime files', async () => {
@@ -95,4 +106,43 @@ test('pre-genesis package contains only fresh dist and required runtime files', 
       'scripts/authority-relay.mjs', 'scripts/purchase-keeper.mjs',
       'scripts/keeper-credential.mjs']) assert(!manifest.files[name]);
   } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test('product backend package includes the independent index and a pinned fresh manifest', async () => {
+  const temp=mkdtempSync(join(tmpdir(),'pinkuang-v4-product-package-test-'));
+  try {
+    const root=realpathSync(temp),source=join(root,'source/deploy');
+    const write=(name,body)=>{
+      const path=join(source,name);
+      mkdirSync(join(path,'..'),{recursive:true});
+      writeFileSync(path,body);
+    };
+    for(const name of PRODUCT_BACKEND_MODULES)write(name,readFileSync(join(deploy,name)));
+    const artifact=readFileSync(join(deploy,'public/deployment-artifacts.json'));
+    write('public/deployment-artifacts.json',artifact);
+    write('dist/deployment-artifacts.json',artifact);
+    write('dist/assets/app.js',`const digest=${JSON.stringify(servedArtifactDigest(join(source,
+      'public/deployment-artifacts.json')))};`);
+    write('dist/index.html','<script src="./assets/app.js"></script>');
+    write('dist/favicon.svg','<svg xmlns="http://www.w3.org/2000/svg"/>');
+    write('package.json','{"type":"module"}');
+    write('package-lock.json','{}');
+    const target=join(root,'release');
+    const input=fixture();
+    const result=await packageFreshProductBackend({deployDir:source,outDir:target,
+      sourceHead:'0'.repeat(40),verifyGit:false,cutoverInput:input});
+    const release=JSON.parse(readFileSync(join(target,'public/fresh-release-manifest.json')));
+    const pinned=JSON.parse(readFileSync(join(target,'public/fresh-product-manifest.json')));
+    assert.equal(release.kind,'fresh-v4-product-backend-draft');
+    assert.equal(result.fileCount,Object.keys(release.files).length+1);
+    assert.equal(pinned.kind,'fresh-v4-index');
+    assert.equal(pinned.factory,input.manifest.factory);
+    assert.equal(release.indexManifestSha256,
+      release.files['public/fresh-product-manifest.json'].sha256);
+    assert(PRODUCT_BACKEND_MODULES.every(name=>release.files[name]));
+    assert(!Object.keys(release.files).some(name=>/\.test\.|\.env|\.key|(?:^|\/)(?:legacy|upgrade)(?:[-./]|$)/.test(name)));
+    assert.throws(()=>packageFreshProductBackend({deployDir:source,outDir:join(root,'bad'),
+      sourceHead:'0'.repeat(40),verifyGit:false,cutoverInput:{...input,
+        manifest:{...input.manifest,factory:addr(100)}}}),/Manifest factory differs/);
+  } finally {rmSync(temp,{recursive:true,force:true});}
 });

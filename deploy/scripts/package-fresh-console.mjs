@@ -6,6 +6,8 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFreshBuild } from './assert-fresh-build.mjs';
 import { servedArtifactDigest } from '../server/artifact-digest.mjs';
+import { freshIndexManifestBytes, freshIndexManifestSha256 } from '../server/chain-index/fresh-manifest.mjs';
+import { prepareFreshCutover } from '../ops/v4/prepare-fresh-cutover.mjs';
 
 const DEPLOY = fileURLToPath(new URL('../', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -55,6 +57,16 @@ export const RUNTIME_MODULES = Object.freeze([
   'src/firsto-purchase.mjs',
 ]);
 
+export const PRODUCT_BACKEND_MODULES = Object.freeze([...RUNTIME_MODULES,
+  'server/chain-index/api.mjs',
+  'server/chain-index/community.mjs',
+  'server/chain-index/fresh-manifest.mjs',
+  'server/chain-index/indexer.mjs',
+  'server/chain-index/notifications.mjs',
+  'server/chain-index/portfolio-notifications.mjs',
+  'server/chain-index/server.mjs',
+]);
+
 const REQUIRED_FILES = Object.freeze([
   'package.json', 'package-lock.json', 'public/deployment-artifacts.json',
 ]);
@@ -81,11 +93,12 @@ export function relativeImports(source) {
 }
 
 /** Assert the explicit allowlist is exactly the reachable module closure. */
-export function verifyRuntimeClosure(files, runtimeModules = RUNTIME_MODULES) {
+export function verifyRuntimeClosure(files, runtimeModules = RUNTIME_MODULES,
+  entrypoints = ['server/index.mjs']) {
   const expected = new Set(runtimeModules);
-  assert(expected.has('server/index.mjs'), 'The server entrypoint is required.');
+  assert(entrypoints.every(name => expected.has(name)), 'Every runtime entrypoint is required.');
   assert(expected.size === runtimeModules.length, 'Duplicate runtime allowlist entry.');
-  const seen = new Set(), queue = ['server/index.mjs'];
+  const seen = new Set(), queue = [...entrypoints];
   while (queue.length) {
     const name = queue.pop();
     if (seen.has(name)) continue;
@@ -104,16 +117,16 @@ export function verifyRuntimeClosure(files, runtimeModules = RUNTIME_MODULES) {
   return seen.size;
 }
 
-function ensureSourceCommit(source, sourceHead) {
+function ensureSourceCommit(source, sourceHead, runtimeModules) {
   assert(SOURCE_COMMIT.test(sourceHead), 'A complete 40-hex source commit is required.');
   const cleanPaths = ['src', 'server', 'shared', 'scripts', 'index.html', 'vite.config.ts',
     'package.json', 'package-lock.json', '../contracts/src', '../contracts/foundry.toml'];
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...cleanPaths],
     { cwd: source, encoding: 'utf8' });
   assert(!dirty.trim(), 'Commit reviewed source before creating a fresh console release.');
-  const tracked = execFileSync('git', ['ls-files', '--', ...RUNTIME_MODULES],
+  const tracked = execFileSync('git', ['ls-files', '--', ...runtimeModules],
     { cwd: source, encoding: 'utf8' }).trim().split('\n');
-  assert.deepEqual(tracked.sort(), [...RUNTIME_MODULES].sort(), 'Every packaged runtime module must be tracked at the source commit.');
+  assert.deepEqual(tracked.sort(), [...runtimeModules].sort(), 'Every packaged runtime module must be tracked at the source commit.');
 }
 
 export function assertPinnedSourceUnchanged(source, artifactCommit, sourceHead) {
@@ -127,8 +140,8 @@ export function assertPinnedSourceUnchanged(source, artifactCommit, sourceHead) 
 }
 
 /** Build a new, source-pinned directory; no SSH, installation or transaction. */
-export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHead,
-  verifyGit = true } = {}) {
+async function packageRelease({ deployDir = DEPLOY, outDir, sourceHead,
+  verifyGit = true, indexManifest = null } = {}) {
   assert(typeof outDir === 'string' && isAbsolute(outDir), '--out must name a new absolute directory.');
   const source = realpathSync(deployDir), output = resolve(outDir);
   const sourceRoot = realpathSync(join(source, '..'));
@@ -138,15 +151,17 @@ export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHe
   try { lstatSync(output); assert.fail('Package output already exists and will not be overwritten.'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   await assertFreshBuild(join(source, 'dist'));
-  if (verifyGit) ensureSourceCommit(source, sourceHead);
+  const runtimeModules = indexManifest ? PRODUCT_BACKEND_MODULES : RUNTIME_MODULES;
+  if (verifyGit) ensureSourceCommit(source, sourceHead, runtimeModules);
 
   const files = new Map();
-  for (const name of [...RUNTIME_MODULES, ...REQUIRED_FILES]) files.set(name, regularFile(source, name));
+  for (const name of [...runtimeModules, ...REQUIRED_FILES]) files.set(name, regularFile(source, name));
   for (const name of ['index.html', 'favicon.svg', 'deployment-artifacts.json'])
     files.set(`dist/${name}`, regularFile(source, `dist/${name}`));
   for (const entry of readdirSync(join(source, 'dist/assets')).sort())
     files.set(`dist/assets/${entry}`, regularFile(source, `dist/assets/${entry}`));
-  verifyRuntimeClosure(files);
+  verifyRuntimeClosure(files, runtimeModules, indexManifest
+    ? ['server/index.mjs', 'server/chain-index/server.mjs'] : ['server/index.mjs']);
   assert(files.get('dist/deployment-artifacts.json').equals(files.get('public/deployment-artifacts.json')),
     'Served artifact differs from the packaged artifact.');
   const artifact = JSON.parse(files.get('public/deployment-artifacts.json').toString('utf8'));
@@ -155,6 +170,11 @@ export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHe
     'BudgetPortfolioFactory', 'BudgetPortfolioVault'])
     assert(artifact.artifacts?.[name], `Fresh deployment artifact is missing: ${name}`);
   const artifactDigest = servedArtifactDigest(join(source, 'public/deployment-artifacts.json'));
+  if (indexManifest) {
+    assert.equal(indexManifest.artifactDigest, artifactDigest.toLowerCase(),
+      'Fresh index manifest must use the packaged deployment artifact.');
+    files.set('public/fresh-product-manifest.json', freshIndexManifestBytes(indexManifest));
+  }
   assert([...files].some(([name, bytes]) => name.startsWith('dist/assets/') && name.endsWith('.js')
     && bytes.toString('utf8').includes(artifactDigest)),
   'Browser bundle does not embed the current artifact digest. Rebuild the fresh page.');
@@ -167,18 +187,31 @@ export async function packageFreshConsole({ deployDir = DEPLOY, outDir, sourceHe
     writeFileSync(target, bytes, { flag: 'wx', mode: 0o644 });
   }
   const manifest = {
-    schemaVersion: 1, kind: 'fresh-console-pre-genesis', chainId: 56,
+    schemaVersion: 1, kind: indexManifest ? 'fresh-v4-product-backend-draft' : 'fresh-console-pre-genesis', chainId: 56,
     sourceCommit: artifact.sourceCommit, sourceHead,
     artifactDigest, artifactSha256: sha256(files.get('public/deployment-artifacts.json')),
     installation: 'npm ci --omit=dev --ignore-scripts', entrypoint: 'node server/index.mjs',
-    runtimeModules: RUNTIME_MODULES, files: Object.fromEntries(ordered.map(([name, bytes]) =>
+    runtimeModules, files: Object.fromEntries(ordered.map(([name, bytes]) =>
       [name, { sha256: sha256(bytes), bytes: bytes.length }])),
-    activation: 'Deployment console only; product, Gas relay and automatic purchase remain disabled.',
+    ...(indexManifest ? { indexManifestSha256: freshIndexManifestSha256(indexManifest) } : {}),
+    activation: indexManifest
+      ? 'Offline product backend draft. Product writes, Stage 2, Gas relay and automatic purchase remain disabled.'
+      : 'Deployment console only; product, Gas relay and automatic purchase remain disabled.',
   };
   writeFileSync(join(output, 'public/fresh-release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`,
     { flag: 'wx', mode: 0o644 });
   return { directory: output, fileCount: files.size + 1, sourceHead, artifactDigest,
     manifestSha256: sha256(readFileSync(join(output, 'public/fresh-release-manifest.json'))) };
+}
+
+export function packageFreshConsole(options = {}) { return packageRelease(options); }
+
+/** Include the separate v4 index only after matching a reviewed fresh graph to this source build. */
+export function packageFreshProductBackend({ cutoverInput, ...options } = {}) {
+  assert(cutoverInput && typeof cutoverInput === 'object', 'Reviewed fresh cutover input is required.');
+  const draft = prepareFreshCutover(cutoverInput);
+  assert.equal(draft.activationAllowed, false);
+  return packageRelease({ ...options, indexManifest: draft.indexManifest });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

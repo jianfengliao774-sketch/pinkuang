@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { Interface, ZeroAddress, toQuantity } from 'ethers';
 import { chainIndexFailureMessage, serverConfiguration, startChainIndex } from './server.mjs';
+import { createFreshIndexManifest, freshIndexManifestBytes, freshIndexManifestSha256 } from './fresh-manifest.mjs';
 
 const config = rpc => ({ rpc, host: '127.0.0.1', port: 0, dbPath: ':memory:',
   factory: '0x0000000000000000000000000000000000000001',
@@ -42,6 +46,45 @@ test('production configuration keeps HTTPS and loopback requirements', () => {
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'http://untrusted.example' }), /HTTPS/);
   assert.throws(() => serverConfiguration({ ...env, CHAIN_INDEX_LOGS_RPC_URL: 'https://bsc.publicnode.com', CHAIN_INDEX_LOGS_FALLBACK_RPC_URL: 'https://bsc.publicnode.com' }), /differ/);
+});
+
+test('fresh v4 index derives all addresses and start block only from a pinned manifest', () => {
+  const dir=mkdtempSync(join(tmpdir(),'fresh-v4-index-test-'));
+  const names=['factory','shareMarket','lens','beacon','timelock','portfolioFactory',
+    'portfolioMarket','portfolioBeacon','portfolioImplementation','portfolioFactoryImplementation'];
+  const addr=n=>`0x${n.toString(16).padStart(40,'0')}`;
+  const hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
+  const source={schemaVersion:1,kind:'integrated-v2',chainId:56,artifactDigest:hash(1),
+    deployment:{txHash:hash(2),blockNumber:115,blockHash:hash(3)},
+    verifiedBlockNumber:206,verifiedBlockHash:hash(4),
+    ...Object.fromEntries(names.map((name,i)=>[name,addr(i+1)])),
+    codehash:Object.fromEntries(names.map(name=>[name,hash(5)])),
+    authority:addr(20),gasWallet:addr(21),
+    freshAuthority:{address:addr(20),gasWallet:addr(21),codehash:hash(6),
+      deploymentTxHash:hash(7),administratorOne:addr(22),administratorTwo:addr(23)}};
+  const manifest=createFreshIndexManifest(source);
+  const path=join(dir,'fresh-product-manifest.json');
+  writeFileSync(path,freshIndexManifestBytes(manifest));
+  const env={CHAIN_INDEX_MODE:'fresh-v4',CHAIN_INDEX_RPC_URL:'https://bsc.publicnode.com',
+    CHAIN_INDEX_DB:join(dir,'index.sqlite'),CHAIN_INDEX_FRESH_MANIFEST_PATH:path,
+    CHAIN_INDEX_FRESH_MANIFEST_SHA256:freshIndexManifestSha256(manifest)};
+  try {
+    const config=serverConfiguration(env);
+    assert.equal(config.factory,manifest.factory);
+    assert.equal(config.market,manifest.shareMarket);
+    assert.equal(config.portfolioFactory,manifest.portfolioFactory);
+    assert.equal(config.portfolioMarket,manifest.portfolioMarket);
+    assert.equal(config.startBlock,115);
+    assert.equal(config.reservationMode,'required');
+    assert.throws(()=>serverConfiguration({...env,NODE_ENV:'production'}),/independent database path/);
+    assert.throws(()=>serverConfiguration({...env,NODE_ENV:'production',
+      CHAIN_INDEX_DB:'/var/lib/pinkuang-index-v4/index.sqlite'}),/release-pinned manifest path/);
+    assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_FACTORY:addr(99)}),/cannot override/);
+    assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_START_BLOCK:'1'}),/cannot override/);
+    assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_FRESH_MANIFEST_SHA256:'0'.repeat(64)}),/SHA256 differs/);
+    writeFileSync(path,Buffer.from(freshIndexManifestBytes(manifest).toString().replace(manifest.factory,addr(99))));
+    assert.throws(()=>serverConfiguration(env),/SHA256 differs/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
 test('sync failure diagnostics identify a bounded RPC method without leaking provider URLs', () => {

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { ChainIndex } from './indexer.mjs';
 import { createChainIndexServer } from './api.mjs';
+import { loadFreshIndexManifest } from './fresh-manifest.mjs';
 
 const required = (env, key) => {
   if (!env[key]) throw new Error(`${key} is required.`);
@@ -33,12 +34,33 @@ export function serverConfiguration(env = process.env) {
   if (port < 1 || port > 65535) throw new Error('Invalid port.');
   const scanRange = exactNumber(env.CHAIN_INDEX_SCAN_RANGE ?? '100', 'scan range');
   if (scanRange < 1 || scanRange > 500) throw new Error('Scan range must be between 1 and 500 blocks.');
+  const mode=env.CHAIN_INDEX_MODE || 'legacy';
+  if (!['legacy','fresh-v4'].includes(mode)) throw new Error('Invalid chain-index mode.');
+  const dbPath=required(env,'CHAIN_INDEX_DB');
+  if (mode==='fresh-v4') {
+    for (const key of ['CHAIN_INDEX_FACTORY','CHAIN_INDEX_MARKET','CHAIN_INDEX_PORTFOLIO_FACTORY',
+      'CHAIN_INDEX_PORTFOLIO_MARKET','CHAIN_INDEX_START_BLOCK','CHAIN_INDEX_RESERVATION_MODE']) {
+      if (env[key] !== undefined) throw new Error(`${key} cannot override the fresh manifest.`);
+    }
+    if (env.NODE_ENV==='production' && dbPath!=='/var/lib/pinkuang-index-v4/index.sqlite')
+      throw new Error('Fresh v4 index requires its independent database path.');
+    const manifestPath=required(env,'CHAIN_INDEX_FRESH_MANIFEST_PATH');
+    if (env.NODE_ENV==='production' && !/^\/srv\/pinkuang-deploy-v4\/releases\/v4-[a-z0-9][a-z0-9-]{1,70}\/public\/fresh-product-manifest\.json$/.test(manifestPath))
+      throw new Error('Fresh v4 index requires a release-pinned manifest path.');
+    const manifest=loadFreshIndexManifest(manifestPath,
+      required(env,'CHAIN_INDEX_FRESH_MANIFEST_SHA256'));
+    return {rpc,logsRpc,fallbackLogsRpc,logsTimeoutMs:logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS),
+      host,port,dbPath,scanRange,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
+      factory:manifest.factory,market:manifest.shareMarket,
+      portfolioFactory:manifest.portfolioFactory,portfolioMarket:manifest.portfolioMarket,
+      startBlock:manifest.deployment.blockNumber,reservationMode:'required'};
+  }
   if(Boolean(env.CHAIN_INDEX_PORTFOLIO_FACTORY)!==Boolean(env.CHAIN_INDEX_PORTFOLIO_MARKET))throw new Error('Configure both portfolio Factory and market.');
   const reservationMode=env.CHAIN_INDEX_RESERVATION_MODE || 'legacy';
   if (!['legacy','required'].includes(reservationMode)) throw new Error('Invalid chain-index reservation mode.');
   if (reservationMode==='required' && !env.CHAIN_INDEX_PORTFOLIO_FACTORY)
     throw new Error('Reservation proofs require the integrated portfolio Factory.');
-  return { rpc, logsRpc, fallbackLogsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), host, port, dbPath: required(env, 'CHAIN_INDEX_DB'), factory: required(env, 'CHAIN_INDEX_FACTORY'),
+  return { rpc, logsRpc, fallbackLogsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), host, port, dbPath, factory: required(env, 'CHAIN_INDEX_FACTORY'),
     ...(env.CHAIN_INDEX_PORTFOLIO_FACTORY?{portfolioFactory:env.CHAIN_INDEX_PORTFOLIO_FACTORY,portfolioMarket:env.CHAIN_INDEX_PORTFOLIO_MARKET}:{}),
     reservationMode,
     market: required(env, 'CHAIN_INDEX_MARKET'), startBlock: exactNumber(required(env, 'CHAIN_INDEX_START_BLOCK'), 'start block'),

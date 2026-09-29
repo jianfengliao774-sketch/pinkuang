@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { getAddress } from 'ethers';
 import { productGraphConfiguration } from '../../server/product-graph.mjs';
+import { createFreshIndexManifest, freshIndexManifestSha256 } from '../../server/chain-index/fresh-manifest.mjs';
 import { ORIGINAL_GAS_WALLET } from '../../shared/original-gas-wallet.mjs';
 
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
@@ -40,7 +41,8 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     && same(manifest.deployment?.txHash,initialize.txHash)
     && manifest.deployment?.blockNumber===initialize.receipt.blockNumber
     && same(manifest.deployment?.blockHash,initialize.receipt.blockHash)
-    && manifest.verifiedBlockNumber>=initialize.receipt.blockNumber,
+    && manifest.verifiedBlockNumber===proof.steps.at(-1).blockNumber
+    && same(manifest.verifiedBlockHash,proof.steps.at(-1).blockHash),
   'The v4 static manifest must be from the same fresh genesis deployment.');
   for (const [manifestKey,recordKey] of Object.entries({factory:'factory',shareMarket:'shareMarket',lens:'lens',
     beacon:'beacon',timelock:'timelock',portfolioFactory:'portfolioFactory',portfolioMarket:'portfolioShareMarket',
@@ -60,6 +62,8 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     && same(pinnedAuthority.deploymentTxHash,proof.authority.deploymentTxHash)
     && /^0x[\da-f]{64}$/i.test(pinnedAuthority.codehash),
   'The v4 static manifest must pin the exact activated Authority, administrators and Gas wallet.');
+  const indexManifest=createFreshIndexManifest(manifest);
+  const indexManifestSha256=freshIndexManifestSha256(indexManifest);
   runtimeReleaseId=release(runtimeReleaseId,'runtime');
   productReleaseId=release(productReleaseId,'product');
   check(keeperStateRoot==='/var/lib/pinkuang-v4-signer/keeper',
@@ -71,23 +75,23 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
   const recordPath='/var/lib/pinkuang-deploy-v4/trusted-product-deployment.json';
   const activationPath='/etc/pinkuang-deploy-v4/fresh-activation.json';
   const runtimeEnvironment={NODE_ENV:'production',HOST:'127.0.0.1',PORT:'4177',
+    BEMINE_FRESH_CONSOLE_PRE_GENESIS:'1',BEMINE_FRESH_STAGE2_HOLD:'1',
     DEPLOYMENT_JOURNAL_ORIGIN:'https://tapeout.cc.cd',
     DEPLOYMENT_JOURNAL_DB:'/var/lib/pinkuang-deploy-v4/journal.sqlite',
     DEPLOYMENT_JOURNAL_RPC_URL:rpc,BEMINE_READ_RPC_URL:rpc,
     BEMINE_INDEX_URL:'http://127.0.0.1:4184',BEMINE_NOTIFICATIONS_ENABLED:'0',
-    BEMINE_JOURNAL_FACTORIES:`${a.factory},${a.portfolioFactory}`,
+    BEMINE_JOURNAL_FACTORIES:`${indexManifest.factory},${indexManifest.portfolioFactory}`,
     BEMINE_DEPLOYMENT_RECORD_PATH:recordPath,
     BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH:`${runtimeRoot}/public/deployment-artifacts.json`,
     BEMINE_PRODUCT_ACTIVATION_PATH:activationPath,
     BEMINE_EXPECTED_GAS_WALLET:gasWallet,
-    AUTHORITY_RELAY_ENABLED:'0'};
+    AUTHORITY_RELAY_ENABLED:'0',AUTHORITY_RELAY_PUBLIC_ENABLED:'0'};
   const indexEnvironment={NODE_ENV:'production',CHAIN_INDEX_HOST:'127.0.0.1',CHAIN_INDEX_PORT:'4184',
     CHAIN_INDEX_DB:'/var/lib/pinkuang-index-v4/index.sqlite',CHAIN_INDEX_CONFIRMATIONS:'12',
     CHAIN_INDEX_SCAN_RANGE:'100',CHAIN_INDEX_RPC_URL:rpc,CHAIN_INDEX_LOGS_RPC_URL:logs,
-    CHAIN_INDEX_FACTORY:a.factory,CHAIN_INDEX_MARKET:a.shareMarket,
-    CHAIN_INDEX_PORTFOLIO_FACTORY:a.portfolioFactory,CHAIN_INDEX_PORTFOLIO_MARKET:a.portfolioShareMarket,
-    CHAIN_INDEX_RESERVATION_MODE:'required',
-    CHAIN_INDEX_START_BLOCK:String(initialize.receipt.blockNumber)};
+    CHAIN_INDEX_MODE:'fresh-v4',
+    CHAIN_INDEX_FRESH_MANIFEST_PATH:`${runtimeRoot}/public/fresh-product-manifest.json`,
+    CHAIN_INDEX_FRESH_MANIFEST_SHA256:indexManifestSha256};
   const envLines=env=>Object.entries(env).map(([key,value])=>`Environment=${key}=${value}\n`).join('');
   const runtimeUnit=`[Unit]\nDescription=BEMine v4 fresh deployment runtime\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4\nGroup=pinkuang-v4\nSupplementaryGroups=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/server/index.mjs\nStateDirectory=pinkuang-deploy-v4 pinkuang-v4\nStateDirectoryMode=0700\n${envLines(runtimeEnvironment)}UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-deploy-v4 /var/lib/pinkuang-v4\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n`;
   const indexUnit=`[Unit]\nDescription=BEMine v4 independent chain index\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4\nGroup=pinkuang-v4\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/server/chain-index/server.mjs\nStateDirectory=pinkuang-index-v4\nStateDirectoryMode=0700\n${envLines(indexEnvironment)}UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-index-v4\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n`;
@@ -130,6 +134,7 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     oldSite:'/bemine-v2/',newSite:'/bemine-v4/',deploymentConsole:'/pinkuang-deploy-v4/',
     runtimeRoot,signerRoot,productRoot,recordPath,activationPath,
     genesisArtifactDigest:genesis.artifactDigest,activationTxHash:proof.steps.at(-1).txHash,
+    indexManifest,indexManifestSha256,
     runtimeEnvironment,indexEnvironment,purchaseEnvironment,signerEnvironment,
     runtimeUnit,runtimeRelayDropIn,indexUnit,signerUnit,purchaseUnit,nginxSnippet});
 }

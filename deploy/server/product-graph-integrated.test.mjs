@@ -707,6 +707,7 @@ test('public product-graph response exposes the reviewed candidate manifest only
     assert.equal(payload.stageActivationBlock,activationBlock);
     assert.equal(payload.stageActivationHash,activationHash);
     assert.equal(payload.manifest.verifiedBlockNumber,activationBlock);
+    assert.equal(payload.manifest.verifiedBlockHash,activationHash);
     assert.equal(payload.verifiedBlockNumber,block.number);
     assert.equal(payload.operationalReady, false);
     verified = false;clock+=45_000;finalized={...block,number:block.number+1,hash:salt('c')};

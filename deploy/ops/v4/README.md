@@ -30,4 +30,8 @@ Authority 的无管理员签名 `mine(bytes)` 现在只可执行 arm/start；`re
 
 第二阶段完成后，`prepare-fresh-cutover.mjs` 仅生成 v4 产品服务的离线草案，`activationAllowed` 固定为 `false`。它不会替用户发送交易、启动服务或改 nginx。实际开放产品前仍须核对最终链上回执、角色、索引、审核代发及购机流程。
 
+产品后端离线包使用 `node deploy/scripts/package-fresh-product-backend.mjs --input reviewed-cutover-input.json --out /absolute/new-release-dir`。输入需包含完成的新图部署记录、对应部署产物、七步 Authority 记录，以及当前 `/api/journal/product-graph` 在 `fresh-active` 且非 stale 时返回的 `manifest`，各自通过 `recordPath`、`bundlePath`、`activationPath`、`manifestPath` 指定。打包前会用新图记录逐项核对 manifest 地址、codehash、激活区块和 Gas 公开地址，再将固定地址清单、部署台 API 与独立 chain-index 完整依赖写进哈希发布清单。索引启动时只从该发布目录中的 `fresh-product-manifest.json` 读取四个新合约地址和起始区块，拒绝环境变量覆盖和使用旧索引数据库。
+
+此包仍是离线草案：公开 API 的产品写入、Stage2、Authority 代发和自动购机继续关闭。生成包或草案不证明链上部署完成，也不代表 `/bemine-v4/` 产品前端已发布。安装前还须按清单验文件哈希、当前链上区块及角色，独立验收产品前端和真实业务流程。
+
 第二阶段若某笔交易已在链上失败、被取消或替换，七步日志会先终止，页面不会自行重发或清除记录。候选恢复路径见 [STAGE2_RECOVERY_REVIEW.md](./STAGE2_RECOVERY_REVIEW.md)：仅对已最终确认且已知同 nonce 赢家的交易归档不可变历史、复核权限前缀，再由用户单独确认同一动作的新 nonce。此路径仍须独立审查和可弃用分叉演练，生产 `BEMINE_FRESH_STAGE2_HOLD=1` 保持不变。持续挖矿 claim 失败阻塞转让/出售、跨版本矿机重复登记以及对管理员提供的市价参考和在线服务的依赖，仍是正式开放前需评估的边界。

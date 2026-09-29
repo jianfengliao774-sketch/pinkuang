@@ -1363,7 +1363,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           blockHash:initial.receipt.blockHash},artifactDigest:graph.artifactDigest,
         sourceCommit:graph.securityUpgrade ? trustedProduct.integratedUpgrade.bundle.sourceCommit : old.sourceCommit,
         verifiedAt:new Date(activation.timestamp*1000).toISOString(),
-        verifiedBlockNumber:activation.number,
+        verifiedBlockNumber:activation.number,verifiedBlockHash:activation.hash,
         codehash:manifestCodehash};
       const body={chainId:56,status:'verified',stage,
         artifactDigest:graph.artifactDigest,genesisArtifactDigest:trustedProduct.record.artifactDigest,
