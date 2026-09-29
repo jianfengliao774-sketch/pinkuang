@@ -183,6 +183,14 @@ export class ChainIndex {
     if (entry.directory) rmSync(entry.directory, { recursive: true, force: true });
   }
 
+  _invalidateVerifiedHistory() {
+    this.snapshotTrusted = false;
+    this._retireVerifiedReadView(true);
+    // A failed chain or history proof invalidates the persisted page as well;
+    // otherwise a restart could trust an obsolete row after the next sync.
+    this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+  }
+
   acquireVerifiedReadView() {
     const entry = this.verifiedReadView;
     if (!entry?.valid) return null;
@@ -372,7 +380,6 @@ export class ChainIndex {
   }
 
   _rollback(number) {
-    const retireReadView = this.verifiedReadView?.source.indexedThrough > number;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('DELETE FROM logs WHERE block_number > ?').run(number);
@@ -381,14 +388,16 @@ export class ChainIndex {
       this.db.prepare('DELETE FROM portfolio_children WHERE purchased_block > ?').run(number);
       this.db.prepare('DELETE FROM headers WHERE number > ?').run(number);
       this._setIndexedThrough(number);
-      const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
-      if (saved && JSON.parse(saved.source).indexedThrough > number) {
-        this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
-        this.snapshotTrusted = false;
-      }
+      // Every reorg requires a new display proof. Do not permit an old row to
+      // reappear merely because the replacement scan reaches its old height.
+      this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
-    if (retireReadView) this._retireVerifiedReadView(true);
+    // Reaching the former height again does not prove the replacement chain's
+    // event counts or bindings. A successful sync must re-establish readiness.
+    this.ready = false;
+    this.snapshotTrusted = false;
+    this._retireVerifiedReadView(true);
     this.statsGeneration++;
     this.cachedStats = null;
   }
@@ -625,8 +634,12 @@ export class ChainIndex {
       // URL with credentials or an upstream response body.
       this.lastError = error instanceof Error && error.message === 'RPC is not BSC mainnet (56).'
         ? 'wrong_chain' : error instanceof Error && error.message.startsWith('Event history is incomplete')
-          ? 'incomplete_history' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
-            ? 'rpc_lagging' : 'sync_failed';
+          ? 'incomplete_history' : error instanceof Error && [
+            'Factory/market code or binding mismatch.', 'Portfolio deployment binding mismatch.',
+            'Factory reservation capability requires a required-mode index.',
+          ].includes(error.message)
+            ? 'invalid_binding' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
+              ? 'rpc_lagging' : 'sync_failed';
       this.checkedAt = new Date().toISOString();
       throw error;
     } finally {
@@ -635,7 +648,7 @@ export class ChainIndex {
         // read-only tip. Reorg rollback invalidates it separately. A chain or
         // history proof failure must fail closed even for display reads.
         if (!this.lastError) this._retireVerifiedReadView();
-        else if (['wrong_chain', 'incomplete_history'].includes(this.lastError)) this._retireVerifiedReadView(true);
+        else if (['wrong_chain', 'incomplete_history', 'invalid_binding'].includes(this.lastError)) this._invalidateVerifiedHistory();
       }
       finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
     }
@@ -676,7 +689,7 @@ export class ChainIndex {
   }
 
   verifiedDisplaySnapshot() {
-    if (!this.snapshotTrusted) return null;
+    if (!this.snapshotTrusted || ['wrong_chain', 'incomplete_history', 'invalid_binding'].includes(this.lastError)) return null;
     const saved = this.db.prepare('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot WHERE id = 1').get();
     if (!saved) return null;
     const source = JSON.parse(saved.source);

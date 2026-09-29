@@ -80,6 +80,24 @@ function fixture(chain) {
   chain.event('pool', 'Harvested', [1000n, 10n, 0n, 990n], 7); // Unconfirmed at the configured safe head.
 }
 
+const displayRoutes = ['/v1/pools', '/v1/portfolios', '/v1/stats', '/v1/orders'];
+
+async function assertInvalidatedDisplay(index, baseUrl) {
+  assert.equal(index.snapshotTrusted, false);
+  assert.equal(index.verifiedDisplaySnapshot(), null);
+  assert.equal(index.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 0);
+  for (const route of displayRoutes) {
+    assert.equal((await fetch(`${baseUrl}${route}`)).status, 503, `ordinary ${route} must fail closed`);
+    const snapshotRoute = route.replace('/v1/', '/v1/snapshot/');
+    assert.equal((await fetch(`${baseUrl}${snapshotRoute}`)).status, 503,
+      `explicit ${snapshotRoute} must fail closed`);
+  }
+  assert.equal((await fetch(`${baseUrl}/v1/activity`)).status, 503);
+  const health = await (await fetch(`${baseUrl}/health`)).json();
+  assert.equal(health.source.complete, false);
+  assert.equal(health.displaySource, undefined);
+}
+
 function headerBatchFixture({ change = (_number, _count, header) => header, failAt } = {}) {
   let active = 0, peak = 0, calls = 0;
   const counts = new Map(), finished = [];
@@ -509,14 +527,63 @@ test('latest-header outage retains display history only until the verified view 
     await assert.rejects(index.sync(), /BSC mainnet/);
     assert.equal(index.status().unknownReason, 'wrong_chain');
     assert.equal(index.verifiedReadView, null, 'a wrong-chain proof invalidates the retained history');
-    assert.equal((await fetch(`${url}/v1/activity`)).status, 503);
-    assert.equal((await (await fetch(`${url}/health`)).json()).displaySource, undefined);
+    await assertInvalidatedDisplay(index, url);
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+for (const scenario of [
+  {
+    name: 'wrong chain', reason: 'wrong_chain', message: /BSC mainnet/,
+    breakChain(chain) { chain.send = async () => '0x1'; },
+  },
+  {
+    name: 'incomplete event history', reason: 'incomplete_history', message: /Event history is incomplete/,
+    breakChain(chain) {
+      const originalCall = chain.call.bind(chain);
+      chain.call = input => binding.parseTransaction({ data: input.data }).name === 'poolCount'
+        ? Promise.resolve(binding.encodeFunctionResult('poolCount', [2n])) : originalCall(input);
+    },
+  },
+  {
+    name: 'invalid deployment binding', reason: 'invalid_binding', message: /binding mismatch/,
+    breakChain(chain) { chain.getCode = async () => '0x'; },
+  },
+]) {
+  test(`${scenario.name} invalidates all prior verified display routes and the persisted snapshot`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-fatal-snapshot-'));
+    const config = { dbPath: join(directory, 'index.sqlite'), factory, market, startBlock: 1, confirmations: 2 };
+    const chain = new MockChain(); fixture(chain);
+    const index = new ChainIndex(chain, config);
+    const server = createChainIndexServer(index, { syncWaitMs: 20 });
+    try {
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      const url = `http://127.0.0.1:${server.address().port}`;
+      await index.sync();
+      assert.equal(index.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 1);
+      for (const route of displayRoutes) {
+        assert.equal((await fetch(`${url}${route}`)).status, 200);
+        assert.equal((await fetch(`${url}${route.replace('/v1/', '/v1/snapshot/')}`)).status, 200);
+      }
+      scenario.breakChain(chain);
+      await assert.rejects(index.sync(), scenario.message);
+      assert.equal(index.status().unknownReason, scenario.reason);
+      await assertInvalidatedDisplay(index, url);
+      const reopened = new ChainIndex(chain, config);
+      try {
+        assert.equal(reopened.verifiedDisplaySnapshot(), null);
+        assert.equal(reopened.db.prepare('SELECT COUNT(*) AS count FROM verified_display_snapshot').get().count, 0);
+      } finally { reopened.close(); }
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      index.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('read view stays at the verified tip after a later scan chunk commits, while private feeds pause', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-read-view-'));
@@ -592,25 +659,33 @@ test('detected reorg invalidates the previous read view before replacement histo
   const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
     startBlock: 1, confirmations: 2, scanRange: 2 });
   const server = createChainIndexServer(index, { syncWaitMs: 20 });
-  let release = () => {}, syncing;
+  let release = () => {}, releaseHistory = () => {}, syncing;
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const url = `http://127.0.0.1:${server.address().port}`;
     await index.sync();
     chain.reorg();
     const gate = new Promise(resolve => { release = resolve; });
+    const historyGate = new Promise(resolve => { releaseHistory = resolve; });
     const scan = index._scanChunk.bind(index);
     index._scanChunk = async (...args) => { await gate; return scan(...args); };
+    const verifyHistory = index._verifyHistoryComplete.bind(index);
+    index._verifyHistoryComplete = async (...args) => { await historyGate; return verifyHistory(...args); };
     syncing = index.sync();
     while (index.indexedThrough !== 4) await new Promise(resolve => setTimeout(resolve, 1));
     assert.equal(index.verifiedReadView, null);
-    assert.equal((await fetch(`${url}/v1/activity`)).status, 503);
-    assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503);
+    await assertInvalidatedDisplay(index, url);
     release();
+    while (index.indexedThrough !== 6) await new Promise(resolve => setTimeout(resolve, 1));
+    // Reaching the former height cannot restore the old page or mark the new
+    // history complete before the event-count proof finishes.
+    await assertInvalidatedDisplay(index, url);
+    releaseHistory();
     await syncing;
     assert.equal(index.status().indexedBlockHash, chain.blocks.get(6).hash);
   } finally {
     release();
+    releaseHistory();
     if (syncing) await syncing.catch(() => {});
     await new Promise(resolve => server.close(resolve));
     index.close();
