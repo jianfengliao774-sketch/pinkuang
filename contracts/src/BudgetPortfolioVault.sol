@@ -426,7 +426,8 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         }
         if (
             balanceOf(msg.sender) < MIN_PROPOSAL_SHARES || childInfo[child].collection == address(0)
-                || childInfo[child].sold || price == 0 || IBudgetChild(child).state() != IPoolVault.State.Active
+                || childInfo[child].sold || price == 0 || price > type(uint128).max
+                || IBudgetChild(child).state() != IPoolVault.State.Active
                 || block.timestamp < uint256(IBudgetChild(child).activatedAt()) + 7 days
         ) revert InvalidProposal();
         proposalId = nextProposalId++;

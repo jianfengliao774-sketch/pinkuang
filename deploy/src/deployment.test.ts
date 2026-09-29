@@ -239,7 +239,10 @@ test('prepared transaction goes straight to the wallet after durable intent and 
   assert.equal(BigInt(submitted?.nonce ?? '-1'), BigInt(snapshot?.steps[0].nonce ?? -1));
   assert.match(submitted?.data ?? '', /^0x[0-9a-f]+$/i);
   assert.match(submitted?.gas ?? '', /^0x[0-9a-f]+$/i);
-  assert.match(submitted?.gasPrice ?? '', /^0x[0-9a-f]+$/i);
+  assert.equal(submitted?.type, '0x2');
+  assert.match(submitted?.maxFeePerGas ?? '', /^0x[0-9a-f]+$/i);
+  assert.match(submitted?.maxPriorityFeePerGas ?? '', /^0x[0-9a-f]+$/i);
+  assert.equal(submitted?.gasPrice, undefined, 'creation must not mix legacy and dynamic fees');
   assert.equal(submitted?.to, undefined, 'first step is contract creation');
   assert.equal(snapshot?.steps[0].status, 'rejected');
 });
@@ -421,11 +424,11 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   let activeCodeReads = 0;
   let maxConcurrentCodeReads = 0;
   const graphCodeReads = new Map<string, number>();
-  let initializeEnvelope: Record<string, unknown> | undefined;
+  const submittedEnvelopes: Record<string, unknown>[] = [];
   const countedWallet: Eip1193Provider = { request: async request => {
     if (request.method === 'eth_sendTransaction') {
       const envelope = (request.params as Record<string, unknown>[])[0];
-      if (envelope.maxFeePerGas) initializeEnvelope = envelope;
+      submittedEnvelopes.push(envelope);
     }
     if (graphPhase && request.method === 'eth_getCode') {
       const address = String((request.params as string[])[0]).toLowerCase();
@@ -443,9 +446,10 @@ test('complete single-wallet graph deploys, records receipts/runtime, and recove
   } });
   const complete = await countedEngine.resume(adjusted);
   assert.equal(complete.status, 'complete');
-  assert.equal(initializeEnvelope?.type, '0x2');
-  assert.ok(initializeEnvelope?.maxFeePerGas && initializeEnvelope?.maxPriorityFeePerGas);
-  assert.equal(initializeEnvelope?.gasPrice, undefined, 'initialization must not mix legacy and dynamic fees');
+  assert.equal(submittedEnvelopes.length, LIBRARY_NAMES.length + 7);
+  assert.ok(submittedEnvelopes.every(envelope => envelope.type === '0x2'
+    && envelope.maxFeePerGas && envelope.maxPriorityFeePerGas && envelope.gasPrice === undefined),
+  'every creation and initialization must use dynamic fees so wallet type-4 wrapping remains valid');
   assert.equal(complete.steps.length, LIBRARY_NAMES.length + 7);
   assert.ok(complete.steps.every(step => step.status === 'confirmed' && step.receipt?.status === 1));
   assert.ok(complete.verification!.checks.every(check => check.passed));

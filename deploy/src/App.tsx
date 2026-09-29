@@ -1,7 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, ArrowUpRight, Blocks, Check, CheckCheck, ChevronDown, ChevronRight, CircleHelp, Copy, ExternalLink, FileClock, Fingerprint, GitBranch, KeyRound, LoaderCircle, LockKeyhole, Menu, Network, OctagonAlert, PackageCheck, Play, RefreshCw, Rocket, ShieldCheck, Wallet, X } from 'lucide-react';
-import MarketPage from './MarketPage';
-import PricingPanel from './PricingPanel';
 import WalletQrChoice from './WalletQrChoice';
 import FreshActivationPanel from './FreshActivationPanel';
 import { ArchiveCompletedAction } from './ArchiveAction';
@@ -13,10 +11,16 @@ import { authenticateJournal, ServerJournal } from './server-journal';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 
 const EXPLORER = 'https://bscscan.com';
+const IS_FRESH = import.meta.env.MODE === 'fresh';
+const FRESH_DEPLOYER = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7';
+// The new deployment console must not expose the old product's market or
+// persist its browser intents into the new deployment journal.
+const MarketPage = IS_FRESH ? null : lazy(() => import('./MarketPage'));
+const PricingPanel = IS_FRESH ? null : lazy(() => import('./PricingPanel'));
 // The fresh console has no legacy upgrade signing route. Vite removes this
 // dynamic import entirely from the reviewed fresh-mode bundle.
-const UpgradeConsole = import.meta.env.MODE === 'fresh' ? null : lazy(() => import('./UpgradeConsole'));
-const LegacyCutover = import.meta.env.MODE === 'fresh' ? null : lazy(() => import('./LegacyCutover'));
+const UpgradeConsole = IS_FRESH ? null : lazy(() => import('./UpgradeConsole'));
+const LegacyCutover = IS_FRESH ? null : lazy(() => import('./LegacyCutover'));
 const short = (value: string) => value.length > 17 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 const protocols = Object.entries(PROTOCOL_ADDRESSES);
 
@@ -145,6 +149,8 @@ export default function App() {
       await option.provider.request({ method: 'eth_requestAccounts' });
       const connected = await readWallet(option.provider);
       if (!connected) throw new Error('钱包未返回账户。');
+      if (IS_FRESH && connected.address.toLowerCase() !== FRESH_DEPLOYER.toLowerCase())
+        throw new Error(`当前连接的是 ${connected.address}。此独立部署台仅接受已确认的部署钱包 ${FRESH_DEPLOYER}；请在钱包扩展中切换账户。`);
       const serverJournal = await authenticateJournal(option.provider, connected.address);
       let browserStorage: Storage | null = null;
       try { browserStorage = localStorage; } catch { /* Browser storage is optional for new server-backed sessions. */ }
@@ -290,7 +296,7 @@ export default function App() {
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setTab('deploy'); }}><span className="brand-symbol"><i/><i/><i/></span><span>拼矿<span className="brand-english">PINKUANG</span></span></a>
       <div className="workspace-label">项目工作台<span>V 0.1</span></div>
       <nav aria-label="主导航">
-        {([{ id: 'deploy', icon: Rocket, title: '合约部署' }, { id: 'market', icon: Blocks, title: '份额市场' }, { id: 'pricing', icon: Network, title: '矿机报价' }, { id: 'records', icon: FileClock, title: '部署记录' }, { id: 'governance', icon: ShieldCheck, title: '升级与权限' }] as const).map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'active' : ''}`} onClick={() => { setTab(item.id); setMenuOpen(false); }}><item.icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15}/>}</button>)}
+        {([{ id: 'deploy', icon: Rocket, title: '合约部署' }, ...(!IS_FRESH ? [{ id: 'market' as const, icon: Blocks, title: '份额市场' }, { id: 'pricing' as const, icon: Network, title: '矿机报价' }] : []), { id: 'records', icon: FileClock, title: '部署记录' }, { id: 'governance', icon: ShieldCheck, title: '升级与权限' }] as const).map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'active' : ''}`} onClick={() => { setTab(item.id); setMenuOpen(false); }}><item.icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15}/>}</button>)}
       </nav>
       <div className="sidebar-bottom"><div className="network-mini"><span className="green-dot"/> BNB Smart Chain <span>56</span></div><a href="https://github.com/jianfengliao774-sketch/pinkuang" target="_blank" rel="noreferrer"><GitBranch size={15}/> 项目源码 <ArrowUpRight size={15}/></a><p>合约与资产，由你掌控。</p></div>
     </aside>
@@ -340,8 +346,8 @@ export default function App() {
             chainId={wallet?.chainId || null} bundle={bundle} journal={journal} genesis={complete ? snapshot : null}/>
         </>}
 
-        {tab === 'pricing' && <PricingPanel onSavePlan={journal ? record => journal.saveQuote(record) : undefined}/>}
-        {tab === 'market' && <MarketPage wallet={selected?.provider || null} account={wallet?.address || null} journal={journal?.marketStorage() ?? null} factoryAddress={latestCompleted?.addresses.factory} onConnect={() => void requestConnection()}/>}
+        {tab === 'pricing' && PricingPanel && <Suspense fallback={<section className="card records-card">正在加载矿机报价…</section>}><PricingPanel onSavePlan={journal ? record => journal.saveQuote(record) : undefined}/></Suspense>}
+        {tab === 'market' && MarketPage && <Suspense fallback={<section className="card records-card">正在加载份额市场…</section>}><MarketPage wallet={selected?.provider || null} account={wallet?.address || null} journal={journal?.marketStorage() ?? null} factoryAddress={latestCompleted?.addresses.factory} onConnect={() => void requestConnection()}/></Suspense>}
         {tab === 'records' && <section className="card records-card"><div className="card-heading"><div><FileClock size={21}/><h2>部署记录</h2></div>{snapshot && <div className="record-actions"><button className="small-button" onClick={exportRecord}><ArrowDownToLine size={16}/>导出完整记录</button>{complete && <button className="small-button" disabled={!bundle || !!busy || !onBsc} onClick={() => void exportManifest()}><ArrowDownToLine size={16}/>核验并导出合约清单</button>}</div>}</div>{!snapshot ? <div className="large-empty"><FileClock size={36}/><h2>{archives.length ? '当前没有进行中的部署' : '还没有部署记录'}</h2><p>{wallet ? archives.length ? '历史部署记录见下方。' : '开始部署后，交易记录会保存在服务器。' : '连接钱包后读取该钱包在服务器保存的记录。'}</p><button className="small-button" onClick={() => setTab('deploy')}>前往合约部署<ArrowRight size={16}/></button></div> : <div className="records-body"><div className="record-meta"><span className={complete ? 'status-success' : 'status-pending'}>{complete ? '已完成核验' : '部署未完成'}</span><span>{new Date(snapshot.createdAt).toLocaleString('zh-CN')}</span><span>Chain ID 56</span><Address value={snapshot.account}/></div><div className="address-table">{Object.entries(snapshot.addresses).map(([name, value]) => <div key={name}><b>{name}</b><Address value={value}/></div>)}</div>{!Object.keys(snapshot.addresses).length && <p>暂未确认合约地址。请回到部署页核对交易回执。</p>}<details className="record-json"><summary>完整部署记录与核验结果<ChevronDown size={16}/></summary><pre>{JSON.stringify(snapshot, null, 2)}</pre></details><p className="field-help">完整记录保存在服务器，并按钱包隔离。建议另行导出备份，以便核对交易及后续升级。</p></div>}</section>}
 
         {tab === 'records' && archives.length > 0 && <section className="card records-card">

@@ -840,16 +840,12 @@ export class DeploymentEngine {
         '上次拒签后 nonce 或部署交易内容已变化；不能按原写前记录重新签名，请先核对链上交易。');
     }
     transaction.gasLimit = gasLimit; transaction.nonce = nonce;
-    if (step.id === 'initialize') {
-      // MetaMask may wrap this call in an EIP-7702 (type 4) envelope. Such
-      // envelopes require EIP-1559 fee fields and reject legacy gasPrice.
-      transaction.type = 2;
-      transaction.maxFeePerGas = fee.gasPrice;
-      transaction.maxPriorityFeePerGas = fee.gasPrice;
-    } else {
-      transaction.gasPrice = fee.gasPrice;
-      transaction.type = 0;
-    }
+    // The wallet may wrap any creation or initialization call in an EIP-7702
+    // (type 4) envelope. Dynamic fee fields work for both types; a legacy
+    // gasPrice field makes the wrapped request invalid before it is broadcast.
+    transaction.type = 2;
+    transaction.maxFeePerGas = fee.gasPrice;
+    transaction.maxPriorityFeePerGas = fee.gasPrice;
     Object.assign(step, { status: 'signing', nonce, gasEstimate: estimated.toString(), gasLimit: gasLimit.toString(), gasPriceWei: fee.gasPrice.toString(), maxFeeWei: maxFee.toString(), dataHash: keccak256(transaction.data as string) });
     delete step.rejectionKind;
     delete step.error;

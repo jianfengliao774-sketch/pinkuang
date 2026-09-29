@@ -72,7 +72,9 @@ library SaleGovernance {
             revert DeadlineNotReached();
         }
         if (input.currentShares == 0) revert NotMember();
-        if (input.price == 0) revert InvalidSalePrice();
+        // Firsto's signed ask stores its price as uint128. Reject an unfillable
+        // proposal before it can freeze shares or become a seven-day listing.
+        if (input.price == 0 || input.price > type(uint128).max) revert InvalidSalePrice();
         uint256 activeId = s.activeProposalId;
         uint48 snapshotTs = 0;
         uint64 endsAt = 0;

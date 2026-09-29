@@ -35,6 +35,9 @@ export async function assertFreshBuild(dist = defaultDist) {
     if (/0x(?:2995b10d19056c8c24c57b281c22562a603c571f|cb24e7f96d81037086a268d6ea63c53f91d412a2)/i.test(source)) {
       throw new Error(`Fresh deployment asset contains a previous Factory address: ${entry.name}.`);
     }
+    if (/bemine-v2\/|pinkuang-deploy-v3\/|migrateLegacyMarketPending/.test(source)) {
+      throw new Error(`Fresh deployment asset contains a retired product or market route: ${entry.name}.`);
+    }
   }
   return { dist: resolve(dist), files: entries.length + assets.length };
 }

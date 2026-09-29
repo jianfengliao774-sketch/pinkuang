@@ -662,6 +662,35 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
     }
 
+    function test_childSalePriceMustFitFirstoAskBeforeOpeningRound() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+
+        uint256 nextId = project.nextProposalId();
+        uint64 nextRound = project.nextRoundAt();
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
+        project.proposeChildSale(address(pool), uint256(type(uint128).max) + 1, 0, 0);
+        assertEq(project.nextProposalId(), nextId);
+        assertEq(project.nextRoundAt(), nextRound);
+
+        vm.prank(ALICE);
+        uint256 id = project.proposeChildSale(address(pool), type(uint128).max, 0, 0);
+        vm.prank(ALICE);
+        project.voteChildSale(id, true);
+        vm.prank(BOB);
+        project.voteChildSale(id, true);
+        _saleReference(1);
+        project.executeChildSale(id);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+        assertEq(PoolVault(payable(address(pool))).salePrice(), type(uint128).max);
+    }
+
     function test_minorityOpenerCannotBlockCompetingCandidateInSameRound() public {
         _subscribe(ALICE, 10);
         _subscribe(BOB, 40);

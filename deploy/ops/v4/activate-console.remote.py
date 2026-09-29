@@ -259,6 +259,8 @@ def main():
             'DEPLOYMENT_JOURNAL_RPC_URL': rpc, 'BEMINE_READ_RPC_URL': rpc,
             'BEMINE_INDEX_URL': 'http://127.0.0.1:4184',
             'BEMINE_NOTIFICATIONS_ENABLED': '0',
+            'BEMINE_FRESH_CONSOLE_PRE_GENESIS': '1',
+            'BEMINE_FRESH_STAGE2_HOLD': '1',
             'BEMINE_EXPECTED_GAS_WALLET': GAS_WALLET,
             'AUTHORITY_RELAY_ENABLED': '0',
         }

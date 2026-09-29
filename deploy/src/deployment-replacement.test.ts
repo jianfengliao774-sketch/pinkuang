@@ -53,11 +53,12 @@ async function replacementScenario(index: number, kind: 'accelerate' | 'dynamic'
       throw new Error('simulated lost RPC response after replacement');
     }
     const raisedPrice = toBeHex(parseUnits('20', 'gwei'));
-    const { gasPrice: _legacyPrice, type: _legacyType, ...withoutLegacyGas } = transaction;
-    const changed = kind === 'accelerate' ? { ...transaction, gasPrice: raisedPrice }
-      : kind === 'dynamic' ? { ...withoutLegacyGas, type: '0x2', maxFeePerGas: raisedPrice,
+    const changed = kind === 'accelerate' ? { ...transaction, maxFeePerGas: raisedPrice,
         maxPriorityFeePerGas: raisedPrice }
-      : kind === 'failed' ? { ...transaction, gas: toBeHex(BigInt(String(transaction.gas)) / 2n), gasPrice: raisedPrice }
+      : kind === 'dynamic' ? { ...transaction, type: '0x2', maxFeePerGas: raisedPrice,
+        maxPriorityFeePerGas: raisedPrice }
+      : kind === 'failed' ? { ...transaction, gas: toBeHex(BigInt(String(transaction.gas)) / 2n),
+        maxFeePerGas: raisedPrice, maxPriorityFeePerGas: raisedPrice }
       : kind === 'cancel' ? { from: account, to: account, nonce: transaction.nonce, gas: '0x5208',
         gasPrice: raisedPrice, value: '0x0', data: '0x', type: '0x0' }
       : { from: account, to: accounts[9], nonce: transaction.nonce, gas: '0x186a0',

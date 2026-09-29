@@ -91,12 +91,17 @@ test('rejected Stage 2 step stays visible for explicit manual retry', () => {
 test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and ambiguous send are not', async () => {
   let saved = record();
   saved.steps[0].nonce = 4;
-  let nonce = 5, sends = 0, artifactOutage = true, walletMode: 'reject' | 'success' | 'ambiguous' = 'reject';
+  let nonce = 5, walletNonce = 5, sends = 0, artifactOutage = true;
+  let walletMode: 'reject' | 'success' | 'ambiguous' | 'invalid-format' | 'invalid-format-drift' = 'reject';
+  const sentTransactions: Record<string, string>[] = [];
   const wallet: Eip1193Provider = { request: async req => {
     if (req.method !== 'eth_sendTransaction') throw new Error(`Unexpected wallet method ${req.method}`);
     sends++;
+    sentTransactions.push((req.params as Record<string, string>[])[0]);
     if (walletMode === 'reject') throw Object.assign(new Error('user rejected'), { code: 4001 });
     if (walletMode === 'ambiguous') throw new Error('response lost after broadcast');
+    if (walletMode === 'invalid-format-drift') walletNonce = 6;
+    if (walletMode === 'invalid-format' || walletMode === 'invalid-format-drift') throw new Error('Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas');
     return hash('a');
   } };
   const journal = {
@@ -123,7 +128,7 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
     getFeeData: async () => ({ gasPrice: 1_000_000_000n }),
     getBalance: async () => 1_000_000_000_000_000_000n,
     getBlock: async () => ({ gasLimit: 30_000_000n }),
-    getTransactionCount: async () => nonce,
+    getTransactionCount: async () => walletNonce,
   };
   await assert.rejects(engine.sendNext(saved), /artifact unavailable/);
   assert.equal(saved.steps[1].status, 'rejected');
@@ -142,6 +147,11 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
   const submitted = await engine.sendNext(saved);
   assert.equal(submitted.steps[1].status, 'submitted');
   assert.equal(submitted.steps[1].txHash, hash('a'));
+  const submittedTransaction = sentTransactions.at(-1)!;
+  assert.equal(submittedTransaction.type, '0x2');
+  assert.equal(submittedTransaction.maxFeePerGas, '0x3b9aca00');
+  assert.equal(submittedTransaction.maxPriorityFeePerGas, '0x3b9aca00');
+  assert.equal(Object.hasOwn(submittedTransaction, 'gasPrice'), false);
   saved = record(); saved.steps[0].nonce = 4;
   walletMode = 'ambiguous';
   await assert.rejects(engine.sendNext(saved), /response lost/);
@@ -149,4 +159,20 @@ test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and a
   assert.equal(sends, 3);
   await assert.rejects(engine.sendNext(saved), /只可核验/);
   assert.equal(sends, 3);
+
+  // The exact wallet-side format error is classified as unsent only when both
+  // the independent node and wallet still report the original unused nonce.
+  saved = record(); saved.steps[0].nonce = 4;
+  walletMode = 'invalid-format';
+  await assert.rejects(engine.sendNext(saved), /Invalid transaction envelope type/);
+  assert.equal(saved.steps[1].status, 'rejected');
+  assert.equal(saved.steps[1].rejectionKind, 'pre-send');
+  assert.equal(sends, 4);
+
+  saved = record(); saved.steps[0].nonce = 4;
+  walletMode = 'invalid-format-drift';
+  await assert.rejects(engine.sendNext(saved), /Invalid transaction envelope type/);
+  assert.equal(saved.steps[1].status, 'uncertain');
+  await assert.rejects(engine.sendNext(saved), /只可核验/);
+  assert.equal(sends, 5);
 });

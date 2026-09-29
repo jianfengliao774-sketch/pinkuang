@@ -21,6 +21,8 @@ test('fresh package excludes every old upgrade page', async () => {
     await unlink(join(dist, 'upgrade.html'));
     await writeFile(join(dist, 'assets/main.js'), 'const old="0x2995B10d19056c8C24C57b281C22562a603C571F";');
     await assert.rejects(assertFreshBuild(dist), /previous Factory address/);
+    await writeFile(join(dist, 'assets/main.js'), 'const old="/bemine-v2/#market";');
+    await assert.rejects(assertFreshBuild(dist), /retired product or market route/);
   } finally {
     await rm(dist, { recursive: true, force: true });
   }

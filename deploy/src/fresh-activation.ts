@@ -46,6 +46,7 @@ const TIMELOCK_ABI = [
 ];
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const INVALID_ENVELOPE = 'Invalid transaction envelope type: specified type "0x4" but included a gasPrice instead of maxFeePerGas and maxPriorityFeePerGas';
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const requireThat: (ok: unknown, message: string) => asserts ok = (ok, message) => { if (!ok) throw new Error(message); };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -387,9 +388,13 @@ export class FreshActivationEngine {
       const feeLimit = planned.gasLimit * fees.gasPrice;
       requireThat(BigInt(record.spentWei) + feeLimit <= parseEther(record.maxGasBudgetBnb)
         && balance >= feeLimit, '激活 Gas 预算或钱包余额不足。');
+      // A wallet may wrap a request in an EIP-7702 type-4 envelope. Dynamic
+      // fee fields remain valid in that envelope, while legacy gasPrice does not.
       const tx = { chainId: '0x38', from: account, ...(planned.to ? { to: planned.to } : {}),
         data: planned.data, value: '0x0', nonce: `0x${nonce.latest.toString(16)}`,
-        gas: `0x${planned.gasLimit.toString(16)}`, gasPrice: `0x${fees.gasPrice.toString(16)}`, type: '0x0' };
+        gas: `0x${planned.gasLimit.toString(16)}`,
+        maxFeePerGas: `0x${fees.gasPrice.toString(16)}`,
+        maxPriorityFeePerGas: `0x${fees.gasPrice.toString(16)}`, type: '0x2' };
       if (step.status === 'rejected') {
         requireThat(step.nonce === nonce.latest && step.dataHash === keccak256(planned.data),
           '上次拒签后 nonce 或交易内容已变化；不能按原写前记录重新签名，必须先核对链上。');
@@ -424,10 +429,25 @@ export class FreshActivationEngine {
         const walletRejected = attemptedBroadcast && (failure.code === 4001
           || failure.code === 'ACTION_REJECTED' || failure.info?.error?.code === 4001);
         const definiteNoSend = !attemptedBroadcast && !nonceConflict;
-        step.status = definiteNoSend || walletRejected ? 'rejected' : 'uncertain';
+        let invalidEnvelopeNotSent = false;
+        if (attemptedBroadcast && !step.txHash && String(error).includes(INVALID_ENVELOPE)) {
+          try {
+            // This exact validation error cannot produce a valid transaction,
+            // but two independent nonce views must still agree before retry.
+            const [independent, walletLatest, walletPending] = await Promise.all([
+              this.journal.readCurrentNonce(), this.provider.getTransactionCount(account, 'latest'),
+              this.provider.getTransactionCount(account, 'pending'),
+            ]);
+            invalidEnvelopeNotSent = independent.latest === step.nonce && independent.pending === step.nonce
+              && walletLatest === step.nonce && walletPending === step.nonce;
+          } catch { /* An unavailable nonce witness leaves the intent uncertain. */ }
+        }
+        step.status = definiteNoSend || walletRejected || invalidEnvelopeNotSent ? 'rejected' : 'uncertain';
         if (step.status === 'rejected') step.rejectionKind = walletRejected ? 'wallet-rejected' : 'pre-send';
         step.error = String(error).slice(0, 600);
-        record.error = step.status === 'rejected'
+        record.error = invalidEnvelopeNotSent
+          ? '钱包拒绝了旧式 Gas 交易格式，双重 nonce 核对仍未使用。现可手动重试；不会自动发送。'
+          : step.status === 'rejected'
           ? '钱包尚未广播此笔交易。核对 nonce 和交易内容后，可手动再次请求硬件钱包。'
           : '签名或广播结果不明。请用钱包交易哈希核验，不会自动重发。';
         await this.save(record);

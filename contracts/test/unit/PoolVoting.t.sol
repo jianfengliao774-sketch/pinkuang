@@ -168,7 +168,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         voting.executeSale(first);
     }
 
-    function test_discountedAlternativeStillNeedsSixtySharesAndAddressMajority() public {
+    function test_discountedAlternativeNeedsDoubleMajority() public {
         _transfer(BOB, CAROL, 15); // 49 / 11 / 40 beneficial shares.
         _ready();
         uint256 purchaseCost = voting.purchaseCost();
@@ -404,8 +404,29 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(voting.lastProposed(ALICE), 0);
     }
 
-    function test_discountBelowActualCostNeedsAtLeastSixtyShares() public {
-        _transfer(BOB, CAROL, 15); // 49/11/40; two of three addresses and exactly 60 shares.
+    function test_salePriceAboveFirstoLimitRejectedWithoutConsumingProposalOrCooldown() public {
+        _ready();
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.InvalidSalePrice.selector);
+        voting.propose(uint256(type(uint128).max) + 1, 0, 0);
+        assertEq(voting.activeProposalId(), 0);
+        assertEq(voting.nextProposalId(), 1);
+        assertEq(voting.lastProposed(ALICE), 0);
+    }
+
+    function test_salePriceAtFirstoLimitCanBeApprovedAndListed() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(type(uint128).max, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        _execute(id);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+        assertEq(voting.salePrice(), type(uint128).max);
+    }
+
+    function test_discountBelowActualCostUsesDoubleMajority() public {
+        _transfer(BOB, CAROL, 15); // 49/11/40; two of three addresses hold 60 shares.
         _ready();
         uint256 discountedPrice = voting.purchaseCost() - 1;
         vm.prank(ALICE);
@@ -418,7 +439,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
 
-    function test_saleAtActualCostRetainsSimpleShareMajorityThreshold() public {
+    function test_saleAtActualCostUsesDoubleMajority() public {
         _ready();
         uint256 purchaseCost = voting.purchaseCost();
         vm.prank(ALICE);
@@ -551,7 +572,7 @@ contract PoolVotingTest is ShareTransferTestBase {
     function testFuzz_referenceAndPriceAreRecordedWithoutOracleValidation(uint256 price, uint256 refPrice, uint64 refAt)
         public
     {
-        price = bound(price, 1, type(uint256).max);
+        price = bound(price, 1, type(uint128).max);
         _ready();
         vm.prank(ALICE);
         uint256 id = voting.propose(price, refPrice, refAt);

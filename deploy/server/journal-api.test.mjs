@@ -154,6 +154,56 @@ async function fixture(provider = chainProof(), currentArtifactDigest = () => he
     async close() { await new Promise(resolve => server.close(resolve)); await service.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
+test('pre-genesis console keeps deployment journals but rejects every product write', async () => {
+  assert.equal(journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: '1' }).freshConsolePreGenesis, true);
+  assert.equal(journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: '0' }).freshConsolePreGenesis, false);
+  assert.equal(journalConfiguration({ BEMINE_FRESH_STAGE2_HOLD: '1' }).freshStage2Hold, true);
+  assert.throws(() => journalConfiguration({ BEMINE_FRESH_CONSOLE_PRE_GENESIS: 'true' }),
+    /BEMINE_FRESH_CONSOLE_PRE_GENESIS/);
+  assert.throws(() => journalConfiguration({ BEMINE_FRESH_STAGE2_HOLD: 'true' }),
+    /BEMINE_FRESH_STAGE2_HOLD/);
+  const f = await fixture(chainProof(), () => hex(5), () => {},
+    { freshConsolePreGenesis: true, freshStage2Hold: true });
+  try {
+    const { cookie } = await f.login(wallet);
+    const initial = deployment();
+    assert.equal((await f.request('/api/journal/deployment', 'PUT',
+      { record: initial, expectedRevision: 0 }, cookie)).status, 200);
+    assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.id,
+      initial.id);
+    assert.equal((await f.request('/api/journal/fresh-activation/config', 'GET', undefined, cookie)).status, 200);
+    const held = await f.request('/api/journal/fresh-activation', 'PUT',
+      { record: {}, expectedRevision: 0 }, cookie);
+    assert.equal(held.status, 409);
+    assert.match(held.body.error, /Stage 2 signing is held/);
+    assert.equal((await f.request('/api/journal/fresh-activation', 'GET', undefined, cookie)).body.record, null);
+    for (const [path, method, body] of [
+      ['/api/journal/market', 'PUT', { record: intent(), expectedRevision: 0 }],
+      ['/api/journal/market', 'DELETE', { expectedRevision: 0, hash: hex(77) }],
+      ['/api/journal/market/prepare-and-arm', 'POST', {}],
+      ['/api/journal/market/arm', 'POST', {}],
+      ['/api/journal/market/cancel-intent', 'POST', {}],
+      ['/api/journal/market/abandon', 'POST', {}],
+      ['/api/journal/quote', 'POST', { record: { name: 'old quote' } }],
+      ['/api/journal/budget-queue?parent=' + factory, 'PUT', { record: {}, expectedRevision: 0 }],
+      ['/api/journal/deployment/import-archive', 'POST', { record: initial }],
+    ]) {
+      const result = await f.request(path, method, body, cookie);
+      assert.equal(result.status, 409, `${method} ${path} must remain closed`);
+      assert.match(result.body.error, /pre-genesis/);
+    }
+    assert.equal((await f.request('/api/journal/market', 'GET', undefined, cookie)).body.record, null);
+    assert.deepEqual((await f.request('/api/journal/quotes', 'GET', undefined, cookie)).body.items, []);
+  } finally { await f.close(); }
+  const legacy = await fixture();
+  try {
+    const { cookie } = await legacy.login(wallet);
+    assert.equal((await legacy.request('/api/journal/market', 'PUT',
+      { record: intent(), expectedRevision: 0 }, cookie)).status, 200,
+    'existing v2/v3 behavior is unchanged without the explicit flag');
+  } finally { await legacy.close(); }
+});
+
 test('fresh activation reports only a Gas public address derived from the reviewed credential', async () => {
   const expected=Wallet.createRandom().address;
   const f=await fixture(chainProof(),()=>hex(5),()=>{},

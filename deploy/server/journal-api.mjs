@@ -809,7 +809,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
-  gasWalletAddressReader = readKeeperPublicAddress } = {}) {
+  gasWalletAddressReader = readKeeperPublicAddress, freshConsolePreGenesis = false,
+  freshStage2Hold = false } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -838,6 +839,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
     productActivationPath:freshActivationEvidencePath,expectedGasWallet});
   if (typeof gasWalletAddressReader !== 'function') throw new Error('Gas wallet credential address reader is invalid.');
+  if (typeof freshConsolePreGenesis !== 'boolean') throw new Error('Fresh console mode must be a boolean.');
+  if (typeof freshStage2Hold !== 'boolean') throw new Error('Fresh Stage 2 hold must be a boolean.');
   const credentialStatus = () => {
     try {
       const derived = getAddress(gasWalletAddressReader());
@@ -1330,6 +1333,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const expectedAccount = req.headers['x-pinkuang-account'];
       if (expectedAccount !== undefined && identity(expectedAccount) !== account)
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
+      // The pre-genesis deployment console may record only deployment and
+      // Authority progress. It must not become a second product market or
+      // accept old deployment archives before the independent v4 cutover.
+      if (freshConsolePreGenesis && (
+        (path === '/api/journal/budget-queue' && method === 'PUT')
+        || (path === '/api/journal/quote' && method === 'POST')
+        || (path === '/api/journal/deployment/import-archive' && method === 'POST')
+        || (path === '/api/journal/market' && method !== 'GET')
+        || (path.startsWith('/api/journal/market/') && method !== 'GET')
+      )) fail(409, 'Product transactions are unavailable in the pre-genesis deployment console.');
+      if (freshStage2Hold && path === '/api/journal/fresh-activation' && method === 'PUT')
+        fail(409, 'Stage 2 signing is held until failed-transaction recovery is verified.');
       if (path.startsWith('/api/journal/notifications/')) {
         if (!expectedAccount) fail(400, 'The selected wallet is required.');
         if (!notificationService) fail(503, 'Notifications are not configured.');
@@ -1557,7 +1572,15 @@ export function journalConfiguration(env = process.env) {
   if (!dbPath || !origin || production && !rpcUrl) throw new Error('Production journal requires explicit DB, origin and BSC RPC URL.');
   if (rpcUrl && !/^https:\/\//.test(rpcUrl)) throw new Error('Journal BSC RPC URL must use HTTPS.');
   if (production && !/^https:\/\//.test(origin)) throw new Error('Production journal origin must use HTTPS.');
+  if (env.BEMINE_FRESH_CONSOLE_PRE_GENESIS !== undefined
+    && !['0','1'].includes(env.BEMINE_FRESH_CONSOLE_PRE_GENESIS))
+    throw new Error('BEMINE_FRESH_CONSOLE_PRE_GENESIS must be 0 or 1.');
+  if (env.BEMINE_FRESH_STAGE2_HOLD !== undefined
+    && !['0','1'].includes(env.BEMINE_FRESH_STAGE2_HOLD))
+    throw new Error('BEMINE_FRESH_STAGE2_HOLD must be 0 or 1.');
   return { dbPath, origin, rpcUrl,
+    freshConsolePreGenesis: env.BEMINE_FRESH_CONSOLE_PRE_GENESIS === '1',
+    freshStage2Hold: env.BEMINE_FRESH_STAGE2_HOLD === '1',
     legacyFactory: legacyFactoryConfiguration(env.BEMINE_LEGACY_FACTORY),
     allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     productDeploymentRecordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
