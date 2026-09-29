@@ -16,7 +16,15 @@ const sameAddress = (a, b) => liveAddress(a) === liveAddress(b);
 const good = (s, bit) => (BigInt(s.validMask) & (1n << BigInt(bit))) !== 0n && (BigInt(s.errorMask) & (1n << BigInt(bit))) === 0n;
 const sameSource = (a, b) => a.chainId === b.chainId && a.factory === b.factory && a.market === b.market
   && a.startBlock === b.startBlock && a.indexedThrough === b.indexedThrough && a.indexedBlockHash === b.indexedBlockHash
-  && a.indexedTimestamp === b.indexedTimestamp && a.readMode === b.readMode && a.stale === b.stale;
+  && a.indexedTimestamp === b.indexedTimestamp;
+// A page assembled across an index sync must not become actionable merely
+// because its later read used the live endpoint for the same canonical block.
+const conservativeSource = (source, earlier) => earlier?.readMode === 'verified_snapshot'
+  || source.readMode === 'verified_snapshot'
+  ? Object.freeze({ ...(earlier?.readMode === 'verified_snapshot' ? earlier : source),
+    readMode: 'verified_snapshot', stale: true, transactionReady: false,
+    refreshing: earlier?.refreshing === true || source.refreshing === true })
+  : source;
 const VERIFICATION_TTL_MS = 10 * 60 * 1000;
 const sessionStorageSafe = () => { try { return typeof window === 'undefined' ? null : window.sessionStorage; } catch { return null; } };
 
@@ -196,11 +204,13 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     const url = new URL(`${indexBase.href.replace(/\/$/, '')}${path}`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     const response = await fetchLiveJson(url.href, { fetcher });
-    const displaySource = path === '/health' ? response?.displaySource : null;
-    const source = validateIndexSource(displaySource ?? response?.source, manifest, { now: now() });
+    const displaySource = path === '/health' && response?.source?.complete !== true
+      ? response?.displaySource : null;
+    let source = validateIndexSource(displaySource ?? response?.source, manifest, { now: now() });
     if (expected) {
       const old = validateIndexSource(expected, manifest, { now: now() });
       insist(sameSource(source, old), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
+      source = conservativeSource(source, old);
     }
     const header = await blockHeader(BigInt(source.indexedThrough));
     insist(header.hash === source.indexedBlockHash && header.timestamp === BigInt(source.indexedTimestamp),
@@ -461,7 +471,11 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       if (!isRetryableReadError(error)) throw error;
       try {
         indexed = await savedSnapshotRead('/orders', { pool, seller, active, cursor, limit });
-        if (expected) insist(sameSource(indexed.source, expected), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
+        if (expected) {
+          const old = validateIndexSource(expected, manifest, { now: now() });
+          insist(sameSource(indexed.source, old), 'source_changed', '索引已更新，分页必须从第一页重新读取。');
+          indexed = { ...indexed, source: conservativeSource(indexed.source, old) };
+        }
       } catch (snapshotError) {
         if (!canReadDirect(error, expected, cursor === undefined ? 0 : 1)
           || !isRetryableReadError(snapshotError)

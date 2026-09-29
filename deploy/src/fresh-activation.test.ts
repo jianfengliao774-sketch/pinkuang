@@ -5,7 +5,7 @@ import { AbiCoder, Interface, getAddress, keccak256 } from 'ethers';
 import { activationEvidence, activationTransaction, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
   FreshActivationEngine,
   FRESH_ACTIVATION_STEPS, validatedFreshGasWallet, type FreshActivationRecord } from './fresh-activation';
-import { activationCanRequestSignature, activationStepStatusText } from './FreshActivationPanel';
+import { activationCanReconcile, activationCanRequestSignature, activationStepStatusText } from './FreshActivationPanel';
 import { artifactDigest, type ArtifactBundle, type DeploymentSnapshot, type Eip1193Provider } from './deployment';
 import type { ServerJournal } from './server-journal';
 
@@ -49,7 +49,7 @@ test('the seven transactions bind Authority, both Factories and Timelock with ze
   assert.ok(deploy.data.startsWith(bundle.artifacts.PlatformAuthority.bytecode));
   assert.deepEqual(AbiCoder.defaultAbiCoder().decode(['address','address','address','address','address'],
     `0x${deploy.data.slice(bundle.artifacts.PlatformAuthority.bytecode.length)}`).map(String),
-  [factory, budget, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, gasWallet]);
+  [factory, budget, getAddress(FRESH_ADMIN_ONE), getAddress(FRESH_ADMIN_TWO), gasWallet]);
   const iface = new Interface(bundle.artifacts.PoolFactory.abi);
   for (const [id, target, method, destination] of [
     ['coreOperator',factory,'setOperator',authority], ['coreTreasury',factory,'setTreasury',authority],
@@ -87,6 +87,14 @@ test('rejected Stage 2 step stays visible for explicit manual retry', () => {
   assert.equal(activationCanRequestSignature('uncertain'), false);
   assert.match(activationStepStatusText('rejected'), /手动重试/);
   assert.match(activationStepStatusText('uncertain'), /结果不明/);
+});
+
+test('Stage 2 hold disables receipt reconciliation because it must persist its result', () => {
+  const ready = { held: false, enabled: true, busy: false, loading: false, recoveryHash: '' };
+  assert.equal(activationCanReconcile(ready), true);
+  assert.equal(activationCanReconcile({ ...ready, held: true }), false);
+  assert.equal(activationCanReconcile({ ...ready, recoveryHash: '0x1234' }), false);
+  assert.equal(activationCanReconcile({ ...ready, recoveryHash: hash('a') }), true);
 });
 
 test('Stage 2 pre-send outage and explicit 4001 are retryable; nonce drift and ambiguous send are not', async () => {
@@ -361,7 +369,8 @@ test('a finalized third-step failure requires a separate same-action, new-nonce 
     getTransactionCount: async () => 9,
     getFeeData: async () => ({ gasPrice: 1000000000n }),
     getBalance: async () => 1_000_000_000_000_000_000n,
-    getBlock: async () => ({ gasLimit: 30_000_000n }),
+    getBlock: async (height: unknown) => ({ number: height === 120 ? 120 : 125,
+      hash: height === 120 ? hash('b') : hash('d'), gasLimit: 30_000_000n }),
   };
   const recovered = await engine.recoverFinalizedAttempt(saved);
   assert.equal(recoveries, 1);
@@ -392,4 +401,23 @@ test('browser ancestry proof crosses a long pause without trusting a skipped hea
   broken = true;
   await assert.rejects(internals.proveAncestor(120, hash('d'),
     { number: 4220, hash: blockHash(4220) }), /不在同一条最终确认链/);
+});
+
+test('browser checks an old finalized receipt by canonical height without scanning a million blocks', async () => {
+  const wallet: Eip1193Provider = { request: async () => { throw new Error('wallet must not be used'); } };
+  const engine = new FreshActivationEngine(wallet, bundle, {} as ServerJournal, {} as DeploymentSnapshot);
+  const internals = engine as unknown as {
+    provider: { getBlock: (height: number) => Promise<{ number: number; hash: string }> };
+    requireCanonicalFinalizedBlock: (number: number, hash: string,
+      finalized: { number: number; hash: string }) => Promise<void>;
+  };
+  let reads = 0;
+  internals.provider = { getBlock: async height => { reads++; return { number: height, hash: hash('d') }; } };
+  const finalized = { number: 1_100_120, hash: hash('e') };
+  await internals.requireCanonicalFinalizedBlock(120, hash('d'), finalized);
+  assert.equal(reads, 1);
+  await assert.rejects(internals.requireCanonicalFinalizedBlock(120, hash('a'), finalized),
+    /不在当前最终确认链/);
+  await assert.rejects(internals.requireCanonicalFinalizedBlock(finalized.number + 1, hash('d'), finalized),
+    /尚未最终确认/);
 });

@@ -13,7 +13,7 @@ import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
-import { createRequestLimiter } from './request-limiter.mjs';
+import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
 import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
@@ -30,19 +30,26 @@ const OFFICIAL_GRAPH_CACHE_MS = 5_000;
 const SIGNING_GRAPH_CACHE_MS = 5_000;
 const PRODUCT_GRAPH_SNAPSHOT_MS = 45_000;
 const PRODUCT_GRAPH_STALE_MS = 2 * 60_000;
-const PRODUCT_GRAPH_REFRESH_MS = 15_000;
+// Keep a fresh display proof warm with margin before the 45-second current
+// window ends, without redoing the full graph every 15 seconds while idle.
+const PRODUCT_GRAPH_REFRESH_MS = 40_000;
 const TRANSIENT_PRODUCT_RPC_CODES = new Set([
   'NETWORK_ERROR', 'TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
   'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
 ]);
 
-function isTransientProductRpcFailure(error) {
+export function isTransientProductRpcFailure(error) {
   if (error instanceof ProductGraphAnchorUnavailable) return true;
   if (error instanceof ApiError) return false;
-  for (let current=error, depth=0; current && depth<3; current=current.cause, depth++) {
+  for (let current=error, depth=0; current && depth<5; current=current.cause, depth++) {
+    if (current instanceof ApiError) return false;
     if (TRANSIENT_PRODUCT_RPC_CODES.has(current.code)) return true;
-    if (current.code==='SERVER_ERROR' && [429,502,503,504].includes(Number(
-      current.status ?? current.response?.status ?? current.info?.responseStatus))) return true;
+    const status=Number.parseInt(String(current.status ?? current.response?.status
+      ?? current.info?.responseStatus ?? ''),10);
+    if (status===429 || status>=500 && status<=599) return true;
+    const rpcCode=Number(current.info?.error?.code ?? current.error?.code
+      ?? current.info?.error?.error?.code ?? current.code);
+    if (rpcCode===-32000 || rpcCode===-32603) return true;
   }
   return false;
 }
@@ -52,9 +59,16 @@ const MAX_OFFICIAL_SCANS = 2;
 const MAX_OFFICIAL_GRAPH_PROOFS = 2;
 const OFFICIAL_GRAPH_PROOF_BURST = 2;
 const OFFICIAL_GRAPH_PROOF_REFILL_MS = 4_000;
+// A single public visitor gets less than half of each shared refill rate.
+// Cached proofs and identical in-flight proofs do not consume this allowance.
+const OFFICIAL_CLIENT_GRAPH_BURST = 1;
+const OFFICIAL_CLIENT_GRAPH_REFILL_MS = 8_000;
 const MAX_OFFICIAL_BLOCK_AGE = 120;
 const OFFICIAL_REQUEST_BURST = 6;
 const OFFICIAL_REQUEST_REFILL_MS = 500;
+const OFFICIAL_CLIENT_REQUEST_BURST = 3;
+const OFFICIAL_CLIENT_REQUEST_REFILL_MS = 1_000;
+const MAX_OFFICIAL_CLIENTS = 4_096;
 const PRODUCT_INTENT_WINDOW_MS = 60_000;
 const PRODUCT_INTENT_PER_ACCOUNT = 8;
 const PRODUCT_INTENT_PER_IP = 24;
@@ -201,11 +215,18 @@ function validateCancellationRequests(record) {
   for (const tx of record.cancellationRequests) {
     if (!isRecord(tx) || identity(tx.from) !== identity(record.account) || identity(tx.to) !== identity(record.account)
       || tx.chainId !== '0x38' || tx.nonce !== `0x${record.nonce.toString(16)}` || tx.data !== '0x' || tx.value !== '0x0'
-      || tx.gas !== '0x5208' || tx.type !== '0x0' || typeof tx.gasPrice !== 'string' || !/^0x[\da-f]{1,16}$/i.test(tx.gasPrice)
-      || BigInt(tx.gasPrice) < 1n || BigInt(tx.gasPrice) > 3_000_000_000n
+      || tx.gas !== '0x5208' || !['0x0','0x2'].includes(tx.type)
+      || tx.type === '0x2' && record.version !== 2
+      || (tx.type === '0x0'
+        ? !boundedCancellationFee(tx.gasPrice) || tx.maxFeePerGas !== undefined || tx.maxPriorityFeePerGas !== undefined
+        : !boundedCancellationFee(tx.maxFeePerGas) || !boundedCancellationFee(tx.maxPriorityFeePerGas)
+          || BigInt(tx.maxPriorityFeePerGas) > BigInt(tx.maxFeePerGas) || tx.gasPrice !== undefined)
       || typeof tx.createdAt !== 'string' || tx.createdAt.length > 50) fail(400, 'Invalid cancellation transaction.');
   }
 }
+
+const boundedCancellationFee = value => typeof value === 'string' && /^0x[\da-f]{1,16}$/i.test(value)
+  && BigInt(value) >= 1n && BigInt(value) <= 3_000_000_000n;
 
 function decodeProduct(value) {
   const contract = ({factory:PRODUCT_FACTORY_ABI,pool:PRODUCT_POOL_ABI,market:PRODUCT_MARKET_ABI,
@@ -259,16 +280,17 @@ function validateProduct(value, account) {
   return value;
 }
 
-function productWalletTransaction(record) {
+function productWalletTransaction(record, envelope = 'dynamic') {
   const hex=value=>`0x${BigInt(value).toString(16)}`;
   const fee=hex(record.gasPrice);
-  return {chainId:'0x38',from:record.account,to:record.target,
-    nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),
-    maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'};
+  const transaction={chainId:'0x38',from:record.account,to:record.target,
+    nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas)};
+  return envelope === 'legacy' ? {...transaction,gasPrice:fee,type:'0x0'}
+    : {...transaction,maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'};
 }
 
 /** Only an explicit wallet-signed, zero-value EOA self-transfer can consume an unsent/unknown nonce. */
-export async function cancellationIntent(provider, record) {
+export async function cancellationIntent(provider, record, envelope = record.version === 2 ? 'dynamic' : 'legacy') {
   if (!provider) fail(503, 'BSC cancellation verifier is unavailable.');
   try {
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'Cancellation RPC is not BSC mainnet.');
@@ -281,17 +303,29 @@ export async function cancellationIntent(provider, record) {
     if (code !== '0x') fail(409, 'Automatic cancellation is only available for a plain EOA; use the wallet recovery flow.');
     let gasPrice = fees.gasPrice;
     if (!gasPrice || gasPrice < 1n) fail(503, 'Cancellation Gas price is unavailable.');
-    // A known original or previous cancellation can require a higher replacement fee.
+    // A known type-2 replacement must raise both its maximum and priority fee.
+    // Remember earlier cancellation ACKs too: a wallet may have sent one without
+    // returning its hash, so the next ACK cannot reuse the same fee.
     const knownHashes = [...new Set([record.hash, ...(record.recoveryHashes ?? [])].filter(Boolean))];
     for (const known of knownHashes) {
       const tx = await provider.getTransaction(known);
-      if (tx && tx.chainId === 56n && identity(tx.from) === identity(record.account) && tx.nonce === record.nonce
-        && tx.gasPrice && tx.gasPrice > gasPrice) gasPrice = tx.gasPrice;
+      if (tx && tx.chainId === 56n && identity(tx.from) === identity(record.account) && tx.nonce === record.nonce) {
+        for (const fee of [tx.gasPrice,tx.maxFeePerGas,tx.maxPriorityFeePerGas])
+          if (typeof fee === 'bigint' && fee > gasPrice) gasPrice = fee;
+      }
+    }
+    for (const prior of record.cancellationRequests ?? []) {
+      const fee = prior.type === '0x2' ? BigInt(prior.maxFeePerGas) : BigInt(prior.gasPrice);
+      if (fee > gasPrice) gasPrice = fee;
     }
     gasPrice = (gasPrice * 120n + 99n) / 100n;
     if (gasPrice > 3_000_000_000n || balance < 21_000n * gasPrice) fail(409, 'Cancellation Gas cap exceeded or BNB balance insufficient. Use wallet recovery after reviewing fees.');
     const transaction = { chainId:'0x38', from:record.account, to:record.account, nonce:`0x${record.nonce.toString(16)}`,
-      data:'0x', value:'0x0', gas:'0x5208', gasPrice:`0x${gasPrice.toString(16)}`, type:'0x0' };
+      data:'0x', value:'0x0', gas:'0x5208' };
+    const fee = `0x${gasPrice.toString(16)}`;
+    if (record.version === 2 && envelope !== 'legacy')
+      Object.assign(transaction,{maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'});
+    else Object.assign(transaction,{gasPrice:fee,type:'0x0'});
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(409, 'Chain changed during cancellation verification.');
     return transaction;
   } catch (error) {
@@ -465,6 +499,33 @@ async function currentAccountNonce(provider, account) {
   }
 }
 
+/** Prove that a different successful outer call could not act as this EOA. */
+async function provePlainEoaReplacement(provider, record, tx, receipt) {
+  const target = record.version === 2 ? record.target : record.market;
+  if (![0,1,2].includes(tx.type) || tx.authorizationList?.length
+    || tx.to?.toLowerCase() === target.toLowerCase() || receipt.blockNumber < 1
+    || !Number.isSafeInteger(receipt.index) || receipt.index < 0) return false;
+  try {
+    const [before, codeBefore, block] = await Promise.all([
+      provider.getBlock(receipt.blockNumber - 1), provider.getCode(record.account, receipt.blockNumber - 1),
+      provider.getBlock(receipt.blockNumber, true),
+    ]);
+    if (codeBefore !== '0x' || !before?.hash || block?.parentHash !== before.hash
+      || block.hash !== receipt.blockHash) return false;
+    // A type-4 authorization earlier in this same block could temporarily
+    // delegate the account even if getCode is empty at both block boundaries.
+    // Reject unknown envelopes as well. A complete ordered block is required.
+    const transactions = block.prefetchedTransactions;
+    if (!Array.isArray(transactions) || transactions.length <= receipt.index
+      || transactions[receipt.index]?.hash?.toLowerCase() !== tx.hash.toLowerCase()
+      || transactions.slice(0,receipt.index).some(prior => ![0,1,2].includes(prior.type))) return false;
+    const [beforeAgain,blockAgain]=await Promise.all([
+      provider.getBlock(receipt.blockNumber - 1),provider.getBlock(receipt.blockNumber),
+    ]);
+    return beforeAgain?.hash === before.hash && blockAgain?.hash === block.hash;
+  } catch { return false; }
+}
+
 export async function verifyMarketFinalized(provider, record, hash) {
   const { tx, receipt } = await finalizedNonce(provider, record.account, record.nonce, hash, record.version === 2);
   const target = record.version === 2 ? record.target : record.market;
@@ -476,39 +537,35 @@ export async function verifyMarketFinalized(provider, record, hash) {
   // the nonce reserved until the exact outer call (or a separately proved inner
   // execution) is known. DELETE must not turn an uncertain success into a fresh
   // signing slot.
-  if (receipt.status === 1 && !matches) {
-    // A plain 21,000-gas self-transfer has no execution gas for a delegated
-    // account and cannot make an inner product call. Type-4 self-calls do not
-    // satisfy this cancellation proof, even if their outer data is empty.
-    const cancelled = tx.type === 0 && tx.gasLimit === 21_000n
-      && tx.to?.toLowerCase() === record.account.toLowerCase()
-      && tx.data === '0x' && tx.value === 0n;
-    if (!cancelled) fail(409, 'Successful replacement may contain an inner product call; keep the journal pending for manual verification.');
-  }
+  // A successful 21,000-gas self-transfer with no authorization list has no
+  // execution gas for delegated code, regardless of legacy or EIP-1559 fees.
+  const cancelled = receipt.status === 1 && [0,1,2].includes(tx.type) && tx.gasLimit === 21_000n
+    && tx.to?.toLowerCase() === record.account.toLowerCase() && tx.data === '0x' && tx.value === 0n
+    && (!tx.authorizationList || tx.authorizationList.length === 0);
+  const plainEoaReplacementVerified = receipt.status === 1 && !matches && !cancelled
+    && await provePlainEoaReplacement(provider, record, tx, receipt);
+  if (receipt.status === 1 && !matches && !cancelled && !plainEoaReplacementVerified)
+    fail(409, 'Successful replacement may contain an inner product call; keep the journal pending for manual verification.');
   if (record.version !== 2 && record.hash?.toLowerCase() === hash.toLowerCase()
     && !matches) fail(409, 'Original market transaction payload differs.');
+  let gasLimitExceeded = false, feeExceeded = false;
   if (record.version === 2 && matches) {
     const gasLimit = BigInt(record.gas), feeCap = BigInt(record.gasPrice);
-    const fee = tx.type === 0 || tx.type === 1 ? tx.gasPrice
-      : tx.type === 2 || tx.type === 4 ? tx.maxFeePerGas : null;
-    // Check the signed maximum, not only the effective price in the receipt.
-    // A wallet-side fee/limit increase invalidates the page's reviewed upper
-    // bound even if the exact product calldata happened to execute.
-    if (typeof tx.gasLimit !== 'bigint' || tx.gasLimit > gasLimit
-      || typeof fee !== 'bigint' || fee > feeCap
-      || typeof tx.gasPrice !== 'bigint' || tx.gasPrice > feeCap
-      || typeof receipt.gasPrice !== 'bigint' || receipt.gasPrice > feeCap
-      || (tx.type === 2 || tx.type === 4)
-        && (typeof tx.maxPriorityFeePerGas !== 'bigint' || tx.maxPriorityFeePerGas > fee))
-      fail(409, 'Finalized wallet Gas limit or fee differs from the reviewed product cap; keep the journal pending.');
+    // Once the exact outer call is finalized, a wallet-side fee or gas-limit
+    // increase cannot change which product action ran. Retain the variance in
+    // the immutable result instead of stranding the wallet's signing lane.
+    gasLimitExceeded = typeof tx.gasLimit === 'bigint' && tx.gasLimit > gasLimit;
+    feeExceeded = [tx.gasPrice,tx.maxFeePerGas,tx.maxPriorityFeePerGas,receipt.gasPrice]
+      .some(fee => typeof fee === 'bigint' && fee > feeCap);
   }
-  const cancelled = receipt.status === 1 && tx.type === 0 && tx.gasLimit === 21_000n
-    && tx.to?.toLowerCase() === record.account.toLowerCase() && tx.data === '0x' && tx.value === 0n;
   const result = { action: record.action.kind, status: matches ? (receipt.status === 1 ? 'confirmed' : 'reverted')
     : cancelled && receipt.status === 1 ? 'cancelled' : 'replaced', finalized: true, transactionHash: hash.toLowerCase(),
     account: record.account, target, nonce: record.nonce, factory: record.factory,
     receipt: { status: receipt.status, transactionHash: hash.toLowerCase(), to: receipt.to,
       blockNumber: receipt.blockNumber, blockHash: receipt.blockHash } };
+  if (gasLimitExceeded) result.gasLimitExceeded = true;
+  if (feeExceeded) result.feeExceeded = true;
+  if (plainEoaReplacementVerified) result.plainEoaReplacementVerified = true;
   if (record.version === 2 && ['pool','portfolio'].includes(record.targetType) && record.action.kind === 'deposit' && result.status === 'confirmed') {
     const expected = decodeProduct(record);
     const deposits = (receipt.logs ?? []).filter(log => !log.removed && log.transactionHash?.toLowerCase() === hash.toLowerCase()
@@ -874,7 +931,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productArtifactBundlePath, productGraphVerifier, legacyFactory,
   officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch, budgetCandidateDiscovery = readBudgetCandidates,
-  officialScanTimeoutMs = OFFICIAL_SCAN_MS, now = Date.now, notificationService,
+  officialScanTimeoutMs = OFFICIAL_SCAN_MS, productGraphRefreshMs = PRODUCT_GRAPH_REFRESH_MS,
+  now = Date.now, notificationService,
   genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle,
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
@@ -886,6 +944,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
   if (!Number.isInteger(officialScanTimeoutMs) || officialScanTimeoutMs < 1 || officialScanTimeoutMs > OFFICIAL_SCAN_MS)
     throw new Error('Official scan timeout must be within the reviewed limit.');
+  if (!Number.isSafeInteger(productGraphRefreshMs) || productGraphRefreshMs < 100
+    || productGraphRefreshMs > PRODUCT_GRAPH_REFRESH_MS)
+    throw new Error('Product graph refresh interval must be within the reviewed limit.');
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin || !['https:', 'http:'].includes(parsedOrigin.protocol)) throw new Error('Exact journal origin is required.');
   if (parsedOrigin.protocol === 'http:' && !['127.0.0.1','localhost','[::1]'].includes(parsedOrigin.hostname))
@@ -954,6 +1015,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const officialCache = new Map(), officialScans = new Map();
   const publicDiscoveryJobs = new Map();
   const officialGraphCache = new Map(), officialGraphProofs = new Map();
+  const activeOfficialGraphClients = new Map();
+  const officialRequestClients = new Map(), officialGraphClients = new Map();
   const activationBlocks = new Map();
   let lastVerifiedProductGraphSnapshot = null;
   let productGraphRefresh = null;
@@ -1003,21 +1066,37 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return verifyProductIntent(provider, record, productFactories, signingGraphVerifier, { legacyFactory });
   }
 
-  function consumeOfficialBudget() {
+  function consumeClientToken(map, client, burst, refillMs) {
+    const time = now(), prior = map.get(client);
+    const available = prior ? Math.min(burst,
+      prior.tokens + Math.max(0, time - prior.at) / refillMs) : burst;
+    if (prior) map.delete(client);
+    if (map.size >= MAX_OFFICIAL_CLIENTS) map.delete(map.keys().next().value);
+    map.set(client, { tokens: available >= 1 ? available - 1 : available, at: time });
+    return available >= 1;
+  }
+
+  function consumeOfficialBudget(req) {
     const time = now();
     officialTokens = Math.min(OFFICIAL_REQUEST_BURST,
       officialTokens + Math.max(0, time - officialRefillAt) / OFFICIAL_REQUEST_REFILL_MS);
     officialRefillAt = time;
     if (officialTokens < 1) fail(429, 'Official market preview is busy; retry shortly.');
+    if (!consumeClientToken(officialRequestClients, clientAddress(req),
+      OFFICIAL_CLIENT_REQUEST_BURST, OFFICIAL_CLIENT_REQUEST_REFILL_MS))
+      fail(429, 'Too many market previews from this client; retry shortly.');
     officialTokens -= 1;
   }
 
-  function consumeOfficialGraphProofBudget() {
+  function consumeOfficialGraphProofBudget(req) {
     const time = now();
     officialGraphTokens = Math.min(OFFICIAL_GRAPH_PROOF_BURST,
       officialGraphTokens + Math.max(0, time - officialGraphRefillAt) / OFFICIAL_GRAPH_PROOF_REFILL_MS);
     officialGraphRefillAt = time;
     if (officialGraphTokens < 1) fail(429, 'Product graph verification budget is busy; retry shortly.');
+    if (!consumeClientToken(officialGraphClients, clientAddress(req),
+      OFFICIAL_CLIENT_GRAPH_BURST, OFFICIAL_CLIENT_GRAPH_REFILL_MS))
+      fail(429, 'Too many product graph proofs from this client; retry shortly.');
     officialGraphTokens -= 1;
   }
 
@@ -1032,7 +1111,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return block;
   }
 
-  async function verifiedOfficialGraph(factory, block, hash, forProductGraph = false) {
+  async function verifiedOfficialGraph(factory, block, hash, forProductGraph = false, req = null) {
     const key = `${identity(factory)}:${hash}`;
     const proofKey = forProductGraph ? `site:${key}` : key;
     const cached = officialGraphCache.get(key);
@@ -1042,11 +1121,16 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     if (!proof) {
       // The one-at-a-time, timer-bounded site graph proof has its own slot.
       // Public candidate lookups cannot exhaust its shared preview budget.
+      let client = null;
       if (!forProductGraph) {
+        client = clientAddress(req);
         if (activeOfficialGraphProofs >= MAX_OFFICIAL_GRAPH_PROOFS)
           fail(503, 'Product graph verification is busy; retry shortly.');
-        consumeOfficialGraphProofBudget();
+        if (activeOfficialGraphClients.has(client))
+          fail(503, 'This client already has a product graph proof running; retry shortly.');
+        consumeOfficialGraphProofBudget(req);
         activeOfficialGraphProofs += 1;
+        activeOfficialGraphClients.set(client, true);
       }
       proof = Promise.resolve().then(async () => {
         const verified = await graphVerifier(officialProvider, factory, block);
@@ -1066,7 +1150,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       });
       officialGraphProofs.set(proofKey, proof);
       proof.finally(() => {
-        if (!forProductGraph) activeOfficialGraphProofs -= 1;
+        if (!forProductGraph) {
+          activeOfficialGraphProofs -= 1;
+          activeOfficialGraphClients.delete(client);
+        }
         if (officialGraphProofs.get(proofKey) === proof) officialGraphProofs.delete(proofKey);
       }).catch(() => {});
     }
@@ -1121,7 +1208,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return result;
   }
 
-  async function officialCandidates(url) {
+  async function officialCandidates(req, url, requestBudgetPaid = false) {
     const keys = [...url.searchParams.keys()];
     if (keys.length !== 3 || new Set(keys).size !== 3 || keys.some(key => !['pool','block','hash'].includes(key)))
       fail(400, 'Exactly pool, block and hash are required.');
@@ -1132,7 +1219,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       fail(400, 'Invalid pool, block number or block hash.');
     const blockNumber = Number(blockText), hash = blockHash.toLowerCase();
     // No untrusted request reaches graph verification or RPC before this process-wide budget.
-    consumeOfficialBudget();
+    if (!requestBudgetPaid) consumeOfficialBudget(req);
     if (!officialProvider || !productMode || trustedProduct && trustedProduct.record.kind !== 'integrated-v2'
       && trustedProduct.upgradeRecord?.schemaVersion !== 2)
       fail(503, 'Reviewed upgraded product graph is unavailable.');
@@ -1162,7 +1249,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const state = stateRow[0], params = paramsRow[0];
       if (state !== 1n || BigInt(block.timestamp) >= params.purchaseDeadline)
         fail(409, 'Pool is not Funded or its purchase window has expired.');
-      const verified = await verifiedOfficialGraph(factory, block, hash);
+      const verified = await verifiedOfficialGraph(factory, block, hash, false, req);
       await pinnedOfficialBlock(blockNumber, hash);
       const [policy, purchaseModel, referenceRow] = await Promise.all([
         read(pool, OFFICIAL_POOL_READ_ABI, 'flexiblePurchase'),
@@ -1243,14 +1330,14 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     }
   }
 
-  async function budgetCandidates(url) {
+  async function budgetCandidates(req, url, requestBudgetPaid = false) {
     const keys=[...url.searchParams.keys()];
     if(keys.length!==3 || new Set(keys).size!==3 || keys.some(key=>!['parent','block','hash'].includes(key)))
       fail(400,'Exactly parent, block and hash are required.');
     const parent=identity(url.searchParams.get('parent')), number=Number(url.searchParams.get('block')), hash=url.searchParams.get('hash')?.toLowerCase();
     if(parent==='0x0000000000000000000000000000000000000000' || !/^[1-9]\d*$/.test(url.searchParams.get('block')??'') || !Number.isSafeInteger(number) || !HASH.test(hash??''))
       fail(400,'Invalid budget parent or pinned block.');
-    consumeOfficialBudget();
+    if (!requestBudgetPaid) consumeOfficialBudget(req);
     const factory=trustedProduct?.record?.kind==='integrated-v2' ? trustedProduct.record.addresses.portfolioFactory :
       typeof productGraphVerifier==='function' && productFactories.size===1 ? [...productFactories][0] : null;
     if(!officialProvider || !productMode || !factory || !productFactories.has(identity(factory))) fail(503,'Reviewed budget Factory is unavailable.');
@@ -1269,7 +1356,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         || !await read(factory,'isPool',[parent])
         || identity(await read(parent,'OFFICIAL_FACTORY'))!==identity(factory))
         fail(409,'Budget parent is not registered to the reviewed Factory.');
-      const graph=await verifiedOfficialGraph(factory,block,hash);
+      const graph=await verifiedOfficialGraph(factory,block,hash,false,req);
       const key=`budget:${parent}:${hash}`, cached=officialCache.get(key);
       if(cached?.expires>now()){await pinnedOfficialBlock(number,hash);return cached.result;}
       let scan=officialScans.get(key);
@@ -1297,9 +1384,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   /** Public read jobs have no nonce, session, signing permission or caller-selected RPC target. */
-  async function discoveryResponse(url,kind){
+  async function discoveryResponse(req,url,kind){
     const discover=kind==='budget'?budgetCandidates:officialCandidates;
-    if(!url.searchParams.has('async'))return {status:200,body:await discover(url)};
+    if(!url.searchParams.has('async'))return {status:200,body:await discover(req,url)};
     if(url.searchParams.getAll('async').length!==1||url.searchParams.get('async')!=='1')fail(400,'Invalid discovery mode.');
     const clean=new URL(url);clean.searchParams.delete('async');
     const field=kind==='budget'?'parent':'pool',keys=[...clean.searchParams.keys()];
@@ -1309,6 +1396,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       ||!Number.isSafeInteger(number)||!HASH.test(hash??''))fail(400,'Invalid discovery identity.');
     const key=`${kind}:${target}:${hash}`;let job=publicDiscoveryJobs.get(key);
     if(job?.expires<=now()){publicDiscoveryJobs.delete(key);job=null;}
+    // Admit the request before creating a shared job. A throttled visitor must
+    // not leave a failed job under a canonical key that another visitor needs.
+    consumeOfficialBudget(req);
     if(!job){
       if(publicDiscoveryJobs.size>=64){for(const [id,entry] of publicDiscoveryJobs)if(entry.expires<=now())publicDiscoveryJobs.delete(id);
         if(publicDiscoveryJobs.size>=64)fail(503,'Discovery queue is full; retry shortly.');}
@@ -1316,12 +1406,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const finish=(status,value)=>{if(job.status!=='scanning')return;job.status=status;job.expires=now()+OFFICIAL_CACHE_MS;
         if(status==='complete')job.body=value;else job.error=value;};
       const timer=setTimeout(()=>{try{fail(503,'Complete discovery deadline exceeded; refresh the preview.');}catch(error){finish('failed',error);}},OFFICIAL_SCAN_MS);
-      const pending=discover(clean).then(body=>finish('complete',body),error=>finish('failed',error)).finally(()=>clearTimeout(timer));
+      const pending=discover(req,clean,true).then(body=>finish('complete',body),error=>finish('failed',error)).finally(()=>clearTimeout(timer));
       inFlight.add(pending);pending.finally(()=>inFlight.delete(pending));
       // Return quickly even when a full chain scan needs many RPC batches.
       await Promise.race([pending,new Promise(resolve=>setTimeout(resolve,10))]);
     }else{
-      consumeOfficialBudget();
       if(!officialProvider)fail(503,'Product RPC is unavailable.');
       const [chain,,latest]=await Promise.all([officialProvider.send('eth_chainId',[]),pinnedOfficialBlock(number,hash),officialProvider.getBlock('latest')]);
       if(BigInt(chain)!==56n)fail(503,'Product RPC is not BSC mainnet.');
@@ -1451,7 +1540,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   // Keep display proof warm even when traffic is quiet. The timer uses the
   // same single-flight path as HTTP reads; it never authorizes transactions.
   const productGraphTimer=productMode && trustedProduct && officialProvider
-    ? setInterval(()=>{if(!closed)startProductGraphRefresh().catch(()=>{});},PRODUCT_GRAPH_REFRESH_MS)
+    ? setInterval(()=>{if(!closed)startProductGraphRefresh().catch(()=>{});},productGraphRefreshMs)
     : null;
   productGraphTimer?.unref?.();
   if(productGraphTimer)startProductGraphRefresh().catch(()=>{});
@@ -1495,7 +1584,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           // failure delayed the next background proof. Do not let public reads
           // spin up a fresh proof on every request after a fast failure.
           if (lastProductGraphRefreshAttemptAt===null
-            || now()-lastProductGraphRefreshAttemptAt>=PRODUCT_GRAPH_REFRESH_MS)
+            || now()-lastProductGraphRefreshAttemptAt>=productGraphRefreshMs)
             startProductGraphRefresh();
           return send(200,{...cached.body,snapshotAgeMs,readMode:'verified_snapshot',
             stale:true,refreshing:Boolean(productGraphRefresh),transactionReady:false,operationalReady:false});
@@ -1507,7 +1596,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         return send(200,{...body,snapshotAgeMs:0,readMode:'current',stale:false});
       }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
-        const response=await discoveryResponse(url,path.endsWith('/budget-candidates')?'budget':'official');
+        const response=await discoveryResponse(req,url,path.endsWith('/budget-candidates')?'budget':'official');
         return send(response.status,response.body);
       }
       if (method === 'POST' && path === '/api/journal/challenge') {
@@ -1714,7 +1803,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       }
       if (method === 'GET' && path === '/api/journal/market') {
         const current=store.market(account);
-        return send(200,{...current,...(current.record?.version===2 ? {canAbandon:store.canAbandonMarket(account)} : {})});
+        return send(200,{...current,...(current.record?.version===2 ? {canAbandon:store.canAbandonMarket(account),
+          canRequestLegacyEnvelope:store.canRequestLegacyMarketEnvelope(account),
+          legacyEnvelopeIssued:store.legacyMarketEnvelopeIssued(account)} : {})});
       }
       if (method === 'POST' && path === '/api/journal/market/abandon') {
         const body=await readJson(req),revision=exactRevision(body.expectedRevision);
@@ -1746,15 +1837,31 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const next=store.armMarket(account,revision);
         return send(200,{revision:next,record,transaction:productWalletTransaction(record)});
       }
+      if (method === 'POST' && path === '/api/journal/market/legacy-envelope') {
+        if (!productMode) fail(409, 'Product signing is unavailable.');
+        const body=await readJson(req),revision=exactRevision(body.expectedRevision),current=store.market(account);
+        if (body.walletRejectedType2 !== true) fail(400, 'Explicit wallet type-2 rejection acknowledgement is required.');
+        if (!current.record || current.record.version!==2 || current.revision!==revision
+          || !store.canRequestLegacyMarketEnvelope(account)) fail(409, 'Legacy wallet envelope is unavailable for this product intent.');
+        // Recheck the exact saved call, live graph and both nonce views before
+        // issuing another envelope. It retains the original nonce, target,
+        // calldata and value, so only one of the two envelopes can execute.
+        await verifyBoundedProductIntent(req,account,current.record);
+        const next=store.authorizeLegacyMarketEnvelope(account,revision);
+        return send(200,{revision:next,record:current.record,
+          transaction:productWalletTransaction(current.record,'legacy'),legacyEnvelopeAuthorized:true});
+      }
       if (method === 'POST' && path === '/api/journal/market/cancel-intent') {
         const body = await readJson(req), revision = exactRevision(body.expectedRevision), current = store.market(account);
         if (!current.record || current.revision !== revision) fail(409, 'Market revision changed.');
         if ((current.record.cancellationRequests?.length ?? 0) >= 16) fail(409, 'Cancellation history is full. Recover the wallet hash instead.');
-        const transaction = await cancellationIntent(provider, current.record);
+        const transaction = await cancellationIntent(provider, current.record,
+          store.legacyMarketEnvelopeIssued(account) ? 'legacy' : undefined);
         const record = { ...current.record, cancellationRequests: [...(current.record.cancellationRequests ?? []),
           { ...transaction, createdAt:new Date().toISOString() }] };
         validateMarket(record, account);
-        return send(200, { revision:store.putMarket(account, record, revision), record, transaction });
+        return send(200, { revision:store.putMarket(account, record, revision), record, transaction,
+          ...(record.version===2 ? {legacyEnvelopeIssued:store.legacyMarketEnvelopeIssued(account)} : {}) });
       }
       if (method === 'PUT' && path === '/api/journal/market') {
         const body = await readJson(req);

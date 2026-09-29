@@ -63,3 +63,16 @@ test('authenticated identity quotas are independent of IP and of other identitie
   time=1_000;
   assert.equal(allow('admin-one'),true);
 });
+
+test('keyed quota exhaustion never resets an existing identity', () => {
+  let time=0;
+  const allow=createKeyedLimiter({perKey:2,maxKeys:2,windowMs:1_000,now:()=>time});
+  assert.equal(allow('admin-one'),true);
+  assert.equal(allow('admin-two'),true);
+  assert.equal(allow('admin-three'),false,'new keys are rejected when the bounded table is full');
+  assert.equal(allow('admin-one'),true,'an existing key keeps its remaining quota');
+  assert.equal(allow('admin-one'),false);
+  assert.equal(allow('admin-three'),false,'rotating keys cannot evict and reset the first key');
+  time=1_000;
+  assert.equal(allow('admin-three'),true,'a new window admits new keys');
+});

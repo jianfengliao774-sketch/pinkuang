@@ -5,9 +5,9 @@ import { createServer, request as httpRequest } from 'node:http';
 import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Wallet } from 'ethers';
+import { Interface, Wallet } from 'ethers';
 import { authorityIpcConfiguration, createAuthorityAssertionVerifier, createAuthorityRelayProxy,
-  createAuthoritySignerServer, createGasSignerProofReader, listenAuthoritySigner,
+  createAuthorityRolePrefilter, createAuthoritySignerServer, createGasSignerProofReader, listenAuthoritySigner,
   signAuthorityAssertion } from './authority-ipc.mjs';
 import { startAuthoritySigner } from './authority-signer.mjs';
 import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
@@ -120,6 +120,31 @@ test('independent signer proves its public Gas address through the private socke
   }
 });
 
+test('Gas signer attestation has a global signature ceiling across deployment accounts',async()=>{
+  const key=randomBytes(32),gas=Wallet.createRandom();
+  const accounts=Array.from({length:3},()=>Wallet.createRandom().address);
+  let signatures=0;
+  const wallet={address:gas.address,async signMessage(){signatures++;return `0x${'a'.repeat(130)}`;}};
+  const signer=createAuthoritySignerServer(null,key,{attestation:{wallet,origin}});
+  await new Promise(resolve=>signer.listen(0,'127.0.0.1',resolve));
+  const url=`http://127.0.0.1:${signer.address().port}/internal/fresh-gas-attestation`;
+  try {
+    for(let number=0;number<31;number++){
+      const account=accounts[Math.floor(number/11)];
+      const challenge={chainId:56,origin,deploymentAccount:account,
+        deploymentId:`1780000000000-${account}`,artifactDigest:`0x${'a'.repeat(64)}`,
+        expectedGasWallet:gas.address,nonce:`0x${(number+1).toString(16).padStart(64,'0')}`};
+      const body=JSON.stringify(challenge);
+      const assertion=signAuthorityAssertion(key,{account,method:'POST',
+        path:'/internal/fresh-gas-attestation',body:Buffer.from(body)});
+      const response=await fetch(url,{method:'POST',headers:{origin,
+        'content-type':'application/json','x-bemine-relay-assertion':assertion},body});
+      assert.equal(response.status,number<30?200:429,`request ${number+1}`);
+    }
+    assert.equal(signatures,30,'rotating accounts cannot make the Gas wallet sign past the global ceiling');
+  }finally{await new Promise(resolve=>signer.close(resolve));}
+});
+
 test('local signer proxy accepts only authenticated exact paths, 0750 directory and 0660 socket',async()=>{
   const root=mkdtempSync(join(tmpdir(),'authority-ipc-test-'));
   chmodSync(root,0o750);
@@ -133,9 +158,14 @@ test('local signer proxy accepts only authenticated exact paths, 0750 directory 
   }};
   const signer=createAuthoritySignerServer(service,key);
   await listenAuthoritySigner(signer,socketPath,{allowTestPath:true});
-  let session=account, proofReads=0;
+  let session=account, proofReads=0, prefilterReads=0;
   const current=new Set([account.toLowerCase(),FRESH_ADMIN_TWO.toLowerCase()]);
   const proxy=createAuthorityRelayProxy({socketPath,origin,key},{store:{session:()=>session,close(){}},
+    prefilterAdministrator:async candidate=>{
+      prefilterReads++;
+      if (!current.has(candidate.toLowerCase())) throw Object.assign(
+        new Error('Administrator wallet is required.'),{status:403});
+    },
     verifyAdministrator:async candidate=>{
       proofReads++;
       if (!current.has(candidate.toLowerCase())) throw Object.assign(new Error('Administrator wallet is required.'),{status:403});
@@ -164,6 +194,17 @@ test('local signer proxy accepts only authenticated exact paths, 0750 directory 
     assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
       headers:{...headers,'x-pinkuang-account':session}})).status,403,
     'an ordinary session cannot consume signer quota or reach the private socket');
+    assert.equal(proofReads,1,'an ordinary session is rejected before the full chain role proof');
+    const ordinaryPrefilterReads=prefilterReads;
+    for(let count=1;count<30;count++)assert.equal((await fetch(
+      `${url}/api/journal/authority-relay/status`,{
+        headers:{...headers,'x-pinkuang-account':session}})).status,403);
+    assert.equal(prefilterReads,ordinaryPrefilterReads+29);
+    assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
+      headers:{...headers,'x-pinkuang-account':session}})).status,429);
+    assert.equal(prefilterReads,ordinaryPrefilterReads+29,
+      'the wallet quota rejects repeated non-admin calls before the role prefilter');
+    assert.equal(proofReads,1);
     assert.equal(seen.length,1);
     session=FRESH_ADMIN_TWO;
     assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
@@ -183,15 +224,53 @@ test('local signer proxy accepts only authenticated exact paths, 0750 directory 
     assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
       headers:{...headers,'x-pinkuang-account':session}})).status,200,
     'a third limiter key does not block a newly rotated administrator');
-    session=account;
-    assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{headers})).status,403);
-    session=account;
+    current.delete(FRESH_ADMIN_TWO.toLowerCase());
+    session=FRESH_ADMIN_TWO;
+    assert.equal((await fetch(`${url}/api/journal/authority-relay/status`,{
+      headers:{...headers,'x-pinkuang-account':session}})).status,403);
     assert.equal(seen.length,33);
   } finally {
     await new Promise(resolve=>frontend.close(resolve));
     await new Promise(resolve=>signer.close(resolve));
     proxy.close();rmSync(root,{recursive:true,force:true});
   }
+});
+
+test('role prefilter shares pinned role reads, refreshes rotation, and caches RPC failure',async()=>{
+  let clock=Date.now(), calls=0, reorg=false;
+  const authority=Wallet.createRandom().address, rotated=Wallet.createRandom().address;
+  const iface=new Interface(['function administratorOne() view returns (address)',
+    'function administratorTwo() view returns (address)']);
+  const roles={administratorOne:FRESH_ADMIN_ONE,administratorTwo:FRESH_ADMIN_TWO};
+  const hash=`0x${'1'.repeat(64)}`;
+  const provider={
+    async send(method,args){
+      calls++;
+      if(method==='eth_chainId')return '0x38';
+      assert.equal(method,'eth_call');
+      assert.equal(args[0].to,authority);assert.equal(args[1],'0x64');
+      const name=iface.parseTransaction(args[0]).name;
+      return iface.encodeFunctionResult(name,[roles[name]]);
+    },
+    async getBlock(tag){calls++;return {number:100,hash:tag===100&&reorg
+      ?`0x${'2'.repeat(64)}`:hash,timestamp:Math.floor(clock/1000)};},
+  };
+  const prefilter=createAuthorityRolePrefilter(provider,
+    {freshAuthority:{authority:{address:authority}}},{now:()=>clock});
+  const outsiders=Array.from({length:20},()=>Wallet.createRandom().address);
+  await Promise.all(outsiders.map(account=>assert.rejects(prefilter(account),error=>error.status===403)));
+  assert.equal(calls,6,'concurrent non-admins share one pinned two-role refresh');
+  await prefilter(FRESH_ADMIN_ONE);
+  assert.equal(calls,6,'cached roles need no further RPC');
+  roles.administratorOne=rotated;clock+=15_001;
+  await prefilter(rotated);
+  await assert.rejects(prefilter(FRESH_ADMIN_ONE),error=>error.status===403);
+  assert.equal(calls,12,'rotation is visible after the bounded TTL');
+  reorg=true;clock+=15_001;
+  await assert.rejects(prefilter(rotated),error=>error.status===503);
+  const afterFailure=calls;
+  await assert.rejects(prefilter(rotated),error=>error.status===503);
+  assert.equal(calls,afterFailure,'failed refresh is cached briefly instead of amplifying an RPC outage');
 });
 
 test('on-chain role proof is pinned, rejects retired admins and refuses identity drift',async()=>{

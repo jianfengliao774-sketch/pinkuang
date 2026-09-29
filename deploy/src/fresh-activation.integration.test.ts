@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { BrowserProvider, Contract, getAddress } from 'ethers';
+import { BrowserProvider, Contract, Interface, getAddress } from 'ethers';
 import { DeploymentEngine, PROTOCOL_ADDRESSES, artifactDigest,
   type ArtifactBundle, type DeploymentSnapshot, type Eip1193Provider } from './deployment';
 import { FreshActivationEngine, activationEvidence, activatedDeploymentManifest,
@@ -45,7 +45,20 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
       assert(ready,'disposable Anvil did not start');
       const account=getAddress((await rpc('eth_accounts') as string[])[0]);
       const gasWallet=getAddress((await rpc('eth_accounts') as string[])[1]);
-      const wallet:Eip1193Provider={request:({method,params})=>rpc(method,params as unknown[] | undefined)};
+      const initializerSelector=new Interface(bundle.artifacts.AtomicDeployment.abi)
+        .getFunction('deployIntegratedSingleOwner')!.selector;
+      const stage1Sends:Record<string,unknown>[]=[];
+      let createSimulations=0;
+      let initializerSimulationGas:string|undefined;
+      const wallet:Eip1193Provider={request:({method,params})=>{
+        if(method==='eth_estimateGas') createSimulations++;
+        if(method==='eth_call'){
+          const call=(params as Record<string,string>[] | undefined)?.[0];
+          if(call?.data?.startsWith(initializerSelector)) initializerSimulationGas=call.gas;
+        }
+        if(method==='eth_sendTransaction') stage1Sends.push((params as Record<string,unknown>[])[0]);
+        return rpc(method,params as unknown[] | undefined);
+      }};
       for(const address of Object.values(PROTOCOL_ADDRESSES)) await rpc('anvil_setCode',[address,'0x00']);
       let savedGenesisId='';
       const first=new DeploymentEngine(wallet,bundle,{persist:record=>{savedGenesisId=structuredClone(record).id;}});
@@ -54,10 +67,20 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
       assert.equal(complete.status,'complete');
       assert.deepEqual(complete.steps.map(step=>step.id).includes('FreshPoolFactory'),true);
       assert.equal(complete.steps.length,16);
-      for (const step of complete.steps) {
+      assert.equal(createSimulations,15,'each CREATE must be simulated before signing');
+      assert.equal(stage1Sends.length,complete.steps.length);
+      assert.equal(BigInt(initializerSimulationGas ?? '0'),BigInt(complete.steps.at(-1)!.gasLimit!),
+        'the initializer must be simulated under its reviewed fixed Gas limit');
+      for (const [index,step] of complete.steps.entries()) {
         assert(step.receipt && step.gasLimit);
         assert(BigInt(step.receipt.gasUsed) <= BigInt(step.gasLimit), `${step.id} exceeds its reviewed gas limit`);
-        assert.equal(step.gasEstimate,undefined,'fresh deployment must not simulate before a wallet request');
+        assert.equal(BigInt(String(stage1Sends[index].gas ?? '0')),BigInt(step.gasLimit),
+          `${step.id} wallet transaction must retain its reviewed fixed Gas limit`);
+        if(step.id==='initialize') assert.equal(step.gasEstimate,undefined,'initializer uses a read-only eth_call');
+        else {
+          assert(step.gasEstimate,`${step.id} must have a read-only Gas estimate`);
+          assert(BigInt(step.gasEstimate) <= BigInt(step.gasLimit),`${step.id} estimate exceeds the reviewed limit`);
+        }
       }
       assert.equal(savedGenesisId,complete.id);
       // Anvil's finalized tag trails latest by many blocks. Advance the disposable
@@ -85,6 +108,7 @@ test('local 16+7 fresh deployment transfers both Factory owners to the 48h Timel
       const evidence=activationEvidence(state);
       assert.equal(evidence.steps.length,7);
       const staticManifest=await activation.verifiedManifest(state);
+      assert.equal(staticManifest.verifiedBlockHash, evidence.steps.at(-1)?.blockHash);
       const expectedManifest=activatedDeploymentManifest(
         deploymentManifest(complete,bundle),evidence,staticManifest.freshAuthority.codehash);
       const {verifiedAt:actualVerifiedAt,...actualFields}=staticManifest;

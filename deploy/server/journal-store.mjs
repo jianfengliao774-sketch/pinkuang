@@ -39,6 +39,12 @@ export class JournalStore {
         record TEXT NOT NULL, PRIMARY KEY(account,parent));
       CREATE TABLE IF NOT EXISTS quotes (id TEXT PRIMARY KEY, account TEXT NOT NULL, record TEXT NOT NULL, created_at INTEGER NOT NULL);`);
     this.db.exec('CREATE INDEX IF NOT EXISTS quotes_account_recent ON quotes(account,created_at DESC);');
+    // Existing journals predate the one-use legacy wallet envelope. Serialize
+    // the schema check so two service processes cannot race the migration.
+    this.transaction(() => {
+      if (!this.db.prepare('PRAGMA table_info(market_signing)').all().some(column => column.name === 'legacy_issued_at'))
+        this.db.exec('ALTER TABLE market_signing ADD COLUMN legacy_issued_at INTEGER');
+    });
   }
 
   close() { this.db.close(); }
@@ -314,10 +320,37 @@ export class JournalStore {
       this.db.prepare(`INSERT INTO market(account,revision,record) VALUES(?,?,?)
         ON CONFLICT(account) DO UPDATE SET revision=excluded.revision,record=excluded.record`)
         .run(account,next,canonical(record));
-      this.db.prepare(`INSERT INTO market_signing(account,intent_key,armed_at) VALUES(?,?,?)
-        ON CONFLICT(account) DO UPDATE SET intent_key=excluded.intent_key,armed_at=excluded.armed_at`)
+      this.db.prepare(`INSERT INTO market_signing(account,intent_key,armed_at,legacy_issued_at) VALUES(?,?,?,NULL)
+        ON CONFLICT(account) DO UPDATE SET intent_key=excluded.intent_key,armed_at=excluded.armed_at,legacy_issued_at=NULL`)
         .run(account,key,Date.now());
       return next;
+    });
+  }
+  canRequestLegacyMarketEnvelope(account) {
+    const {record}=this.market(account);
+    if (!record || record.version!==2 || record.hash || record.recoveryHashes?.length || record.cancellationRequests?.length)
+      return false;
+    const signing=this.db.prepare('SELECT intent_key,legacy_issued_at FROM market_signing WHERE account=?').get(account);
+    return signing?.intent_key===productKey(record) && signing.legacy_issued_at===null;
+  }
+  legacyMarketEnvelopeIssued(account) {
+    const {record}=this.market(account);
+    if (!record || record.version!==2) return false;
+    const signing=this.db.prepare('SELECT intent_key,legacy_issued_at FROM market_signing WHERE account=?').get(account);
+    return signing?.intent_key===productKey(record) && signing.legacy_issued_at!==null;
+  }
+  /** A second envelope keeps the already armed payload and nonce; only one can execute. */
+  authorizeLegacyMarketEnvelope(account, expectedRevision) {
+    return this.transaction(() => {
+      const current=this.market(account);
+      if (current.revision!==expectedRevision || !this.canRequestLegacyMarketEnvelope(account))
+        throw new JournalConflict('Legacy wallet envelope is unavailable for this product intent.');
+      const changed=this.db.prepare(`UPDATE market_signing SET legacy_issued_at=?
+        WHERE account=? AND intent_key=? AND legacy_issued_at IS NULL`)
+        .run(Date.now(),account,productKey(current.record));
+      if (changed.changes!==1) throw new JournalConflict('Legacy wallet envelope was already issued.');
+      this.db.prepare('UPDATE market SET revision=? WHERE account=?').run(expectedRevision+1,account);
+      return expectedRevision+1;
     });
   }
   canAbandonMarket(account) {
@@ -348,8 +381,8 @@ export class JournalStore {
       const key=productKey(record);
       const prior=this.db.prepare('SELECT intent_key FROM market_signing WHERE account=?').get(account);
       if (prior?.intent_key===key) throw new JournalConflict('This product signing permission was already consumed. Recover the wallet hash; do not resend.');
-      this.db.prepare(`INSERT INTO market_signing(account,intent_key,armed_at) VALUES(?,?,?)
-        ON CONFLICT(account) DO UPDATE SET intent_key=excluded.intent_key,armed_at=excluded.armed_at`).run(account,key,Date.now());
+      this.db.prepare(`INSERT INTO market_signing(account,intent_key,armed_at,legacy_issued_at) VALUES(?,?,?,NULL)
+        ON CONFLICT(account) DO UPDATE SET intent_key=excluded.intent_key,armed_at=excluded.armed_at,legacy_issued_at=NULL`).run(account,key,Date.now());
       this.db.prepare('UPDATE market SET revision=? WHERE account=?').run(expectedRevision+1,account);
       return expectedRevision+1;
     });

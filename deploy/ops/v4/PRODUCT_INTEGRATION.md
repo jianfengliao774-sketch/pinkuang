@@ -6,10 +6,10 @@
 
 ```sh
 cd web
-node scripts/build-fresh-product.mjs /absolute/path/to/reviewed-fresh-manifest.json
+node scripts/build-fresh-product.mjs /absolute/path/to/reviewed-fresh-manifest.json /absolute/path/to/fresh-activation-evidence.json
 ```
 
-这里的 `integrated-v2` 是现有清单 schema 的名称，不能取用旧 v2 的合约地址或旧清单文件。构建要求新清单含独立 Factory、预算 Factory 和已核验的 Authority/Gas 钱包字段，并与当前编译 ABI 的 artifact digest 相符。脚本设置 `NEXT_PUBLIC_BASE_PATH=/bemine-v4`、`NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY=fresh-v4`、固定的 `NEXT_PUBLIC_V4_MANIFEST_SHA256`。它在这个独立检出目录构建期间暂时以新清单替换编译时固定清单，结束后恢复原源码字节；构建后删除输出中的旧文件名 `data/frontend-manifest.json`，只留下 `data/frontend-manifest.v4.json` 和 `fresh-product-release.json`。产物中的 `public/` 内容应原样放在专属 release 的 `public/` 目录；cutover 草案的 nginx `alias` 将 `/bemine-v4/` 对应到该目录。不要将 `out/` 内容与旧 `/bemine-v2/` 的目录合并。
+这里的 `integrated-v2` 是现有清单 schema 的名称，不能取用旧 v2 的合约地址或旧清单文件。构建要求新清单含独立 Factory、预算 Factory 和已核验的 Authority/Gas 钱包字段，并与当前编译 ABI 的 artifact digest 相符；管理员和 Gas 公开地址还必须与部署台固定角色、七步激活证据一致。脚本设置 `NEXT_PUBLIC_BASE_PATH=/bemine-v4`、`NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY=fresh-v4`、固定的 `NEXT_PUBLIC_V4_MANIFEST_SHA256`。它从干净的 Git HEAD 建立一次性检出目录，只在那里编译新清单，不改动旧站源码或 `web/out/`；完成后原子发布到独立的 `web/out-v4/`。发布包仅包含 `data/frontend-manifest.v4.json` 和 `fresh-product-release.json`，不包含旧文件名。产物中的 `public/` 内容应原样放在专属 release 的 `public/` 目录；cutover 草案的 nginx `alias` 将 `/bemine-v4/` 对应到该目录。
 
 页面启动时只请求 `/bemine-v4/data/frontend-manifest.v4.json`、`/bemine-v4/api/journal/product-graph`，后续读取 `/bemine-v4/api/chain-index` 和 `/bemine-v4/api/rpc`。新清单内容由构建摘要固定；产品图必须为 `fresh-active`，且 Factory、预算 Factory、所有部署地址、代码摘要、Authority、部署交易及阶段区块与新清单一致。交易前同样重验该新图；历史快照仅供展示。旧 v2 的静态清单不作为 v4 信任根，旧页面预加载缓存不会在 v4 构建使用。
 

@@ -44,6 +44,8 @@ class RetireUpgradeV2PageTests(unittest.TestCase):
             requests.append(path)
             if path == '/pinkuang-upgrade-v2/':
                 return next(page_results)
+            if path == '/pinkuang-deploy-v4/':
+                return 401
             return 410 if path.endswith('/api/rpc') else 200
 
         with patch.object(RETIRE, 'probe', side_effect=observed), patch.object(RETIRE.time, 'sleep'):
@@ -63,7 +65,7 @@ class RetireUpgradeV2PageTests(unittest.TestCase):
                 return 200
             if path == '/pinkuang-deploy-v4/':
                 v4_calls += 1
-                return 200 if v4_calls == 1 else 503
+                return 401 if v4_calls == 1 else 503
             return 410 if path.endswith('/api/rpc') else 200
 
         with patch.object(RETIRE, 'probe', side_effect=observed), patch.object(RETIRE.time, 'sleep'):

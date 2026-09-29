@@ -203,7 +203,12 @@ class UpdateOrderTests(unittest.TestCase):
     def test_dry_run_validates_complete_replacement_without_staging(self):
         with tempfile.TemporaryDirectory() as folder:
             current, releases, args = self.staging(folder, reviewed_unit())
+            snippet = Path(folder) / 'pinkuang-deploy-v4.conf'
+            snippet.write_text('location ^~ /pinkuang-deploy-v4/ {\n'
+                               '    auth_basic "BEMine deployment";\n'
+                               '    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;\n}\n')
             hooks = {'UNIT': current, 'RELEASES': releases,
+                     'SNIPPET': snippet, 'require_console_auth_file': lambda: None,
                      'require_effective_unit_isolated': lambda: None,
                      'empty_genesis_journals': lambda: None,
                      'validate_archive': lambda _: None,
@@ -225,12 +230,17 @@ class UpdateOrderTests(unittest.TestCase):
     def test_journals_are_rechecked_after_service_stops(self):
         with tempfile.TemporaryDirectory() as folder:
             current, releases, args = self.staging(folder, reviewed_unit())
+            snippet = Path(folder) / 'pinkuang-deploy-v4.conf'
+            snippet.write_text('location ^~ /pinkuang-deploy-v4/ {\n'
+                               '    auth_basic "BEMine deployment";\n'
+                               '    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;\n}\n')
             counts, commands = [], []
             def journals():
                 counts.append(1)
                 if len(counts) == 3:
                     raise RuntimeError('deployment journal acquired a row')
             hooks = {'UNIT': current, 'RELEASES': releases,
+                     'SNIPPET': snippet, 'require_console_auth_file': lambda: None,
                      'require_effective_unit_isolated': lambda: None,
                      'empty_genesis_journals': journals,
                      'validate_archive': lambda _: None,

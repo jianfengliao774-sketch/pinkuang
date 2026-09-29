@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { Interface, getAddress } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
-import { createJournalService } from './journal-api.mjs';
+import { createJournalService, isTransientProductRpcFailure } from './journal-api.mjs';
 import { buildDigest } from '../shared/firsto-upgrade-proof.mjs';
 import { buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan,
   buildIntegratedRoleMigrationPlan, integratedUpgradeDeploymentOrder } from '../shared/integrated-upgrade-plan.mjs';
@@ -22,6 +22,19 @@ const addr = number => getAddress(`0x${number.toString(16).padStart(40, '0')}`);
 const salt = digit => `0x${digit.repeat(64)}`;
 const replacements = Object.fromEntries(integratedUpgradeDeploymentOrder.map((name, index) =>
   [name, addr(10_000 + index)]));
+
+test('product graph treats transport and JSON-RPC server failures as transient, not identity drift',()=>{
+  for(const error of [
+    {code:'NETWORK_ERROR'},
+    {code:'SERVER_ERROR',info:{error:{code:-32000,message:'header not found'}}},
+    {code:'SERVER_ERROR',error:{code:-32603,message:'internal error'}},
+    {code:'SERVER_ERROR',info:{responseStatus:'429 Too Many Requests'}},
+    {code:'SERVER_ERROR',status:500},
+    {code:'SERVER_ERROR',response:{status:503}},
+  ]) assert.equal(isTransientProductRpcFailure(error),true);
+  assert.equal(isTransientProductRpcFailure({code:'CALL_EXCEPTION',error:{code:3}}),false);
+  assert.equal(isTransientProductRpcFailure({code:'SERVER_ERROR',status:400}),false);
+});
 
 function fixture() {
   const plan = buildIntegratedUpgradePlan({ genesisRecord, genesisBundle,
@@ -279,7 +292,7 @@ test('quiet product site refreshes its reviewed display graph before the current
       throw new Error(`Unexpected block ${tag}`);
     }};
   const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),
-    origin:'http://127.0.0.1:4173',provider,now:()=>clock,
+    origin:'http://127.0.0.1:4173',provider,now:()=>clock,productGraphRefreshMs:100,
     currentArtifactDigest:()=>genesisRecord.artifactDigest,
     productDeploymentRecord:genesisRecord,productArtifactBundle:genesisBundle,
     allowedProductFactories:[addresses.factory,addresses.portfolioFactory],
@@ -295,7 +308,7 @@ test('quiet product site refreshes its reviewed display graph before the current
     const url=`http://127.0.0.1:${server.address().port}/api/journal/product-graph`;
     assert.equal((await(await fetch(url)).json()).verifiedBlockHash,first.hash);
     clock+=45_000;finalized=next;
-    const timeout=setTimeout(()=>resolveNext(new Error('background refresh did not start')),17_000);
+    const timeout=setTimeout(()=>resolveNext(new Error('background refresh did not start')),1_000);
     const result=await nextProof;
     clearTimeout(timeout);
     if(result instanceof Error)throw result;
@@ -370,8 +383,9 @@ test('two public budget proofs cannot consume the site graph refresh slot', asyn
   try{
     const graphUrl=`${base}/api/journal/product-graph`;
     assert.equal((await(await fetch(graphUrl)).json()).verifiedBlockHash,first.hash);
-    for(const block of budgetBlocks)
-      pending.push(fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${block.number}&hash=${block.hash}`));
+    for(const [index,block] of budgetBlocks.entries())
+      pending.push(fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${block.number}&hash=${block.hash}`,
+        {headers:{'X-Real-IP':`198.51.100.${index+1}`}}));
     await budgetStarted;
     assert.equal(budgetProofs,2,'both candidate graph slots are occupied');
     clock+=45_000;finalized=next;
@@ -404,7 +418,8 @@ test('a transient RPC outage retains only the original two-minute display snapsh
       if(tag==='finalized' && offline){
         offlineReads++;
         failedRead();
-        throw Object.assign(new Error('RPC connection reset'),{code:'NETWORK_ERROR'});
+        throw Object.assign(new Error('RPC header not found'),
+          {code:'SERVER_ERROR',info:{error:{code:-32000,message:'header not found'}}});
       }
       if(tag==='finalized'||tag===block.number)return block;
       if(tag===initial.receipt.blockNumber)

@@ -6,7 +6,7 @@ def functions(names,ns):
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'hotfix-functions','exec'),ns);return ns
 class HotfixConfiguration(unittest.TestCase):
     def setUp(self):
-        self.ns={'re':re,'legacy_names':['old','price']};functions(['hotfix_options','candidate_snippet','quote_location'],self.ns)
+        self.ns={'re':re,'legacy_names':['old','price']};functions(['hotfix_options','candidate_snippet','quote_location','retired_deployment_api'],self.ns)
         self.plan={'runtimeReleaseId':'v2-hotfix-new','previousRuntimeReleaseId':'v2-old-runtime','productReleaseId':'v2-product-existing','operationId':'v2-hotfix-attempt-1',
             'runtimeSourceHead':'a'*40,'productSourceHead':'b'*40,'legacy':{'services':{'old':{},'price':{}}}}
         for k in ['runtimeManifestSha256','productManifestSha256','nginxSha256','deployUnitSha256','indexUnitSha256','productSnippetSha256','trustedRecordSha256']:self.plan[k]='c'*64
@@ -19,19 +19,28 @@ class HotfixConfiguration(unittest.TestCase):
             with self.subTest(k=k,v=v),self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,k:v})
         with self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,'legacy':{'services':{'old':{}}}})
         with self.assertRaises(AssertionError):self.ns['hotfix_options']({**self.plan,'logsRpcUrl':'https://bsc.publicnode.com','fallbackLogsRpcUrl':'https://bsc.publicnode.com'})
-    def test_adds_only_exact_price_route_and_is_idempotent(self):
+    def test_adds_only_exact_price_and_deployment_retirement_routes(self):
         original=b'location ^~ /bemine-v2/api/ { proxy_pass http://127.0.0.1:4174/api/; }\nlocation ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
-        candidate=self.ns['candidate_snippet'](original);addition=self.ns['quote_location']()
-        self.assertEqual(candidate.replace(addition,b'',1),original);self.assertEqual(self.ns['candidate_snippet'](candidate),candidate)
+        candidate=self.ns['candidate_snippet'](original);addition=self.ns['quote_location']();retired=self.ns['retired_deployment_api']()
+        self.assertEqual(candidate.replace(addition,b'',1).replace(retired,b'',1),original)
+        self.assertEqual(self.ns['candidate_snippet'](candidate),candidate)
         self.assertIn(b'location = /bemine-v2/data/bem-price.json',candidate);self.assertNotIn(b'location /bemine-v2/data/',candidate)
+        self.assertIn(b'location = /bemine-v2/api/journal/deployment { return 410; }',candidate)
+        self.assertIn(b'location ^~ /bemine-v2/api/journal/deployment/ { return 410; }',candidate)
+        self.assertIn(b'location = /bemine-v2/api/journal/fresh-activation { return 410; }',candidate)
+        self.assertIn(b'location ^~ /bemine-v2/api/ { proxy_pass http://127.0.0.1:4174/api/; }',candidate)
     def test_existing_reviewed_no_store_route_is_preserved_byte_for_byte(self):
-        current=self.ns['quote_location']()+b'location ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
+        current=self.ns['retired_deployment_api']()+self.ns['quote_location']()+b'location ^~ /bemine-v2/api/ { proxy_pass http://127.0.0.1:4174/api/; }\nlocation ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
         self.assertEqual(self.ns['candidate_snippet'](current),current)
     def test_old_or_unknown_existing_price_route_requires_new_review(self):
         legacy=self.ns['quote_location']().replace(b'    add_header Cache-Control "no-store" always;\n    add_header X-Content-Type-Options nosniff always;\n',b'    expires -1;\n')
         with self.assertRaises(AssertionError):self.ns['candidate_snippet'](legacy)
     def test_unexpected_existing_quote_route_rejected(self):
         with self.assertRaises(AssertionError):self.ns['candidate_snippet'](b'location = /bemine-v2/data/bem-price.json { alias /other; }')
+    def test_partial_or_unknown_deployment_api_mapping_rejected(self):
+        original=b'location ^~ /bemine-v2/api/ { proxy_pass http://127.0.0.1:4174/api/; }\nlocation ^~ /bemine-v2/ { root /var/www/bemine-v2/current/public; }\n'
+        with self.assertRaisesRegex(AssertionError,'deployment API mapping'):
+            self.ns['candidate_snippet'](original+b'location = /bemine-v2/api/journal/deployment { return 200; }\n')
 
 class UnitPaths(unittest.TestCase):
     def setUp(self):
@@ -94,6 +103,38 @@ class GenesisGraphAcceptance(unittest.TestCase):
             {'manifest':{**self.graph['manifest'],'portfolioFactory':'0x0000000000000000000000000000000000000001'}}]:
             with self.subTest(patch=patch),self.assertRaises(AssertionError):
                 self.ns['verified_genesis_graph'](json.dumps({**self.graph,**patch}).encode(),self.manifest)
+
+class RetiredConsoleAcceptance(unittest.TestCase):
+    def test_public_console_remains_410_while_local_runtime_bytes_match(self):
+        runtime={'files':{'dist/index.html':{'sha256':hashlib.sha256(b'local console').hexdigest()},
+                          'dist/deployment-artifacts.json':{'sha256':hashlib.sha256(b'local artifacts').hexdigest()}}}
+        product={'files':{'public/bemine-v2/index.html':{'sha256':hashlib.sha256(b'product').hexdigest()},
+                          'public/bemine-v2/data/frontend-manifest.json':{'sha256':hashlib.sha256(b'manifest').hexdigest()}}}
+        console_status={"value":410};local_console={"value":b'local console'};public_calls=[]
+        def http(url,payload=None):
+            if url.endswith('/deployment-artifacts.json'):return 200,b'local artifacts'
+            if url.endswith('/api/journal/product-graph'):return 200,b'{}'
+            if url.endswith('/api/rpc'):return 200,b'{"result":"0x38"}'
+            return 200,local_console['value']
+        def public(path):
+            public_calls.append(path)
+            if path.startswith('/pinkuang-deploy-v2'):return console_status['value'],b''
+            return {'/bemine-v2/':(200,b'product'),
+                    '/bemine-v2/data/frontend-manifest.json':(200,b'manifest'),
+                    '/bemine-v2/api/journal/product-graph':(200,b'{}'),
+                    '/bemine-v2/api/journal/build':(401,b''),
+                    '/bemine-v2/data/bem-price.json':(200,b'{}')}[path]
+        ns={'http':http,'public':public,'sha':lambda body:hashlib.sha256(body).hexdigest(),
+            'json':json,'CONFIG':{'manifest':{}},'verified_genesis_graph':lambda body,manifest:{},
+            'quote_valid':lambda body:{},'observe_index_cycles':lambda:None,'print':lambda *args,**kw:None}
+        functions(['public_acceptance'],ns)
+        ns['public_acceptance'](runtime,product)
+        self.assertIn('/pinkuang-deploy-v2/',public_calls)
+        self.assertIn('/pinkuang-deploy-v2/deployment-artifacts.json',public_calls)
+        console_status['value']=200
+        with self.assertRaises(AssertionError):ns['public_acceptance'](runtime,product)
+        console_status['value']=410;local_console['value']=b'unreviewed runtime'
+        with self.assertRaises(AssertionError):ns['public_acceptance'](runtime,product)
 
 class IndexCycleObservation(unittest.TestCase):
     def fixture(self,rows):

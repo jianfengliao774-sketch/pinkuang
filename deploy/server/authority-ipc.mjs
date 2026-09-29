@@ -3,7 +3,7 @@ import { createServer as createHttpServer, request as httpRequest } from 'node:h
 import { chmodSync, existsSync, lstatSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { Readable } from 'node:stream';
-import { FetchRequest, JsonRpcProvider, getAddress } from 'ethers';
+import { FetchRequest, Interface, JsonRpcProvider, getAddress } from 'ethers';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { JournalStore } from './journal-store.mjs';
 import { productGraphConfiguration } from './product-graph.mjs';
@@ -20,6 +20,12 @@ const MAX_BODY = 64 * 1024;
 const MAX_REPLY = 64 * 1024;
 const ASSERTION_AGE_MS = 15_000;
 const ASSERTION_HEADER = 'x-bemine-relay-assertion';
+const BLOCK_HASH = /^0x[0-9a-f]{64}$/i;
+const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
+const roleInterface = new Interface([
+  'function administratorOne() view returns (address)',
+  'function administratorTwo() view returns (address)',
+]);
 
 function fail(status, message) { const error = new Error(message); error.status = status; throw error; }
 function exactRoute(req) {
@@ -182,6 +188,50 @@ export function createAuthorityAssertionVerifier(key, now = Date.now) {
   };
 }
 
+/** A cheap, short-lived rejection filter only. The full role and deployment proof
+ * still runs for every admitted request, and the isolated signer verifies again. */
+export function createAuthorityRolePrefilter(provider, trusted, { now = Date.now, ttlMs = 15_000 } = {}) {
+  if (!trusted?.freshAuthority?.authority?.address || !Number.isSafeInteger(ttlMs)
+    || ttlMs < 1 || ttlMs > 30_000) throw new Error('Authority role prefilter needs reviewed evidence and a bounded TTL.');
+  const authority = getAddress(trusted.freshAuthority.authority.address);
+  let snapshot = null;
+  let refreshing = null;
+  async function refresh() {
+    if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
+    const block = await provider.getBlock('latest');
+    if (!block || !Number.isSafeInteger(block.number) || !BLOCK_HASH.test(block.hash ?? '')
+      || !Number.isSafeInteger(block.timestamp)
+      || Math.abs(Math.floor(now() / 1000) - block.timestamp) > 90)
+      fail(503, 'Current BSC block is unavailable.');
+    const tag = `0x${block.number.toString(16)}`;
+    const role = async method => getAddress(roleInterface.decodeFunctionResult(method,
+      await provider.send('eth_call', [{ to: authority,
+        data: roleInterface.encodeFunctionData(method) }, tag]))[0]);
+    const [first, second] = await Promise.all([
+      role('administratorOne'), role('administratorTwo'),
+    ]);
+    const [canonical, chainId] = await Promise.all([
+      provider.getBlock(block.number), provider.send('eth_chainId', []),
+    ]);
+    if (!canonical || canonical.hash?.toLowerCase() !== block.hash.toLowerCase()
+      || BigInt(chainId) !== 56n) fail(503, 'Current BSC block changed during role prefilter.');
+    if (first === ZERO_ADDRESS || second === ZERO_ADDRESS || first === second)
+      fail(409, 'Current Authority administrators are invalid.');
+    return new Set([first.toLowerCase(), second.toLowerCase()]);
+  }
+  return async account => {
+    if (!snapshot || now() >= snapshot.expiresAt) {
+      if (!refreshing) refreshing = refresh().then(
+        roles => ({ roles, expiresAt: now() + ttlMs }),
+        error => ({ error, expiresAt: now() + ttlMs }),
+      ).then(result => { snapshot = result; return result; }).finally(() => { refreshing = null; });
+      snapshot = await refreshing;
+    }
+    if (snapshot.error) throw snapshot.error;
+    if (!snapshot.roles.has(getAddress(account).toLowerCase())) fail(403, 'Administrator wallet is required.');
+  };
+}
+
 /** Public process: authenticate a wallet session, then proxy one exact route. */
 export function createAuthorityRelayProxy(config, dependencies = {}) {
   if (!config) return null;
@@ -205,11 +255,14 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
     { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 }) : null;
   const verifyAdministrator = dependencies.verifyAdministrator
     ?? (account => verifyCurrentAuthorityAdministrator(provider, trusted, account));
+  const prefilterAdministrator = dependencies.prefilterAdministrator
+    ?? (provider ? createAuthorityRolePrefilter(provider, trusted) : async () => {});
   const timeoutMs = dependencies.timeoutMs ?? 45_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 45_000)
     throw new Error('Authority IPC timeout exceeds the reviewed bound.');
   const allowIp = createRequestLimiter({ windowMs: 60_000, perClient: 90, maxClients: 5_000 });
-  const allowAccount = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
+  const allowSessionAccount = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 5_000 });
+  const allowAdministrator = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
   return {
     async handle(req, res) {
       try {
@@ -219,8 +272,10 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
         if (!allowIp(req)) fail(429, 'Too many authority relay requests from this client.');
         const account = sessionAccount(req, store);
         const body = await bodyBytes(req);
+        if (!allowSessionAccount(account.toLowerCase())) fail(429, 'Too many authority relay requests for this wallet.');
+        await prefilterAdministrator(account);
         await verifyAdministrator(account);
-        if (!allowAccount(account.toLowerCase())) fail(429, 'Too many authority relay requests for this administrator.');
+        if (!allowAdministrator(account.toLowerCase())) fail(429, 'Too many authority relay requests for this administrator.');
         const assertion = signAuthorityAssertion(key, { account, method: req.method, path, body });
         const status = await new Promise((resolve, reject) => {
           const upstream = transport({ socketPath: config.socketPath, path, method: req.method,
@@ -259,6 +314,9 @@ export function createAuthoritySignerServer(service, key, dependencies = {}) {
   const verify = dependencies.verify ?? createAuthorityAssertionVerifier(key);
   const attestation = dependencies.attestation;
   const allowAttestation = createKeyedLimiter({ windowMs: 60_000, perKey: 12, maxKeys: 1024 });
+  // A compromised proxy can mint assertions for many accounts. Keep a
+  // signer-wide ceiling on actual signatures as well as the account quota.
+  const allowAttestationGlobal = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 1 });
   return createHttpServer(async (req, res) => {
     try {
       if (req.url === GAS_ATTESTATION_PATH && req.method === 'POST') {
@@ -278,6 +336,7 @@ export function createAuthoritySignerServer(service, key, dependencies = {}) {
           || getAddress(challenge.expectedGasWallet) !== getAddress(attestation.wallet.address)
           || getAddress(challenge.deploymentAccount) !== account)
           fail(403, 'Gas signer attestation identity differs.');
+        if (!allowAttestationGlobal('signer')) fail(429, 'Too many Gas signer attestation requests.');
         const signature = await attestation.wallet.signMessage(message);
         res.statusCode = 200;
         res.setHeader('Cache-Control', 'no-store');

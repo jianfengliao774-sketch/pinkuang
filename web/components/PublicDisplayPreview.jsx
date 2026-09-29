@@ -6,7 +6,7 @@ import './PublicDisplayPreview.css';
 const short = value => `${value.slice(0, 6)}…${value.slice(-4)}`;
 const count = value => BigInt(value).toLocaleString('en-US');
 
-/** Each card carries one independently verified, display-only section. */
+/** Each card carries one server-indexed, display-only section. */
 export default function PublicDisplayPreview({ preview, section, route, locale }) {
   if (!preview || preview.section !== section) return null;
   const en = locale === 'en', L = (zh, english) => en ? english : zh;
@@ -18,9 +18,9 @@ export default function PublicDisplayPreview({ preview, section, route, locale }
   return <section className="public-display-preview" aria-label={L('历史公共展示快照', 'Historical public display snapshot')}>
     <header>
       <div><span className="public-display-preview-tag">{L('历史展示 · 不可用于交易', 'Historical display · no transactions')}</span>
-        <h2>{L('已核验的公共资料', 'Verified public history')}</h2>
-        <p>{L(`区块 #${preview.source.indexedThrough} · 核验于 ${verified}。当前状态、余额和权限仍需链上核验。`,
-          `Block #${preview.source.indexedThrough} · verified ${verified}. Current state, balances and permissions still require live chain verification.`)}</p></div>
+        <h2>{L('服务器保存的公共历史', 'Server-stored public history')}</h2>
+        <p>{L(`区块 #${preview.source.indexedThrough} · 服务端检查于 ${verified}。当前状态、余额和权限仍需链上核验。`,
+          `Block #${preview.source.indexedThrough} · server checked ${verified}. Current state, balances and permissions still require live chain verification.`)}</p></div>
     </header>
     {section === 'stats' && <div className="public-display-preview-stats">
       <div><span>{L('历史登记项目', 'Historically registered projects')}</span><strong>{count(preview.stats.topLevelProjectCount)}</strong></div>

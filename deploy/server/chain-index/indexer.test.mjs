@@ -446,6 +446,48 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
   }
 });
 
+test('display snapshot capture failure does not close a verified live index', async () => {
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });
+  const server = createChainIndexServer(index);
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    await index.sync();
+    assert(index.verifiedDisplaySnapshot());
+    index._captureVerifiedSnapshot = () => { throw new Error('directory mismatch'); };
+    const status = await index.sync();
+    assert.equal(status.complete, true);
+    assert.equal(status.unknownReason, null);
+    assert.equal(index.lastSnapshotError, 'snapshot_failed');
+    assert.equal(index.verifiedDisplaySnapshot(), null);
+    assert.equal((await fetch(`${base}/v1/pools`)).status, 200);
+    assert.equal((await fetch(`${base}/v1/snapshot/pools`)).status, 503);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    index.close();
+  }
+});
+
+test('missing indexed events trigger one persisted full replay and recover automatically', async () => {
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1,
+    confirmations: 2, maxBlocksPerSync: 20 });
+  try {
+    await index.sync();
+    index.db.prepare("DELETE FROM logs WHERE kind='market' AND name='OrderListed'").run();
+    await assert.rejects(index.sync(), /Event history is incomplete/);
+    assert.equal(index.status().unknownReason, 'incomplete_history');
+    assert.equal(index.db.prepare("SELECT value FROM metadata WHERE key='historyRepair'").get().value,'pending');
+    assert.equal(index.verifiedDisplaySnapshot(), null);
+    const repaired = await index.sync();
+    assert.equal(repaired.complete, true);
+    assert.equal(index.db.prepare("SELECT value FROM metadata WHERE key='historyRepair'").get(),undefined);
+    assert.equal(index.orders().items.length,1);
+    assert(index.verifiedDisplaySnapshot());
+  } finally { index.close(); }
+});
+
 test('over 500 lifetime orders disables only the verified order section', async () => {
   const chain = new MockChain(); fixture(chain);
   for (let id = 2; id <= 501; id++)

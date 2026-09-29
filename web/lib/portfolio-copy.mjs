@@ -5,6 +5,11 @@ const en = {
   '低于购机成本，需至少 60 份赞成；此阶段不使用平台折价审核。':'Below purchase cost: at least 60 yes shares are required. Platform discount review does not apply at this stage.',
   '不低于购机成本，需人数与份额过半；此阶段不使用平台折价审核。':'At or above purchase cost: a majority of members and shares is required. Platform discount review does not apply at this stage.',
   '平台已驳回该提案，禁止挂牌。':'The platform rejected this proposal; listing is blocked.',
+  '平台已驳回该提案，禁止折价挂牌。':'The platform rejected this proposal; discounted listing is blocked.',
+  '该子矿机尚未满足创世版出售条件。':'This miner has not met the genesis sale conditions.',
+  '订单分页来源已变化，请重新读取。':'The order page changed. Reload this miner’s orders from the first page.',
+  '平台已驳回这项子矿机出售提案。':'The platform rejected this miner sale proposal.',
+  '低于 Firsto 市场参考价，尚待平台审核通过。':'Below the Firsto market reference; platform approval is pending.',
   '市场参考价不可用，挂牌暂不可执行。':'The market reference is unavailable; listing is blocked.',
   '平台审核状态不可用，挂牌暂不可执行。':'The platform review status is unavailable; listing is blocked.',
   '低于市场参考价，平台已批准折价挂牌。':'Below the market reference; the platform approved this discounted listing.',
@@ -101,4 +106,4 @@ const en = {
   '预算历史记录来源不一致。':'Portfolio history sources do not match.','预算项目读取未完成。':'Portfolio reads did not finish.',
 };
 export const PORTFOLIO_ENGLISH=Object.freeze(en);
-export const portfolioText=(locale,text)=>locale==='en'?(en[text]??(/\p{Script=Han}/u.test(text)?'The operation could not be verified. Refresh the portfolio and try again.':text)):text;
+export const portfolioText=(locale,text)=>locale==='en'?(en[text]??(/\p{Script=Han}/u.test(text)?`${text} (Translation unavailable.)`:text)):text;

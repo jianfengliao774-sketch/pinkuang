@@ -6,7 +6,7 @@ import { genesisPortfolioProposalGate, portfolioCreateActionReady, portfolioPage
 import { amount, shortAddress, explorerAddress, explorerTransaction, exportActivityCsv } from '../lib/live-view.mjs';
 import { displayDecimal } from '../lib/amount-display.mjs';
 import { READ_CANCELLED, retryReadRound } from '../lib/read-retry.mjs';
-import { readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayOnlySnapshot, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
 import LiveYieldChart from './LiveYieldChart';
 import { sameUnsignedIntent } from '../lib/ui-context.mjs';
@@ -88,8 +88,10 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     return () => onReadStateChange?.({ busy: false, failed: false, current: false });
   }, [busy, loading, readFailed, preview, freshRead]);
   useEffect(()=>{setListingQuantity(selectedCurrent?.availableShares>0n?selectedCurrent.availableShares.toString():'1');setPrice('');},[selectedCurrent?.pool]);
-  useEffect(()=>{const saved=recentPages.get(cacheKey),cached=saved && Date.now()-saved.savedAt<120_000?saved.result
-      :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`);
+  useEffect(()=>{const saved=recentPages.get(cacheKey),cached=saved && Date.now()-saved.savedAt<120_000
+      ?displayOnlySnapshot(saved.result,config?.manifest || config,saved.savedAt)
+      :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,
+        config?.productFamily==='fresh-v4'?{maxAgeMs:30*60_000}:{});
     setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);setRows(cached?.items || []);
     setListingSource(cached?.source || null);
     setSelected(initialPool?cached?.items[0] || null:null);setChild(initialPool?cached?.items[0]?.children.find(item=>!item.sold)?.pool || '':'');
@@ -174,7 +176,8 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           || result.source.indexedBlockHash!==orderSource.indexedBlockHash))throw new Error('订单分页来源已变化，请重新读取。');
         setOrderPool(target);setOrderSource(result.source);
         setOrders(previous=>nextCursor?[...previous,...result.items]:result.items);setOrderCursor(result.nextCursor);}
-    }catch(problem){if(current(ticket)){setOrders([]);setOrderPool(null);setOrderSource(null);setError(brief(problem));setReadFailed(true);}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
+    }catch(problem){if(current(ticket)){if(nextCursor == null){setOrders([]);setOrderPool(null);setOrderSource(null);setReadFailed(true);}
+      else {setOrderCursor(null);setReadFailed(false);}setError(brief(problem));}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function prepare(action,pool=selectedCurrent?.pool){
     if(actionFrozen(action.kind))return;

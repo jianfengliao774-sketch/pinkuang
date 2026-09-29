@@ -11,6 +11,7 @@ import {PoolTimelock} from "../../src/PoolTimelock.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {BudgetPortfolioFactory} from "../../src/BudgetPortfolioFactory.sol";
 import {BudgetPortfolioVault} from "../../src/BudgetPortfolioVault.sol";
+import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 
 contract RejectPortfolioBootstrap {
     error Rejected();
@@ -62,6 +63,9 @@ contract IntegratedDeploymentTest is Test {
         assertEq(ShareMarket(p.shareMarket).factory(), p.factory);
         assertEq(ShareMarket(p.shareMarket).timelock(), core.timelock);
         assertEq(ShareMarket(p.shareMarket).buyerFeeBps(), 100);
+        assertTrue(ShareMarket(core.shareMarket).budgetFactoryTrusted(p.factory));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        ShareMarket(core.shareMarket).bootstrapBudgetFactory();
         assertEq(PoolTimelock(payable(core.timelock)).getMinDelay(), 48 hours);
         assertEq(PoolFactory(core.factory).poolCount(), 0);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -96,6 +100,24 @@ contract IntegratedDeploymentTest is Test {
         config.portfolioFactoryImplementation = valid;
         (, AtomicDeployment.PortfolioDeployment memory p) = coordinator.deployIntegratedSingleOwner(config);
         assertEq(p.factory, coordinator.predictedPortfolioFactory());
+    }
+
+    function test_BudgetFactoryTrustChangeRequiresTheFortyEightHourTimelock() public {
+        (AtomicDeployment.Deployment memory core, AtomicDeployment.PortfolioDeployment memory p) =
+            coordinator.deployIntegratedSingleOwner(config);
+        ShareMarket market = ShareMarket(core.shareMarket);
+        PoolTimelock timelock = PoolTimelock(payable(core.timelock));
+        bytes memory change = abi.encodeCall(ShareMarket.setBudgetFactoryTrust, (p.factory, false));
+        bytes32 salt = keccak256("revoke-budget-factory");
+
+        vm.expectRevert(IShareMarket.Unauthorized.selector);
+        market.setBudgetFactoryTrust(p.factory, false);
+        timelock.schedule(address(market), 0, change, bytes32(0), salt, 48 hours);
+        vm.expectRevert();
+        timelock.execute(address(market), 0, change, bytes32(0), salt);
+        vm.warp(block.timestamp + 48 hours);
+        timelock.execute(address(market), 0, change, bytes32(0), salt);
+        assertFalse(market.budgetFactoryTrusted(p.factory));
     }
 
     function test_WrongPortfolioBindingAndUnauthorizedCallerCannotCreateEitherGraph() public {

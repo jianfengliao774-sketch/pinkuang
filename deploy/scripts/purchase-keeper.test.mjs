@@ -454,7 +454,17 @@ test('pending diagnostics become overdue without timing out the purchase or auto
   item.provider.getTransaction = async () => null;
   const result = await runKeeperCycle(item.provider, item.config, item.signer);
   assert.equal(result.status, 'pending-not-indexed'); assert.equal(result.overdue, true); assert(result.pendingSeconds >= 300);
+  assert.equal(result.phase,'broadcast');assert.equal(result.broadcastCount,1);
   assert.equal(item.chain.sends.length, 1); assert.equal(result.recoveryAllowed, true);
+});
+
+test('a newly broadcast hash missing from another RPC node stays reserved without an overdue review', async t => {
+  const item=await signedPurchase(t);
+  item.provider.getTransaction=async()=>null;
+  const result=await runKeeperCycle(item.provider,item.config,item.signer);
+  assert.equal(result.status,'pending-not-indexed');assert.equal(result.overdue,false);
+  assert.equal(result.phase,'broadcast');assert.equal(result.broadcastCount,1);
+  assert.equal(item.chain.sends.length,1);
 });
 
 test('broadcast boundary rejects chain or nonce races even after local signing', async t => {

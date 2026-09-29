@@ -59,6 +59,9 @@ contract SingleOwnerDeploymentTest is Test {
         assertEq(PoolBeacon(d.beacon).implementation(), config.vaultImplementation);
         assertEq(ShareMarket(d.shareMarket).factory(), d.factory);
         assertEq(ShareMarket(d.shareMarket).timelock(), d.timelock);
+        assertFalse(ShareMarket(d.shareMarket).budgetFactoryTrusted(address(coordinator)));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        ShareMarket(d.shareMarket).bootstrapBudgetFactory();
         assertEq(_implementation(d.factory), config.factoryImplementation);
         assertEq(_implementation(d.shareMarket), config.marketImplementation);
         assertEq(timelock.getMinDelay(), 48 hours);

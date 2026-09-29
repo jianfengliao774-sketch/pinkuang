@@ -75,6 +75,32 @@ test('review decisions are indexed and attributed to their pool, project and ope
       'reorged review decisions must not remain in the history');
   }finally{f.index.close();}
 });
+
+test('event-schema upgrade replays old blocks instead of silently missing review history',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'pinkuang-event-schema-'));
+  const dbPath=join(directory,'index.sqlite');
+  let first,second;
+  try{
+    first=fixture({dbPath});
+    first.event('market','SaleReviewed',[pool,1,123,true,alice],6);
+    await first.index.sync();
+    first.index.db.prepare("DELETE FROM logs WHERE name='SaleReviewed'").run();
+    const identity=JSON.parse(first.index.db.prepare("SELECT value FROM metadata WHERE key='identity'").get().value);
+    delete identity.eventSchema;
+    first.index.db.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
+    first.index.close();first=null;
+    second=fixture({dbPath});
+    second.event('market','SaleReviewed',[pool,1,123,true,alice],6);
+    assert.equal(second.index.indexedThrough,0);
+    assert.equal(second.index.verifiedDisplaySnapshot(),null);
+    await second.index.sync();
+    assert.equal(second.index.status().complete,true);
+    assert.equal(second.index.activity({pool,account:alice}).items.filter(row=>row.event==='SaleReviewed').length,1);
+  }finally{
+    first?.index.close();second?.index.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
 test('budget discovery counts parent once, preserves former-member rights and rolls child wrapping back on reorg',async()=>{
   const f=fixture();try {
     await f.index.sync();assert.deepEqual(f.index.pools().items,[]);
@@ -335,6 +361,21 @@ test('budget child-count proofs use bounded same-block batches instead of serial
     assert.equal(reads,32);
     assert.equal(peak,16);
     assert.deepEqual([...blocks],[6]);
+  }finally{f.index.close();}
+});
+
+test('temporary child-count RPC failure keeps the previously verified display snapshot',async()=>{
+  const f=fixture();
+  try{
+    await f.index.sync();
+    const previous=f.index.verifiedDisplaySnapshot();
+    const original=f.index._call.bind(f.index);
+    f.index._call=(to,method,args,blockNumber)=>method==='childCount'
+      ? Promise.reject(new Error('temporary RPC timeout')) : original(to,method,args,blockNumber);
+    await assert.rejects(f.index.sync(),/Budget child count read failed/);
+    assert.equal(f.index.status().unknownReason,'sync_failed');
+    assert.deepEqual(f.index.verifiedDisplaySnapshot(),previous);
+    assert.equal(f.index.snapshotTrusted,true);
   }finally{f.index.close();}
 });
 

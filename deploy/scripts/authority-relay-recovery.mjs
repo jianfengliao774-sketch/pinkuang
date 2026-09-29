@@ -11,7 +11,8 @@ const credentialSource = '/etc/pinkuang/keeper.key';
 /** Check the old sender *before* systemd resolves Conflicts= and could stop it. */
 export function authorityRecoveryLaunchArguments(args, env = process.env, checkedAt = Date.now()) {
   const options = parseAuthorityArguments(args);
-  if (options.help || (!options.send && !options.acknowledgeFailure && !options.acknowledgeReplacement))
+  if (options.help || (!options.send && !options.acknowledgeFailure
+    && !options.acknowledgeReplacement && !options.acknowledgeExpiredCancel))
     throw new Error('The recovery launcher accepts only --send or a hash-pinned acknowledgement.');
   if (options.journal !== V4_AUTHORITY_JOURNAL
     || (env.PINKUANG_KEEPER_STATE_ROOT && env.PINKUANG_KEEPER_STATE_ROOT !== V4_KEEPER_STATE_ROOT)

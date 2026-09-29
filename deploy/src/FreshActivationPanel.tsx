@@ -12,6 +12,10 @@ function download(name: string, value: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export const activationCanRequestSignature = (status?: string) => status === 'waiting' || status === 'rejected';
+export const activationCanReconcile = ({ held, enabled, busy, loading, recoveryHash }: {
+  held: boolean; enabled: boolean; busy: boolean; loading: boolean; recoveryHash: string;
+}) => !held && enabled && !busy && !loading
+  && (!recoveryHash.trim() || /^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim()));
 export const activationStepStatusText = (status: string) => status === 'confirmed' ? '规范链已确认'
   : status === 'waiting' ? '等待钱包确认'
   : status === 'rejected' ? '发送前停止或钱包拒签；核对后可手动重试'
@@ -80,19 +84,19 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
       <span className="subtle-tag">第二阶段 · 硬件钱包 7 笔</span></div>
     <div style={{ padding: '16px 24px 24px' }}>
       <p>第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。</p>
-      <p><b>硬件钱包：</b>{genesis.account}<br/><b>管理员一：</b>{FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{FRESH_ADMIN_TWO}<br/><b>Gas 钱包：</b>{record?.gasWallet || gasWallet}</p>
+      <p><b>硬件钱包：</b>{genesis.account}<br/><b>管理员一：</b>{FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{FRESH_ADMIN_TWO}<br/><b>Gas 钱包（与 v2 共用）：</b>{record?.gasWallet || gasWallet}</p>
       <p className={credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
-          ? `独立签名服务已证明 Gas 公钥：${credential.gasWallet}`
-          : `控制台只保存 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明独立签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
+          ? `v4 签名服务已证明共用 Gas 钱包公钥：${credential.gasWallet}`
+          : `控制台只保存与 v2 共用的 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明 v4 签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
       <p className="field-help">只使用这些公开地址。网页不接收私钥。新合约和新站独立运行；旧池、份额和订单仍留在旧站，不会导入新图。</p>
-      {stage2Held && <p className="alert alert-warning" role="status">第二阶段暂未开放签名：服务端仍保持权限交易冻结。完成独立签名服务证明与失败交易恢复核验后，服务端才可解除；第一阶段部署和只读核验不受影响。</p>}
+      {stage2Held && <p className="alert alert-warning" role="status">第二阶段权限交易已冻结，链上回执核验也暂不可用，因为核验结果需要写回服务器。可刷新并查看已保存的记录；服务端解除冻结后才能继续核验或签名。</p>}
       <p className="alert alert-warning">新版 Factory 只维护自己的矿机登记，不读取旧合约。独立系统无法保证新旧站之间的矿机编号不会重复，运营方仍须核对矿机实际所有权。Authority 接线后，管理员签名和 Gas 代发流程须先通过完整测试再开放建池。</p>
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
           placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy}/>
-        <p className="field-help">已填入你指定的原 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。</p>
+        <p className="field-help">已填入你指定的与 v2 共用的 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。</p>
         <div className="budget-row"><div><label htmlFor="activation-budget">第二阶段 Gas 预算（BNB）</label>
         <input id="activation-budget" className="text-input" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy}/></div>
         <div><label htmlFor="activation-gas-cap">Gas 单价上限（Gwei）</label>
@@ -125,7 +129,8 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
           onClick={() => void act('硬件钱包交易', () => engine().sendNext(record))}>
           {busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}核对后在硬件钱包确认第 {record.steps.indexOf(next) + 1} 笔</button>}
         {record && (unresolved || record.steps.every(step => step.status === 'confirmed') && record.status !== 'complete')
-          && <button className="small-button" disabled={!enabled || !!busy || loading || !!recoveryHash && !/^0x[0-9a-fA-F]{64}$/.test(recoveryHash.trim())}
+          && <button className="small-button" disabled={!activationCanReconcile({ held: stage2Held, enabled,
+            busy: !!busy, loading, recoveryHash })}
             onClick={() => void act('链上回执核验', () => engine().reconcile(record, recoveryHash))}>
               <RefreshCw size={15}/>只读核验链上交易</button>}
         {record && next?.status === 'signing' && !next.txHash && <button className="small-button"

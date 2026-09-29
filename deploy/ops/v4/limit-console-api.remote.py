@@ -18,6 +18,9 @@ BACKUP = Path('/root/pinkuang-v4-backup-580ee6b-0929/nginx-snippet.before-api-li
 LOCATION = 'location ^~ /pinkuang-deploy-v4/ {\n'
 ZONE_TEXT = 'limit_req_zone $binary_remote_addr zone=pinkuang_v4_api_ip:10m rate=30r/s;\n'
 API_LOCATION = '''location ^~ /pinkuang-deploy-v4/api/ {
+    auth_basic "BEMine deployment";
+    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;
+    proxy_set_header Authorization "";
     limit_req zone=pinkuang_v4_api_ip burst=60 nodelay;
     limit_req_status 429;
     proxy_pass http://127.0.0.1:4177/api/;
@@ -87,8 +90,10 @@ def main():
     original = SNIPPET.read_bytes()
     require(digest(original) == args.current_snippet_sha256, 'v4 nginx snippet changed.')
     text = original.decode()
-    require(text.count(LOCATION) == 1 and 'pinkuang_v4_api_ip' not in text,
-            'v4 nginx location changed.')
+    require(text.count(LOCATION) == 1 and 'pinkuang_v4_api_ip' not in text
+            and LOCATION + '    auth_basic "BEMine deployment";\n'
+            '    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;\n' in text,
+            'v4 nginx location changed or is not access controlled.')
     require(subprocess.check_output(['systemctl', 'is-active', 'pinkuang-deploy-v4.service'],
                                     text=True).strip() == 'active', 'v4 console is not active.')
     updated = text.replace(LOCATION, API_LOCATION + LOCATION)
@@ -106,9 +111,9 @@ def main():
         write_atomic(SNIPPET, updated)
         command(['nginx', '-t'])
         command(['systemctl', 'reload', 'nginx.service'])
-        require(status('/pinkuang-deploy-v4/') == 200
+        require(status('/pinkuang-deploy-v4/') == 401
                 and status('/pinkuang-deploy-v4/api/journal/build') == 401
-                and status('/pinkuang-deploy-v4/api/journal/product-graph') == 503
+                and status('/pinkuang-deploy-v4/api/journal/product-graph') == 401
                 and status('/bemine-v2/') == 200,
                 'The v4 API limit changed a public route unexpectedly.')
     except Exception:

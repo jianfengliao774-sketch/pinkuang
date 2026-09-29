@@ -7,12 +7,14 @@ private key is copied or loaded. Expected hashes come from a reviewed host snaps
 """
 
 import argparse
+import grp
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import pwd
 import re
+import stat
 import shutil
 import socket
 import subprocess
@@ -26,6 +28,7 @@ SITE = Path('/etc/nginx/sites-available/bem2075')
 RPC_SOURCE_UNIT = Path('/etc/systemd/system/pinkuang-deploy-v3.service')
 V4_UNIT = Path('/etc/systemd/system/pinkuang-deploy-v4.service')
 SNIPPET = Path('/etc/nginx/snippets/pinkuang-deploy-v4.conf')
+AUTH_FILE = Path('/etc/nginx/pinkuang-deploy-v4.htpasswd')
 RELEASES = Path('/srv/pinkuang-deploy-v4/releases')
 DB_DIR = Path('/var/lib/pinkuang-deploy-v4')
 ANCHOR = '    include /etc/nginx/snippets/pinkuang-deploy-v3.conf;\n'
@@ -50,6 +53,19 @@ def digest(path):
 def require(ok, message):
     if not ok:
         raise RuntimeError(message)
+
+
+def require_console_auth_file():
+    require(AUTH_FILE.is_file() and not AUTH_FILE.is_symlink(),
+            'Provision the v4 deployment-console htpasswd file before activation.')
+    info = AUTH_FILE.stat()
+    require(info.st_uid == 0 and info.st_gid == grp.getgrnam('www-data').gr_gid
+            and stat.S_IMODE(info.st_mode) == 0o640,
+            'v4 htpasswd must be root:www-data with mode 0640.')
+    lines = AUTH_FILE.read_text().splitlines()
+    require(len(lines) >= 1
+            and all(re.fullmatch(r'[A-Za-z0-9_.-]{3,64}:\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}', line)
+                    for line in lines), 'v4 htpasswd must contain bcrypt account hashes only.')
 
 
 def command(args, timeout=90, cwd=None):
@@ -183,6 +199,7 @@ def main():
     require(digest(args.archive) == args.archive_sha256, 'Release archive hash differs.')
     require(digest(SITE) == args.site_sha256 and digest(RPC_SOURCE_UNIT) == args.rpc_unit_sha256,
             'Current nginx or RPC source unit differs from the reviewed read-only snapshot.')
+    require_console_auth_file()
     require(not V4_UNIT.exists() and not SNIPPET.exists()
             and not (RELEASES / args.release_id).exists(), 'v4 console is already installed.')
     with socket.socket() as listener_check:
@@ -240,6 +257,9 @@ def main():
                 'TimeoutStopSec=45\n\n[Install]\nWantedBy=multi-user.target\n')
         snippet = ('location = /pinkuang-deploy-v4 { return 308 /pinkuang-deploy-v4/; }\n'
                    'location ^~ /pinkuang-deploy-v4/ {\n'
+                   '    auth_basic "BEMine deployment";\n'
+                   f'    auth_basic_user_file {AUTH_FILE};\n'
+                   '    proxy_set_header Authorization "";\n'
                    '    proxy_pass http://127.0.0.1:4177/;\n'
                    '    proxy_http_version 1.1;\n'
                    '    proxy_set_header Host $host;\n'
@@ -285,12 +305,10 @@ def main():
         command(['systemctl', 'reload', 'nginx'])
         for _ in range(10):
             try:
-                check_https('/pinkuang-deploy-v4/', 200,
-                            (release / 'dist/index.html').read_bytes())
-                check_https('/pinkuang-deploy-v4/deployment-artifacts.json', 200,
-                            (release / 'dist/deployment-artifacts.json').read_bytes())
+                check_https('/pinkuang-deploy-v4/', 401)
+                check_https('/pinkuang-deploy-v4/deployment-artifacts.json', 401)
                 check_https('/pinkuang-deploy-v4/api/journal/build', 401)
-                check_https('/pinkuang-deploy-v4/upgrade.html', 404)
+                check_https('/pinkuang-deploy-v4/upgrade.html', 401)
                 check_https('/bemine-v4/', 404)
                 check_https('/bemine-v2/', 200)
                 break

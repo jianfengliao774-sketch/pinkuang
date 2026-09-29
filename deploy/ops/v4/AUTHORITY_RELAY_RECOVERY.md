@@ -42,7 +42,47 @@
     --acknowledge-replacement 0xORIGINAL_HASH --replacement-hash 0xFINALIZED_REPLACEMENT_HASH
   ```
 
-  工具保留完整原始签名交易到私有归档。仅看到 `pending` nonce 变化、交易池丢弃，或管理员签名过期，都**不能**释放钱包指针；如果同 nonce 仍空闲，服务继续保持人工复核停机态。新的取消交易需要单独设计和审核，这里不会自动重签或改变 nonce。
+  工具保留完整原始签名交易到私有归档。仅看到 `pending` nonce 变化、交易池丢弃，或管理员签名过期，都**不能**释放钱包指针；如果同 nonce 仍空闲，只能按下方独立、显式的过期签名取消流程处理。
 - 独占锁记录损坏：先确认 v4 服务进程已退出，再以 v4 服务用户运行 `PINKUANG_KEEPER_STATE_ROOT=/var/lib/pinkuang-v4-signer/keeper node scripts/authority-relay-lock-recovery.mjs --journal /var/lib/pinkuang-v4-signer/authority/authority.json`；钱包锁用 `--wallet 0x...`。正常的 `flock-v1` 旧记录无需恢复。工具先取得同一 inode 的内核锁，仅对已超过 60 秒、无活跃持有者的旧式或截断记录原地重建元数据，绝不删除锁文件；身份或活跃状态不明时保留原文件并停止。
+
+## 管理员签名过期且原交易已签未发
+
+`signed-admin-authorization-expired-review-required` 表示原始字节不能再安全广播。保持上述三个发送服务为 `inactive`，保留 journal 和钱包锁指针；用至少两个独立 BSC RPC 核对原哈希的交易与回执、钱包 `latest`/`pending` nonce、最新区块时间，以及私有 journal 中原 attempt 的 `broadcastCount`。如果另一笔同 nonce 交易**已经最终确定**，走上面的 `--acknowledge-replacement`。若 nonce 仍空闲，不得删除 journal、手工改 `phase`、把过期字节重播，或借另一个发送者抢占 nonce。
+
+只有原记录是唯一的 `phase=signed`、`kind=purchase`、`broadcastCount=0` attempt，且是带 deadline 的管理员签名动作，才能显式运行取消。`executeOperation` 没有管理员 deadline，不能使用。下列三个命令均由同一个受保护恢复入口启动；发送命令会使用原 systemd `LoadCredential`，持有同一个 journal 锁与 Gas 钱包锁，并再次检查三个发送服务。示例里的哈希与 Authority runtime codehash 必须从私有 journal 和独立部署证明核对，不能猜测。
+
+```sh
+BEMINE_V2_GAS_SENDER_DRAINED=1 \
+  /usr/bin/node /ABS/PATH/TO/v4/deploy/scripts/authority-relay-recovery.mjs \
+  --journal /var/lib/pinkuang-v4-signer/authority/authority.json \
+  --authority 0x... --expected-codehash 0x... --rpc https://YOUR_BSC_RPC \
+  --send --cancel-expired-signed --expected-hash 0xORIGINAL_HASH \
+  --max-gas-bnb 0.5 --max-gas-price-gwei 3
+```
+
+工具再次核对 chainId 56、链上最新时间严格超过签名 deadline、原交易与回执都不可见、`latest == pending == journal.nonce`、钱包代码为空、余额和累计 Gas 预算足够。它只签同 nonce、零值、空 data、21,000 Gas 的 type-0 自转账；Gas 价格至少等于原签名价格，且固定不得超过 3 gwei 或命令上限。取消 raw 和哈希作为第二个 attempt **先 fsync**；广播前再检查链状态并持久增加 `broadcastCount`。任何核验结果未知都保留 wallet hold，不能发新动作。一次命令只执行这一笔人工指明的取消，不开启自动重试。
+
+如果在签名持久化后崩溃，或广播 RPC 结果未知，先分别核查**原哈希和取消哈希**的交易与回执。只有两个哈希均不可见、nonce 仍空闲、签名仍过期及 EOA/费用核验继续通过时，才可人工重播 journal 中**同一取消 raw**；此命令从不重签或更改费用：
+
+```sh
+BEMINE_V2_GAS_SENDER_DRAINED=1 \
+  /usr/bin/node /ABS/PATH/TO/v4/deploy/scripts/authority-relay-recovery.mjs \
+  --journal /var/lib/pinkuang-v4-signer/authority/authority.json \
+  --authority 0x... --expected-codehash 0x... --rpc https://YOUR_BSC_RPC \
+  --send --rebroadcast-cancel --expected-hash 0xCANCEL_HASH \
+  --max-gas-bnb 0.5 --max-gas-price-gwei 3
+```
+
+取消成功后，用以下**不加载私钥、不广播**的动作触发原有两次确认、BSC finalized 与 Gas 入账，再重验规范区块、交易/回执与 21,000 Gas 空自转、原哈希无回执和 finalized nonce，归档两个原始签名字节并清理钱包指针：
+
+```sh
+BEMINE_V2_GAS_SENDER_DRAINED=1 \
+  /usr/bin/node /ABS/PATH/TO/v4/deploy/scripts/authority-relay-recovery.mjs \
+  --journal /var/lib/pinkuang-v4-signer/authority/authority.json \
+  --authority 0x... --expected-codehash 0x... --rpc https://YOUR_BSC_RPC \
+  --acknowledge-expired-cancel 0xORIGINAL_HASH --cancel-hash 0xCANCEL_HASH
+```
+
+若原交易先上链，`reconcilePending` 按实际胜出的回执结算；原交易回滚时用其哈希走 `--acknowledge-failure`，不能把它写成取消成功。取消回滚、两个回执冲突、RPC 看不到可能已广播的交易、重组或 Gas/身份不一致时保持人工复核锁，不自动签第三笔。未上线私有签名运行目录或未完成独立双 RPC 核查时，维持原 fail-closed 状态。
 
 新交易的 CLI 发送还必须显式提供经审核的 `--gas-limit`（1–10,000,000）；HTTP 中继已有按操作固定的上限。两条路径都不执行 `eth_estimateGas` 模拟。

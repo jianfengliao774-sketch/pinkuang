@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, statSync } from 'node:f
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress,
+import { Contract, FetchRequest, Interface, JsonRpcProvider, Transaction, Wallet, getAddress,
   keccak256, parseEther, parseUnits, verifyTypedData } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, gasBudget, KEEPER_STATE_ROOT, readJournal, reconcilePending, writeJournal } from './purchase-keeper.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
@@ -15,11 +15,14 @@ export const AUTHORITY_RECOVERY_UNIT = 'pinkuang-v4-authority-recovery.service';
 export const AUTHORITY_RECOVERY_SENDERS = Object.freeze([
   'pinkuang-purchase-v2.service', 'pinkuang-v4-signer.service', 'pinkuang-v4-purchase.service',
 ]);
+const CANCEL_GAS_LIMIT = 21_000n;
+const CANCEL_MAX_GAS_PRICE = 3_000_000_000n;
 
 /** Fail before touching a journal or lock if a mutating CLI has the wrong isolation domain. */
 export function requireAuthorityCliIsolation(options, env = process.env, keeperStateRoot = KEEPER_STATE_ROOT,
   now = Date.now()) {
-  if (!options.send && !options.acknowledgeFailure && !options.acknowledgeReplacement) return;
+  if (!options.send && !options.acknowledgeFailure && !options.acknowledgeReplacement
+    && !options.acknowledgeExpiredCancel) return;
   if (env.PINKUANG_KEEPER_STATE_ROOT !== V4_KEEPER_STATE_ROOT
     || keeperStateRoot !== V4_KEEPER_STATE_ROOT
     || options.journal !== V4_AUTHORITY_JOURNAL
@@ -195,17 +198,23 @@ export function parseAuthorityArguments(args) {
   const values = {};
   const keys = new Set(['command', 'journal', 'rpc', 'max-gas-bnb', 'max-gas-price-gwei',
     'gas-limit', 'expected-hash', 'acknowledge-failure', 'acknowledge-replacement',
-    'replacement-hash', 'authority', 'expected-codehash']);
+    'replacement-hash', 'acknowledge-expired-cancel', 'cancel-hash',
+    'authority', 'expected-codehash']);
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i].startsWith('--') ? args[i].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[i]}`);
-    if (['send', 'help', 'rebroadcast-signed'].includes(key)) values[key] = true;
+    if (['send', 'help', 'rebroadcast-signed', 'cancel-expired-signed', 'rebroadcast-cancel'].includes(key)) values[key] = true;
     else if (keys.has(key) && args[i + 1] && !args[i + 1].startsWith('--')) values[key] = args[++i];
     else throw new Error(`Unknown option or missing value: --${key}`);
   }
   if (values.help) return { help: true };
+  const recoveryActions = [values['rebroadcast-signed'], values['cancel-expired-signed'],
+    values['rebroadcast-cancel'], values['acknowledge-failure'], values['acknowledge-replacement'],
+    values['acknowledge-expired-cancel']].filter(Boolean);
+  if (recoveryActions.length > 1) throw new Error('Choose exactly one Authority recovery action.');
   const recovery = Boolean(values['rebroadcast-signed'] || values['acknowledge-failure']
-    || values['acknowledge-replacement']);
+    || values['acknowledge-replacement'] || values['cancel-expired-signed']
+    || values['rebroadcast-cancel'] || values['acknowledge-expired-cancel']);
   if (!values.command && !recovery) throw new Error('--command is required.');
   if (!values.command && (!/^0x[0-9a-f]{40}$/i.test(values.authority ?? '')
     || !/^0x[0-9a-f]{64}$/i.test(values['expected-codehash'] ?? '')))
@@ -218,13 +227,26 @@ export function parseAuthorityArguments(args) {
     || !/^0x[0-9a-f]{64}$/i.test(values['acknowledge-replacement'])
     || !/^0x[0-9a-f]{64}$/i.test(values['replacement-hash'] ?? '')))
     throw new Error('Replacement acknowledgement requires a private journal and exact original and replacement hashes.');
+  if (values['acknowledge-expired-cancel'] && (!values.journal || values.send
+    || !/^0x[0-9a-f]{64}$/i.test(values['acknowledge-expired-cancel'])
+    || !/^0x[0-9a-f]{64}$/i.test(values['cancel-hash'] ?? '')))
+    throw new Error('Cancellation acknowledgement requires a private journal and exact original and cancel hashes.');
   if (values['replacement-hash'] && !values['acknowledge-replacement'])
     throw new Error('--replacement-hash requires --acknowledge-replacement.');
-  if (values.send && !values['rebroadcast-signed'] && !values['gas-limit'])
+  if (values['cancel-hash'] && !values['acknowledge-expired-cancel'])
+    throw new Error('--cancel-hash requires --acknowledge-expired-cancel.');
+  if (values.send && !values['rebroadcast-signed'] && !values['cancel-expired-signed']
+    && !values['rebroadcast-cancel'] && !values['gas-limit'])
     throw new Error('New Authority sends require an explicit reviewed --gas-limit; no simulation is performed.');
   if (values['rebroadcast-signed'] && (!values.send || !/^0x[0-9a-f]{64}$/i.test(values['expected-hash'] ?? '')))
     throw new Error('Manual rebroadcast requires --send and the exact --expected-hash.');
-  if (values['expected-hash'] && !values['rebroadcast-signed']) throw new Error('--expected-hash requires --rebroadcast-signed.');
+  if ((values['cancel-expired-signed'] || values['rebroadcast-cancel'])
+    && (!values.send || !values.journal || !/^0x[0-9a-f]{64}$/i.test(values['expected-hash'] ?? '')
+      || values['gas-limit'] !== undefined))
+    throw new Error('Expired Authority cancellation requires --send, a private journal, exact --expected-hash and fixed Gas limit.');
+  if (values['expected-hash'] && !values['rebroadcast-signed']
+    && !values['cancel-expired-signed'] && !values['rebroadcast-cancel'])
+    throw new Error('--expected-hash requires a hash-pinned send recovery action.');
   const gasLimit = values['gas-limit'] === undefined ? undefined : BigInt(values['gas-limit']);
   if (gasLimit !== undefined && (gasLimit <= 0n || gasLimit > 10_000_000n))
     throw new Error('--gas-limit must be 1–10,000,000.');
@@ -242,14 +264,18 @@ export function parseAuthorityArguments(args) {
     rpc, send: values.send === true, maxGasWei, maxGasPrice,
     gasLimit, rebroadcastSigned: values['rebroadcast-signed'] === true,
     expectedHash: values['expected-hash']?.toLowerCase(),
+    cancelExpiredSigned: values['cancel-expired-signed'] === true,
+    rebroadcastCancel: values['rebroadcast-cancel'] === true,
     acknowledgeFailure: values['acknowledge-failure']?.toLowerCase(),
     acknowledgeReplacement: values['acknowledge-replacement']?.toLowerCase(),
-    replacementHash: values['replacement-hash']?.toLowerCase() };
+    replacementHash: values['replacement-hash']?.toLowerCase(),
+    acknowledgeExpiredCancel: values['acknowledge-expired-cancel']?.toLowerCase(),
+    cancelHash: values['cancel-hash']?.toLowerCase() };
 }
 
 export async function acknowledgeFinalizedAuthorityFailure(provider, options, journal) {
   const tx = journal.transaction;
-  if (tx?.phase !== 'reverted'
+  if (!['reverted', 'cancel-reverted'].includes(tx?.phase)
     || !options.acknowledgeFailure || tx.hash.toLowerCase() !== options.acknowledgeFailure
     || tx.finality !== 'bsc-finalized' || !journal.gasReceipts?.[tx.hash])
     throw new Error('Only the exact finalized failed Authority transaction can be manually acknowledged.');
@@ -335,6 +361,66 @@ export async function acknowledgeFinalizedAuthorityReplacement(provider, options
     message: 'A different transaction finalized at this wallet nonce. Original signed bytes remain archived; no transaction was signed or sent.' };
 }
 
+/** Archive only the exact locally signed, finalized EOA self-transfer. A
+ * pending nonce change or an unseen original receipt cannot clear the lock. */
+export async function acknowledgeFinalizedExpiredCancel(provider, options, journal) {
+  const tx = journal.transaction, original = tx?.attempts?.[0], cancel = tx?.attempts?.[1];
+  if (!tx || tx.phase !== 'cancelled' || tx.finality !== 'bsc-finalized'
+    || tx.attempts?.length !== 2 || tx.speedUps !== 1
+    || original?.kind !== 'purchase' || original.broadcastCount !== 0
+    || cancel?.kind !== 'cancel' || tx.hash?.toLowerCase() !== options.cancelHash
+    || original.hash?.toLowerCase() !== options.acknowledgeExpiredCancel
+    || cancel.hash?.toLowerCase() !== options.cancelHash
+    || journal.gasReceipts?.[cancel.hash] !== tx.gasCostWei)
+    throw new Error('Only the exact finalized expired-signature cancellation can be acknowledged.');
+  const signed = verifiedCancelAttempt(tx, cancel);
+  const [network, transaction, receipt, originalReceipt, finalized, head] = await Promise.all([
+    provider.getNetwork(), provider.getTransaction(cancel.hash), provider.getTransactionReceipt(cancel.hash),
+    provider.getTransactionReceipt(original.hash), provider.getBlock('finalized'), provider.getBlockNumber(),
+  ]);
+  if (network.chainId !== 56n || !transaction || !receipt || originalReceipt || !finalized
+    || !Number.isSafeInteger(finalized.number) || !Number.isSafeInteger(head)
+    || transaction.hash?.toLowerCase() !== cancel.hash.toLowerCase()
+    || receipt.hash?.toLowerCase() !== cancel.hash.toLowerCase()
+    || !same(transaction.from, tx.from) || !same(transaction.to, tx.from)
+    || !same(receipt.from, tx.from) || !same(receipt.to, tx.from)
+    || transaction.chainId !== 56n || transaction.type !== 0 || transaction.nonce !== tx.nonce
+    || transaction.data !== '0x' || transaction.value !== 0n
+    || transaction.gasLimit !== CANCEL_GAS_LIMIT || transaction.gasPrice !== signed.gasPrice
+    || receipt.status !== 1 || receipt.gasUsed !== CANCEL_GAS_LIMIT
+    || receipt.blockNumber !== tx.blockNumber || receipt.blockHash?.toLowerCase() !== tx.blockHash?.toLowerCase()
+    || transaction.blockNumber !== receipt.blockNumber
+    || transaction.blockHash?.toLowerCase() !== receipt.blockHash?.toLowerCase()
+    || head - receipt.blockNumber + 1 < 2 || finalized.number < receipt.blockNumber)
+    throw new Error('Cancellation has no exact canonical BSC-finalized EOA self-transfer; retain review hold.');
+  const [canonical, finalizedNonce] = await Promise.all([
+    provider.getBlock(receipt.blockNumber), provider.getTransactionCount(tx.from, finalized.number),
+  ]);
+  const originalCall = abi.parseTransaction({ data: tx.data });
+  const deadline = originalCall && originalCall.name === tx.kind && tx.kind !== 'executeOperation'
+    ? BigInt(originalCall.args[originalCall.args.length - 2]) : null;
+  if (!canonical || canonical.hash?.toLowerCase() !== receipt.blockHash.toLowerCase()
+    || !Number.isSafeInteger(canonical.timestamp) || deadline === null
+    || BigInt(canonical.timestamp) <= deadline
+    || !Number.isSafeInteger(finalizedNonce) || finalizedNonce <= tx.nonce)
+    throw new Error('Cancellation block or finalized wallet nonce is not canonical; retain review hold.');
+  const gasCost = receipt.fee ?? receipt.gasUsed * receipt.gasPrice;
+  if (typeof gasCost !== 'bigint' || gasCost.toString() !== tx.gasCostWei)
+    throw new Error('Cancellation Gas receipt differs from the private ledger; retain review hold.');
+  const history = journal.reviewedAuthorityCancels ?? [];
+  if (!Array.isArray(history) || history.length >= 100)
+    throw new Error('Cancellation archive is full or malformed; retain review hold.');
+  history.push({ original: tx, cancelHash: cancel.hash, cancelBlockNumber: receipt.blockNumber,
+    cancelBlockHash: receipt.blockHash, finalizedBlockNumber: finalized.number,
+    acknowledgedAt: new Date().toISOString() });
+  journal.reviewedAuthorityCancels = history;
+  journal.previousTransaction = tx;
+  journal.transaction = null;
+  writeJournal(options.journal, journal);
+  return { status: 'expired-cancel-acknowledged', originalHash: original.hash, cancelHash: cancel.hash,
+    message: 'The exact finalized inert cancellation is archived. No transaction was signed or broadcast.' };
+}
+
 export async function manuallyRebroadcastSigned(provider, options, signer, prepared, journal, pendingResult) {
   const pending = journal.transaction, attempt = pending?.attempts?.[0];
   if (pendingResult?.status !== 'pending-not-indexed' || pending?.phase !== 'signed'
@@ -381,6 +467,135 @@ export async function manuallyRebroadcastSigned(provider, options, signer, prepa
   }
 }
 
+function expiredSignedAuthority(journal, prepared, originalHash) {
+  const tx = journal.transaction, original = tx?.attempts?.[0];
+  if (!tx || tx.phase !== 'signed' || tx.attempts?.length !== 1 || tx.speedUps !== 0
+    || original?.kind !== 'purchase' || original.broadcastCount !== 0
+    || tx.hash?.toLowerCase() !== originalHash || original.hash?.toLowerCase() !== originalHash
+    || tx.kind === 'executeOperation' || tx.kind !== prepared.kind
+    || !same(tx.to, prepared.authority) || tx.data.toLowerCase() !== prepared.data.toLowerCase())
+    throw new Error('Cancellation requires the exact sole signed, never-broadcast administrator transaction.');
+  const signed = Transaction.from(original.raw);
+  if (!signed.isSigned() || signed.type !== 0 || signed.chainId !== 56n
+    || !same(signed.from, tx.from) || !same(signed.to, tx.to)
+    || signed.nonce !== tx.nonce || signed.data.toLowerCase() !== tx.data.toLowerCase()
+    || signed.value !== 0n || signed.hash.toLowerCase() !== originalHash
+    || keccak256(original.raw).toLowerCase() !== originalHash
+    || signed.gasPrice?.toString() !== original.gasPrice
+    || signed.gasLimit.toString() !== original.gasLimit)
+    throw new Error('Original Authority signed bytes differ from the private journal.');
+  return { tx, original };
+}
+
+function verifiedCancelAttempt(tx, attempt) {
+  const signed = Transaction.from(attempt.raw);
+  if (attempt.kind !== 'cancel' || !signed.isSigned() || signed.type !== 0
+    || signed.chainId !== 56n || !same(signed.from, tx.from) || !same(signed.to, tx.from)
+    || signed.nonce !== tx.nonce || signed.data !== '0x' || signed.value !== 0n
+    || signed.gasLimit !== CANCEL_GAS_LIMIT || signed.gasPrice?.toString() !== attempt.gasPrice
+    || signed.gasPrice > CANCEL_MAX_GAS_PRICE || attempt.gasLimit !== CANCEL_GAS_LIMIT.toString()
+    || signed.hash.toLowerCase() !== attempt.hash.toLowerCase()
+    || keccak256(attempt.raw).toLowerCase() !== attempt.hash.toLowerCase())
+    throw new Error('Cancellation signed bytes are not the fixed empty EOA self-transfer.');
+  return signed;
+}
+
+async function cancelPreflight(provider, options, signer, prepared, journal, originalHash, cancelHash = null) {
+  const tx = journal.transaction;
+  const encoded = abi.parseTransaction({ data: tx.data });
+  if (!encoded || encoded.name !== tx.kind || tx.kind === 'executeOperation')
+    throw new Error('Only an expired administrator-signed Authority call can be cancelled here.');
+  const deadline = BigInt(encoded.args[encoded.args.length - 2]);
+  const [network, latest, pending, block, code, balance, originalTx, originalReceipt,
+    cancelTx, cancelReceipt] = await Promise.all([
+    provider.getNetwork(), provider.getTransactionCount(signer.address, 'latest'),
+    provider.getTransactionCount(signer.address, 'pending'), provider.getBlock('latest'),
+    provider.getCode(signer.address), provider.getBalance(signer.address),
+    provider.getTransaction(originalHash), provider.getTransactionReceipt(originalHash),
+    cancelHash ? provider.getTransaction(cancelHash) : Promise.resolve(null),
+    cancelHash ? provider.getTransactionReceipt(cancelHash) : Promise.resolve(null),
+  ]);
+  if (network.chainId !== 56n || latest !== tx.nonce || pending !== tx.nonce
+    || !block || !Number.isSafeInteger(block.timestamp) || BigInt(block.timestamp) <= deadline
+    || code !== '0x' || originalTx || originalReceipt || cancelTx || cancelReceipt
+    || !same(signer.address, tx.from) || !same(prepared.authority, tx.to))
+    throw new Error('Authority cancel chain, expiry, EOA, nonce or transaction absence is unproved; retain the hold.');
+  return { balance };
+}
+
+async function broadcastAuthorityCancel(provider, options, journal, attempt) {
+  const tx = journal.transaction;
+  if (!Number.isSafeInteger(attempt.broadcastCount) || attempt.broadcastCount < 0)
+    throw new Error('Cancellation broadcast history is malformed.');
+  attempt.broadcastCount += 1;
+  attempt.lastBroadcastAt = new Date().toISOString();
+  writeJournal(options.journal, journal);
+  try {
+    const sent = await provider.broadcastTransaction(attempt.raw);
+    if (sent.hash?.toLowerCase() !== attempt.hash.toLowerCase())
+      throw new Error('RPC returned another transaction hash.');
+    tx.phase = 'broadcast'; writeJournal(options.journal, journal);
+    return { status: 'cancel-broadcast', originalHash: tx.attempts[0].hash, cancelHash: attempt.hash };
+  } catch {
+    return { status: 'cancel-broadcast-result-unknown', originalHash: tx.attempts[0].hash,
+      cancelHash: attempt.hash,
+      message: 'Only these two durable hashes may be reconciled. Do not sign a third transaction.' };
+  }
+}
+
+/** Explicitly sign one inert same-nonce transaction after the administrator
+ * deadline has passed on chain. The private wrapper holds both locks and
+ * excludes all other senders; this function never runs from HTTP. */
+export async function cancelExpiredSignedAuthority(provider, options, signer, prepared, journal, pendingResult) {
+  if (pendingResult?.status !== 'pending-not-indexed' || !options.expectedHash)
+    throw new Error('Cancellation requires an unindexed, hash-pinned original transaction.');
+  const { tx, original } = expiredSignedAuthority(journal, prepared, options.expectedHash);
+  if (!same(signer.address, tx.from)) throw new Error('Gas credential differs from the signed journal.');
+  const { balance } = await cancelPreflight(provider, options, signer, prepared, journal, original.hash);
+  const fee = await provider.getFeeData();
+  if (!fee.gasPrice || fee.gasPrice <= 0n)
+    throw new Error('A current BSC Gas price is unavailable; retain the hold.');
+  const gasPrice = fee.gasPrice > BigInt(original.gasPrice) ? fee.gasPrice : BigInt(original.gasPrice);
+  if (gasPrice > CANCEL_MAX_GAS_PRICE || gasPrice > options.maxGasPrice)
+    throw new Error('Cancellation Gas price exceeds the fixed or operator-reviewed ceiling.');
+  const budget = gasBudget(journal, CANCEL_GAS_LIMIT, gasPrice, options.maxGasWei);
+  if (!budget.allowed || balance < budget.reservedFee)
+    throw new Error('Cancellation and original Gas exposure exceed budget or wallet balance.');
+  const raw = await signer.signTransaction({ type: 0, chainId: 56, to: tx.from, data: '0x',
+    value: 0n, nonce: tx.nonce, gasLimit: CANCEL_GAS_LIMIT, gasPrice });
+  const attempt = { kind: 'cancel', raw, hash: keccak256(raw).toLowerCase(),
+    gasLimit: CANCEL_GAS_LIMIT.toString(), gasPrice: gasPrice.toString(),
+    createdAt: new Date().toISOString(), broadcastCount: 0 };
+  verifiedCancelAttempt(tx, attempt);
+  tx.attempts.push(attempt); tx.speedUps = 1; tx.hash = attempt.hash;
+  writeJournal(options.journal, journal);
+  // After a crash here, only --rebroadcast-cancel may send this exact raw.
+  await cancelPreflight(provider, options, signer, prepared, journal, original.hash, attempt.hash);
+  return broadcastAuthorityCancel(provider, options, journal, attempt);
+}
+
+/** A prior uncertain RPC may have sent the exact bytes; repeating those bytes
+ * cannot authorize a new action or nonce. Never re-sign on this path. */
+export async function manuallyRebroadcastAuthorityCancel(provider, options, signer, prepared, journal, pendingResult) {
+  const tx = journal.transaction, original = tx?.attempts?.[0], attempt = tx?.attempts?.[1];
+  if (pendingResult?.status !== 'pending-not-indexed' || !tx
+    || !['signed', 'broadcast'].includes(tx.phase) || tx.attempts?.length !== 2
+    || tx.speedUps !== 1 || original?.kind !== 'purchase' || original.broadcastCount !== 0
+    || attempt?.kind !== 'cancel' || tx.hash?.toLowerCase() !== options.expectedHash
+    || attempt.hash?.toLowerCase() !== options.expectedHash
+    || tx.kind === 'executeOperation' || tx.kind !== prepared.kind
+    || !same(tx.to, prepared.authority) || tx.data.toLowerCase() !== prepared.data.toLowerCase()
+    || !same(signer.address, tx.from))
+    throw new Error('Cancel rebroadcast requires the exact durable two-attempt Authority journal.');
+  verifiedCancelAttempt(tx, attempt);
+  const { balance } = await cancelPreflight(provider, options, signer, prepared, journal,
+    original.hash, attempt.hash);
+  const budget = gasBudget(journal, CANCEL_GAS_LIMIT, BigInt(attempt.gasPrice), options.maxGasWei);
+  if (BigInt(attempt.gasPrice) > options.maxGasPrice || !budget.allowed || balance < budget.reservedFee)
+    throw new Error('Cancellation Gas exposure exceeds budget or wallet balance.');
+  return broadcastAuthorityCancel(provider, options, journal, attempt);
+}
+
 export async function runAuthorityRelay(provider, options, signer = null) {
   const command = options.commandObject ?? (options.command ? JSON.parse(readFileSync(options.command, 'utf8')) : null);
   const prepared = command ? prepareAuthorityCall(command) : {
@@ -393,10 +608,14 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   if (command && options.recoveryCodehash && prepared.expectedCodehash?.toLowerCase() !== options.recoveryCodehash)
     throw new Error('Recovery codehash differs from the command.');
   if ((await provider.getNetwork()).chainId !== 56n) throw new Error('Authority relay only supports BSC mainnet.');
-  if (options.acknowledgeFailure || options.acknowledgeReplacement) {
+  if (options.acknowledgeFailure || options.acknowledgeReplacement || options.acknowledgeExpiredCancel) {
     const journalOptions = { factory: prepared.authority, pool: prepared.authority,
       transactionTarget: prepared.authority, journal: options.journal };
     const journal = readJournal(options.journal, journalOptions);
+    if (options.acknowledgeExpiredCancel) {
+      await reconcilePending(provider, journalOptions, journal);
+      return acknowledgeFinalizedExpiredCancel(provider, options, journal);
+    }
     return options.acknowledgeFailure
       ? acknowledgeFinalizedAuthorityFailure(provider, options, journal)
       : acknowledgeFinalizedAuthorityReplacement(provider, options, journal);
@@ -413,7 +632,7 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     journal = readJournal(options.journal, journalOptions);
     if (journal.transaction && !same(journal.transaction.from, signer.address)) throw new Error('Journal belongs to another Gas wallet.');
     pendingResult = await reconcilePending(provider, journalOptions, journal);
-    if (options.rebroadcastSigned && !command) {
+    if ((options.rebroadcastSigned || options.cancelExpiredSigned || options.rebroadcastCancel) && !command) {
       if (!journal.transaction) throw new Error('No signed Authority transaction remains to rebroadcast.');
       const recovered = prepareAuthorityCall(authorityCommandFromCalldata(
         prepared.authority, journal.transaction.data));
@@ -422,7 +641,8 @@ export async function runAuthorityRelay(provider, options, signer = null) {
         throw new Error('Durable Authority operation differs from its signed journal.');
       Object.assign(prepared, recovered, { expectedCodehash: options.recoveryCodehash });
     }
-    if (pendingResult && !options.rebroadcastSigned) return {
+    if (pendingResult && !options.rebroadcastSigned && !options.cancelExpiredSigned
+      && !options.rebroadcastCancel) return {
       status: journal.transaction?.phase === 'signed'
         && journal.transaction.attempts?.[0]?.broadcastCount === 0
         && pendingResult.status === 'pending-not-indexed' ? 'signed-awaiting-manual-broadcast'
@@ -440,6 +660,17 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     }
   }
   const authority = new Contract(prepared.authority, abi, provider);
+  if (options.cancelExpiredSigned || options.rebroadcastCancel) {
+    const [code, gasWallet] = await Promise.all([
+      provider.getCode(prepared.authority), authority.gasWallet(),
+    ]);
+    if (code === '0x' || keccak256(code).toLowerCase() !== prepared.expectedCodehash.toLowerCase()
+      || !signer || !same(signer.address, gasWallet))
+      throw new Error('Reviewed Authority runtime or Gas credential changed; retain recovery hold.');
+    return options.cancelExpiredSigned
+      ? cancelExpiredSignedAuthority(provider, options, signer, prepared, journal, pendingResult)
+      : manuallyRebroadcastAuthorityCancel(provider, options, signer, prepared, journal, pendingResult);
+  }
   const [code, first, second, gasWallet] = await Promise.all([
     provider.getCode(prepared.authority), authority.administratorOne(), authority.administratorTwo(), authority.gasWallet(),
   ]);
@@ -511,12 +742,14 @@ export async function main(args = process.argv.slice(2)) {
     console.log('Authority relay: node scripts/authority-relay.mjs --command /private/action.json --journal /private/authority.json [--send --gas-limit N].\n' +
       'Default read-only. Mutating recovery requires the pre-launch wrapper, v4 private state root and dedicated systemd transient unit; send mode requires a systemd keeper-private-key credential.\n' +
       'Manual recovery: --send --rebroadcast-signed --expected-hash 0x... sends only the exact durable signed bytes. A missing original command can be replaced with --authority and --expected-codehash.\n' +
-      'After BSC-finalized proof, --acknowledge-failure 0x... or --acknowledge-replacement 0x... --replacement-hash 0x... archives the hold without sending.\n' +
+      'Expired signed admin approval: --send --cancel-expired-signed --expected-hash ORIGINAL signs one bounded inert self-transfer; --send --rebroadcast-cancel --expected-hash CANCEL replays only its durable bytes.\n' +
+      'After BSC-finalized proof, --acknowledge-expired-cancel ORIGINAL --cancel-hash CANCEL archives this cancellation; --acknowledge-failure or --acknowledge-replacement handles other cases.\n' +
       'Only use command files from a private operator-controlled directory; admin signatures never grant arbitrary targets.');
     return;
   }
   requireAuthorityCliIsolation(options);
-  if (options.send || options.acknowledgeFailure || options.acknowledgeReplacement) {
+  if (options.send || options.acknowledgeFailure || options.acknowledgeReplacement
+    || options.acknowledgeExpiredCancel) {
     requireAuthorityRecoveryUnit();
     requireAuthorityRecoverySendersStopped();
     requireAuthorityPrivatePaths();
@@ -546,6 +779,15 @@ export async function main(args = process.argv.slice(2)) {
         writeJournal(options.journal, readJournal(options.journal,
           { factory: command.authority, pool: command.authority, transactionTarget: command.authority }));
       }
+    } else if (options.acknowledgeExpiredCancel) {
+      const recoveryAuthority = options.recoveryAuthority
+        ?? prepareAuthorityCall(JSON.parse(readFileSync(options.command, 'utf8'))).authority;
+      const privateJournal = readJournal(options.journal, {
+        factory: recoveryAuthority, pool: recoveryAuthority, transactionTarget: recoveryAuthority,
+      });
+      if (!privateJournal.transaction?.from)
+        throw new Error('Cancellation archive requires the existing private Authority transaction.');
+      releaseWallet = acquireWalletLock(privateJournal.transaction.from, options.journal);
     }
     console.log(JSON.stringify(await runAuthorityRelay(provider, options, signer)));
   } finally { releaseWallet?.(); releaseJournal(); }

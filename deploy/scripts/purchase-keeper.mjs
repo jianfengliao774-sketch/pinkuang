@@ -577,6 +577,7 @@ export async function reconcilePending(provider, options, journal) {
   const pendingSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(pending.createdAt)) / 1000));
   const info = { hashes: attempts.map(attempt => attempt.hash), hash: pending.hash ?? attempts[0].hash, pendingSeconds,
     overdue: pendingSeconds >= (options.pendingSeconds ?? 120), speedUps: pending.speedUps ?? 0,
+    phase: pending.phase, broadcastCount: attempts.at(-1)?.broadcastCount ?? pending.broadcastCount ?? 0,
     message: 'No automatic resend or fee increase. Explicit --rebroadcast sends identical bytes; --speed-up replaces only this purchase at the same nonce.' };
   const observations = await Promise.all(attempts.map(async attempt => {
     if (attempt.raw) validateSignedAttempt(attempt, pending, options);

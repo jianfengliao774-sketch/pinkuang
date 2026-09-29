@@ -10,11 +10,18 @@ const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function all
 const POOL_ABI = ['function state() view returns(uint8)'];
 const serial = value => JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item);
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
-export const needsOperatorReview = status => /review-required|manual-review|unknown|pending-not-indexed|(?:nonce|chain)-changed/.test(status ?? '');
+export const needsOperatorReview = result => {
+  const status = typeof result === 'string' ? result : result?.status;
+  // A just-broadcast transaction may be invisible to another RPC backend for
+  // a few seconds. Preserve its nonce reservation and try again next cycle.
+  if (status === 'pending-not-indexed') return result?.overdue === true
+    || result?.phase === 'signed' && result?.broadcastCount === 0;
+  return /review-required|manual-review|unknown|(?:nonce|chain)-changed/.test(status ?? '');
+};
 export const stopsOtherPurchases = (send, journal, result) => Boolean(send
-  && (unresolved(journal) || needsOperatorReview(result.status)));
+  && (unresolved(journal) || needsOperatorReview(result)));
 export function reportOperatorReview(results, log = console.error) {
-  const review = results.find(item => needsOperatorReview(item.status));
+  const review = results.find(item => needsOperatorReview(item));
   if (!review) return false;
   log(serial({ at: new Date().toISOString(), status: 'operator-review-required', pool: review.pool,
     reason: review.status, message: 'No automatic rebroadcast. Inspect the durable journal before resuming.' }));

@@ -53,7 +53,9 @@ export function createRequestLimiter({ windowMs = 60_000, perClient, maxClients 
   };
 }
 
-/** Bounded quota for an already authenticated identity, independent of its IP. */
+/** Bounded quota for an already authenticated identity, independent of its IP.
+ * Once full, refuse new identities until the window rolls over rather than
+ * evicting an existing identity and resetting its quota. */
 export function createKeyedLimiter({ windowMs = 60_000, perKey, maxKeys = 10_000, now = Date.now }) {
   if (![windowMs, perKey, maxKeys].every(value => Number.isSafeInteger(value) && value > 0))
     throw new Error('Invalid keyed limiter configuration.');
@@ -65,7 +67,7 @@ export function createKeyedLimiter({ windowMs = 60_000, perKey, maxKeys = 10_000
     if (current !== window) { window = current; counts.clear(); }
     const count = counts.get(key) ?? 0;
     if (count >= perKey) return false;
-    if (count === 0 && counts.size >= maxKeys) counts.delete(counts.keys().next().value);
+    if (count === 0 && counts.size >= maxKeys) return false;
     if (count > 0) counts.delete(key);
     counts.set(key, count + 1);
     return true;

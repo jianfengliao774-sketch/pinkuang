@@ -19,16 +19,13 @@ interface IDesignatedSubscriberFactory {
     function designatedSubscriber(address pool) external view returns (address);
 }
 
-interface IPortfolioAuthorityFactory {
-    function budgetFactory() external view returns (address);
-}
-
 interface IRegisteredPortfolioFactory {
     function legacyFactory() external view returns (address);
     function isPool(address portfolio) external view returns (bool);
 }
 
 interface IReviewedPortfolio {
+    function OFFICIAL_FACTORY() external view returns (address);
     function childSaleReview(uint256 proposalId) external view returns (uint8);
     function proposals(uint256 proposalId)
         external
@@ -72,6 +69,12 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         mapping(address => mapping(uint256 => SaleReview)) saleReviews;
     }
 
+    /// @custom:storage-location erc7201:tapeout.storage.ShareMarket.BudgetFactories
+    struct BudgetFactoryStorage {
+        mapping(address => bool) trusted;
+        bool bootstrapComplete;
+    }
+
     struct SaleReference {
         uint128 marketPriceWei;
         uint64 observedAt;
@@ -88,10 +91,14 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     event SaleReviewed(
         address indexed pool, uint256 indexed proposalId, uint128 priceWei, bool approved, address indexed operator
     );
+    event BudgetFactoryTrustChanged(address indexed budgetFactory, bool trusted);
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.ShareMarket")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant MARKET_STORAGE_LOCATION =
         0xdc32f7bcb40b3d9a2ce544bcf40b4e14e3c57b64d5c4c2258289bd394f08cf00;
+    // keccak256(abi.encode(uint256(keccak256("tapeout.storage.ShareMarket.BudgetFactories")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant BUDGET_FACTORY_STORAGE_LOCATION =
+        0x9d989f24ce882a033d4af40b7a8c18dabf40f7ff64f9daf3687be7c89c33d500;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -198,6 +205,45 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         return _marketStorage().factory;
     }
 
+    /// @notice Bind the integrated deployment's budget Factory in the same atomic genesis transaction.
+    /// @dev The coordinator must be the CREATE nonce-3 creator of this market's
+    /// core Factory. Its CREATE nonce-5 budget Factory must already exist and
+    /// point back to that core Factory. A separate deployment cannot self-register.
+    function bootstrapBudgetFactory() external {
+        MarketStorage storage s = _marketStorage();
+        BudgetFactoryStorage storage b = _budgetFactoryStorage();
+        address predictedCore = address(uint160(uint256(keccak256(abi.encodePacked(hex"d694", msg.sender, hex"03")))));
+        address budgetFactory = address(uint160(uint256(keccak256(abi.encodePacked(hex"d694", msg.sender, hex"05")))));
+        if (
+            b.bootstrapComplete || predictedCore != s.factory || budgetFactory.code.length == 0
+                || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory
+        ) revert InvalidSaleReference();
+        b.bootstrapComplete = true;
+        b.trusted[budgetFactory] = true;
+        emit BudgetFactoryTrustChanged(budgetFactory, true);
+    }
+
+    /// @notice Only the 48-hour Timelock may authorize a registered portfolio factory.
+    /// @dev A separate namespace leaves every existing market storage slot unchanged.
+    function setBudgetFactoryTrust(address budgetFactory, bool trusted) external {
+        MarketStorage storage s = _marketStorage();
+        if (msg.sender != s.timelock) revert Unauthorized();
+        if (budgetFactory == address(0)) revert InvalidSaleReference();
+        if (
+            trusted
+                && (budgetFactory.code.length == 0
+                    || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory)
+        ) {
+            revert InvalidSaleReference();
+        }
+        _budgetFactoryStorage().trusted[budgetFactory] = trusted;
+        emit BudgetFactoryTrustChanged(budgetFactory, trusted);
+    }
+
+    function budgetFactoryTrusted(address budgetFactory) external view returns (bool) {
+        return _budgetFactoryStorage().trusted[budgetFactory];
+    }
+
     /// @notice Operator attests Firsto reference daily price × verified daily BEM for one miner.
     /// @dev The digest identifies evidence, but BSC cannot independently verify a website API.
     function setSaleReference(address pool, uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest) external {
@@ -246,11 +292,11 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
                 || IDesignatedSubscriberFactory(s.factory).designatedSubscriber(pool) != msg.sender
                 || s.saleReviews[pool][proposalId].status == 2
         ) revert InvalidSaleReference();
-        address operator = IShareMarketFactory(s.factory).operator();
-        if (operator.code.length == 0) revert InvalidSaleReference();
-        address budgetFactory = IPortfolioAuthorityFactory(operator).budgetFactory();
+        if (msg.sender.code.length == 0) revert InvalidSaleReference();
+        address budgetFactory = IReviewedPortfolio(msg.sender).OFFICIAL_FACTORY();
         if (
-            budgetFactory.code.length == 0 || !IRegisteredPortfolioFactory(budgetFactory).isPool(msg.sender)
+            !_budgetFactoryStorage().trusted[budgetFactory]
+                || !IRegisteredPortfolioFactory(budgetFactory).isPool(msg.sender)
                 || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory
                 || IReviewedPortfolio(msg.sender).childSaleReview(projectProposalId) != 1
         ) revert InvalidSaleReference();
@@ -340,6 +386,12 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     function _marketStorage() private pure returns (MarketStorage storage s) {
         assembly {
             s.slot := MARKET_STORAGE_LOCATION
+        }
+    }
+
+    function _budgetFactoryStorage() private pure returns (BudgetFactoryStorage storage s) {
+        assembly {
+            s.slot := BUDGET_FACTORY_STORAGE_LOCATION
         }
     }
 }

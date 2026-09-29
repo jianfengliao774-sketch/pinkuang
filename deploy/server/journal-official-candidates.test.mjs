@@ -90,8 +90,8 @@ async function fixture({ discovery = async (_rpc, options) =>
   const server = createServer((req, res) => service.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
-  return { state, provider, async get(route) {
-    const response = await fetch(base + route);
+  return { state, provider, async get(route, client) {
+    const response = await fetch(base + route, client ? { headers: { 'X-Real-IP': client } } : undefined);
     return { status: response.status, body: await response.json(), cacheControl: response.headers.get('cache-control') };
   }, async close() {
     await new Promise(resolve => server.close(resolve));
@@ -106,7 +106,8 @@ test('a reviewed integrated-v2 genesis permits official discovery without an upg
     const result=await current.get(path(10));assert.equal(result.status,200);
     assert.equal(result.body.complete,true);assert.equal(current.state.activity.graphs,1);
     current.state.graphValid=false;
-    assert.equal((await current.get(path(11))).status,503,'integrated kind never replaces the pinned graph verification');
+    assert.equal((await current.get(path(11), '198.51.100.2')).status,503,
+      'integrated kind never replaces the pinned graph verification');
   } finally { await current.close(); }
   const legacy=await fixture({trustedKind:'legacy'});
   try { assert.equal((await legacy.get(path(10))).status,503);assert.equal(legacy.state.activity.graphs,0); }
@@ -159,15 +160,16 @@ test('query, graph, membership, deadline and model failures never return a compl
     for (const invalid of ['/api/journal/official-candidates', `${path(10)}&x=1`,
       `/api/journal/official-candidates?pool=${pool}&block=010&hash=${hash(10)}`])
       assert.equal((await f.get(invalid)).status, 400);
-    assert.equal((await f.get(`/api/journal/official-candidates?pool=${pool}&block=10&hash=${hash(11)}`)).status, 409);
+    assert.equal((await f.get(`/api/journal/official-candidates?pool=${pool}&block=10&hash=${hash(11)}`,
+      '198.51.100.1')).status, 409);
     f.state.graphValid = false;
-    assert.equal((await f.get(path(10))).status, 503);
+    assert.equal((await f.get(path(10), '198.51.100.2')).status, 503);
     f.state.graphValid = true; f.state.registered = false;
-    assert.equal((await f.get(path(10))).status, 409);
+    assert.equal((await f.get(path(10), '198.51.100.3')).status, 409);
     f.state.registered = true; f.state.timestamp = 2000;
-    assert.equal((await f.get(path(10))).status, 409);
+    assert.equal((await f.get(path(10), '198.51.100.4')).status, 409);
     f.state.timestamp = 1000; f.state.referenceId = 78n;
-    assert.equal((await f.get(path(10))).status, 503);
+    assert.equal((await f.get(path(10), '198.51.100.5')).status, 503);
   } finally { await f.close(); }
 });
 
@@ -192,7 +194,7 @@ test('snapshot failure, incomplete result and mid-scan reorg fail closed', async
     assert.equal((await pending).status, 409);
     f.state.blockHashes.set(10, hash(10));
     mode = 'success';
-    assert.equal((await f.get(path(10))).status, 200);
+    assert.equal((await f.get(path(10), '198.51.100.2')).status, 200);
   } finally { await f.close(); }
 });
 
@@ -247,32 +249,63 @@ test('timed-out HTTP scans retain slots until bounded RPC work settles, then sca
         reject(Error('bounded RPC timeout'));
       }, 100)) });
   try {
-    const first = f.get(path(10)), second = f.get(path(11));
+    const first = f.get(path(10), '198.51.100.1'), second = f.get(path(11), '198.51.100.2');
     assert.equal((await first).status, 503);
     assert.equal((await second).status, 503);
     time += 4_000; // Allow a third distinct graph proof; the two scans still own both slots.
-    assert.equal((await f.get(path(12))).status, 503);
+    assert.equal((await f.get(path(12), '198.51.100.3')).status, 503);
     await settled;
     mode = 'success';
-    assert.equal((await f.get(path(12))).status, 200);
+    assert.equal((await f.get(path(12), '198.51.100.3')).status, 200);
   } finally { await f.close(); }
 });
 
-test('anonymous rate budget rejects before any RPC and refills without losing the short cache', async () => {
+test('one anonymous client cannot drain the shared request budget with a cached candidate', async () => {
   let time = 100_000, scans = 0;
   const f = await fixture({ now: () => time, discovery: async (_rpc, options) => {
     scans += 1;
     return { complete: true, chainBlock: options.blockNumber, candidates: [] };
   } });
   try {
-    for (let i = 0; i < 6; i += 1) assert.equal((await f.get(path(10))).status, 200);
+    for (let i = 0; i < 3; i += 1) assert.equal((await f.get(path(10), '198.51.100.1')).status, 200);
     assert.equal(scans, 1);
     const before = { ...f.state.activity };
-    assert.equal((await f.get(path(10))).status, 429);
+    assert.equal((await f.get(path(10), '198.51.100.1')).status, 429);
+    assert.deepEqual(f.state.activity, before);
+    assert.equal((await f.get(path(10), '198.51.100.2')).status, 200,
+      'another visitor can use the shared reserve');
+    time += 1_000;
+    assert.equal((await f.get(path(10), '198.51.100.1')).status, 200);
+    assert.equal(scans, 1);
+  } finally { await f.close(); }
+});
+
+test('distributed candidate reads remain bound by the process-wide request budget', async () => {
+  let time = 100_000;
+  const f = await fixture({ now: () => time });
+  try {
+    for (let i = 1; i <= 6; i += 1)
+      assert.equal((await f.get(path(10), `198.51.100.${i}`)).status, 200);
+    const before = { ...f.state.activity };
+    assert.equal((await f.get(path(10), '198.51.100.7')).status, 429);
     assert.deepEqual(f.state.activity, before);
     time += 500;
-    assert.equal((await f.get(path(10))).status, 200);
-    assert.equal(scans, 1);
+    assert.equal((await f.get(path(10), '198.51.100.7')).status, 200);
+  } finally { await f.close(); }
+});
+
+test('throttled async caller cannot create a failed shared job for another client', async () => {
+  const f = await fixture();
+  try {
+    for (let i = 0; i < 3; i += 1)
+      assert.equal((await f.get(path(10), '198.51.100.1')).status, 200);
+    const before = { ...f.state.activity };
+    assert.equal((await f.get(path(11) + '&async=1', '198.51.100.1')).status, 429);
+    assert.deepEqual(f.state.activity, before);
+    const other = await f.get(path(11) + '&async=1', '198.51.100.2');
+    assert.equal(other.status, 200);
+    assert.equal(other.body.complete, true);
+    assert.equal(f.state.activity.graphs, 2);
   } finally { await f.close(); }
 });
 
@@ -283,14 +316,14 @@ test('global scan slots cap distinct blocks at two while same-block callers shar
     releases.push(() => resolve({ complete: true, chainBlock: options.blockNumber, candidates: [] }));
   }) });
   try {
-    const first = f.get(path(10));
+    const first = f.get(path(10), '198.51.100.1');
     for (let i = 0; releases.length < 1 && i < 100; i += 1) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(releases.length, 1);
-    const shared = f.get(path(10)), second = f.get(path(11));
+    const shared = f.get(path(10), '198.51.100.1'), second = f.get(path(11), '198.51.100.2');
     for (let i = 0; releases.length < 2 && i < 100; i += 1) await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(releases.length, 2);
     time += 4_000; // Refill the independent graph budget so the scan limit is reached.
-    assert.equal((await f.get(path(12))).status, 503);
+    assert.equal((await f.get(path(12), '198.51.100.3')).status, 503);
     releases.forEach(release => release());
     assert.equal((await first).status, 200);
     assert.equal((await shared).status, 200);
@@ -315,21 +348,45 @@ test('bogus pool identity is rejected before any full product graph proof', asyn
   } finally { await f.close(); }
 });
 
-test('distinct recent blocks consume a separate graph-proof budget while cache hits remain free', async () => {
+test('real registered pools at distinct recent blocks cannot exhaust graph proofs from one client', async () => {
   let time = 100_000;
   const f = await fixture({ now: () => time });
   try {
-    assert.equal((await f.get(path(10))).status, 200);
-    assert.equal((await f.get(path(11))).status, 200);
+    assert.equal((await f.get(path(10), '198.51.100.1')).status, 200);
+    assert.equal((await f.get(path(11), '198.51.100.1')).status, 429);
+    assert.equal(f.state.activity.graphs, 1);
+    assert.equal((await f.get(path(11), '198.51.100.2')).status, 200,
+      'a distinct visitor can use the remaining global proof token');
     assert.equal(f.state.activity.graphs, 2);
-    assert.equal((await f.get(path(12))).status, 429);
+    assert.equal((await f.get(path(12), '198.51.100.3')).status, 429);
     assert.equal(f.state.activity.graphs, 2, 'third distinct block must not start a graph proof');
-    assert.equal((await f.get(path(10))).status, 200);
+    time += 1_000;
+    assert.equal((await f.get(path(10), '198.51.100.1')).status, 200);
     assert.equal(f.state.activity.graphs, 2, 'cached proof must not consume the exhausted proof budget');
-    time += 4_000;
-    assert.equal((await f.get(path(12))).status, 200);
+    time += 7_000;
+    assert.equal((await f.get(path(12), '198.51.100.1')).status, 200);
     assert.equal(f.state.activity.graphs, 3);
   } finally { await f.close(); }
+});
+
+test('one client cannot occupy both graph slots while another client can prove a distinct block', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture({ graphWork: () => gate });
+  try {
+    const first = f.get(path(10), '198.51.100.1');
+    for (let i = 0; f.state.activity.graphs < 1 && i < 100; i += 1)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(f.state.activity.graphs, 1);
+    assert.equal((await f.get(path(11), '198.51.100.1')).status, 503);
+    const second = f.get(path(11), '198.51.100.2');
+    for (let i = 0; f.state.activity.graphs < 2 && i < 100; i += 1)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(f.state.activity.graphs, 2);
+    release();
+    assert.equal((await first).status, 200);
+    assert.equal((await second).status, 200);
+  } finally { release(); await f.close(); }
 });
 
 test('graph proof is coalesced before candidate discovery and expires after five seconds', async () => {
@@ -348,7 +405,7 @@ test('graph proof is coalesced before candidate discovery and expires after five
     assert.equal((await shared).status, 200);
     assert.equal((await f.get(path(10))).status, 200);
     assert.equal(f.state.activity.graphs, 1, 'completed proof stays cached briefly');
-    time += 5_001;
+    time += 8_001;
     assert.equal((await f.get(path(10))).status, 200);
     assert.equal(f.state.activity.graphs, 2, 'expired proof must be recomputed');
   } finally { release(); await f.close(); }
@@ -365,7 +422,8 @@ test('historical and future block probes stop before graph verification, includi
     assert.equal((await f.get(path(10))).status, 200, '120 blocks old is the boundary');
     assert.equal(f.state.activity.graphs, 1);
     f.state.head = 131;
-    assert.equal((await f.get(path(10))).status, 409, 'a cached graph does not authorize an aged block');
+    assert.equal((await f.get(path(10), '198.51.100.2')).status, 409,
+      'a cached graph does not authorize an aged block');
     assert.equal(f.state.activity.graphs, 1);
   } finally { await f.close(); }
 });

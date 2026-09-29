@@ -217,7 +217,9 @@ test('unknown winner, unfinalized receipt, reorg, pending nonce and changed role
   state.wrongImplLatest=true;await assert.rejects(run(),/proof failed/);state.wrongImplLatest=false;
   state.wrongImplCodeLatest=true;await assert.rejects(run(),/proof failed/);state.wrongImplCodeLatest=false;
   state.wrongAuthorityLatest=true;await assert.rejects(run(),/proof failed/);state.wrongAuthorityLatest=false;
-  state.forkParent=true;await assert.rejects(run(),/proof failed/);
+  // A changed finalized receipt block is a real canonical-chain conflict;
+  // changing only a mock parentHash without changing its block hash is not.
+  state.receiptHash=hash('e');await assert.rejects(run(),/proof failed/);
 });
 
 test('first Authority creation cannot retry if its predicted address has code',async()=>{
@@ -323,7 +325,7 @@ test('an archived same-nonce winner is checked again before another signature',a
     store.putFreshActivation(hardware,f.record,0);
     const recovered=store.recoverFinalizedFreshAttempt(hardware,1,proof).record;
     await verifyRecoveredFreshSigning(provider,recovered,f.genesis,hardware,f.bundle);
-    state.forkParent=true;
+    state.receiptHash=hash('e');
     await assert.rejects(()=>verifyRecoveredFreshSigning(provider,recovered,f.genesis,hardware,f.bundle),/proof failed/);
   } finally {store.close();rmSync(dir,{recursive:true,force:true});}
 });
@@ -413,11 +415,13 @@ test('two archived winners from separate forks cannot share a signing proof',asy
   } finally {store.close();rmSync(dir,{recursive:true,force:true});}
 });
 
-test('long pause crosses 4096-header checkpoint without skipping a parent edge',async()=>{
+test('a finalized attempt can be recovered after more than one million blocks with bounded RPC reads',async()=>{
   const f=fixture(2),base=chain(f,f,2).provider;
-  const far=4220;
+  const far=1_100_120;
+  let blockReads=0;
   const provider={...base,
     getBlock:async tag=>{
+      blockReads++;
       const number=tag==='finalized'?far:tag==='latest'?far+1:tag;
       if(number<=127)return base.getBlock(number);
       return {number,hash:blockHash(number),parentHash:blockHash(number-1)};
@@ -427,9 +431,10 @@ test('long pause crosses 4096-header checkpoint without skipping a parent edge',
   const proof=await verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
     'coreTreasury',8,f.winnerHash,f.bundle);
   assert.equal(proof.finalizedBlockNumber,far);
+  assert(blockReads<100,`expected bounded anchor checks, observed ${blockReads} block reads`);
   const broken={...provider,getBlock:async tag=>{
     const block=await provider.getBlock(tag);
-    return tag===125?{...block,parentHash:hash('e')}:block;
+    return tag===120?{...block,hash:hash('e')}:block;
   }};
   await assert.rejects(()=>verifyFinalizedFreshAttempt(broken,f.record,f.genesis,hardware,
     'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);

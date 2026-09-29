@@ -33,9 +33,20 @@ function verifiedSource(result, manifest) {
     && Number.isSafeInteger(source.indexedThrough) && Number.isSafeInteger(source.indexedTimestamp);
 }
 
+/** A verified source does not prove that an older build cached the expected list shape. */
+export function displayListSnapshot(result) {
+  return result && Array.isArray(result.items) ? result : null;
+}
+
 /** Cached values are never current transaction evidence, even when their original read was. */
-export function displayOnlySnapshot(result, manifest, verifiedAt) {
+export function displayOnlySnapshot(result, manifest, verifiedAt, now = Date.now()) {
   if (!verifiedSource(result, manifest) || !Number.isSafeInteger(verifiedAt)) return null;
+  if (result?.catalog && !Array.isArray(result.catalog.items)) return null;
+  if (result && 'items' in result && !Array.isArray(result.items)) return null;
+  const original = result?.detail?.source ?? result?.catalog?.source ?? result?.source;
+  if (original?.readMode === 'verified_snapshot'
+    && (Date.parse(original.checkedAt) > now + 30_000
+      || now - Date.parse(original.checkedAt) > 30 * 60_000)) return null;
   const mark = source => source ? { ...source, readMode: 'verified_snapshot', stale: true,
     transactionReady: false, refreshing: true, cacheOrigin: 'local',
     checkedAt: source.readMode === 'verified_snapshot' ? source.checkedAt : new Date(verifiedAt).toISOString() } : source;
@@ -58,8 +69,8 @@ export function readDisplaySnapshot(storage, manifest, page, { now = Date.now(),
       || now - record.savedAt > maxAgeMs || !verifiedSource(record.result, manifest)
       || source?.readMode === 'verified_snapshot' && (Date.parse(source.checkedAt) > now + 30_000
         || now - Date.parse(source.checkedAt) > 30 * 60 * 1000)) return null;
-    return displayOnlySnapshot(record.result, manifest, source?.readMode === 'verified_snapshot'
-      ? Date.parse(source.checkedAt) : record.savedAt);
+  return displayOnlySnapshot(record.result, manifest, source?.readMode === 'verified_snapshot'
+      ? Date.parse(source.checkedAt) : record.savedAt, now);
   } catch { return null; }
 }
 

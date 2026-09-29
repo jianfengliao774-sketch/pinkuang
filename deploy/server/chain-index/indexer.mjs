@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { notificationPage } from './notifications.mjs';
 
@@ -57,6 +58,12 @@ const indexedEvents = Object.freeze({
 const topicSets = Object.freeze(Object.fromEntries(Object.entries(interfaces).map(([kind, iface]) =>
   [kind, iface.fragments.filter(fragment => fragment.type === 'event' && indexedEvents[kind].has(fragment.name))
     .map(fragment => fragment.topicHash)])));
+// The database cursor is only valid for the exact set of indexed event topics.
+// A newly indexed event must replay old blocks instead of silently losing its
+// history when an existing database is opened by a newer runtime.
+const eventSchema = createHash('sha256').update(JSON.stringify(Object.entries(topicSets)
+  .sort(([left],[right])=>left.localeCompare(right))
+  .map(([kind,topics])=>[kind,[...topics].sort()]))).digest('hex');
 
 const exactAddress = value => {
   const address = getAddress(value);
@@ -126,13 +133,28 @@ export class ChainIndex {
       this.db.exec('ALTER TABLE verified_display_snapshot ADD COLUMN orders TEXT');
     const priorIdentity = JSON.stringify({ version: this.portfolioFactory ? 2 : 1, chainId: 56, factory: this.factory, market: this.market,
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),startBlock: this.startBlock });
-    const identity = this.portfolioFactory
+    const baseIdentity = this.portfolioFactory
       ? JSON.stringify({ ...JSON.parse(priorIdentity), reservationMode: this.reservationMode }) : priorIdentity;
+    const identity = JSON.stringify({ ...JSON.parse(baseIdentity), eventSchema });
     const saved = this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('identity');
     if (saved && saved.value !== identity) {
-      if (saved.value === priorIdentity && this.reservationMode === 'legacy')
-        this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
-      else { this.db.close(); throw new Error('Index database belongs to a different deployment or reservation mode.'); }
+      let previous;
+      try { previous = JSON.parse(saved.value); } catch { /* Invalid identity must fail closed. */ }
+      const withoutSchema = previous && { ...previous };
+      if (withoutSchema) delete withoutSchema.eventSchema;
+      const compatible = JSON.stringify(withoutSchema) === baseIdentity
+        || this.reservationMode === 'legacy' && JSON.stringify(withoutSchema) === priorIdentity;
+      if (!compatible) { this.db.close(); throw new Error('Index database belongs to a different deployment or reservation mode.'); }
+      if (previous.eventSchema !== eventSchema) {
+        this.db.exec('BEGIN IMMEDIATE');
+        try {
+          for (const table of ['logs','pools','portfolios','portfolio_children','headers','verified_display_snapshot'])
+            this.db.exec(`DELETE FROM ${table}`);
+          this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(this.startBlock - 1),'indexedThrough');
+          this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
+          this.db.exec('COMMIT');
+        } catch (error) { this.db.exec('ROLLBACK'); this.db.close(); throw error; }
+      } else this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
     }
     const legacyReservationSchema = !this.db.prepare('PRAGMA table_info(pools)').all()
       .some(column => column.name === 'designated_subscriber');
@@ -160,6 +182,7 @@ export class ChainIndex {
     // scanning the full history on every new safe head.
     this.statsGeneration = 0;
     this.snapshotTrusted = false;
+    this.lastSnapshotError = null;
     this.verifiedReadView = null;
   }
 
@@ -373,7 +396,10 @@ export class ChainIndex {
       for (let offset=0;offset<parents.length;offset+=CHILD_COUNT_READ_CONCURRENCY) {
         const batch=parents.slice(offset,offset+CHILD_COUNT_READ_CONCURRENCY);
         const reads=await Promise.allSettled(batch.map(row=>this._call(row.address,'childCount',[],blockNumber)));
-        if (reads.some((read,i)=>read.status==='rejected' || read.value!==BigInt(batch[i].child_count)))
+        // An unavailable RPC is not evidence of missing historical events.
+        // Keep the last verified display view while the provider recovers.
+        if (reads.some(read=>read.status==='rejected')) throw new Error('Budget child count read failed.');
+        if (reads.some((read,i)=>read.value!==BigInt(batch[i].child_count)))
           throw new Error('Event history is incomplete for budget child miners.');
       }
     }
@@ -400,6 +426,26 @@ export class ChainIndex {
     this._retireVerifiedReadView(true);
     this.statsGeneration++;
     this.cachedStats = null;
+  }
+
+  _restartHistoryAfterIncompleteProof() {
+    // A log-serving RPC may have returned an empty but successful response.
+    // Once a later same-block count proves history incomplete, replay from the
+    // deployment anchor exactly once. The marker survives process restarts so
+    // an upstream that keeps omitting logs cannot cause an endless rebuild.
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const table of ['logs','pools','portfolios','portfolio_children','headers','verified_display_snapshot'])
+        this.db.exec(`DELETE FROM ${table}`);
+      this._setIndexedThrough(this.startBlock - 1);
+      this.db.prepare("UPDATE metadata SET value='attempted' WHERE key='historyRepair'").run();
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    this.ready = false;
+    this.snapshotTrusted = false;
+    this._retireVerifiedReadView(true);
+    this.cachedStats = null;
+    this.statsGeneration++;
   }
 
   async _reconcile() {
@@ -577,6 +623,11 @@ export class ChainIndex {
     let stage = 'latest_header';
     this.lastScanPhase = null;
     try {
+      if (this.db.prepare("SELECT value FROM metadata WHERE key='historyRepair'").get()?.value === 'pending') {
+        stage = 'history_rebuild';
+        this._restartHistoryAfterIncompleteProof();
+        stage = 'latest_header';
+      }
       // Save the last fully verified tip before the first RPC. If even the
       // latest-header read fails, display-only history can still be served.
       // Never use this view to authorize notifications or transactions.
@@ -624,8 +675,20 @@ export class ChainIndex {
       this.lastError = null;
       this.checkedAt = new Date().toISOString();
       this.ready = this.indexedThrough === safeHead;
+      if (this.ready) this.db.prepare("DELETE FROM metadata WHERE key='historyRepair'").run();
       stage = 'snapshot';
-      if (this.ready) this._captureVerifiedSnapshot();
+      if (this.ready) {
+        try {
+          this._captureVerifiedSnapshot();
+          this.lastSnapshotError = null;
+        } catch {
+          // This is a derived, display-only copy. A serialization or directory
+          // error must not invalidate the already verified authoritative index.
+          this.snapshotTrusted = false;
+          this.lastSnapshotError = 'snapshot_failed';
+          this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+        }
+      }
       this.lastFailureStage = null;
       return this.status();
     } catch (error) {
@@ -640,6 +703,10 @@ export class ChainIndex {
           ].includes(error.message)
             ? 'invalid_binding' : error instanceof Error && error.message === 'RPC safe head regressed below the indexed tip.'
               ? 'rpc_lagging' : 'sync_failed';
+      if (this.lastError === 'incomplete_history' && stage === 'history_complete'
+        && !this.db.prepare("SELECT value FROM metadata WHERE key='historyRepair'").get()) {
+        this.db.prepare("INSERT INTO metadata(key,value) VALUES('historyRepair','pending')").run();
+      }
       this.checkedAt = new Date().toISOString();
       throw error;
     } finally {

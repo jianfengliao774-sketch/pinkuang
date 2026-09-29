@@ -163,6 +163,11 @@ def nginx_text():
     proxy_connect_timeout 5s;
     proxy_read_timeout 30s;'''
     return ('''location = /bemine-v2 { return 308 /bemine-v2/; }
+# The active product uses the shared v2 backend, not its deployment journal.
+location = /bemine-v2/api/journal/deployment { return 410; }
+location ^~ /bemine-v2/api/journal/deployment/ { return 410; }
+location = /bemine-v2/api/journal/fresh-activation { return 410; }
+location ^~ /bemine-v2/api/journal/fresh-activation/ { return 410; }
 location ^~ /bemine-v2/api/ {
     proxy_pass http://127.0.0.1:4174/api/;
     proxy_cookie_path /api/journal /bemine-v2/api/journal;

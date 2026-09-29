@@ -8,12 +8,11 @@ import {
 } from './deployment';
 import { deploymentManifest, type DeploymentManifest } from './manifest';
 import type { ServerJournal } from './server-journal';
+import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
 
-export const FRESH_ADMIN_ONE = getAddress('0x7674fa446D42b1f7f150DC5e678cc525d275Ea53');
-export const FRESH_ADMIN_TWO = getAddress('0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb');
-// Public address chosen for the fresh Authority. The v4 sender remains disabled
-// until the active v2 sender has drained or both share one nonce coordinator.
-export const FRESH_GAS_WALLET = getAddress('0xA285d1933e32b5990625aC1F5BEa205Cf2606619');
+export { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
+// The v4 sender remains disabled until the active v2 sender has drained or
+// both share one nonce coordinator.
 export function validatedFreshGasWallet(raw: string, hardwareWallet: string): string {
   if (!/^0x[\da-fA-F]{40}$/.test(raw.trim())) throw new Error('请填写 Gas 钱包完整的 42 字符公开地址；不要输入私钥。');
   const address = getAddress(raw.trim());
@@ -102,6 +101,7 @@ export interface FreshActivationEvidence {
   schemaVersion: 1;
   kind: 'fresh-authority';
   chainId: 56;
+  deployer: string;
   deploymentId: string;
   genesisArtifactDigest: string;
   authority: { address: string; deploymentTxHash: string; administratorOne: string;
@@ -156,6 +156,7 @@ export function activationEvidence(record: FreshActivationRecord): FreshActivati
       blockNumber: step.receipt.blockNumber, blockHash: step.receipt.blockHash };
   });
   return { schemaVersion: 1, kind: 'fresh-authority', chainId: 56,
+    deployer: getAddress(record.account),
     deploymentId: record.deploymentId, genesisArtifactDigest: record.genesisArtifactDigest,
     authority: { address: record.authorityAddress, deploymentTxHash: steps[0].txHash,
       administratorOne: record.administratorOne, administratorTwo: record.administratorTwo,
@@ -163,6 +164,7 @@ export function activationEvidence(record: FreshActivationRecord): FreshActivati
 }
 
 export interface ActivatedDeploymentManifest extends DeploymentManifest {
+  verifiedBlockHash: string;
   authority: string;
   gasWallet: string;
   freshAuthority: {
@@ -179,7 +181,8 @@ export interface ActivatedDeploymentManifest extends DeploymentManifest {
 export function activatedDeploymentManifest(base: DeploymentManifest,
   evidence: FreshActivationEvidence, authorityCodehash: string): ActivatedDeploymentManifest {
   requireThat(base.kind === 'integrated-v2' && base.artifactDigest === evidence.genesisArtifactDigest
-    && base.chainId === evidence.chainId && ADDRESS.test(evidence.authority.address)
+    && base.chainId === evidence.chainId && ADDRESS.test(evidence.deployer)
+    && ADDRESS.test(evidence.authority.address)
     && HASH.test(authorityCodehash) && evidence.steps.length === FRESH_ACTIVATION_STEPS.length
     && evidence.steps.every((step, index) => step.id === FRESH_ACTIVATION_STEPS[index]
       && HASH.test(step.txHash) && HASH.test(step.blockHash)
@@ -196,6 +199,7 @@ export function activatedDeploymentManifest(base: DeploymentManifest,
     },
     verifiedAt: evidence.verifiedAt,
     verifiedBlockNumber: evidence.steps.at(-1)!.blockNumber,
+    verifiedBlockHash: evidence.steps.at(-1)!.blockHash,
   };
 }
 
@@ -279,6 +283,16 @@ export class FreshActivationEngine {
     }
   }
 
+  private async requireCanonicalFinalizedBlock(number: number, hash: string,
+    finalized: { number: number; hash: string | null }) {
+    requireThat(Number.isSafeInteger(number) && number >= 0 && HASH.test(hash)
+      && finalized.hash && HASH.test(finalized.hash) && number <= finalized.number,
+    '归档区块尚未最终确认或哈希未知；停止签名。');
+    const block = number === finalized.number ? finalized : await this.provider.getBlock(number);
+    requireThat(block?.number === number && block.hash?.toLowerCase() === hash.toLowerCase(),
+      '归档区块不在当前最终确认链上；停止签名。');
+  }
+
   private async verifyPinnedState(record: FreshActivationRecord, completed: number) {
     await this.account();
     // A finalized anchor proves the completed prefix; checking the current
@@ -305,10 +319,11 @@ export class FreshActivationEngine {
       if (!attempt.replacementHash) requireThat(tx.to === (planned.to ?? null)
         && tx.value === 0n && keccak256(tx.data) === attempt.dataHash,
       '归档失败交易不是原计划动作。');
-      await this.proveAncestor(receipt.blockNumber, receipt.blockHash,
-        {number:attempt.recovery.finalizedBlockNumber,hash:attempt.recovery.finalizedBlockHash});
-      await this.proveAncestor(attempt.recovery.finalizedBlockNumber,
+      requireThat(receipt.blockNumber <= attempt.recovery.finalizedBlockNumber,
+        '归档时的最终确认高度早于获胜交易。');
+      await this.requireCanonicalFinalizedBlock(attempt.recovery.finalizedBlockNumber,
         attempt.recovery.finalizedBlockHash, finalized);
+      await this.requireCanonicalFinalizedBlock(receipt.blockNumber, receipt.blockHash, finalized);
       if (step.id === 'deployAuthority') {
         const predicted = getCreateAddress({from:record.account,nonce:attempt.nonce});
         requireThat(await this.provider.getCode(predicted,finalized.number) === '0x'
@@ -669,7 +684,7 @@ export class FreshActivationEngine {
           && tx.value === 0n && keccak256(tx.data) === step.dataHash),
       '失败尝试的原动作或链上交易数据与当前构建不一致。');
       const proofBlock = await this.verifyPinnedState(record, index);
-      await this.proveAncestor(receipt.blockNumber,receipt.blockHash,proofBlock);
+      await this.requireCanonicalFinalizedBlock(receipt.blockNumber,receipt.blockHash,proofBlock);
       if (index === 0) {
         const predicted = getCreateAddress({from:record.account,nonce:step.nonce});
         requireThat(!record.authorityAddress

@@ -533,6 +533,57 @@ test('one busy client cannot occupy every upstream slot or block another client 
   assert.deepEqual(await Promise.all([first, queued].map(async request => (await request).status)), [200, 200]);
 });
 
+test('one client hits its queue cap before consuming the global waiting room',async t=>{
+  let releaseFirst,started;
+  const gate=new Promise(resolve=>{releaseFirst=resolve;});
+  const firstStarted=new Promise(resolve=>{started=resolve;});
+  const f=await fixture(t,{maxConcurrent:1,maxConcurrentPerClient:1,maxQueued:4,maxQueuedPerClient:2,
+    upstream:async(_url,init)=>{
+      const request=JSON.parse(init.body);
+      if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+      if(request.id===1){started();await gate;}
+      return json({jsonrpc:'2.0',id:request.id,result:'0x10'});
+    }});
+  const from=(id,ip)=>f.post({...rpc('eth_blockNumber'),id},'/api/rpc',
+    {headers:{'content-type':'application/json','x-real-ip':ip}});
+  const first=from(1,'203.0.113.1');await firstStarted;
+  const queued=[from(2,'203.0.113.1'),from(3,'203.0.113.1')];
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal((await from(4,'203.0.113.1')).status,429);
+  const other=from(5,'203.0.113.2');
+  releaseFirst();
+  assert.deepEqual(await Promise.all([first,...queued,other].map(async request=>(await request).status)),[200,200,200,200]);
+});
+
+test('two saturated clients cannot prevent a third visitor from getting a prompt queue slot',async t=>{
+  let releaseActive,startedCount=0,startBoth;
+  const gate=new Promise(resolve=>{releaseActive=resolve;});
+  const bothStarted=new Promise(resolve=>{startBoth=resolve;});
+  const served=[];
+  const f=await fixture(t,{maxConcurrent:2,maxConcurrentPerClient:1,maxQueued:4,maxQueuedPerClient:2,
+    upstream:async(_url,init)=>{
+      const request=JSON.parse(init.body);
+      if(request.method==='eth_chainId')return json({jsonrpc:'2.0',id:request.id,result:'0x38'});
+      served.push(request.id);
+      if(request.id===1||request.id===2){if(++startedCount===2)startBoth();await gate;}
+      return json({jsonrpc:'2.0',id:request.id,result:'0x10'});
+    }});
+  const from=(id,ip)=>f.post({...rpc('eth_blockNumber'),id},'/api/rpc',
+    {headers:{'content-type':'application/json','x-real-ip':ip}});
+  const active=[from(1,'203.0.113.1'),from(2,'203.0.113.2')];await bothStarted;
+  const waiting=[from(3,'203.0.113.1'),from(4,'203.0.113.1'),
+    from(5,'203.0.113.2'),from(6,'203.0.113.2')];
+  await new Promise(resolve=>setTimeout(resolve,10));
+  const newcomer=from(7,'203.0.113.3');
+  await new Promise(resolve=>setTimeout(resolve,10));
+  releaseActive();
+  assert.equal((await newcomer).status,200,'the newcomer must not inherit the two saturated queues');
+  const statuses=await Promise.all([...active,...waiting].map(async request=>(await request).status));
+  assert.equal(statuses.filter(status=>status===429).length,1,'one duplicate waiter makes room for the newcomer');
+  assert(statuses.every(status=>status===200||status===429));
+  assert(served.indexOf(7)<4,`round-robin dispatch delayed visitor 7 behind ${served}`);
+});
+
 test('default queue admits one portfolio page burst without unbounded upstream concurrency', async t => {
   let releaseReads, active = 0, peak = 0;
   const gate = new Promise(resolve => { releaseReads = resolve; });

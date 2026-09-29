@@ -1,7 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
-import { displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayListSnapshot, displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
@@ -74,6 +74,7 @@ import {
   sendProductTransaction,
   recoverPending,
   cancelPendingNonce,
+  retryLegacyEnvelope,
   abandonPrepared,
 } from "../lib/live-transactions.mjs";
 import { prepareProductAction } from "../lib/live-actions.mjs";
@@ -98,6 +99,8 @@ import {
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const minimumSharePriceWei = 10000000000000n;
 const displayStorage = () => { try { return window.localStorage; } catch { return null; } };
+const readPageSnapshot = (storage, manifest, page) => readDisplaySnapshot(storage, manifest, page,
+  process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4' ? { maxAgeMs: 30 * 60_000 } : {});
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
   process.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL,
 );
@@ -233,6 +236,7 @@ export default function LivePlatform() {
     [stats, setStats] = useState(null),
     [detail, setDetail] = useState(null),
     [governance, setGovernance] = useState(null),
+    [governanceProof, setGovernanceProof] = useState(null),
     [members, setMembers] = useState([]),
     [membersRead, setMembersRead] = useState({ status: "idle" }),
     [orders, setOrders] = useState([]),
@@ -307,7 +311,7 @@ export default function LivePlatform() {
     walletEpoch = useRef(0),
     activeModal = useRef(null);
   const lastPageRefresh = useRef(new Map());
-  const prebootShown = useRef(new Set());
+  const fastSnapshotRetries = useRef(new Map());
   const portfolioRead = useRef({ busy: false, failed: false });
   const capacityDisplay = useRef({ pools: {}, orders: {} });
   const refreshState = useRef(null);
@@ -315,7 +319,7 @@ export default function LivePlatform() {
     setPools([]); setPoolCursor(null); setDetail(null); setDetailPreview(null);
     setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     setOrders([]); setOrderCursor(null); setActivity([]); setActivityCursor(null);
-    setGovernance(null); setYieldData(null); setMarketCredit(null); setNotificationClaim(null);
+    setGovernance(null); setGovernanceProof(null); setYieldData(null); setMarketCredit(null); setNotificationClaim(null);
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
@@ -487,7 +491,10 @@ export default function LivePlatform() {
     const activeRoute = parseProductRoute(location.hash);
     if (activeRoute.route !== route.route || activeRoute.pool !== route.pool) return;
     const pageKey = pageDisplayKey(route, null, marketTab);
-    if (prebootShown.current.has(pageKey)) return;
+    // Route changes can precede product boot. Clear the previous route even
+    // when this one has no local page to restore.
+    setPools([]); setPoolCursor(null); setDetail(null); setSource(null);
+    setCachedPage(false); setLoadedRoute('');
     try {
       const freshV4 = process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4';
       const pinned = freshV4
@@ -498,7 +505,6 @@ export default function LivePlatform() {
       if (!cached?.catalog && !cached?.detail) return;
       const visiblePools = cached.catalog?.items.map(viewPool);
       const visibleDetail = cached.detail ? viewPool(cached.detail.item) : null;
-      prebootShown.current.add(pageKey);
       if (visiblePools) { setPools(visiblePools); setPoolCursor(cached.catalog.nextCursor); }
       if (visibleDetail) setDetail(visibleDetail);
       setSource(cached.detail?.source ?? cached.catalog?.source);
@@ -509,7 +515,12 @@ export default function LivePlatform() {
   useEffect(() => {
     let cancelled = false;
     let retryTimer;
+    let pollTimer;
     let shown = false;
+    let currentReady = false;
+    let pending = false;
+    let staleExpiresAt = null;
+    let expiredCleared = false;
     setBoot({ status: "loading" });
     setClient(null);
     setError("");
@@ -517,6 +528,8 @@ export default function LivePlatform() {
       if (attempt < 3) retryTimer = setTimeout(() => void load(attempt + 1), 2_500);
     };
     const load = async (attempt = 0) => {
+      if (cancelled || pending || currentReady) return;
+      pending = true;
       try {
         const result = await loadProductConfig({ basePath });
         if (cancelled) return;
@@ -530,17 +543,37 @@ export default function LivePlatform() {
           setBoot(result);
           setClient(service);
         }
-        if (result.readMode === 'verified_snapshot') retry(attempt);
+        if (result.readMode === 'current') currentReady = true;
+        else {
+          staleExpiresAt = Date.now() + 30 * 60_000 - result.snapshotAgeMs;
+          retry(attempt);
+        }
       } catch (e) {
         if (cancelled) return;
         if (!shown) { setBoot({ status: "error" }); setError(textError(e)); }
         else retry(attempt);
+      } finally {
+        pending = false;
       }
     };
+    const checkStale = () => {
+      if (cancelled || currentReady || document.visibilityState !== 'visible') return;
+      if (!expiredCleared && staleExpiresAt !== null && Date.now() >= staleExpiresAt) {
+        // A failed refresh cannot keep a once-valid product graph on screen forever.
+        expiredCleared = true;
+        setBoot({ status: 'error' }); setClient(null);
+        clearWalletDisplay(); setStats(null); setStatsSource(null);
+      }
+      void load(3);
+    };
     void load();
+    pollTimer = setInterval(checkStale, 15_000);
+    document.addEventListener('visibilitychange', checkStale);
     return () => {
       cancelled = true;
       clearTimeout(retryTimer);
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', checkStale);
     };
   }, [bootAttempt]);
   useEffect(() => {
@@ -694,6 +727,32 @@ export default function LivePlatform() {
 
   useEffect(() => {
     if (!client) return;
+    const pageSource = route.route === 'home'
+      ? [source, statsSource].find(item => item?.readMode === 'verified_snapshot') ?? statsSource ?? source
+      : route.route === 'market' && marketTab === 'shares' ? marketOrderSource : source;
+    const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '', marketTab]);
+    if (loadedRoute !== route.route + (route.pool ? `/${route.pool}` : '')
+      || (loadedAccount || '').toLowerCase() !== (account || '').toLowerCase()) return;
+    if (pageSource?.readMode === 'current' && pageSource.stale !== true) {
+      fastSnapshotRetries.current.delete(page);
+      return;
+    }
+    if (pageSource?.readMode !== 'verified_snapshot' || pageSource.refreshing !== true
+      || (fastSnapshotRetries.current.get(page) ?? 0) >= 4) return;
+    const timer = setTimeout(() => {
+      const state = refreshState.current;
+      if (document.visibilityState !== 'visible' || state.loading || state.busy || state.modal
+        || state.pending || portfolioRead.current.busy) return;
+      fastSnapshotRetries.current.set(page, (fastSnapshotRetries.current.get(page) ?? 0) + 1);
+      setRefresh(value => value + 1);
+    }, 2_500);
+    return () => clearTimeout(timer);
+  }, [client, route.route, route.pool, account, marketTab, loadedRoute, loadedAccount,
+    source, statsSource, marketOrderSource,
+    refresh, loading, revalidating, busy, modal, pending]);
+
+  useEffect(() => {
+    if (!client) return;
     if (route.route === 'notifications') {
       setLoadedRoute('notifications'); setLoading(false); setError(''); setReadRetry(null); setReadFailed(false);
       return;
@@ -706,7 +765,7 @@ export default function LivePlatform() {
     const cache = pageCache.current.get(client);
     const saved = cache?.get(pageKey);
     const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
-    const persisted = recent(saved) ? null : readDisplaySnapshot(displayStorage(), client.manifest, pageKey);
+    const persisted = recent(saved) ? null : readPageSnapshot(displayStorage(), client.manifest, pageKey);
     const needsCatalog = ['home', 'pools'].includes(route.route)
       || route.route === 'market' && marketTab === 'whole' || (route.route === 'governance' && !account);
     const shared = needsCatalog && !recent(saved) && !persisted
@@ -725,7 +784,8 @@ export default function LivePlatform() {
         setDetail(viewPool(result.detail.item));
         setSource(result.detail.source);
       }
-      if (result.governance) setGovernance(result.governance.data);
+      if (result.governance) { setGovernance(result.governance.data);
+        setGovernanceProof({ pool: route.pool, account: account || ZeroAddress, source: result.governance.source }); }
       setLoadedAccount(account);
     };
     const clearRound = progress => {
@@ -743,7 +803,7 @@ export default function LivePlatform() {
       // while this page revalidates, instead of clearing unrelated panels.
       if (!cached && progress.attempt === 1) {
         if (needsCatalog) { setPools([]); setPoolCursor(null); }
-        if (route.route === 'detail') { setDetail(null); setGovernance(null); setMembers([]);
+        if (route.route === 'detail') { setDetail(null); setGovernance(null); setGovernanceProof(null); setMembers([]);
           setMembersRead({ status: 'idle' }); setYieldData(null); }
         setSource(null);
       }
@@ -805,9 +865,9 @@ export default function LivePlatform() {
     }
     const cacheKey = `positions:${owner}`;
     const memory = readCache.current.get(client)?.get(cacheKey);
-    const cached = memory && Date.now() - memory.savedAt < 120_000
+    const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
-      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+      : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
     if (cached) {
       setPositions(cached.items.map(viewPool));
       setPositionCursor(cached.nextCursor);
@@ -853,9 +913,9 @@ export default function LivePlatform() {
     }
     const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
     const memory = readCache.current.get(client)?.get(cacheKey);
-    const cached = memory && Date.now() - memory.savedAt < 120_000
+    const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
-      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+      : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
     if (cached) {
       setOrders(cached.items);
       setOrderCursor(cached.nextCursor);
@@ -895,9 +955,9 @@ export default function LivePlatform() {
     }
     const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
     const memory = readCache.current.get(client)?.get(cacheKey);
-    const cached = memory && Date.now() - memory.savedAt < 120_000
+    const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
-      : readDisplaySnapshot(displayStorage(), client.manifest, cacheKey);
+      : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
     if (cached) {
       setActivity(cached.items);
       setActivityCursor(cached.nextCursor);
@@ -931,7 +991,7 @@ export default function LivePlatform() {
     const memory = readCache.current.get(client)?.get('stats');
     const cached = memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
-      : readDisplaySnapshot(displayStorage(), client.manifest, 'stats');
+      : readPageSnapshot(displayStorage(), client.manifest, 'stats');
     setStats(cached?.data ?? null);
     setStatsSource(cached?.source ?? null);
     retryReadRound(() => client.readStats(), { isCurrent: () => !cancelled })
@@ -955,14 +1015,17 @@ export default function LivePlatform() {
     const owner = account || ZeroAddress;
     const governanceKey = `pool-governance:${pool.toLowerCase()}:${owner.toLowerCase()}`;
     const activityKey = `pool-activity:${pool.toLowerCase()}`;
-    const governanceCache = readDisplaySnapshot(displayStorage(), client.manifest, governanceKey);
-    const activityCache = readDisplaySnapshot(displayStorage(), client.manifest, activityKey);
-    if (governanceCache) setGovernance(governanceCache.data);
+    const governanceCache = readPageSnapshot(displayStorage(), client.manifest, governanceKey);
+    const activityCache = readPageSnapshot(displayStorage(), client.manifest, activityKey);
+    if (governanceCache) { setGovernance(governanceCache.data);
+      setGovernanceProof({ pool, account: owner, source: governanceCache.source }); }
+    else { setGovernance(null); setGovernanceProof(null); }
     if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor); }
     void client.readGovernance({ pool, account: owner })
       .then(result => { if (!cancelled) { setGovernance(result.data);
+        setGovernanceProof({ pool, account: owner, source: result.source });
         writeDisplaySnapshot(displayStorage(), client.manifest, governanceKey, result); } })
-      .catch(() => { if (!cancelled && !governanceCache) setGovernance(null); });
+      .catch(() => { if (!cancelled && !governanceCache) { setGovernance(null); setGovernanceProof(null); } });
     void client.readActivity({ pool })
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
@@ -1071,7 +1134,7 @@ export default function LivePlatform() {
     let cancelled = false;
     const yieldKey = `pool-yield:${route.pool?.toLowerCase() || ''}:${account?.toLowerCase() || 'public'}:${yieldDays}`;
     const cached = client && route.route === 'detail' && route.pool
-      ? readDisplaySnapshot(displayStorage(), client.manifest, yieldKey) : null;
+      ? readPageSnapshot(displayStorage(), client.manifest, yieldKey) : null;
     setYieldData(cached?.data || null);
     if (client && route.route === "detail" && route.pool && source)
       client
@@ -1173,7 +1236,8 @@ export default function LivePlatform() {
       throw new Error(
         L("钱包已改变，请重新核对。", "Wallet changed. Please check again."),
       );
-    setPending(result.record ? { ...result.record, canAbandon: result.canAbandon === true } : null);
+    setPending(result.record ? { ...result.record, canAbandon: result.canAbandon === true,
+      canRequestLegacyEnvelope: result.canRequestLegacyEnvelope === true } : null);
     return result;
   }
   async function inspectPending() {
@@ -1242,14 +1306,19 @@ export default function LivePlatform() {
       let saved = result.record;
       try {
         const view = await readPending({ account, config });
-        saved = view.record ? { ...view.record, canAbandon: view.canAbandon === true } : saved;
+        saved = view.record ? { ...view.record, canAbandon: view.canAbandon === true,
+          canRequestLegacyEnvelope: view.canRequestLegacyEnvelope === true,
+          legacyEnvelopeRejected: result.legacyEnvelopeRejected === true } : saved;
       } catch {}
       if (context !== walletEpoch.current) return;
       setPending(saved);
       setRecoveryHash(
         result.hash || saved?.recoveryHashes?.at(-1) || saved?.hash || "",
       );
-      const fallback = result.hash
+      const fallback = result.legacyEnvelopeRejected
+        ? L('钱包拒绝了交易信封，且尚未发现广播。可手动尝试一次兼容交易；请先核对钱包历史。',
+          'Your wallet rejected the transaction envelope with no broadcast observed. Check wallet history before trying one legacy transaction manually.')
+        : result.hash
         ? L(
             "交易已提交，等待最终确认。请稍后核对结果。",
             "Transaction submitted. Check its final outcome shortly.",
@@ -1475,7 +1544,8 @@ export default function LivePlatform() {
       if (requestEpoch === walletEpoch.current) setError(textError(e));
       try {
         const state = await readPending({ account: owner, config });
-        if (requestEpoch === walletEpoch.current) setPending(state.record ? { ...state.record, canAbandon: state.canAbandon === true } : null);
+        if (requestEpoch === walletEpoch.current) setPending(state.record ? { ...state.record,
+          canAbandon: state.canAbandon === true, canRequestLegacyEnvelope: state.canRequestLegacyEnvelope === true } : null);
       } catch {}
     } finally {
       if (submissionLock.current === ticket) {
@@ -1593,6 +1663,29 @@ export default function LivePlatform() {
       setBusy(false);
     }
   }
+  async function retryLegacyPending() {
+    if (busy || !pending?.legacyEnvelopeRejected || !pending?.canRequestLegacyEnvelope
+      || !same(pending.account, account)) return;
+    const context = walletEpoch.current;
+    setBusy(true); setError('');
+    try {
+      const result = await retryLegacyEnvelope({ provider: wallet, config, account,
+        onState: state => { if (context === walletEpoch.current) showTransactionProgress(state); } });
+      if (context === walletEpoch.current) await handleResult(result, context);
+    } catch (problem) {
+      if (context === walletEpoch.current) {
+        setError(textError(problem));
+        try {
+          const view = await readPending({ account, config });
+          if (context === walletEpoch.current) setPending(view.record ? { ...view.record,
+            canAbandon: view.canAbandon === true,
+            canRequestLegacyEnvelope: view.canRequestLegacyEnvelope === true } : null);
+        } catch { /* Keep the last durable intent visible if the journal is unavailable. */ }
+      }
+    } finally {
+      if (context === walletEpoch.current) { setBusy(false); setTransactionStage(null); }
+    }
+  }
   async function more(kind) {
     const revision = epoch.current;
     const positionsRevision = positionsReadEpoch.current;
@@ -1695,8 +1788,14 @@ export default function LivePlatform() {
           .then(graph => {
             if (graph.stage !== boot.stage || graph.artifactDigest !== boot.artifactDigest
               || graph.stageActivationBlock !== boot.stageActivationBlock
-              || graph.operationalReady !== boot.operationalReady
-              || graph.readMode !== boot.readMode || graph.stale !== boot.stale) setBootAttempt(v => v + 1);
+              || graph.stageActivationHash !== boot.stageActivationHash
+              || graph.operationId !== boot.operationId
+              || !same(graph.manifest?.factory, boot.manifest?.factory)
+              || !same(graph.manifest?.shareMarket, boot.manifest?.shareMarket)
+              || (graph.manifest?.portfolioFactory ?? '').toLowerCase()
+                !== (boot.manifest?.portfolioFactory ?? '').toLowerCase()
+              || graph.readMode === 'current' && (graph.operationalReady !== boot.operationalReady
+                || boot.readMode !== 'current')) setBootAttempt(v => v + 1);
           })
           .catch(error => setError(textError(error)));
       }}
@@ -2246,6 +2345,10 @@ export default function LivePlatform() {
               >
                 {L("取消待定交易", "Cancel pending transaction")}
               </Button>
+              {pending.legacyEnvelopeRejected === true && pending.canRequestLegacyEnvelope === true
+                && same(pending.account, account) && <Button secondary disabled={busy} onClick={retryLegacyPending}>
+                  {L('手动使用兼容交易重试一次', 'Manually retry once with a legacy transaction')}
+                </Button>}
               {pending.canAbandon === true && <Button secondary disabled={busy} onClick={clearUnsent}>
                 {L('清除未签名准备记录', 'Clear unsigned preparation')}
               </Button>}
@@ -2448,7 +2551,9 @@ export default function LivePlatform() {
                   "Please choose a miner from the pool directory.",
                 )}
               </Empty>
-            ) : !detail ? (
+            ) : !detail || !same(detail.pool, route.pool)
+              || loadedRoute !== `detail/${route.pool}`
+              || (loadedAccount || '').toLowerCase() !== (account || '').toLowerCase() ? (
               detailPreview && same(detailPreview.pool, route.pool) ? (
                 <section className="panel detail-summary" aria-label={L('上次核对的矿池资料', 'Previously verified pool information')}>
                   <div className="detail-heading">
@@ -2784,13 +2889,17 @@ export default function LivePlatform() {
                     ) : detail.status === "Listed" ? (
                       <>
                         <div className="ownership">
-                          <span>{source?.stale || cachedPage
+                          <span>{source?.stale || cachedPage || governanceProof?.source?.readMode !== 'current'
                             ? L("核验区块时整机售价", "Miner sale price at verified block")
                             : L("整机售价", "Miner sale price")}</span>
-                          <strong>{displayPreciseAmount(governance?.salePrice)} BNB</strong>
+                          <strong>{displayPreciseAmount(same(governanceProof?.pool, route.pool)
+                            && same(governanceProof?.account, account || ZeroAddress) ? governance?.salePrice : null)} BNB</strong>
                         </div>
                         <Button
-                          disabled={!detailActionsReady || !account || governance?.salePrice == null}
+                          disabled={!detailActionsReady || !account || governance?.salePrice == null
+                            || !same(governanceProof?.pool, route.pool)
+                            || !same(governanceProof?.account, account)
+                            || governanceProof?.source?.readMode !== 'current' || governanceProof?.source?.stale === true}
                           onClick={() => openAction("completeFirstoSale", detail)}
                         >
                           {L("预览 Firsto 整机成交", "Preview Firsto purchase")}

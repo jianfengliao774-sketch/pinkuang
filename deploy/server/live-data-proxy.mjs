@@ -135,35 +135,56 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
 
 export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
-  // A portfolio page can issue ~104 independent reads at once. Keep upstream
-  // concurrency bounded while allowing that single page to wait its turn.
-  maxQueued = 128, maxConcurrentPerClient = 12, queueTimeoutMs = 8000,
+  // A portfolio page can issue ~104 independent reads at once. Allow one
+  // page's burst while bounding each client's share of the global wait queue.
+  maxQueued = 128, maxQueuedPerClient = 96, maxConcurrentPerClient = 12, queueTimeoutMs = 8000,
   pinnedRpcTtlMs = 60000,
   chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
   for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent,
-    maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
+    maxQueuedPerClient, maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
   if (!Number.isSafeInteger(maxQueued) || maxQueued < 0) throw new Error('maxQueued must be a nonnegative integer.');
   if (chainIdTtlMs > 5000 || headerTtlMs > 1000) throw new Error('RPC identity and header cache TTLs exceed their reviewed limits.');
   let concurrent = 0;
   const activeClients = new Map();
   const queue = [];
+  const queuedClients = new Map();
+  let lastGrantedClient = null;
   const activeFor = client => activeClients.get(client) ?? 0;
-  const enter = client => { concurrent++; activeClients.set(client, activeFor(client) + 1); };
+  const queuedFor = client => queuedClients.get(client) ?? 0;
+  const removeQueued = client => {
+    const remaining=queuedFor(client)-1;
+    if (remaining) queuedClients.set(client,remaining);
+    else queuedClients.delete(client);
+  };
+  const enter = client => { concurrent++; activeClients.set(client, activeFor(client) + 1); lastGrantedClient=client; };
   const acquire = client => {
     if (concurrent < maxConcurrent && activeFor(client) < maxConcurrentPerClient) {
       enter(client); return Promise.resolve();
     }
-    requireValue(queue.length < maxQueued, 503, 'Read-only data service is busy.');
+    if (queue.length >= maxQueued) {
+      // Preserve a place for a new visitor under a full queue. Evict only a
+      // duplicate waiter from the largest client; active work is untouched.
+      if (queuedFor(client) > 0) throw new ProxyError(503, 'Read-only data service is busy.');
+      let victimClient=null, victimCount=1;
+      for (const [key,count] of queuedClients) if (count>victimCount) {victimClient=key;victimCount=count;}
+      if (!victimClient) throw new ProxyError(503, 'Read-only data service is busy.');
+      const victimIndex=queue.findLastIndex(entry=>entry.client===victimClient);
+      const [victim]=queue.splice(victimIndex,1);
+      clearTimeout(victim.timer);removeQueued(victim.client);
+      victim.reject(new ProxyError(429, 'RPC client queue limit exceeded; retry shortly.'));
+    }
+    requireValue(queuedFor(client) < maxQueuedPerClient, 429, 'RPC client queue limit exceeded; retry shortly.');
     return new Promise((resolve, reject) => {
-      const entry = { client, resolve, timer: null };
+      const entry = { client, resolve, reject, timer: null };
       entry.timer = setTimeout(() => {
         const position = queue.indexOf(entry);
-        if (position !== -1) queue.splice(position, 1);
+        if (position !== -1) {queue.splice(position, 1);removeQueued(client);}
         reject(new ProxyError(503, 'Read-only data service is busy.'));
       }, queueTimeoutMs);
       queue.push(entry);
+      queuedClients.set(client,queuedFor(client)+1);
     });
   };
   const release = client => {
@@ -171,14 +192,20 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
     const remaining = activeFor(client) - 1;
     if (remaining) activeClients.set(client, remaining);
     else activeClients.delete(client);
-    // A busy IP cannot reserve every available upstream slot or block a
-    // different visitor behind its own queue. Scan for the oldest eligible
-    // request; each admitted client still keeps its original FIFO order.
+    // Rotate clients while keeping FIFO within each client's own requests.
+    // A newcomer admitted after queue pressure is served on the next free slot.
     while (concurrent < maxConcurrent) {
-      const nextIndex = queue.findIndex(entry => activeFor(entry.client) < maxConcurrentPerClient);
-      if (nextIndex < 0) break;
+      const clients=[...new Set(queue.map(entry=>entry.client))];
+      const start=clients.indexOf(lastGrantedClient);
+      let nextClient=null;
+      for(let offset=1;offset<=clients.length;offset++){
+        const candidate=clients[(start+offset+clients.length)%clients.length];
+        if(activeFor(candidate)<maxConcurrentPerClient){nextClient=candidate;break;}
+      }
+      if (!nextClient) break;
+      const nextIndex=queue.findIndex(entry=>entry.client===nextClient);
       const [next] = queue.splice(nextIndex, 1);
-      clearTimeout(next.timer);
+      clearTimeout(next.timer);removeQueued(next.client);
       enter(next.client);
       next.resolve();
     }

@@ -7,6 +7,7 @@ import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
 const HASH = /^0x[0-9a-f]{64}$/i;
+const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
 const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeFirstoSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
 const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createBudgetChildPool']);
@@ -31,6 +32,14 @@ const exact = (value, label = '交易金额') => {
 const rpcQuantity = (value, label) => typeof value === 'number'
   ? (requireValue(Number.isSafeInteger(value) && value >= 0, `${label}不是精确的非负整数。`), BigInt(value))
   : exact(value, label);
+function rejectedType2Envelope(error) {
+  if (error?.code === 4001 || error?.code === 'ACTION_REJECTED') return false;
+  const messages = [error?.message, error?.shortMessage, error?.data?.message, error?.info?.error?.message]
+    .filter(value => typeof value === 'string').join(' ');
+  return /(?:0x2|type\s*2|1559|maxFeePerGas)/i.test(messages)
+    && (/(?:invalid|unsupported|unknown|unrecognized|not supported).{0,80}(?:transaction (?:envelope|type)|eip.?1559|maxFeePerGas)/i.test(messages)
+      || /(?:transaction type|eip.?1559|maxFeePerGas).{0,80}(?:unsupported|not supported|invalid)/i.test(messages));
+}
 // Fixed submission limits avoid a wallet-side estimate and keep simple market
 // orders from reserving the full complex-vault Gas budget. These are caps, not
 // claims that a transaction will succeed. Unused Gas is not charged.
@@ -199,7 +208,7 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
     && graph.stageActivationBlock === config.stageActivationBlock
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
-    && graph.operationalReady === config.operationalReady
+    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady)
     && (config.stage !== 'fresh-active' || graph.freshFactoryVerified === true
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
@@ -224,7 +233,9 @@ function validateResult(result, account, record, hash) {
   // An older server may label a successful EIP-7702 envelope as a replacement
   // after looking only at the outer destination. That is not proof that an
   // inner product call did not run. Never present it as a cleared intent.
-  if (result.status === 'replaced') requireValue(result.receipt.status === 0,
+  if (result.status === 'replaced') requireValue(result.receipt.status === 0
+    || result.receipt.status === 1 && result.plainEoaReplacementVerified === true
+      && ADDRESS.test(result.receipt.to ?? '') && !same(result.receipt.to, result.target),
     '成功的替换交易可能已执行产品操作，不能自动清除待核对意图。');
   if (result.status === 'confirmed') {
     requireValue(result.receipt.status === 1 && same(result.receipt.to, result.target), '成功回执的目标不匹配。');
@@ -294,10 +305,19 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       && same(ack.record.target ?? ack.record.market, record.target ?? record.market)
       && ack.record.action?.kind === record.action.kind, '取消意图未得到可靠确认，已停止发送。');
     const tx = ack.transaction, nonce = BigInt(record.nonce);
-    requireValue(tx && same(tx.from, owner) && same(tx.to, owner) && tx.chainId === '0x38'
+    requireValue(record.version !== 2 || ack.legacyEnvelopeIssued === (view.legacyEnvelopeIssued === true),
+      '取消交易信封的授权状态已变化。');
+    const type = record.version === 2 && ack.legacyEnvelopeIssued !== true ? '0x2' : '0x0';
+    const requiredFields = type === '0x2'
+      ? ['from','to','chainId','nonce','data','value','gas','type','maxFeePerGas','maxPriorityFeePerGas']
+      : ['from','to','chainId','nonce','data','value','gas','type','gasPrice'];
+    requireValue(tx && Object.keys(tx).sort().join(',') === requiredFields.sort().join(',')
+      && same(tx.from, owner) && same(tx.to, owner) && tx.chainId === '0x38'
       && tx.nonce === toQuantity(nonce) && tx.data === '0x' && tx.value === '0x0'
-      && tx.gas === '0x5208' && tx.type === '0x0', '取消交易必须是原 nonce 的零金额自转。');
-    const gasPrice = exact(tx.gasPrice, '取消交易 Gas 单价'), gas = 21_000n;
+      && tx.gas === '0x5208' && tx.type === type, '取消交易必须是原 nonce 的零金额自转。');
+    const gasPrice = exact(type === '0x2' ? tx.maxFeePerGas : tx.gasPrice, '取消交易 Gas 单价'), gas = 21_000n;
+    requireValue(type !== '0x2' || exact(tx.maxPriorityFeePerGas, '取消交易优先费') === gasPrice,
+      '取消交易 Gas 报价不一致。');
     requireValue(gasPrice > 0n && gasPrice <= 3_000_000_000n && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000')
       && gas * gasPrice <= exact(config.maxTransactionGasWei ?? DEFAULT_MAX_TRANSACTION_GAS_WEI), '取消交易 Gas 费用超出页面限制。');
     const cancellation = ack.record.cancellationRequests?.at(-1);
@@ -322,8 +342,7 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
     emit(onState, { status:'awaiting-signature', operation:'cancel-pending', record, gasLimit:gas.toString(),
       gasPriceWei:gasPrice.toString(), maxGasWei:(gas * gasPrice).toString() });
     // Build the request from validated fields, never forward unknown server properties to the wallet.
-    hash = await provider.request({ method:'eth_sendTransaction', params:[{ from:owner,to:owner,chainId:'0x38',nonce:toQuantity(nonce),
-      data:'0x',value:'0x0',gas:'0x5208',gasPrice:toQuantity(gasPrice),type:'0x0' }] });
+    hash = await provider.request({ method:'eth_sendTransaction', params:[Object.fromEntries(requiredFields.map(key => [key, tx[key]]))] });
     requireValue(typeof hash === 'string' && HASH.test(hash), '钱包未返回有效取消哈希，发送结果待核对。');
     // Persist the returned hash before checking wallet identity again: a wallet switch must not erase recovery evidence.
     record = { ...record, recoveryHashes:[...(record.recoveryHashes ?? []),hash] };
@@ -338,6 +357,85 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
     const result = { status:'pending',record,...(hash && HASH.test(hash) ? { hash } : {}),
       message:error.code === 4001 || error.code === 'ACTION_REJECTED'
         ? '取消请求已在钱包中拒绝，原交易意图继续保留；不会自动重试。' : (error.message || '取消交易结果待核对。') };
+    emit(onState, result); return result;
+  } finally { active.delete(lane); }
+}
+/** Explicit second click after a wallet rejected the type-2 envelope before broadcast. */
+export async function retryLegacyEnvelope({ provider, config = {}, account, onState, fetcher = globalThis.fetch }) {
+  const owner = address(account), lane = owner.toLowerCase();
+  requireValue(!active.has(lane), '这个钱包正在提交另一笔交易。');
+  active.add(lane);
+  let record, hash, revision;
+  try {
+    const graph = await requireCurrentProductStage(config, fetcher);
+    await requireWallet(provider, owner);
+    const session = await request(config, 'session', 'GET', undefined, owner, fetcher);
+    requireValue(same(session.account, owner), '请先点击连接钱包并完成本站登录。');
+    const view = await readPending({ account: owner, config, fetcher });
+    const original = view.record;
+    requireValue(view.canRequestLegacyEnvelope === true && original?.version === 2 && !original.hash
+      && !(original.recoveryHashes?.length) && !(original.cancellationRequests?.length),
+    '这笔交易不能切换为兼容信封，请先核对钱包交易记录。');
+    const currentConfig = { ...config, readMode: 'current', stale: false, transactionReady: true,
+      operationalReady: graph?.operationalReady ?? config.operationalReady };
+    const normalized = normalize(currentConfig, { from: owner, to: original.target, chainId: '0x38',
+      data: original.data, value: original.value }, { ...original.action, targetType: original.targetType });
+    requireValue(same(normalized.factory, original.factory) && normalized.targetType === original.targetType,
+      '兼容交易的产品目标已变化。');
+    const nonce = BigInt(original.nonce), gas = exact(original.gas, '兼容交易 Gas'),
+      gasPrice = exact(original.gasPrice, '兼容交易 Gas 单价'), value = exact(original.value);
+    const [latest, pending, balance] = await Promise.all([
+      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
+      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
+      provider.request({ method: 'eth_getBalance', params: [owner, 'latest'] }),
+    ]);
+    requireValue(rpcQuantity(latest, '钱包最新 nonce') === nonce && rpcQuantity(pending, '钱包待处理 nonce') === nonce,
+      '原 nonce 已变化，请先核对原交易。');
+    requireValue(gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n
+      && gasPrice <= exact(config.maxGasPriceWei ?? '3000000000')
+      && gas * gasPrice <= exact(config.maxTransactionGasWei ?? DEFAULT_MAX_TRANSACTION_GAS_WEI)
+      && rpcQuantity(balance, '钱包 BNB 余额') >= value + gas * gasPrice,
+    '兼容交易 Gas 或余额超出页面限制。');
+    const ack = await request(config, 'market/legacy-envelope', 'POST',
+      { expectedRevision: view.revision, walletRejectedType2: true }, owner, fetcher);
+    record = ack.record; revision = ack.revision;
+    requireValue(ack.legacyEnvelopeAuthorized === true && revision === view.revision + 1 && record
+      && ['version','chainId','nonce','data','value','gas','gasPrice','submittedAt','targetType']
+        .every(key => record[key] === original[key])
+      && same(record.account, owner) && same(record.factory, original.factory)
+      && same(record.target, original.target) && record.action?.kind === original.action.kind,
+    '兼容交易许可与原意图不一致，已停止发送。');
+    const expected = { from: owner, to: original.target, chainId: '0x38', nonce: toQuantity(nonce),
+      data: original.data, value: toQuantity(value), gas: toQuantity(gas),
+      gasPrice: toQuantity(gasPrice), type: '0x0' };
+    requireValue(ack.transaction && Object.keys(ack.transaction).sort().join(',') === Object.keys(expected).sort().join(',')
+      && Object.entries(expected).every(([key, item]) => same(ack.transaction[key], item)),
+    '兼容交易信封与原意图不一致，已停止发送。');
+    const [finalWallet, finalLatest, finalPending, current] = await Promise.all([
+      requireWallet(provider, owner),
+      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
+      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
+      readPending({ account: owner, config, fetcher }),
+    ]);
+    requireValue(same(finalWallet, owner) && rpcQuantity(finalLatest, '签名前最新 nonce') === nonce
+      && rpcQuantity(finalPending, '签名前待处理 nonce') === nonce && current.revision === revision
+      && current.legacyEnvelopeIssued === true
+      && current.record?.nonce === original.nonce && same(current.record.account, owner),
+    '签名前钱包或意图已变化，请核对记录。');
+    emit(onState, { status: 'awaiting-signature', operation: 'legacy-envelope', record,
+      gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
+    hash = await provider.request({ method: 'eth_sendTransaction', params: [expected] });
+    requireValue(typeof hash === 'string' && HASH.test(hash), '钱包未返回有效哈希，发送结果待核对。');
+    record = { ...record, hash };
+    await request(config, 'market', 'PUT', { record, expectedRevision: revision }, owner, fetcher);
+    emit(onState, { status: 'pending', record, hash });
+    return await recoverPending({ provider, config, account: owner, hash, onState, fetcher });
+  } catch (error) {
+    if (!record) throw error;
+    const result = { status: 'pending', record, ...(hash && HASH.test(hash) ? { hash } : {}),
+      message: error.code === 4001 || error.code === 'ACTION_REJECTED'
+        ? '兼容交易已在钱包中拒绝；原意图继续保留，请核对钱包记录。'
+        : (error.message || '兼容交易结果待核对，请勿重复发送。') };
     emit(onState, result); return result;
   } finally { active.delete(lane); }
 }
@@ -437,7 +535,23 @@ export async function sendProductTransaction({ provider, config, transaction, ac
       throw error;
     }
     const rejected = error.code === 4001 || error.code === 'ACTION_REJECTED';
+    let legacyEnvelopeRejected = false;
+    if (!hash && record.version === 2 && rejectedType2Envelope(error)) {
+      try {
+        const [latest, pending, view] = await Promise.all([
+          provider.request({ method: 'eth_getTransactionCount', params: [record.account, 'latest'] }),
+          provider.request({ method: 'eth_getTransactionCount', params: [record.account, 'pending'] }),
+          readPending({ account: record.account, config, fetcher }),
+        ]);
+        legacyEnvelopeRejected = rpcQuantity(latest, '钱包最新 nonce') === BigInt(record.nonce)
+          && rpcQuantity(pending, '钱包待处理 nonce') === BigInt(record.nonce)
+          && view.revision === revision && view.canRequestLegacyEnvelope === true
+          && view.record?.nonce === record.nonce && !view.record.hash
+          && !(view.record.recoveryHashes?.length) && !(view.record.cancellationRequests?.length);
+      } catch { /* An uncertain wallet or journal outcome cannot offer a retry. */ }
+    }
     const result = { status: 'pending', record, ...(hash && HASH.test(hash) ? { hash } : {}),
+      ...(legacyEnvelopeRejected ? { legacyEnvelopeRejected: true } : {}),
       message: rejected ? '钱包请求已取消。签名前意图已保留，需核对 nonce 后才能继续；不会自动重发。' : (error.message || '交易结果待核对。') };
     emit(onState, result); return result;
   } finally { active.delete(lane); }

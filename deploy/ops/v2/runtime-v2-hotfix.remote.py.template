@@ -185,14 +185,30 @@ def quote_location():
 }
 '''
 
+def retired_deployment_api():
+    return b'''# The active product uses the shared v2 backend, not its deployment journal.
+location = /bemine-v2/api/journal/deployment { return 410; }
+location ^~ /bemine-v2/api/journal/deployment/ { return 410; }
+location = /bemine-v2/api/journal/fresh-activation { return 410; }
+location ^~ /bemine-v2/api/journal/fresh-activation/ { return 410; }
+'''
+
 def candidate_snippet(old):
     addition=quote_location()
     if addition in old:
-        assert old.count(addition)==1 and old.count(b'bem-price.json')==2;return old
-    assert b'bem-price' not in old,'Review an existing unexpected price mapping'
-    assert old.count(b'location ^~ /bemine-v2/ {')==1 and b'location ^~ /bemine/' not in old
-    result=addition+old;assert result.replace(addition,b'',1)==old
-    return result
+        assert old.count(addition)==1 and old.count(b'bem-price.json')==2
+    else:
+        assert b'bem-price' not in old,'Review an existing unexpected price mapping'
+        assert old.count(b'location ^~ /bemine-v2/ {')==1 and b'location ^~ /bemine/' not in old
+        old=addition+old
+    retired=retired_deployment_api()
+    if retired in old:
+        assert old.count(retired)==1
+    else:
+        assert b'/bemine-v2/api/journal/deployment' not in old and b'/bemine-v2/api/journal/fresh-activation' not in old,'Review an existing deployment API mapping'
+        assert old.count(b'location ^~ /bemine-v2/api/ {')==1
+        old=retired+old
+    return old
 
 def quote_valid(body):
     value=json.loads(body)
@@ -299,7 +315,9 @@ def observe_index_cycles():
 def public_acceptance(runtime_manifest,product_manifest):
     for path,name in [('/','dist/index.html'),('/deployment-artifacts.json','dist/deployment-artifacts.json')]:
         code,body=http('http://127.0.0.1:4174'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256']
-        code,body=public('/pinkuang-deploy-v2'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256']
+        # The deployment console's public route was retired. Its runtime must
+        # still serve the reviewed bytes locally, while both public URLs stay gone.
+        code,_=public('/pinkuang-deploy-v2'+path);assert code==410
     for path,name in [('/bemine-v2/','public/bemine-v2/index.html'),('/bemine-v2/data/frontend-manifest.json','public/bemine-v2/data/frontend-manifest.json')]:
         code,body=public(path);assert code==200 and sha(body)==product_manifest['files'][name]['sha256']
     code,body=http('http://127.0.0.1:4174/api/journal/product-graph');assert code==200

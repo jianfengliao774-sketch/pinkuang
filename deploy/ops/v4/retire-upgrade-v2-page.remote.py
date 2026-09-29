@@ -71,7 +71,7 @@ def verify_active_routes() -> None:
     expected = {
         '/pinkuang-upgrade-v2/api/rpc': 410,
         '/bemine-v2/': 200,
-        '/pinkuang-deploy-v4/': 200,
+        '/pinkuang-deploy-v4/': 401,
     }
     for path, status in expected.items():
         actual = probe(path)

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -12,6 +13,7 @@ import { freshManifestDigest, validateFreshManifest } from '../../../web/lib/fre
 
 const HEX_64 = /^[\da-f]{64}$/i;
 const COMMIT = /^[\da-f]{40}$/i;
+const REPOSITORY = fileURLToPath(new URL('../../../', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string'
   && a.toLowerCase() === b.toLowerCase();
@@ -43,7 +45,8 @@ function jsonFile(files, name, maxBytes = 1024 * 1024) {
   return JSON.parse(bytes.toString('utf8'));
 }
 
-function checkFrontend(files, expectedSourceCommit, expectedSourceHead) {
+function checkFrontend(files, expectedGenesisSourceCommit, expectedSourceHead,
+  expectedContentSha256) {
   const release = jsonFile(files, 'fresh-product-release.json', 65536);
   assert(release.schemaVersion === 1 && release.kind === 'fresh-v4-product-static-candidate'
     && release.chainId === 56 && release.basePath === '/bemine-v4'
@@ -55,13 +58,15 @@ function checkFrontend(files, expectedSourceCommit, expectedSourceHead) {
   const contentSha256 = sha256(names.map(name => `${name}\0${sha256(files.get(name))}\n`).join(''));
   assert(HEX_64.test(release.contentSha256) && contentSha256 === release.contentSha256.toLowerCase()
     && release.fileCount === names.length, 'Fresh frontend file inventory differs from the release digest.');
+  assert(contentSha256 === expectedContentSha256.toLowerCase(),
+    'Fresh frontend content differs from the independently reviewed digest.');
   assert(COMMIT.test(release.frontendSourceHead) && same(release.frontendSourceHead, expectedSourceHead),
     'Frontend build source HEAD differs from the reviewed commit.');
   const manifest = jsonFile(files, 'data/frontend-manifest.v4.json', 65536);
   const checked = validateFreshManifest(manifest, release.manifestSha256);
-  assert(same(manifest.sourceCommit, expectedSourceCommit)
-    && same(release.sourceCommit, expectedSourceCommit),
-  'Frontend deployment-artifact source commit differs from the reviewed commit.');
+  assert(same(manifest.sourceCommit, expectedGenesisSourceCommit)
+    && same(release.sourceCommit, expectedGenesisSourceCommit),
+  'Frontend genesis source commit differs from the reviewed deployment record.');
   for (const key of ['artifactDigest', 'factory', 'portfolioFactory', 'authority', 'gasWallet'])
     assert(same(release[key], checked[key]), `Frontend release ${key} differs from its manifest.`);
   assert.deepEqual(release.deployment, checked.deployment,
@@ -70,13 +75,15 @@ function checkFrontend(files, expectedSourceCommit, expectedSourceHead) {
     releaseSha256: sha256(files.get('fresh-product-release.json')), fileCount: names.length };
 }
 
-function checkBackend(files, backendDir, expectedSourceCommit, expectedSourceHead) {
+function checkBackend(files, backendDir, expectedSourceHead, expectedReleaseSha256) {
   const release = jsonFile(files, 'public/fresh-release-manifest.json');
+  assert(sha256(files.get('public/fresh-release-manifest.json')) === expectedReleaseSha256.toLowerCase(),
+    'Backend release differs from the independently reviewed manifest digest.');
   assert(release.schemaVersion === 1 && release.kind === 'fresh-v4-product-backend-draft'
     && release.chainId === 56, 'Not a fresh v4 product backend release.');
-  assert(COMMIT.test(release.sourceCommit) && same(release.sourceCommit, expectedSourceCommit)
-    && COMMIT.test(release.sourceHead) && same(release.sourceHead, expectedSourceHead),
-  'Backend artifact or build source commit differs from the reviewed commits.');
+  assert(COMMIT.test(release.sourceCommit) && COMMIT.test(release.sourceHead)
+    && same(release.sourceHead, expectedSourceHead),
+  'Backend build source commit differs from the reviewed release commit.');
   assert.deepEqual(release.runtimeModules, PRODUCT_BACKEND_MODULES,
     'Backend runtime module inventory differs from the reviewed v4 package.');
   const listed = release.files;
@@ -96,10 +103,12 @@ function checkBackend(files, backendDir, expectedSourceCommit, expectedSourceHea
     'Backend product API or index module is missing.');
   const artifactName = 'public/deployment-artifacts.json';
   const artifact = jsonFile(files, artifactName, 10 * 1024 * 1024);
-  assert(same(artifact.sourceCommit, expectedSourceCommit)
+  assert(files.get('dist/deployment-artifacts.json')?.equals(files.get(artifactName)),
+    'Backend browser artifact differs from the packaged deployment artifact.');
+  assert(same(artifact.sourceCommit, release.sourceCommit)
     && same(release.artifactSha256, sha256(files.get(artifactName)))
     && same(release.artifactDigest, servedArtifactDigest(join(backendDir, artifactName))),
-  'Backend deployment artifact differs from the reviewed source or digest.');
+  'Backend deployment artifact differs from its release provenance or digest.');
   const indexName = 'public/fresh-product-manifest.json';
   const index = jsonFile(files, indexName, 8192);
   assert(files.get(indexName).equals(freshIndexManifestBytes(index))
@@ -111,15 +120,39 @@ function checkBackend(files, backendDir, expectedSourceCommit, expectedSourceHea
     releaseSha256: sha256(files.get(manifestName)), fileCount: actualNames.length + 1 };
 }
 
+export function verifyGitProvenance(files, expectedSourceHead, repositoryDir) {
+  const repository = realpathSync(repositoryDir);
+  const git = (...args) => execFileSync('git', args, { cwd: repository, maxBuffer: 20 * 1024 * 1024 });
+  assert(same(git('rev-parse', 'HEAD').toString('utf8').trim(), expectedSourceHead),
+    'Reviewed release source HEAD differs from the verifier checkout.');
+  assert.equal(git('status', '--porcelain', '--untracked-files=all').toString('utf8').trim(), '',
+    'The verifier checkout must be clean at the reviewed release commit.');
+  for (const name of [...PRODUCT_BACKEND_MODULES, 'package.json', 'package-lock.json',
+    'public/deployment-artifacts.json']) {
+    const packaged = files.get(name);
+    assert(packaged && packaged.equals(git('show', `${expectedSourceHead}:deploy/${name}`)),
+      `Backend package differs from reviewed Git source: ${name}`);
+  }
+}
+
 /** Read two actual release directories and emit a disabled, content-bound cutover draft. */
 export function verifyFreshReleasePair({ frontendDir, backendDir, cutoverInput,
-  expectedSourceCommit, expectedSourceHead }) {
+  expectedSourceCommit, expectedSourceHead, expectedFrontendContentSha256,
+  expectedBackendReleaseSha256, verifyGit = true, repositoryDir = REPOSITORY }) {
   assert(COMMIT.test(expectedSourceCommit ?? '') && COMMIT.test(expectedSourceHead ?? ''),
-    'Two reviewed 40-hex commits are required: deployment artifact source and release source HEAD.');
+    'Two reviewed 40-hex commits are required: genesis source and release source HEAD.');
+  assert(HEX_64.test(expectedFrontendContentSha256 ?? '')
+    && HEX_64.test(expectedBackendReleaseSha256 ?? ''),
+  'Independent frontend content and backend release SHA256 pins are required.');
   assert(cutoverInput?.manifest, 'Reviewed fresh cutover input is required.');
-  const frontend = checkFrontend(regularTree(frontendDir), expectedSourceCommit, expectedSourceHead);
-  const backend = checkBackend(regularTree(backendDir), backendDir,
-    expectedSourceCommit, expectedSourceHead);
+  assert(same(cutoverInput.record?.sourceCommit, expectedSourceCommit),
+    'Reviewed genesis source commit differs from the deployment record.');
+  const frontend = checkFrontend(regularTree(frontendDir), expectedSourceCommit,
+    expectedSourceHead, expectedFrontendContentSha256);
+  const backendFiles = regularTree(backendDir);
+  const backend = checkBackend(backendFiles, backendDir,
+    expectedSourceHead, expectedBackendReleaseSha256);
+  if (verifyGit) verifyGitProvenance(backendFiles, expectedSourceHead, repositoryDir);
   const draft = prepareFreshCutover(cutoverInput);
   assert(draft.activationAllowed === false, 'The fresh cutover draft must remain disabled.');
   assert(freshManifestDigest(cutoverInput.manifest) === frontend.release.manifestSha256,
@@ -138,6 +171,7 @@ export function verifyFreshReleasePair({ frontendDir, backendDir, cutoverInput,
   'Fresh frontend and backend identities differ.');
   return Object.freeze({ ...draft, kind: 'fresh-v4-bound-cutover-draft', activationAllowed: false,
     releasePair: Object.freeze({ productFamily: 'fresh-v4', sourceCommit: expectedSourceCommit.toLowerCase(),
+      backendArtifactSourceCommit: backend.release.sourceCommit.toLowerCase(),
       sourceHead: expectedSourceHead.toLowerCase(), frontendManifestSha256: frontend.release.manifestSha256,
       frontendContentSha256: frontend.contentSha256, frontendReleaseSha256: frontend.releaseSha256,
       frontendFileCount: frontend.fileCount, backendReleaseSha256: backend.releaseSha256,
@@ -165,10 +199,11 @@ function loadReviewedInput(path) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2), names = ['--frontend', '--backend', '--input',
-      '--source-commit', '--source-head', '--out'];
+      '--source-commit', '--source-head', '--frontend-content-sha256',
+      '--backend-release-sha256', '--out'];
     assert(args.length === names.length * 2 && names.every(name =>
       args.filter(value => value === name).length === 1),
-    'Usage: node verify-fresh-release-pair.mjs --frontend <absolute-dir> --backend <absolute-dir> --input <reviewed-input.json> --source-commit <artifact-commit> --source-head <release-commit> --out <new-absolute-plan.json>');
+    'Usage: node verify-fresh-release-pair.mjs --frontend <absolute-dir> --backend <absolute-dir> --input <reviewed-input.json> --source-commit <genesis-commit> --source-head <release-commit> --frontend-content-sha256 <reviewed-sha256> --backend-release-sha256 <reviewed-sha256> --out <new-absolute-plan.json>');
     const options = Object.fromEntries(Array.from({ length: args.length / 2 }, (_, i) =>
       [args[2 * i], args[2 * i + 1]]));
     const output = options['--out'];
@@ -176,7 +211,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       'Plan output needs a new absolute path with a canonical parent.');
     const plan = verifyFreshReleasePair({ frontendDir: options['--frontend'],
       backendDir: options['--backend'], cutoverInput: loadReviewedInput(options['--input']),
-      expectedSourceCommit: options['--source-commit'], expectedSourceHead: options['--source-head'] });
+      expectedSourceCommit: options['--source-commit'], expectedSourceHead: options['--source-head'],
+      expectedFrontendContentSha256: options['--frontend-content-sha256'],
+      expectedBackendReleaseSha256: options['--backend-release-sha256'] });
     writeFileSync(output, `${JSON.stringify(plan, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     console.log(JSON.stringify({ plan: output, activationAllowed: false,
       releasePair: plan.releasePair }, null, 2));

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
+import { DatabaseSync } from 'node:sqlite';
 import { Interface, Wallet, getAddress } from 'ethers';
 import { createJournalService, createProductVerifierProvider, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi,
   PRODUCT_PORTFOLIO_ABI as portfolioAbi,PRODUCT_PORTFOLIO_FACTORY_ABI as portfolioFactoryAbi,verifyMarketFinalized } from './journal-api.mjs';
@@ -128,13 +129,16 @@ function proof(record = intent()) {
     getFeeData:async()=>({gasPrice:state.gasPrice}),
     estimateGas:async()=>{state.estimates++;return state.estimate;},
     getTransactionCount:async(_target,tag)=> state.mined ? state.nonce+1 : tag==='pending' ? state.pendingNonce??state.nonce : state.nonce,
-    getBlock:async tag => tag === 'latest' ? {number:102,hash:hash(102)} : tag === 'finalized' ? {number:state.final,hash:hash(state.final)}
-      : {number:Number(tag),hash:hash(Number(tag)),transactions:state.membership===false?[]:[state.txHash]},
+    getBlock:async (tag,prefetch=false) => tag === 'latest' ? {number:102,hash:hash(102)} : tag === 'finalized' ? {number:state.final,hash:hash(state.final)}
+      : {number:Number(tag),hash:hash(Number(tag)),parentHash:Number(tag)>0?hash(Number(tag)-1):null,
+        transactions:state.membership===false?[]:[...(state.priorTransactionTypes??[]).map((_,i)=>hash(200+i)),state.txHash],
+        ...(prefetch?{prefetchedTransactions:[...(state.priorTransactionTypes??[]).map((type,i)=>({hash:hash(200+i),type})),
+          {hash:state.txHash,type:state.txType}]}:{})},
     getTransaction:async()=> state.mined ? {hash:state.txHash,chainId:56n,from:account,nonce:state.nonce,to:state.target,
       data:state.data,value:state.value,type:state.txType,gasLimit:state.txGasLimit,gasPrice:state.gasPrice,
       maxFeePerGas:state.txMaxFeePerGas,maxPriorityFeePerGas:state.txPriorityFeePerGas,
-      index:0,blockNumber:100,blockHash:hash(100)} : null,
-    getTransactionReceipt:async()=> state.mined ? {hash:state.txHash,from:account,to:state.target,index:0,blockNumber:100,blockHash:hash(100),
+      index:(state.priorTransactionTypes??[]).length,blockNumber:100,blockHash:hash(100)} : null,
+    getTransactionReceipt:async()=> state.mined ? {hash:state.txHash,from:account,to:state.target,index:(state.priorTransactionTypes??[]).length,blockNumber:100,blockHash:hash(100),
       status:state.status,gasPrice:state.gasPrice,logs:state.logs} : null,
   };
   return {state,provider,event};
@@ -418,7 +422,7 @@ test('finalized deposit verifies exact event and atomically retains proof across
   }finally{await f.close();}
 });
 
-test('reverted and proven cancellation never become a successful deposit; uncertain success retains the journal',async()=>{
+test('reverted, proven cancellation and plain-EOA replacement never become a successful deposit',async()=>{
   for(const mode of ['reverted','cancelled','replaced']){
     const f=await fixture();
     try{
@@ -426,14 +430,10 @@ test('reverted and proven cancellation never become a successful deposit; uncert
       f.state.mined=true;f.state.logs=[];
       if(mode==='reverted')f.state.status=0;
       else{f.state.target=mode==='cancelled'?account:addr(98);f.state.data='0x';f.state.value=0n;
-        if(mode==='cancelled'){f.state.txType=0;f.state.txGasLimit=21_000n;}}
+        if(mode==='cancelled'){f.state.txType=2;f.state.txGasLimit=21_000n;}}
       const result=await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)});
-      if(mode==='replaced'){
-        assert.equal(result.status,409);assert.match(result.body.error,/inner product call/);
-        assert((await f.request('market')).body.record);
-      }else{
-        assert.equal(result.status,200);assert.equal(result.body.result.status,mode);assert.equal(result.body.result.poolAddress,undefined);
-      }
+      assert.equal(result.status,200);assert.equal(result.body.result.status,mode);assert.equal(result.body.result.poolAddress,undefined);
+      if(mode==='replaced')assert.equal(result.body.result.plainEoaReplacementVerified,true);
     }finally{await f.close();}
   }
 });
@@ -471,22 +471,30 @@ test('all product action selectors reject unproved successful wrapped execution'
   }
 });
 
-test('exact direct type-4 action may confirm, but changed Gas ceilings or self-call cannot clear an intent',async()=>{
-  for(const [change,label] of [
-    [state=>{state.txGasLimit=100_001n;},'Gas limit'],
-    [state=>{state.txMaxFeePerGas=1_000_000_001n;},'maximum fee'],
-    [state=>{state.txPriorityFeePerGas=1_000_000_001n;},'priority fee'],
-    [state=>{state.gasPrice=1_000_000_001n;},'effective fee'],
+test('exact finalized product calls settle after wallet speed-up or Gas edits and keep the over-cap evidence',async()=>{
+  for(const [change,label,expected] of [
+    [state=>{state.txGasLimit=100_001n;},'Gas limit',{gasLimitExceeded:true}],
+    [state=>{state.txMaxFeePerGas=1_200_000_000n;},'maximum fee',{feeExceeded:true}],
+    [state=>{state.txPriorityFeePerGas=1_200_000_000n;},'priority fee',{feeExceeded:true}],
+    [state=>{state.gasPrice=1_200_000_000n;},'wallet-selected effective fee',{feeExceeded:true}],
   ]){
     const f=await fixture();
     try{
       assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
       f.state.mined=true;change(f.state);
-      const rejected=await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)});
-      assert.equal(rejected.status,409,label);assert.match(rejected.body.error,/reviewed product cap/,label);
-      assert((await f.request('market')).body.record,label);
+      const settled=await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)});
+      assert.equal(settled.status,200,label);assert.equal(settled.body.result.status,'confirmed',label);
+      for(const [key,value] of Object.entries(expected))assert.equal(settled.body.result[key],value,label);
+      assert.deepEqual((await f.request(`market/result?hash=${hash(77)}`)).body.result,settled.body.result);
+      assert.equal((await f.request('market')).body.record,null,label);
+      f.state.mined=false;f.state.nonce=8;f.state.gasPrice=1_000_000_000n;
+      assert.equal((await f.request('market','PUT',{record:{...intent(),nonce:8},expectedRevision:2})).status,200,
+        `${label} must not strand the next signing lane`);
     }finally{await f.close();}
   }
+});
+
+test('exact direct type-4 action may confirm, but a wrapped self-call cannot clear an intent',async()=>{
   const direct=await fixture();
   try{
     assert.equal((await direct.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
@@ -504,6 +512,26 @@ test('exact direct type-4 action may confirm, but changed Gas ceilings or self-c
   }finally{await self.close();}
 });
 
+test('only inert 21,000-gas self-transfers count as cancellation; other provable EOA spends are replacement',async()=>{
+  for(const [type,gasLimit,authorizationList,status] of [
+    [0,21_000n,undefined,'cancelled'],[1,21_000n,undefined,'cancelled'],[2,21_000n,undefined,'cancelled'],
+    [2,21_001n,undefined,'replaced'],[2,21_000n,[{}],null],[4,21_000n,undefined,null],
+  ]){
+    const f=await fixture();
+    try{
+      assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+      f.state.mined=true;f.state.target=account;f.state.data='0x';f.state.value=0n;f.state.logs=[];
+      f.state.txType=type;f.state.txGasLimit=gasLimit;
+      const original=f.provider.getTransaction.bind(f.provider);
+      f.provider.getTransaction=async hash=>({...await original(hash),authorizationList});
+      const recovered=await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)});
+      assert.equal(recovered.status,status?200:409,`type ${type}, gas ${gasLimit}, auth ${Boolean(authorizationList)}`);
+      if(status){assert.equal(recovered.body.result.status,status);assert.equal((await f.request('market')).body.record,null);}
+      else assert.deepEqual((await f.request('market')).body.record,intent());
+    }finally{await f.close();}
+  }
+});
+
 test('a reverted unrelated replacement can release the nonce without claiming product execution',async()=>{
   const f=await fixture();
   try{
@@ -513,6 +541,49 @@ test('a reverted unrelated replacement can release the nonce without claiming pr
     assert.equal(result.status,200);assert.equal(result.body.result.status,'replaced');
     assert.equal((await f.request('market')).body.record,null);
   }finally{await f.close();}
+});
+
+test('a successful unrelated plain-EOA nonce spend settles as replaced and frees the next product lane',async()=>{
+  const f=await fixture();
+  try{
+    assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,200);
+    f.state.mined=true;f.state.target=addr(98);f.state.data='0x1234';f.state.value=0n;f.state.logs=[];
+    const settled=await f.request('market','DELETE',{expectedRevision:2,hash:hash(77)});
+    assert.equal(settled.status,200);assert.equal(settled.body.result.status,'replaced');
+    assert.equal(settled.body.result.plainEoaReplacementVerified,true);
+    assert.equal((await f.request('market')).body.record,null);
+    f.state.mined=false;f.state.nonce=8;
+    const next=await f.request('market/prepare-and-arm','POST',{record:{...intent(),nonce:8},expectedRevision:3});
+    assert.equal(next.status,200,'the proven unrelated spend must not strand a wallet account');
+  }finally{await f.close();}
+});
+
+test('successful replacement stays pending when same-block delegation or full EOA proof is uncertain',async()=>{
+  for(const [label,change] of [
+    ['account delegated before block',state=>{state.accountCode='0xef0100';}],
+    ['earlier type-4 in same block',state=>{state.priorTransactionTypes=[4];}],
+    ['unknown earlier envelope',state=>{state.priorTransactionTypes=[99];}],
+    ['same product target with different calldata',state=>{state.target=pool;}],
+  ]){
+    const f=await fixture();
+    try{
+      assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+      f.state.mined=true;f.state.target=addr(98);f.state.data='0x1234';f.state.value=0n;f.state.logs=[];
+      change(f.state);
+      assert.equal((await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)})).status,409,label);
+      assert.deepEqual((await f.request('market')).body.record,intent(),label);
+    }finally{await f.close();}
+  }
+  const incomplete=await fixture();
+  try{
+    assert.equal((await incomplete.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+    incomplete.state.mined=true;incomplete.state.target=addr(98);incomplete.state.data='0x1234';incomplete.state.value=0n;
+    const getBlock=incomplete.provider.getBlock.bind(incomplete.provider);
+    incomplete.provider.getBlock=async tag=>getBlock(tag,false);
+    assert.equal((await incomplete.request('market','DELETE',{expectedRevision:1,hash:hash(77)})).status,409);
+    assert.deepEqual((await incomplete.request('market')).body.record,intent());
+  }finally{await incomplete.close();}
 });
 
 test('hash progress survives RPC outage and product/deployment use one wallet signing lane',async()=>{
@@ -547,8 +618,10 @@ test('explicit cancellation ACK preserves both current and legacy journal intent
       assert.deepEqual(race.map(x=>x.status).sort(),[200,409]);
       const ack=race.find(x=>x.status===200).body;
       assert.equal(ack.revision,2);assert.equal(ack.record.nonce,7);assert.equal(ack.record.data,record.data);
-      assert.deepEqual(ack.transaction,{from:account,to:account,chainId:'0x38',nonce:'0x7',data:'0x',value:'0x0',
-        gas:'0x5208',gasPrice:`0x${1_200_000_000n.toString(16)}`,type:'0x0'});
+      assert.deepEqual(ack.transaction,{from:account,to:account,chainId:'0x38',nonce:'0x7',data:'0x',value:'0x0',gas:'0x5208',
+        ...(record.version===2
+          ? {maxFeePerGas:`0x${1_200_000_000n.toString(16)}`,maxPriorityFeePerGas:`0x${1_200_000_000n.toString(16)}`,type:'0x2'}
+          : {gasPrice:`0x${1_200_000_000n.toString(16)}`,type:'0x0'})});
       assert.equal(ack.record.cancellationRequests.length,1);
       const tampered={...ack.record,cancellationRequests:[]};
       assert.equal((await f.request('market','PUT',{record:tampered,expectedRevision:2})).status,409);
@@ -556,7 +629,7 @@ test('explicit cancellation ACK preserves both current and legacy journal intent
       assert.equal((await f.request('market','PUT',{record:arbitrary,expectedRevision:2})).status,400);
       assert((await f.request('market')).body.record);
       f.state.mined=true;f.state.target=account;f.state.data='0x';f.state.value=0n;f.state.logs=[];
-      f.state.txType=0;f.state.txGasLimit=21_000n;
+      f.state.txType=record.version===2?2:0;f.state.txGasLimit=21_000n;
       const result=await f.request('market','DELETE',{expectedRevision:2,hash:hash(77)});
       assert.equal(result.status,200);assert.equal(result.body.result.status,'cancelled');assert.equal(result.body.result.poolAddress,undefined);
     }finally{await f.close();}
@@ -573,7 +646,14 @@ test('cancellation fails closed on consumed/queued nonce, wrong chain, delegated
   const p=proof();p.state.pendingNonce=8;
   p.provider.getTransaction=async()=>({chainId:56n,from:account,nonce:7,gasPrice:2_000_000_000n});
   const tx=await cancellationIntent(p.provider,{...intent(),hash:hash(77)});
-  assert.equal(BigInt(tx.gasPrice),2_400_000_000n);
+  assert.equal(BigInt(tx.maxFeePerGas),2_400_000_000n);
+  assert.equal(tx.maxPriorityFeePerGas,tx.maxFeePerGas);
+  const next=await cancellationIntent(p.provider,{...intent(),cancellationRequests:[{...tx,createdAt:'2026-09-29T00:00:00Z'}]});
+  assert.equal(BigInt(next.maxFeePerGas),2_880_000_000n,'retry must bump the previous signed cancellation ACK');
+  const prior=proof();prior.provider.getTransaction=async()=>({chainId:56n,from:account,nonce:7,
+    gasPrice:1_100_000_000n,maxFeePerGas:2_000_000_000n,maxPriorityFeePerGas:1_800_000_000n});
+  const bumped=await cancellationIntent(prior.provider,{...intent(),hash:hash(77)});
+  assert.equal(BigInt(bumped.maxFeePerGas),2_400_000_000n,'type-2 maximum fee must be bumped, not just its effective price');
 });
 
 function legacyIntent(){
@@ -581,6 +661,17 @@ function legacyIntent(){
   delete record.target;delete record.targetType;
   return record;
 }
+test('a legacy market journal also releases a finalized unrelated plain-EOA nonce spend',async()=>{
+  const record={...legacyIntent(),hash:hash(76)},f=await fixture({record});
+  try{
+    assert.equal((await f.request('market','PUT',{record,expectedRevision:0})).status,200);
+    f.state.mined=true;f.state.target=addr(98);f.state.data='0x1234';f.state.value=0n;f.state.logs=[];
+    const settled=await f.request('market','DELETE',{expectedRevision:1,hash:hash(77)});
+    assert.equal(settled.status,200);assert.equal(settled.body.result.status,'replaced');
+    assert.equal(settled.body.result.plainEoaReplacementVerified,true);
+    assert.equal((await f.request('market')).body.record,null);
+  }finally{await f.close();}
+});
 test('re-importing a finalized legacy pending record reuses the identical proof and frees the active slot',async()=>{
   const record=legacyIntent(),f=await fixture({record});
   try{
@@ -637,6 +728,94 @@ test('one durable signing permission survives concurrent tabs, stale revisions a
   } finally {await f.close();}
 });
 
+test('one legacy envelope is durably issued only for the same armed product call and free nonce',async()=>{
+  const f=await fixture();
+  try{
+    const record=intent();
+    assert.equal((await f.request('market','PUT',{record,expectedRevision:0})).status,200);
+    assert.equal((await f.request('market')).body.canRequestLegacyEnvelope,false,'preparation has no signing permission');
+    assert.equal((await f.request('market')).body.legacyEnvelopeIssued,false);
+    assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:1,walletRejectedType2:true})).status,409);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,200);
+    assert.equal((await f.request('market')).body.canRequestLegacyEnvelope,true);
+    assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:2})).status,400);
+    const request=()=>f.request('market/legacy-envelope','POST',{expectedRevision:2,walletRejectedType2:true});
+    const race=await Promise.all([request(),request()]);
+    assert.deepEqual(race.map(item=>item.status).sort(),[200,409]);
+    const grant=race.find(item=>item.status===200).body;
+    assert.equal(grant.legacyEnvelopeAuthorized,true);assert.equal(grant.revision,3);
+    assert.deepEqual(grant.record,record);
+    assert.deepEqual(grant.transaction,{chainId:'0x38',from:account,to:pool,nonce:'0x7',data:record.data,
+      value:'0x14',gas:'0x186a0',gasPrice:'0x3b9aca00',type:'0x0'});
+    assert.equal((await f.request('market')).body.canRequestLegacyEnvelope,false);
+    assert.equal((await f.request('market')).body.legacyEnvelopeIssued,true);
+    const reopened=new JournalStore(f.dbPath);
+    try{
+      assert.equal(reopened.canRequestLegacyMarketEnvelope(account),false);
+      assert.throws(()=>reopened.authorizeLegacyMarketEnvelope(account,3),/unavailable/);
+    }finally{reopened.close();}
+    assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:3,walletRejectedType2:true})).status,409);
+    f.state.mined=true;f.state.txType=0;
+    const settled=await f.request('market','DELETE',{expectedRevision:3,hash:hash(77)});
+    assert.equal(settled.status,200);assert.equal(settled.body.result.status,'confirmed');
+  }finally{await f.close();}
+});
+
+test('legacy envelope fallback cannot bypass hash, nonce or current product graph checks',async()=>{
+  for(const change of [{pendingNonce:8},{nonce:8},{graphFailed:true},{gasPrice:1_000_000_001n}]){
+    const f=await fixture();
+    try{
+      assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+      assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,200);
+      Object.assign(f.state,change);
+      assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:2,walletRejectedType2:true})).status,409);
+      assert.equal((await f.request('market')).body.canRequestLegacyEnvelope,true,'failed preflight must not consume the grant');
+    }finally{await f.close();}
+  }
+  const f=await fixture();
+  try{
+    assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,200);
+    assert.equal((await f.request('market','PUT',{record:{...intent(),hash:hash(77)},expectedRevision:2})).status,200);
+    assert.equal((await f.request('market','GET')).body.canRequestLegacyEnvelope,false);
+    assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:3,walletRejectedType2:true})).status,409);
+  }finally{await f.close();}
+});
+
+test('cancellation after legacy fallback uses a legacy self-transfer and still needs a finalized nonce proof',async()=>{
+  const f=await fixture();
+  try{
+    assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,200);
+    assert.equal((await f.request('market/legacy-envelope','POST',{expectedRevision:2,walletRejectedType2:true})).status,200);
+    const cancel=await f.request('market/cancel-intent','POST',{expectedRevision:3});
+    assert.equal(cancel.status,200);assert.equal(cancel.body.transaction.type,'0x0');
+    assert.equal(cancel.body.legacyEnvelopeIssued,true);
+    assert.equal(BigInt(cancel.body.transaction.gasPrice),1_200_000_000n);
+    assert.equal((await f.request('market','DELETE',{expectedRevision:4,hash:hash(77)})).status,409);
+    f.state.mined=true;f.state.target=account;f.state.data='0x';f.state.value=0n;f.state.logs=[];
+    f.state.txType=0;f.state.txGasLimit=21_000n;
+    const settled=await f.request('market','DELETE',{expectedRevision:4,hash:hash(77)});
+    assert.equal(settled.status,200);assert.equal(settled.body.result.status,'cancelled');
+  }finally{await f.close();}
+});
+
+test('existing market signing journals migrate without forgetting their consumed intent',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'pinkuang-signing-migrate-'));
+  const dbPath=join(directory,'journal.sqlite');
+  const previous=new DatabaseSync(dbPath);
+  try{
+    previous.exec('CREATE TABLE market_signing (account TEXT PRIMARY KEY, intent_key TEXT NOT NULL, armed_at INTEGER NOT NULL)');
+    previous.prepare('INSERT INTO market_signing(account,intent_key,armed_at) VALUES(?,?,?)').run(account,'old-intent',123);
+  }finally{previous.close();}
+  const upgraded=new JournalStore(dbPath);
+  try{
+    assert.equal(upgraded.db.prepare('SELECT intent_key,armed_at,legacy_issued_at FROM market_signing WHERE account=?')
+      .get(account).intent_key,'old-intent');
+    assert.equal(upgraded.db.prepare('SELECT legacy_issued_at FROM market_signing WHERE account=?').get(account).legacy_issued_at,null);
+  }finally{upgraded.close();await rm(directory,{recursive:true,force:true});}
+});
+
 test('signing permission rechecks graph, nonce, Gas price and balance after persistence',async()=>{
   for (const change of [{nonce:8},{pendingNonce:8},{gasPrice:1000000001n},{balance:1n},{graphFailed:true}]) {
     const f=await fixture();
@@ -644,7 +823,8 @@ test('signing permission rechecks graph, nonce, Gas price and balance after pers
       assert.equal((await f.request('market','PUT',{record:intent(),expectedRevision:0})).status,200);
       Object.assign(f.state,change);
       assert.equal((await f.request('market/arm','POST',{expectedRevision:1})).status,409);
-      assert.deepEqual((await f.request('market')).body,{record:intent(),revision:1,canAbandon:true});
+      assert.deepEqual((await f.request('market')).body,{record:intent(),revision:1,canAbandon:true,
+        canRequestLegacyEnvelope:false,legacyEnvelopeIssued:false});
     } finally {await f.close();}
   }
   await assert.rejects(verifyWithGraph(proof().provider,intent(),new Set([factory.toLowerCase()])),/graph verifier/);

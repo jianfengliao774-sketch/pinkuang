@@ -477,6 +477,29 @@ test('source changes invalidate pagination; no mixing snapshots or duplicate row
   await assert.rejects(client({ '/v1/pools': { ...poolsData, nextCursor: 4 } }).readPools(), { code: 'invalid_cursor' });
 });
 
+test('same canonical block can cross live and display read modes without becoming actionable', async () => {
+  const historical = { ...source, readMode: 'verified_snapshot', stale: true,
+    refreshing: true, transactionReady: false };
+  const fromCurrent = await client({ '/v1/pools': poolsData }, {}, historical).readPools({ source });
+  const fromHistory = await client({ '/v1/pools': poolsData }).readPools({ source: historical });
+  for (const result of [fromCurrent, fromHistory]) {
+    assert.equal(result.source.indexedBlockHash, blockHash);
+    assert.equal(result.source.readMode, 'verified_snapshot');
+    assert.equal(result.source.stale, true);
+    assert.equal(result.source.transactionReady, false);
+  }
+});
+
+test('health prefers a complete current source over a simultaneous displaySource', async () => {
+  const historical = { ...source, readMode: 'verified_snapshot', stale: true,
+    refreshing: true, transactionReady: false };
+  const c = createLiveDataClient(config, { provider: provider(), now: () => now,
+    fetcher: async () => response({ source, displaySource: historical }) });
+  const detail = await c.readPool({ pool, account });
+  assert.notEqual(detail.source.readMode, 'verified_snapshot');
+  assert.notEqual(detail.source.stale, true);
+});
+
 test('positions retain zero-share rewards and unknown balances, separating market BNB claims', async () => {
   const route = { [`/v1/accounts/${account}/pools`]: { items: [pool], nextCursor: null } };
   const result = await client(route, { rows: [row({ claimableBEM: 123n })] }).readPositions({ account });

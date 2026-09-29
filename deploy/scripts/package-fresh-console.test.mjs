@@ -14,7 +14,7 @@ import { fixture, addr } from '../ops/v4/fresh-cutover-fixture.mjs';
 
 const deploy = fileURLToPath(new URL('../', import.meta.url));
 
-test('artifact source pin tolerates later packaging commits, but rejects changed runtime code', () => {
+test('artifact source pin permits later runtime fixes but rejects changed contract source', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pinkuang-source-pin-test-')));
   const source = join(root, 'deploy');
   mkdirSync(source);
@@ -25,17 +25,24 @@ test('artifact source pin tolerates later packaging commits, but rejects changed
     git('config', 'user.email', 'source-pin@example.invalid');
     git('config', 'commit.gpgsign', 'false');
     mkdirSync(join(source, 'src'));
+    mkdirSync(join(root, 'contracts/src'), { recursive: true });
     writeFileSync(join(source, 'src/app.ts'), 'export const version = 1;\n');
-    git('add', '.');
+    writeFileSync(join(root, 'contracts/src/Graph.sol'), 'contract Graph {}\n');
+    writeFileSync(join(root, 'contracts/foundry.toml'), '[profile.default]\n');
+    git('add', '.', '../contracts');
     git('commit', '-qm', 'audited code');
     const audited = git('rev-parse', 'HEAD');
     writeFileSync(join(source, 'README.md'), 'Packaging notes\n');
-    git('add', '.');
+    git('add', '.', '../contracts');
     git('commit', '-qm', 'documentation only');
     assert.doesNotThrow(() => assertPinnedSourceUnchanged(source, audited, git('rev-parse', 'HEAD')));
     writeFileSync(join(source, 'src/app.ts'), 'export const version = 2;\n');
-    git('add', '.');
+    git('add', '.', '../contracts');
     git('commit', '-qm', 'runtime changed');
+    assert.doesNotThrow(() => assertPinnedSourceUnchanged(source, audited, git('rev-parse', 'HEAD')));
+    writeFileSync(join(root, 'contracts/src/Graph.sol'), 'contract Graph { uint value; }\n');
+    git('add', '.', '../contracts');
+    git('commit', '-qm', 'contract changed');
     assert.throws(() => assertPinnedSourceUnchanged(source, audited, git('rev-parse', 'HEAD')),
       /source changed since the artifact commit/);
   } finally { rmSync(root, { recursive: true, force: true }); }

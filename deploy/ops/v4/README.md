@@ -4,7 +4,9 @@ v4 是一套全新合约图和独立部署记录。`FreshPoolFactory` 只检查�
 
 预算项目 ABI 中保留的 `legacyFactory` 字段属于合约旧命名；原子初始化会把它设为 **同一次 v4 部署中的核心 Factory**。它不指向 v1/v2/v3 的地址。
 
-部署台单独使用 `/pinkuang-deploy-v4/`、`pinkuang-deploy-v4.service`、端口 4177 和 `/var/lib/pinkuang-deploy-v4/journal.sqlite`。公网 HTTP 进程只配置 Gas 钱包公开地址，不加载、复制或派生私钥；公开地址本身不能证明独立签名服务已就绪，第二阶段继续保持关闭。旧版安装已生成的 `keeper-v4.key` 副本须先核实没有其他使用者，再单独退役，不由发布脚本自动删除。中继和自动购机默认关闭。安装脚本从现有服务读取一次 BSC RPC 地址作为配置来源，运行后不查询任何旧合约。部署产物与浏览器包必须由同一源码提交生成，且安装前核对归档和服务器配置的 SHA256。
+部署台单独使用 `/pinkuang-deploy-v4/`、`pinkuang-deploy-v4.service`、端口 4177 和 `/var/lib/pinkuang-deploy-v4/journal.sqlite`。公网入口必须先启用 nginx Basic Auth，部署台页面、部署产物和 `/api/` 都受同一访问控制保护；只用钱包会话或 API 限流不够。公网 HTTP 进程只配置 Gas 钱包公开地址，不加载、复制或派生私钥；公开地址本身不能证明独立签名服务已就绪，第二阶段继续保持关闭。旧版安装已生成的 `keeper-v4.key` 副本须先核实没有其他使用者，再单独退役，不由发布脚本自动删除。中继和自动购机默认关闭。安装脚本从现有服务读取一次 BSC RPC 地址作为配置来源，运行后不查询任何旧合约。部署产物的合约内容以 `artifactDigest` 绑定；浏览器与后端发布源码使用同一个受审 `sourceHead`，允许后续服务修复而保持已部署合约内容不变。安装前核对归档和服务器配置的 SHA256。
+
+首次安装或修复现有公网 v4 部署台前，由服务器运营者在服务器交互式执行 `htpasswd -B -c /etc/nginx/pinkuang-deploy-v4.htpasswd <operator-name>`，再执行 `chown root:www-data /etc/nginx/pinkuang-deploy-v4.htpasswd` 和 `chmod 0640 /etc/nginx/pinkuang-deploy-v4.htpasswd`。密码不要放进仓库、shell 参数或部署包。对现有 nginx 片段先独立核对 SHA-256，再以 `python3 deploy/ops/v4/protect-console.remote.py --current-snippet-sha256 <审核值> --dry-run` 预览，去掉 `--dry-run` 后生效。脚本验证未认证页面、产物和无需会话的产品图 API 均返回 401、旧产品保持 200；正式修改后若 nginx 校验或 v4 探针失败，脚本停止 v4 服务并保留受保护片段，绝不回滚为公网片段。现有控制台未实际完成此步骤前仍是公网可访问状态，不应进行 Stage 1 签名。
 
 现有预创世部署台的热钱包凭据隔离更新使用 [UPDATE_PREGENESIS_CONSOLE.md](./UPDATE_PREGENESIS_CONSOLE.md) 的固定哈希、空日志和回滚核验步骤。
 

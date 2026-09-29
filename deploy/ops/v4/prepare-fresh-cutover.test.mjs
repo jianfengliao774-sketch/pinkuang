@@ -31,7 +31,7 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.match(result.signerUnit,/User=pinkuang-v4-signer/);
   assert.match(result.signerUnit,/Group=pinkuang-v4-relay/);
   assert.match(result.signerUnit,/RuntimeDirectoryMode=0750/);
-  assert.match(result.signerUnit,/LoadCredential=keeper-private-key:.*authority-gas\.key/);
+  assert.match(result.signerUnit,/LoadCredential=keeper-private-key:.*keeper\.key/);
   assert.match(result.signerUnit,/StartLimitIntervalSec=10min\nStartLimitBurst=3/);
   assert.equal(result.signerEnvironment.AUTHORITY_RELAY_ENABLED,'0');
   assert.equal(result.signerEnvironment.AUTHORITY_SIGNER_ATTEST_ONLY,'1');
@@ -39,9 +39,16 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.match(result.signerUnit,/ExecStart=\/usr\/bin\/node \/srv\/pinkuang-v4-signer\/releases\/v4-test-runtime\/server\/authority-signer\.mjs/);
   assert.equal(result.purchaseEnvironment.FRESH_PURCHASE_ENABLED,'0');
   assert.match(result.purchaseUnit,/--fresh-graph --send/);
-  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:.*authority-gas\.key/);
+  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:.*keeper\.key/);
   assert.match(result.purchaseUnit,/StartLimitIntervalSec=10min\nStartLimitBurst=3/);
   assert.match(result.purchaseUnit,/RestartPreventExitStatus=2/);
+  assert.match(result.nginxSnippet,/location \^~ \/pinkuang-deploy-v4\/ \{\n    auth_basic "BEMine deployment";\n    auth_basic_user_file \/etc\/nginx\/pinkuang-deploy-v4\.htpasswd;\n    proxy_set_header Authorization "";/);
+  assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/api\/journal\/deployment \{ return 404; \}/);
+  assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/api\/journal\/fresh-activation \{ return 404; \}/);
+  assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/api\/ \{[^}]*proxy_read_timeout 90s;/,
+    'the product API proxy must outwait the 45-second authority IPC timeout');
+  assert.match(result.nginxSnippet,/location \^~ \/pinkuang-deploy-v4\/ \{[^}]*proxy_read_timeout 30s;/,
+    'the longer proxy wait remains scoped to the product API');
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/firsto-api\/ \{[^}]*proxy_set_header X-Real-IP \$remote_addr;/);
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/ \{[^}]*alias \/var\/www\/bemine-v4\/current\/public\//);
   assert.doesNotMatch(result.nginxSnippet,/root \/var\/www\/bemine-v4\/current\/public/);
@@ -67,10 +74,26 @@ test('offline v4 draft accepts the selected original Gas address but keeps both 
 test('offline v4 draft rejects wrong graph, truncated Gas address and mismatched manifest',()=>{
   const f=fixture();
   assert.throws(()=>prepareFreshCutover({...f,expectedGasWallet:f.expectedGasWallet.slice(0,-1)}),/40-hex/);
-  assert.throws(()=>prepareFreshCutover({...f,expectedGasWallet:addr(93)}),/seven ordered transactions/);
+  assert.throws(()=>prepareFreshCutover({...f,expectedGasWallet:addr(93)}),/reviewed deployment-console role/);
   assert.throws(()=>prepareFreshCutover({...f,keeperStateRoot:'/tmp/keeper'}),/dedicated private nonce state root/);
   assert.throws(()=>prepareFreshCutover({...f,manifest:{...f.manifest,factory:addr(94)}}),/Manifest factory/);
   assert.throws(()=>prepareFreshCutover({...f,manifest:{...f.manifest,verifiedBlockHash:hash(999)}}),/same fresh genesis/);
   assert.throws(()=>prepareFreshCutover({...f,record:{...f.record,addresses:{...f.record.addresses,
     factory:f.record.addresses.portfolioFactory}}}),/trusted code evidence|separate/);
+});
+
+test('offline v4 draft binds deployer and activated administrators to the deployment console',()=>{
+  const f=fixture();
+  const wrongDeployer=addr(90);
+  assert.throws(()=>prepareFreshCutover({...f,activation:{...f.activation,deployer:wrongDeployer}}),
+    /activation evidence deployer/);
+  assert.throws(()=>prepareFreshCutover({...f,record:{...f.record,account:wrongDeployer,
+    input:{...f.record.input,ownerMultisig:wrongDeployer,operator:wrongDeployer,treasury:wrongDeployer}}}),
+  /fresh genesis deployer|trusted/);
+  const wrongAdmin=addr(91);
+  const authority={...f.activation.authority,administratorOne:wrongAdmin};
+  assert.throws(()=>prepareFreshCutover({...f,
+    activation:{...f.activation,authority},
+    manifest:{...f.manifest,freshAuthority:{...f.manifest.freshAuthority,administratorOne:wrongAdmin}}}),
+  /activated administrators|trusted/);
 });

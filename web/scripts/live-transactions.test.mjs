@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { getAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { authenticate, connectWallet, readPending, sendProductTransaction, recoverPending, cancelPendingNonce,
-  productGasLimit, requireCurrentProductStage, validateProductTransactionStage } from '../lib/live-transactions.mjs';
+  retryLegacyEnvelope, productGasLimit, requireCurrentProductStage, validateProductTransactionStage } from '../lib/live-transactions.mjs';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
@@ -74,7 +74,7 @@ test('display-only graph waits for a fresh identical proof before transaction pr
   const secureConfig = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
     portfolioFactory: pinnedGenesis.portfolioFactory, manifest, stage: 'genesis',
     artifactDigest: pinnedGenesis.artifactDigest, stageActivationBlock: pinnedGenesis.deployment.blockNumber,
-    stageActivationHash: pinnedGenesis.deployment.blockHash, operationalReady: false,
+    stageActivationHash: pinnedGenesis.deployment.blockHash, operationalReady: true,
     productGraphUrl: 'https://bemine.example/api/journal/product-graph' };
   const baseGraph = { status: 'verified', chainId: 56, stage: 'genesis',
     artifactDigest: pinnedGenesis.artifactDigest, genesisArtifactDigest: pinnedGenesis.artifactDigest,
@@ -86,7 +86,7 @@ test('display-only graph waits for a fresh identical proof before transaction pr
   const fetcher = async () => new Response(JSON.stringify(reads++ === 0
     ? { ...baseGraph, readMode: 'verified_snapshot', stale: true, transactionReady: false,
       refreshing: true, snapshotAgeMs: 25_000 }
-    : { ...baseGraph, readMode: 'current', stale: false, transactionReady: true }),
+    : { ...baseGraph, operationalReady: true, readMode: 'current', stale: false, transactionReady: true }),
   { status: 200, headers: { 'content-type': 'application/json' } });
   const graph = await requireCurrentProductStage(secureConfig, fetcher, { wait: async () => { waits++; } });
   assert.equal(graph.readMode, 'current');
@@ -120,6 +120,7 @@ function fixture(options={}){
     if(method==='eth_estimateGas')assert.fail('dynamic gas estimation is disabled for product submission');
     if(method==='eth_sendTransaction'){
       assert(state.record,'Server intent ACK must precede wallet send');
+      if(state.rejectType2&&params[0].type==='0x2')throw new Error('Unsupported transaction type 0x2 (EIP-1559 envelope)');
       if(state.rejectWallet)throw Object.assign(new Error('rejected'),{code:4001});
       if(state.sendTimeout)throw new Error('wallet response lost');
       if(state.afterSend)state.afterSend(state);
@@ -140,7 +141,9 @@ function fixture(options={}){
       return response(200,{nonce,message});
     }
     if(path==='session'&&method==='POST'){state.authenticated=true;return response(200,{account});}
-    if(path==='market'&&method==='GET')return response(200,{record:state.record,revision:state.revision});
+    if(path==='market'&&method==='GET')return response(200,{record:state.record,revision:state.revision,
+      legacyEnvelopeIssued:state.record?.version===2&&state.legacyUsed===true,
+      canRequestLegacyEnvelope:state.rejectType2&&state.record?.version===2&&!state.record.hash&&!state.legacyUsed});
     if(path==='market/prepare-and-arm'&&method==='POST'){
       if(!state.fastAuthorization)return response(404,{error:'Unknown journal route.'});
       if(state.armFail)return response(409,{error:'Signature permission already consumed'});
@@ -169,14 +172,26 @@ function fixture(options={}){
     if(path==='market/cancel-intent'&&method==='POST'){
       if(state.cancelAckFail)return response(503,{error:'Cancellation ACK unavailable'});
       if(!state.record||body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
+      const fee=`0x${(state.price*120n/100n).toString(16)}`;
       const transaction={from:account,to:account,chainId:'0x38',nonce:`0x${state.record.nonce.toString(16)}`,data:'0x',value:'0x0',
-        gas:'0x5208',gasPrice:`0x${(state.price*120n/100n).toString(16)}`,type:'0x0',...state.cancelTransaction};
+        gas:'0x5208',...(state.record.version===2&&!state.legacyUsed?{maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'}
+          :{gasPrice:fee,type:'0x0'}),...state.cancelTransaction};
       state.record={...state.record,cancellationRequests:[...(state.record.cancellationRequests??[]),{...transaction,createdAt:new Date().toISOString()}]};
       state.revision++;
-      const result={record:structuredClone(state.record),revision:state.revision,transaction};
+      const result={record:structuredClone(state.record),revision:state.revision,transaction,
+        ...(state.record.version===2?{legacyEnvelopeIssued:state.legacyUsed===true}:{})};
       if(state.afterCancelAck)state.afterCancelAck(state);
       if(state.cancelAckLost)throw new Error('Cancellation ACK lost');
       return response(200,result);
+    }
+    if(path==='market/legacy-envelope'&&method==='POST'){
+      if(!state.record||body.expectedRevision!==state.revision||body.walletRejectedType2!==true||state.legacyUsed)
+        return response(409,{error:'Legacy envelope unavailable'});
+      const r=state.record;state.legacyUsed=true;state.revision++;
+      const transaction={from:r.account,to:r.target,chainId:'0x38',nonce:`0x${BigInt(r.nonce).toString(16)}`,
+        data:r.data,value:`0x${BigInt(r.value).toString(16)}`,gas:`0x${BigInt(r.gas).toString(16)}`,
+        gasPrice:`0x${BigInt(r.gasPrice).toString(16)}`,type:'0x0',...state.legacyTransaction};
+      return response(200,{revision:state.revision,record:structuredClone(r),transaction,legacyEnvelopeAuthorized:true});
     }
     if(path==='market'&&method==='PUT'){
       if(body.expectedRevision!==state.revision)return response(409,{error:'Revision changed'});
@@ -192,7 +207,9 @@ function fixture(options={}){
       const r=state.record;
       const result={action:r.action.kind,status:state.resolution,account,nonce:r.nonce,factory:r.factory,target:r.target??r.market,
         finalized:true,transactionHash:body.hash,receipt:{status:state.resolution==='reverted'?0:1,transactionHash:body.hash,
-          to:state.resolution==='cancelled'?account:r.target??r.market,blockNumber:100,blockHash:hash(100)}};
+          to:state.resolution==='cancelled'?account:state.plainReplacementProof?addr(9):r.target??r.market,
+          blockNumber:100,blockHash:hash(100)},
+        ...(state.plainReplacementProof?{plainEoaReplacementVerified:true}:{})};
       if(result.status==='confirmed'&&r.action.kind==='deposit'&&!state.missingDeposit){
         const args=abi.PoolVault.decodeFunctionData('deposit',r.data);
         Object.assign(result,{poolAddress:pool,shares:args[0].toString(),amountWei:r.value});
@@ -358,6 +375,41 @@ test('an old server success-labelled replacement cannot appear as a cleared prod
   assert(result.record);
   assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
 });
+test('a successful unrelated replacement needs the server plain-EOA proof',async()=>{
+  const f=fixture({resolution:'replaced',plainReplacementProof:true});
+  const result=await f.send();
+  assert.equal(result.status,'replaced');
+  assert.equal(result.plainEoaReplacementVerified,true);
+  assert.equal(f.state.record,null);
+});
+
+test('a rejected type-2 envelope offers one explicit, same-intent legacy attempt',async()=>{
+  const f=fixture({fastAuthorization:true,rejectType2:true});
+  const first=await f.send();
+  assert.equal(first.status,'pending');
+  assert.equal(first.legacyEnvelopeRejected,true);
+  assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
+  const second=await retryLegacyEnvelope({provider:f.provider,config,account,fetcher:f.fetcher});
+  assert.equal(second.status,'confirmed');
+  const sends=f.calls.filter(call=>call.method==='eth_sendTransaction');
+  assert.equal(sends.length,2);
+  assert.equal(sends[0].params[0].type,'0x2');
+  assert.equal(sends[1].params[0].type,'0x0');
+  assert.equal(sends[1].params[0].gasPrice,sends[0].params[0].maxFeePerGas);
+  assert.equal(sends[1].params[0].nonce,sends[0].params[0].nonce);
+  assert.equal(sends[1].params[0].data,sends[0].params[0].data);
+  assert(f.calls.findIndex(call=>call.url?.endsWith('/legacy-envelope'))<f.calls.findLastIndex(call=>call.method==='eth_sendTransaction'));
+  await assert.rejects(retryLegacyEnvelope({provider:f.provider,config,account,fetcher:f.fetcher}),/不能切换/);
+});
+test('legacy fallback never forwards altered server fields to the wallet',async()=>{
+  const f=fixture({fastAuthorization:true,rejectType2:true});
+  assert.equal((await f.send()).legacyEnvelopeRejected,true);
+  f.state.legacyTransaction={to:addr(9)};
+  const result=await retryLegacyEnvelope({provider:f.provider,config,account,fetcher:f.fetcher});
+  assert.equal(result.status,'pending');
+  assert.match(result.message,/兼容交易信封/);
+  assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
+});
 
 test('recovery reads saved finalized result after lost DELETE ACK, never signing again',async()=>{
   const f=fixture({deleteAckLost:true});
@@ -395,16 +447,18 @@ const pendingRecord=(version=2)=>version===2?{version:2,chainId:56,account,facto
   :{version:1,chainId:56,account,factory,market,nonce:7,action:{kind:'withdraw'},
     data:abi.ShareMarket.encodeFunctionData('withdrawBnb'),value:'0',submittedAt:'2026-09-27T00:00:00Z',hash:hash(6)};
 test('explicit nonce cancellation persists server ACK then sends one zero-value self-transfer for v1 and v2',async()=>{
-  for(const version of [1,2]){
-    const f=fixture({record:pendingRecord(version),resolution:'cancelled',pendingNonce:8n});
+  for(const {version,legacyUsed} of [{version:1,legacyUsed:false},{version:2,legacyUsed:false},{version:2,legacyUsed:true}]){
+    const f=fixture({record:pendingRecord(version),resolution:'cancelled',pendingNonce:8n,legacyUsed});
     const states=[];
     const result=await cancelPendingNonce({provider:f.provider,account,config,fetcher:f.fetcher,onState:state=>states.push(state)});
     assert.equal(result.status,'cancelled');assert.equal(result.finalized,true);assert.equal(result.poolAddress,undefined);
     assert(!states.some(state=>state.status==='confirmed'));
     assert.equal(f.state.record,null);
     const sends=f.calls.filter(x=>x.method==='eth_sendTransaction');assert.equal(sends.length,1);
+    const fee=`0x${1_200_000_000n.toString(16)}`;
     assert.deepEqual(sends[0].params[0],{from:account,to:account,chainId:'0x38',nonce:'0x7',data:'0x',value:'0x0',
-      gas:'0x5208',gasPrice:`0x${1_200_000_000n.toString(16)}`,type:'0x0'});
+      gas:'0x5208',...(version===2&&!legacyUsed?{maxFeePerGas:fee,maxPriorityFeePerGas:fee,type:'0x2'}
+        :{gasPrice:fee,type:'0x0'})});
     assert(f.calls.findIndex(x=>x.url?.endsWith('/cancel-intent'))<f.calls.findIndex(x=>x.method==='eth_sendTransaction'));
     const saved=f.calls.find(x=>x.method==='PUT').body.record;
     assert.equal(saved.hash,hash(6));assert.deepEqual(saved.recoveryHashes,[hash(7)]);
@@ -414,6 +468,7 @@ test('explicit nonce cancellation persists server ACK then sends one zero-value 
 
 test('cancellation never signs without an ACK, exact own nonce, unchanged identity and journal, EOA or safe fee',async()=>{
   for(const options of [{cancelAckFail:true},{cancelAckLost:true},{cancelTransaction:{to:addr(9)}},{cancelTransaction:{value:'0x1'}},
+    {cancelTransaction:{maxPriorityFeePerGas:'0x1'}},{cancelTransaction:{gasPrice:'0x1'}},
     {cancelTransaction:{nonce:'0x8'}},{afterCancelAck:state=>{state.nonce=8n;}},{afterCancelAck:state=>{state.pendingNonce=9n;}},
     {afterCancelAck:state=>{state.account=addr(9);}},{afterCancelAck:state=>{state.chain='0x1';}},
     {afterCancelAck:state=>{state.revision++;}},{accountCode:'0xef0100'},{balance:1n},{price:3_000_000_000n}]){

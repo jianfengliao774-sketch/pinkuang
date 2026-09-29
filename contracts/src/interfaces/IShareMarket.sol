@@ -37,6 +37,9 @@ interface IShareMarket {
     event OrderExpirySet(uint256 indexed orderId, uint64 expiresAt);
 
     function initialize(address factory_, address timelock_) external;
+    function bootstrapBudgetFactory() external;
+    function setBudgetFactoryTrust(address budgetFactory, bool trusted) external;
+    function budgetFactoryTrusted(address budgetFactory) external view returns (bool);
     function list(address pool, uint256 amount, uint256 pricePerUnit) external returns (uint256 orderId);
     function fill(uint256 orderId, uint256 amount) external payable;
     function cancel(uint256 orderId) external;

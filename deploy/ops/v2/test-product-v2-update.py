@@ -40,7 +40,19 @@ class Configuration(unittest.TestCase):
   self.assertIn('root /var/www/bemine-v2/current/public;',text)
   self.assertIn('try_files $uri $uri.html $uri/ =404;',text)
   self.assertIn('proxy_cookie_path /api/journal /bemine-v2/api/journal;',text)
+  for route in ['deployment','fresh-activation']:
+   self.assertIn('location = /bemine-v2/api/journal/'+route+' { return 410; }',text)
+   self.assertIn('location ^~ /bemine-v2/api/journal/'+route+'/ { return 410; }',text)
+  self.assertIn('location ^~ /bemine-v2/api/ {',text)
   self.assertNotIn('location ^~ /bemine/',text);self.assertNotIn('4180',text)
+ def test_runtime_hotfix_preserves_the_same_deployment_api_retirement(self):
+  source=self.ns['nginx_text']()
+  runtime_tree=ast.parse((HERE/'runtime-v2-hotfix.remote.py.template').read_text(encoding='utf8'))
+  names={'quote_location','retired_deployment_api','candidate_snippet'}
+  nodes=[node for node in runtime_tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
+  ns={};exec(compile(ast.Module(body=nodes,type_ignores=[]),'runtime-hotfix-functions','exec'),ns)
+  candidate=ns['candidate_snippet'](source)
+  self.assertEqual(candidate.replace(ns['quote_location'](),b'',1),source)
 
 class CatchupConfiguration(unittest.TestCase):
  def setUp(self):

@@ -10,6 +10,7 @@ import {PoolVault} from "../../src/PoolVault.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PlatformAuthority} from "../../src/PlatformAuthority.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 import {PurchaseMockBem, PurchaseMockNft, PurchaseMockMining, PurchaseMockMarket} from "../utils/PurchaseMocks.sol";
 import {Addresses} from "../../script/Addresses.sol";
 import {FirstoSignedAskMock} from "../utils/FirstoMocks.sol";
@@ -19,6 +20,12 @@ contract BudgetRoundAttacker {
     function expireThenPropose(BudgetPortfolioVault project, address child) external {
         project.expireChildSale();
         project.proposeChildSale(child, 1, 0, 0);
+    }
+}
+
+contract WrongLegacyBudgetFactory {
+    function legacyFactory() external pure returns (address) {
+        return address(0xBAD);
     }
 }
 
@@ -80,6 +87,9 @@ contract BudgetPortfolioTest is FundingTestBase {
             )
         );
         assertEq(address(portfolios), predictedFactory);
+
+        vm.prank(address(timelock));
+        coreShareMarket.setBudgetFactoryTrust(address(portfolios), true);
 
         ShareMarket marketImplementation = new ShareMarket();
         shareMarket = ShareMarket(
@@ -689,6 +699,49 @@ contract BudgetPortfolioTest is FundingTestBase {
         (status, price) = coreShareMarket.saleReview(address(pool), childProposalId);
         assertEq(status, 1);
         assertEq(price, 4 ether);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_discountedChildSaleUsesTimelockTrustedFactoryAfterCoreOperatorRotation() public {
+        _subscribe(ALICE, 29);
+        _subscribe(BOB, 30);
+        _subscribe(CAROL, 41);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        uint256 id = project.proposeChildSale(address(pool), 4 ether, 5 ether, uint64(block.timestamp));
+        vm.prank(ALICE);
+        project.voteChildSale(id, true);
+        vm.prank(BOB);
+        project.voteChildSale(id, true);
+        _saleReference(5 ether);
+        vm.prank(OPERATOR);
+        project.reviewChildSale(id, true);
+
+        vm.prank(OPERATOR);
+        vm.expectRevert(IShareMarket.Unauthorized.selector);
+        coreShareMarket.setBudgetFactoryTrust(address(portfolios), false);
+        vm.prank(address(timelock));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        coreShareMarket.setBudgetFactoryTrust(address(0xBAD), true);
+        WrongLegacyBudgetFactory wrongFactory = new WrongLegacyBudgetFactory();
+        vm.prank(address(timelock));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        coreShareMarket.setBudgetFactoryTrust(address(wrongFactory), true);
+        vm.prank(address(timelock));
+        coreShareMarket.setBudgetFactoryTrust(address(portfolios), false);
+        assertFalse(coreShareMarket.budgetFactoryTrusted(address(portfolios)));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        project.executeChildSale(id);
+
+        vm.prank(address(timelock));
+        coreShareMarket.setBudgetFactoryTrust(address(portfolios), true);
+        vm.prank(OWNER);
+        poolFactory.setOperator(address(0xBEEF));
+        project.executeChildSale(id);
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
     }
 

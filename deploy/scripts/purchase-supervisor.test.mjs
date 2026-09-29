@@ -62,9 +62,16 @@ test('systemd credential group read is accepted only inside its private credenti
 test('fresh supervisor treats ambiguous purchase status as operator review, not success', () => {
   for (const status of ['unknown-wallet-nonce-manual-review', 'broadcast-result-unknown',
     'nonce-or-chain-changed-before-broadcast', 'nonce-changed-before-broadcast-manual-review',
-    'chain-changed-before-broadcast', 'proof-review-required', 'pending-not-indexed']) {
+    'chain-changed-before-broadcast', 'proof-review-required']) {
     assert.equal(needsOperatorReview(status), true, status);
   }
+  assert.equal(needsOperatorReview('pending-not-indexed'), false,'status alone cannot prove an overdue or unbroadcast transaction');
+  assert.equal(needsOperatorReview({status:'pending-not-indexed',phase:'broadcast',broadcastCount:1,
+    pendingSeconds:2,overdue:false}),false,'a newly broadcast hash may be absent from a load-balanced RPC');
+  assert.equal(needsOperatorReview({status:'pending-not-indexed',phase:'broadcast',broadcastCount:1,
+    pendingSeconds:120,overdue:true}),true,'an overdue absent hash requires review');
+  assert.equal(needsOperatorReview({status:'pending-not-indexed',phase:'signed',broadcastCount:0,
+    pendingSeconds:2,overdue:false}),true,'a durable signature that was never sent requires review');
   assert.equal(needsOperatorReview('broadcast'), false);
   assert.equal(needsOperatorReview('confirmed'), false);
   const original = process.exitCode;
@@ -72,6 +79,9 @@ test('fresh supervisor treats ambiguous purchase status as operator review, not 
     let alert;
     assert.equal(reportOperatorReview([{ pool: pools[0], status: 'confirmed' }], message => { alert = message; }), false);
     assert.equal(alert, undefined);
+    assert.equal(reportOperatorReview([{pool:pools[0],status:'pending-not-indexed',phase:'broadcast',
+      broadcastCount:1,overdue:false,pendingSeconds:2}],message=>{alert=message;}),false);
+    assert.equal(alert,undefined);assert.equal(process.exitCode,original,'transient propagation must not stop systemd');
     assert.equal(reportOperatorReview([{ pool: pools[0], status: 'broadcast-result-unknown' }], message => { alert = JSON.parse(message); }), true);
     assert.equal(process.exitCode, 2);
     assert.equal(alert.status, 'operator-review-required');

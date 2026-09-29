@@ -3,6 +3,7 @@ import { ArrowDownToLine, ArrowRight, ArrowUpRight, Blocks, Check, CheckCheck, C
 import WalletQrChoice from './WalletQrChoice';
 import FreshActivationPanel from './FreshActivationPanel';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from './fresh-activation';
+import { FRESH_DEPLOYER } from '../shared/fresh-roles.mjs';
 import { ArchiveCompletedAction } from './ArchiveAction';
 import { displayDecimal, displayUnits } from './display';
 import { DeploymentEngine, LIBRARY_NAMES, INTEGRATED_TRANSACTION_COUNT, preflight, validateArtifacts, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
@@ -13,7 +14,6 @@ import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption,
 
 const EXPLORER = 'https://bscscan.com';
 const IS_FRESH = import.meta.env.MODE === 'fresh';
-const FRESH_DEPLOYER = '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7';
 // The new deployment console must not expose the old product's market or
 // persist its browser intents into the new deployment journal.
 const MarketPage = IS_FRESH ? null : lazy(() => import('./MarketPage'));
@@ -327,7 +327,7 @@ export default function App() {
                 <b>第二阶段 · 完成权限激活后</b>
                 <p>PlatformAuthority 接管运营和金库；48 小时 Timelock 接管两套 Factory 的所有权。</p>
                 <p>管理员：<span className="mono">{FRESH_ADMIN_ONE}</span>、<span className="mono">{FRESH_ADMIN_TWO}</span></p>
-                <p>独立 Gas 钱包公开地址：<span className="mono">{FRESH_GAS_WALLET}</span></p>
+                <p>Gas 钱包公开地址（与 v2 共用）：<span className="mono">{FRESH_GAS_WALLET}</span></p>
               </div> : <>
                 <label className="toggle-row"><input type="checkbox" checked={!customRoles} disabled={!!snapshot || !!busy} onChange={event => { setCustomRoles(!event.target.checked); setOperator(wallet?.address || ''); setTreasury(wallet?.address || ''); }}/><span><b>运营和金库使用同一个钱包</b><small>适合当前单钱包小额测试。</small></span><span className="toggle-track"/></label>
                 {customRoles && <div className="custom-roles"><label>运营地址<input aria-label="运营地址" className="text-input mono" value={operator} onChange={e => setOperator(e.target.value.trim())} placeholder="0x…" disabled={!!busy || !!snapshot}/></label><label>金库地址<input aria-label="金库地址" className="text-input mono" value={treasury} onChange={e => setTreasury(e.target.value.trim())} placeholder="0x…" disabled={!!busy || !!snapshot}/></label></div>}

@@ -15,7 +15,7 @@ import sqlite3
 import subprocess
 import time
 
-ACTIVATE_CONSOLE_SHA256 = '2d11ffecb45e37132f84dda8d9443bba091d853553aad4fee47ce3fd8a66c7a4'
+ACTIVATE_CONSOLE_SHA256 = '545b5f7198740138d2108967136255e51b86fba3392d6b202966255639e8d11a'
 
 
 def reviewed_activation_helper():
@@ -35,6 +35,8 @@ extract_archive = base['extract_archive']
 write_atomic = base['write_atomic']
 check_http = base['check_http']
 check_https = base['check_https']
+require_console_auth_file = base['require_console_auth_file']
+SNIPPET = base['SNIPPET']
 
 UNIT = Path('/etc/systemd/system/pinkuang-deploy-v4.service')
 RELEASES = Path('/srv/pinkuang-deploy-v4/releases')
@@ -213,6 +215,18 @@ def main():
     require(digest(args.archive) == args.archive_sha256, 'Release archive hash differs.')
     require(UNIT.is_file() and not UNIT.is_symlink()
             and digest(UNIT) == args.current_unit_sha256, 'Running v4 unit differs from reviewed snapshot.')
+    require_console_auth_file()
+    require(SNIPPET.is_file() and not SNIPPET.is_symlink(),
+            'The reviewed v4 deployment-console nginx snippet is missing.')
+    snippet = SNIPPET.read_text()
+    protected_location = ('    auth_basic "BEMine deployment";\n'
+                          '    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;\n')
+    required_locations = ['location ^~ /pinkuang-deploy-v4/ {\n']
+    if 'location ^~ /pinkuang-deploy-v4/api/ {\n' in snippet:
+        required_locations.append('location ^~ /pinkuang-deploy-v4/api/ {\n')
+    require(all(snippet.count(location) == 1
+                and location + protected_location in snippet for location in required_locations),
+            'The v4 deployment console or API is not protected by nginx authentication.')
     original = UNIT.read_text()
     old = RELEASES / args.current_release_id
     new = RELEASES / args.release_id
@@ -268,8 +282,9 @@ def main():
         variables = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
         require(not any(item.startswith(b'CREDENTIALS_DIRECTORY=') or item.startswith(b'KEEPER_PRIVATE_KEY=')
                         for item in variables), 'The public v4 process received a Gas credential.')
-        check_https('/pinkuang-deploy-v4/', 200, (new / 'dist/index.html').read_bytes())
-        check_https('/pinkuang-deploy-v4/upgrade.html', 404)
+        check_https('/pinkuang-deploy-v4/', 401)
+        check_https('/pinkuang-deploy-v4/deployment-artifacts.json', 401)
+        check_https('/pinkuang-deploy-v4/upgrade.html', 401)
         check_https('/bemine-v4/', 404)
         check_https('/bemine-v2/', 200)
         print(f'ACTIVE v4 console release={args.release_id} archive_sha256={args.archive_sha256}')

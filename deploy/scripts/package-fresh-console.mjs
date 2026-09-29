@@ -13,10 +13,9 @@ const DEPLOY = fileURLToPath(new URL('../', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const SOURCE_COMMIT = /^[a-f\d]{40}$/i;
 const PINNED_SOURCE_PATHS = Object.freeze([
-  'src', 'server', 'shared', 'index.html', 'vite.config.ts',
-  'package.json', 'package-lock.json', '../contracts/src', '../contracts/foundry.toml',
-  'scripts/budget-multicall-read.mjs', 'scripts/budget-official-discovery.mjs',
-  'scripts/official-market-discovery.mjs',
+  // The artifact commit identifies the deployed Solidity build. Runtime code
+  // is independently pinned by sourceHead and may receive later fixes.
+  '../contracts/src', '../contracts/foundry.toml',
 ]);
 
 // This is the complete, reviewed import graph of server/index.mjs. Adding a
@@ -119,8 +118,11 @@ export function verifyRuntimeClosure(files, runtimeModules = RUNTIME_MODULES,
 
 function ensureSourceCommit(source, sourceHead, runtimeModules) {
   assert(SOURCE_COMMIT.test(sourceHead), 'A complete 40-hex source commit is required.');
-  const cleanPaths = ['src', 'server', 'shared', 'scripts', 'index.html', 'vite.config.ts',
-    'package.json', 'package-lock.json', '../contracts/src', '../contracts/foundry.toml'];
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).trim();
+  assert.equal(sourceHead.toLowerCase(), head.toLowerCase(), 'Release source HEAD differs from the checkout.');
+  const cleanPaths = ['src', 'server', 'shared', 'scripts', 'ops', 'public/deployment-artifacts.json',
+    'index.html', 'vite.config.ts', 'package.json', 'package-lock.json',
+    '../contracts/src', '../contracts/foundry.toml'];
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...cleanPaths],
     { cwd: source, encoding: 'utf8' });
   assert(!dirty.trim(), 'Commit reviewed source before creating a fresh console release.');

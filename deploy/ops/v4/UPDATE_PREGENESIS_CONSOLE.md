@@ -106,8 +106,10 @@ python3 /root/pinkuang-v4-stage/update-console.remote.py \
 # 预检成功后：仅删除上一行的 --dry-run，再执行一次。
 ```
 
-脚本成功的终态为：新部署页和固定的部署产物可访问，未认证 API 返回 401，产品图和
-relay 仍返回 503，`/bemine-v4/` 仍为 404，旧 `/bemine-v2/` 仍可访问。
+脚本成功的终态为：部署台页面、部署产物与部署台 API 对未认证访客均返回 401；经
+Basic Auth 的浏览器仍可访问新部署页。环回服务的产品图和 relay 仍返回 503，
+`/bemine-v4/` 仍为 404，旧 `/bemine-v2/` 仍可访问。更新前必须已按 README
+配置 nginx 访问控制；缺失时脚本会拒绝切换。
 `AUTHORITY_RELAY_ENABLED=0` 是刻意禁用，不能因为 signer 草案存在就改为 1。
 
 ## 回滚边界
@@ -127,8 +129,8 @@ Stage2 的 `credentialVerified` 仍为 false，直到私有 signer 的可核验�
 
 ## v4 API 独立限流
 
-公网部署台保留静态页面供钱包连接；API 写入仍必须通过钱包身份验证。可在不改变
-旧站或 v4 静态页面的前提下，单独给 `/pinkuang-deploy-v4/api/` 加每来源 IP
+公网部署台的页面和 API 都先通过 nginx Basic Auth；API 写入仍必须通过钱包身份验证。可在不改变
+旧站或 v4 页面访问控制的前提下，单独给 `/pinkuang-deploy-v4/api/` 加每来源 IP
 30 次/秒、突发 60 次的 nginx 限流，超额返回 429。先核对现有 nginx 片段的
 SHA256，上传 `limit-console-api.remote.py`，以该哈希执行 `--dry-run`，再用相同
 参数正式执行。脚本会备份原片段、检查配置并重载 nginx；若验证失败会恢复原片段。

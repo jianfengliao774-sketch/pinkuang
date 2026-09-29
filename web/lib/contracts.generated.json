@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xbac20f96a1476eeb7911d5f35abc78320f8339eebf10169a8d034fe797b2f88e",
+  "artifactDigest": "0x6007118ac4568be4743a99b44b5259518fcf5a73e091469bfdc4d05a7dc4dd75",
   "abis": {
     "PoolFactory": [
       {
@@ -5813,6 +5813,25 @@
         "inputs": [
           {
             "indexed": true,
+            "internalType": "address",
+            "name": "budgetFactory",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "bool",
+            "name": "trusted",
+            "type": "bool"
+          }
+        ],
+        "name": "BudgetFactoryTrustChanged",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
             "internalType": "uint256",
             "name": "orderId",
             "type": "uint256"
@@ -6134,6 +6153,32 @@
       },
       {
         "inputs": [],
+        "name": "bootstrapBudgetFactory",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "budgetFactory",
+            "type": "address"
+          }
+        ],
+        "name": "budgetFactoryTrusted",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
         "name": "buyerFeeBps",
         "outputs": [
           {
@@ -6437,6 +6482,24 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "budgetFactory",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "trusted",
+            "type": "bool"
+          }
+        ],
+        "name": "setBudgetFactoryTrust",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
       },
       {

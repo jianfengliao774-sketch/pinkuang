@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayListSnapshot, displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 
 const manifest = { artifactDigest: `0x${'ab'.repeat(32)}`, factory: `0x${'11'.repeat(20)}`, shareMarket: `0x${'22'.repeat(20)}` };
 const source = { complete: true, unknownReason: null, chainId: 56, factory: manifest.factory,
@@ -42,6 +42,22 @@ test('section snapshots stay separate for each account and reject unverified dat
   assert.equal(writeDisplaySnapshot(cache, manifest, accountB, { ...first, source: { ...source, complete: false } }), false);
 });
 
+test('old list caches with missing or malformed items cannot reach page list rendering', () => {
+  const backing = new Map(), cache = storage(backing);
+  const page = `positions:0x${'aa'.repeat(20)}`;
+  assert.equal(writeDisplaySnapshot(cache, manifest, page, { source, items: [] }, { now: 1000 }), true);
+  assert.deepEqual(displayListSnapshot(readDisplaySnapshot(cache, manifest, page, { now: 2000 })).items, []);
+  const cacheKey = [...backing.keys()][0];
+  const oldRecord = JSON.parse(backing.get(cacheKey));
+  delete oldRecord.result.items;
+  backing.set(cacheKey, JSON.stringify(oldRecord));
+  assert.equal(displayListSnapshot(readDisplaySnapshot(cache, manifest, page, { now: 2000 })), null);
+  assert.equal(displayListSnapshot({ source }), null, 'a cache from an older schema may omit items');
+  assert.equal(displayListSnapshot({ source, items: {} }), null);
+  assert.equal(displayOnlySnapshot({ source, items: {} }, manifest, 1000), null);
+  assert.equal(displayOnlySnapshot({ catalog: { source, items: null } }, manifest, 1000), null);
+});
+
 test('display-only server snapshots retain stale markers and expire from the original verification time', () => {
   const cache = storage();
   const checkedAt = new Date(1000).toISOString();
@@ -53,6 +69,8 @@ test('display-only server snapshots retain stale markers and expire from the ori
   assert.equal(restored.source.cacheOrigin, 'local');
   assert.equal(restored.source.transactionReady, false);
   assert.equal(readDisplaySnapshot(cache, manifest, 'historical', { now: 30 * 60_000 + 1001 }), null);
+  assert.equal(displayOnlySnapshot(result, manifest, 30 * 60_000, 30 * 60_000 + 1001), null,
+    'a recent memory entry cannot extend the original server snapshot age');
   assert.equal(writeDisplaySnapshot(cache, manifest, 'future', { ...result,
     source: { ...result.source, checkedAt: new Date(40_000).toISOString() } }, { now: 1000 }), true);
   assert.equal(readDisplaySnapshot(cache, manifest, 'future', { now: 2000 }), null);

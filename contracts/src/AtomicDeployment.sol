@@ -162,6 +162,10 @@ contract AtomicDeployment {
         );
         portfolio =
             PortfolioDeployment(address(portfolioFactory), address(portfolioBeacon), portfolioFactory.shareMarket());
+        // Bind the budget Factory in the core Market before this one-use
+        // deployment transaction returns. A failed binding reverts the graph.
+        IShareMarket(result.shareMarket).bootstrapBudgetFactory();
+        if (!IShareMarket(result.shareMarket).budgetFactoryTrusted(portfolio.factory)) revert InvalidBinding();
         _verifyPortfolio(config, result, portfolio);
         portfolioDeployment = portfolio;
         emit SingleOwnerDeployment(config.core.ownerMultisig, result.factory);

@@ -142,10 +142,11 @@ export interface DeploymentCallbacks {
 const MULTISIG_ABI = ['function getThreshold() view returns(uint256)', 'function getOwners() view returns(address[])'];
 const REQUIRED_ARTIFACTS = [...LIBRARY_NAMES, 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'PlatformAuthority', 'PoolTimelock', 'PoolBeacon', 'ERC1967Proxy', 'PoolLens'];
 export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
-// The fresh deployment gas limits were measured against the exact pinned
-// artifact bundle in a disposable BSC-chain-id 56 deployment (16 receipts).
-// A changed bundle must get a new reviewed plan before any wallet request.
-const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0xbac20f96a1476eeb7911d5f35abc78320f8339eebf10169a8d034fe797b2f88e';
+// The fresh deployment gas limits were checked against this exact artifact
+// bundle in a disposable BSC-chain-id 56 deployment (16 receipts), each with
+// at least 10% headroom. A changed bundle needs a new reviewed plan before
+// any wallet request.
+const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0x6007118ac4568be4743a99b44b5259518fcf5a73e091469bfdc4d05a7dc4dd75';
 const FRESH_STEP_GAS_LIMITS: Readonly<Record<string, bigint>> = Object.freeze({
   PoolFunds: 1060916n,
   PurchaseValidation: 1081458n,
@@ -858,8 +859,14 @@ export class DeploymentEngine {
     const transaction = await this.transaction(snapshot, step);
     transaction.from = snapshot.account; transaction.value = 0n; transaction.chainId = 56;
     const reviewedLimit = snapshot.kind === 'integrated-v2' ? freshGasLimit(snapshot, step) : null;
+    // Simulate against current chain state before saving a signing intent. The
+    // reviewed limit remains the wallet limit; simulation is only a rollback
+    // and out-of-gas guard, never a source of a new Gas allowance.
+    const simulation = reviewedLimit === null || transaction.to == null
+      ? this.provider.estimateGas(transaction)
+      : this.provider.call({ ...transaction, gasLimit: reviewedLimit }).then(() => null);
     const [estimated, fee, balance, walletNonce, walletPendingNonce, block, independentNonce] = await Promise.all([
-      reviewedLimit === null ? this.provider.estimateGas(transaction) : Promise.resolve(null),
+      simulation,
       this.provider.getFeeData(), this.provider.getBalance(snapshot.account),
       this.provider.getTransactionCount(snapshot.account, 'latest'), this.provider.getTransactionCount(snapshot.account, 'pending'),
       this.provider.getBlock('latest'),
@@ -879,6 +886,8 @@ export class DeploymentEngine {
     const cap = parseUnits(snapshot.input.gasPriceCapGwei, 'gwei');
     assert(fee.gasPrice <= cap, '当前 Gas 单价超过设定上限。');
     const gasLimit = reviewedLimit ?? (estimated! * 120n + 99n) / 100n;
+    if (reviewedLimit !== null && estimated !== null)
+      assert(estimated <= reviewedLimit, '只读部署模拟所需 Gas 超过已核对的固定上限；部署已暂停。');
     assert(block && gasLimit <= block.gasLimit, '该笔部署超过区块 Gas 上限。');
     const maxFee = gasLimit * fee.gasPrice;
     assert(BigInt(snapshot.spentWei) + maxFee <= parseEther(snapshot.input.maxGasBudgetBnb), '下一笔交易可能超过总 Gas 预算，已停止。');

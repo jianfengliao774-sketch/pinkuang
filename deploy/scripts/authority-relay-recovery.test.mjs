@@ -91,6 +91,18 @@ test('hash-pinned recovery can use the private journal when the original admin c
   const archive=authorityRecoveryLaunchArguments(replacement,env,1234);
   assert(archive.includes('--acknowledge-replacement'));
   assert(!archive.some(item=>item.startsWith('--property=LoadCredential=')));
+  const cancellation=['--journal',V4_AUTHORITY_JOURNAL,'--authority',
+    '0x0000000000000000000000000000000000000011','--expected-codehash','0x'+'c'.repeat(64),
+    '--send','--cancel-expired-signed','--expected-hash',hash];
+  const cancelLaunch=authorityRecoveryLaunchArguments(cancellation,env,1234);
+  assert(cancelLaunch.includes('--cancel-expired-signed'));
+  assert(cancelLaunch.includes('--property=LoadCredential=keeper-private-key:/etc/pinkuang/keeper.key'));
+  const cancelArchive=['--journal',V4_AUTHORITY_JOURNAL,'--authority',
+    '0x0000000000000000000000000000000000000011','--expected-codehash','0x'+'c'.repeat(64),
+    '--acknowledge-expired-cancel',hash,'--cancel-hash','0x'+'d'.repeat(64)];
+  const archiveLaunch=authorityRecoveryLaunchArguments(cancelArchive,env,1234);
+  assert(archiveLaunch.includes('--acknowledge-expired-cancel'));
+  assert(!archiveLaunch.some(item=>item.startsWith('--property=LoadCredential=')));
 });
 
 test('prelaunch rejects legacy paths, inline private keys and undrained sender without starting', () => {
@@ -103,4 +115,17 @@ test('prelaunch rejects legacy paths, inline private keys and undrained sender w
     '--send', '--gas-limit', '650000'], { env, query, spawn }), /v4 Authority journal/);
   assert.throws(() => runAuthorityRecovery(['--command', 'relative.json', '--journal', V4_AUTHORITY_JOURNAL,
     '--send', '--gas-limit', '650000'], { env, query, spawn }), /paths must be absolute/);
+});
+
+test('expired cancellation cannot start when a sender is active or a private key is inline', () => {
+  const cancel=['--journal',V4_AUTHORITY_JOURNAL,'--authority',
+    '0x0000000000000000000000000000000000000011','--expected-codehash','0x'+'c'.repeat(64),
+    '--send','--cancel-expired-signed','--expected-hash',hash];
+  let spawned=false;
+  const spawn=()=>{spawned=true;return {status:0};};
+  assert.throws(()=>runAuthorityRecovery(cancel,{env,query:()=> 'active',spawn}),/Stop and reconcile/);
+  assert.equal(spawned,false);
+  assert.throws(()=>runAuthorityRecovery(cancel,{env:{...env,KEEPER_PRIVATE_KEY:''},
+    query:()=> 'inactive',spawn}),/forbids private keys/);
+  assert.equal(spawned,false);
 });

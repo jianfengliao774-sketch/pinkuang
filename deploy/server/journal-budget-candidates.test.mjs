@@ -19,7 +19,7 @@ async function fixture({discovery,officialScanTimeoutMs}={}){
       if(method==='eth_chainId')return `0x${state.chain.toString(16)}`;
       assert.equal(method,'eth_call');
       const [{to,data},tag]=params;
-      assert.equal(tag,'0xa');
+      assert.match(tag,/^0x[\da-f]+$/);
       const call=prefilter.parseTransaction({data});
       if(call.name==='isPool'){
         assert.equal(to.toLowerCase(),factory.toLowerCase());
@@ -41,7 +41,8 @@ async function fixture({discovery,officialScanTimeoutMs}={}){
       if(!state.graphValid)throw Error('Invalid reviewed graph');return {factory,productKind:'budget',legacyFactory:legacy,artifactDigest:digest,blockNumber:block.number};},
     budgetCandidateDiscovery:async options=>{state.scans++;return discovery?discovery(options,complete,state):complete(options);}});
   const server=createServer((req,res)=>service.handle(req,res));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  return {state,async get(route=path()){const response=await fetch(`http://127.0.0.1:${server.address().port}${route}`);return {status:response.status,body:await response.json(),cache:response.headers.get('cache-control')};},
+  return {state,async get(route=path(),client){const response=await fetch(`http://127.0.0.1:${server.address().port}${route}`,
+    client?{headers:{'X-Real-IP':client}}:undefined);return {status:response.status,body:await response.json(),cache:response.headers.get('cache-control')};},
     async close(){await new Promise(resolve=>server.close(resolve));await service.close();await rm(directory,{recursive:true,force:true});}};
 }
 test('budget HTTP discovery is read-only, caches one canonical parent and never requires a wallet session',async()=>{
@@ -67,6 +68,18 @@ test('unregistered or absent budget parent cannot spend the shared graph proof b
     assert.equal((await f.get()).status,409);
     assert.equal(f.state.graphs,0);
     assert.equal(f.state.scans,0);
+  }finally{await f.close();}
+});
+test('a real budget parent with changing pinned hashes cannot consume another visitor’s graph allowance',async()=>{
+  const f=await fixture();try{
+    assert.equal((await f.get(path(10),'198.51.100.1')).status,200);
+    assert.equal((await f.get(path(11),'198.51.100.1')).status,429);
+    assert.equal(f.state.graphs,1);
+    assert.equal((await f.get(path(11),'198.51.100.2')).status,200);
+    assert.equal(f.state.graphs,2);
+    f.state.time+=8_000;
+    assert.equal((await f.get(path(12),'198.51.100.1')).status,200);
+    assert.equal(f.state.graphs,3);
   }finally{await f.close();}
 });
 test('bad graph and incomplete or mismatched discoveries never return empty complete candidates',async()=>{

@@ -58,7 +58,7 @@ jobs:
 
   deployment-console:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,6 +82,17 @@ jobs:
       - name: Deployment, keeper and proxy regression tests
         run: npm test
         working-directory: deploy
+      - name: Release tooling, notification and ops Node regressions
+        run: node --test ops/v2/*.test.mjs ops/v2/genesis-graph-compat/*.test.mjs ops/v3/*.test.mjs ops/v4/*.test.mjs server/notifications/*.test.mjs
+        working-directory: deploy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline deployment ops Python regressions
+        run: |
+          for test_file in deploy/ops/v2/test-*.py deploy/ops/v3/test-*.py deploy/ops/v4/test-*.py; do
+            python "$test_file"
+          done
       - name: Compile source-pinned UI and production server assets
         run: npm run build
         working-directory: deploy
@@ -106,6 +117,16 @@ jobs:
       - name: Build product frontend with checked contract bindings
         run: pnpm run build
         working-directory: web
+      - name: Build and bind the actual v4 static and backend packages using a synthetic graph
+        run: node ops/v4/validate-release-ci.mjs --out "$RUNNER_TEMP/v4-release-validation"
+        working-directory: deploy
+      - name: Preserve current v4 release validation manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-release-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/v4-release-validation/
+          if-no-files-found: warn
 
   fork:
     if: github.event_name != 'workflow_dispatch' || inputs.run_fork
