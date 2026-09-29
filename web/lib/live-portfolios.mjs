@@ -13,6 +13,33 @@ const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
+/** A saved directory or local page can supply identities, never action eligibility. */
+export function portfolioConfigActionReady(config) {
+  const v4Ready = config?.productFamily !== 'fresh-v4'
+    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false;
+  return !!config && v4Ready;
+}
+export function portfolioCreateActionReady({ config, operatorVerified, operator, currentOperatorRead,
+  wallet, account }) {
+  const currentOperator = currentOperatorRead === true && typeof operator === 'string'
+    && typeof account === 'string' && same(operator, account);
+  return portfolioConfigActionReady(config) && !!wallet && !!account
+    && (operatorVerified === true || currentOperator);
+}
+export function portfolioPageActionReady({ config, freshRead, listingSource, initialPool }) {
+  return portfolioConfigActionReady(config) && freshRead === true
+    && (!!initialPool || !!listingSource && listingSource.stale !== true
+      && listingSource.readMode !== 'verified_snapshot');
+}
+export function portfolioSelectedActionReady({ config, selectedProofCurrent }) {
+  return portfolioConfigActionReady(config) && selectedProofCurrent === true;
+}
+export function portfolioOrderActionReady({ config, selectedProofCurrent, source, orderPool, selectedPool }) {
+  return portfolioSelectedActionReady({ config, selectedProofCurrent })
+    && !!source && source.stale !== true && source.readMode !== 'verified_snapshot'
+    && typeof orderPool === 'string' && typeof selectedPool === 'string'
+    && same(orderPool, selectedPool);
+}
 /** Genesis permits one candidate per round and any positive-share holder to propose it. */
 export function genesisPortfolioProposalGate(row) {
   if (row?.state !== 2n) return { allowed: false, reason: '项目当前不在运行状态，不能发起出售。' };
@@ -272,7 +299,7 @@ export async function readPortfolioOrders(config, provider, pool, { cursor, fetc
       pricePerUnitWei: order.pricePerUnit, active: order.active, expiresAt: expiry[0], expired: expiry[0] <= ctx.timestamp });
   }
   requireValue(reply.data.nextCursor === null || items.length > 0 && String(reply.data.nextCursor) === last.toString(), '订单分页游标无效。');
-  await ctx.canonical(); return { items, nextCursor: reply.data.nextCursor };
+  await ctx.canonical(); return { items, nextCursor: reply.data.nextCursor, source };
 }
 
 export async function preparePortfolioAction({ config, provider, account, pool, action }) {

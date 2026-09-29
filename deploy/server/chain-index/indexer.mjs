@@ -664,10 +664,11 @@ export class ChainIndex {
     const reserved = this._reservedChildPoolAddresses(counts.reservedChildPoolCount);
     const portfolios = this.db.prepare('SELECT address,created_block AS createdBlock,budget AS budgetWei,absolute_cap AS absoluteCapWei,unit_cap AS unitCapWei FROM portfolios ORDER BY created_block,address LIMIT 501').all()
       .map(row => ({ ...row, kind: 'portfolio', factory: this.portfolioFactory }));
-    if (pools.length > 500 || portfolios.length > 500) return;
+    const poolsAvailable = pools.length <= 500;
+    const portfoliosAvailable = portfolios.length <= 500;
     const portfolioCount = this.db.prepare('SELECT COUNT(*) AS n FROM portfolios').get().n;
-    if (pools.length !== counts.standalonePoolCount) throw new Error('Verified pool directory is incomplete.');
-    if (portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
+    if (poolsAvailable && pools.length !== counts.standalonePoolCount) throw new Error('Verified pool directory is incomplete.');
+    if (portfoliosAvailable && portfolios.length !== portfolioCount) throw new Error('Verified budget directory is incomplete.');
     const orderCount = this.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE kind = 'market' AND name = 'OrderListed'").get().n;
     let orders = null;
     if (orderCount <= 500) {
@@ -681,10 +682,11 @@ export class ChainIndex {
     const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(counts.registeredPoolCount),
       childPoolCount: String(counts.childPoolCount), reservedChildPoolCount: String(counts.reservedChildPoolCount),
       reservedChildPoolAddresses: reserved.addresses, reservedChildPoolAddressesComplete: reserved.complete,
-      standalonePoolCount: String(counts.standalonePoolCount), portfolioCount: String(portfolioCount) };
+      standalonePoolCount: String(counts.standalonePoolCount), portfolioCount: String(portfolioCount),
+      poolsAvailable, portfoliosAvailable, ordersAvailable: orders !== null };
     this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
-      .run(JSON.stringify(snapshotSource), JSON.stringify(pools), stats ? JSON.stringify(stats) : null,
-        JSON.stringify(portfolios), orders ? JSON.stringify(orders) : null);
+      .run(JSON.stringify(snapshotSource), JSON.stringify(poolsAvailable ? pools : null), stats ? JSON.stringify(stats) : null,
+        JSON.stringify(portfoliosAvailable ? portfolios : null), orders ? JSON.stringify(orders) : null);
     this.snapshotTrusted = true;
   }
 

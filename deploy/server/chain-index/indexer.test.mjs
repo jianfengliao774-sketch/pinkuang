@@ -372,6 +372,7 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const url = `http://127.0.0.1:${server.address().port}`;
     assert.equal((await fetch(`${url}/v1/pools`)).status, 503);
+    assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503);
     assert.equal(index.verifiedReadView, null, 'the first sync has no prior verified database to read');
     const originalSend = chain.send.bind(chain);
     chain.send = () => Promise.reject(new Error('upstream https://rpc.example/?token=secret'));
@@ -390,6 +391,12 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal(saved.source.readMode, 'verified_snapshot');
     assert.equal(saved.source.stale, true);
     assert.equal(saved.source.transactionReady, false);
+    assert.equal(saved.source.poolsAvailable, true);
+    assert.equal(saved.source.portfoliosAvailable, true);
+    assert.equal(saved.source.ordersAvailable, true);
+    assert.equal(typeof saved.source.checkedAt, 'string');
+    assert.deepEqual(saved.block, { number: 6, hash: chain.blocks.get(6).hash,
+      timestamp: chain.blocks.get(6).timestamp });
     assert.equal(saved.data.items[0].address, pool);
     assert.equal(saved.data.registeredPoolCount, '1');
     assert.equal(saved.data.childPoolCount, '0');
@@ -401,7 +408,23 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     const savedOrders = await (await fetch(`${url}/v1/snapshot/orders?active=true&seller=${alice}`)).json();
     assert.equal(savedOrders.source.readMode, 'verified_snapshot');
     assert.equal(savedOrders.data.items[0].remaining, '3');
+    assert.equal(savedOrders.data.ordersAvailable, true);
+    assert(savedOrders.data.items.every(order => order.executable === false));
     assert.equal((await (await fetch(`${url}/v1/snapshot/orders?active=false`)).json()).data.items.length, 0);
+    assert.equal(saved.source.factory, factory);
+    assert.equal(saved.source.market, market);
+    assert.deepEqual(savedPortfolios.block, saved.block);
+    assert.deepEqual(savedOrders.block, saved.block);
+    const savedStats = await (await fetch(`${url}/v1/snapshot/stats`)).json();
+    assert.deepEqual(savedStats.block, saved.block);
+    assert.deepEqual(savedStats.data, index.verifiedDisplaySnapshot().stats);
+    const originalGetBlock = chain.getBlock.bind(chain);
+    chain.getBlock = () => { throw new Error('The precomputed display request must not read RPC.'); };
+    for (const section of ['pools', 'portfolios', 'stats', 'orders'])
+      assert.equal((await fetch(`${url}/v1/snapshot/${section}`)).status, 200);
+    chain.getBlock = originalGetBlock;
+    assert.equal((await fetch(`${url}/v1/snapshot/pools?limit=51`)).status, 400);
+    assert.equal((await fetch(`${url}/v1/snapshot/pools`, { method: 'POST' })).status, 405);
     const stats = (await (await fetch(`${url}/v1/stats`)).json()).data;
     assert.equal(stats.purchasedCostWei, '500');
     assert.equal(stats.estimatedDailyBemAtomic, null);
@@ -410,11 +433,90 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal((await fetch(`${url}/v1/orders?active=true`)).status, 200);
     assert.equal((await fetch(`${url}/v1/accounts/${bob}/pools`)).status, 200);
     assert.equal((await fetch(`${url}/v1/activity?account=${bob}`)).status, 200);
+    const persisted = index.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
+    index.db.prepare('UPDATE verified_display_snapshot SET source = ? WHERE id = 1').run(JSON.stringify({
+      ...JSON.parse(persisted.source), checkedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+    }));
+    assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503,
+      'display must stop when its original verification is older than 30 minutes');
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('over 500 lifetime orders disables only the verified order section', async () => {
+  const chain = new MockChain(); fixture(chain);
+  for (let id = 2; id <= 501; id++)
+    chain.event('market', 'OrderListed', [BigInt(id), alice, pool, 1n, 10n], 4);
+  const originalCall = chain.call.bind(chain);
+  chain.call = input => binding.parseTransaction({ data: input.data }).name === 'nextOrderId'
+    ? Promise.resolve(binding.encodeFunctionResult('nextOrderId', [502n])) : originalCall(input);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1,
+    confirmations: 2 });
+  const server = createChainIndexServer(index);
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    await index.sync();
+    assert.equal(index.status().complete, true);
+    assert.equal(index.verifiedDisplaySnapshot().orders, null);
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const response = await fetch(`${base}/v1/snapshot/orders`);
+    assert.equal(response.status, 503);
+    const unavailable = await response.json();
+    assert.equal(unavailable.source.ordersAvailable, false);
+    assert.equal(unavailable.source.transactionReady, false);
+    assert.equal(unavailable.source.stale, true);
+    assert.equal(unavailable.data.ordersAvailable, false);
+    assert.equal(unavailable.data.items, null, 'unavailable order history must not look like an empty market');
+    assert.equal(unavailable.block.hash, chain.blocks.get(6).hash);
+    const pools = await (await fetch(`${base}/v1/snapshot/pools`)).json();
+    assert.equal(pools.data.items[0].address, pool);
+    const stats = await (await fetch(`${base}/v1/snapshot/stats`)).json();
+    assert.equal(stats.data.registeredPoolCount, '1');
+    const portfolios = await (await fetch(`${base}/v1/snapshot/portfolios`)).json();
+    assert.deepEqual(portfolios.data.items, []);
+    assert.deepEqual(pools.block, unavailable.block);
+    assert.deepEqual(stats.block, unavailable.block);
+    assert.deepEqual(portfolios.block, unavailable.block);
+    assert.equal((await fetch(`${base}/v1/pools`)).status, 200,
+      'an unavailable order group must not disable independent fresh pages');
+    assert.equal((await fetch(`${base}/v1/orders`)).status, 200,
+      'the existing paginated order read must remain available');
+  } finally { await new Promise(resolve => server.close(resolve)); index.close(); }
+});
+
+test('over 500 standalone pools disables only the verified pool section', async () => {
+  const chain = new MockChain(); fixture(chain);
+  for (let n = 0; n < 500; n++)
+    chain.event('factory', 'PoolCreated', [addr(1000 + n), collection, BigInt(17000 + n), 1100n, 1000n, alice], 1);
+  const originalCall = chain.call.bind(chain);
+  chain.call = input => {
+    const name = binding.parseTransaction({ data: input.data }).name;
+    if (name === 'poolCount') return Promise.resolve(binding.encodeFunctionResult(name, [501n]));
+    if (name === 'isPool') return Promise.resolve(binding.encodeFunctionResult(name, [true]));
+    return originalCall(input);
+  };
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });
+  const server = createChainIndexServer(index);
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    await index.sync();
+    assert.equal(index.status().complete, true);
+    assert.equal(index.verifiedDisplaySnapshot().pools, null);
+    const base = `http://127.0.0.1:${server.address().port}/v1/snapshot`;
+    const unavailable = await fetch(`${base}/pools`);
+    assert.equal(unavailable.status, 503);
+    const poolBody = await unavailable.json();
+    assert.equal(poolBody.source.poolsAvailable, false);
+    assert.equal(poolBody.source.standalonePoolCount, '501');
+    assert.equal(poolBody.source.transactionReady, false);
+    assert.equal(poolBody.block.hash, chain.blocks.get(6).hash);
+    assert.equal((await fetch(`${base}/stats`)).status, 200);
+    assert.equal((await fetch(`${base}/orders`)).status, 200);
+    assert.equal((await fetch(`${base}/portfolios`)).status, 200);
+  } finally { await new Promise(resolve => server.close(resolve)); index.close(); }
 });
 
 test('HTTP keeps prior verified read responses available during refresh and failed RPC reads', async () => {
@@ -466,6 +568,10 @@ test('HTTP keeps prior verified read responses available during refresh and fail
     const duringSync = await (await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).json();
     assert.equal(duringSync.source.indexedBlockHash, chain.blocks.get(6).hash);
     assert.equal(duringSync.data.items[0].address, pool);
+    assert.equal(duringSync.source.indexedThrough, 6);
+    assert.equal(duringSync.source.refreshing, true);
+    assert.equal(duringSync.source.transactionReady, false);
+    assert.equal(duringSync.block.hash, chain.blocks.get(6).hash);
     releaseSlow(); await delayed;
 
     const lastVerifiedTip = index.status().indexedThrough;

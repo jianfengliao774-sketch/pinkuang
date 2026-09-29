@@ -3,11 +3,37 @@ import test from 'node:test';
 import { ZeroAddress, ZeroHash } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { validateManifest } from '../lib/live-config.mjs';
-import { portfolioBnbEntitlement,genesisPortfolioProposalGate,readPortfolioContext,readPortfolio,readPortfolioPage,readPortfolioOrders,preparePortfolioAction } from '../lib/live-portfolios.mjs';
+import { portfolioBnbEntitlement,genesisPortfolioProposalGate,portfolioPageActionReady,portfolioSelectedActionReady,portfolioOrderActionReady,portfolioCreateActionReady,readPortfolioContext,readPortfolio,readPortfolioPage,readPortfolioOrders,preparePortfolioAction } from '../lib/live-portfolios.mjs';
 import { portfolioFixture,PORTFOLIOS,address } from './portfolio-fixture.mjs';
 
 const saleProposal=(changes={})=>({child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
   endsAt:2_000_000_000n,memberCount:2n,yesMembers:2n,yesShares:51n,executed:false,...changes});
+
+test('historical budget directories cannot enable row actions while independent operator creation remains available',()=>{
+  const config={productFamily:'fresh-v4',operationalReady:true,stale:false};
+  const current={config,freshRead:true,listingSource:{readMode:'current',stale:false},initialPool:null};
+  assert.equal(portfolioPageActionReady(current),true);
+  assert.equal(portfolioPageActionReady({...current,freshRead:false}),false);
+  assert.equal(portfolioPageActionReady({...current,listingSource:{readMode:'verified_snapshot',stale:true}}),false);
+  assert.equal(portfolioPageActionReady({...current,config:{...config,operationalReady:false}}),false);
+  assert.equal(portfolioPageActionReady({...current,initialPool:address(0x900),listingSource:null}),true);
+  assert.equal(portfolioSelectedActionReady({config,selectedProofCurrent:false}),false);
+  assert.equal(portfolioSelectedActionReady({config,selectedProofCurrent:true}),true,
+    'a separately verified current detail can enable actions even if the directory remains historical');
+  const order={config,selectedProofCurrent:true,source:{readMode:'current',stale:false},
+    orderPool:address(0x900),selectedPool:address(0x900)};
+  assert.equal(portfolioOrderActionReady(order),true);
+  assert.equal(portfolioOrderActionReady({...order,source:{readMode:'verified_snapshot',stale:true}}),false);
+  assert.equal(portfolioOrderActionReady({...order,orderPool:address(0x902)}),false);
+  const create={config,operatorVerified:true,wallet:{},account:address(0x901)};
+  assert.equal(portfolioCreateActionReady(create),true);
+  assert.equal(portfolioCreateActionReady({...create,operatorVerified:false}),false);
+  assert.equal(portfolioCreateActionReady({...create,operatorVerified:false,operator:create.account,
+    currentOperatorRead:true}),true);
+  assert.equal(portfolioCreateActionReady({...create,operatorVerified:false,operator:create.account,
+    currentOperatorRead:false}),false);
+  assert.equal(portfolioCreateActionReady({...create,config:{...config,stale:true}}),false);
+});
 
 test('budget manifest requires the complete reviewed graph and rejects partial legacy additions',()=>{
   const f=portfolioFixture();assert.equal(validateManifest(f.manifest).kind,'integrated-v2');
@@ -306,6 +332,7 @@ test('budget market quotes both fees, refuses reprice, wrong parent, frozen or o
   const f=portfolioFixture(),input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],action:{kind:'marketFill',orderId:'1',quantity:'2'}};
   await assert.rejects(preparePortfolioAction({...input,action:{kind:'marketList',quantity:'1',price:'0'}}),/greater than zero/);
   const orders=await readPortfolioOrders(f.config,f.provider,PORTFOLIOS[0],{fetcher:f.fetcher});assert.equal(orders.items[0].remaining,5n);
+  assert.equal(orders.source.factory.toLowerCase(),f.manifest.factory.toLowerCase());
   const fill=await preparePortfolioAction(input);assert.equal(fill.transaction.value,'0xca');assert.equal(fill.action.targetType,'portfolioMarket');
   assert.equal(fill.marketTrade.baseWei,200n);assert.equal(fill.marketTrade.buyerFeeWei,2n);assert.equal(fill.marketTrade.sellerFeeWei,2n);
   await assert.rejects(preparePortfolioAction({...input,action:{...input.action,expectedPricePerUnitWei:'101'}}),/价格/);

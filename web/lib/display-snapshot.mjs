@@ -56,7 +56,8 @@ export function readDisplaySnapshot(storage, manifest, page, { now = Date.now(),
     const source = record?.result?.detail?.source ?? record?.result?.catalog?.source ?? record?.result?.source;
     if (!record || !Number.isSafeInteger(record.savedAt) || record.savedAt > now
       || now - record.savedAt > maxAgeMs || !verifiedSource(record.result, manifest)
-      || source?.readMode === 'verified_snapshot' && now - Date.parse(source.checkedAt) > 30 * 60 * 1000) return null;
+      || source?.readMode === 'verified_snapshot' && (Date.parse(source.checkedAt) > now + 30_000
+        || now - Date.parse(source.checkedAt) > 30 * 60 * 1000)) return null;
     return displayOnlySnapshot(record.result, manifest, source?.readMode === 'verified_snapshot'
       ? Date.parse(source.checkedAt) : record.savedAt);
   } catch { return null; }

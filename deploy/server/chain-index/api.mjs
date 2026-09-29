@@ -63,13 +63,18 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
       if (snapshot) {
         const snapshotSource = { ...snapshot.source, stale: true, refreshing: index.syncing,
           transactionReady: false };
+        const block = { number: snapshotSource.indexedThrough, hash: snapshotSource.indexedBlockHash,
+          timestamp: snapshotSource.indexedTimestamp };
         try {
           if (snapshotPath.endsWith('/stats')) {
-            if (!snapshot.stats) return send(503, { source, data: null, error: 'Verified statistics snapshot is unavailable.' });
-            return send(200, { source: snapshotSource, data: snapshot.stats });
+            if (!snapshot.stats) return send(503, { source: snapshotSource, block, data: null,
+              error: 'Verified statistics snapshot is unavailable.' });
+            return send(200, { source: snapshotSource, block, data: snapshot.stats });
           }
           if (snapshotPath.endsWith('/orders')) {
-            if (!snapshot.orders) return send(503, { source: snapshot.source, data: null, error: 'Verified order snapshot is unavailable.' });
+            if (!snapshot.orders) return send(503, { source: snapshotSource, block,
+              data: { items: null, nextCursor: null, ordersAvailable: false },
+              error: 'Verified order snapshot is unavailable.' });
             const pool = url.searchParams.get('pool'), seller = url.searchParams.get('seller');
             if ([pool, seller].some(value => value !== null && !/^0x[0-9a-fA-F]{40}$/.test(value))) throw new Error('Invalid address filter.');
             const active = url.searchParams.get('active'), cursor = url.searchParams.get('cursor');
@@ -81,16 +86,17 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
               && (active === null || order.openAtSourceBlock === (active === 'true'))
               && (cursor === null || BigInt(order.orderId) < BigInt(cursor)));
             const items = filtered.slice(0, limit);
-            return send(200, { source: snapshotSource, data: { items,
+            return send(200, { source: snapshotSource, block, data: { items, ordersAvailable: true,
               nextCursor: filtered.length > limit ? items.at(-1).orderId : null } });
           }
           const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
           const limit = pageInt(url.searchParams.get('limit'), 'limit', 20);
           const portfolio = snapshotPath.endsWith('/portfolios');
           const directory = portfolio ? snapshot.portfolios : snapshot.pools;
-          if (!directory) return send(503, { source: snapshot.source, data: null, error: 'Verified directory snapshot is unavailable.' });
+          if (!directory) return send(503, { source: snapshotSource, block, data: null,
+            error: 'Verified directory snapshot is unavailable.' });
           const items = directory.slice(cursor, cursor + limit);
-          return send(200, { source: snapshotSource,
+          return send(200, { source: snapshotSource, block,
             data: { items, nextCursor: cursor + limit < directory.length ? cursor + limit : null,
               registeredPoolCount: snapshot.source.registeredPoolCount,
               childPoolCount: snapshot.source.childPoolCount,

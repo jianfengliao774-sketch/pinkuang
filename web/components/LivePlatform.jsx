@@ -44,6 +44,7 @@ import LiveOperator from "./LiveOperator";
 import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios from "./LivePortfolios";
+import PublicDisplayPreview from './PublicDisplayPreview';
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
 import { prepareBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
 import PortfolioProjectShare from "./PortfolioProjectShare";
@@ -59,6 +60,8 @@ import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
 import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
+import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
+import { publicPreviewFresh, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
@@ -86,6 +89,10 @@ import {
   exportActivityCsv,
   explorerAddress,
   explorerTransaction,
+  currentDetailActionReady,
+  currentPositionsActionReady,
+  currentMarketOrderActionReady,
+  canOpenFundingAction,
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -206,9 +213,12 @@ export default function LivePlatform() {
     [menu, setMenu] = useState(false),
     [route, setRoute] = useState({ route: "home", pool: null });
   const routeIdentity = useRef(route);
+  const publicDisplayCache = useRef(new Map());
   const [boot, setBoot] = useState({ status: "loading" }),
     [bootAttempt, setBootAttempt] = useState(0),
     [client, setClient] = useState(null),
+    [publicDisplay, setPublicDisplay] = useState({ key: '', sections: {} }),
+    [portfolioReadState, setPortfolioReadState] = useState({ mode: '', pool: '', account: '', provider: null, current: false }),
     [account, setAccount] = useState(null),
     [wallet, setWallet] = useState(null);
   const [wallets, setWallets] = useState([]),
@@ -242,6 +252,7 @@ export default function LivePlatform() {
   const [capacityNow, setCapacityNow] = useState(0);
   const [poolQuoteRevision, setPoolQuoteRevision] = useState(0);
   const [loadedAccount, setLoadedAccount] = useState(null);
+  const [marketOrderIdentity, setMarketOrderIdentity] = useState('');
   const [positionsAccount, setPositionsAccount] = useState(null);
   const [operator, setOperator] = useState(null);
   const [positionsLoaded, setPositionsLoaded] = useState(false);
@@ -401,8 +412,76 @@ export default function LivePlatform() {
     } catch {}
   }, [appearance]);
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4'
-      || client || boot.status !== 'loading' || account) return;
+    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY !== 'fresh-v4') return;
+    const activeRoute = parseProductRoute(location.hash);
+    if (activeRoute.route !== route.route || activeRoute.pool !== route.pool) return;
+    const sections = route.route === 'home' ? ['pools', 'stats']
+      : route.route === 'pools' ? ['pools', 'portfolios']
+        : route.route === 'market' && marketTab === 'shares' ? ['orders']
+          : route.route === 'detail' && route.pool ? ['pools']
+            : route.route === 'portfolio' && route.pool ? ['portfolios'] : [];
+    const key = `${route.route}:${route.pool ?? ''}:${marketTab}`;
+    setPublicDisplay({ key, sections: {} });
+    if (!sections.length) return;
+    let cancelled = false;
+    let retryTimer;
+    const expiryTimers = new Map(), inFlight = new Set();
+    try {
+      // Each page requests only its needed verified public section. These reads
+      // are independent of product boot, wallet state and each other.
+      const pinned = validateFreshManifest(pinnedGenesis, process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256);
+      const address = route.route === 'detail' || route.route === 'portfolio' ? route.pool : null;
+      const showSection = (section, cacheKey, result) => {
+        setPublicDisplay(previous => previous.key === key
+          ? { key, sections: { ...previous.sections, [section]: result } } : previous);
+        clearTimeout(expiryTimers.get(section));
+        const remaining = Date.parse(result.source.checkedAt) + 30 * 60_000 - Date.now();
+        expiryTimers.set(section, setTimeout(() => {
+          if (cancelled) return;
+          if (publicDisplayCache.current.get(cacheKey) === result) publicDisplayCache.current.delete(cacheKey);
+          setPublicDisplay(previous => previous.key === key && previous.sections[section] === result
+            ? { key, sections: { ...previous.sections, [section]: null } } : previous);
+          if (document.visibilityState === 'visible') void refreshSection(section);
+        }, Math.max(1, remaining + 1)));
+      };
+      const refreshSection = async section => {
+        const cacheKey = `${section}:${address ?? ''}`;
+        const cached = publicDisplayCache.current.get(cacheKey);
+        if (cancelled || inFlight.has(section)) return;
+        if (cached && publicPreviewFresh(cached.source)) {
+          showSection(section, cacheKey, cached);
+          return;
+        }
+        inFlight.add(section);
+        try {
+          const result = await readPublicDisplaySection({ origin: location.origin,
+            manifest: pinned, section, address });
+          if (cancelled || !publicPreviewFresh(result.source)) return;
+          for (const [oldKey, oldValue] of publicDisplayCache.current)
+            if (!publicPreviewFresh(oldValue.source)) publicDisplayCache.current.delete(oldKey);
+          publicDisplayCache.current.delete(cacheKey);
+          publicDisplayCache.current.set(cacheKey, result);
+          while (publicDisplayCache.current.size > 32)
+            publicDisplayCache.current.delete(publicDisplayCache.current.keys().next().value);
+          showSection(section, cacheKey, result);
+        } catch { /* Normal authoritative reads continue without a preview. */ }
+        finally { inFlight.delete(section); }
+      };
+      const checkVisible = () => {
+        if (document.visibilityState === 'visible') for (const section of sections) void refreshSection(section);
+      };
+      checkVisible();
+      retryTimer = setInterval(checkVisible, 60_000);
+      window.addEventListener('focus', checkVisible);
+      document.addEventListener('visibilitychange', checkVisible);
+      return () => { cancelled = true; for (const timer of expiryTimers.values()) clearTimeout(timer);
+        clearInterval(retryTimer);
+        window.removeEventListener('focus', checkVisible);
+        document.removeEventListener('visibilitychange', checkVisible); };
+    } catch { /* A mismatched build trust root cannot provide a preview. */ }
+  }, [route.route, route.pool, marketTab]);
+  useEffect(() => {
+    if (client || boot.status !== 'loading' || account) return;
     // The build-pinned genesis allows a display-only cache to paint while the
     // product graph and manifest are still loading. Route identity must match
     // the URL so a deep link never flashes the home page's previous data.
@@ -411,7 +490,12 @@ export default function LivePlatform() {
     const pageKey = pageDisplayKey(route, null, marketTab);
     if (prebootShown.current.has(pageKey)) return;
     try {
-      const cached = readDisplaySnapshot(displayStorage(), validatePinnedGenesis(pinnedGenesis), pageKey);
+      const freshV4 = process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4';
+      const pinned = freshV4
+        ? validateFreshManifest(pinnedGenesis, process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256)
+        : validatePinnedGenesis(pinnedGenesis);
+      const cached = readDisplaySnapshot(displayStorage(), pinned, pageKey,
+        freshV4 ? { maxAgeMs: 30 * 60_000 } : {});
       if (!cached?.catalog && !cached?.detail) return;
       const visiblePools = cached.catalog?.items.map(viewPool);
       const visibleDetail = cached.detail ? viewPool(cached.detail.item) : null;
@@ -535,6 +619,16 @@ export default function LivePlatform() {
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
+    if (route.route === 'detail' && ['deposit', 'completeFirstoSale', 'finalizeFailure',
+      'withdrawDeposit', 'claim', 'withdrawBnb', 'list'].includes(kind) && !detailActionsReady) return;
+    if (['overview', 'rewards', 'market'].includes(route.route)
+      && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
+      && !positionsActionsReady) return;
+    if (['fill', 'cancel', 'expire'].includes(kind)) {
+      const order = orders.find(row => String(row.id ?? row.orderId) === String(extra.orderId)
+        && same(row.pool, pool?.pool));
+      if (!marketOrderActionReady(order)) return;
+    }
     setError("");
     if (
       kind === "list" &&
@@ -753,6 +847,7 @@ export default function LivePlatform() {
     ++marketOrdersEpoch.current;
     setMarketOrdersError('');
     setMarketOrderSource(null);
+    setMarketOrderIdentity('');
     if (marketTab === 'whole' || (marketTab === 'mine' && !account)) {
       setOrders([]); setOrderCursor(null); setMarketOrdersLoading(false);
       return;
@@ -777,6 +872,7 @@ export default function LivePlatform() {
         setOrders(result.items);
         setOrderCursor(result.nextCursor);
         setMarketOrderSource(result.source);
+        setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
         entries.set(cacheKey, { savedAt: Date.now(), result });
@@ -1736,7 +1832,7 @@ export default function LivePlatform() {
                 ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
                 : poolQuotePlaceholder(p)}</td>
               <td>
-                {holdings && p.shares > 0n && <button className="btn secondary" disabled={positionsReadLoading || !!positionsReadError || busy || !!pending || !shareListingView(p).allowed}
+                {holdings && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   {L('挂单出售', 'List shares')}
                 </button>}
@@ -1852,6 +1948,39 @@ export default function LivePlatform() {
   const displaySources = route.route === 'home' ? [pageSource, statsSource]
     : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
   const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
+  const publicDisplayKey = `${route.route}:${route.pool ?? ''}:${marketTab}`;
+  const publicDisplaySections = publicDisplay.key === publicDisplayKey ? publicDisplay.sections : {};
+  const currentDisplay = value => value && value.stale !== true && value.readMode !== 'verified_snapshot';
+  const publicPreviewResolved = section => section === 'stats'
+    ? route.route === 'home' && currentDisplay(statsSource)
+    : section === 'pools'
+      ? route.route === 'home' && loadedRoute === 'home' && currentDisplay(source)
+        || route.route === 'pools' && loadedRoute === 'pools' && currentDisplay(source)
+        || route.route === 'detail' && detail && same(detail.pool, route.pool) && currentDisplay(source)
+      : section === 'portfolios'
+        ? portfolioReadState.mode === route.route
+          && portfolioReadState.pool === (route.route === 'portfolio' ? route.pool?.toLowerCase() : '')
+          && portfolioReadState.account === (account?.toLowerCase() || '')
+          && portfolioReadState.provider === client?.provider
+          && portfolioReadState.current
+        : section === 'orders'
+          ? route.route === 'market' && marketTab === 'shares'
+            && marketOrderIdentity === `shares:${account?.toLowerCase() || ''}`
+            && currentDisplay(marketOrderSource) : false;
+  const publicPreviewSections = route.route === 'home' ? ['stats', 'pools']
+    : route.route === 'pools' ? ['pools', 'portfolios']
+      : route.route === 'market' && marketTab === 'shares' ? ['orders']
+        : route.route === 'detail' ? ['pools']
+          : route.route === 'portfolio' ? ['portfolios'] : [];
+  const detailActionsReady = currentDetailActionReady({ client, config, source,
+    cachedPage, loading, busy, loadedRoute, routePool: route.pool, detailPool: detail?.pool,
+    loadedAccount, account });
+  const positionsActionsReady = currentPositionsActionReady({ client, config,
+    source: positionsReadSource, positionsAccount, account, wallet, positionsLoaded,
+    loading: positionsReadLoading, error: positionsReadError });
+  const marketOrderActionReady = order => currentMarketOrderActionReady({ client, config,
+    source: marketOrderSource, route: route.route, marketTab, readIdentity: marketOrderIdentity,
+    account, wallet, loading: marketOrdersLoading, error: marketOrdersError, order });
 
   return (
     <div
@@ -2069,6 +2198,12 @@ export default function LivePlatform() {
               </button>
             </div>
           )}
+          {publicPreviewSections.map(section => {
+            const preview = publicDisplaySections[section];
+            return !publicPreviewResolved(section) && publicPreviewFresh(preview?.source)
+              ? <PublicDisplayPreview key={section} preview={preview} section={section} route={route} locale={locale}/>
+              : null;
+          })}
           {message && (
             <div className="live-notice" role="status">
               <CheckCircle2 size={18} />
@@ -2174,7 +2309,9 @@ export default function LivePlatform() {
               <div className="metrics">
                 <Metric
                   primary
-                  title={L("当前可领取", "Claimable BEM")}
+                  title={positionsReadSource?.stale
+                    ? L("上次核验可领取", "Claimable at last verification")
+                    : L("当前可领取", "Claimable BEM")}
                   value={amount(claimable, 8)}
                   unit="BEM"
                   note={L("本页矿池 · 已入账", "Loaded pools · booked rewards")}
@@ -2346,6 +2483,9 @@ export default function LivePlatform() {
                     </h1>
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
+                  {(source?.stale || cachedPage) && <span className="subtle-note">
+                    {L('核验区块时状态 · 历史只读', 'Status at verified block · historical only')}
+                  </span>}
                   <StateBadge state={detail.status} L={L} />
                   {refreshButton}
                   <button
@@ -2502,7 +2642,7 @@ export default function LivePlatform() {
                           {["Funding", "Funded"].includes(detail.status) && (
                             <Button
                               secondary
-                              disabled={loading || !account || busy}
+                              disabled={!detailActionsReady || !account}
                               onClick={() =>
                                 openAction("finalizeFailure", detail)
                               }
@@ -2514,7 +2654,7 @@ export default function LivePlatform() {
                             detail.shares > 0n && (
                               <Button
                                 secondary
-                                disabled={loading || busy}
+                                disabled={!detailActionsReady}
                                 onClick={() =>
                                   openAction("withdrawDeposit", detail)
                                 }
@@ -2621,19 +2761,17 @@ export default function LivePlatform() {
                     {detail.status === "Funding" ? (
                       <>
                         <div className="ownership">
-                          <span>{L("剩余可认购", "Remaining")}</span>
+                          <span>{source?.stale || cachedPage
+                            ? L("上次核验剩余", "Remaining at last verification")
+                            : L("剩余可认购", "Remaining")}</span>
                           <strong>
                             {detail.remaining ?? "—"} {L("份", "shares")}
                           </strong>
                         </div>
                         <Button
-                          disabled={loading ||
-                            busy ||
-                            !detail.trusted ||
-                            detail.depositPaused !== false ||
-                            detail.remaining === null ||
-                            detail.remaining <= 0
-                          }
+                          disabled={!canOpenFundingAction({ client, config, source, cachedPage,
+                            loading, busy, detail, loadedRoute, routePool: route.pool,
+                            detailPool: detail.pool, loadedAccount, account })}
                           onClick={() =>
                             account ? openAction("deposit", detail) : connect()
                           }
@@ -2647,13 +2785,13 @@ export default function LivePlatform() {
                     ) : detail.status === "Listed" ? (
                       <>
                         <div className="ownership">
-                          <span>{L("整机售价", "Miner sale price")}</span>
+                          <span>{source?.stale || cachedPage
+                            ? L("核验区块时整机售价", "Miner sale price at verified block")
+                            : L("整机售价", "Miner sale price")}</span>
                           <strong>{displayPreciseAmount(governance?.salePrice)} BNB</strong>
                         </div>
                         <Button
-                          disabled={loading ||
-                            busy || !account || governance?.salePrice == null
-                          }
+                          disabled={!detailActionsReady || !account || governance?.salePrice == null}
                           onClick={() => openAction("completeFirstoSale", detail)}
                         >
                           {L("预览 Firsto 整机成交", "Preview Firsto purchase")}
@@ -2661,12 +2799,16 @@ export default function LivePlatform() {
                       </>
                     ) : (
                       <div className="ownership">
-                        <span>{L("当前状态", "Current status")}</span>
+                        <span>{source?.stale || cachedPage
+                          ? L("核验区块时状态", "Status at verified block")
+                          : L("当前状态", "Current status")}</span>
                         <StateBadge state={detail.status} L={L} />
                       </div>
                     )}
                     <div className="ownership">
-                      <span>{L("我的持仓", "My shares")}</span>
+                      <span>{source?.stale || cachedPage
+                        ? L("上次核验我的持仓", "My shares at last verification")
+                        : L("我的持仓", "My shares")}</span>
                       <strong>
                         {account ? (detail.shares?.toString() ?? "—") : "—"}{" "}
                         {L("份", "shares")}
@@ -2675,26 +2817,27 @@ export default function LivePlatform() {
                     <div className="live-actions live-actions-stack">
                       <Button
                         secondary
-                        disabled={loading || !account || busy || !detail.claimableBEM}
+                        disabled={!detailActionsReady || !account || !detail.claimableBEM}
                         onClick={() => openAction("claim", detail)}
                       >
-                        {L("领取", "Claim")}{" "}
-                        {amount(account ? detail.claimableBEM : null, 8)} BEM
+                        {source?.stale || cachedPage
+                          ? L("BEM 领取额待核验", "BEM claim awaiting verification")
+                          : <>{L("领取", "Claim")} {amount(account ? detail.claimableBEM : null, 8)} BEM</>}
                       </Button>
                       <Button
                         secondary
-                        disabled={loading || !account || busy || !detail.bnbOwed}
+                        disabled={!detailActionsReady || !account || !detail.bnbOwed}
                         onClick={() => openAction("withdrawBnb", detail)}
                       >
-                        {L("领取", "Claim")}{" "}
-                        {displayPreciseAmount(account ? detail.bnbOwed : null)} BNB
+                        {source?.stale || cachedPage
+                          ? L("BNB 领取额待核验", "BNB claim awaiting verification")
+                          : <>{L("领取", "Claim")} {displayPreciseAmount(account ? detail.bnbOwed : null)} BNB</>}
                       </Button>
                       {detail.status === "Active" && (
                         <Button
                           secondary
-                          disabled={loading ||
+                          disabled={!detailActionsReady ||
                             !account ||
-                            busy ||
                             detail.shareTradingAllowed !== true ||
                             !detail.availableShares
                           }
@@ -2739,7 +2882,9 @@ export default function LivePlatform() {
               <div className="metrics">
                 <Metric
                   primary
-                  title={L("可领取 BEM", "Claimable BEM")}
+                  title={positionsReadSource?.stale
+                    ? L("上次核验可领取 BEM", "BEM claim at last verification")
+                    : L("可领取 BEM", "Claimable BEM")}
                   value={amount(claimable, 8)}
                   unit="BEM"
                   note={L(
@@ -2760,7 +2905,7 @@ export default function LivePlatform() {
                   note={
                     <button
                       className="text-button"
-                      disabled={loading || positionsReadLoading || !!positionsReadError || !marketCredit || busy}
+                      disabled={!positionsActionsReady || !marketCredit || busy}
                       onClick={() => openAction("marketWithdraw", null)}
                     >
                       {L("领取市场款项", "Withdraw market proceeds")}
@@ -2799,22 +2944,21 @@ export default function LivePlatform() {
                             <div className="live-actions">
                               <Button
                                 secondary
-                                disabled={loading || positionsReadLoading || !!positionsReadError || busy || !p.claimableBEM}
+                                disabled={!positionsActionsReady || busy || !p.claimableBEM}
                                 onClick={() => openAction("claim", p)}
                               >
                                 {L("领 BEM", "Claim BEM")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={loading || positionsReadLoading || !!positionsReadError || busy || !p.bnbOwed}
+                                disabled={!positionsActionsReady || busy || !p.bnbOwed}
                                 onClick={() => openAction("withdrawBnb", p)}
                               >
                                 {L("领 BNB", "Claim BNB")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={loading || positionsReadLoading || !!positionsReadError ||
-                                  busy ||
+                                disabled={!positionsActionsReady || busy ||
                                   !["Active", "Listed"].includes(p.status)
                                 }
                                 onClick={() => openAction("harvest", p)}
@@ -2925,6 +3069,8 @@ export default function LivePlatform() {
                             </td>
                             <td>
                               {date(o.expiresAt)}
+                              {(marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
+                                && <small className="live-order-state">{L('历史挂单 · 待核验', 'Historical order · verification pending')}</small>}
                               {o.active !== true ? (
                                 <small className="live-order-state">
                                   {L("已结束", "Closed")}
@@ -2942,7 +3088,7 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={!account ||
+                                disabled={!marketOrderActionReady(o) ||
                                   busy ||
                                   o.active !== true ||
                                   (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
@@ -2960,7 +3106,9 @@ export default function LivePlatform() {
                                   )
                                 }
                               >
-                                {same(o.seller, account)
+                                {marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot'
+                                  ? L('挂单待核验', 'Order awaiting verification')
+                                  : same(o.seller, account)
                                   ? o.expiresAt <=
                                     BigInt(marketOrderSource?.indexedTimestamp ?? 0)
                                     ? L("解锁份额", "Unlock shares")
@@ -3027,7 +3175,10 @@ export default function LivePlatform() {
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
-            onReadStateChange={state => { portfolioRead.current = state; }}
+            onReadStateChange={state => { portfolioRead.current = state;
+              setPortfolioReadState({ mode: route.route, pool: route.pool?.toLowerCase() || '',
+                account: account?.toLowerCase() || '', provider: client?.provider,
+                current: state.current === true }); }}
             onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>}
 
           {route.route === "governance" && (

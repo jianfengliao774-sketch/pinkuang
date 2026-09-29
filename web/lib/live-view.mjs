@@ -5,6 +5,42 @@ export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', '
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 /** Formatting never feeds back into transaction amounts. */
 export const amount = displayAmount;
+/** Shared UI provenance gate; transaction preparation still rechecks the chain. */
+export function currentActionSourceReady({ client, config, source }) {
+  const v4Ready = config?.productFamily !== 'fresh-v4'
+    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false;
+  return !!client && !!config && !!source && source.stale !== true
+    && source.readMode !== 'verified_snapshot' && v4Ready;
+}
+/** Historical detail values may be displayed, but cannot enable any action preview. */
+export function currentDetailActionReady({ cachedPage, loading, busy,
+  loadedRoute, routePool, detailPool, loadedAccount, account, ...context }) {
+  const currentIdentity = typeof routePool === 'string' && typeof detailPool === 'string'
+    && loadedRoute === `detail/${routePool}` && routePool.toLowerCase() === detailPool.toLowerCase()
+    && (loadedAccount?.toLowerCase() || '') === (account?.toLowerCase() || '');
+  return currentActionSourceReady(context) && currentIdentity && !cachedPage && !loading && !busy;
+}
+export function currentPositionsActionReady({ positionsAccount, account, wallet, positionsLoaded,
+  loading, error, ...context }) {
+  return currentActionSourceReady(context) && !!wallet && !!account && !!positionsLoaded
+    && positionsAccount?.toLowerCase() === account.toLowerCase() && !loading && !error;
+}
+export function currentMarketOrderActionReady({ route, marketTab, readIdentity, account, wallet,
+  loading, error, order, ...context }) {
+  const owner = account?.toLowerCase() || '';
+  return currentActionSourceReady(context) && route === 'market' && !!wallet && !!account
+    && (marketTab === 'shares' || marketTab === 'mine')
+    && readIdentity === `${marketTab}:${owner}` && !loading && !error
+    && order?.active === true && order.requiresLatestSimulation === true
+    && order.executable === false;
+}
+/** Subscription also needs current pool eligibility; action preparation rechecks the chain. */
+export function canOpenFundingAction({ detail, ...context }) {
+  return currentDetailActionReady(context)
+    && detail?.trusted === true && detail.depositPaused === false
+    && typeof detail.remaining === 'number' && Number.isFinite(detail.remaining)
+    && detail.remaining > 0;
+}
 export function sumKnown(rows, field) {
   if (rows.some(row => row[field] === null || row[field] === undefined)) return null;
   return rows.reduce((total, row) => total + BigInt(row[field]), 0n);

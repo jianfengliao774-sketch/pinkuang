@@ -23,6 +23,8 @@ npm run start:chain-index
 
 每个响应的 `source` 含固定合约身份、已索引区块号/哈希/时间、安全头和 `complete`。正常同步开始时保留上一轮成功状态；发现更高安全头后，未追平的实时读返回 HTTP 503。`/v1/pools`、`/v1/portfolios`、`/v1/stats`、`/v1/orders` 可在同步或 RPC 故障时返回最近 30 分钟内的已验证展示快照，`source.readMode=verified_snapshot`、`source.stale=true`，并以 `source.refreshing` 标示当前是否正在同步；缺少对应完整快照仍为 503。快照的 `complete=true` 只说明其历史固定块曾完整核验，所有快照都标 `transactionReady=false`，不能作为交易授权。其他读接口及签名前核验保持新鲜度门禁。短暂的 RPC 安全头回退报告 `rpc_lagging`，不会仅凭低高度删除已提交历史。金额、NFT 编号、订单编号都是十进制字符串；时间戳为秒。分页上限 50。
 
+页面可按需单独请求 `GET /v1/snapshot/pools|portfolios|stats|orders`；每区从同一次完整核验后预计算的安全区块读取，不会为单次请求访问 RPC，也不会因其他区超限而失效。有可用快照时，即使单区超限返回 503，响应仍含 `source` 和 `block:{number,hash,timestamp}`；`source` 保留合约身份、`checkedAt`、精确计数和各区 `poolsAvailable`、`portfoliosAvailable`、`ordersAvailable`，并明确标记 `readMode=verified_snapshot`、`stale=true`、`transactionReady=false`。池、预算、订单区返回 `data:{items,nextCursor,...}`，每页最多 50 行；统计区直接返回 `data:{...}`。池行只含登记时的地址、NFT 身份和区块，不代表当前池状态；订单候选的 `executable` 始终为 `false`。池和预算目录各最多预计算 500 行；任一区超过上限时仅该区返回 503，其他区照常可读。历史 `OrderListed` 累计超过 500 时 `/v1/snapshot/orders` 返回 503、`data:{items:null,nextCursor:null,ordersAvailable:false}`，不能把它解释为无挂单；现有 `/v1/orders` 分页接口仍可独立读取。全部快照超过 30 分钟，或错误链、重组导致快照失效时，各区返回 503，且不提供历史 `block`。
+
 | 接口 | 数据范围 |
 | --- | --- |
 | `GET /health` | 索引覆盖与未知原因 |

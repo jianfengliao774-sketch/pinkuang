@@ -89,6 +89,66 @@ test('budget discovery counts parent once, preserves former-member rights and ro
     assert.equal(f.index.stats().purchasedCostWei,'0');
   }finally{f.index.close();}
 });
+test('budget directory snapshot is independently readable at the verified block',async()=>{
+  const f=fixture({ordinaryPool:true});const server=createChainIndexServer(f.index);
+  try{
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const url=`http://127.0.0.1:${server.address().port}/v1/snapshot/portfolios`;
+    assert.equal((await fetch(url)).status,503);
+    await f.index.sync();
+    const response=await fetch(url);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.source.portfolioFactory,portfolioFactory);
+    assert.equal(body.source.portfolioMarket,portfolioMarket);
+    assert.equal(body.source.indexedThrough,body.block.number);
+    assert.equal(body.source.indexedBlockHash,body.block.hash);
+    assert.deepEqual(body.data.items.map(row=>row.address),[portfolio]);
+    assert.equal(body.source.portfolioCount,'1');
+    assert.equal(body.source.transactionReady,false);
+    const base=url.replace('/v1/snapshot/portfolios','');
+    const pools=await (await fetch(`${base}/v1/snapshot/pools`)).json();
+    const stats=await (await fetch(`${base}/v1/snapshot/stats`)).json();
+    const orders=await (await fetch(`${base}/v1/snapshot/orders`)).json();
+    assert.deepEqual(pools.data.items.map(row=>row.address),[ordinary]);
+    assert.equal(stats.data.topLevelProjectCount,'2');
+    assert.equal(orders.data.ordersAvailable,true);
+    assert.deepEqual(orders.data.items,[]);
+    for(const section of [pools,stats,orders])assert.deepEqual(section.block,body.block);
+    f.reorg();await f.index.sync();
+    const replaced=await (await fetch(url)).json();
+    assert.notEqual(replaced.block.hash,body.block.hash);
+    assert.equal(replaced.source.transactionReady,false);
+  }finally{await new Promise(resolve=>server.close(resolve));f.index.close();}
+});
+test('over 500 budget projects disables only the verified budget directory',async()=>{
+  const f=fixture({purchase:false,ordinaryPool:true});
+  for(let i=0;i<500;i++)f.event('portfolioFactory','PortfolioCreated',[addr(1000+i),1000,800,100],1);
+  const originalCall=f.provider.call.bind(f.provider);
+  f.provider.call=input=>{
+    const name=abi.parseTransaction({data:input.data}).name;
+    if(name==='portfolioCount')return Promise.resolve(abi.encodeFunctionResult(name,[501n]));
+    if(name==='childCount'&&input.to!==portfolio)return Promise.resolve(abi.encodeFunctionResult(name,[0n]));
+    return originalCall(input);
+  };
+  const server=createChainIndexServer(f.index);
+  try{
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    await f.index.sync();
+    assert.equal(f.index.status().complete,true);
+    assert.equal(f.index.verifiedDisplaySnapshot().portfolios,null);
+    const base=`http://127.0.0.1:${server.address().port}/v1/snapshot`;
+    const unavailable=await fetch(`${base}/portfolios`);
+    assert.equal(unavailable.status,503);
+    const body=await unavailable.json();
+    assert.equal(body.source.portfoliosAvailable,false);
+    assert.equal(body.source.portfolioCount,'501');
+    assert.equal(body.source.transactionReady,false);
+    assert.deepEqual((await (await fetch(`${base}/pools`)).json()).data.items.map(row=>row.address),[ordinary]);
+    assert.equal((await fetch(`${base}/stats`)).status,200);
+    assert.equal((await fetch(`${base}/orders`)).status,200);
+  }finally{await new Promise(resolve=>server.close(resolve));f.index.close();}
+});
 test('a designated child awaiting purchase is absent from ordinary pools but an ordinary pool remains visible',async()=>{
   const f=fixture({purchase:false,ordinaryPool:true});let server;try{
     await f.index.sync();

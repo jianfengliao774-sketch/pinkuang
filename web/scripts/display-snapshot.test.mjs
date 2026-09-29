@@ -53,6 +53,9 @@ test('display-only server snapshots retain stale markers and expire from the ori
   assert.equal(restored.source.cacheOrigin, 'local');
   assert.equal(restored.source.transactionReady, false);
   assert.equal(readDisplaySnapshot(cache, manifest, 'historical', { now: 30 * 60_000 + 1001 }), null);
+  assert.equal(writeDisplaySnapshot(cache, manifest, 'future', { ...result,
+    source: { ...result.source, checkedAt: new Date(40_000).toISOString() } }, { now: 1000 }), true);
+  assert.equal(readDisplaySnapshot(cache, manifest, 'future', { now: 2000 }), null);
   assert.equal(writeDisplaySnapshot(cache, manifest, 'unmarked', {
     ...result, source: { ...result.source, transactionReady: true },
   }, { now: 1000 }), false);

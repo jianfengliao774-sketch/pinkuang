@@ -8,6 +8,7 @@ import { freshManifestDigest, loadFreshLiveConfig, validateFreshManifest,
 import { loadProductConfig, validateCurrentProductGraph } from '../lib/product-config.mjs';
 import { requireCurrentProductStage } from '../lib/live-transactions.mjs';
 import { prepareFreshProductBuild } from './build-fresh-product.mjs';
+import { pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const hash = n => `0x${n.toString(16).padStart(64, '0')}`;
@@ -48,6 +49,26 @@ test('v4 static plan requires a reviewed fresh manifest and pins its own address
     { code: 'fresh_manifest_mismatch' });
   assert.throws(() => validateFreshManifest({ ...manifest, freshAuthority: undefined },
     freshManifestDigest({ ...manifest, freshAuthority: undefined })), /管理员/);
+});
+
+test('v4 pre-boot local display requires its build-pinned fresh manifest and expires after 30 minutes', () => {
+  const saved = new Map();
+  const storage = { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) };
+  const page = pageDisplayKey({ route: 'home', pool: null }, null);
+  const pinned = validateFreshManifest(manifest, freshManifestDigest(manifest));
+  const result = { catalog: { source: { chainId: 56, factory: manifest.factory,
+    market: manifest.shareMarket, complete: true, unknownReason: null, indexedThrough: 100,
+    indexedTimestamp: 1700000000, indexedBlockHash: hash(43) }, items: [] } };
+  assert.equal(writeDisplaySnapshot(storage, pinned, page, result, { now: 1000 }), true);
+  const restored = readDisplaySnapshot(storage,
+    validateFreshManifest(manifest, freshManifestDigest(manifest)), page,
+    { now: 1000 + 29 * 60_000, maxAgeMs: 30 * 60_000 });
+  assert.equal(restored.catalog.source.readMode, 'verified_snapshot');
+  assert.equal(restored.catalog.source.transactionReady, false);
+  assert.equal(readDisplaySnapshot(storage, pinned, page,
+    { now: 1000 + 30 * 60_000 + 1, maxAgeMs: 30 * 60_000 }), null);
+  assert.throws(() => validateFreshManifest({ ...manifest, factory: address(200) }, freshManifestDigest(manifest)),
+    { code: 'fresh_manifest_mismatch' });
 });
 
 test('v4 boot uses only its separate manifest, API and index path', async () => {
