@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { getAddress } from 'ethers';
+import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
+import oldManifest from '../public/data/frontend-manifest.json' with { type: 'json' };
+import { freshManifestDigest, loadFreshLiveConfig, validateFreshManifest,
+  validateFreshProductGraph } from '../lib/fresh-product-config.mjs';
+import { loadProductConfig, validateCurrentProductGraph } from '../lib/product-config.mjs';
+import { prepareFreshProductBuild } from './build-fresh-product.mjs';
+
+const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
+const hash = n => `0x${n.toString(16).padStart(64, '0')}`;
+const keys = ['factory','shareMarket','lens','beacon','timelock','portfolioFactory',
+  'portfolioMarket','portfolioBeacon','portfolioImplementation','portfolioFactoryImplementation'];
+const authority = { address: address(30), administratorOne: address(31),
+  administratorTwo: address(32), gasWallet: address(33), codehash: hash(99), deploymentTxHash: hash(98) };
+const manifest = { schemaVersion: 1, kind: 'integrated-v2', chainId: 56,
+  ...Object.fromEntries(keys.map((key, index) => [key, address(index + 10)])),
+  codehash: Object.fromEntries(keys.map(key => [key, hash(50)])),
+  authority: authority.address, gasWallet: authority.gasWallet, freshAuthority: authority,
+  deployment: { txHash: hash(40), blockNumber: 90, blockHash: hash(41) },
+  artifactDigest: ARTIFACT_DIGEST, sourceCommit: 'a'.repeat(40),
+  verifiedAt: '2026-09-29T00:00:00.000Z', verifiedBlockNumber: 100 };
+const activationHash = hash(42);
+const graph = { status: 'verified', chainId: 56, stage: 'fresh-active',
+  artifactDigest: ARTIFACT_DIGEST, genesisArtifactDigest: ARTIFACT_DIGEST,
+  upgradeArtifactDigest: null, operationId: null, freshFactoryVerified: true,
+  verifiedBlockNumber: 102, verifiedBlockHash: hash(43),
+  stageActivationBlock: 101, stageActivationHash: activationHash,
+  factory: manifest.factory, portfolioFactory: manifest.portfolioFactory,
+  freshAuthority: { ...authority, activationBlock: 101, activationHash },
+  operationalReady: false, readMode: 'current', stale: false,
+  manifest: { ...manifest, verifiedBlockNumber: 101 } };
+const origin = 'https://example.test';
+const response = (value, status = 200) => ({ status, ok: status >= 200 && status < 300,
+  redirected: false, headers: { get: name => name === 'content-type' ? 'application/json' : null },
+  text: async () => JSON.stringify(value) });
+
+test('v4 static plan requires a reviewed fresh manifest and pins its own addresses', () => {
+  const plan = prepareFreshProductBuild(manifest);
+  assert.equal(plan.basePath, '/bemine-v4');
+  assert.equal(plan.productFamily, 'fresh-v4');
+  assert.equal(plan.manifestSha256, freshManifestDigest(manifest));
+  assert.notEqual(plan.factory.toLowerCase(), oldManifest.factory.toLowerCase());
+  assert.throws(() => prepareFreshProductBuild(oldManifest), { code: 'artifact_mismatch' });
+  assert.throws(() => validateFreshManifest({ ...manifest, factory: address(200) }, plan.manifestSha256),
+    { code: 'fresh_manifest_mismatch' });
+  assert.throws(() => validateFreshManifest({ ...manifest, freshAuthority: undefined },
+    freshManifestDigest({ ...manifest, freshAuthority: undefined })), /管理员/);
+});
+
+test('v4 boot uses only its separate manifest, API and index path', async () => {
+  const calls = [], expectedSha = freshManifestDigest(manifest);
+  const fetcher = async url => {
+    calls.push(url);
+    if (url.endsWith('/data/frontend-manifest.v4.json')) return response(manifest);
+    if (url.endsWith('/api/journal/product-graph')) return response(graph);
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  const config = await loadProductConfig({ productFamily: 'fresh-v4', origin, basePath: '/bemine-v4',
+    manifestSha256: expectedSha, fetcher });
+  assert.deepEqual(calls, [
+    `${origin}/bemine-v4/data/frontend-manifest.v4.json`,
+    `${origin}/bemine-v4/api/journal/product-graph`,
+  ]);
+  assert.equal(config.status, 'ready');
+  assert.equal(config.factory, undefined);
+  assert.equal(config.manifest.factory, manifest.factory);
+  assert.equal(config.pinnedManifest.factory, manifest.factory);
+  assert.equal(config.indexBaseUrl, `${origin}/bemine-v4/api/chain-index`);
+  assert.equal(config.journalBase, '/bemine-v4/api/journal');
+  assert.equal(validateCurrentProductGraph(graph, config).stage, 'fresh-active');
+  await assert.rejects(loadFreshLiveConfig({ origin, basePath: '/bemine-v2', manifestSha256: expectedSha, fetcher }),
+    { code: 'invalid_config' });
+});
+
+test('v4 refuses old genesis, altered graph, incomplete Authority and stale snapshots', async () => {
+  const expectedSha = freshManifestDigest(manifest);
+  const read = (staticManifest, liveGraph) => loadFreshLiveConfig({ origin, basePath: '/bemine-v4',
+    manifestSha256: expectedSha, fetcher: url => response(url.endsWith('.v4.json') ? staticManifest : liveGraph) });
+  await assert.rejects(read(oldManifest, graph), { code: 'fresh_manifest_mismatch' });
+  for (const changed of [
+    { stage: 'genesis' }, { factory: oldManifest.factory },
+    { manifest: { ...graph.manifest, shareMarket: oldManifest.shareMarket } },
+    { freshAuthority: { ...graph.freshAuthority, gasWallet: address(201) } },
+    { readMode: 'verified_snapshot', stale: true, transactionReady: false,
+      refreshing: false, snapshotAgeMs: 31 * 60 * 1000 },
+  ]) await assert.rejects(read(manifest, { ...graph, ...changed }));
+  const displayOnly = validateFreshProductGraph({ ...graph, readMode: 'verified_snapshot',
+    stale: true, transactionReady: false, refreshing: false,
+    snapshotAgeMs: 20_000 }, manifest);
+  assert.equal(displayOnly.transactionReady, false);
+});

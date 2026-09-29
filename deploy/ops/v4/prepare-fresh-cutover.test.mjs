@@ -43,6 +43,8 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.match(result.purchaseUnit,/StartLimitIntervalSec=10min\nStartLimitBurst=3/);
   assert.match(result.purchaseUnit,/RestartPreventExitStatus=2/);
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/firsto-api\/ \{[^}]*proxy_set_header X-Real-IP \$remote_addr;/);
+  assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/ \{[^}]*alias \/var\/www\/bemine-v4\/current\/public\//);
+  assert.doesNotMatch(result.nginxSnippet,/root \/var\/www\/bemine-v4\/current\/public/);
   assert.match(result.purchaseUnit,/ReadWritePaths=\/var\/lib\/pinkuang-v4-signer/);
 });
 

@@ -57,7 +57,8 @@ import { approvedOperatorCall, authorityActionStatus, signAuthorityAction, submi
 import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
-import { createReadOnlyHttpProvider, fetchLiveJson, loadLiveConfig, validatePinnedGenesis, validateProductGraph } from "../lib/live-config.mjs";
+import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
+import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
@@ -400,7 +401,8 @@ export default function LivePlatform() {
     } catch {}
   }, [appearance]);
   useEffect(() => {
-    if (client || boot.status !== 'loading' || account) return;
+    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4'
+      || client || boot.status !== 'loading' || account) return;
     // The build-pinned genesis allows a display-only cache to paint while the
     // product graph and manifest are still loading. Route identity must match
     // the URL so a deep link never flashes the home page's previous data.
@@ -433,7 +435,7 @@ export default function LivePlatform() {
     };
     const load = async (attempt = 0) => {
       try {
-        const result = await loadLiveConfig({ basePath });
+        const result = await loadProductConfig({ basePath });
         if (cancelled) return;
         if (result.status !== "ready") { setBoot(result); return; }
         // An older verified graph can paint public data, but cannot authorize
@@ -1594,7 +1596,7 @@ export default function LivePlatform() {
         // Refresh page data immediately; only rebootstrap the page if the
         // independently verified contract stage actually changed.
         void fetchLiveJson(boot.productGraphUrl, { maxBytes: 65536 })
-          .then(validateProductGraph)
+          .then(graph => validateCurrentProductGraph(graph, boot))
           .then(graph => {
             if (graph.stage !== boot.stage || graph.artifactDigest !== boot.artifactDigest
               || graph.stageActivationBlock !== boot.stageActivationBlock
