@@ -132,7 +132,7 @@ contract PoolVotingHandler is Test {
         bytes4 expectedError;
         if (balances[actor] == 0) {
             expectedError = IPoolVault.NotMember.selector;
-        } else if (price == 0) {
+        } else if (price == 0 || price > type(uint128).max) {
             expectedError = IPoolVault.InvalidSalePrice.selector;
         } else if (
             !_tradingFrozen() && roundOpenerId != 0 && block.timestamp < proposals[roundOpenerId].proposedAt + 7 days
@@ -322,6 +322,13 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         handler.vote(2, 4, true);
         assertTrue(PoolVault(payable(address(pool))).proposalPassed(4));
         handler.propose(3, 0); // Invalid prices cannot allocate an id or change a cooldown.
+        // Firsto's signed ask has a uint128 price. An out-of-range proposal must
+        // neither consume this eligible member's turn nor freeze a new candidate.
+        uint256 proposalCountBefore = handler.proposalCount();
+        uint256 lastProposedBefore = handler.lastProposed(4);
+        handler.propose(4, uint256(type(uint128).max) + 1);
+        assertEq(handler.proposalCount(), proposalCountBefore);
+        assertEq(handler.lastProposed(4), lastProposedBefore);
         handler.propose(2, 1); // The same address cannot add another candidate this round.
 
         bytes4[] memory selectors = new bytes4[](4);

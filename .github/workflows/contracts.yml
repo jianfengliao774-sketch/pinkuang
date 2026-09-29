@@ -61,6 +61,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The deployment bundle proves its Solidity source commit is an
+          # ancestor of this release. A one-commit shallow clone cannot
+          # perform that check and falsely rejects a valid pinned artifact.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
