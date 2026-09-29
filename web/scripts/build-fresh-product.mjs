@@ -84,15 +84,18 @@ function walk(root, directory = root) {
   });
 }
 
-/** Archive the exact reviewed commit without changing any source file in the operator's checkout. */
+/** Check out the exact reviewed commit without changing the operator's checkout.
+ * Keep Git metadata: source verification recompiles Solidity and reads HEAD. */
 function isolatedCheckout(repository, sourceHead, checkout) {
-  mkdirSync(checkout);
-  // Arguments are positional shell parameters, never interpolated into shell source.
-  const archived = spawnSync('bash', ['-o', 'pipefail', '-c',
-    'git archive --format=tar "$1" | tar -xf - -C "$2"', '_', sourceHead, checkout],
-  { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] });
-  if (archived.error || archived.status !== 0)
-    fail(`Could not isolate the reviewed source commit (${archived.status ?? archived.error?.message}): ${archived.stderr?.trim() ?? ''}`);
+  const cloned = spawnSync('git', ['clone', '--shared', '--no-checkout', '--quiet', repository, checkout],
+    { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] });
+  if (cloned.error || cloned.status !== 0)
+    fail(`Could not isolate the reviewed source commit (${cloned.status ?? cloned.error?.message}): ${cloned.stderr?.trim() ?? ''}`);
+  const selected = spawnSync('git', ['-C', checkout, 'checkout', '--detach', '--quiet', sourceHead],
+    { cwd: repository, encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] });
+  if (selected.error || selected.status !== 0
+    || execFileSync('git', ['-C', checkout, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() !== sourceHead)
+    fail(`Could not check out the reviewed source commit (${selected.status ?? selected.error?.message}): ${selected.stderr?.trim() ?? ''}`);
   // Dependencies are reused by the disposable checkout. The static release
   // never includes these links or changes the original source files.
   for (const name of ['node_modules', 'web/node_modules', 'deploy/node_modules']) {

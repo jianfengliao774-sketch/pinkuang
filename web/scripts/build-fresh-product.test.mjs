@@ -108,6 +108,8 @@ test('v4 build exports from an isolated commit and never changes old source or o
     const run = (_command, args, options) => {
       isolatedWeb = options.cwd;
       assert.notEqual(isolatedWeb, join(scenario.root, 'web'));
+      assert.equal(execFileSync('git', ['rev-parse', 'HEAD'],
+        { cwd: isolatedWeb, encoding: 'utf8' }).trim(), scenario.git('rev-parse', 'HEAD'));
       assert.equal(readFileSync(join(scenario.root, 'web/public/data/frontend-manifest.json'), 'utf8'),
         '{"old":"site"}\n');
       if (args[0] === 'node_modules/next/dist/bin/next') {
