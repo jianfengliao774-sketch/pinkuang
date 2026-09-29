@@ -375,3 +375,21 @@ test('a finalized third-step failure requires a separate same-action, new-nonce 
   assert.equal(sent[0].to, factory);
   assert.equal(sent[0].data, original.data);
 });
+
+test('browser ancestry proof crosses a long pause without trusting a skipped header', async () => {
+  const wallet: Eip1193Provider = { request: async () => { throw new Error('wallet must not be used'); } };
+  const engine = new FreshActivationEngine(wallet, bundle, {} as ServerJournal, {} as DeploymentSnapshot);
+  const internals = engine as unknown as {
+    provider: { getBlock: (height: number) => Promise<{ number: number; hash: string; parentHash: string }> };
+    proveAncestor: (number: number, hash: string, descendant: { number: number; hash: string }) => Promise<void>;
+  };
+  const blockHash = (height: number) => height === 120 ? hash('d')
+    : `0x${height.toString(16).padStart(64, '0')}`;
+  let broken = false;
+  internals.provider = { getBlock: async height => ({ number: height, hash: blockHash(height),
+    parentHash: broken && height === 125 ? hash('e') : blockHash(height - 1) }) };
+  await internals.proveAncestor(120, hash('d'), { number: 4220, hash: blockHash(4220) });
+  broken = true;
+  await assert.rejects(internals.proveAncestor(120, hash('d'),
+    { number: 4220, hash: blockHash(4220) }), /不在同一条最终确认链/);
+});

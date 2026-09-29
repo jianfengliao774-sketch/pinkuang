@@ -167,7 +167,9 @@ const AUTHORITY_READ = new Interface(['function owner() view returns(address)',
   'function gasWallet() view returns(address)']);
 
 const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
-const MAX_ANCESTRY_BLOCKS = 4096;
+const ANCESTRY_SEGMENT_BLOCKS = 4096;
+const ANCESTRY_READ_BATCH = 128;
+const MAX_ANCESTRY_BLOCKS = 1_000_000;
 function authorityRuntimeMatches(artifact,actual) {
   if (!artifact || !/^0x[\da-f]+$/i.test(artifact.deployedBytecode ?? '')
     || artifact.deployedBytecode==='0x'
@@ -190,41 +192,54 @@ const EXPECTED_ACTIONS = g => [null,
   [g.portfolioFactory,'setOperator'],[g.portfolioFactory,'setTreasury'],
   [g.factory,'transferOwnership'],[g.portfolioFactory,'transferOwnership']];
 
-// RPCs can return a valid receipt and a valid finalized block from different forks.
-// Compare every parent link; a gap beyond this bound is deliberately non-recoverable
-// without a separate reviewed proof.
+// RPCs can return valid receipts and finalized blocks from different forks.
+// Every parent edge is read and checked, including each segment boundary.
+// The million-block ceiling bounds per-request work; a longer gap fails closed.
 async function proveAncestor(provider, ancestorNumber, ancestorHash, descendant) {
   if (!Number.isSafeInteger(descendant?.number) || !HASH.test(descendant?.hash)
     || descendant.number < ancestorNumber || descendant.number - ancestorNumber > MAX_ANCESTRY_BLOCKS) return false;
   let expected = descendant.hash;
-  for (let number = descendant.number; number >= ancestorNumber; number--) {
-    const block = await provider.getBlock(number);
-    if (!block || block.number !== number || block.hash?.toLowerCase() !== expected.toLowerCase()) return false;
-    if (number === ancestorNumber) return block.hash.toLowerCase() === ancestorHash.toLowerCase();
-    if (!HASH.test(block.parentHash)) return false;
-    expected = block.parentHash;
+  for (let segmentTop=descendant.number; segmentTop>=ancestorNumber;) {
+    const segmentBottom=Math.max(ancestorNumber,segmentTop-ANCESTRY_SEGMENT_BLOCKS+1);
+    for (let batchTop=segmentTop; batchTop>=segmentBottom;) {
+      const batchBottom=Math.max(segmentBottom,batchTop-ANCESTRY_READ_BATCH+1);
+      const numbers=Array.from({length:batchTop-batchBottom+1},(_,i)=>batchTop-i);
+      const blocks=await Promise.all(numbers.map(number=>provider.getBlock(number)));
+      for (let i=0;i<numbers.length;i++) {
+        const number=numbers[i],block=blocks[i];
+        if (!block || block.number!==number || block.hash?.toLowerCase()!==expected.toLowerCase()) return false;
+        if (number===ancestorNumber) return block.hash.toLowerCase()===ancestorHash.toLowerCase();
+        if (!HASH.test(block.parentHash)) return false;
+        expected=block.parentHash;
+      }
+      batchTop=batchBottom-1;
+    }
+    // expected is the verified parent hash at the next segment's top.
+    segmentTop=segmentBottom-1;
   }
   return false;
 }
 
-async function anchorChain(provider, receipt) {
+async function currentChainAnchor(provider) {
   const [finalized,latest] = await Promise.all([provider.getBlock('finalized'),provider.getBlock('latest')]);
   if (!finalized?.hash || !latest?.hash
-    || !await proveAncestor(provider,receipt.blockNumber,receipt.blockHash,finalized)
     || !await proveAncestor(provider,finalized.number,finalized.hash,latest))
     throw new Error('Finalized fresh activation recovery proof failed.');
   return {finalized,latest};
 }
 
-async function assertAnchorStillCanonical(provider, receipt, finalized, latest) {
+async function assertAnchorStillCanonical(provider, receipts, finalized, latest) {
   const [winnerAgain,finalizedAgain,latestAgain,finalizedTag,latestTag]=await Promise.all([
-    provider.getBlock(receipt.blockNumber),provider.getBlock(finalized.number),provider.getBlock(latest.number),
+    Promise.all(receipts.map(receipt=>provider.getBlock(receipt.blockNumber))),
+    provider.getBlock(finalized.number),provider.getBlock(latest.number),
     provider.getBlock('finalized'),provider.getBlock('latest'),
   ]);
-  if (winnerAgain?.hash!==receipt.blockHash || finalizedAgain?.hash!==finalized.hash
+  if (receipts.some((receipt,index)=>winnerAgain[index]?.hash!==receipt.blockHash)
+    || finalizedAgain?.hash!==finalized.hash
     || latestAgain?.hash!==latest.hash
     || !await proveAncestor(provider,finalized.number,finalized.hash,finalizedTag)
-    || !await proveAncestor(provider,latest.number,latest.hash,latestTag))
+    || !await proveAncestor(provider,latest.number,latest.hash,latestTag)
+    || !await proveAncestor(provider,finalizedTag.number,finalizedTag.hash,latestTag))
     throw new Error('Finalized fresh activation recovery proof failed.');
   return {finalizedTag,latestTag};
 }
@@ -303,7 +318,7 @@ async function expectedDataHash(record,index,bundle) {
   return target && destination ? keccak256(FACTORY_WRITE.encodeFunctionData(method,[destination])) : null;
 }
 
-async function proveAttemptWinner(provider,record,account,index,step,bundle) {
+async function proveAttemptWinner(provider,record,account,index,step,bundle,commonAnchor) {
   const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
   const winnerHash=step.replacementHash??step.txHash;
   if (!HASH.test(winnerHash) || !validReceipt(step.receipt)
@@ -327,7 +342,8 @@ async function proveAttemptWinner(provider,record,account,index,step,bundle) {
     if (!sameAddress(tx.to,target) && !(target===null && tx.to===null)
       || tx.value!==0n || keccak256(tx.data)!==step.dataHash) deny();
   }
-  const anchors=await anchorChain(provider,receipt);
+  const anchors=commonAnchor??await currentChainAnchor(provider);
+  if (!await proveAncestor(provider,receipt.blockNumber,receipt.blockHash,anchors.finalized)) deny();
   if (index===0) {
     const predicted=getCreateAddress({from:account,nonce:step.nonce});
     for (const block of [anchors.finalized,anchors.latest]) {
@@ -351,7 +367,9 @@ export async function verifyFinalizedFreshAttempt(provider,record,genesis,accoun
   const {finalized,latest}=proof.anchors;
   for (const block of finalized.hash===latest.hash?[finalized]:[finalized,latest])
     await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
-  const checked=await assertAnchorStillCanonical(provider,proof.receipt,finalized,latest);
+  const checked=await assertAnchorStillCanonical(provider,[proof.receipt],finalized,latest);
+  if (checked.finalizedTag.hash!==finalized.hash)
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
   if (checked.latestTag.hash!==latest.hash)
     await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
   const [latestNonce,pendingNonce]=await Promise.all([
@@ -367,22 +385,25 @@ export async function verifyRecoveredFreshSigning(provider,record,genesis,accoun
   const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
   const index=record?.steps?.findIndex(step=>step.status!=='confirmed')??-1;
   if (index<0) deny();
-  let lastAnchor;
+  const commonAnchor=await currentChainAnchor(provider);
+  const receipts=[];
   for (let i=0;i<=index;i++) for (const attempt of record.steps[i].attempts??[]) {
-    const proof=await proveAttemptWinner(provider,record,account,i,attempt,bundle);
+    const proof=await proveAttemptWinner(provider,record,account,i,attempt,bundle,commonAnchor);
     const archived=attempt.recovery;
     if (!archived || !await proveAncestor(provider,proof.receipt.blockNumber,
       proof.receipt.blockHash,{number:archived.finalizedBlockNumber,hash:archived.finalizedBlockHash})
-      || !await proveAncestor(provider,archived.finalizedBlockNumber,
-        archived.finalizedBlockHash,proof.anchors.finalized)) deny();
-    lastAnchor=proof;
+    || !await proveAncestor(provider,archived.finalizedBlockNumber,
+        archived.finalizedBlockHash,commonAnchor.finalized)) deny();
+    receipts.push(proof.receipt);
   }
-  if (!lastAnchor) return;
-  for (const block of lastAnchor.anchors.finalized.hash===lastAnchor.anchors.latest.hash
-    ?[lastAnchor.anchors.finalized]:[lastAnchor.anchors.finalized,lastAnchor.anchors.latest])
+  if (!receipts.length) return;
+  for (const block of commonAnchor.finalized.hash===commonAnchor.latest.hash
+    ?[commonAnchor.finalized]:[commonAnchor.finalized,commonAnchor.latest])
     await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
-  const checked=await assertAnchorStillCanonical(provider,lastAnchor.receipt,
-    lastAnchor.anchors.finalized,lastAnchor.anchors.latest);
-  if (checked.latestTag.hash!==lastAnchor.anchors.latest.hash)
+  const checked=await assertAnchorStillCanonical(provider,receipts,
+    commonAnchor.finalized,commonAnchor.latest);
+  if (checked.finalizedTag.hash!==commonAnchor.finalized.hash)
+    await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
+  if (checked.latestTag.hash!==commonAnchor.latest.hash)
     await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
 }

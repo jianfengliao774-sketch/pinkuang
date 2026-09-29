@@ -252,16 +252,30 @@ export class FreshActivationEngine {
   }
 
   private async proveAncestor(number: number, hash: string, descendant: { number: number; hash: string | null }) {
-    requireThat(descendant.hash && descendant.number >= number && descendant.number - number <= 4096,
-      '获胜交易与最终确认区块距离过远或区块哈希未知；停止签名。');
+    requireThat(descendant.hash && descendant.number >= number && descendant.number - number <= 1_000_000,
+      '获胜交易与最终确认区块距离超过安全证明上限或区块哈希未知；停止签名。');
     let expected: string = descendant.hash;
-    for (let height = descendant.number; height >= number; height--) {
-      const block = await this.provider.getBlock(height);
-      requireThat(block?.hash && block.hash.toLowerCase() === expected.toLowerCase(),
-        '获胜交易不在同一条最终确认链上；停止签名。');
-      if (height === number) requireThat(block.hash.toLowerCase() === hash.toLowerCase(),
-        '获胜交易区块已改变；停止签名。');
-      expected = block.parentHash;
+    for (let segmentTop = descendant.number; segmentTop >= number;) {
+      const segmentBottom = Math.max(number, segmentTop - 4096 + 1);
+      for (let batchTop = segmentTop; batchTop >= segmentBottom;) {
+        const batchBottom = Math.max(segmentBottom, batchTop - 128 + 1);
+        const heights = Array.from({ length: batchTop - batchBottom + 1 }, (_, i) => batchTop - i);
+        const blocks = await Promise.all(heights.map(height => this.provider.getBlock(height)));
+        for (let i = 0; i < heights.length; i++) {
+          const block = blocks[i];
+          requireThat(block?.hash && block.number === heights[i]
+            && block.hash.toLowerCase() === expected.toLowerCase(),
+            '获胜交易不在同一条最终确认链上；停止签名。');
+          if (heights[i] === number) requireThat(block.hash.toLowerCase() === hash.toLowerCase(),
+            '获胜交易区块已改变；停止签名。');
+          if (heights[i] > number) requireThat(HASH.test(block.parentHash),
+            '获胜交易区块缺少有效父哈希；停止签名。');
+          expected = block.parentHash;
+        }
+        batchTop = batchBottom - 1;
+      }
+      // Continue only from the last verified header's parent hash.
+      segmentTop = segmentBottom - 1;
     }
   }
 

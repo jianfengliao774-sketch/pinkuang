@@ -295,3 +295,109 @@ test('an archived same-nonce winner is checked again before another signature',a
     await assert.rejects(()=>verifyRecoveredFreshSigning(provider,recovered,f.genesis,hardware,f.bundle),/proof failed/);
   } finally {store.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('phase-switching RPC cannot pair finalized A128 with latest B128',async()=>{
+  const f=fixture(2),base=chain(f,f,2).provider;
+  const a128=hash('a'),b128=hash('b');
+  let finalizedReads=0,latestReads=0,numbered128=0;
+  const provider={...base,getBlock:async tag=>{
+    if(tag==='finalized') return ++finalizedReads===1?base.getBlock(tag)
+      :{number:128,hash:a128,parentHash:blockHash(127)};
+    if(tag==='latest') return ++latestReads===1?base.getBlock(tag)
+      :{number:128,hash:b128,parentHash:blockHash(127)};
+    if(tag===128) return {number:128,hash:++numbered128===1?a128:b128,
+      parentHash:blockHash(127)};
+    return base.getBlock(tag);
+  }};
+  await assert.rejects(()=>verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
+    'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
+});
+
+test('a newer finalized anchor gets fresh role and code checks',async()=>{
+  for (const drift of ['role','code']) {
+    const f=fixture(2),base=chain(f,f,2).provider;
+    let finalizedReads=0,latestReads=0;
+    const provider={...base,
+      getBlock:async tag=>{
+        if(tag==='finalized'&&++finalizedReads>1 || tag==='latest'&&++latestReads>1)
+          return tag==='finalized'?{number:128,hash:hash('a'),parentHash:blockHash(127)}
+            :{number:129,hash:hash('b'),parentHash:hash('a')};
+        if(tag===128) return {number:128,hash:hash('a'),parentHash:blockHash(127)};
+        if(tag===129) return {number:129,hash:hash('b'),parentHash:hash('a')};
+        return base.getBlock(tag);
+      },
+      getCode:async(address,block)=>drift==='code'&&block===128&&address===coreImpl
+        ?'0x6001':base.getCode(address,block),
+      call:async(tx,block)=>drift==='role'&&block===128&&tx.to===factory
+        && factoryAbi.parseTransaction({data:tx.data})?.name==='operator'
+        ?factoryAbi.encodeFunctionResult('operator',[gasWallet]):base.call(tx,block>=128?125:block),
+    };
+    await assert.rejects(()=>verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
+      'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
+  }
+});
+
+test('two archived winners from separate forks cannot share a signing proof',async()=>{
+  const f=fixture(2),base=chain(f,f,2).provider;
+  const dir=mkdtempSync(join(tmpdir(),'fresh-stage2-two-forks-'));
+  const store=new JournalStore(join(dir,'journal.sqlite'));
+  try {
+    const proof=await verifyFinalizedFreshAttempt(base,f.record,f.genesis,hardware,
+      'coreTreasury',8,f.winnerHash,f.bundle);
+    store.putFreshActivation(hardware,f.record,0);
+    const recovered=store.recoverFinalizedFreshAttempt(hardware,1,proof).record;
+    const second=structuredClone(recovered.steps[2].attempts[0]);
+    const secondHash=hash('e');
+    const forkHash=number=>number===120?hash('e')
+      :`0x${(number+1000).toString(16).padStart(64,'0')}`;
+    second.nonce=9;second.txHash=secondHash;second.receipt.blockHash=forkHash(120);
+    second.recovery.winnerHash=secondHash;
+    second.recovery.finalizedBlockHash=forkHash(125);
+    recovered.steps[2].attempts.push(second);
+    recovered.spentWei=(BigInt(receipt.feeWei)*2n).toString();
+    validateFreshActivation(recovered,hardware,f.genesis,gasWallet);
+    let fork='A';
+    const provider={...base,
+      getTransaction:async winner=>{
+        if(winner!==secondHash)return base.getTransaction(winner);
+        fork='B';
+        return {hash:secondHash,chainId:56n,from:hardware,nonce:9,
+          blockNumber:120,blockHash:forkHash(120),to:factory,data:f.data,value:0n};
+      },
+      getTransactionReceipt:async winner=>winner===secondHash
+        ?{hash:secondHash,from:hardware,blockNumber:120,blockHash:forkHash(120),
+          status:0,gasUsed:100000n,gasPrice:1000000000n,fee:100000000000000n}
+        :base.getTransactionReceipt(winner),
+      getBlock:async tag=>{
+        if(fork==='A')return base.getBlock(tag);
+        const number=tag==='finalized'?125:tag==='latest'?127:tag;
+        if(number<120||number>127)return base.getBlock(tag);
+        return {number,hash:forkHash(number),parentHash:number===120?blockHash(119):forkHash(number-1)};
+      },
+    };
+    await assert.rejects(()=>verifyRecoveredFreshSigning(provider,recovered,f.genesis,hardware,f.bundle),
+      /proof failed/);
+  } finally {store.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('long pause crosses 4096-header checkpoint without skipping a parent edge',async()=>{
+  const f=fixture(2),base=chain(f,f,2).provider;
+  const far=4220;
+  const provider={...base,
+    getBlock:async tag=>{
+      const number=tag==='finalized'?far:tag==='latest'?far+1:tag;
+      if(number<=127)return base.getBlock(number);
+      return {number,hash:blockHash(number),parentHash:blockHash(number-1)};
+    },
+    call:async(tx,block)=>base.call(tx,block>=128?125:block),
+  };
+  const proof=await verifyFinalizedFreshAttempt(provider,f.record,f.genesis,hardware,
+    'coreTreasury',8,f.winnerHash,f.bundle);
+  assert.equal(proof.finalizedBlockNumber,far);
+  const broken={...provider,getBlock:async tag=>{
+    const block=await provider.getBlock(tag);
+    return tag===125?{...block,parentHash:hash('e')}:block;
+  }};
+  await assert.rejects(()=>verifyFinalizedFreshAttempt(broken,f.record,f.genesis,hardware,
+    'coreTreasury',8,f.winnerHash,f.bundle),/proof failed/);
+});
