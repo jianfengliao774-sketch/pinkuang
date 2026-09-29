@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { AbiCoder, Interface, getAddress, keccak256 } from 'ethers';
-import { activationEvidence, activationTransaction, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
+import { activationEvidence, activationTransaction, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
   FreshActivationEngine,
   FRESH_ACTIVATION_STEPS, validatedFreshGasWallet, type FreshActivationRecord } from './fresh-activation';
 import { activationCanRequestSignature, activationStepStatusText } from './FreshActivationPanel';
@@ -32,11 +32,11 @@ function record(): FreshActivationRecord {
   };
 }
 
-test('the truncated screenshot address fails closed; only a distinct complete public Gas address is accepted', () => {
+test('the truncated screenshot address fails closed; the selected original Gas address is accepted', () => {
   assert.throws(() => validatedFreshGasWallet('0xA285d1933e32b590625aC1F5BEa205Cf2606619', hardware), /42 字符/);
   assert.throws(() => validatedFreshGasWallet(FRESH_ADMIN_ONE, hardware), /不同/);
   assert.throws(() => validatedFreshGasWallet(hardware, hardware), /不同/);
-  assert.throws(() => validatedFreshGasWallet('0xA285d1933e32b5990625aC1F5BEa205Cf2606619', hardware), /旧版 Gas 钱包/);
+  assert.equal(validatedFreshGasWallet(FRESH_GAS_WALLET, hardware), FRESH_GAS_WALLET);
   assert.equal(validatedFreshGasWallet(gasWallet, hardware), gasWallet);
 });
 

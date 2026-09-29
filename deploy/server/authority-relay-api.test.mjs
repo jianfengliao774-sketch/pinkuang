@@ -8,6 +8,7 @@ import { Interface, Wallet, getAddress, keccak256 } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { createDeploymentServer } from './index.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
+import { ORIGINAL_GAS_WALLET, requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
@@ -72,6 +73,13 @@ test('Gas relay is disabled by default and requires a systemd credential when en
   assert.throws(()=>authorityRelayConfiguration({AUTHORITY_RELAY_ENABLED:'1',
     DEPLOYMENT_JOURNAL_ORIGIN:'https://example.test',DEPLOYMENT_JOURNAL_RPC_URL:'https://example.test/rpc',
     KEEPER_PRIVATE_KEY:'0x'+'1'.repeat(64)}),/systemd Gas-wallet credential/);
+});
+
+test('the original Gas wallet requires an explicit drained-v2 sender gate',()=>{
+  assert.throws(()=>requireOriginalSenderDrained(ORIGINAL_GAS_WALLET,{}),/drained and disabled v2 sender/);
+  assert.doesNotThrow(()=>requireOriginalSenderDrained(ORIGINAL_GAS_WALLET,
+    {BEMINE_V2_GAS_SENDER_DRAINED:'1'}));
+  assert.doesNotThrow(()=>requireOriginalSenderDrained(address(98),{}));
 });
 
 test('status polling waits for an in-flight submit instead of colliding with its O_EXCL lock',async()=>{

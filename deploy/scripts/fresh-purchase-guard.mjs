@@ -3,6 +3,7 @@ import { Contract, getAddress } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph } from '../server/product-graph.mjs';
 import { KEEPER_STATE_ROOT } from './purchase-keeper.mjs';
 import { readKeeperPublicAddress } from './keeper-credential.mjs';
+import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 
 const same = (a, b) => getAddress(a) === getAddress(b);
 const within = (child, parent) => {
@@ -30,6 +31,7 @@ export function configureFreshPurchase(options, env = process.env, dependencies 
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Fresh purchase requires ${key}.`);
   }
   const gasWallet = getAddress(env.BEMINE_EXPECTED_GAS_WALLET);
+  if (options.send) requireOriginalSenderDrained(gasWallet, env);
   const credentialAddress = (dependencies.readPublicAddress ?? readKeeperPublicAddress)(env);
   if (!same(credentialAddress, gasWallet))
     throw new Error('Gas credential public address differs from the reviewed wallet.');

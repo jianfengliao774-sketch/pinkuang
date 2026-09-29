@@ -10,11 +10,9 @@ import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-re
 import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
+import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 
 const SESSION_COOKIE = 'pinkuang_journal';
-// The previously deployed v2 automatic purchaser still uses this wallet. A v4
-// signer with a separate journal must never race its nonce lane.
-const LEGACY_V2_GAS_WALLET = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ADMIN_ABI = [
   'function coreFactory() view returns(address)',
@@ -103,8 +101,7 @@ export function authorityRelayConfiguration(env = process.env) {
   if (maxGasWei <= 0n || maxGasWei > parseEther('1') || maxGasPrice <= 0n || maxGasPrice > parseUnits('5','gwei'))
     throw new Error('Authority relay gas budget exceeds its hard bound.');
   const expectedGasWallet = getAddress(env.BEMINE_EXPECTED_GAS_WALLET);
-  if (same(expectedGasWallet, LEGACY_V2_GAS_WALLET))
-    throw new Error('v4 Authority signer cannot reuse the active v2 Gas wallet nonce lane.');
+  requireOriginalSenderDrained(expectedGasWallet, env);
   for (const key of ['DEPLOYMENT_JOURNAL_DB', 'BEMINE_DEPLOYMENT_RECORD_PATH',
     'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH', 'BEMINE_PRODUCT_ACTIVATION_PATH']) {
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Authority relay requires ${key}.`);

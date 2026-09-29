@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { prepareFreshCutover } from './prepare-fresh-cutover.mjs';
+import { ORIGINAL_GAS_WALLET } from '../../shared/original-gas-wallet.mjs';
 
 const bundle=JSON.parse(readFileSync(new URL('../../public/deployment-artifacts.json',import.meta.url),'utf8'));
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`);
@@ -81,6 +82,22 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:.*authority-gas\.key/);
   assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/firsto-api\/ \{[^}]*proxy_set_header X-Real-IP \$remote_addr;/);
   assert.match(result.purchaseUnit,/ReadWritePaths=\/var\/lib\/pinkuang-v4-signer/);
+});
+
+test('offline v4 draft accepts the selected original Gas address but keeps both senders disabled',()=>{
+  const f=fixture();
+  const activation={...f.activation,authority:{...f.activation.authority,gasWallet:ORIGINAL_GAS_WALLET}};
+  const manifest={...f.manifest,gasWallet:ORIGINAL_GAS_WALLET,
+    freshAuthority:{...f.manifest.freshAuthority,gasWallet:ORIGINAL_GAS_WALLET}};
+  const result=prepareFreshCutover({...f,activation,manifest,expectedGasWallet:ORIGINAL_GAS_WALLET});
+  assert.equal(result.activationAllowed,false);
+  assert.equal(result.signerEnvironment.AUTHORITY_RELAY_ENABLED,'0');
+  assert.equal(result.signerEnvironment.BEMINE_V2_GAS_SENDER_DRAINED,'0');
+  assert.equal(result.purchaseEnvironment.FRESH_PURCHASE_ENABLED,'0');
+  assert.equal(result.purchaseEnvironment.BEMINE_V2_GAS_SENDER_DRAINED,'0');
+  assert.match(result.signerUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper\.key/);
+  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper\.key/);
+  assert.ok(result.missingLiveProofs.some(proof=>proof.includes('pending nonce')));
 });
 
 test('offline v4 draft rejects wrong graph, truncated Gas address and mismatched manifest',()=>{

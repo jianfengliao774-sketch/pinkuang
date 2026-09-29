@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { KEEPER_STATE_ROOT } from './purchase-keeper.mjs';
 import { configureFreshPurchase, verifyFreshPurchaseGraph } from './fresh-purchase-guard.mjs';
 import { parseSupervisorArguments } from './purchase-supervisor.mjs';
+import { ORIGINAL_GAS_WALLET } from '../shared/original-gas-wallet.mjs';
 
 const factory = '0x1111111111111111111111111111111111111111';
 const authority = '0x2222222222222222222222222222222222222222';
@@ -37,6 +38,14 @@ test('fresh auto purchase is opt-in, credential-bound and uses separate journals
   assert.throws(() => configureFreshPurchase(options(), env, { ...dependencies, readPublicAddress: () => authority }), /Gas credential/);
   assert.throws(() => configureFreshPurchase({ ...options(), factory: authority }, env, dependencies), /Factory or Authority/);
   assert.throws(() => configureFreshPurchase({ ...options(), journalDirExplicitAbsolute: false }, env, dependencies), /separate/);
+  const originalEnv={...env,BEMINE_EXPECTED_GAS_WALLET:ORIGINAL_GAS_WALLET};
+  const originalDependencies={...dependencies,readPublicAddress:()=>ORIGINAL_GAS_WALLET,
+    configuration:()=>({...trusted,freshAuthority:{authority:{...trusted.freshAuthority.authority,
+      gasWallet:ORIGINAL_GAS_WALLET}}})};
+  assert.throws(()=>configureFreshPurchase(options(),originalEnv,originalDependencies),/drained and disabled v2 sender/);
+  assert.equal(configureFreshPurchase(options(),
+    {...originalEnv,BEMINE_V2_GAS_SENDER_DRAINED:'1'},originalDependencies).gasWallet,
+    ORIGINAL_GAS_WALLET);
 });
 
 test('fresh auto purchase requires a current canonical graph before signing', async () => {

@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { getAddress } from 'ethers';
 import { productGraphConfiguration } from '../../server/product-graph.mjs';
+import { ORIGINAL_GAS_WALLET } from '../../shared/original-gas-wallet.mjs';
 
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 const check = (ok,message) => { if (!ok) throw new Error(message); };
@@ -19,14 +20,12 @@ const https = value => {
     'RPC URL must be a reviewed public HTTPS origin without credentials or query string.');
   return value;
 };
-const LEGACY_V2_GAS_WALLET='0xA285d1933e32b5990625aC1F5BEa205Cf2606619';
 
 /** Pure offline draft. It never reads secrets, connects to RPC, changes a symlink or starts a service. */
 export function prepareFreshCutover({record,bundle,activation,manifest,expectedGasWallet,
   runtimeReleaseId,productReleaseId,rpcUrl,logsRpcUrl,keeperStateRoot}) {
   const gasWallet=publicAddress(expectedGasWallet);
-  check(!same(gasWallet,LEGACY_V2_GAS_WALLET),
-    'Fresh v4 senders need a dedicated Gas wallet; the v2 wallet nonce and journals cannot be reused.');
+  const reusesV2GasWallet=same(gasWallet,ORIGINAL_GAS_WALLET);
   const trusted=productGraphConfiguration({record,bundle,productActivation:activation,expectedGasWallet:gasWallet});
   const proof=trusted.freshAuthority, genesis=trusted.record, a=genesis.addresses;
   check(proof && a.FreshPoolFactory && same(a.PoolFactory,a.FreshPoolFactory),
@@ -96,6 +95,7 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
   // the Gas key, and remains usable with the relay disabled.
   const runtimeRelayDropIn=`[Service]\nLoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac\nEnvironment=AUTHORITY_RELAY_SOCKET=/run/pinkuang-v4-relay/authority.sock\n`;
   const signerEnvironment={NODE_ENV:'production',AUTHORITY_RELAY_ENABLED:'0',
+    BEMINE_V2_GAS_SENDER_DRAINED:'0',
     AUTHORITY_RELAY_SOCKET:'/run/pinkuang-v4-relay/authority.sock',
     DEPLOYMENT_JOURNAL_ORIGIN:'https://tapeout.cc.cd',DEPLOYMENT_JOURNAL_RPC_URL:rpc,
     DEPLOYMENT_JOURNAL_DB:'/var/lib/pinkuang-deploy-v4/journal.sqlite',
@@ -105,8 +105,9 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     BEMINE_PRODUCT_ACTIVATION_PATH:'/var/lib/pinkuang-v4-signer/fresh-activation.json',
     AUTHORITY_RELAY_JOURNAL:'/var/lib/pinkuang-v4-signer/authority/authority.json',
     PINKUANG_KEEPER_STATE_ROOT:keeperStateRoot};
-  const signerUnit=`[Unit]\nDescription=BEMine v4 independent Authority signer (disabled draft)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4-signer\nGroup=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/server/authority-signer.mjs\nLoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac\nLoadCredential=keeper-private-key:/etc/pinkuang-v4/authority-gas.key\nRuntimeDirectory=pinkuang-v4-relay\nRuntimeDirectoryMode=0750\nStateDirectory=pinkuang-v4-signer\nStateDirectoryMode=0700\n${envLines(signerEnvironment)}UMask=0007\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-v4-signer /run/pinkuang-v4-relay\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n`;
-  const purchaseEnvironment={FRESH_PURCHASE_ENABLED:'0',
+  const gasCredentialSource=reusesV2GasWallet?'/etc/pinkuang/keeper.key':'/etc/pinkuang-v4/authority-gas.key';
+  const signerUnit=`[Unit]\nDescription=BEMine v4 independent Authority signer (disabled draft)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4-signer\nGroup=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/server/authority-signer.mjs\nLoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac\nLoadCredential=keeper-private-key:${gasCredentialSource}\nRuntimeDirectory=pinkuang-v4-relay\nRuntimeDirectoryMode=0750\nStateDirectory=pinkuang-v4-signer\nStateDirectoryMode=0700\n${envLines(signerEnvironment)}UMask=0007\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-v4-signer /run/pinkuang-v4-relay\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n`;
+  const purchaseEnvironment={FRESH_PURCHASE_ENABLED:'0',BEMINE_V2_GAS_SENDER_DRAINED:'0',
     PINKUANG_KEEPER_STATE_ROOT:keeperStateRoot,
     AUTHORITY_RELAY_JOURNAL:signerEnvironment.AUTHORITY_RELAY_JOURNAL,
     BEMINE_EXPECTED_GAS_WALLET:gasWallet,
@@ -114,7 +115,7 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
     BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH:runtimeEnvironment.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     BEMINE_PRODUCT_ACTIVATION_PATH:signerEnvironment.BEMINE_PRODUCT_ACTIVATION_PATH};
   const purchaseJournal='/var/lib/pinkuang-v4-signer/purchase-journal';
-  const purchaseUnit=`[Unit]\nDescription=BEMine v4 automatic purchase (disabled draft)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4-signer\nGroup=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/scripts/purchase-supervisor.mjs --factory ${a.factory} --rpc ${rpc} --journal-dir ${purchaseJournal} --fresh-graph --send\nLoadCredential=keeper-private-key:/etc/pinkuang-v4/authority-gas.key\nStateDirectory=pinkuang-v4-signer\nStateDirectoryMode=0700\n${envLines(purchaseEnvironment)}UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-v4-signer\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n`;
+  const purchaseUnit=`[Unit]\nDescription=BEMine v4 automatic purchase (disabled draft)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=pinkuang-v4-signer\nGroup=pinkuang-v4-relay\nWorkingDirectory=${runtimeRoot}\nExecStart=/usr/bin/node ${runtimeRoot}/scripts/purchase-supervisor.mjs --factory ${a.factory} --rpc ${rpc} --journal-dir ${purchaseJournal} --fresh-graph --send\nLoadCredential=keeper-private-key:${gasCredentialSource}\nStateDirectory=pinkuang-v4-signer\nStateDirectoryMode=0700\n${envLines(purchaseEnvironment)}UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectHome=true\nProtectSystem=strict\nReadWritePaths=/var/lib/pinkuang-v4-signer\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=45\n`;
   const nginxSnippet=`# Review and include only after live v4 graph and relay checks pass.\nlocation = /pinkuang-deploy-v4 { return 308 /pinkuang-deploy-v4/; }\nlocation ^~ /pinkuang-deploy-v4/ {\n    proxy_pass http://127.0.0.1:4177/;\n    proxy_set_header Host $host;\n    proxy_set_header Origin $http_origin;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For \"\";\n    proxy_set_header X-Forwarded-Host \"\";\n    proxy_set_header X-Forwarded-Proto \"\";\n    proxy_cookie_path /api/journal /pinkuang-deploy-v4/api/journal;\n    proxy_connect_timeout 5s;\n    proxy_read_timeout 30s;\n}\nlocation = /bemine-v4 { return 308 /bemine-v4/; }\nlocation ^~ /bemine-v4/api/ {\n    proxy_pass http://127.0.0.1:4177/api/;\n    proxy_set_header Host $host;\n    proxy_set_header Origin $http_origin;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For \"\";\n    proxy_set_header X-Forwarded-Host \"\";\n    proxy_set_header X-Forwarded-Proto \"\";\n    proxy_cookie_path /api/journal /bemine-v4/api/journal;\n    proxy_connect_timeout 5s;\n    proxy_read_timeout 30s;\n}\nlocation ^~ /bemine-v4/firsto-api/ {\n    proxy_pass http://127.0.0.1:4177/firsto-api/;\n    proxy_set_header Cookie \"\";\n    proxy_set_header Authorization \"\";\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For \"\";\n    proxy_hide_header Set-Cookie;\n    proxy_connect_timeout 5s;\n    proxy_read_timeout 30s;\n}\nlocation ^~ /bemine-v4/ {\n    root /var/www/bemine-v4/current/public;\n    index index.html;\n    try_files $uri $uri.html $uri/ =404;\n}\n`;
   return Object.freeze({schemaVersion:1,kind:'fresh-v4-cutover-draft',chainId:56,
     activationAllowed:false,
@@ -122,7 +123,7 @@ export function prepareFreshCutover({record,bundle,activation,manifest,expectedG
       'independent Factory runtime and own-registry behavior verified',
       'v4 index caught up to finalized chain',
       'Authority admin UI and Gas relay end-to-end verified',
-      'dedicated v4 Gas wallet differs from the still-used v2 wallet, with no shared nonce or journal',
+      'if the v2 Gas wallet is reused, drain and disable every v2 sender and verify no pending nonce before enabling v4 senders',
       'separate reviewed fresh-active product release and transaction gate',
       'old site and its existing assets remain independently accessible'],
     oldSite:'/bemine-v2/',newSite:'/bemine-v4/',deploymentConsole:'/pinkuang-deploy-v4/',

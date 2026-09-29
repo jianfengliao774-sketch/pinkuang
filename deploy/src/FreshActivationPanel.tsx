@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownToLine, Check, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { Eip1193Provider, ArtifactBundle, DeploymentSnapshot } from './deployment';
-import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
+import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
   FreshActivationEngine, type FreshActivationRecord } from './fresh-activation';
 import type { ServerJournal } from './server-journal';
 
@@ -28,7 +28,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
   const [record, setRecord] = useState<FreshActivationRecord | null>(null);
   const [budget, setBudget] = useState('0.05');
   const [gasCap, setGasCap] = useState('3');
-  const [gasWallet, setGasWallet] = useState('');
+  const [gasWallet, setGasWallet] = useState(FRESH_GAS_WALLET);
   const [recoveryHash, setRecoveryHash] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState('');
@@ -92,7 +92,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
           placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy}/>
-        <p className="field-help">请填写新的 v4 专用 Gas 钱包公开地址，并从钱包核对；不能使用仍在旧站自动购机的地址。</p>
+        <p className="field-help">已填入你指定的原 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。</p>
         <div className="budget-row"><div><label htmlFor="activation-budget">第二阶段 Gas 预算（BNB）</label>
         <input id="activation-budget" className="text-input" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy}/></div>
         <div><label htmlFor="activation-gas-cap">Gas 单价上限（Gwei）</label>

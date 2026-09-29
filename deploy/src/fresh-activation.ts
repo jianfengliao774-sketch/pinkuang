@@ -11,16 +11,15 @@ import type { ServerJournal } from './server-journal';
 
 export const FRESH_ADMIN_ONE = getAddress('0x7674fa446D42b1f7f150DC5e678cc525d275Ea53');
 export const FRESH_ADMIN_TWO = getAddress('0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb');
-// The active v2 purchaser has its own nonce journal. A fresh Authority must
-// never reuse that wallet with an independent signer and transaction journal.
-const LEGACY_V2_GAS_WALLET = getAddress('0xA285d1933e32b5990625aC1F5BEa205Cf2606619');
+// Public address chosen for the fresh Authority. The v4 sender remains disabled
+// until the active v2 sender has drained or both share one nonce coordinator.
+export const FRESH_GAS_WALLET = getAddress('0xA285d1933e32b5990625aC1F5BEa205Cf2606619');
 export function validatedFreshGasWallet(raw: string, hardwareWallet: string): string {
   if (!/^0x[\da-fA-F]{40}$/.test(raw.trim())) throw new Error('请填写 Gas 钱包完整的 42 字符公开地址；不要输入私钥。');
   const address = getAddress(raw.trim());
   requireThat(address !== ZeroAddress && !same(address, hardwareWallet)
-    && !same(address, FRESH_ADMIN_ONE) && !same(address, FRESH_ADMIN_TWO)
-    && !same(address, LEGACY_V2_GAS_WALLET),
-    'Gas 钱包须与硬件钱包、两位管理员和仍在使用的旧版 Gas 钱包不同。');
+    && !same(address, FRESH_ADMIN_ONE) && !same(address, FRESH_ADMIN_TWO),
+    'Gas 钱包须与硬件钱包和两位管理员不同。');
   return address;
 }
 export const FRESH_ACTIVATION_STEPS = [
