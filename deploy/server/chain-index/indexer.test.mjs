@@ -265,6 +265,68 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('verified display snapshot is an immutable in-process hit until rollback or a new proof', async () => {
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });
+  try {
+    await index.sync();
+    const first = index.verifiedDisplaySnapshot();
+    assert(first);
+    assert(Object.isFrozen(first) && Object.isFrozen(first.source)
+      && Object.isFrozen(first.pools) && Object.isFrozen(first.pools[0])
+      && Object.isFrozen(first.orders[0]), 'callers cannot mutate a shared display row');
+    const prepare = index.db.prepare.bind(index.db);
+    let snapshotSelects = 0;
+    index.db.prepare = sql => {
+      if (sql.startsWith('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot')) snapshotSelects++;
+      return prepare(sql);
+    };
+    for (let attempt = 0; attempt < 10; attempt++)
+      assert.strictEqual(index.verifiedDisplaySnapshot(), first);
+    assert.equal(snapshotSelects, 0, 'a captured snapshot must not be fetched or parsed for each request');
+    index.db.prepare = prepare;
+
+    index._rollback(4);
+    assert.equal(index.verifiedDisplaySnapshot(), null);
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS n FROM verified_display_snapshot').get().n, 0);
+    await index.sync();
+    const recaptured = index.verifiedDisplaySnapshot();
+    assert(recaptured);
+    assert.notStrictEqual(recaptured, first, 'a new full proof replaces the former parsed snapshot');
+  } finally { index.close(); }
+});
+
+test('restart rechecks the persisted tip, then lazily parses a stale display copy only once', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-cache-restart-'));
+  const dbPath = join(directory, 'index.sqlite');
+  const chain = new MockChain(); fixture(chain);
+  const config = { dbPath, factory, market, startBlock: 1, confirmations: 2 };
+  let index;
+  try {
+    index = new ChainIndex(chain, config);
+    await index.sync();
+    const originalHash = index.verifiedDisplaySnapshot().source.indexedBlockHash;
+    index.close(); index = new ChainIndex(chain, config);
+    assert.equal(index.verifiedDisplaySnapshot(), null, 'disk state is not trusted before chain recheck');
+    const call = chain.call.bind(chain);
+    chain.call = input => binding.parseTransaction({ data: input.data }).name === 'poolCount'
+      ? Promise.reject(new Error('temporary count RPC outage')) : call(input);
+    await assert.rejects(index.sync(), /temporary count RPC outage/);
+    assert.equal(index.snapshotTrusted, true, 'the saved canonical block was rechecked before the transient failure');
+    const prepare = index.db.prepare.bind(index.db);
+    let snapshotSelects = 0;
+    index.db.prepare = sql => {
+      if (sql.startsWith('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot')) snapshotSelects++;
+      return prepare(sql);
+    };
+    const restored = index.verifiedDisplaySnapshot();
+    assert.equal(restored.source.indexedBlockHash, originalHash);
+    assert.strictEqual(index.verifiedDisplaySnapshot(), restored);
+    assert.equal(snapshotSelects, 1, 'restart recovery reads and parses the persisted row once');
+    index.db.prepare = prepare;
+  } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('verified statistics snapshot remains available after ten thousand historical logs', async () => {
   const chain = new MockChain(); fixture(chain);
   const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });
@@ -477,12 +539,13 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     assert.equal((await fetch(`${url}/v1/orders?active=true`)).status, 200);
     assert.equal((await fetch(`${url}/v1/accounts/${bob}/pools`)).status, 200);
     assert.equal((await fetch(`${url}/v1/activity?account=${bob}`)).status, 200);
-    const persisted = index.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
-    index.db.prepare('UPDATE verified_display_snapshot SET source = ? WHERE id = 1').run(JSON.stringify({
-      ...JSON.parse(persisted.source), checkedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
-    }));
-    assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503,
-      'display must stop when its original verification is older than 30 minutes');
+    const currentTime = Date.now;
+    try {
+      Date.now = () => currentTime() + 31 * 60 * 1000;
+      assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503,
+        'the in-process display copy must expire 30 minutes after verification');
+    } finally { Date.now = currentTime; }
+    assert.equal(index.verifiedDisplaySnapshot(), null, 'an expired copy cannot reappear from the persisted row');
   } finally {
     await new Promise(resolve => server.close(resolve));
     index.close();

@@ -90,6 +90,22 @@ const normalizeBlock = block => {
   return { number: block.number, hash: lower(block.hash), parentHash: lower(block.parentHash), timestamp: block.timestamp };
 };
 
+// The persisted row is the source of truth. Once trusted, parse it once per
+// verified tip and share only an immutable, display-only copy with readers.
+const freezeDisplay = value => {
+  if (value && typeof value === 'object') {
+    for (const nested of Object.values(value)) freezeDisplay(nested);
+    Object.freeze(value);
+  }
+  return value;
+};
+const parseDisplaySnapshot = row => freezeDisplay({
+  source: JSON.parse(row.source), pools: JSON.parse(row.pools),
+  stats: row.stats ? JSON.parse(row.stats) : null,
+  portfolios: row.portfolios ? JSON.parse(row.portfolios) : null,
+  orders: row.orders ? JSON.parse(row.orders) : null,
+});
+
 /** Read-only, event-sourced index. All amounts stay decimal strings; no transaction method is used. */
 export class ChainIndex {
   constructor(provider, { dbPath, factory, market, portfolioFactory, portfolioMarket, reservationMode = 'legacy',
@@ -199,11 +215,14 @@ export class ChainIndex {
     // scanning the full history on every new safe head.
     this.statsGeneration = 0;
     this.snapshotTrusted = false;
+    // undefined means a trusted persisted row may still need one lazy load;
+    // null means no usable row until the next verified capture.
+    this.verifiedDisplaySnapshotCache = undefined;
     this.lastSnapshotError = null;
     this.verifiedReadView = null;
   }
 
-  close() { this._retireVerifiedReadView(true); this.db.close(); }
+  close() { this._retireVerifiedReadView(true); this.verifiedDisplaySnapshotCache = null; this.db.close(); }
   get indexedThrough() { return Number(this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('indexedThrough').value); }
   _setIndexedThrough(number) { this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(number), 'indexedThrough'); }
   _header(number) { return this.db.prepare('SELECT number,hash,parent_hash AS parentHash,timestamp FROM headers WHERE number = ?').get(number); }
@@ -225,6 +244,7 @@ export class ChainIndex {
 
   _invalidateVerifiedHistory() {
     this.snapshotTrusted = false;
+    this.verifiedDisplaySnapshotCache = null;
     this._retireVerifiedReadView(true);
     // A failed chain or history proof invalidates the persisted page as well;
     // otherwise a restart could trust an obsolete row after the next sync.
@@ -449,6 +469,7 @@ export class ChainIndex {
     // event counts or bindings. A successful sync must re-establish readiness.
     this.ready = false;
     this.snapshotTrusted = false;
+    this.verifiedDisplaySnapshotCache = null;
     this._retireVerifiedReadView(true);
     this.statsGeneration++;
     this.cachedStats = null;
@@ -469,6 +490,7 @@ export class ChainIndex {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     this.ready = false;
     this.snapshotTrusted = false;
+    this.verifiedDisplaySnapshotCache = null;
     this._retireVerifiedReadView(true);
     this.cachedStats = null;
     this.statsGeneration++;
@@ -681,7 +703,11 @@ export class ChainIndex {
         const source = JSON.parse(saved.source);
         this.snapshotTrusted = source.indexedThrough <= this.indexedThrough
           && normalizeBlock(await this.provider.getBlock(source.indexedThrough)).hash === source.indexedBlockHash;
-        if (!this.snapshotTrusted) this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+        if (this.snapshotTrusted) this.verifiedDisplaySnapshotCache = undefined;
+        else {
+          this.verifiedDisplaySnapshotCache = null;
+          this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
+        }
       }
       const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync);
       stage = 'scan';
@@ -711,6 +737,7 @@ export class ChainIndex {
           // This is a derived, display-only copy. A serialization or directory
           // error must not invalidate the already verified authoritative index.
           this.snapshotTrusted = false;
+          this.verifiedDisplaySnapshotCache = null;
           this.lastSnapshotError = 'snapshot_failed';
           this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
         }
@@ -777,25 +804,38 @@ export class ChainIndex {
       reservedChildPoolAddresses: reserved.addresses, reservedChildPoolAddressesComplete: reserved.complete,
       standalonePoolCount: String(counts.standalonePoolCount), portfolioCount: String(portfolioCount),
       poolsAvailable, portfoliosAvailable, ordersAvailable: orders !== null };
+    const row = { source: JSON.stringify(snapshotSource), pools: JSON.stringify(poolsAvailable ? pools : null),
+      stats: stats ? JSON.stringify(stats) : null, portfolios: JSON.stringify(portfoliosAvailable ? portfolios : null),
+      orders: orders ? JSON.stringify(orders) : null };
+    const parsed = parseDisplaySnapshot(row);
     this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
-      .run(JSON.stringify(snapshotSource), JSON.stringify(poolsAvailable ? pools : null), stats ? JSON.stringify(stats) : null,
-        JSON.stringify(portfoliosAvailable ? portfolios : null), orders ? JSON.stringify(orders) : null);
+      .run(row.source, row.pools, row.stats, row.portfolios, row.orders);
+    this.verifiedDisplaySnapshotCache = parsed;
     this.snapshotTrusted = true;
   }
 
   verifiedDisplaySnapshot() {
     if (!this.snapshotTrusted || ['wrong_chain', 'incomplete_history', 'invalid_binding'].includes(this.lastError)) return null;
-    const saved = this.db.prepare('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot WHERE id = 1').get();
-    if (!saved) return null;
-    const source = JSON.parse(saved.source);
-    if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) return null;
+    if (this.verifiedDisplaySnapshotCache === undefined) {
+      const saved = this.db.prepare('SELECT source,pools,stats,portfolios,orders FROM verified_display_snapshot WHERE id = 1').get();
+      try { this.verifiedDisplaySnapshotCache = saved ? parseDisplaySnapshot(saved) : null; }
+      catch { this.verifiedDisplaySnapshotCache = null; }
+    }
+    const snapshot = this.verifiedDisplaySnapshotCache;
+    if (!snapshot) return null;
+    const { source } = snapshot;
+    if (Date.now() - Date.parse(source.checkedAt) > 30 * 60 * 1000 || source.indexedThrough > this.indexedThrough) {
+      this.verifiedDisplaySnapshotCache = null;
+      return null;
+    }
     if (!Array.isArray(source.reservedChildPoolAddresses)
       || typeof source.reservedChildPoolAddressesComplete !== 'boolean'
       || source.reservedChildPoolAddresses.length !== Math.min(Number(source.reservedChildPoolCount), 500)
-      || source.reservedChildPoolAddressesComplete !== (Number(source.reservedChildPoolCount) <= 500)) return null;
-    return { source, pools: JSON.parse(saved.pools), stats: saved.stats ? JSON.parse(saved.stats) : null,
-      portfolios: saved.portfolios ? JSON.parse(saved.portfolios) : null,
-      orders: saved.orders ? JSON.parse(saved.orders) : null };
+      || source.reservedChildPoolAddressesComplete !== (Number(source.reservedChildPoolCount) <= 500)) {
+      this.verifiedDisplaySnapshotCache = null;
+      return null;
+    }
+    return snapshot;
   }
 
   verifiedDisplayPool(address, snapshot) {
