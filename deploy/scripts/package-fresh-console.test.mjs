@@ -15,7 +15,7 @@ test('fresh console runtime allowlist includes the complete static import closur
     [name, readFileSync(join(deploy, name))]));
   assert.equal(verifyRuntimeClosure(files), RUNTIME_MODULES.length);
   const missing = new Map(files);
-  missing.delete('scripts/keeper-credential.mjs');
+  missing.delete('server/authority-ipc.mjs');
   assert.throws(() => verifyRuntimeClosure(missing), /Missing packaged runtime module/);
   assert.throws(() => verifyRuntimeClosure(files, [...RUNTIME_MODULES, 'scripts/treasury-collector.mjs']),
     /unreachable modules/);

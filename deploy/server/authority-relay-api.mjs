@@ -12,6 +12,9 @@ import { acquireKeeperLock, acquireWalletLock, KEEPER_STATE_ROOT, readJournal,
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 
 const SESSION_COOKIE = 'pinkuang_journal';
+// The previously deployed v2 automatic purchaser still uses this wallet. A v4
+// signer with a separate journal must never race its nonce lane.
+const LEGACY_V2_GAS_WALLET = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ADMIN_ABI = [
   'function coreFactory() view returns(address)',
@@ -31,6 +34,10 @@ const allowedCoreCreation = new Set([
   'createFlexiblePool', 'createFlexiblePoolChecked',
 ]);
 const allowedBudgetCreation = new Set(['createPortfolio']);
+const POOL_MINE = new Interface(['function mine(bytes data)']);
+const MINER_RECLAIM = new Interface(['function reclaim(bytes32 key)']);
+const ZERO_HASH = `0x${'0'.repeat(64)}`;
+const FRESH_MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
 const same = (a, b) => getAddress(a) === getAddress(b);
 function relayStatus(status) {
   if (status === 'idle') return 'idle';
@@ -70,7 +77,8 @@ function privatePath(path, directory = false) {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('Authority relay requires absolute private paths.');
   const parent = directory ? path : dirname(path);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
-  if ((statSync(parent).mode & 0o077) !== 0) throw new Error('Authority relay state directory must be 0700.');
+  if (!lstatSync(parent).isDirectory() || (statSync(parent).mode & 0o077) !== 0)
+    throw new Error('Authority relay state directory must be a real 0700 directory.');
   if (!directory && existsSync(path) && (!lstatSync(path).isFile() || (statSync(path).mode & 0o077) !== 0))
     throw new Error('Authority relay journal must be a private regular file.');
 }
@@ -84,15 +92,20 @@ export function authorityRelayConfiguration(env = process.env) {
   if (!env.CREDENTIALS_DIRECTORY || env.KEEPER_PRIVATE_KEY)
     throw new Error('Authority relay requires a systemd Gas-wallet credential, never an environment private key.');
   if (!env.PINKUANG_KEEPER_STATE_ROOT || !isAbsolute(env.PINKUANG_KEEPER_STATE_ROOT)
-    || env.PINKUANG_KEEPER_STATE_ROOT !== KEEPER_STATE_ROOT)
-    throw new Error('Authority relay and mining keeper must share an explicit wallet state root.');
+    || env.PINKUANG_KEEPER_STATE_ROOT !== KEEPER_STATE_ROOT
+    || env.PINKUANG_KEEPER_STATE_ROOT !== '/var/lib/pinkuang-v4-signer/keeper')
+    throw new Error('Authority relay requires its exclusive v4 wallet state root.');
   const journal = env.AUTHORITY_RELAY_JOURNAL;
+  if (journal !== '/var/lib/pinkuang-v4-signer/authority/authority.json')
+    throw new Error('Authority relay requires its exclusive v4 transaction journal.');
   privatePath(journal);
   const maxGasWei = parseEther(env.AUTHORITY_RELAY_MAX_GAS_BNB ?? '0.5');
   const maxGasPrice = parseUnits(env.AUTHORITY_RELAY_MAX_GAS_PRICE_GWEI ?? '3', 'gwei');
   if (maxGasWei <= 0n || maxGasWei > parseEther('1') || maxGasPrice <= 0n || maxGasPrice > parseUnits('5','gwei'))
     throw new Error('Authority relay gas budget exceeds its hard bound.');
   const expectedGasWallet = getAddress(env.BEMINE_EXPECTED_GAS_WALLET);
+  if (same(expectedGasWallet, LEGACY_V2_GAS_WALLET))
+    throw new Error('v4 Authority signer cannot reuse the active v2 Gas wallet nonce lane.');
   for (const key of ['DEPLOYMENT_JOURNAL_DB', 'BEMINE_DEPLOYMENT_RECORD_PATH',
     'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH', 'BEMINE_PRODUCT_ACTIVATION_PATH']) {
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Authority relay requires ${key}.`);
@@ -114,7 +127,7 @@ function authenticatedAccount(req, store) {
   return getAddress(account);
 }
 
-function checkExactOperation(command, trusted) {
+async function checkExactOperation(command, trusted, graph, readReclaimState) {
   if (command.kind !== 'executeApprovedOperation') return;
   const target = getAddress(command.args.target), data = command.args.data;
   const addresses = trusted.record.addresses;
@@ -125,14 +138,38 @@ function checkExactOperation(command, trusted) {
   } else if (same(target, addresses.portfolioFactory)) {
     iface = new Interface(trusted.bundle.artifacts.BudgetPortfolioFactory.abi);
     allowed = allowedBudgetCreation;
-  } else fail(400, 'Only reviewed project creation can use this relay route.');
+  } else {
+    // The only signed pool operation exposed by this HTTP route is exact
+    // reclaim for a pool registered by the active fresh Factory. In
+    // particular, arm/start remain on the separate unsigned keeper route.
+    let outer, inner;
+    try {
+      outer = POOL_MINE.parseTransaction({ data });
+      if (outer?.name !== 'mine' || POOL_MINE.encodeFunctionData('mine', outer.args).toLowerCase() !== data.toLowerCase())
+        fail(400, 'Only canonical mine calldata is accepted.');
+      inner = MINER_RECLAIM.parseTransaction({ data: outer.args[0] });
+      if (inner?.name !== 'reclaim'
+        || MINER_RECLAIM.encodeFunctionData('reclaim', inner.args).toLowerCase() !== outer.args[0].toLowerCase())
+        fail(400, 'Only canonical reclaim calldata is accepted.');
+    } catch (error) {
+      if (error.status) throw error;
+      fail(400, 'Only exact signed reclaim may use the pool operation route.');
+    }
+    const pool = await readReclaimState(target, graph.blockNumber);
+    if (!pool.registered || !same(pool.factory, graph.addresses.factory)
+      || !same(pool.mining, FRESH_MINING) || !HASH.test(pool.minerKey)
+      || pool.minerKey.toLowerCase() === ZERO_HASH
+      || pool.minerKey.toLowerCase() !== inner.args[0].toLowerCase())
+      fail(409, 'Reclaim pool registration or miner identity is not current.');
+    return;
+  }
   let decoded;
   try { decoded = iface.parseTransaction({ data }); }
   catch { fail(400, 'Creation calldata is not in the reviewed Factory ABI.'); }
   if (!decoded || !allowed.has(decoded.name)) fail(400, 'Unsupported creation operation.');
 }
 
-function checkAction(command, prepared, graph, trusted) {
+async function checkAction(command, prepared, graph, trusted, readReclaimState) {
   const authority = trusted.freshAuthority.authority;
   if (!same(command.authority, authority.address) || !HASH.test(command.expectedCodehash ?? '')
     || command.expectedCodehash.toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
@@ -145,7 +182,7 @@ function checkAction(command, prepared, graph, trusted) {
     if (command.args.markets.length + command.args.pools.length > 24)
       fail(400, 'Too many fee sources in one transaction.');
   }
-  checkExactOperation(command, trusted);
+  await checkExactOperation(command, trusted, graph, readReclaimState);
 }
 
 /** Gas-wallet transactions are never enabled by merely serving the deployment page. */
@@ -168,12 +205,33 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     || !same(credentialAddress, trusted.freshAuthority.authority.gasWallet))
     throw new Error('Gas credential public address differs from the reviewed Authority wallet.');
   const store = dependencies.store ?? new JournalStore(config.dbPath);
+  const authenticate = dependencies.authenticateAccount ?? (req => authenticatedAccount(req, store));
   const request = new FetchRequest(config.rpcUrl);
   request.timeout = 12_000;
   request.setThrottleParams({ maxAttempts: 1 });
   const provider = dependencies.provider ?? new JsonRpcProvider(request, 56,
     { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
   const verifyGraph = dependencies.verifyGraph ?? verifyProductGraph;
+  const readReclaimState = dependencies.readReclaimState ?? (async (poolAddress, blockNumber) => {
+    const overrides = blockNumber ? { blockTag: blockNumber } : {};
+    const factory = new Contract(trusted.record.addresses.factory,
+      ['function isPool(address pool) view returns(bool)'], provider);
+    const pool = new Contract(poolAddress, [
+      'function factory() view returns(address)',
+      'function MINING() view returns(address)',
+      'function params() view returns(tuple(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline))',
+    ], provider);
+    const [registered, owner, mining, params] = await Promise.all([
+      factory.isPool(poolAddress, overrides), pool.factory(overrides),
+      pool.MINING(overrides), pool.params(overrides),
+    ]);
+    if (!registered || !same(owner, trusted.record.addresses.factory) || !same(mining, FRESH_MINING))
+      return { registered, factory: owner, mining, minerKey: ZERO_HASH };
+    const key = await new Contract(mining,
+      ['function minerKey(address circuits,uint256 circuitId) view returns(bytes32)'], provider)
+      .minerKey(params.circuits, params.circuitId, overrides);
+    return { registered, factory: owner, mining, minerKey: key };
+  });
   const relay = dependencies.relay ?? runAuthorityRelay;
   const lockJournal = dependencies.lockJournal ?? acquireKeeperLock;
   const lockWallet = dependencies.lockWallet ?? acquireWalletLock;
@@ -236,7 +294,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     catch { fail(400, 'Invalid or unsupported administrator action.'); }
     if (!prepared.signer || !same(prepared.signer, account)) fail(403, 'Session wallet did not sign this action.');
     const graph = await freshGraph();
-    checkAction(command, prepared, graph, trusted);
+    await checkAction(command, prepared, graph, trusted, readReclaimState);
     const authority = trusted.freshAuthority.authority.address;
     const { core, budget, first, second, gasWallet, nonce, code } = await readAuthorityState(authority, account);
     if (!same(core, graph.addresses.factory) || !same(budget, graph.addresses.portfolioFactory)
@@ -269,7 +327,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
             !== '/api/journal/authority-relay/status') fail(404, 'Unknown authority relay route.');
           if (req.headers.origin && req.headers.origin !== config.origin) fail(403, 'Request origin is not allowed.');
           if (!allowRequest(req)) fail(429, 'Too many authority relay requests.');
-          const account = authenticatedAccount(req, store);
+          const account = getAddress(authenticate(req));
           const first = getAddress(trusted.freshAuthority.authority.administratorOne);
           const second = getAddress(trusted.freshAuthority.authority.administratorTwo);
           if (!same(account, first) && !same(account, second)) fail(403, 'Administrator wallet is required.');

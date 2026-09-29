@@ -179,7 +179,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
         assertEq(pool.memberCount(), 3);
         assertEq(rewards.claimable(ALICE), 4851);
         vm.prank(ALICE);
-        shareMarket.list(address(pool), 1, 1);
+        shareMarket.list(address(pool), 1, 0.00001 ether);
         vm.prank(ALICE);
         _expectError("InsufficientUnlockedShares()");
         pool.transfer(ALICE, 49);
@@ -187,7 +187,7 @@ contract PoolTransfersTest is ShareTransferTestBase {
 
     function test_lockedSharesRemainSellerPropertyAndCannotBeTransferredOrdinarily() public {
         vm.prank(ALICE);
-        uint256 order = shareMarket.list(address(pool), 20, 1);
+        uint256 order = shareMarket.list(address(pool), 20, 0.00001 ether);
         assertEq(_shareVault().lockedShares(ALICE), 20);
         assertEq(pool.balanceOf(ALICE), 49);
         assertEq(pool.balanceOf(address(shareMarket)), 0);
@@ -204,9 +204,9 @@ contract PoolTransfersTest is ShareTransferTestBase {
         vm.prank(ALICE);
         _expectError("InsufficientUnlockedShares()");
         pool.transfer(ERIN, 1);
-        vm.deal(DAVE, DAVE.balance + 20);
+        vm.deal(DAVE, DAVE.balance + 0.000202 ether);
         vm.prank(DAVE);
-        shareMarket.fill{value: 20}(order, 20);
+        shareMarket.fill{value: 0.000202 ether}(order, 20);
         assertEq(pool.balanceOf(DAVE), 49);
         assertEq(pool.balanceOf(ALICE), 0);
         assertEq(_shareVault().lockedShares(ALICE), 0);
@@ -226,12 +226,12 @@ contract PoolTransfersTest is ShareTransferTestBase {
 
     function test_lockedOwnerCanReceiveAndHoldAllOneHundredShares() public {
         vm.prank(BOB);
-        shareMarket.list(address(pool), 49, 1);
+        shareMarket.list(address(pool), 49, 0.00001 ether);
         vm.prank(ALICE);
-        uint256 aliceOrder = shareMarket.list(address(pool), 1, 1);
-        vm.deal(BOB, BOB.balance + 1);
+        uint256 aliceOrder = shareMarket.list(address(pool), 1, 0.00001 ether);
+        vm.deal(BOB, BOB.balance + 0.0000101 ether);
         vm.prank(BOB);
-        shareMarket.fill{value: 1}(aliceOrder, 1);
+        shareMarket.fill{value: 0.0000101 ether}(aliceOrder, 1);
         _transfer(ALICE, BOB, 48);
         _transfer(CAROL, BOB, 2);
         assertEq(pool.balanceOf(BOB), 100);

@@ -2,7 +2,7 @@
 import { Interface, getAddress, keccak256, ZeroAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { createLiveBrowserFixture, FIXTURE_ACCOUNT, FIXTURE_OTHER_ACCOUNT } from './live-browser-fixture.mjs';
-import { PORTFOLIO_MANIFEST_KEYS } from '../lib/live-config.mjs';
+import { GENESIS_ARTIFACT_DIGEST, PORTFOLIO_MANIFEST_KEYS } from '../lib/live-config.mjs';
 export const address=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 export const PORTFOLIOS = [address(0x901),address(0x902)];
 const binds=new Interface(['function implementation() view returns(address)','function owner() view returns(address)']);
@@ -10,8 +10,10 @@ const code='0x60006000';
 export function portfolioFixture(options={}) {
   const base=createLiveBrowserFixture({isOperator:true}), calls=[], simulations=[];
   const extra=Object.fromEntries(PORTFOLIO_MANIFEST_KEYS.map((key,i)=>[key,address(0x801+i)]));
-  const manifest={...base.manifest,...extra,kind:'integrated-v2',codehash:{...base.manifest.codehash,...Object.fromEntries(PORTFOLIO_MANIFEST_KEYS.map(key=>[key,keccak256(code)]))}};
-  const config={status:'ready',...manifest,manifest,origin:'http://127.0.0.1:3198',indexBaseUrl:'http://127.0.0.1:3198/api/chain-index',journalBase:'/api/journal'};
+  const manifest={...base.manifest,...extra,kind:'integrated-v2',
+    artifactDigest:options.stage==='genesis'?GENESIS_ARTIFACT_DIGEST:base.manifest.artifactDigest,
+    codehash:{...base.manifest.codehash,...Object.fromEntries(PORTFOLIO_MANIFEST_KEYS.map(key=>[key,keccak256(code)]))}};
+  const config={status:'ready',stage:options.stage??'fresh-active',...manifest,manifest,origin:'http://127.0.0.1:3198',indexBaseUrl:'http://127.0.0.1:3198/api/chain-index',journalBase:'/api/journal'};
   const state={...options,account:FIXTURE_ACCOUNT,beforeRead:null};
   const same=(a,b)=>a.toLowerCase()===b.toLowerCase();
   const source=()=>({...base.source(),portfolioFactory:extra.portfolioFactory,portfolioMarket:extra.portfolioMarket});
@@ -36,12 +38,20 @@ export function portfolioFixture(options={}) {
       absoluteCapWei:3000000000000000n,unitCapWei:100000000000n,spentWei:0n,totalSupply:50n,memberCount:2n,
       childCount:state.childCount??0n,activeChildCount:0n,fundingDeadline:BigInt(source().indexedTimestamp)+86400n,
       purchaseDeadline:BigInt(source().indexedTimestamp)+3n*86400n,fundingFailed:false,refundPerShareWei:2n,salePerShareWei:3n,
-      activeProposalId:0n,nextProposalId:1n,nextRoundAt:0n,shareTradingAllowed:state.trading??true,balanceOf:member?(state.shares??10n):0n,
+      activeProposalId:state.activeProposalId??0n,nextProposalId:state.nextProposalId??1n,
+      nextRoundAt:0n,shareTradingAllowed:state.trading??true,balanceOf:member?(state.shares??10n):0n,
       claimableBem:member?100n:0n,bnbOwed:member?(state.bnbOwed??7n):0n,refundSettled:state.refundSettled??false,saleDebt:member?(state.saleDebt??5n):0n,lockedShares:member?(state.lockedShares??0n):0n,
       feeBps:100n,buyerFeeBps:state.buyerFeeBps??100n,orderExpiresAt:BigInt(source().indexedTimestamp)+86400n,
       orders:{seller:FIXTURE_OTHER_ACCOUNT,pool:PORTFOLIOS[0],remaining:5n,pricePerUnit:100n,active:true},
+      proposals:state.proposal??{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+        endsAt:BigInt(source().indexedTimestamp)+86400n,memberCount:2n,yesMembers:2n,yesShares:59n,executed:false},
+      hasVoted:false,childInfo:{collection:address(0x952),tokenId:1n,purchaseCost:state.childCost??150n,
+        official:true,sold:false},
     };
     if(!(parsed.name in values))throw new Error(`Unknown portfolio fixture read ${parsed.name}`);
+    if(parsed.name==='proposals'||parsed.name==='childInfo')
+      return contract.encodeFunctionResult(parsed.fragment,
+        parsed.fragment.outputs.map(output=>values[parsed.name][output.name]));
     return contract.encodeFunctionResult(parsed.fragment,[values[parsed.name]]);
   };
   const index=url=>{

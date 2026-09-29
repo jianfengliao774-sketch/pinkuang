@@ -42,3 +42,34 @@ test('identity gate, exact webhook secret and unavailable chain are isolated fro
   } finally { await runtime.close(); rmSync(dir, { recursive: true, force: true }); }
   assert.equal(runtime.capabilities().enabled, false);
 });
+
+test('community worker runs independently after exact group verification', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bemine-community-runtime-'));
+  const community = { chatId: '-1004492628953', threadId: 2, username: 'BEMineCommunity',
+    photoUrl: 'https://example.test/bemine/images/bemine-share-v11-tech.jpg' };
+  const config = { dbPath: join(dir, 'private', 'notifications.sqlite'), encryptionKey: 'ab'.repeat(32),
+    webhookSecret: 'x'.repeat(48), token: 'fixture', botUsername: 'BEMineNotifyBot',
+    publicBaseUrl: 'https://example.test/bemine/', factory: `0x${'1'.repeat(40)}`,
+    market: `0x${'2'.repeat(40)}`, indexUrl: 'http://127.0.0.1:4180', community };
+  const methods = [], statuses = [];
+  let resolveCommunity;
+  const observed = new Promise(resolve => { resolveCommunity = resolve; });
+  const runtime = createNotificationRuntime(config, {
+    telegram: { request: async (method) => { methods.push(method);
+      if (method === 'getMe') return { id: 123, is_bot: true, username: 'BEMineNotifyBot' };
+      if (method === 'getChat') return { id: Number(community.chatId), username: community.username,
+        type: 'supergroup', is_forum: true };
+      if (method === 'getChatMember') return { user: { id: 123 }, status: 'administrator' };
+      throw new Error('Unexpected Telegram request'); }, sendMessage: async () => {} },
+    source: async () => { throw new Error('Personal feed unavailable'); },
+    communityWorker: { tick: async () => ({ status: 'degraded', invalidPools: 1, sent: 1, edited: 0 }) },
+    onStatus: value => { statuses.push(value); if (value.status === 'community_degraded') resolveCommunity(value); },
+  });
+  try {
+    await runtime.start();
+    assert.deepEqual((await observed).invalidPools, 1);
+    assert(methods.includes('getChat') && methods.includes('getChatMember'));
+    assert(statuses.some(value => value.status === 'source_or_delivery_unavailable'));
+    assert.equal((await runtime.handleWallet({ account: `0x${'3'.repeat(40)}`, method: 'GET', path: '/status' })).status, 200);
+  } finally { await runtime.close(); rmSync(dir, { recursive: true, force: true }); }
+});

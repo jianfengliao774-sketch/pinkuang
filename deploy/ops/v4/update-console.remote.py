@@ -29,12 +29,148 @@ RELEASES = Path('/srv/pinkuang-deploy-v4/releases')
 DB = Path('/var/lib/pinkuang-deploy-v4/journal.sqlite')
 FLAG = 'Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=1\n'
 STAGE2_HOLD = 'Environment=BEMINE_FRESH_STAGE2_HOLD=1\n'
+HOT_KEY_CREDENTIAL = 'LoadCredential=keeper-private-key:/etc/pinkuang/keeper-v4.key\n'
+BUSINESS_TABLES = ('deployment', 'fresh_activation', 'deployment_archives',
+                   'market', 'market_abandoned', 'market_signing', 'market_results',
+                   'budget_queues', 'quotes')
+ENVIRONMENT = {
+    'NODE_ENV': 'production',
+    'HOST': '127.0.0.1',
+    'PORT': '4177',
+    'DEPLOYMENT_JOURNAL_ORIGIN': 'https://tapeout.cc.cd',
+    'DEPLOYMENT_JOURNAL_DB': str(DB),
+    'BEMINE_INDEX_URL': 'http://127.0.0.1:4184',
+    'BEMINE_NOTIFICATIONS_ENABLED': '0',
+    'BEMINE_EXPECTED_GAS_WALLET': base['GAS_WALLET'],
+    'AUTHORITY_RELAY_ENABLED': '0',
+}
+RPC_ENVIRONMENT = {'DEPLOYMENT_JOURNAL_RPC_URL', 'BEMINE_READ_RPC_URL'}
+OPTIONAL_ENVIRONMENT = {'BEMINE_FRESH_CONSOLE_PRE_GENESIS': '1',
+                        'BEMINE_FRESH_STAGE2_HOLD': '1'}
+UNIT_KEYS = {
+    'Unit': {'Description', 'After', 'Wants'},
+    'Service': {'Type', 'User', 'Group', 'WorkingDirectory', 'ExecStart',
+                'Environment', 'LoadCredential', 'UMask', 'NoNewPrivileges',
+                'PrivateTmp', 'ProtectHome', 'ProtectSystem', 'ReadWritePaths',
+                'Restart', 'RestartSec', 'TimeoutStopSec'},
+    'Install': {'WantedBy'},
+}
+SYSTEMD_DROPIN_ROOTS = ('/etc/systemd/system', '/run/systemd/system',
+                        '/usr/local/lib/systemd/system', '/usr/lib/systemd/system',
+                        '/lib/systemd/system')
+
+
+def require_effective_unit_isolated():
+    """Refuse loaded, pending, or on-disk systemd overrides for this service."""
+    service = 'pinkuang-deploy-v4.service'
+    stem = service.removesuffix('.service')
+    dropin_names = {f'{service}.d', 'service.d'}
+    dropin_names.update(f'{stem[:index + 1]}.service.d'
+                        for index, char in enumerate(stem) if char == '-')
+    def setting(name):
+        return subprocess.check_output(['systemctl', 'show', f'--property={name}',
+                                        '--value', service], text=True).strip()
+    require(setting('FragmentPath') == str(UNIT), 'v4 effective unit fragment differs.')
+    require(setting('NeedDaemonReload') == 'no', 'v4 systemd configuration needs a reload.')
+    require(not setting('DropInPaths'), 'v4 service has an effective drop-in.')
+    for directory in SYSTEMD_DROPIN_ROOTS:
+        for name in dropin_names:
+            dropins = Path(directory) / name
+            require(not dropins.exists() or not any(dropins.glob('*.conf')),
+                    'v4 service has an on-disk drop-in.')
+
+
+def review_unit(unit, release, *, expect_credential, require_flags):
+    """Accept only the known standalone v4 service shape and public environment."""
+    section = None
+    directives = {name: {} for name in UNIT_KEYS}
+    for line in unit.splitlines():
+        if not line:
+            continue
+        if line.startswith('[') and line.endswith(']'):
+            section = line[1:-1]
+            require(section in UNIT_KEYS, 'v4 unit has an unexpected section.')
+            continue
+        require(section in UNIT_KEYS and line == line.strip() and '=' in line,
+                'v4 unit has an unexpected directive.')
+        key, value = line.split('=', 1)
+        require(key in UNIT_KEYS[section] and value,
+                'v4 unit has an unexpected directive.')
+        directives[section].setdefault(key, []).append(value)
+    service = directives['Service']
+    required = {
+        'Type': 'simple', 'User': 'pinkuang-v4', 'Group': 'pinkuang-v4',
+        'WorkingDirectory': str(release),
+        'ExecStart': f'/usr/bin/node {release}/server/index.mjs',
+        'UMask': '0077', 'NoNewPrivileges': 'true', 'PrivateTmp': 'true',
+        'ProtectHome': 'true', 'ProtectSystem': 'strict',
+        'ReadWritePaths': '/var/lib/pinkuang-deploy-v4',
+        'Restart': 'on-failure', 'RestartSec': '5', 'TimeoutStopSec': '45',
+    }
+    require(all(service.get(key) == [value] for key, value in required.items()),
+            'v4 unit service configuration differs from the reviewed console.')
+    require(directives['Unit'].get('Description') ==
+            ['BEMine v4 hardware-wallet deployment console (pre-genesis)']
+            and directives['Unit'].get('After') == ['network-online.target']
+            and directives['Unit'].get('Wants') == ['network-online.target']
+            and directives['Install'].get('WantedBy') == ['multi-user.target'],
+            'v4 unit identity or installation differs from the reviewed console.')
+    credentials = service.get('LoadCredential', [])
+    require(credentials == (['keeper-private-key:/etc/pinkuang/keeper-v4.key']
+                            if expect_credential else []),
+            'v4 unit credential configuration differs from the reviewed console.')
+    values = {}
+    for entry in service.get('Environment', []):
+        require('=' in entry, 'v4 unit has an invalid environment entry.')
+        key, value = entry.split('=', 1)
+        require(key not in values, 'v4 unit has duplicate environment entries.')
+        values[key] = value
+    allowed = set(ENVIRONMENT) | RPC_ENVIRONMENT | set(OPTIONAL_ENVIRONMENT)
+    require(set(values) <= allowed and set(ENVIRONMENT) | RPC_ENVIRONMENT <= set(values),
+            'v4 unit has an unexpected or missing environment entry.')
+    require(all(values.get(key) == expected for key, expected in ENVIRONMENT.items()),
+            'v4 unit safety environment differs from the reviewed console.')
+    require(values['DEPLOYMENT_JOURNAL_RPC_URL'] == values['BEMINE_READ_RPC_URL']
+            and values['DEPLOYMENT_JOURNAL_RPC_URL'].startswith('https://')
+            and not any(char.isspace() for char in values['DEPLOYMENT_JOURNAL_RPC_URL']),
+            'v4 unit read RPC configuration differs from the reviewed console.')
+    require(all(key not in values or values[key] == expected
+                for key, expected in OPTIONAL_ENVIRONMENT.items()),
+            'v4 unit pre-genesis or Stage 2 hold is disabled.')
+    if require_flags:
+        require(all(values.get(key) == expected for key, expected in OPTIONAL_ENVIRONMENT.items()),
+                'v4 unit is missing a pre-genesis safety hold.')
+
+
+def replacement_unit(original, old, new):
+    review_unit(original, old, expect_credential=HOT_KEY_CREDENTIAL.rstrip('\n') in original,
+                require_flags=False)
+    updated = without_hot_wallet_credential(original)
+    updated = updated.replace(f'WorkingDirectory={old}\n', f'WorkingDirectory={new}\n')
+    updated = updated.replace(f'ExecStart=/usr/bin/node {old}/server/index.mjs\n',
+                              f'ExecStart=/usr/bin/node {new}/server/index.mjs\n')
+    if FLAG not in updated or STAGE2_HOLD not in updated:
+        inserted = ''.join(line for line in (FLAG, STAGE2_HOLD) if line not in updated)
+        updated = updated.replace('UMask=0077\n', inserted + 'UMask=0077\n')
+    require(updated != original and updated.count(FLAG) == 1
+            and updated.count(STAGE2_HOLD) == 1, 'v4 unit update is ambiguous.')
+    review_unit(updated, new, expect_credential=False, require_flags=True)
+    return updated
+
+
+def without_hot_wallet_credential(unit):
+    """Remove only the reviewed legacy v4 key injection, refusing other credentials."""
+    credential_lines = [line for line in unit.splitlines()
+                        if re.match(r'^(?:LoadCredential(?:Encrypted)?|SetCredential(?:Encrypted)?|ImportCredential)=', line)]
+    require(credential_lines in ([], [HOT_KEY_CREDENTIAL.rstrip('\n')]),
+            'The v4 unit has an unexpected credential configuration.')
+    return unit.replace(HOT_KEY_CREDENTIAL, '')
 
 
 def empty_genesis_journals():
     require(DB.is_file() and not DB.is_symlink(), 'v4 journal database is missing or linked.')
     with sqlite3.connect(f'file:{DB}?mode=ro', uri=True) as db:
-        for table in ('deployment', 'fresh_activation', 'deployment_archives', 'market', 'quotes'):
+        for table in BUSINESS_TABLES:
             count = db.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
             require(count == 0, f'v4 {table} journal is not empty; an in-place console update is blocked.')
 
@@ -60,11 +196,8 @@ def main():
     old = RELEASES / args.current_release_id
     new = RELEASES / args.release_id
     require(old.is_dir() and not new.exists(), 'Reviewed old or new release state differs.')
-    require(original.count(f'WorkingDirectory={old}\n') == 1
-            and original.count(f'ExecStart=/usr/bin/node {old}/server/index.mjs\n') == 1
-            and 'Environment=AUTHORITY_RELAY_ENABLED=0\n' in original
-            and 'Environment=BEMINE_NOTIFICATIONS_ENABLED=0\n' in original,
-            'v4 unit is not the reviewed pre-genesis console.')
+    require_effective_unit_isolated()
+    updated = replacement_unit(original, old, new)
     require(subprocess.check_output(['systemctl', 'is-active', 'pinkuang-deploy-v4.service'],
                                     text=True).strip() == 'active', 'v4 service is not active.')
     empty_genesis_journals()
@@ -76,23 +209,25 @@ def main():
     extract_archive(args.archive, new)
     command(['npm', 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
             timeout=300, cwd=new)
-    updated = original.replace(f'WorkingDirectory={old}\n', f'WorkingDirectory={new}\n')
-    updated = updated.replace(f'ExecStart=/usr/bin/node {old}/server/index.mjs\n',
-                              f'ExecStart=/usr/bin/node {new}/server/index.mjs\n')
-    if FLAG not in updated or STAGE2_HOLD not in updated:
-        require('UMask=0077\n' in updated, 'v4 unit insertion anchor changed.')
-        inserted = ''.join(line for line in (FLAG, STAGE2_HOLD) if line not in updated)
-        updated = updated.replace('UMask=0077\n', inserted + 'UMask=0077\n')
-    require(updated != original and updated.count(FLAG) == 1
-            and updated.count(STAGE2_HOLD) == 1, 'v4 unit update is ambiguous.')
     stopped = False
     try:
         empty_genesis_journals()
+        require_effective_unit_isolated()
+        require(digest(UNIT) == args.current_unit_sha256,
+                'v4 unit changed while the replacement release was staged.')
         command(['systemctl', 'stop', 'pinkuang-deploy-v4.service'])
         stopped = True
+        # The active console could commit a wallet journal after the first read.
+        empty_genesis_journals()
+        require_effective_unit_isolated()
+        require(digest(UNIT) == args.current_unit_sha256,
+                'v4 unit changed before the service stopped.')
         write_atomic(UNIT, updated, 0o600)
         command(['systemctl', 'daemon-reload'])
+        require_effective_unit_isolated()
         command(['systemctl', 'start', 'pinkuang-deploy-v4.service'])
+        require_effective_unit_isolated()
+        require(UNIT.read_text() == updated, 'v4 unit changed after the service started.')
         for attempt in range(10):
             try:
                 check_http('http://127.0.0.1:4177/', 200, (new / 'dist/index.html').read_bytes())
@@ -106,6 +241,12 @@ def main():
                 if attempt == 9:
                     raise
                 time.sleep(1)
+        pid = int(subprocess.check_output(['systemctl', 'show', '--property=MainPID',
+                                           '--value', 'pinkuang-deploy-v4.service'], text=True).strip())
+        require(pid > 0, 'v4 service has no running process.')
+        variables = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
+        require(not any(item.startswith(b'CREDENTIALS_DIRECTORY=') or item.startswith(b'KEEPER_PRIVATE_KEY=')
+                        for item in variables), 'The public v4 process received a Gas credential.')
         check_https('/pinkuang-deploy-v4/', 200, (new / 'dist/index.html').read_bytes())
         check_https('/pinkuang-deploy-v4/upgrade.html', 404)
         check_https('/bemine-v4/', 404)

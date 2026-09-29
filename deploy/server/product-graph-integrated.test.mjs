@@ -152,6 +152,47 @@ test('public product-graph response is pinned to a verified block and never fall
   }
 });
 
+test('verified fresh graph is published as read-only without checking old Factory pause state', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'product-graph-fresh-api-'));
+  const initial=genesisRecord.steps.find(step=>step.id==='initialize');
+  const activationBlock=initial.receipt.blockNumber+10;
+  const activationHash=salt('a');
+  const block={number:activationBlock+10,hash:salt('b'),timestamp:1_700_000_100};
+  const addresses=genesisRecord.addresses;
+  const authority={address:addr(80_000),gasWallet:addr(80_001),administratorOne:addr(80_002),
+    administratorTwo:addr(80_003),codehash:salt('c'),deploymentTxHash:salt('d'),
+    activationBlock,activationHash};
+  const provider={async send(method){assert.equal(method,'eth_chainId');return '0x38';},
+    async getBlock(tag){
+      if(tag==='finalized'||tag===block.number)return block;
+      if(tag===activationBlock)return {number:activationBlock,hash:activationHash,timestamp:block.timestamp-1};
+      throw new Error(`Unexpected block ${tag}`);
+    }};
+  const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),
+    origin:'http://127.0.0.1:4173',provider,currentArtifactDigest:()=>genesisRecord.artifactDigest,
+    productDeploymentRecord:genesisRecord,productArtifactBundle:genesisBundle,
+    allowedProductFactories:[addresses.factory,addresses.portfolioFactory],
+    productGraphVerifier:async()=>({factory:addresses.factory,blockNumber:block.number,
+      artifactDigest:genesisRecord.artifactDigest,addresses,
+      codehash:Object.fromEntries(Object.entries(genesisRecord.verification.code)
+        .map(([name,value])=>[name,value.codehash])),freshFactoryVerified:true,freshAuthority:authority})});
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/api/journal/product-graph`);
+    assert.equal(response.status,200);
+    const payload=await response.json();
+    assert.equal(payload.stage,'fresh-active');
+    assert.equal(payload.freshFactoryVerified,true);
+    assert.equal(payload.operationalReady,false);
+    assert.equal(payload.previousFactoriesPaused,undefined);
+  }finally{
+    await new Promise(resolve=>server.close(resolve));
+    await service.close();
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
 test('public product-graph response exposes the reviewed candidate manifest only after its verifier passes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'product-graph-candidate-api-'));
   const { evidence } = fixture();

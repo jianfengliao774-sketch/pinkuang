@@ -153,7 +153,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (market != IAuthorityFactory(coreFactory).shareMarket() || !IAuthorityFactory(coreFactory).isPool(pool)) {
             revert InvalidTarget();
         }
-        bytes32 reviewKey = keccak256(abi.encode(REVIEW_SALE, market, pool, proposalId));
+        // A mistaken approval price may be corrected before execution. A later
+        // rejection remains final in ShareMarket, regardless of who approved.
+        bytes32 reviewKey = keccak256(abi.encode(REVIEW_SALE, market, pool, proposalId, priceWei, approved));
         if (reviewFinalized[reviewKey]) revert InvalidAction();
         _authorize(
             REVIEW_SALE, market, keccak256(abi.encode(pool, proposalId, priceWei, approved)), nonce, deadline, signature
@@ -171,7 +173,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         bytes calldata signature
     ) external nonReentrant {
         if (!IAuthorityFactory(budgetFactory).isPool(portfolio)) revert InvalidTarget();
-        bytes32 reviewKey = keccak256(abi.encode(REVIEW_CHILD_SALE, portfolio, proposalId));
+        bytes32 reviewKey = keccak256(abi.encode(REVIEW_CHILD_SALE, portfolio, proposalId, approved));
         if (reviewFinalized[reviewKey]) revert InvalidAction();
         _authorize(
             REVIEW_CHILD_SALE, portfolio, keccak256(abi.encode(proposalId, approved)), nonce, deadline, signature
@@ -204,7 +206,7 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         IAuthorityMarket(market).setSaleReference(pool, priceWei, observedAt, digest);
     }
 
-    /// @notice Only mining calls may be relayed without an admin signature.
+    /// @notice Routine mining calls may be relayed without an admin signature.
     function executeOperation(address target, bytes calldata data) external nonReentrant returns (bytes memory result) {
         if (msg.sender != gasWallet) revert Unauthorized();
         if (data.length < 4) revert InvalidAction();
@@ -212,10 +214,13 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         if (!IAuthorityFactory(coreFactory).isPool(target) || selector != bytes4(keccak256("mine(bytes)"))) {
             revert InvalidAction();
         }
+        // Reclaim stops mining. It must be signed by an administrator below;
+        // the hot Gas key alone may only arm or start a miner.
+        if (_miningSelector(data) == bytes4(keccak256("reclaim(bytes32)"))) revert InvalidAction();
         return _callTarget(target, data);
     }
 
-    /// @notice A signed exact calldata payload is required for project/child creation or a deposit pause.
+    /// @notice A signed exact calldata payload is required for project/child creation, a deposit pause, or reclaim.
     function executeApprovedOperation(
         address target,
         bytes calldata data,
@@ -235,7 +240,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         } else if (target == budgetFactory) {
             allowed = selector == IAuthorityBudgetOperations.createPortfolio.selector;
         } else if (IAuthorityFactory(coreFactory).isPool(target)) {
-            allowed = selector == bytes4(keccak256("setDepositPaused(bool)"));
+            allowed = selector == bytes4(keccak256("setDepositPaused(bool)"))
+                || selector == bytes4(keccak256("mine(bytes)"))
+                    && _miningSelector(data) == bytes4(keccak256("reclaim(bytes32)"));
         }
         if (!allowed) revert InvalidAction();
         _authorize(APPROVED_OPERATION, target, keccak256(data), nonce, deadline, signature);
@@ -295,7 +302,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     function invalidateNonce(uint256 next) external {
         if (msg.sender != administratorOne && msg.sender != administratorTwo) revert Unauthorized();
         uint256 previous = nonces[msg.sender];
-        if (next <= previous) revert InvalidAction();
+        // Do not let one erroneous maximum-value entry permanently exhaust
+        // this administrator's nonce space.
+        if (next <= previous || next - previous > type(uint64).max) revert InvalidAction();
         nonces[msg.sender] = next;
         emit NonceInvalidated(msg.sender, previous, next);
     }
@@ -304,6 +313,12 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         (bool success, bytes memory response) = target.call(data);
         if (!success) assembly { revert(add(response, 32), mload(response)) }
         return response;
+    }
+
+    function _miningSelector(bytes calldata data) private pure returns (bytes4 selector) {
+        bytes memory inner = abi.decode(data[4:], (bytes));
+        if (inner.length < 4) revert InvalidAction();
+        assembly { selector := mload(add(inner, 32)) }
     }
 
     /// @notice The first administrator to execute a signed claim receives all fees then available.

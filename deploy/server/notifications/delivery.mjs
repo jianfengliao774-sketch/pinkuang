@@ -161,7 +161,7 @@ export function createNotificationWorker({ store, source, sender, factory, marke
             || at - (store.getMeta(`delivery_last_proposal:${pair}`) ?? 0) < 10 * 60_000)) continue;
           if (store.enqueue({ ...item, dueAt: at }) && item.kind === 'proposal') justOpened.add(pair);
         }
-        let sent = 0, cancelled = 0, retried = 0;
+        let sent = 0, cancelled = 0, retried = 0, outcomeUnknown = 0;
         const pausedUntil = store.getMeta('delivery_not_before') ?? 0;
         for (const job of now() < pausedUntil ? [] : store.due(now(), batchSize)) {
           verifyNotificationSource(feed, { factory, market, now: now(), maxSourceAgeMs, checkpoint });
@@ -177,7 +177,8 @@ export function createNotificationWorker({ store, source, sender, factory, marke
             store.ack(job.id, now()); sent++;
             if (item.kind === 'proposal') store.setMeta(`delivery_last_proposal:${job.account}:${item.payload.pool}:${item.payload.proposalId}`, now());
           } catch (error) {
-            if (error?.blocked) { store.markBlocked?.(job.account); store.block(job.id, 'telegram_blocked'); }
+            if (error?.uncertain) { store.block(job.id, 'telegram_outcome_unknown'); outcomeUnknown++; }
+            else if (error?.blocked) { store.markBlocked?.(job.account); store.block(job.id, 'telegram_blocked'); }
             else if ((error?.code === 429 || error?.code === 'rate_limited') || error?.retryable !== false && job.attempts < 8) {
               const rateLimited = error?.code === 429 || error?.code === 'rate_limited';
               const chatLimited = rateLimited && error?.rateLimitScope === 'chat';
@@ -191,7 +192,8 @@ export function createNotificationWorker({ store, source, sender, factory, marke
           }
         }
         store.setMeta('delivery_checkpoint', { block: verified.indexedThrough, hash: verified.indexedBlockHash });
-        return { status: 'ok', sent, cancelled, retried, sourceBlock: verified.indexedThrough };
+        return { status: outcomeUnknown ? 'outcome_unknown' : 'ok', sent, cancelled, retried,
+          outcomeUnknown, sourceBlock: verified.indexedThrough };
       } finally { running = false; store.releaseLease(lease, owner); }
     },
   };

@@ -27,7 +27,8 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   purchased = 10n, listedId = 0n, salePrice = 0n, expiresAt = 0n,
   factoryBinding = factory, alreadyVoted = false, oldSale = false, firsto = {},
   referencePrice = 8n, referenceAt = timestamp - 100n, referenceDigest = digest,
-  reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false } = {}) {
+  reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false,
+  genesis = false } = {}) {
   const external = firstoProvider({ account }, firsto).provider;
   return { request: async ({ method, params = [] }) => {
     if (method === 'eth_getStorageAt' || method === 'eth_getCode' && [FIRSTO_SIGNED_EXCHANGE, runtime.implementation].some(a => a.toLowerCase() === params[0].toLowerCase()) || method === 'eth_call' && params[0].to.toLowerCase() === FIRSTO_SIGNED_EXCHANGE.toLowerCase()) return external.request({ method, params });
@@ -38,6 +39,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
     if (method === 'eth_call' && params[0].to.toLowerCase() === market.toLowerCase()) {
       const parsed = saleViews.parseTransaction({ data: params[0].data });
       if (parsed?.name === 'saleReference') {
+        if (genesis) throw new Error('Genesis market does not implement saleReference');
         if (referenceReadError) throw new Error('reference unavailable');
         return saleViews.encodeFunctionResult('saleReference', [referencePrice, referenceAt, referenceDigest]);
       }
@@ -67,15 +69,30 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
     if (parsed.name === 'proposalPassed') {
       const p = proposals[Number(parsed.args[0] - activeId)];
       values.proposalPassed = p.yesCount * 2n > p.snapshotMemberCount
-        && p.yesShares > 50n;
+        && p.yesShares >= (genesis && p.price < purchased ? 60n : 51n);
     }
     if (!(parsed.name in values)) throw new Error(`Unmocked ${parsed.name}`);
     return iface.encodeFunctionResult(parsed.name, [values[parsed.name]]);
   } };
 }
 
+test('genesis discounted sale uses 60 shares and does not ask legacy market for sale reference', async () => {
+  const genesisOptions = { factory, pool, account, stage: 'genesis' };
+  const discounted = overrides => rpc({ genesis: true, proposals: [proposal({ price: 9n,
+    yesCount: 2n, yesShares: 59n, ...overrides })] });
+  const short = await readGovernanceSnapshot(discounted(), genesisOptions);
+  assert.equal(short.saleReference, null);
+  assert.equal(short.candidates[0].requiredYesShares, 60n);
+  assert.equal(short.candidates[0].passed, false);
+  assert.equal(short.candidates[0].canExecute, false);
+  const passed = await readGovernanceSnapshot(discounted({ yesShares: 60n }), genesisOptions);
+  assert.equal(passed.candidates[0].passed, true);
+  assert.equal(passed.candidates[0].canExecute, true);
+  assert.equal(governanceAction(passed, account, { kind: 'executeSale', proposalId: '1' }).quote.marketReferenceWei, null);
+});
+
 test('enumerates competing prices in one frozen round and permits voting for either', async () => {
-  const snap = await readGovernanceSnapshot(rpc(), { factory, pool, account });
+  const snap = await readGovernanceSnapshot(rpc(), { factory, pool, account, stage: 'fresh-active' });
   assert.deepEqual(snap.candidates.map(item => item.id), [1n, 2n]);
   assert.equal(snap.candidates[1].discounted, false, 'historical purchase cost does not set the discount');
   assert.equal(snap.candidates[1].requiredYesShares, 51n);
@@ -87,7 +104,7 @@ test('enumerates competing prices in one frozen round and permits voting for eit
   const oppose = governanceAction(snap, account, { kind: 'vote', proposalId: '1', support: false });
   assert.deepEqual(Array.from(abi.PoolVault.parseTransaction({ data: oppose.transaction.data }).args), [1n, false]);
   assert.equal(oppose.transaction.to, pool);
-  const voted = await readGovernanceSnapshot(rpc({ alreadyVoted: true }), { factory, pool, account });
+  const voted = await readGovernanceSnapshot(rpc({ alreadyVoted: true }), { factory, pool, account, stage: 'fresh-active' });
   assert.throws(() => governanceAction(voted, account, { kind: 'vote', proposalId: '1', support: false }), /cannot vote again/);
   const execution = governanceAction(snap, account, { kind: 'executeSale', proposalId: '2' });
   assert.equal(abi.PoolVault.parseTransaction({ data: execution.transaction.data }).name, 'executeSale');
@@ -96,13 +113,13 @@ test('enumerates competing prices in one frozen round and permits voting for eit
 
 test('execution requires a fresh Firsto reference and exact platform review below that reference', async () => {
   const input = { referencePrice: 10n };
-  const pending = await readGovernanceSnapshot(rpc(input), { factory, pool, account });
+  const pending = await readGovernanceSnapshot(rpc(input), { factory, pool, account, stage: 'fresh-active' });
   assert.equal(pending.candidates[1].passed, true);
   assert.equal(pending.candidates[1].discounted, true);
   assert.equal(pending.candidates[1].canExecute, false);
   assert.throws(() => governanceAction(pending, account, { kind: 'executeSale', proposalId: '2' }), /reference or required platform review/);
 
-  const approved = await readGovernanceSnapshot(rpc({ ...input, reviewStatus: 1n, reviewPrice: 9n }), { factory, pool, account });
+  const approved = await readGovernanceSnapshot(rpc({ ...input, reviewStatus: 1n, reviewPrice: 9n }), { factory, pool, account, stage: 'fresh-active' });
   assert.equal(approved.candidates[1].reviewApproved, true);
   assert.equal(approved.candidates[1].canExecute, true);
   assert.equal(governanceAction(approved, account, { kind: 'executeSale', proposalId: '2' }).quote.marketReferenceWei, 10n);
@@ -111,28 +128,28 @@ test('execution requires a fresh Firsto reference and exact platform review belo
     { referenceAt: 1699999199n, reviewStatus: 1n, reviewPrice: 9n },
     { referenceDigest: `0x${'00'.repeat(32)}`, reviewStatus: 1n, reviewPrice: 9n },
     { referenceReadError: true }, { reviewReadError: true }]) {
-    const blocked = await readGovernanceSnapshot(rpc({ ...input, ...change }), { factory, pool, account });
+    const blocked = await readGovernanceSnapshot(rpc({ ...input, ...change }), { factory, pool, account, stage: 'fresh-active' });
     assert.equal(blocked.candidates[1].canExecute, false);
     assert.throws(() => governanceAction(blocked, account, { kind: 'executeSale', proposalId: '2' }), /reference or required platform review/);
   }
 });
 
 test('rejects legacy timestamp-minus-one proposals and foreign pool bindings', async () => {
-  const legacy = await readGovernanceSnapshot(rpc({ proposals: [proposal({ snapshotTs: 1699999999n })] }), { factory, pool, account });
+  const legacy = await readGovernanceSnapshot(rpc({ proposals: [proposal({ snapshotTs: 1699999999n })] }), { factory, pool, account, stage: 'fresh-active' });
   assert.equal(legacy.candidates.length, 0);
   assert.throws(() => governanceAction(legacy, account, { kind: 'vote', proposalId: '1', support: true }), /not open/);
   const expired = await readGovernanceSnapshot(rpc({ timestamp: 1700605000n,
-    proposals: [proposal({ snapshotTs: 1699999999n })] }), { factory, pool, account });
+    proposals: [proposal({ snapshotTs: 1699999999n })] }), { factory, pool, account, stage: 'fresh-active' });
   const nextRound = governanceAction(expired, account, { kind: 'propose',
     priceWei: '10', refPriceWei: '10', refAt: '1700604000' });
   assert.equal(abi.PoolVault.parseTransaction({ data: nextRound.transaction.data }).name, 'propose');
-  await assert.rejects(readGovernanceSnapshot(rpc({ factoryBinding: pool }), { factory, pool, account }), /not registered/);
-  await assert.rejects(readGovernanceSnapshot(rpc({ chain: '0x1' }), { factory, pool, account }), /BSC mainnet/);
+  await assert.rejects(readGovernanceSnapshot(rpc({ factoryBinding: pool }), { factory, pool, account, stage: 'fresh-active' }), /not registered/);
+  await assert.rejects(readGovernanceSnapshot(rpc({ chain: '0x1' }), { factory, pool, account, stage: 'fresh-active' }), /BSC mainnet/);
 });
 
 test('reports the seven-day activation lock separately from valid sale prices', async () => {
   const fresh = await readGovernanceSnapshot(rpc({ timestamp: 1699000100n, activeId: 0n,
-    proposals: [] }), { factory, pool, account });
+    proposals: [] }), { factory, pool, account, stage: 'fresh-active' });
   assert.equal(fresh.state, 2n);
   assert.equal(fresh.shares, 30n);
   assert.throws(() => governanceAction(fresh, account, { kind: 'propose',
@@ -142,7 +159,7 @@ test('reports the seven-day activation lock separately from valid sale prices', 
 
 test('sale payment uses the current listed price and never a UI-supplied amount', async () => {
   const live = await readGovernanceSnapshot(rpc({ state: 3n, proposals: [proposal({ price: 1000n, executed: true })],
-    listedId: 1n, salePrice: 1000n, expiresAt: 1700000200n }), { factory, pool, account });
+    listedId: 1n, salePrice: 1000n, expiresAt: 1700000200n }), { factory, pool, account, stage: 'fresh-active' });
   const sale = governanceAction(live, account, { kind: 'completeFirstoSale', priceWei: '1' });
   assert.equal(sale.transaction.value, '0x3f2');
   assert.equal(sale.quote.sourceFeeWei, 10n);
@@ -154,7 +171,7 @@ test('sale payment uses the current listed price and never a UI-supplied amount'
   assert.equal(sale.quote.holderNetWei, 990n);
   assert.throws(() => governanceAction(live, account, { kind: 'vote', proposalId: '1', support: true }), /not open/);
   const expired = await readGovernanceSnapshot(rpc({ state: 3n, proposals: [proposal({ price: 1000n, executed: true })],
-    listedId: 1n, salePrice: 1000n, expiresAt: 1700000100n }), { factory, pool, account });
+    listedId: 1n, salePrice: 1000n, expiresAt: 1700000100n }), { factory, pool, account, stage: 'fresh-active' });
   assert.throws(() => governanceAction(expired, account, { kind: 'completeFirstoSale' }), /not open/);
   assert.equal(abi.PoolVault.parseTransaction({ data: governanceAction(expired, account, { kind: 'cancelExpired' }).transaction.data }).name, 'cancelExpired');
 });
@@ -164,10 +181,10 @@ test('old sale capability, changed Firsto implementation and fee epoch mismatch 
     salePrice:1000n,expiresAt:1700000200n };
   for (const changes of [{oldSale:true},{firsto:{implementationCode:'0x6001'}},{firsto:{values:{feeBpsAtEpoch:200n}}},
     {firsto:{values:{paused:true}}},{firsto:{values:{SIGNED_ASK_SCHEMA_VERSION:3n}}}]) {
-    const snapshot = await readGovernanceSnapshot(rpc({...listed,...changes}),{factory,pool,account});
+    const snapshot = await readGovernanceSnapshot(rpc({...listed,...changes}),{factory,pool,account,stage:'fresh-active'});
     assert.equal(snapshot.firstoSale.available,false);
     assert.throws(()=>governanceAction(snapshot,account,{kind:'completeFirstoSale'}),/核验/);
   }
-  const expired = await readGovernanceSnapshot(rpc({...listed,oldSale:true,timestamp:1700000200n}),{factory,pool,account});
+  const expired = await readGovernanceSnapshot(rpc({...listed,oldSale:true,timestamp:1700000200n}),{factory,pool,account,stage:'fresh-active'});
   assert.equal(governanceAction(expired,account,{kind:'cancelExpired'}).quote.action,'cancelExpired');
 });

@@ -16,6 +16,11 @@ test('notification activation requires private secrets, exact website and allowe
    BEMINE_JOURNAL_FACTORIES:factory,DEPLOYMENT_JOURNAL_ORIGIN:'https://example.org',BEMINE_NOTIFICATION_PUBLIC_URL:'https://example.org/bemine/'};
   assert.equal(notificationConfiguration({}),null);
   assert.equal(notificationConfiguration(env).factory,factory);
+  assert.equal(notificationConfiguration(env).community,null);
+  const community={...env,BEMINE_COMMUNITY_ENABLED:'1',BEMINE_COMMUNITY_CHAT_ID:'-1004492628953',
+   BEMINE_COMMUNITY_THREAD_ID:'2',BEMINE_COMMUNITY_USERNAME:'BEMineCommunity'};
+  assert.equal(notificationConfiguration(community).community.threadId,2);
+  assert.equal(notificationConfiguration({...community,BEMINE_COMMUNITY_THREAD_ID:'3'}).communityUnavailable,true);
   assert.throws(()=>notificationConfiguration({...env,BEMINE_NOTIFICATION_PUBLIC_URL:'https://attacker.invalid/'}));
   assert.throws(()=>notificationConfiguration({...env,BEMINE_NOTIFICATION_INDEX_URL:'http://remote.invalid:4180'}));
   assert.throws(()=>notificationConfiguration({...env,BEMINE_JOURNAL_FACTORIES:market}));

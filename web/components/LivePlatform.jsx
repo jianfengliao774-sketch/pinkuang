@@ -86,6 +86,7 @@ import {
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const minimumSharePriceWei = 10000000000000n;
 const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
   process.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL,
@@ -393,14 +394,13 @@ export default function LivePlatform() {
     setClient(null);
     setError("");
     loadLiveConfig({ basePath })
-      .then(async (result) => {
+      .then((result) => {
         if (cancelled) return;
         if (result.status !== "ready") {
           setBoot(result);
           return;
         }
         const service = createLiveDataClient(result);
-        await service.verifyDeployment();
         if (!cancelled) {
           setBoot(result);
           setClient(service);
@@ -1941,6 +1941,15 @@ export default function LivePlatform() {
               </a>
             </div>
           )}
+          {config?.stage === "fresh-active" && config.operationalReady !== true &&
+            <div className="live-service-note" role="status">
+              <ShieldCheck size={20} />
+              <div>
+                <strong>{L("新合约已核验，交易接线尚未开放", "New contracts verified; trading is not yet open")}</strong>
+                <p>{L("当前可查看已核验的链上数据。建池、认购及其他产品交易将在独立服务启用后开放。",
+                  "Verified on-chain data is available to view. Pool creation, subscriptions and other product transactions will open after the separate services are activated.")}</p>
+              </div>
+            </div>}
           {loading && readRetry && <div className="live-notice" role="status">
             <RefreshCw size={18}/><span>{L(`数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`,
               `Data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`)}</span>
@@ -2023,6 +2032,7 @@ export default function LivePlatform() {
               live
               liveStats={stats}
               liveSource={source}
+              stage={config?.stage}
               onExplore={(tab) => {
                 setFilter(
                   tab === "募集中"
@@ -2847,7 +2857,11 @@ export default function LivePlatform() {
                               </button>
                             </td>
                             <td>{o.remaining?.toString() ?? "—"}</td>
-                            <td>{amount(o.pricePerUnitWei)} BNB</td>
+                            <td>{amount(o.pricePerUnitWei)} BNB
+                              {BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei && <small className="live-order-state">
+                                {L('旧低价挂单，仅可撤销', 'Old low-price order; cancel only')}
+                              </small>}
+                            </td>
                             <td>{capacityCell(o)}</td>
                             <td>
                               {shortAddress(o.seller)}
@@ -2876,7 +2890,8 @@ export default function LivePlatform() {
                                 secondary
                                 disabled={!account ||
                                   busy ||
-                                  o.active !== true
+                                  o.active !== true ||
+                                  (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
                                 }
                                 onClick={() =>
                                   openAction(
@@ -2896,7 +2911,9 @@ export default function LivePlatform() {
                                     BigInt(marketOrderSource?.indexedTimestamp ?? 0)
                                     ? L("解锁份额", "Unlock shares")
                                     : L("撤单", "Cancel")
-                                  : L("买入份额", "Buy shares")}
+                                  : BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei
+                                    ? L('不可成交', 'Cannot buy')
+                                    : L("买入份额", "Buy shares")}
                               </Button>
                             </td>
                           </tr>
@@ -3245,8 +3262,12 @@ export default function LivePlatform() {
                     [
                       "共同决定",
                       "Decide together",
-                      "整机出售须地址多数，低于购机成本需至少 60 份赞成，其余超过 50 份。",
-                      "Miner sales require a wallet majority and at least 60 shares below acquisition cost, otherwise more than 50.",
+                      config?.stage === "genesis"
+                        ? "旧矿池整机出售须地址多数；低于购机成本需至少 60 份赞成，其余超过 50 份。"
+                        : "新矿池整机出售须份额与快照地址均严格过半；低于市场参考价须平台审核。",
+                      config?.stage === "genesis"
+                        ? "Legacy miner sales require a wallet majority and at least 60 shares below acquisition cost, otherwise more than 50."
+                        : "New miner sales require majorities of both shares and snapshot wallets. Sales below the market reference require platform review.",
                     ],
                     [
                       "灵活转让",
@@ -3314,6 +3335,7 @@ export default function LivePlatform() {
                           />
                         </label>
                       )}
+                      {modal.kind === 'list' && <p className="subtle-note">{L('每份最低 0.00001 BNB；低于此价格的旧挂单只能撤销或到期解锁。', 'Minimum 0.00001 BNB per share. Older cheaper orders may only be cancelled or expired.')}</p>}
                       {modal.kind === "vote" && (
                         <p>
                           {modal.support

@@ -14,6 +14,9 @@ test('genesis ABI is extracted from independently pinned original deployment art
     '22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b');
   const bundle = JSON.parse(bytes.toString('utf8'));
   assert.equal(genesisContracts.artifactDigest, genesisManifest.artifactDigest);
+  // The fresh Factory ABI must not retain constants for unrelated old deployments.
+  for (const selector of ['FIRST_MAINNET_FACTORY()', 'PREVIOUS_MAINNET_FACTORY()', 'PREVIOUS_POOL_13043()'])
+    assert.equal(abi.PoolFactory.getFunction(selector), null, `${selector} belongs only to an obsolete deployment`);
   for (const [name, fragments] of Object.entries(genesisContracts.abis)) {
     assert.deepEqual(fragments, bundle.artifacts[name].abi, `${name} old ABI drifted`);
     const original = new Interface(fragments);

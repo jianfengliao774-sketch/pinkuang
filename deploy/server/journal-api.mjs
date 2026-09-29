@@ -14,7 +14,6 @@ import { readBudgetCandidates } from './budget-candidates.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
 import { createRequestLimiter } from './request-limiter.mjs';
-import { readKeeperPublicAddress } from '../scripts/keeper-credential.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -34,6 +33,10 @@ const OFFICIAL_GRAPH_PROOF_REFILL_MS = 4_000;
 const MAX_OFFICIAL_BLOCK_AGE = 120;
 const OFFICIAL_REQUEST_BURST = 6;
 const OFFICIAL_REQUEST_REFILL_MS = 500;
+const PRODUCT_INTENT_WINDOW_MS = 60_000;
+const PRODUCT_INTENT_PER_ACCOUNT = 8;
+const PRODUCT_INTENT_PER_IP = 24;
+const MAX_PRODUCT_INTENT_ACCOUNTS = 4_096;
 const OFFICIAL_COLLECTIONS = new Set([
   '0xb1024b89886b9a34aa4ff5f31c411d708b20a14c',
   '0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c',
@@ -809,7 +812,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
-  gasWalletAddressReader = readKeeperPublicAddress, freshConsolePreGenesis = false,
+  gasWalletAddressReader, freshConsolePreGenesis = false,
   freshStage2Hold = false } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
@@ -827,6 +830,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const allowPublicGraph = createRequestLimiter({ windowMs: 10_000, perClient: 4 });
   const allowQuote = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 40 });
   const allowArchive = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 300 });
+  const allowProductIntentIp = createRequestLimiter({ windowMs: PRODUCT_INTENT_WINDOW_MS,
+    perClient: PRODUCT_INTENT_PER_IP, now });
+  const productIntentAccounts = new Map();
+  let productIntentWindow = -1;
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
   const officialProvider = suppliedProvider ? suppliedProvider : rpcUrl ? createBoundedOfficialProvider(rpcUrl) : null;
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
@@ -838,10 +845,19 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
     productActivationPath:freshActivationEvidencePath,expectedGasWallet});
-  if (typeof gasWalletAddressReader !== 'function') throw new Error('Gas wallet credential address reader is invalid.');
+  if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
+    throw new Error('Gas wallet credential address reader is invalid.');
   if (typeof freshConsolePreGenesis !== 'boolean') throw new Error('Fresh console mode must be a boolean.');
   if (typeof freshStage2Hold !== 'boolean') throw new Error('Fresh Stage 2 hold must be a boolean.');
   const credentialStatus = () => {
+    // This HTTP-facing process must not receive a Gas private key. A configured
+    // public address is not proof that an isolated signer holds its private key.
+    if (!gasWalletAddressReader) {
+      let configured = null;
+      try { configured = expectedGasWallet ? getAddress(expectedGasWallet) : null; }
+      catch { /* Invalid configuration remains unverified. */ }
+      return { credentialVerified: false, gasWallet: configured };
+    }
     try {
       const derived = getAddress(gasWalletAddressReader());
       const verified = Boolean(expectedGasWallet) && derived.toLowerCase() === getAddress(expectedGasWallet).toLowerCase();
@@ -874,6 +890,23 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     try { assertSigningInputsCurrent(); }
     catch { fail(503, 'Deployment signing inputs changed; regenerate artifacts and reload this page.'); }
     return buildDigest();
+  }
+
+  function consumeProductIntentBudget(req, account) {
+    const window = Math.floor(now() / PRODUCT_INTENT_WINDOW_MS);
+    if (window !== productIntentWindow) { productIntentWindow = window; productIntentAccounts.clear(); }
+    const count = productIntentAccounts.get(account) ?? 0;
+    if (count >= PRODUCT_INTENT_PER_ACCOUNT || !allowProductIntentIp(req))
+      fail(429, 'Too many product intent checks; retry shortly.');
+    // Keep both dimensions bounded even when many authenticated wallets rotate.
+    if (count === 0 && productIntentAccounts.size >= MAX_PRODUCT_INTENT_ACCOUNTS)
+      productIntentAccounts.delete(productIntentAccounts.keys().next().value);
+    productIntentAccounts.set(account, count + 1);
+  }
+
+  function verifyBoundedProductIntent(req, account, record) {
+    consumeProductIntentBudget(req, account);
+    return verifyProductIntent(provider, record, productFactories, signingGraphVerifier, { legacyFactory });
   }
 
   function consumeOfficialBudget() {
@@ -1250,7 +1283,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
             portfolioFactoryImplementation:'BudgetPortfolioFactory'};
           const manifestCodehash=Object.fromEntries(Object.entries(manifestNames)
             .map(([key,name])=>[key,graph.codehash[name]]));
-          const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-wired' : graph.securityUpgrade
+          const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-active' : graph.securityUpgrade
             ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
               : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
           const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
@@ -1288,6 +1321,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
             factory:trustedProduct.record.addresses.factory,
             portfolioFactory:trustedProduct.record.addresses.portfolioFactory ?? null,
             creationPaused:graph.securityUpgrade ? true : undefined,
+            // A verified fresh graph can be displayed independently of old Factories.
+            // Product signing remains closed until its separate API/relay cutover.
+            ...(stage==='fresh-active' ? {freshFactoryVerified:true} : {}),
             operationalReady:false,
             manifest};
           lastVerifiedProductGraphSnapshot={savedAt:now(),body};
@@ -1385,7 +1421,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const newSigningIntent = body.record?.steps?.some((step, i) =>
           step.status === 'signing' && previous?.steps[i]?.status !== 'signing');
         if (!credential.credentialVerified && (!previous || newSigningIntent))
-          fail(503, 'Gas wallet systemd credential is missing or does not match the reviewed public address.');
+          fail(503, 'Gas wallet signer has not been independently attested by an isolated process.');
         let record;
         try { record = validateFreshActivation(body.record, account, genesis,
           credential.gasWallet ?? previous?.gasWallet); }
@@ -1480,7 +1516,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           fail(400,'A new unsigned product intent is required.');
         const current=store.market(account);
         if (current.record || current.revision!==revision) fail(409,'Market revision changed.');
-        await verifyProductIntent(provider,record,productFactories,signingGraphVerifier,{legacyFactory});
+        await verifyBoundedProductIntent(req,account,record);
         const next=store.prepareAndArmMarket(account,record,revision), hex=value=>`0x${BigInt(value).toString(16)}`;
         return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
           nonce:hex(record.nonce),data:record.data,value:hex(record.value),gas:hex(record.gas),gasPrice:hex(record.gasPrice),type:'0x0'}});
@@ -1490,7 +1526,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (!current.record || current.record.version !== 2 || current.revision !== revision) fail(409,'Product revision changed.');
         if (current.record.hash || current.record.recoveryHashes?.length || current.record.cancellationRequests?.length)
           fail(409,'Product transaction already has a send or recovery history.');
-        await verifyProductIntent(provider,current.record,productFactories,signingGraphVerifier,{ legacyFactory });
+        await verifyBoundedProductIntent(req,account,current.record);
         const record=current.record, hex=value=>`0x${BigInt(value).toString(16)}`;
         const next=store.armMarket(account,revision);
         return send(200,{revision:next,record,transaction:{chainId:'0x38',from:record.account,to:record.target,
@@ -1515,7 +1551,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (!current.record && productMode && record.version === 1 && !record.hash && !record.recoveryHashes?.length)
           fail(409, '旧市场入口已停止新签名，请从 BEMine 产品页面操作；已有交易可继续补录哈希恢复。');
         // Recovery writes must work even if the allowlist changes or the RPC is down.
-        if (!current.record && record.version === 2) await verifyProductIntent(provider, record, productFactories, signingGraphVerifier,{ legacyFactory });
+        if (!current.record && record.version === 2) await verifyBoundedProductIntent(req, account, record);
         return send(200, { revision: store.putMarket(account, record, exactRevision(body.expectedRevision)) });
       }
       if (method === 'DELETE' && path === '/api/journal/market') {

@@ -161,10 +161,10 @@ contract AuditMiningSettlementTest is SaleTestBase {
         assertEq(rewards.claimable(DAVE), 0);
 
         vm.prank(ALICE);
-        uint256 order = shareMarket.list(address(pool), 2, 1);
-        vm.deal(DAVE, DAVE.balance + 2);
+        uint256 order = shareMarket.list(address(pool), 2, 0.00001 ether);
+        vm.deal(DAVE, DAVE.balance + 0.0000202 ether);
         vm.prank(DAVE);
-        shareMarket.fill{value: 2}(order, 2);
+        shareMarket.fill{value: 0.0000202 ether}(order, 2);
         assertEq(pool.balanceOf(DAVE), 3);
         assertEq(mining.claimCalls(), claimsBefore);
         uint256 oldClaim = rewards.claimable(ALICE);

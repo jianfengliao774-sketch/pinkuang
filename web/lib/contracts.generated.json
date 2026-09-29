@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0xa71f8b9b6cc5cc667fec5b832ff32f5e0b91bb41b51bcce27d2edf6fb4c6fb9d",
+  "artifactDigest": "0xd20e99f0ed723ca004fa9cbfac4354ffd08340e826cd86af592d7536e66734e0",
   "abis": {
     "PoolFactory": [
       {
@@ -132,11 +132,6 @@
           }
         ],
         "name": "OwnableUnauthorizedAccount",
-        "type": "error"
-      },
-      {
-        "inputs": [],
-        "name": "PreviousFactoryStillOpen",
         "type": "error"
       },
       {
@@ -423,51 +418,12 @@
       },
       {
         "inputs": [],
-        "name": "FIRST_MAINNET_FACTORY",
-        "outputs": [
-          {
-            "internalType": "address",
-            "name": "",
-            "type": "address"
-          }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-      },
-      {
-        "inputs": [],
         "name": "MINIMUM_UPGRADE_DELAY",
         "outputs": [
           {
             "internalType": "uint256",
             "name": "",
             "type": "uint256"
-          }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-      },
-      {
-        "inputs": [],
-        "name": "PREVIOUS_MAINNET_FACTORY",
-        "outputs": [
-          {
-            "internalType": "address",
-            "name": "",
-            "type": "address"
-          }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-      },
-      {
-        "inputs": [],
-        "name": "PREVIOUS_POOL_13043",
-        "outputs": [
-          {
-            "internalType": "address",
-            "name": "",
-            "type": "address"
           }
         ],
         "stateMutability": "view",

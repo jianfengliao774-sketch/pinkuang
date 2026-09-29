@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownToLine, Check, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { Eip1193Provider, ArtifactBundle, DeploymentSnapshot } from './deployment';
-import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
+import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO,
   FreshActivationEngine, type FreshActivationRecord } from './fresh-activation';
 import type { ServerJournal } from './server-journal';
 
@@ -27,7 +27,7 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
   const [record, setRecord] = useState<FreshActivationRecord | null>(null);
   const [budget, setBudget] = useState('0.05');
   const [gasCap, setGasCap] = useState('3');
-  const [gasWallet, setGasWallet] = useState(FRESH_GAS_WALLET);
+  const [gasWallet, setGasWallet] = useState('');
   const [recoveryHash, setRecoveryHash] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState('');
@@ -84,14 +84,14 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
           ? `服务器凭据已派生并核对 Gas 公钥：${credential.gasWallet}`
-          : '服务器 Gas 钱包凭据尚未核验，或派生公钥与本页地址不同；此状态下不能发起新的权限交易。'}</p>
+          : `控制台只保存 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明独立签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
       <p className="field-help">只使用这些公开地址。网页不接收私钥。新合约和新站独立运行；旧池、份额和订单仍留在旧站，不会导入新图。</p>
       {STAGE2_HOLD && <p className="alert alert-warning" role="status">第二阶段暂未开放签名：任一权限交易失败或被不同交易替换后，当前七步记录无法安全恢复。需要先完成链上证明与恢复测试；第一阶段部署和只读核验不受影响。</p>}
       <p className="alert alert-warning">新版 Factory 只维护自己的矿机登记，不读取旧合约。独立系统无法保证新旧站之间的矿机编号不会重复，运营方仍须核对矿机实际所有权。Authority 接线后，管理员签名和 Gas 代发流程须先通过完整测试再开放建池。</p>
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
           placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy}/>
-        <p className="field-help">已预填你重新提供并校验的完整公开地址。请再从钱包核对，服务器配置必须与此地址一致。</p>
+        <p className="field-help">请填写新的 v4 专用 Gas 钱包公开地址，并从钱包核对；不能使用仍在旧站自动购机的地址。</p>
         <div className="budget-row"><div><label htmlFor="activation-budget">第二阶段 Gas 预算（BNB）</label>
         <input id="activation-budget" className="text-input" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy}/></div>
         <div><label htmlFor="activation-gas-cap">Gas 单价上限（Gwei）</label>

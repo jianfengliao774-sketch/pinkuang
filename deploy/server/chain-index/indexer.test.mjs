@@ -202,6 +202,27 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('verified statistics snapshot remains available after ten thousand historical logs', async () => {
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });
+  try {
+    await index.sync();
+    const before = index.stats();
+    const insert = index.db.prepare('INSERT INTO logs(block_number,tx_index,log_index,tx_hash,address,kind,name,args) VALUES(?,?,?,?,?,?,?,?)');
+    index.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (let i = 0; i < 10_001; i++) {
+        insert.run(6, 1, i, hex(1_000_000 + i), pool, 'pool', 'BemClaimed', '{}');
+      }
+      index.db.exec('COMMIT');
+    } catch (error) { index.db.exec('ROLLBACK'); throw error; }
+    index.statsGeneration++;
+    index._captureVerifiedSnapshot();
+    assert.equal(index.verifiedDisplaySnapshot().stats.purchasedCostWei, before.purchasedCostWei);
+    assert.equal(index.verifiedDisplaySnapshot().stats.everParticipantAddressCount, before.everParticipantAddressCount);
+  } finally { index.close(); }
+});
+
 test('new buyer-fee event is indexed while old OrderFilled history still replays', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-bilateral-fee-'));
   const chain = new MockChain(); fixture(chain);
@@ -332,6 +353,7 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const url = `http://127.0.0.1:${server.address().port}`;
     assert.equal((await fetch(`${url}/v1/pools`)).status, 503);
+    assert.equal(index.verifiedReadView, null, 'the first sync has no prior verified database to read');
     const originalSend = chain.send.bind(chain);
     chain.send = () => Promise.reject(new Error('upstream https://rpc.example/?token=secret'));
     await assert.rejects(index.sync());
@@ -376,7 +398,7 @@ test('HTTP returns source block, bounded pages and 503 until verified', async ()
   }
 });
 
-test('HTTP serves a verified display snapshot during refresh and fails closed for other reads', async () => {
+test('HTTP keeps prior verified read responses available during refresh and failed RPC reads', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-wait-'));
   const chain = new MockChain(); fixture(chain);
   const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market, startBlock: 1, confirmations: 2 });
@@ -407,7 +429,7 @@ test('HTTP serves a verified display snapshot during refresh and fails closed fo
     const slow = new Promise(resolve => { releaseSlow = resolve; });
     chain.send = async (...args) => { await slow; return originalSend(...args); };
     const delayed = index.sync();
-    await new Promise(resolve => setImmediate(resolve));
+    while (index.status().observedSafeHead !== 7) await new Promise(resolve => setTimeout(resolve, 1));
     assert.equal(index.status().complete, false);
     const displayed = await (await fetch(url)).json();
     assert.equal(displayed.source.readMode, 'verified_snapshot');
@@ -415,7 +437,12 @@ test('HTTP serves a verified display snapshot during refresh and fails closed fo
     assert.equal(displayed.source.transactionReady, false);
     assert.equal(displayed.source.indexedThrough, 6);
     assert.equal(displayed.data.items[0].address, pool);
-    assert.equal((await fetch(url.replace('/v1/pools', '/v1/activity'))).status, 503);
+    const activity = await (await fetch(url.replace('/v1/pools', '/v1/activity'))).json();
+    assert.equal(activity.source.readMode, 'verified_snapshot');
+    assert.equal(activity.source.stale, true);
+    assert.equal(activity.source.transactionReady, false);
+    assert.equal(activity.source.indexedThrough, 6);
+    assert(activity.data.items.every(item => item.blockNumber <= 6));
     assert.equal((await fetch(`${url}?limit=51`)).status, 400);
     const duringSync = await (await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).json();
     assert.equal(duringSync.source.indexedBlockHash, chain.blocks.get(6).hash);
@@ -430,6 +457,100 @@ test('HTTP serves a verified display snapshot during refresh and fails closed fo
     assert.equal((await fetch(url.replace('/v1/pools', '/v1/activity'))).status, 503);
     assert.equal((await fetch(url.replace('/v1/pools', '/v1/snapshot/pools'))).status, 200);
   } finally {
+    await new Promise(resolve => server.close(resolve));
+    index.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('read view stays at the verified tip after a later scan chunk commits, while private feeds pause', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-read-view-'));
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
+    startBlock: 1, confirmations: 2, scanRange: 1 });
+  const server = createChainIndexServer(index, { syncWaitMs: 20 });
+  let release = () => {}, syncing;
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await index.sync();
+    const oldActivity = index.activity().items.length;
+    for (const number of [9, 10]) chain.blocks.set(number, { number, hash: hex(1000 + number),
+      parentHash: chain.blocks.get(number - 1).hash, timestamp: 1_700_000_000 + number * 3 });
+    const getBlock = chain.getBlock.bind(chain), call = chain.call.bind(chain);
+    const gate = new Promise(resolve => { release = resolve; });
+    chain.getBlock = number => number === 'latest' ? Promise.resolve(chain.blocks.get(10))
+      : number === 8 ? gate.then(() => getBlock(number)) : getBlock(number);
+    chain.call = input => call({ ...input, blockTag: Math.min(input.blockTag, 6) });
+    syncing = index.sync();
+    while (index.indexedThrough !== 7) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(index.verifiedReadView.transactional, true, 'disk indexes pin a WAL reader');
+    assert.equal(index.verifiedReadView.directory, undefined, 'disk indexes do not copy the database');
+    assert.equal(index.verifiedReadView.source.indexedThrough, 6);
+    assert.equal(index.activity().items[0].blockNumber, 7, 'writer has already committed a newer event');
+    const health = await (await fetch(`${url}/health`)).json();
+    assert.equal(health.source.complete, false);
+    assert.equal(health.source.observedSafeHead, 8);
+    const activity = await (await fetch(`${url}/v1/activity`)).json();
+    assert.equal(activity.source.readMode, 'verified_snapshot');
+    assert.equal(activity.source.indexedThrough, 6);
+    assert.equal(activity.source.observedSafeHead, 6);
+    assert.equal(activity.source.stale, true);
+    assert.equal(activity.source.transactionReady, false);
+    assert.equal(activity.data.items.length, oldActivity);
+    assert(activity.data.items.every(item => item.blockNumber <= 6));
+    const yieldResponse = await (await fetch(`${url}/v1/yield?pool=${pool}&days=1`)).json();
+    assert.equal(yieldResponse.source.indexedThrough, 6);
+    assert.equal(yieldResponse.data.buckets[0].poolHarvestNetAtomic, '990');
+    index.db.exec('DELETE FROM verified_display_snapshot');
+    index.snapshotTrusted = false;
+    const directoryPage = await (await fetch(`${url}/v1/pools`)).json();
+    assert.equal(directoryPage.source.readMode, 'verified_snapshot', 'the pinned DB works even without a serialized display page');
+    assert.equal(directoryPage.data.items[0].address, pool);
+    assert.equal((await fetch(`${url}/v1/notifications`)).status, 503);
+    assert.equal((await fetch(`${url}/v1/community`)).status, 503);
+    release();
+    await syncing;
+    assert.equal(index.status().complete, true);
+    assert.equal(index.verifiedReadView, null, 'WAL reader is released after the sync');
+    const fresh = await (await fetch(`${url}/v1/activity`)).json();
+    assert.equal(fresh.source.indexedThrough, 8);
+    assert.equal(fresh.data.items[0].blockNumber, 7);
+  } finally {
+    release();
+    if (syncing) await syncing.catch(() => {});
+    await new Promise(resolve => server.close(resolve));
+    index.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('detected reorg invalidates the previous read view before replacement history is scanned', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pinkuang-chain-index-read-reorg-'));
+  const chain = new MockChain(); fixture(chain);
+  const index = new ChainIndex(chain, { dbPath: join(directory, 'index.sqlite'), factory, market,
+    startBlock: 1, confirmations: 2, scanRange: 2 });
+  const server = createChainIndexServer(index, { syncWaitMs: 20 });
+  let release = () => {}, syncing;
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await index.sync();
+    chain.reorg();
+    const gate = new Promise(resolve => { release = resolve; });
+    const scan = index._scanChunk.bind(index);
+    index._scanChunk = async (...args) => { await gate; return scan(...args); };
+    syncing = index.sync();
+    while (index.indexedThrough !== 4) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(index.verifiedReadView, null);
+    assert.equal((await fetch(`${url}/v1/activity`)).status, 503);
+    assert.equal((await fetch(`${url}/v1/snapshot/pools`)).status, 503);
+    release();
+    await syncing;
+    assert.equal(index.status().indexedBlockHash, chain.blocks.get(6).hash);
+  } finally {
+    release();
+    if (syncing) await syncing.catch(() => {});
     await new Promise(resolve => server.close(resolve));
     index.close();
     await rm(directory, { recursive: true, force: true });

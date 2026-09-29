@@ -48,6 +48,8 @@ export class NotificationStore {
       CREATE TABLE IF NOT EXISTS notification_inbox (id TEXT NOT NULL, account TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL, read_at INTEGER, PRIMARY KEY(account,id));
       CREATE TABLE IF NOT EXISTS notification_queue (id TEXT PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, due_at INTEGER NOT NULL, expires_at INTEGER, attempts INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending', error_code TEXT, updated_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS notification_queue_due ON notification_queue(status,due_at);`);
+    if (!this.db.prepare('PRAGMA table_info(notification_pending)').all().some(column => column.name === 'telegram_confirmed'))
+      this.db.exec('ALTER TABLE notification_pending ADD COLUMN telegram_confirmed INTEGER NOT NULL DEFAULT 0');
     // Detect key misconfiguration before accepting new contacts, rather than silently losing old ones.
     const marker = this.getMeta('encryption-check');
     try {
@@ -128,8 +130,8 @@ export class NotificationStore {
   }
   pendingBinding(account) {
     account = address(account);
-    const row = this.db.prepare('SELECT id,expires_at,contact FROM notification_pending WHERE account=? AND expires_at>?').get(account, this.now());
-    return row ? { id: row.id, expiresAt: row.expires_at, status: row.contact ? 'paired' : 'pending',
+    const row = this.db.prepare('SELECT id,expires_at,contact,telegram_confirmed FROM notification_pending WHERE account=? AND expires_at>?').get(account, this.now());
+    return row ? { id: row.id, expiresAt: row.expires_at, status: row.telegram_confirmed ? 'paired' : 'pending',
       telegram: row.contact ? this.open(row.contact, `pending:${row.id}:${account}`) : null } : null;
   }
   stageBinding(token, telegram) {
@@ -137,15 +139,25 @@ export class NotificationStore {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT id,account FROM notification_pending WHERE token_hash=? AND contact IS NULL AND expires_at>?').get(digest(token), this.now());
       if (!row) return false;
-      this.db.prepare('UPDATE notification_pending SET token_hash=NULL,contact=?,peer_hash=? WHERE id=?')
+      this.db.prepare('UPDATE notification_pending SET token_hash=NULL,contact=?,peer_hash=?,telegram_confirmed=0 WHERE id=?')
         .run(this.seal(telegram, `pending:${row.id}:${row.account}`), this.peerHash(telegram.userId), row.id);
       return { id: row.id, account: row.account };
+    });
+  }
+  confirmTelegramBinding(id, userId) {
+    if (typeof id !== 'string' || !/^[\da-f-]{36}$/i.test(id)) return false;
+    return this.transaction(() => {
+      const row = this.db.prepare(`SELECT account FROM notification_pending
+        WHERE id=? AND peer_hash=? AND contact IS NOT NULL AND expires_at>?`).get(id, this.peerHash(userId), this.now());
+      if (!row) return false;
+      this.db.prepare('UPDATE notification_pending SET telegram_confirmed=1 WHERE id=?').run(id);
+      return { account: row.account };
     });
   }
   confirmBinding(account, id) {
     account = address(account);
     return this.transaction(() => {
-      const row = this.db.prepare('SELECT contact,peer_hash FROM notification_pending WHERE account=? AND id=? AND contact IS NOT NULL AND expires_at>?').get(account, id, this.now());
+      const row = this.db.prepare('SELECT contact,peer_hash FROM notification_pending WHERE account=? AND id=? AND contact IS NOT NULL AND telegram_confirmed=1 AND expires_at>?').get(account, id, this.now());
       if (!row) throw new NotificationConflict('Binding expired or is not ready. Create a new link and verify the Telegram account.');
       const telegram = this.open(row.contact, `pending:${id}:${account}`);
       this.db.prepare(`INSERT INTO notification_bindings(account,peer_hash,contact,blocked,created_at) VALUES(?,?,?,0,?)

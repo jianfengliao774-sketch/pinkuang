@@ -15,7 +15,8 @@ import { shareQuantity, exactPrice, prepareProductAction } from '../lib/live-act
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = addr(1), lens = addr(2), market = addr(3), pool = addr(4), account = addr(5), seller = addr(6), collection = addr(7);
 const now = 2_000_000n, day = 86400n, week = day * 7n, blockHash = `0x${'ab'.repeat(32)}`;
-const config = { status: 'ready', chainId: 56, factory, lens, shareMarket: market };
+const config = { status: 'ready', chainId: 56, factory, lens, shareMarket: market,
+  stage: 'fresh-active' };
 const allPool = (1n << 17n) - 1n, allGov = (1n << 14n) - 1n;
 const status = (validMask, errorMask = 0n) => ({ validMask, errorMask, trustError: 0n });
 const params = { circuits: collection, circuitId: 900719925474099312345n, targetRaise: 100000000000000000100n,
@@ -186,6 +187,8 @@ test('market ABI tuple, price multiplication, positive listing and withdrawal ac
     buyerPaymentWei: gross + gross / 100n, sellerNetWei: gross - gross / 100n });
   assert.deepEqual([...abi.ShareMarket.parseTransaction(fill.transaction).args], [7n, 3n]);
   await assert.rejects(prepare(mock(), { kind: 'list', quantity: '4', price: '0' }), /greater than zero/);
+  await assert.rejects(prepare(mock(), { kind: 'list', quantity: '4', price: '0.000009999999999999' }), /0.00001 BNB/);
+  assert.equal((await prepare(mock(), { kind: 'list', quantity: '1', price: '0.00001' })).listingGrossWei, 10000000000000n);
   const paidListing = await prepare(mock({ row: { shares: 99n, availableShares: 99n } }), { kind: 'list', quantity: '99', price: '0.005' });
   assert.equal(paidListing.listingGrossWei, 495000000000000000n);
   assert.equal(BigInt(paidListing.transaction.value), 0n);
@@ -205,10 +208,11 @@ test('old one-sided Market blocks new list/fill without stranding withdrawals', 
   assert.equal((await prepare(mock({ oldMarket: true }), { kind: 'marketWithdraw' })).transaction.value, '0x0');
 });
 
-test('market cannot fill expired, zero-expiry, frozen, changed, oversubscribed or overflowing orders', async () => {
+test('market cannot fill sub-minimum, expired, frozen, changed, oversubscribed or overflowing orders', async () => {
   for (const options of [{ expiry: now }, { expiry: 0n }, { order: { active: false } }, { order: { remaining: 0n } },
     { row: { state: 3n } }, { row: { shareTradingAllowed: false } }, { row: { shares: 99n } },
-    { order: { seller: account } }, { order: { pricePerUnit: (1n << 256n) - 1n } }, { wrongMarket: true },
+    { order: { seller: account } }, { order: { pricePerUnit: 1n } },
+    { order: { pricePerUnit: (1n << 256n) - 1n } }, { wrongMarket: true },
     { row: { status: status(allPool, 1n << 10n) } }]) {
     const rpc = mock(options); await assert.rejects(prepare(rpc, { kind: 'fill', orderId: '7', quantity: '3' }));
     assert.equal(simulations(rpc).length, 0);

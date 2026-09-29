@@ -49,7 +49,7 @@ function fixture() {
     ...Object.fromEntries(Object.entries(manifestNames).map(([key,name])=>[key,addresses[name]]))};
   return {record,bundle,activation,manifest,expectedGasWallet:gasWallet,
     runtimeReleaseId:'v4-test-runtime',productReleaseId:'v4-test-product',
-    keeperStateRoot:'/var/lib/pinkuang-shared-keeper',
+    keeperStateRoot:'/var/lib/pinkuang-v4-signer/keeper',
     rpcUrl:'https://bsc-dataseed.bnbchain.org',logsRpcUrl:'https://bsc-dataseed.bnbchain.org'};
 }
 
@@ -61,22 +61,32 @@ test('offline v4 draft contains only new graph and remains disabled pending live
   assert.equal(result.runtimeEnvironment.PORT,'4177');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_PORT,'4184');
   assert.equal(result.indexEnvironment.CHAIN_INDEX_FACTORY,fixture().record.addresses.factory);
-  assert.match(result.runtimeUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper-v4\.key/);
-  assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_JOURNAL,
-    '/var/lib/pinkuang-v4/authority/authority.json');
+  assert.doesNotMatch(result.runtimeUnit,/LoadCredential|KEEPER_PRIVATE_KEY/);
+  assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_JOURNAL,undefined);
+  assert.equal(result.signerEnvironment.AUTHORITY_RELAY_JOURNAL,
+    '/var/lib/pinkuang-v4-signer/authority/authority.json');
   assert.match(result.runtimeUnit,/StateDirectoryMode=0700/);
   assert.equal(result.runtimeEnvironment.AUTHORITY_RELAY_ENABLED,'0');
+  assert.equal(result.runtimeEnvironment.PINKUANG_KEEPER_STATE_ROOT,undefined);
+  assert.match(result.runtimeRelayDropIn,/LoadCredential=authority-ipc-hmac:/);
+  assert.doesNotMatch(result.runtimeRelayDropIn,/keeper-private-key/);
+  assert.match(result.signerUnit,/User=pinkuang-v4-signer/);
+  assert.match(result.signerUnit,/Group=pinkuang-v4-relay/);
+  assert.match(result.signerUnit,/RuntimeDirectoryMode=0750/);
+  assert.match(result.signerUnit,/LoadCredential=keeper-private-key:.*authority-gas\.key/);
+  assert.equal(result.signerEnvironment.AUTHORITY_RELAY_ENABLED,'0');
   assert.equal(result.purchaseEnvironment.FRESH_PURCHASE_ENABLED,'0');
   assert.match(result.purchaseUnit,/--fresh-graph --send/);
-  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:\/etc\/pinkuang\/keeper-v4\.key/);
-  assert.match(result.purchaseUnit,/ReadWritePaths=\/var\/lib\/pinkuang-v4 \/var\/lib\/pinkuang-shared-keeper/);
+  assert.match(result.purchaseUnit,/LoadCredential=keeper-private-key:.*authority-gas\.key/);
+  assert.match(result.nginxSnippet,/location \^~ \/bemine-v4\/firsto-api\/ \{[^}]*proxy_set_header X-Real-IP \$remote_addr;/);
+  assert.match(result.purchaseUnit,/ReadWritePaths=\/var\/lib\/pinkuang-v4-signer/);
 });
 
 test('offline v4 draft rejects wrong graph, truncated Gas address and mismatched manifest',()=>{
   const f=fixture();
   assert.throws(()=>prepareFreshCutover({...f,expectedGasWallet:f.expectedGasWallet.slice(0,-1)}),/40-hex/);
   assert.throws(()=>prepareFreshCutover({...f,expectedGasWallet:addr(93)}),/seven ordered transactions/);
-  assert.throws(()=>prepareFreshCutover({...f,keeperStateRoot:'/tmp/keeper'}),/shared \/var\/lib/);
+  assert.throws(()=>prepareFreshCutover({...f,keeperStateRoot:'/tmp/keeper'}),/dedicated private nonce state root/);
   assert.throws(()=>prepareFreshCutover({...f,manifest:{...f.manifest,factory:addr(94)}}),/Manifest factory/);
   assert.throws(()=>prepareFreshCutover({...f,record:{...f.record,addresses:{...f.record.addresses,
     factory:f.record.addresses.portfolioFactory}}}),/trusted code evidence|separate/);

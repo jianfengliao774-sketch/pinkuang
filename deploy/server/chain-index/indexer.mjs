@@ -1,5 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync, backup } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { notificationPage } from './notifications.mjs';
@@ -91,6 +94,7 @@ export class ChainIndex {
     this.scanRange = integer(scanRange, 'scanRange', 1);
     this.maxBlocksPerSync = integer(maxBlocksPerSync, 'maxBlocksPerSync', 1);
     if (this.scanRange > 500 || this.maxBlocksPerSync > 2000) throw new Error('Scan bounds exceeded.');
+    this.dbPath = dbPath;
     this.db = new DatabaseSync(dbPath, { enableForeignKeyConstraints: true });
     this.db.exec(`PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -128,13 +132,90 @@ export class ChainIndex {
     this.lastFailureStage = null;
     this.lastScanPhase = null;
     this.cachedStats = null;
+    // Confirmed block headers often arrive without business events. Keep the
+    // historical totals until a committed log change or rollback, rather than
+    // scanning the full history on every new safe head.
+    this.statsGeneration = 0;
     this.snapshotTrusted = false;
+    this.verifiedReadView = null;
   }
 
-  close() { this.db.close(); }
+  close() { this._retireVerifiedReadView(true); this.db.close(); }
   get indexedThrough() { return Number(this.db.prepare('SELECT value FROM metadata WHERE key = ?').get('indexedThrough').value); }
   _setIndexedThrough(number) { this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(number), 'indexedThrough'); }
   _header(number) { return this.db.prepare('SELECT number,hash,parent_hash AS parentHash,timestamp FROM headers WHERE number = ?').get(number); }
+
+  _retireVerifiedReadView(invalidated = false) {
+    const entry = this.verifiedReadView;
+    if (!entry) return;
+    this.verifiedReadView = null;
+    entry.valid = false;
+    entry.invalidated ||= invalidated;
+    if (entry.readers === 0) this._closeVerifiedReadView(entry);
+  }
+
+  _closeVerifiedReadView(entry) {
+    if (entry.transactional) entry.index.db.exec('ROLLBACK');
+    entry.index.db.close();
+    if (entry.directory) rmSync(entry.directory, { recursive: true, force: true });
+  }
+
+  acquireVerifiedReadView() {
+    const entry = this.verifiedReadView;
+    if (!entry?.valid || Date.now() - Date.parse(entry.source.checkedAt) > 30 * 60 * 1000) return null;
+    entry.readers++;
+    return entry;
+  }
+
+  releaseVerifiedReadView(entry) {
+    if (!entry) return;
+    entry.readers--;
+    if (!entry.valid && entry.readers === 0) this._closeVerifiedReadView(entry);
+  }
+
+  isVerifiedReadView(entry) { return Boolean(entry && !entry.invalidated); }
+
+  async _saveVerifiedReadView() {
+    const source = this.status();
+    if (!source.complete) return;
+    let directory, view, readDb, transactionStarted = false;
+    try {
+      if (this.dbPath === ':memory:') {
+        // In-memory test indexes have no second connection to pin. Production
+        // file-backed indexes use the WAL reader below without a full copy.
+        directory = mkdtempSync(join(tmpdir(), 'bemine-chain-index-read-'));
+        const path = join(directory, 'verified.sqlite');
+        await backup(this.db, path);
+        readDb = new DatabaseSync(path, { readOnly: true });
+      } else {
+        readDb = new DatabaseSync(this.dbPath, { readOnly: true });
+        readDb.exec('BEGIN');
+        transactionStarted = true;
+      }
+      // Establish the WAL snapshot before the writer can commit a scan chunk.
+      readDb.prepare('SELECT value FROM metadata WHERE key = ?').get('indexedThrough');
+      view = Object.assign(Object.create(ChainIndex.prototype), {
+        db: readDb, provider: this.provider, factory: this.factory, market: this.market,
+        portfolioFactory: this.portfolioFactory, portfolioMarket: this.portfolioMarket,
+        startBlock: this.startBlock, confirmations: this.confirmations,
+        ready: true, lastError: null, observedSafeHead: source.indexedThrough,
+        checkedAt: source.checkedAt, cachedStats: this.cachedStats, statsGeneration: this.statsGeneration,
+      });
+      if (view.indexedThrough !== source.indexedThrough || view._header(source.indexedThrough)?.hash !== source.indexedBlockHash)
+        throw new Error('Verified read view changed before it was pinned.');
+      const entry = { index: view, directory, source, readers: 0, valid: true, invalidated: false,
+        transactional: !directory };
+      this._retireVerifiedReadView();
+      this.verifiedReadView = entry;
+    } catch (error) {
+      if (readDb) {
+        if (transactionStarted) readDb.exec('ROLLBACK');
+        readDb.close();
+      }
+      if (directory) rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
+  }
 
   status() {
     const indexedThrough = this.indexedThrough;
@@ -215,6 +296,7 @@ export class ChainIndex {
   }
 
   _rollback(number) {
+    const retireReadView = this.verifiedReadView?.source.indexedThrough > number;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('DELETE FROM logs WHERE block_number > ?').run(number);
@@ -230,6 +312,9 @@ export class ChainIndex {
       }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    if (retireReadView) this._retireVerifiedReadView(true);
+    this.statsGeneration++;
+    this.cachedStats = null;
   }
 
   async _reconcile() {
@@ -389,6 +474,7 @@ export class ChainIndex {
       for (const log of logs) insertLog.run(log.blockNumber, log.txIndex, log.logIndex, log.txHash, log.address, log.kind, log.name, JSON.stringify(log.args));
       this._setIndexedThrough(toBlock);
       this.db.exec('COMMIT');
+      if (logs.length) this.statsGeneration++;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
@@ -403,6 +489,12 @@ export class ChainIndex {
       const latest = normalizeBlock(await this.provider.getBlock('latest'));
       const safeHead = latest.number - this.confirmations;
       if (safeHead < this.startBlock) throw new Error('Configured deployment block is not yet confirmed.');
+      // Pin the last fully verified database before any chunk can commit.
+      // A failed read pin affects fallback availability, never canonical indexing.
+      const verified = this.status();
+      if (verified.complete) {
+        try { await this._saveVerifiedReadView(); } catch { /* Fresh indexing remains authoritative. */ }
+      }
       this.observedSafeHead = safeHead;
       // A load-balanced RPC can briefly report a shorter latest chain. That
       // alone is not proof of a reorg and must not erase committed history.
@@ -452,7 +544,10 @@ export class ChainIndex {
             ? 'rpc_lagging' : 'sync_failed';
       this.checkedAt = new Date().toISOString();
       throw error;
-    } finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
+    } finally {
+      try { this._retireVerifiedReadView(); }
+      finally { this.syncing = false; resolveSync(); this.syncSettled = null; }
+    }
   }
 
   _captureVerifiedSnapshot() {
@@ -474,8 +569,9 @@ export class ChainIndex {
       orders = page.items;
       if (page.nextCursor !== null || orders.length !== orderCount) throw new Error('Verified order directory is incomplete.');
     }
-    const logCount = this.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
-    const stats = logCount <= 10_000 ? this.stats() : null;
+    // Stats are aggregated, not a serialized copy of log history. A large
+    // history must not silently disable the verified /v1/stats fallback.
+    const stats = this.stats();
     const snapshotSource = { ...source, readMode: 'verified_snapshot', registeredPoolCount: String(registeredPoolCount),
       childPoolCount: String(childPoolCount), standalonePoolCount: String(pools.length), portfolioCount: String(portfolioCount) };
     this.db.prepare('INSERT INTO verified_display_snapshot(id,source,pools,stats,portfolios,orders) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET source=excluded.source,pools=excluded.pools,stats=excluded.stats,portfolios=excluded.portfolios,orders=excluded.orders')
@@ -559,7 +655,7 @@ export class ChainIndex {
   /** Historical totals only. No estimated production or current pool state is inferred from events. */
   stats() {
     const status = this.status();
-    const cacheKey = `${status.indexedThrough}:${status.indexedBlockHash}`;
+    const cacheKey = this.statsGeneration;
     if (this.cachedStats?.key === cacheKey) return this.cachedStats.value;
     const registeredPoolCount = this.db.prepare('SELECT COUNT(*) AS count FROM pools').get().count;
     const system = new Set([ZeroAddress.toLowerCase(), this.factory, this.market,this.portfolioFactory,this.portfolioMarket]);

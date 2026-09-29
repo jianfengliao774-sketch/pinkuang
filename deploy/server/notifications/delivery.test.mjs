@@ -18,6 +18,7 @@ function fixture() {
   const bind = (account, chatId = '123') => {
     const pending = store.issueBinding(account);
     store.stageBinding(pending.token, { userId: chatId, chatId, username: `user${chatId}` });
+    store.confirmTelegramBinding(pending.id, chatId);
     store.confirmBinding(account, pending.id);
   };
   bind(alice); time = START;
@@ -104,6 +105,19 @@ test('429 retry_after persists across restart and pauses the whole sender queue'
     f.restart(); f.time(START + 60_000); await f.make().tick(); assert.equal(attempts, 1);
     f.sender.sendMessage = async () => { attempts++; };
     f.time(START + 91000); assert.equal((await f.make().tick()).sent, 2); assert.equal(attempts, 3);
+  } finally { f.close(); }
+});
+
+test('unknown private Telegram send outcome blocks its durable job without replay', async () => {
+  const f = fixture();
+  try {
+    let calls = 0;
+    f.sender.sendMessage = async () => { calls++; throw { code: 'outcome_unknown', uncertain: true, retryable: false }; };
+    const first = await f.make().tick();
+    assert.equal(first.status, 'outcome_unknown'); assert.equal(first.outcomeUnknown, 1);
+    const job = f.store.db.prepare('SELECT status,error_code FROM notification_queue').get();
+    assert.equal(job.status, 'blocked'); assert.equal(job.error_code, 'telegram_outcome_unknown');
+    f.restart(); f.time(START + 60_000); await f.make().tick(); assert.equal(calls, 1);
   } finally { f.close(); }
 });
 

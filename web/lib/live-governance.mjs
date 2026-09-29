@@ -15,8 +15,10 @@ const nonzero = value => {
 };
 
 /** Read every candidate in the current sale round at one finalized RPC block. */
-export async function readGovernanceSnapshot(provider, { factory: configuredFactory, pool: configuredPool, account = ZeroAddress, blockNumber }) {
+export async function readGovernanceSnapshot(provider, { factory: configuredFactory, pool: configuredPool, account = ZeroAddress, blockNumber, stage }) {
   requireGovernance(typeof provider?.request === 'function', 'An EIP-1193 provider is required.');
+  requireGovernance(['genesis','fresh-active','code-upgraded','role-migrating','role-wired'].includes(stage),
+    'Verified product stage is required for sale governance.');
   const factory = nonzero(configuredFactory), pool = nonzero(configuredPool), owner = getAddress(account);
   const request = (method, params = []) => provider.request({ method, params });
   requireGovernance(BigInt(await request('eth_chainId')) === CHAIN_ID, 'Switch to BSC mainnet (56).');
@@ -56,10 +58,12 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
 
   let opener = null;
   if (activeProposalId > 0n) opener = await call(pool, abi.PoolVault, 'getProposal', [activeProposalId]);
-  let saleReference;
-  try { saleReference = await readSaleReference(request, market, pool, number, timestamp); }
-  catch (error) { saleReference = Object.freeze({ available: false,
-    reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
+  let saleReference = null;
+  if (stage !== 'genesis') {
+    try { saleReference = await readSaleReference(request, market, pool, number, timestamp); }
+    catch (error) { saleReference = Object.freeze({ available: false,
+      reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
+  }
   const candidates = [];
   for (let id = activeProposalId; id > 0n && id < nextProposalId; id += 1n) {
     const proposal = id === activeProposalId ? opener : await call(pool, abi.PoolVault, 'getProposal', [id]);
@@ -71,7 +75,8 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
       call(pool, abi.PoolVault, 'proposalPassed', [id]),
       call(pool, abi.PoolVault, 'hasVoted', [id, owner]),
     ]);
-    const requiredYesShares = proposal.snapshotTotalShares / 2n + 1n;
+    const purchaseDiscount = stage === 'genesis' && proposal.price < purchaseCost;
+    const requiredYesShares = purchaseDiscount ? 60n : proposal.snapshotTotalShares / 2n + 1n;
     const requiredYesCount = proposal.snapshotMemberCount / 2n + 1n;
     requireGovernance(proposal.price > 0n && proposal.snapshotMemberCount >= 1n
       && proposal.snapshotMemberCount <= 100n && proposal.yesCount <= proposal.snapshotMemberCount
@@ -79,11 +84,14 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
         proposal.yesShares >= requiredYesShares && proposal.yesCount >= requiredYesCount
       ), 'Sale proposal vote state is inconsistent.');
     let saleReview = null;
-    if (saleReference.available && proposal.price < saleReference.priceWei) {
+    if (saleReference?.available && proposal.price < saleReference.priceWei) {
       try { saleReview = await readSaleReview(request, market, pool, id, number); }
       catch { /* A failed review read must never enable execution. */ }
     }
-    const gate = saleExecutionGate({ proposal, passed, state, timestamp, reference: saleReference, review: saleReview });
+    const gate = stage === 'genesis'
+      ? { discounted: purchaseDiscount, reviewRequired: false, reviewApproved: null,
+        canExecute: passed && state === 2n && !proposal.executed && timestamp < proposal.endsAt }
+      : saleExecutionGate({ proposal, passed, state, timestamp, reference: saleReference, review: saleReview });
     candidates.push(Object.freeze({ id, proposer: getAddress(proposal.proposer), snapshotTs: proposal.snapshotTs,
       endsAt: proposal.endsAt, priceWei: proposal.price, refPriceWei: proposal.refPrice,
       refAt: proposal.refAt, snapshotMemberCount: proposal.snapshotMemberCount,
@@ -104,7 +112,7 @@ export async function readGovernanceSnapshot(provider, { factory: configuredFact
   const again = await request('eth_getBlockByNumber', [tag, false]);
   requireGovernance(again?.hash === block.hash && BigInt(await request('eth_chainId')) === CHAIN_ID,
     'Chain changed during governance read; refresh.');
-  return Object.freeze({ chainId: CHAIN_ID, factory, pool, account: owner, blockNumber: number,
+  return Object.freeze({ chainId: CHAIN_ID, stage, factory, pool, account: owner, blockNumber: number,
     blockHash: block.hash, timestamp, state, purchaseCost, activatedAt, activeProposalId,
     nextProposalId, roundAnchor: opener && Object.freeze({ endsAt: opener.endsAt,
       snapshotTs: opener.snapshotTs, executed: opener.executed,
@@ -190,7 +198,7 @@ export function governanceAction(snapshot, from, action) {
 }
 
 /** Refresh the candidate and sale state immediately before simulation and journaling. */
-export async function prepareGovernanceAction(provider, { factory, pool, account, action }) {
-  const snapshot = await readGovernanceSnapshot(provider, { factory, pool, account });
+export async function prepareGovernanceAction(provider, { factory, pool, account, action, stage }) {
+  const snapshot = await readGovernanceSnapshot(provider, { factory, pool, account, stage });
   return Object.freeze({ snapshot, ...governanceAction(snapshot, account, action) });
 }

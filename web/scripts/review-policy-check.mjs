@@ -15,8 +15,8 @@ assert.match(frame, /<PlatformReview\s+scenario=/);
 for (const policy of [
   '99% 分配给出资人，1% 用于平台运营费用',
   '无领取间隔，权益永久保留，不销毁',
-  '低于实际购机成本需至少 60 份赞成',
-  '整机成交扣除 1% 平台费',
+  '低于市场参考价须平台审核',
+  '成交时扣除 1% 平台费',
 ]) assert(page.includes(policy), `Review is missing current policy: ${policy}`);
 
 const retired = [

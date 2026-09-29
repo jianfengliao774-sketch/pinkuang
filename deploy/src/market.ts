@@ -57,6 +57,7 @@ export function address(value: string): string {
   return result;
 }
 export const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+export const MIN_SHARE_PRICE_WEI = 10000000000000n;
 export function shareAmount(value: string): bigint {
   if (!/^[1-9]\d*$/.test(value)) throw new Error('份额必须是 1 至 100 的整数。');
   const amount = BigInt(value);
@@ -64,8 +65,9 @@ export function shareAmount(value: string): bigint {
   return amount;
 }
 export function unitPrice(value: string): bigint {
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) throw new Error('单价应为非负 BNB 金额，最多 18 位小数。');
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value)) throw new Error('单价应为 BNB 金额，最多 18 位小数。');
   const price = parseEther(value);
+  if (price < MIN_SHARE_PRICE_WEI) throw new Error('每份单价不得低于 0.00001 BNB。');
   // The largest possible 100-share fill pays 100 × price plus a 1% buyer fee.
   if (price > (2n ** 256n - 1n) / 101n) throw new Error('单价超出含买方手续费的合约范围。');
   return price;
@@ -89,6 +91,7 @@ export function requireFill(order: MarketOrder, position: Pick<PoolPosition, 'st
   if (position.state !== 2 || !position.tradingAllowed) throw new Error('资金池当前暂停份额交易；卖家仍可撤单。');
   if (sameAddress(order.seller, account)) throw new Error('这是你的挂单，请使用撤单操作解锁份额。');
   if (amount < 1n || amount > 100n || amount > order.remaining) throw new Error('购买数量超过订单剩余份额。');
+  if (order.pricePerUnit < MIN_SHARE_PRICE_WEI) throw new Error('旧挂单低于每份 0.00001 BNB，不能成交；卖家仍可撤销。');
 }
 export function pageIds(nextOrderId: bigint, cursor: bigint | null = null): bigint[] {
   if (nextOrderId < 1n) throw new Error('市场尚未正确初始化。');

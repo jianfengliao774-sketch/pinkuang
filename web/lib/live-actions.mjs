@@ -9,6 +9,7 @@ const address = value => { const result = getAddress(value); assert(result !== Z
 const ACTIONS = new Set(['deposit', 'claim', 'harvest', 'withdrawBnb', 'withdrawDeposit', 'finalizeFailure',
   'list', 'fill', 'cancel', 'expire', 'marketWithdraw', 'propose', 'vote', 'executeSale', 'cancelExpired', 'completeFirstoSale']);
 const MARKET_ACTIONS = new Set(['list', 'fill', 'cancel', 'expire', 'marketWithdraw']);
+const MIN_SHARE_PRICE_WEI = 10000000000000n;
 const HASH = /^0x[0-9a-f]{64}$/i;
 
 
@@ -129,6 +130,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
         const qty = shareQuantity(quantity);
         if (expectedSeller !== undefined) assert(same(order.seller, expectedSeller), '卖方已变化，请重新确认 / Seller changed.');
         if (expectedPricePerUnitWei !== undefined) assert(order.pricePerUnit === uint(expectedPricePerUnitWei), '挂单价格已变化，请重新确认 / Order price changed.');
+        assert(order.pricePerUnit >= MIN_SHARE_PRICE_WEI,
+          '旧挂单低于最低价 0.00001 BNB/份，不能成交；卖家仍可撤单 / Historical order is below the minimum price.');
         assert(row.state === 2n && row.shareTradingAllowed === true && expiry > timestamp && qty <= order.remaining
           && row.shares !== null && row.shares + qty <= 100n && !same(order.seller, from), '订单当前不可购买 / Order cannot be filled now.');
         const grossWei = uint(order.pricePerUnit * qty), buyerFeeWei = grossWei / 100n;
@@ -161,6 +164,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     assert(row.state === 2n && row.shareTradingAllowed === true && row.availableShares !== null && row.availableShares >= qty,
       '可售份额不足或当前暂停转让 / Shares unavailable or trading paused.');
     const priceWei = exactPrice(price);
+    assert(priceWei >= MIN_SHARE_PRICE_WEI,
+      '每份挂单价不得低于 0.00001 BNB / Minimum listing price is 0.00001 BNB per share.');
     const listingGross = priceWei * qty;
     assert(listingGross + listingGross / 100n < 2n ** 256n,
       '挂牌金额加买方手续费超出合约范围 / Listing plus buyer fee overflows the market.');
@@ -177,7 +182,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     return finish(tx(target, abi.PoolVault, kind), details);
   }
 
-  const governance = await readGovernanceSnapshot(provider, { factory, pool: target, account: from, blockNumber });
+  const governance = await readGovernanceSnapshot(provider, { factory, pool: target, account: from, blockNumber,
+    stage: config.stage });
   assert(governance.blockHash.toLowerCase() === block.hash.toLowerCase() && governance.state === row.state,
     '治理区块与矿池快照不一致 / Governance snapshot mismatch.');
   const action = { kind, proposalId, support, priceWei: priceWei ?? (price === undefined ? undefined : exactPrice(price)),

@@ -17,6 +17,8 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     uint16 public constant buyerFeeBps = 100;
     uint256 public constant MINIMUM_UPGRADE_DELAY = 48 hours;
     uint256 public constant ORDER_DURATION = 7 days;
+    // With 1% fees rounded down per fill, this floor keeps both fees nonzero.
+    uint256 private constant MIN_PRICE_PER_UNIT = 0.00001 ether;
 
     /// @custom:storage-location erc7201:tapeout.storage.ShareMarket
     struct MarketStorage {
@@ -76,7 +78,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         _requireAmount(amount);
         MarketStorage storage s = _marketStorage();
         _requireTradablePool(s, pool);
-        if (pricePerUnit == 0) revert InvalidPrice();
+        if (pricePerUnit < MIN_PRICE_PER_UNIT) revert InvalidPrice();
         orderId = s.nextOrderId++;
         s.orders[orderId] = Order(msg.sender, pool, amount, pricePerUnit, true);
         uint64 expiresAt = SafeCast.toUint64(block.timestamp + ORDER_DURATION);
@@ -95,9 +97,9 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (s.orderExpiries[orderId] == 0 || block.timestamp >= s.orderExpiries[orderId]) revert OrderExpired();
         if (amount > order.remaining) revert InvalidAmount();
         _requireTradablePool(s, order.pool);
-        // Historical zero-price orders may exist before this upgrade. Keep them
-        // cancellable, but never let a free transfer execute after the upgrade.
-        if (order.pricePerUnit == 0) revert InvalidPrice();
+        // Historical sub-floor orders remain cancellable/expirable, but cannot
+        // trade after the upgrade because their per-fill fees can round to zero.
+        if (order.pricePerUnit < MIN_PRICE_PER_UNIT) revert InvalidPrice();
         uint256 gross = amount * order.pricePerUnit;
         // Each side's fee rounds down per fill.
         uint256 sellerFee = gross / 100;

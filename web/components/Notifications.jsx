@@ -214,8 +214,8 @@ export default function Notifications({ account, wallet, config, locale, route, 
             <p>{L('请确认这是你自己的账号。确认后才会开启通知。', 'Make sure this is your account. Notifications start only after you confirm.')}</p>
             <div className={styles.actions}><button className={styles.primary} disabled={busy || blocked} onClick={confirm}>{L('确认绑定', 'Confirm connection')}</button><button className={styles.secondary} disabled={busy || blocked} onClick={begin}>{L('重新绑定', 'Start again')}</button></div>
           </div> : bindingUrl ? <div className={styles.confirmBox}>
-            <strong>{L('前往机器人，点击“开始”', 'Open the bot and press Start')}</strong>
-            <p>{L('完成后返回本页，确认你的 Telegram 账号。当前还未完成绑定。', 'Return here to confirm your Telegram account. The connection is not complete yet.')}</p>
+            <strong>{L('前往机器人，确认你的钱包', 'Open the bot and confirm your wallet')}</strong>
+            <p>{L('点击“开始”后，请核对机器人显示的钱包地址并点击“确认此钱包”，再回本页确认 Telegram 账号。', 'After pressing Start, check the wallet address shown by the bot and tap Confirm this wallet. Then return here to confirm the Telegram account.')}</p>
             <div className={styles.actions}><a className={styles.primary} href={bindingUrl} target="_blank" rel="noopener noreferrer">@{NOTIFICATION_BOT}<ExternalLink size={16}/></a>
               <button className={styles.secondary} disabled={busy || blocked} onClick={() => act(() => refreshStatus())}><RefreshCw size={16}/>{L('检查绑定', 'Check connection')}</button></div>
             {binding?.expiresAt && <small className={styles.muted}>{L('链接有效期至', 'Link valid until')} {displayDate(binding.expiresAt, locale)}</small>}

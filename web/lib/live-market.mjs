@@ -3,6 +3,7 @@ import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 
 const MAX_UINT256 = (1n << 256n) - 1n;
 const MAX_SHARES = 100n;
+const MIN_PRICE_PER_UNIT_WEI = 10000000000000n;
 const PAGE_SIZE = 20;
 const same = (left, right) => getAddress(left) === getAddress(right);
 const requireMarket = (condition, message) => { if (!condition) throw new Error(message); };
@@ -117,7 +118,7 @@ export function marketAction(snapshot, from, action) {
     const listingGross = unitPriceWei * amount;
     requireMarket(listingGross + listingGross / 100n <= MAX_UINT256,
       'Share listing plus buyer fee overflows the market.');
-    requireMarket(unitPriceWei > 0n, 'The listing price must be positive.');
+    requireMarket(unitPriceWei >= MIN_PRICE_PER_UNIT_WEI, 'The listing price must be at least 0.00001 BNB per share.');
     const holding = position(pool);
     requireMarket(holding && holding.state === 2n && holding.tradingAllowed === true,
       'Pool is not active or share trading is frozen.');
@@ -137,6 +138,8 @@ export function marketAction(snapshot, from, action) {
     const holding = position(pool);
     requireMarket(holding && holding.state === 2n && holding.tradingAllowed === true,
       'Pool is not active or share trading is frozen.');
+    requireMarket(selected.pricePerUnitWei >= MIN_PRICE_PER_UNIT_WEI,
+      'This historical order is below the minimum price and cannot be filled; the seller may cancel it.');
     requireMarket(selected.pricePerUnitWei <= MAX_UINT256 / amount, 'Order amount overflows the market.');
     unitPriceWei = selected.pricePerUnitWei;
     gross = selected.pricePerUnitWei * amount;

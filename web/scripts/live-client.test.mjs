@@ -6,7 +6,8 @@ import { abandonPreparedIntent, cancelLiveIntent, indexPage, liveConfig, sendLiv
 
 const addr = number => getAddress(`0x${number.toString(16).padStart(40, '0')}`);
 const factory = addr(1), lens = addr(2), pool = addr(3), account = addr(4), collection = addr(5), market = addr(6);
-const config = { chainId: 56, factory, lens, market, journal: true, artifactDigest: ARTIFACT_DIGEST };
+const config = { chainId: 56, factory, lens, market, journal: true, artifactDigest: ARTIFACT_DIGEST,
+  stage: 'fresh-active' };
 const saleViews = new Interface([
   'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
 ]);
@@ -193,7 +194,7 @@ test('100-share Market listing is quoted at one block and journaled to the verif
     return { ok: true, status: 200, async json() { return result; } };
   };
   const intent = await sendLiveMarketAction({ wallet, config, account, fetchImpl,
-    action: { kind: 'list', pool, amount: '100', pricePerUnitWei: '20' } });
+    action: { kind: 'list', pool, amount: '100', pricePerUnitWei: '10000000000000' } });
   assert.equal(intent.hashes[0], hash);
   assert(events.indexOf('POST /api/live/intent') < events.indexOf('eth_sendTransaction'));
 });

@@ -73,7 +73,7 @@ contract ShareMarketHandler is Test {
         uint256 available = shares[p][seller] - locked[p][seller];
         if (available == 0) return;
         uint256 amount = bound(amountSeed, 1, available);
-        uint256 price = bound(priceSeed, 1, 0.001 ether);
+        uint256 price = bound(priceSeed, 0.00001 ether, 0.001 ether);
         vm.prank(actors[seller]);
         uint256 id = market.list(address(pools[p]), amount, price);
         assertEq(id, ++orderCount);

@@ -182,7 +182,7 @@ test('upgraded graph chooses candidate ABI without rewriting the pinned genesis 
     ? response(pinnedGenesis) : response({}, 503) }), { code: 'http_unavailable' });
 });
 
-test('fresh graph activates only with complete Authority proof and both previous Factories paused', async () => {
+test('fresh graph is readable with complete Authority and Factory proof while transactions stay disabled', async () => {
   const authority=addr(200), gasWallet=addr(201), administratorOne=addr(202), administratorTwo=addr(203);
   const proof={address:authority,gasWallet,administratorOne,administratorTwo,
     codehash:blockHash,deploymentTxHash:txHash};
@@ -191,13 +191,16 @@ test('fresh graph activates only with complete Authority proof and both previous
   const active = verifiedGraph({ stage:'fresh-active', artifactDigest:ARTIFACT_DIGEST,
     genesisArtifactDigest:ARTIFACT_DIGEST,
     upgradeArtifactDigest:null, operationId:null, creationPaused:undefined,
-    operationalReady:true, previousFactoriesPaused:true,
+    operationalReady:false, freshFactoryVerified:true,
     freshAuthority:{...proof,activationBlock:v3Genesis.verifiedBlockNumber+1,activationHash:blockHash},
     manifest:{...v3Genesis,verifiedBlockNumber:v3Genesis.verifiedBlockNumber+1} });
   const accepted=validateProductGraph(active,v3Genesis);
   assert.equal(accepted.stage,'fresh-active');
+  assert.equal(accepted.operationalReady,false);
+  assert.equal(accepted.freshFactoryVerified,true);
   assert.equal(accepted.freshAuthority.address,authority);
-  for (const change of [{operationalReady:false},{previousFactoriesPaused:false},
+  assert.equal(validateProductGraph({...active,previousFactoriesPaused:false},v3Genesis).stage,'fresh-active');
+  for (const change of [{freshFactoryVerified:false},{operationalReady:null},
     {freshAuthority:null},{freshAuthority:{...active.freshAuthority,activationHash:deploymentHash}},
     {operationId:blockHash},{upgradeArtifactDigest:blockHash},
     {manifest:{...active.manifest,gasWallet:addr(204)}},

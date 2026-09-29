@@ -131,6 +131,8 @@ function normalize(config, transaction, action) {
     const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
     requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
       && same(config.artifactDigest, expected), '产品阶段或合约摘要已变化，请刷新页面。');
+    requireValue(config.stage !== 'fresh-active' || config.operationalReady === true,
+      '新部署已通过链上核验，产品交易服务尚未启用。');
   }
   const budgetTarget = typeof action === 'object' && ['portfolioFactory', 'portfolio', 'portfolioMarket'].includes(action?.targetType);
   requireValue(!budgetTarget || config.kind === 'integrated-v2' && config.portfolioFactory && config.portfolioMarket, '预算部署尚未核验。');
@@ -184,7 +186,7 @@ async function requireCurrentProductStage(config, fetcher) {
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
     && graph.operationalReady === config.operationalReady
-    && (config.stage !== 'fresh-active' || graph.previousFactoriesPaused === true
+    && (config.stage !== 'fresh-active' || graph.freshFactoryVerified === true
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
       && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),

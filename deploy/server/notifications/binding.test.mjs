@@ -26,7 +26,11 @@ function setup(t) {
     const { status, body } = await call('/binding', { language }, account);
     assert.equal(status, 201); return { ...body, token: new URL(body.url).searchParams.get('start') };
   };
-  return { dir, store, telegram, service, sent, update, call, begin, advance: ms => { now += ms; }, now: () => now };
+  const confirmTelegram = (pending, peer = 123456789) => service.handleTelegramUpdate({ update_id: ++updateId,
+    callback_query: { id: `bind-confirm-${updateId}`, data: `bind:${pending.id}`, from: { id: peer, is_bot: false },
+      message: { chat: { id: peer, type: 'private' } } } });
+  return { dir, store, telegram, service, sent, update, call, begin, confirmTelegram,
+    advance: ms => { now += ms; }, now: () => now };
 }
 
 test('binding requires verified wallet and explicit confirmation; no IDs are exposed by status', async t => {
@@ -37,6 +41,10 @@ test('binding requires verified wallet and explicit confirmation; no IDs are exp
   assert.equal((await f.call('/status', {}, A, 'GET')).body.binding.status, 'pending');
   assert.equal((await f.call('/binding/confirm', { id: started.id })).status, 409);
   await f.service.handleTelegramUpdate(f.update(`/start ${started.token}`));
+  assert.equal((await f.call('/binding/confirm', { id: started.id })).status, 409,
+    'opening a forwarded link alone cannot authorize notifications');
+  assert.match(f.sent[0].text, new RegExp(A, 'i'));
+  await f.confirmTelegram(started);
   const paired = (await f.call('/status', {}, A, 'GET')).body;
   assert.equal(paired.connected, false); assert.equal(paired.binding.status, 'paired');
   assert.equal(paired.binding.telegramLabel, '@private_user');
@@ -45,23 +53,38 @@ test('binding requires verified wallet and explicit confirmation; no IDs are exp
   const confirmed = await f.call('/binding/confirm', { id: started.id, language: 'zh' });
   assert.equal(confirmed.status, 200); assert.equal(confirmed.body.connected, true);
   assert.equal(f.store.getBinding(A).telegram.chatId, '123456789');
-  assert.match(f.sent[0].text, /返回拼矿网页/);
-  assert.equal(f.sent[0].options.reply_markup.inline_keyboard[0][0].url, 'https://example.test/bemine/?lang=zh#notifications');
+  assert.match(f.sent[1].text, /返回拼矿网页/);
+  assert.equal(f.sent[1].options.reply_markup.inline_keyboard[0][0].url, 'https://example.test/bemine/?lang=zh#notifications');
 });
 
 test('forwarded token only stages a visible account; cannot replace binding without wallet confirmation', async t => {
   const f = setup(t), first = await f.begin();
   await f.service.handleTelegramUpdate(f.update(`/start ${first.token}`, 11111));
+  await f.confirmTelegram(first, 11111);
   await f.call('/binding/confirm', { id: first.id });
   const next = await f.begin();
   await f.service.handleTelegramUpdate(f.update(`/start ${next.token}`, 22222, { from: { username: 'unexpected_account' } }));
   assert.equal(f.store.getBinding(A).telegram.chatId, '11111');
   const pending = (await f.call('/status', {}, A, 'GET')).body.binding;
-  assert.equal(pending.telegramLabel, '@unexpected_account');
+  assert.equal(pending.telegramLabel, '@unexpected_account'); assert.equal(pending.status, 'pending');
   assert.equal((await f.call('/binding/confirm', { id: next.id }, B)).status, 409);
   await f.call('/disconnect');
   assert.equal((await f.call('/binding/confirm', { id: next.id })).status, 409);
   assert.equal(f.store.getBinding(A), null);
+});
+
+test('forwarded link cannot activate alerts without an explicit callback from that Telegram account', async t => {
+  const f = setup(t), pending = await f.begin(A, 'en');
+  await f.service.handleTelegramUpdate(f.update(`/start ${pending.token}`, 22222));
+  assert.equal(f.store.pendingBinding(A).status, 'pending');
+  assert.equal((await f.call('/binding/confirm', { id: pending.id })).status, 409);
+  await f.confirmTelegram(pending, 33333);
+  assert.equal(f.store.pendingBinding(A).status, 'pending');
+  assert.equal((await f.call('/binding/confirm', { id: pending.id })).status, 409);
+  await f.confirmTelegram(pending, 22222);
+  assert.equal(f.store.pendingBinding(A).status, 'paired');
+  assert.equal((await f.call('/binding/confirm', { id: pending.id })).status, 200);
+  assert.equal(f.store.getBinding(A).telegram.chatId, '22222');
 });
 
 test('expired, consumed, replaced and replayed nonces cannot bind', async t => {
@@ -90,7 +113,7 @@ test('contacts and bot reply payloads are encrypted on disk; nonce plaintext is 
   const f = setup(t), pending = await f.begin();
   f.telegram.sendMessage = async () => { throw new Error('network'); };
   await f.service.handleTelegramUpdate(f.update(`/start ${pending.token}`));
-  await f.call('/binding/confirm', { id: pending.id });
+  assert.equal((await f.call('/binding/confirm', { id: pending.id })).status, 409);
   for (const name of readdirSync(f.dir)) {
     const bytes = readFileSync(join(f.dir, name));
     for (const sensitive of ['private_user', 'Private person', '123456789', pending.token]) assert.equal(bytes.includes(sensitive), false, `${name} leaks ${sensitive}`);
@@ -104,8 +127,11 @@ test('binding and nonce consumption survive restart', async t => {
   f.store.close();
   const reopened = new NotificationStore(join(f.dir, 'private.sqlite'), { encryptionKey: key, now: f.now });
   t.after(() => reopened.close());
-  assert.equal(reopened.pendingBinding(A).status, 'paired');
+  assert.equal(reopened.pendingBinding(A).status, 'pending');
   assert.equal(reopened.stageBinding(pending.token, { userId: '22222', chatId: '22222' }), false);
+  assert.equal(reopened.confirmTelegramBinding(pending.id, '22222'), false);
+  assert.deepEqual(reopened.confirmTelegramBinding(pending.id, '123456789'), { account: A });
+  assert.equal(reopened.pendingBinding(A).status, 'paired');
   reopened.confirmBinding(A, pending.id);
   assert.equal(reopened.getBinding(A).telegram.username, 'private_user');
 });
@@ -113,6 +139,7 @@ test('binding and nonce consumption survive restart', async t => {
 test('Telegram /stop mutes linked wallets and cancels unconfirmed pairing; language selection persists', async t => {
   const f = setup(t), pending = await f.begin(A, 'en');
   await f.service.handleTelegramUpdate(f.update(`/start ${pending.token}`));
+  await f.confirmTelegram(pending);
   await f.call('/binding/confirm', { id: pending.id });
   const callback = { update_id: 100, callback_query: { id: 'language-choice', data: 'lang:zh', from: { id: 123456789 }, message: { chat: { id: 123456789, type: 'private' } } } };
   await f.service.handleTelegramUpdate(callback);
@@ -137,7 +164,7 @@ test('inbound reply retry is durable and duplicate webhook cannot repeat effects
   f.telegram.sendMessage = async (...args) => { if (++attempts === 1) throw new TelegramDeliveryError('network'); f.sent.push(args); };
   const update = f.update(`/start ${pending.token}`);
   await f.service.handleTelegramUpdate(update);
-  assert.equal(f.store.pendingBinding(A).status, 'paired'); assert.equal(attempts, 1);
+  assert.equal(f.store.pendingBinding(A).status, 'pending'); assert.equal(attempts, 1);
   await f.service.handleTelegramUpdate(update); assert.equal(attempts, 1);
   f.advance(2000); await f.service.flushBotReplies(); assert.equal(attempts, 2);
   await f.service.handleTelegramUpdate(update); assert.equal(attempts, 2);
@@ -151,7 +178,7 @@ test('failed webhook persistence rolls back nonce consumption and update receipt
   assert.equal(f.store.pendingBinding(A).status, 'pending');
   f.store.enqueueBotReply = enqueue;
   await f.service.handleTelegramUpdate(update);
-  assert.equal(f.store.pendingBinding(A).status, 'paired'); assert.equal(f.sent.length, 1);
+  assert.equal(f.store.pendingBinding(A).status, 'pending'); assert.equal(f.sent.length, 1);
 });
 
 test('queue persists deduplication, retries, expiration, inbox isolation and worker lease', t => {
@@ -181,7 +208,8 @@ test('private database rejects insecure permissions and dangling symlink', t => 
 
 test('Telegram sender sanitizes transport errors and classifies blocked/rate limits', async () => {
   const broken = new TelegramClient({ token: fakeToken, fetchImpl: async () => { throw new Error(`failed https://api.telegram.org/bot${fakeToken}`); } });
-  await assert.rejects(broken.sendMessage('12345', 'hello'), error => error.code === 'network' && !error.stack.includes(fakeToken));
+  await assert.rejects(broken.sendMessage('12345', 'hello'), error => error.code === 'outcome_unknown'
+    && error.uncertain === true && error.retryable === false && !error.stack.includes(fakeToken));
   const blocked = new TelegramClient({ token: fakeToken, fetchImpl: async () => ({ ok: false, status: 403, json: async () => ({ error_code: 403, description: 'private contact' }) }) });
   await assert.rejects(blocked.sendMessage('12345', 'hello'), error => error.blocked && !error.retryable && !error.message.includes('private contact'));
   let count = 0;

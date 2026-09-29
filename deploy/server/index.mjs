@@ -7,7 +7,7 @@ import { createJournalService, journalConfiguration } from './journal-api.mjs';
 import { servedArtifactDigest } from './artifact-digest.mjs';
 import { startOptionalNotifications } from './notifications/runtime.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
-import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
+import { authorityIpcConfiguration, createAuthorityRelayProxy } from './authority-ipc.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
@@ -52,17 +52,38 @@ export function serverConfiguration(env = process.env) {
   return { host, port };
 }
 
+/** Only fixed status names enter logs; never print tokens, chat IDs or transport errors. */
+export function logNotificationStatus(value, log = console.error) {
+  const messages = {
+    startup_unavailable: 'Notification service unavailable; wallet actions remain independent.',
+    source_or_delivery_unavailable: 'Private notification source or delivery unavailable.',
+    outcome_unknown: 'Private notification outcome unknown; inspect the durable queue before resuming.',
+    community_configuration_unavailable: 'Community announcements unavailable: configuration requires inspection.',
+    community_source_or_delivery_unavailable: 'Community announcements unavailable: source or destination requires inspection.',
+    community_delivery_blocked: 'Community announcement delivery blocked; inspect durable queue before resuming.',
+    community_outcome_unknown: 'Community announcement outcome unknown; inspect the exact group topic before resuming.',
+    community_degraded: 'Community announcements degraded: one or more pools require inspection.',
+  };
+  if (Object.hasOwn(messages, value?.status)) log(messages[value.status]);
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { host, port } = serverConfiguration();
+  const lastNotificationLog = new Map();
   // `npm start` serves real wallet actions, regardless of NODE_ENV. Only the
   // explicit Vite development integration may use local defaults.
   const notifications = await startOptionalNotifications({ ...process.env, NODE_ENV: 'production' }, {
-    onStatus: status => { if (['source_or_delivery_unavailable', 'startup_unavailable'].includes(status.status)) console.error('Notification service unavailable; wallet actions remain independent.'); },
+    onStatus: status => logNotificationStatus(status, message => {
+      const at = Date.now();
+      if (at - (lastNotificationLog.get(message) ?? -Infinity) < 300_000) return;
+      lastNotificationLog.set(message, at);
+      console.error(message);
+    }),
   });
   const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
-  const authorityRelayService = createAuthorityRelayService(authorityRelayConfiguration());
+  const authorityRelayService = createAuthorityRelayProxy(authorityIpcConfiguration());
   const server = createDeploymentServer({ journalService, liveDataProxy, authorityRelayService });
   server.listen(port, host, () => {
     console.log(`拼矿部署台：http://${host}:${port}`);

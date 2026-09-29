@@ -7,6 +7,8 @@ const bindingId = value => typeof value === 'string' && /^[\da-f-]{36}$/i.test(v
 const words = {
   en: {
     welcome: 'Welcome to BEMine Mining Alerts. Connect your wallet on the official site to receive miner sale proposals, voting reminders and results. We never ask for private keys or seed phrases.',
+    pairRequest: account => `Wallet ${account} requested notifications here. Tap Confirm only if this is your wallet and you opened the binding link yourself. Otherwise ignore this request. No notifications are enabled yet.`,
+    pairConfirm: 'Confirm this wallet',
     paired: 'Telegram account verified. Return to the BEMine page, check the displayed Telegram account and confirm the connection with your authenticated wallet session. No notifications are enabled until you confirm.',
     expired: 'This connection link has expired or has already been used. Open the official BEMine page to create a new link.',
     stopped: 'Telegram notifications are paused for wallets linked to this account. You can still view proposals and vote on the BEMine website. Resume notifications in Notification settings.',
@@ -17,6 +19,8 @@ const words = {
   },
   zh: {
     welcome: '欢迎使用拼矿 BEMine 通知助手。请在官网绑定钱包，接收矿机出售提案、投票提醒及结果通知。我们不会索取私钥或助记词。',
+    pairRequest: account => `钱包 ${account} 请求向此 Telegram 账号发送通知。仅当这是你的钱包、且绑定链接由你本人打开时才点击“确认此钱包”；否则请忽略。当前不会开启通知。`,
+    pairConfirm: '确认此钱包',
     paired: 'Telegram 账号已验证。请返回拼矿网页，核对显示的 Telegram 账号，并在已验证的钱包会话中确认绑定。确认前不会开启通知。',
     expired: '此绑定链接已失效或已被使用。请前往拼矿官网重新生成绑定链接。',
     stopped: '已暂停此 Telegram 账号关联钱包的通知。你仍可在拼矿官网查看提案并投票，之后可在通知设置中恢复提醒。',
@@ -111,6 +115,10 @@ export function createNotificationService({ store, telegram, botUsername = 'BEMi
           lang = callback.data.slice(5); store.setPeerLanguage(userId, lang);
           for (const binding of linked) store.upsertPreferences(binding.account, { language: lang });
           reply(words[lang].selected, button(lang));
+        } else if (typeof callback.data === 'string' && /^bind:[\da-f-]{36}$/i.test(callback.data)) {
+          const confirmed = store.confirmTelegramBinding(callback.data.slice(5), userId);
+          if (confirmed) lang = store.preferences(confirmed.account).language;
+          reply(words[lang][confirmed ? 'paired' : 'expired'], button(lang, !!confirmed));
         }
         return;
       }
@@ -126,7 +134,9 @@ export function createNotificationService({ store, telegram, botUsername = 'BEMi
           if (!prefs.explicitLanguage) store.upsertPreferences(staged.account, { language: lang, explicitLanguage: false });
           lang = store.preferences(staged.account).language;
         }
-        reply(words[lang][staged ? 'paired' : 'expired'], button(lang, !!staged));
+        reply(staged ? words[lang].pairRequest(staged.account) : words[lang].expired,
+          staged ? { inline_keyboard: [[{ text: words[lang].pairConfirm, callback_data: `bind:${staged.id}` }]] }
+            : button(lang));
       } else if (command === 'stop') {
         for (const binding of linked) store.upsertPreferences(binding.account, { enabled: false });
         store.cancelPendingForPeer(userId);

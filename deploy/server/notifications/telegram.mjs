@@ -1,12 +1,14 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { assertCommunityDestination } from './community-config.mjs';
 
 export class TelegramDeliveryError extends Error {
-  constructor(code, { retryAfterMs = null, blocked = false, retryable = true, rateLimitScope = null } = {}) {
+  constructor(code, { retryAfterMs = null, blocked = false, retryable = true, rateLimitScope = null,
+    uncertain = false } = {}) {
     // Never attach request URLs, API responses or original fetch errors: they may contain the bot token.
     super(`Telegram delivery failed (${code}).`);
     this.name = 'TelegramDeliveryError'; this.code = code;
     this.retryAfterMs = retryAfterMs; this.blocked = blocked; this.retryable = retryable;
-    this.rateLimitScope = rateLimitScope;
+    this.rateLimitScope = rateLimitScope; this.uncertain = uncertain;
   }
 }
 
@@ -19,10 +21,12 @@ export class TelegramClient {
     this.chatNextAt = new Map();
   }
   request(method, body) {
-    if (!['sendMessage', 'answerCallbackQuery', 'getMe', 'setWebhook', 'getWebhookInfo', 'setMyCommands', 'setMyName', 'setMyDescription', 'setMyShortDescription'].includes(method))
+    if (!['sendMessage', 'sendPhoto', 'editMessageCaption', 'getChat', 'getChatMember',
+      'answerCallbackQuery', 'getMe', 'setWebhook', 'getWebhookInfo', 'setMyCommands',
+      'setMyName', 'setMyDescription', 'setMyShortDescription'].includes(method))
       throw new Error('Unsupported Telegram API operation.');
     const execute = async () => {
-      const chat = method === 'sendMessage' ? String(body.chat_id) : null;
+      const chat = ['sendMessage', 'sendPhoto', 'editMessageCaption'].includes(method) ? String(body.chat_id) : null;
       const globalWait = Math.max(0, this.nextAt - this.now());
       const chatWait = chat ? Math.max(0, (this.chatNextAt.get(chat) ?? 0) - this.now()) : 0;
       const wait = Math.max(globalWait, chatWait);
@@ -33,19 +37,29 @@ export class TelegramClient {
       if (wait) await this.sleep(wait);
       this.nextAt = this.now() + 50;
       if (chat) {
-        this.chatNextAt.delete(chat); this.chatNextAt.set(chat, this.now() + 1000);
+        this.chatNextAt.delete(chat); this.chatNextAt.set(chat, this.now() + (chat.startsWith('-') ? 3100 : 1000));
         if (this.chatNextAt.size > 10_000) this.chatNextAt.delete(this.chatNextAt.keys().next().value);
       }
       let response, result;
+      const sendsMessage = ['sendMessage', 'sendPhoto', 'editMessageCaption'].includes(method);
       try {
         response = await this.fetch(`https://api.telegram.org/bot${this.token}/${method}`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
           redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs),
         });
         result = await response.json();
-      } catch { throw new TelegramDeliveryError('network'); }
+      } catch {
+        // Once a message request is handed to fetch, a lost response cannot
+        // distinguish a failed send from one Telegram already accepted.
+        throw sendsMessage
+          ? new TelegramDeliveryError('outcome_unknown', { retryable: false, uncertain: true })
+          : new TelegramDeliveryError('network');
+      }
       if (response.ok && result?.ok === true) return result.result;
       const code = Number(result?.error_code ?? response.status);
+      if (method === 'editMessageCaption' && code === 400
+        && /^Bad Request: message is not modified(?:$|:)/.test(result?.description ?? ''))
+        return { message_id: body.message_id, unchanged: true };
       const retryAfter = Number(result?.parameters?.retry_after);
       if (code === 429) {
         const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 86400_000) : 30_000;
@@ -53,6 +67,8 @@ export class TelegramClient {
         throw new TelegramDeliveryError('rate_limited', { retryAfterMs, rateLimitScope: 'global' });
       }
       if (code === 403) throw new TelegramDeliveryError('blocked', { blocked: true, retryable: false });
+      if (sendsMessage && (response.ok || !Number.isInteger(code) || code >= 500))
+        throw new TelegramDeliveryError('outcome_unknown', { retryable: false, uncertain: true });
       throw new TelegramDeliveryError(Number.isInteger(code) ? `http_${code}` : 'invalid_response', { retryable: code >= 500 });
     };
     const pending = this.tail.then(execute, execute);
@@ -63,7 +79,37 @@ export class TelegramClient {
     if (!/^[1-9]\d{0,18}$/.test(String(chatId)) || typeof text !== 'string' || !text.length || text.length > 4096)
       throw new Error('Invalid Telegram private message.');
     return this.request('sendMessage', { chat_id: String(chatId), text,
-      link_preview_options: { is_disabled: true }, ...(options.reply_markup ? { reply_markup: options.reply_markup } : {}) });
+      link_preview_options: { is_disabled: true }, ...(options.reply_markup ? { reply_markup: options.reply_markup } : {}) })
+      .then(result => {
+        if (!Number.isSafeInteger(result?.message_id) || result.message_id <= 0)
+          throw new TelegramDeliveryError('outcome_unknown', { retryable: false, uncertain: true });
+        return result;
+      });
+  }
+  async sendTopicPhoto(community, { caption, reply_markup } = {}) {
+    assertCommunityDestination(community);
+    if (typeof caption !== 'string' || !caption.length || [...caption].length > 1024)
+      throw new Error('Invalid community caption.');
+    const photo = new URL(community.photoUrl);
+    if (photo.protocol !== 'https:' || photo.username || photo.password || photo.search || photo.hash)
+      throw new Error('Invalid community image URL.');
+    const result = await this.request('sendPhoto', { chat_id: community.chatId, message_thread_id: community.threadId,
+      photo: photo.href, caption, ...(reply_markup ? { reply_markup } : {}) });
+    if (String(result?.chat?.id) !== community.chatId || result.message_thread_id !== community.threadId
+      || !Number.isSafeInteger(result.message_id) || result.message_id <= 0)
+      throw new TelegramDeliveryError('destination_unverified', { retryable: false, uncertain: true });
+    return result;
+  }
+  async editTopicCaption(community, messageId, { caption, reply_markup } = {}) {
+    assertCommunityDestination(community);
+    if (!Number.isSafeInteger(messageId) || messageId <= 0 || typeof caption !== 'string'
+      || !caption.length || [...caption].length > 1024) throw new Error('Invalid community message edit.');
+    const result = await this.request('editMessageCaption', { chat_id: community.chatId, message_id: messageId,
+      caption, ...(reply_markup ? { reply_markup } : {}) });
+    if (!result?.unchanged && (String(result?.chat?.id) !== community.chatId
+      || result.message_thread_id !== community.threadId || result.message_id !== messageId))
+      throw new TelegramDeliveryError('destination_unverified', { retryable: false, uncertain: true });
+    return result;
   }
   answerCallbackQuery(id) {
     if (typeof id !== 'string' || id.length > 200) return Promise.resolve();

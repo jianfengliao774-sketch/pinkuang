@@ -17,6 +17,17 @@ test('HTTP 503 is structured and a fresh read succeeds after the one-second retr
   assert.equal(requests, 2); assert.equal(clears, 2); assert.deepEqual(delays, [1000]);
 });
 
+test('HTTP 429 on a read-only page is retried without retrying wallet actions', async () => {
+  let requests = 0; const delays = [];
+  const result = await retryReadRound(() => fetchLiveJson('https://example.test/pools', {
+    fetcher: async () => new Response(JSON.stringify({ source: 'new' }), {
+      status: ++requests === 1 ? 429 : 200, headers: { 'content-type': 'application/json' },
+    }),
+  }), { wait: async ms => delays.push(ms) });
+  assert.deepEqual(result, { source: 'new' });
+  assert.equal(requests, 2); assert.deepEqual(delays, [1000]);
+});
+
 test('source changes drain the old round before rereading catalog and every dependent result', async () => {
   const oldRead = deferred(), started = deferred(), events = [];
   let catalogs = 0;
@@ -62,7 +73,7 @@ test('HTTP 403 status survives fetch wrapping and does not retry', async () => {
 });
 
 test('recoverable reads stop at seven attempts with bounded backoff and preserve the final error', async () => {
-  for (const error of [problem('http_unavailable', 502), problem('http_unavailable', 503),
+  for (const error of [problem('http_unavailable', 429), problem('http_unavailable', 502), problem('http_unavailable', 503),
     problem('http_unavailable', 504), problem('index_incomplete'), problem('index_stale'), problem('source_changed'), problem('rpc_error')]) {
     let attempts = 0; const delays = [];
     await assert.rejects(retryReadRound(async () => { attempts++; throw error; }, {

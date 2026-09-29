@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Interface, formatEther, parseEther, type Provider } from 'ethers';
 import {
-  FACTORY_ABI, MARKET_ABI, MARKET_PAGE_SIZE, address, pageIds, readMarketIdentity,
+  FACTORY_ABI, MARKET_ABI, MARKET_PAGE_SIZE, MIN_SHARE_PRICE_WEI, address, pageIds, readMarketIdentity,
   requireFill, requireList, requireWallet, parseMarketPending, migrateLegacyMarketPending, recordMarketBroadcast,
   sameMarketIntent, shareAmount, tradeAmounts, unitPrice, bnb, withObservedMarketHash, recoverMarketReceipt, sendMarketAction,
   verifyMarketQuoteForSend, type MarketJournalStorage, type MarketOrder, type MarketQuote, type PendingMarketTransaction,
@@ -16,7 +16,7 @@ const pool = '0x3333333333333333333333333333333333333333';
 const factory = '0x4444444444444444444444444444444444444444';
 const market = '0x5555555555555555555555555555555555555555';
 const timelock = '0x6666666666666666666666666666666666666666';
-const order: MarketOrder = { id: 1n, seller, pool, remaining: 17n, pricePerUnit: 101n, active: true, expiresAt: 2n ** 63n };
+const order: MarketOrder = { id: 1n, seller, pool, remaining: 17n, pricePerUnit: MIN_SHARE_PRICE_WEI, active: true, expiresAt: 2n ** 63n };
 
 test('confirmation displays tiny nonzero buyer fees without rounding them to zero', () => {
   const trade = tradeAmounts(1n, parseEther('0.001'));
@@ -29,9 +29,10 @@ test('shares are whole units 1–100, never ether-denominated or fractional', ()
   for (const [input, expected] of [['1', 1n], ['49', 49n], ['100', 100n]] as const) assert.equal(shareAmount(input), expected);
   for (const invalid of ['', '0', '101', '1.5', '1e1', '-1', ' 1', '01', '1000000000000000000']) assert.throws(() => shareAmount(invalid));
 });
-test('BNB unit prices retain wei precision, accept free transfers, and reject ambiguous inputs', () => {
-  assert.equal(unitPrice('0'), 0n);
-  assert.equal(unitPrice('0.000000000000000001'), 1n);
+test('BNB unit prices retain wei precision, enforce the minimum, and reject ambiguous inputs', () => {
+  assert.equal(unitPrice('0.00001'), MIN_SHARE_PRICE_WEI);
+  for (const below of ['0', '0.000000000000000001', '0.000009999999999999'])
+    assert.throws(() => unitPrice(below), /不得低于 0.00001/);
   assert.equal(unitPrice('0.125'), parseEther('0.125'));
   const maxForFullPool = ((1n << 256n) - 1n) / 101n;
   assert.equal(unitPrice(formatEther(maxForFullPool)), maxForFullPool);
@@ -66,6 +67,7 @@ test('listing requires Active and unlocked shares while buying checks order rema
   assert.throws(() => requireFill(order, { state: 2, tradingAllowed: true }, buyer, 18n), /剩余/);
   assert.throws(() => requireFill(order, { state: 2, tradingAllowed: true }, seller, 1n), /你的挂单/);
   assert.throws(() => requireFill({ ...order, active: false }, { state: 2, tradingAllowed: true }, buyer, 1n), /已成交或撤销/);
+  assert.throws(() => requireFill({ ...order, pricePerUnit: 1n }, { state: 2, tradingAllowed: true }, buyer, 1n), /低于每份/);
 });
 test('one buyer can acquire all 100 shares across separate orders or in one fill', () => {
   const position = { state: 2, tradingAllowed: true };
@@ -91,11 +93,11 @@ test('wallet validation rejects chain changes or account changes before creating
   await assert.rejects(requireWallet(makeWallet('0x38', seller), buyer), /账户已变化/);
   await assert.doesNotReject(requireWallet(makeWallet('0x38', buyer), buyer));
 });
-test('ABI encodes exact integer share quantity and zero-price list without allowances', () => {
+test('ABI encodes exact integer share quantity and minimum-price list without allowances', () => {
   const abi = new Interface(MARKET_ABI);
-  const data = abi.encodeFunctionData('list', [pool, 2n, 0n]);
+  const data = abi.encodeFunctionData('list', [pool, 2n, MIN_SHARE_PRICE_WEI]);
   assert.equal(abi.decodeFunctionData('list', data)[1], 2n);
-  assert.equal(abi.decodeFunctionData('list', data)[2], 0n);
+  assert.equal(abi.decodeFunctionData('list', data)[2], MIN_SHARE_PRICE_WEI);
   assert.equal(abi.getFunction('approve'), null);
   assert(abi.getFunction('withdrawBnb'));
 });

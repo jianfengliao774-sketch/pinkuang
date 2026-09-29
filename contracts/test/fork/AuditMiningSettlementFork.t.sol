@@ -153,10 +153,10 @@ contract AuditMiningSettlementForkTest is Test {
         assertEq(vault.claimable(ALICE), oldAliceClaim);
         assertEq(vault.claimable(DAVE), 0);
         vm.prank(ALICE);
-        uint256 order = market.list(address(vault), 2, 1);
-        vm.deal(DAVE, DAVE.balance + 2);
+        uint256 order = market.list(address(vault), 2, 0.00001 ether);
+        vm.deal(DAVE, DAVE.balance + 0.0000202 ether);
         vm.prank(DAVE);
-        market.fill{value: 2}(order, 2);
+        market.fill{value: 0.0000202 ether}(order, 2);
         assertEq(vault.balanceOf(DAVE), 3);
         vm.warp(block.timestamp + 1);
         vm.prank(ALICE);

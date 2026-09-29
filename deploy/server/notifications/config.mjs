@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { communityConfiguration } from './community-config.mjs';
 
 function secretFile(path, label) {
   if (!path || !isAbsolute(path)) throw new Error(`${label} requires an absolute secret-file path.`);
@@ -41,5 +42,9 @@ export function notificationConfiguration(env = process.env) {
   catch { throw new Error('Invalid private notification index URL.'); }
   if (!['127.0.0.1','localhost','[::1]'].includes(indexUrl.hostname) || indexUrl.protocol!=='http:' || indexUrl.username || indexUrl.password || indexUrl.search || indexUrl.hash || indexUrl.pathname!=='/')
     throw new Error('Notification worker must use a loopback index service.');
-  return { token, encryptionKey, webhookSecret, dbPath, factory, market, botUsername, publicBaseUrl, indexUrl:indexUrl.origin };
+  let community = null, communityUnavailable = false;
+  try { community = communityConfiguration(env, publicBaseUrl); }
+  catch { communityUnavailable = true; }
+  return { token, encryptionKey, webhookSecret, dbPath, factory, market, botUsername, publicBaseUrl,
+    indexUrl:indexUrl.origin, community, communityUnavailable };
 }

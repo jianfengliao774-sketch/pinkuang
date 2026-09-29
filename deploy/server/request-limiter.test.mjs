@@ -19,3 +19,13 @@ test('public request limits are per client and reset after the bounded window', 
   time = 1000;
   assert.equal(allowed(client('203.0.113.10')), true);
 });
+
+test('client table saturation does not lock out a new visitor', () => {
+  const allowed = createRequestLimiter({ perClient: 2, maxClients: 2 });
+  const client = address => ({ socket: { remoteAddress: address }, headers: {} });
+  assert.equal(allowed(client('203.0.113.10')), true);
+  assert.equal(allowed(client('203.0.113.11')), true);
+  assert.equal(allowed(client('203.0.113.10')), true);
+  assert.equal(allowed(client('203.0.113.12')), true);
+  assert.equal(allowed(client('203.0.113.10')), false);
+});

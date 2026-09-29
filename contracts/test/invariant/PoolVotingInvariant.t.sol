@@ -15,7 +15,7 @@ import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 /// Every transfer, market fill, proposal and vote uses a production entry point.
 contract PoolVotingHandler is Test {
     uint256 private constant MAX_PROPOSALS = 16;
-    uint256 private constant MARKET_PRICE_PER_SHARE = 100;
+    uint256 private constant MARKET_PRICE_PER_SHARE = 0.00001 ether;
     PoolVault public immutable vault;
     ShareMarket public immutable market;
     uint256 public immutable acquisitionCost;
@@ -96,15 +96,15 @@ contract PoolVotingHandler is Test {
             (ok, result) =
                 address(vault).call(abi.encodeCall(PoolVault.transferFrom, (actors[from], actors[to], amount)));
         } else {
-            // A small positive price exercises the real lock/fill path; zero-price
-            // orders are rejected by the market after the security upgrade.
+            // The minimum valid price exercises the real lock/fill path.
             vm.prank(actors[from]);
             (ok, result) = address(market)
                 .call(abi.encodeCall(ShareMarket.list, (address(vault), amount, MARKET_PRICE_PER_SHARE)));
             if (ok) {
                 uint256 orderId = abi.decode(result, (uint256));
                 vm.prank(actors[to]);
-                market.fill{value: MARKET_PRICE_PER_SHARE * amount + amount}(orderId, amount);
+                uint256 gross = MARKET_PRICE_PER_SHARE * amount;
+                market.fill{value: gross + gross / 100}(orderId, amount);
                 assertFalse(market.orders(orderId).active);
             }
         }
@@ -270,7 +270,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         // Non-vacuous seed: a same-second exit precedes the proposal snapshot;
         // all three ownership routes then fail, including an already-listed market order.
         vm.prank(BOB);
-        uint256 priorOrder = shareMarket.list(address(pool), 10, 1);
+        uint256 priorOrder = shareMarket.list(address(pool), 10, 0.00001 ether);
         handler.moveShares(0, 3, 49, 0);
         handler.propose(1, 5 ether);
         handler.vote(0, 1, true);

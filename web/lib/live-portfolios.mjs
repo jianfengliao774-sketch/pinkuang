@@ -12,6 +12,28 @@ const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
+// Leave capacity for other page sections on the 24-active-request read proxy.
+const PORTFOLIO_PAGE_READ_LIMIT = 12;
+function boundedPortfolioReads(read) {
+  let active = 0;
+  const waiting = [], pending = new Set();
+  const limited = (...args) => {
+    const task = (async () => {
+      if (active < PORTFOLIO_PAGE_READ_LIMIT) active++;
+      else await new Promise(resolve => waiting.push(resolve));
+      try { return await read(...args); }
+      finally {
+        const next = waiting.shift();
+        if (next) next(); // Transfer the occupied slot to the next read.
+        else active--;
+      }
+    })();
+    pending.add(task);
+    void task.then(() => pending.delete(task), () => pending.delete(task));
+    return task;
+  };
+  return { read: limited, drain: () => Promise.allSettled([...pending]) };
+}
 export const PORTFOLIO_ACTIONS = new Set(['deposit', 'withdrawDeposit', 'finalizeFundingFailure', 'claimFailedFunding',
   'finalizeAcquisition', 'collectChildBem', 'claimBem', 'withdrawBnb', 'transfer', 'proposeChildSale', 'voteChildSale',
   'executeChildSale', 'settleChildSale', 'expireChildSale', 'buyOfficial', 'buyFirsto']);
@@ -25,6 +47,8 @@ export function portfolioBnbEntitlement(row) {
 }
 
 export async function readPortfolioContext(config, provider, blockNumber) {
+  requireValue(['genesis','fresh-active','code-upgraded','role-migrating','role-wired'].includes(config?.stage),
+    '预算项目缺少已核验的产品阶段。');
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   requireValue(manifest.kind === 'integrated-v2', '预算项目尚未完成部署验收。');
   requireValue(abi.BudgetPortfolioFactory && abi.BudgetPortfolioVault, '当前页面缺少预算项目合约版本。');
@@ -65,7 +89,7 @@ export async function readPortfolioContext(config, provider, blockNumber) {
     requireValue(final?.hash?.toLowerCase() === block.hash.toLowerCase() && BigInt(await request('eth_chainId')) === 56n,
       '读取期间链上状态变化，请重新核对。');
   };
-  return { manifest, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
+  return { manifest, stage: config.stage, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
 }
 
 export async function readPortfolio(context, pool, account = ZeroAddress, { includeChildren = true } = {}) {
@@ -92,9 +116,15 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
     const entries = await Promise.all(Array.from({ length: Number(row.nextProposalId - row.activeProposalId) }, (_, offset) => {
       const id = row.activeProposalId + BigInt(offset);
       return Promise.all([read(target, contract, 'proposals', [id]), read(target, contract, 'hasVoted', [id, owner])])
-        .then(([p, voted]) => ({ id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
-          referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
-          yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0], threshold: 51n }));
+        .then(async ([p, voted]) => {
+          const cost = context.stage === 'genesis'
+            ? (await read(target, contract, 'childInfo', [p.child]))[2] : null;
+          requireValue(cost === null || cost > 0n, '创世子矿机购机成本未通过链上核验。');
+          return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
+            referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
+            yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0],
+            threshold: cost !== null && p.price < cost ? 60n : 51n };
+        });
     }));
     row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt);
     row.proposal = row.proposals[0];
@@ -156,13 +186,16 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
       && !seen.has(pool), '预算项目索引包含重复或外部地址。');
     seen.add(pool);
   }
-  for (let offset = 0; offset < reply.data.items.length; offset += 4) {
-    const batch = await Promise.allSettled(reply.data.items.slice(offset, offset + 4)
-      .map(entry => readPortfolio(context, entry.address, account || ZeroAddress, { includeChildren: false })));
-    const failed = batch.find(result => result.status === 'rejected');
-    if (failed) throw failed.reason;
-    items.push(...batch.map(result => result.value));
-  }
+  const limited = boundedPortfolioReads(context.read), pageContext = { ...context, read: limited.read };
+  try {
+    for (let offset = 0; offset < reply.data.items.length; offset += 4) {
+      const batch = await Promise.allSettled(reply.data.items.slice(offset, offset + 4)
+        .map(entry => readPortfolio(pageContext, entry.address, account || ZeroAddress, { includeChildren: false })));
+      const failed = batch.find(result => result.status === 'rejected');
+      if (failed) throw failed.reason;
+      items.push(...batch.map(result => result.value));
+    }
+  } finally { await limited.drain(); }
   await context.canonical();
   return { items, nextCursor, source, operator: context.operator };
 }
@@ -297,6 +330,10 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     else if (method === 'voteChildSale' || method === 'executeChildSale') {
       const candidate = row.proposals.find(item => item.id === uint(action.proposalId));
       requireValue(candidate && !row.proposal?.executed && !candidate.executed, '子矿机提案已改变。');
+      if (method === 'executeChildSale') requireValue(row.timestamp < candidate.endsAt
+        && candidate.yesShares >= candidate.threshold
+        && candidate.yesMembers * 2n > candidate.memberCount,
+      '子矿机出售尚未达到该版本链上表决门槛。');
       args = method === 'voteChildSale' ? [candidate.id, action.support] : [candidate.id];
       if (method === 'voteChildSale') requireValue(typeof action.support === 'boolean', '投票选项无效。');
     } else if (method === 'buyOfficial') args = [address(action.child), uint(action.listingId)];

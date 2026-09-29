@@ -228,6 +228,11 @@ contract PlatformAuthorityTest is Test {
         bytes memory secondOpinion =
             _sign(SECOND_KEY, authority.REVIEW_SALE(), address(market), otherOpinion, 0, block.timestamp + 1 hours);
         vm.prank(RELAYER);
+        authority.reviewSale(
+            address(market), address(pool), 7, 9 ether, false, 0, block.timestamp + 1 hours, secondOpinion
+        );
+        assertFalse(market.reviewedApproval(), "second administrator can reject an earlier approval");
+        vm.prank(RELAYER);
         vm.expectRevert(PlatformAuthority.InvalidAction.selector);
         authority.reviewSale(
             address(market), address(pool), 7, 9 ether, false, 0, block.timestamp + 1 hours, secondOpinion
@@ -252,10 +257,42 @@ contract PlatformAuthorityTest is Test {
 
         bytes32 childParams = keccak256(abi.encode(uint256(4), false));
         bytes memory secondSig =
-            _sign(SECOND_KEY, authority.REVIEW_CHILD_SALE(), address(pool), childParams, 0, block.timestamp + 1 hours);
+            _sign(SECOND_KEY, authority.REVIEW_CHILD_SALE(), address(pool), childParams, 1, block.timestamp + 1 hours);
         vm.prank(RELAYER);
-        authority.reviewChildSale(address(pool), 4, false, 0, block.timestamp + 1 hours, secondSig);
+        authority.reviewChildSale(address(pool), 4, false, 1, block.timestamp + 1 hours, secondSig);
         assertEq(pool.reviewedProposal(), 4);
+        assertFalse(pool.reviewedApproval());
+    }
+
+    function testIncorrectSaleApprovalPriceCanBeCorrectedBeforeExecution() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory wrong = _sign(
+            FIRST_KEY, authority.REVIEW_SALE(), address(market),
+            keccak256(abi.encode(address(pool), uint256(12), uint128(8 ether), true)), 0, deadline
+        );
+        vm.prank(RELAYER);
+        authority.reviewSale(address(market), address(pool), 12, 8 ether, true, 0, deadline, wrong);
+        assertEq(market.reviewedPrice(), 8 ether);
+        bytes memory corrected = _sign(
+            SECOND_KEY, authority.REVIEW_SALE(), address(market),
+            keccak256(abi.encode(address(pool), uint256(12), uint128(9 ether), true)), 0, deadline
+        );
+        vm.prank(RELAYER);
+        authority.reviewSale(address(market), address(pool), 12, 9 ether, true, 0, deadline, corrected);
+        assertEq(market.reviewedPrice(), 9 ether);
+        assertTrue(market.reviewedApproval());
+        bytes memory childApprove = _sign(
+            FIRST_KEY, authority.REVIEW_CHILD_SALE(), address(pool),
+            keccak256(abi.encode(uint256(13), true)), 1, deadline
+        );
+        vm.prank(RELAYER);
+        authority.reviewChildSale(address(pool), 13, true, 1, deadline, childApprove);
+        bytes memory childReject = _sign(
+            SECOND_KEY, authority.REVIEW_CHILD_SALE(), address(pool),
+            keccak256(abi.encode(uint256(13), false)), 1, deadline
+        );
+        vm.prank(RELAYER);
+        authority.reviewChildSale(address(pool), 13, false, 1, deadline, childReject);
         assertFalse(pool.reviewedApproval());
     }
 
@@ -443,9 +480,38 @@ contract PlatformAuthorityTest is Test {
         vm.prank(first);
         vm.expectRevert(PlatformAuthority.Unauthorized.selector);
         authority.executeOperation(address(core), callData);
-        bytes memory mineData = abi.encodeWithSelector(AuthorityPoolMock.mine.selector, hex"1234");
+        bytes memory mineData = abi.encodeWithSelector(
+            AuthorityPoolMock.mine.selector, abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
+        );
         vm.prank(RELAYER);
-        assertEq(abi.decode(authority.executeOperation(address(pool), mineData), (bytes)), hex"1234");
+        assertEq(
+            abi.decode(authority.executeOperation(address(pool), mineData), (bytes)),
+            abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
+        );
+    }
+
+    function testReclaimRequiresAdministratorSignature() public {
+        bytes memory reclaim = abi.encodeWithSelector(
+            AuthorityPoolMock.mine.selector, abi.encodeWithSignature("reclaim(bytes32)", bytes32(uint256(7)))
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeOperation(address(pool), reclaim);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature =
+            _sign(FIRST_KEY, authority.APPROVED_OPERATION(), address(pool), keccak256(reclaim), 0, deadline);
+        vm.prank(RELAYER);
+        assertEq(
+            abi.decode(authority.executeApprovedOperation(address(pool), reclaim, 0, deadline, signature), (bytes)),
+            abi.encodeWithSignature("reclaim(bytes32)", bytes32(uint256(7)))
+        );
+        bytes memory arm = abi.encodeWithSelector(
+            AuthorityPoolMock.mine.selector, abi.encodeWithSignature("arm(address,uint256)", address(0xCAFE), uint256(7))
+        );
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeApprovedOperation(address(pool), arm, 1, deadline, signature);
     }
 
     function testBudgetPurchasesRequireExactSingleAdminSignatureAndCostCeiling() public {
@@ -529,5 +595,18 @@ contract PlatformAuthorityTest is Test {
             address(0x1234)
         );
         assertEq(authority.nonces(first), 2);
+    }
+
+    function testAdministratorCannotJumpNonceToMaximumAndBrickSigner() public {
+        vm.prank(first);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.invalidateNonce(type(uint256).max);
+        assertEq(authority.nonces(first), 0);
+        vm.prank(first);
+        authority.invalidateNonce(type(uint64).max);
+        assertEq(authority.nonces(first), type(uint64).max);
+        vm.prank(first);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.invalidateNonce(type(uint256).max);
     }
 }

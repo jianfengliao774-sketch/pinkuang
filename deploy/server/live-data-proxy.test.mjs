@@ -110,6 +110,60 @@ test('server reuses only a recent complete public source; browser and private re
   assert.equal((await f.get('/api/chain-index/health')).status, 503, 'expired source is not served');
 });
 
+test('verified history responses never seed or preserve the fresh health cache', async t => {
+  const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
+    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date().toISOString() };
+  const historical = { ...source, readMode: 'verified_snapshot', stale: true,
+    refreshing: true, transactionReady: false };
+  let calls = 0;
+  const f = await fixture(t, { upstream: url => {
+    calls++;
+    if (url.includes('/v1/pools')) return json({ source, data: { items: [] } });
+    if (url.includes('/v1/activity')) return json({ source: historical, data: { items: [] } });
+    return json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' } });
+  } });
+  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
+  assert.equal((await f.get('/api/chain-index/v1/activity')).status, 200);
+  const health = await f.get('/api/chain-index/health');
+  assert.equal(health.headers.get('x-bemine-server-cache'), null);
+  assert.equal((await health.json()).source.complete, false);
+  assert.equal(calls, 3);
+
+  let coldCalls = 0;
+  const cold = await fixture(t, { upstream: url => {
+    coldCalls++;
+    return url.includes('/v1/activity') ? json({ source: historical, data: { items: [] } })
+      : json({ source: { ...source, complete: false, unknownReason: 'index_not_caught_up' } });
+  } });
+  assert.equal((await cold.get('/api/chain-index/v1/activity')).status, 200);
+  const coldHealth = await cold.get('/api/chain-index/health');
+  assert.equal(coldHealth.headers.get('x-bemine-server-cache'), null);
+  assert.equal((await coldHealth.json()).source.complete, false);
+  assert.equal(coldCalls, 2);
+});
+
+test('cached public health remains readable while the upstream RPC capacity is occupied', async t => {
+  let releaseRpc, rpcStarted = false;
+  const gate = new Promise(resolve => { releaseRpc = resolve; });
+  const source = { chainId: 56, complete: true, unknownReason: null, indexedThrough: 100,
+    indexedBlockHash: `0x${'ab'.repeat(32)}`, checkedAt: new Date().toISOString() };
+  const f = await fixture(t, { maxConcurrent: 1, maxQueued: 0,
+    upstream: async (_url, init) => {
+      if (init.method === 'GET') return json({ source, data: { items: [] } });
+      rpcStarted = true;
+      await gate;
+      return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
+    } });
+  assert.equal((await f.get('/api/chain-index/v1/pools')).status, 200);
+  const rpcRead = f.post(rpc());
+  while (!rpcStarted) await new Promise(resolve => setTimeout(resolve, 1));
+  const health = await f.get('/api/chain-index/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('x-bemine-server-cache'), 'hit');
+  releaseRpc();
+  assert.equal((await rpcRead).status, 200);
+});
+
 test('server reuses exact pinned reads while live headers and latest simulations stay fresh', async t => {
   let clock = Date.now(), reads = 0;
   const f = await fixture(t, { now: () => clock, pinnedRpcTtlMs: 1000,
@@ -136,10 +190,54 @@ test('server reuses exact pinned reads while live headers and latest simulations
 test('oversized upstream bodies, timeout and exhausted concurrency are bounded', async t => {
   const huge = await fixture(t, { maxResponseBytes: 64, upstream: () => json({ oversized: 'x'.repeat(100) }) });
   assert.equal((await huge.post(rpc())).status, 502);
-  const stalled = await fixture(t, { timeoutMs: 50, maxConcurrent: 1, upstream: () => new Promise(() => {}) });
+  const stalled = await fixture(t, { timeoutMs: 50, maxConcurrent: 1, maxQueued: 0,
+    upstream: () => new Promise(() => {}) });
   const first = stalled.post(rpc());
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal((await stalled.post(rpc())).status, 503); assert.equal((await first).status, 504);
+});
+
+test('short bounded queue absorbs read bursts above the active RPC limit without skipping validation', async t => {
+  let releaseFirst, active = 0, peak = 0, calls = 0;
+  const gate = new Promise(resolve => { releaseFirst = resolve; });
+  const f = await fixture(t, { maxConcurrent: 1, maxQueued: 2, queueTimeoutMs: 500,
+    upstream: async (_url, init) => {
+      active++; peak = Math.max(peak, active); calls++;
+      if (calls === 1) await gate;
+      active--;
+      return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
+    } });
+  const first = f.post(rpc());
+  while (calls === 0) await new Promise(resolve => setTimeout(resolve, 1));
+  const second = f.post({ ...rpc(), id: 2 });
+  const third = f.post({ ...rpc(), id: 3 });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal((await f.get('/api/chain-index/v1/private')).status, 404,
+    'invalid routes must be rejected before they can occupy the queue');
+  assert.equal((await f.post({ ...rpc(), id: 4 })).status, 503,
+    'the queue remains bounded under overload');
+  releaseFirst();
+  assert.deepEqual(await Promise.all([first, second, third].map(async request => (await request).status)), [200, 200, 200]);
+  assert.equal(peak, 1);
+  assert.equal(calls, 3);
+});
+
+test('queued reads expire instead of waiting behind a stalled upstream', async t => {
+  let releaseFirst, calls = 0;
+  const gate = new Promise(resolve => { releaseFirst = resolve; });
+  const f = await fixture(t, { maxConcurrent: 1, maxQueued: 1, queueTimeoutMs: 20, timeoutMs: 1000,
+    upstream: async (_url, init) => {
+      calls++;
+      if (calls === 1) await gate;
+      return json({ jsonrpc: '2.0', id: JSON.parse(init.body).id, result: '0x38' });
+    } });
+  const first = f.post(rpc());
+  while (calls === 0) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal((await f.post({ ...rpc(), id: 2 })).status, 503);
+  releaseFirst();
+  assert.equal((await first).status, 200);
+  assert.equal((await f.post({ ...rpc(), id: 3 })).status, 200);
+  assert.equal(calls, 2, 'expired request must never reach the RPC upstream');
 });
 
 test('upstream error details are not reflected to visitors', async t => {

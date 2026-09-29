@@ -16,7 +16,7 @@ const types = { Action: [
   {name:'nonce',type:'uint256'}, {name:'deadline',type:'uint256'},
 ] };
 
-function fixture() {
+function fixture({registered=true}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -38,6 +38,8 @@ function fixture() {
   const store = {session:()=>admin.address.toLowerCase(),close(){}};
   const service = createAuthorityRelayService(config,{trusted,provider,store,onError:error=>errors.push(error),
     verifyGraph:async()=>graph,loadCredential:()=>gas.privateKey,
+    readReclaimState:async target=>({registered:registered && target===pool,factory,
+      mining:'0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',minerKey:hash(333)}),
     readAuthorityState:async()=>({core:factory,budget,first:admin.address,second:address(36),
       gasWallet:gas.address,nonce:0n,code}),
     lockJournal:()=>()=>{},lockWallet:()=>()=>{},
@@ -159,4 +161,42 @@ test('signed creation accepts only exact reviewed Factory selectors',async()=>{
     assert.equal(blocked.status,400);
     assert.equal(f.calls.length,1);
   } finally {await f.close();}
+});
+
+test('signed pool operation accepts only canonical reclaim for a current fresh miner',async()=>{
+  const f=fixture();
+  try {
+    const outer=new Interface(['function mine(bytes data)']);
+    const mining=new Interface(['function reclaim(bytes32 key)','function arm(address circuits,uint256 circuitId)']);
+    const deadline=String(Math.floor(Date.now()/1000)+300);
+    const sign=async data=>f.admin.signTypedData({name:'BEMine Platform Authority',version:'1',
+      chainId:56,verifyingContract:f.authority},types,{kind:kindHash('APPROVED_OPERATION'),
+      target:f.pool,paramsHash:keccak256(data),nonce:'0',deadline});
+    const send=async data=>f.request('/api/journal/authority-relay','POST',{command:{
+      authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',
+      args:{target:f.pool,data},nonce:'0',deadline,signature:await sign(data)}});
+    const reclaim=outer.encodeFunctionData('mine',[mining.encodeFunctionData('reclaim',[hash(333)])]);
+    assert.equal((await send(reclaim)).status,200,f.errors[0]?.message);
+    assert.equal((await send(`${reclaim}00`)).status,400);
+    assert.equal((await send(outer.encodeFunctionData('mine',[
+      mining.encodeFunctionData('reclaim',[hash(334)])]))).status,409);
+    assert.equal((await send(outer.encodeFunctionData('mine',[
+      mining.encodeFunctionData('arm',[address(77),1])]))).status,400);
+    assert.equal(f.calls.length,1);
+  } finally {await f.close();}
+  const unregistered=fixture({registered:false});
+  try {
+    const outer=new Interface(['function mine(bytes data)']);
+    const reclaim=outer.encodeFunctionData('mine',[
+      new Interface(['function reclaim(bytes32 key)']).encodeFunctionData('reclaim',[hash(333)])]);
+    const deadline=String(Math.floor(Date.now()/1000)+300);
+    const signature=await unregistered.admin.signTypedData({name:'BEMine Platform Authority',version:'1',
+      chainId:56,verifyingContract:unregistered.authority},types,{kind:kindHash('APPROVED_OPERATION'),
+      target:unregistered.pool,paramsHash:keccak256(reclaim),nonce:'0',deadline});
+    const result=await unregistered.request('/api/journal/authority-relay','POST',{command:{
+      authority:unregistered.authority,expectedCodehash:unregistered.codehash,kind:'executeApprovedOperation',
+      args:{target:unregistered.pool,data:reclaim},nonce:'0',deadline,signature}});
+    assert.equal(result.status,409);
+    assert.equal(unregistered.calls.length,0);
+  } finally {await unregistered.close();}
 });

@@ -102,12 +102,12 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
   insist(!upgraded || hash(input.operationId) && input.creationPaused === true,
     'product_graph', '升级批次或建池暂停状态未核验。');
   if (fresh) insist(input.operationId == null && input.upgradeArtifactDigest == null
-    && input.operationalReady === true && input.previousFactoriesPaused === true
+    && input.freshFactoryVerified === true
     && input.freshAuthority && liveAddress(input.freshAuthority.address)
     && hash(input.freshAuthority.codehash) && hash(input.freshAuthority.deploymentTxHash)
     && input.freshAuthority.activationBlock === input.stageActivationBlock
     && same(input.freshAuthority.activationHash, input.stageActivationHash),
-  'product_graph', '新部署的管理员接线或旧版停建尚未完成链上核验。');
+  'product_graph', '新部署的工厂或管理员接线尚未完成链上核验。');
   insist(typeof input.operationalReady === 'boolean', 'product_graph', '运营接线状态未通过核验。');
   insist(same(input.factory, genesis.factory) && same(input.portfolioFactory, genesis.portfolioFactory),
     'product_graph', 'Factory 与旧版可信部署不一致。');
@@ -136,7 +136,7 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
     operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
     verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
     stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase(),
-    ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),previousFactoriesPaused:true} : {}) });
+    ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),freshFactoryVerified:true} : {}) });
 }
 
 /** Bounded JSON fetch; redirects and credentials to other origins are never followed. */
@@ -201,7 +201,7 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
     artifactDigest: graph.artifactDigest, operationId: graph.operationId,
     productGraphUrl, verifiedBlockHash: graph.verifiedBlockHash, operationalReady: graph.operationalReady,
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
-    ...(graph.freshAuthority ? {freshAuthority:graph.freshAuthority,previousFactoriesPaused:true} : {}),
+    ...(graph.freshAuthority ? {freshAuthority:graph.freshAuthority,freshFactoryVerified:true} : {}),
     origin, basePath: base, manifestUrl,
     indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }

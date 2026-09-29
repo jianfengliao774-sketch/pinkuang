@@ -8,6 +8,7 @@ const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = addr(1), market = addr(2), timelock = addr(3), pool = addr(4), alice = addr(5), seller = addr(6);
 const blockHash = `0x${'12'.repeat(32)}`;
 const price = 900719925474099312345n;
+const minPrice = 10000000000000n;
 const order = { seller, pool, remaining: 3n, pricePerUnit: price, active: true };
 
 function rpc(changes = {}) {
@@ -82,23 +83,23 @@ test('chain, deployment graph, fee, registry, accounting and reorg changes fail 
   await assert.rejects(readMarketSnapshot(rpc(), params({ blockNumber: '11' })), /wrong market block/);
 });
 
-test('list allows all 100 unlocked shares, rejects zero price and checks freeze', async () => {
+test('list allows all 100 unlocked shares, rejects sub-minimum prices and checks freeze', async () => {
   const snapshot = await readMarketSnapshot(rpc({ balance: 100n, locked: 0n, available: 100n }), params({ orderIds: [] }));
-  const listed = marketAction(snapshot, alice, { kind: 'list', pool, amount: '100', pricePerUnitWei: '1' });
+  const listed = marketAction(snapshot, alice, { kind: 'list', pool, amount: '100', pricePerUnitWei: minPrice.toString() });
   assert.equal(listed.transaction.to, market);
   assert.equal(listed.transaction.value, '0x0');
-  assert.equal(listed.quote.unitPriceWei, 1n);
+  assert.equal(listed.quote.unitPriceWei, minPrice);
   assert.equal(abi.ShareMarket.parseTransaction(listed.transaction).name, 'list');
   assert.equal(abi.ShareMarket.parseTransaction(listed.transaction).args[1], 100n);
-  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '101', pricePerUnitWei: '1' }), /1–100/);
-  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0' }), /must be positive/);
-  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '0', allowFree: true }), /must be positive/);
+  assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '101', pricePerUnitWei: minPrice.toString() }), /1–100/);
+  for (const tooLow of [0n, 1n, minPrice - 1n])
+    assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: tooLow.toString() }), /at least 0.00001/);
   assert.throws(() => marketAction(snapshot, alice, { kind: 'list', pool, amount: '100',
     pricePerUnitWei: (((1n << 256n) - 1n) / 100n).toString() }), /buyer fee overflows/);
   const frozen = await readMarketSnapshot(rpc({ tradingAllowed: false }), params({ orderIds: [] }));
-  assert.throws(() => marketAction(frozen, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: '1' }), /frozen/);
+  assert.throws(() => marketAction(frozen, alice, { kind: 'list', pool, amount: '1', pricePerUnitWei: minPrice.toString() }), /frozen/);
   const locked = await readMarketSnapshot(rpc(), params({ orderIds: [] }));
-  assert.throws(() => marketAction(locked, alice, { kind: 'list', pool, amount: '5', pricePerUnitWei: '1' }), /unlocked/);
+  assert.throws(() => marketAction(locked, alice, { kind: 'list', pool, amount: '5', pricePerUnitWei: minPrice.toString() }), /unlocked/);
 });
 
 test('partial fill uses exact current price and independent buyer and seller 1% fees', async () => {
@@ -146,6 +147,10 @@ test('cancel stays available when trading is frozen; anyone may expire only afte
   assert.equal(abi.ShareMarket.parseTransaction(marketAction(expired, alice, { kind: 'expire', orderId: '7' }).transaction).name, 'expire');
   const legacy = await readMarketSnapshot(rpc({ expiresAt: 0n }), params());
   assert.equal(abi.ShareMarket.parseTransaction(marketAction(legacy, alice, { kind: 'expire', orderId: '7' }).transaction).name, 'expire');
+  const tooCheap = await readMarketSnapshot(rpc({ order: { ...order, pricePerUnit: 1n } }), params());
+  assert.throws(() => marketAction(tooCheap, alice, fill({ expectedPricePerUnitWei: '1' })), /below the minimum/);
+  const sellerView = await readMarketSnapshot(rpc({ order: { ...order, pricePerUnit: 1n } }), params({ account: seller }));
+  assert.equal(abi.ShareMarket.parseTransaction(marketAction(sellerView, seller, { kind: 'cancel', orderId: '7' }).transaction).name, 'cancel');
 });
 
 test('Market BNB withdrawal is separate and never mixes pool credit', async () => {

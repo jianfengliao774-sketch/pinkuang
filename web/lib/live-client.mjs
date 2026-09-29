@@ -198,7 +198,8 @@ export async function sendLiveMarketAction({ wallet, config, account, action, fe
 /** The complete sale payment and candidate ID are re-read before both journal and wallet signing. */
 export async function sendLiveGovernanceAction({ wallet, config, account, pool, action, fetchImpl, onState = () => {} }) {
   await prepareLiveSend({ wallet, config, account, fetchImpl, onState });
-  const prepared = await prepareGovernanceAction(wallet, { factory: config.factory, pool, account, action });
+  const prepared = await prepareGovernanceAction(wallet, { factory: config.factory, pool, account, action,
+    stage: config.stage });
   return recordAndSend({ wallet, config, account, pool, target: pool,
     transaction: prepared.transaction, fetchImpl, onState });
 }

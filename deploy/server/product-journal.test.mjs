@@ -103,25 +103,33 @@ function proof(record = intent()) {
   };
   return {state,provider,event};
 }
-async function fixture({record = intent(),allow = [factory],legacyFactory} = {}) {
+async function fixture({record = intent(),allow = [factory],legacyFactory,now} = {}) {
   const directory = await mkdtemp(join(tmpdir(),'pinkuang-products-')), dbPath = join(directory,'private','journal.sqlite');
   const p = proof(record);
   const service = createJournalService({dbPath,origin,provider:p.provider,currentArtifactDigest:()=>hash(1),allowedProductFactories:allow,legacyFactory,
+    ...(now ? {now} : {}),
     productGraphVerifier:async()=>{p.state.graphChecks++;if(p.state.graphFailed)throw Error('graph changed');
       return {productKind:record.targetType?.startsWith('portfolio')?'budget':'pool',factory,legacyFactory:addr(10)};}});
   const server = createServer((req,res)=>service.handle(req,res));
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const base=`http://127.0.0.1:${server.address().port}`;
   let cookie;
-  const request=async(path,method='GET',body)=>{
+  const request=async(path,method='GET',body,extraHeaders={})=>{
     const response=await fetch(`${base}/api/journal/${path}`,{method,headers:{Origin:origin,'Content-Type':'application/json',
-      ...(cookie?{Cookie:cookie,'X-Pinkuang-Account':account}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+      ...(cookie?{Cookie:cookie,'X-Pinkuang-Account':account}:{}),...extraHeaders},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const nextCookie=response.headers.get('set-cookie'); if(nextCookie)cookie=nextCookie.split(';')[0];
     return {status:response.status,body:await response.json()};
   };
   const challenge=(await request('challenge','POST',{account})).body;
   assert.equal((await request('session','POST',{account,nonce:challenge.nonce,signature:await wallet.signMessage(challenge.message)})).status,200);
-  return {...p,directory,dbPath,request,async close(){await new Promise(resolve=>server.close(resolve));await service.close();await rm(directory,{recursive:true,force:true});}};
+  const login=async signer=>{
+    const issued=(await request('challenge','POST',{account:signer.address})).body;
+    const response=await request('session','POST',{account:signer.address,nonce:issued.nonce,
+      signature:await signer.signMessage(issued.message)});
+    assert.equal(response.status,200);
+    return cookie;
+  };
+  return {...p,directory,dbPath,request,login,async close(){await new Promise(resolve=>server.close(resolve));await service.close();await rm(directory,{recursive:true,force:true});}};
 }
 
 test('all permitted pool and market actions require exact values, registration and a free nonce', async()=>{
@@ -232,6 +240,65 @@ test('atomic product authorization verifies once and durably saves one signing p
     assert.equal(saved.canAbandon,false,'a granted signing permission cannot be discarded as an unused preparation');
     assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0})).status,409);
     assert.equal((await f.request('market/arm','POST',{expectedRevision:2})).status,409);
+  }finally{await f.close();}
+});
+
+test('product intent checks are capped per wallet before graph RPC, then recover without blocking hash writes',async()=>{
+  const clock={value:120_000},f=await fixture({now:()=>clock.value});
+  try{
+    const record=intent();
+    f.state.graphFailed=true;
+    for(let i=0;i<8;i++){
+      const path=i%2?'market':'market/prepare-and-arm',method=i%2?'PUT':'POST';
+      const result=await f.request(path,method,{record,expectedRevision:0},
+        {'X-Real-IP':`198.51.100.${i+1}`});
+      assert.equal(result.status,409);
+    }
+    assert.equal(f.state.graphChecks,8);
+    const capped=await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0},
+      {'X-Real-IP':'198.51.100.20'});
+    assert.equal(capped.status,429);
+    assert.equal(f.state.graphChecks,8,'a rejected request performs no graph proof');
+    assert.equal((await f.request('market')).body.record,null);
+
+    clock.value+=60_000;
+    f.state.graphFailed=false;
+    const saved=await f.request('market','PUT',{record,expectedRevision:0});
+    assert.equal(saved.status,200,'a later window can start a legitimate intent');
+    f.state.graphFailed=true;
+    for(let i=0;i<7;i++)
+      assert.equal((await f.request('market/arm','POST',{expectedRevision:saved.body.revision})).status,409);
+    const checked=f.state.graphChecks;
+    assert.equal((await f.request('market/arm','POST',{expectedRevision:saved.body.revision})).status,429);
+    assert.equal(f.state.graphChecks,checked);
+    assert.equal((await f.request('market','PUT',{record:{...record,hash:hash(77)},
+      expectedRevision:saved.body.revision})).status,200,
+    'an existing transaction hash remains durable when signing checks are capped');
+  }finally{await f.close();}
+});
+
+test('product intent checks are capped per client IP across authenticated wallets',async()=>{
+  const f=await fixture();
+  try{
+    f.state.graphFailed=true;
+    const signers=[wallet,Wallet.createRandom(),Wallet.createRandom(),Wallet.createRandom()];
+    const sessions=[];
+    for(const signer of signers)sessions.push({signer,cookie:await f.login(signer)});
+    for(const {signer,cookie} of sessions){
+      const record={...intent(),account:signer.address.toLowerCase()};
+      for(let i=0;i<6;i++)
+        assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0},
+          {Cookie:cookie,'X-Pinkuang-Account':record.account,'X-Real-IP':'198.51.100.42'})).status,409);
+    }
+    assert.equal(f.state.graphChecks,24);
+    const {signer,cookie}=sessions[0],record={...intent(),account:signer.address.toLowerCase()};
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0},
+      {Cookie:cookie,'X-Pinkuang-Account':record.account,'X-Real-IP':'198.51.100.42'})).status,429);
+    assert.equal(f.state.graphChecks,24);
+    assert.equal((await f.request('market/prepare-and-arm','POST',{record,expectedRevision:0},
+      {Cookie:cookie,'X-Pinkuang-Account':record.account,'X-Real-IP':'198.51.100.43'})).status,409,
+    'the wallet still has budget through a different client address');
+    assert.equal(f.state.graphChecks,25);
   }finally{await f.close();}
 });
 

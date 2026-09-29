@@ -2,8 +2,8 @@
 """Install only the independent pre-genesis v4 deployment console.
 
 The fresh product, index, Gas relay and old runtimes remain untouched.
-A root-only v4 credential copy is created for public-address attestation; no new Gas
-sender is enabled. Expected hashes come from a reviewed, read-only host snapshot.
+The public HTTP process receives only the configured Gas wallet address. No Gas
+private key is copied or loaded. Expected hashes come from a reviewed host snapshot.
 """
 
 import argparse
@@ -28,16 +28,13 @@ V4_UNIT = Path('/etc/systemd/system/pinkuang-deploy-v4.service')
 SNIPPET = Path('/etc/nginx/snippets/pinkuang-deploy-v4.conf')
 RELEASES = Path('/srv/pinkuang-deploy-v4/releases')
 DB_DIR = Path('/var/lib/pinkuang-deploy-v4')
-OLD_GAS_CREDENTIAL = Path('/etc/pinkuang/keeper.key')
-V4_GAS_CREDENTIAL = Path('/etc/pinkuang/keeper-v4.key')
 ANCHOR = '    include /etc/nginx/snippets/pinkuang-deploy-v3.conf;\n'
 INCLUDE = '    include /etc/nginx/snippets/pinkuang-deploy-v4.conf;\n'
 GAS_WALLET = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619'
 ALLOWED = {'dist', 'public', 'server', 'shared', 'scripts', 'src', 'package.json', 'package-lock.json'}
 REQUIRED = {'dist/index.html', 'dist/deployment-artifacts.json',
             'public/deployment-artifacts.json', 'public/fresh-release-manifest.json',
-            'server/index.mjs', 'scripts/authority-relay.mjs',
-            'scripts/keeper-credential.mjs', 'scripts/purchase-keeper.mjs',
+            'server/index.mjs', 'server/authority-ipc.mjs',
             'package.json', 'package-lock.json'}
 
 
@@ -142,20 +139,6 @@ def write_atomic(path, content, mode=0o644):
             os.unlink(temp)
 
 
-def copy_private_file(source, destination):
-    """Create at 0600 before the first credential byte is written."""
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0)
-    descriptor = os.open(destination, flags, 0o600)
-    try:
-        with os.fdopen(descriptor, 'wb') as target, source.open('rb') as original:
-            shutil.copyfileobj(original, target)
-            target.flush()
-            os.fsync(target.fileno())
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-
-
 def check_http(url, expected_status, expected_body=None):
     request = urllib.request.Request(url, headers={'Host': 'tapeout.cc.cd'})
     try:
@@ -225,24 +208,6 @@ def main():
         raise
 
     try:
-        source_stat = OLD_GAS_CREDENTIAL.stat()
-        require(not OLD_GAS_CREDENTIAL.is_symlink() and OLD_GAS_CREDENTIAL.is_file() and source_stat.st_uid == 0
-                and source_stat.st_gid == 0 and (source_stat.st_mode & 0o777) == 0o600,
-                'Existing Gas credential is not root-owned 0600.')
-        if V4_GAS_CREDENTIAL.exists():
-            copied_stat = V4_GAS_CREDENTIAL.stat()
-            require(not V4_GAS_CREDENTIAL.is_symlink() and V4_GAS_CREDENTIAL.is_file() and copied_stat.st_uid == 0
-                    and copied_stat.st_gid == 0 and (copied_stat.st_mode & 0o777) == 0o600
-                    and digest(V4_GAS_CREDENTIAL) == digest(OLD_GAS_CREDENTIAL),
-                    'Existing v4 Gas credential differs from the reviewed source.')
-        else:
-            copy_private_file(OLD_GAS_CREDENTIAL, V4_GAS_CREDENTIAL)
-            os.chown(V4_GAS_CREDENTIAL, 0, 0)
-        command(['node', '-e',
-                 'const fs=require("node:fs"); const {Wallet}=require("ethers"); '
-                 'const address=new Wallet(fs.readFileSync("/etc/pinkuang/keeper-v4.key","utf8").trim()).address; '
-                 f'if(address.toLowerCase()!=="{GAS_WALLET.lower()}")process.exit(1);'],
-                cwd=release)
         try:
             user = pwd.getpwnam('pinkuang-v4')
         except KeyError:
@@ -268,7 +233,6 @@ def main():
                 'After=network-online.target\nWants=network-online.target\n\n[Service]\n'
                 'Type=simple\nUser=pinkuang-v4\nGroup=pinkuang-v4\n'
                 f'WorkingDirectory={release}\nExecStart=/usr/bin/node {release}/server/index.mjs\n'
-                f'LoadCredential=keeper-private-key:{V4_GAS_CREDENTIAL}\n'
                 + ''.join(f'Environment={key}={value}\n' for key, value in env.items())
                 + 'UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n'
                 'ProtectHome=true\nProtectSystem=strict\n'
@@ -311,11 +275,8 @@ def main():
                                            '--value', 'pinkuang-deploy-v4.service'], text=True).strip())
         require(pid > 0, 'v4 service has no running process.')
         variables = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
-        directories = [item.split(b'=', 1)[1].decode() for item in variables
-                       if item.startswith(b'CREDENTIALS_DIRECTORY=')]
-        require(len(directories) == 1
-                and digest(Path(directories[0]) / 'keeper-private-key') == digest(V4_GAS_CREDENTIAL),
-                'Running v4 process did not receive the reviewed Gas credential.')
+        require(not any(item.startswith(b'CREDENTIALS_DIRECTORY=') or item.startswith(b'KEEPER_PRIVATE_KEY=')
+                        for item in variables), 'The public v4 process received a Gas credential.')
         require(digest(SITE) == args.site_sha256, 'Site config changed during staging.')
         candidate_site = original_site.replace(ANCHOR, ANCHOR + INCLUDE)
         write_atomic(SITE, candidate_site)

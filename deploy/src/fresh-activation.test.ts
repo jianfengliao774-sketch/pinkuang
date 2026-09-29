@@ -36,6 +36,7 @@ test('the truncated screenshot address fails closed; only a distinct complete pu
   assert.throws(() => validatedFreshGasWallet('0xA285d1933e32b590625aC1F5BEa205Cf2606619', hardware), /42 字符/);
   assert.throws(() => validatedFreshGasWallet(FRESH_ADMIN_ONE, hardware), /不同/);
   assert.throws(() => validatedFreshGasWallet(hardware, hardware), /不同/);
+  assert.throws(() => validatedFreshGasWallet('0xA285d1933e32b5990625aC1F5BEa205Cf2606619', hardware), /旧版 Gas 钱包/);
   assert.equal(validatedFreshGasWallet(gasWallet, hardware), gasWallet);
 });
 

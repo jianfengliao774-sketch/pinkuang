@@ -29,6 +29,34 @@ test('portfolio discovery uses parent registration and does not multiply 100 sha
     const broken=portfolioFixture(option);await assert.rejects(readPortfolioPage(broken.config,broken.provider,{fetcher:broken.fetcher}));
   }
 });
+test('genesis budget sale shows the cost-based 60-share threshold only below purchase cost',async()=>{
+  const f=portfolioFixture({stage:'genesis',activeProposalId:1n,nextProposalId:2n,
+    proposal:{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+      endsAt:2_000_000_000n,memberCount:2n,yesMembers:2n,
+      yesShares:59n,executed:false},childCost:150n});
+  const context=await readPortfolioContext(f.config,f.provider);
+  const row=await readPortfolio(context,PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(row.proposal.threshold,60n);
+  assert.equal(row.proposal.yesShares,59n);
+  assert.equal(row.proposal.price,100n);
+  f.state.childCost=100n;
+  const equalCost=await readPortfolio(context,PORTFOLIOS[0],f.account,{includeChildren:false});
+  assert.equal(equalCost.proposal.threshold,51n);
+  assert(f.calls.some(({method,params})=>method==='eth_call'
+    && params[0].data===abi.BudgetPortfolioVault.encodeFunctionData('childInfo',[address(0x951)])));
+});
+test('genesis budget sale execution requires its cost-based threshold before wallet submission',async()=>{
+  const f=portfolioFixture({stage:'genesis',poolState:2n,activeProposalId:1n,nextProposalId:2n,
+    proposal:{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+      endsAt:2_000_000_000n,memberCount:2n,yesMembers:2n,
+      yesShares:59n,executed:false},childCost:150n});
+  const input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
+    action:{kind:'executeChildSale',proposalId:'1'}};
+  await assert.rejects(preparePortfolioAction(input),/表决门槛/);
+  f.state.proposal.yesShares=60n;
+  const prepared=await preparePortfolioAction(input);
+  assert.equal(abi.BudgetPortfolioVault.parseTransaction(prepared.transaction).name,'executeChildSale');
+});
 test('automatic portfolio fallback remains an explicitly stale display snapshot',async()=>{
   const f=portfolioFixture();
   const source={...f.source(),checkedAt:new Date(Date.now()-10*60_000).toISOString(),
@@ -67,6 +95,73 @@ test('portfolio page reads overlap but an unfinished row cannot publish partial 
     if(params[0].to===PORTFOLIOS[1])second();if(params[0].to===PORTFOLIOS[0]&&!gated){gated=true;await held;}};
   const task=readPortfolioPage(f.config,f.provider,{fetcher:f.fetcher}).then(value=>{finished=true;return value;});
   await seen;assert.equal(finished,false);release();const page=await task;assert.deepEqual(page.items.map(row=>row.pool),PORTFOLIOS);
+});
+test('portfolio page bounds pinned reads across four portfolios below the proxy active limit',async()=>{
+  const f=portfolioFixture(),pools=[...PORTFOLIOS,address(0x903),address(0x904)];
+  const targets=new Set(pools);let active=0,peak=0;const tags=[];
+  const provider={request:async input=>{
+    const to=input.method==='eth_call'?input.params[0].to:null;
+    if(!targets.has(to))return f.provider.request(input);
+    active++;peak=Math.max(peak,active);tags.push(input.params[1]);
+    try{
+      await new Promise(resolve=>setTimeout(resolve,2));
+      if(active>24)throw new Error('Read-only data service is busy.');
+      const mapped=pools.slice(2).includes(to)?{...input,params:[{...input.params[0],to:PORTFOLIOS[0]},input.params[1]]}:input;
+      return await f.provider.request(mapped);
+    }finally{active--;}
+  }};
+  const fetcher=async url=>{
+    const reply=f.index(url),sample=reply.data.items[0];
+    return new Response(JSON.stringify({...reply,data:{...reply.data,
+      items:pools.map(pool=>({...sample,address:pool}))}}),{headers:{'content-type':'application/json'}});
+  };
+  const page=await readPortfolioPage(f.config,provider,{account:f.account,fetcher});
+  assert.deepEqual(page.items.map(row=>row.pool),pools);
+  assert(page.items.every(row=>row.blockNumber===100n));
+  assert.equal(peak,12);assert.equal(active,0);
+  assert(tags.length>100 && tags.every(tag=>tag==='0x64'));
+});
+test('a stalled portfolio page does not hold reads from another section',async()=>{
+  const f=portfolioFixture();let release,markFull;let blocked=0;
+  const held=new Promise(resolve=>release=resolve),full=new Promise(resolve=>markFull=resolve);
+  f.state.beforeRead=async({method,params=[]})=>{
+    if(method!=='eth_call'||!PORTFOLIOS.includes(params[0].to))return;
+    if(++blocked===12)markFull();
+    await held;
+  };
+  const pageTask=readPortfolioPage(f.config,f.provider,{fetcher:f.fetcher});
+  let timer;
+  try{
+    await Promise.race([full,
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('portfolio reads did not fill the limiter')),2000);})]);
+    clearTimeout(timer);
+    const other=await Promise.race([
+      readPortfolioContext(f.config,f.provider),
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('independent context was blocked')),2000);}),
+    ]);
+    assert.equal(other.tag,'0x64');
+  }finally{clearTimeout(timer);release();}
+  assert.equal((await pageTask).items.length,2);
+});
+test('a failed portfolio page drains its reads before rejection and a fresh section can read',async()=>{
+  const f=portfolioFixture();let active=0,fail=true;
+  const budget=abi.BudgetPortfolioVault.encodeFunctionData('budgetWei');
+  const provider={request:async input=>{
+    if(input.method!=='eth_call'||!PORTFOLIOS.includes(input.params[0].to))return f.provider.request(input);
+    active++;
+    try{
+      await new Promise(resolve=>setTimeout(resolve,2));
+      if(fail&&input.params[0].to===PORTFOLIOS[1]&&input.params[0].data===budget)throw new Error('portfolio read failed');
+      return await f.provider.request(input);
+    }finally{active--;}
+  }};
+  await assert.rejects(readPortfolioPage(f.config,provider,{fetcher:f.fetcher}),/portfolio read failed/);
+  assert.equal(active,0);
+  fail=false;
+  const context=await readPortfolioContext(f.config,provider);
+  assert.equal(context.tag,'0x64');
+  const page=await readPortfolioPage(f.config,provider,{fetcher:f.fetcher});
+  assert.deepEqual(page.items.map(row=>row.pool),PORTFOLIOS);
 });
 test('budget subscriptions, transfers and creation encode exact reviewed amounts without transaction simulation',async()=>{
   const f=portfolioFixture(),input={config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0]};

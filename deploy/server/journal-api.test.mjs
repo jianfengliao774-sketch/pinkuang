@@ -228,6 +228,20 @@ test('fresh activation reports only a Gas public address derived from the review
   } finally {await mismatch.close();}
 });
 
+test('public deployment console never treats its configured Gas address as a verified signer', async () => {
+  const expected=Wallet.createRandom().address;
+  const f=await fixture(chainProof(),()=>hex(5),()=>{},
+    {expectedGasWallet:expected,freshConsolePreGenesis:true});
+  try {
+    const session=await f.login(wallet);
+    const config=await f.request('/api/journal/fresh-activation/config','GET',undefined,session.cookie);
+    assert.deepEqual(config.body,{credentialVerified:false,gasWallet:expected});
+    const denied=await f.request('/api/journal/fresh-activation','PUT',
+      {record:{},expectedRevision:0},session.cookie);
+    assert.equal(denied.status,503);
+  } finally {await f.close();}
+});
+
 test('journal API permits only documented no-send rejection and same-intent manual retry', async () => {
   const gasWallet = Wallet.createRandom().address;
   const f = await fixture(chainProof(), () => hex(5), () => {},
