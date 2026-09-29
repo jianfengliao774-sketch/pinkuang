@@ -258,6 +258,9 @@ def wait_for_index():
         except (OSError,ValueError):pass
         time.sleep(max(0,min(2,deadline-time.monotonic())))
     raise RuntimeError('New index is not complete within '+str(catchup_seconds)+' seconds; rollback and diagnose RPC/logs')
+def retired_console_public_acceptance(path):
+    code,_=public('/pinkuang-deploy-v2'+path)
+    assert code==410,'Retired v2 deployment console became public'
 def link_target():
     if public_current.is_symlink():return os.readlink(public_current)
     assert not public_current.exists(),'Product current must be absent or a reviewed symlink';return None
@@ -377,7 +380,7 @@ def main():
         else:raise RuntimeError('Product HTTPS bytes did not converge')
         code,body=public('/bemine-v2/data/frontend-manifest.json');assert code==200 and json.loads(body)==CONFIG['manifest']
         for path,name in [('/','dist/index.html'),('/deployment-artifacts.json','dist/deployment-artifacts.json')]:
-            code,body=public('/pinkuang-deploy-v2'+path);assert code==200 and sha(body)==runtime_manifest['files'][name]['sha256'],'Runtime HTTPS file mismatch: '+name
+            retired_console_public_acceptance(path)
         assert public('/bemine-v2/api/journal/build')[0]==401
         code,body=public('/bemine-v2/api/chain-index/health');assert code==200 and verified_index(body)
         assert legacy()==state['legacy'];s=journal.stat();assert (s.st_dev,s.st_ino)==inode

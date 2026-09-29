@@ -98,6 +98,50 @@ async function assertInvalidatedDisplay(index, baseUrl) {
   assert.equal(health.displaySource, undefined);
 }
 
+test('short index refresh returns a fresh page; unfinished refresh never makes its old tip actionable', async () => {
+  let syncing = true, finishRefresh = true;
+  const waits = [];
+  const index = {
+    get syncing() { return syncing; },
+    status: () => ({ complete: true, unknownReason: null, indexedThrough: syncing ? 6 : 7,
+      indexedBlockHash: syncing ? hex(6) : hex(7) }),
+    async waitForSync(timeout) { waits.push(timeout); if (finishRefresh) syncing = false; },
+    acquireVerifiedReadView: () => null,
+    verifiedDisplaySnapshot: () => null,
+    stats: () => ({ registeredPoolCount: '1' }),
+  };
+  const server = createChainIndexServer(index, { syncWaitMs: 75 });
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const fresh = await (await fetch(`${base}/v1/stats`)).json();
+    assert.equal(fresh.source.complete, true);
+    assert.equal(fresh.source.indexedThrough, 7);
+    assert.equal(fresh.source.readMode, undefined);
+    assert.deepEqual(fresh.data, { registeredPoolCount: '1' });
+    assert.deepEqual(waits, [75]);
+
+    syncing = true; finishRefresh = false;
+    const health = await (await fetch(`${base}/health`)).json();
+    assert.equal(health.source.complete, false);
+    assert.equal(health.source.unknownReason, 'index_refreshing');
+    assert.equal(health.source.transactionReady, false);
+    const pending = await fetch(`${base}/v1/stats`);
+    assert.equal(pending.status, 503);
+    const body = await pending.json();
+    assert.equal(body.source.complete, false);
+    assert.equal(body.source.transactionReady, false);
+    assert.deepEqual(waits, [75, 75, 75]);
+
+    syncing = false;
+    index.stats = () => { syncing = true; return { registeredPoolCount: '1' }; };
+    const changed = await fetch(`${base}/v1/stats`);
+    assert.equal(changed.status, 503);
+    assert.equal((await changed.json()).source.transactionReady, false,
+      'a new sync starting during the read must not leave an actionable response');
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 function headerBatchFixture({ change = (_number, _count, header) => header, failAt } = {}) {
   let active = 0, peak = 0, calls = 0;
   const counts = new Map(), finished = [];

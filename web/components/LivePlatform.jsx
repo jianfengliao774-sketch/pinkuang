@@ -1,7 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
-import { displayListSnapshot, displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
 import { ZeroAddress, getAddress } from "ethers";
@@ -43,7 +43,7 @@ import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
 import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
-import LivePortfolios from "./LivePortfolios";
+import LivePortfolios, { clearRecentPortfolioDisplays } from "./LivePortfolios";
 import PublicDisplayPreview from './PublicDisplayPreview';
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
 import { prepareBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
@@ -61,7 +61,7 @@ import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
 import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
-import { publicPreviewFresh, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
+import { publicPreviewFresh, publicPreviewNeedsRefresh, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
@@ -99,6 +99,7 @@ import {
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const minimumSharePriceWei = 10000000000000n;
 const displayStorage = () => { try { return window.localStorage; } catch { return null; } };
+const sessionDisplayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const readPageSnapshot = (storage, manifest, page) => readDisplaySnapshot(storage, manifest, page,
   process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4' ? { maxAgeMs: 30 * 60_000 } : {});
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
@@ -217,6 +218,7 @@ export default function LivePlatform() {
     [route, setRoute] = useState({ route: "home", pool: null });
   const routeIdentity = useRef(route);
   const publicDisplayCache = useRef(new Map());
+  const resolvedPublicPreview = useRef({ key: '', sections: {} });
   const [boot, setBoot] = useState({ status: "loading" }),
     [bootAttempt, setBootAttempt] = useState(0),
     [client, setClient] = useState(null),
@@ -315,6 +317,14 @@ export default function LivePlatform() {
   const portfolioRead = useRef({ busy: false, failed: false });
   const capacityDisplay = useRef({ pools: {}, orders: {} });
   const refreshState = useRef(null);
+  const invalidateDisplayOnReorg = (service, problem) => {
+    if (problem?.code !== 'source_reorg' || !service) return;
+    invalidateDisplaySnapshots(displayStorage(), service.manifest);
+    invalidateDisplaySnapshots(sessionDisplayStorage(), service.manifest);
+    clearRecentPortfolioDisplays();
+    pageCache.current.delete(service);
+    readCache.current.delete(service);
+  };
   const clearWalletDisplay = () => {
     setPools([]); setPoolCursor(null); setDetail(null); setDetailPreview(null);
     setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
@@ -415,6 +425,33 @@ export default function LivePlatform() {
       localStorage.setItem("bemine-appearance", appearance);
     } catch {}
   }, [appearance]);
+  const publicDisplayKey = `${route.route}:${route.pool ?? ''}:${marketTab}`;
+  const currentDisplay = value => value && value.stale !== true && value.readMode !== 'verified_snapshot';
+  const publicPreviewResolved = section => section === 'stats'
+    ? route.route === 'home' && currentDisplay(statsSource)
+    : section === 'pools'
+      ? route.route === 'home' && loadedRoute === 'home' && currentDisplay(source)
+        || route.route === 'pools' && loadedRoute === 'pools' && currentDisplay(source)
+        || route.route === 'detail' && detail && same(detail.pool, route.pool) && currentDisplay(source)
+      : section === 'portfolios'
+        ? portfolioReadState.mode === route.route
+          && portfolioReadState.pool === (route.route === 'portfolio' ? route.pool?.toLowerCase() : '')
+          && portfolioReadState.account === (account?.toLowerCase() || '')
+          && portfolioReadState.provider === client?.provider
+          && portfolioReadState.current
+        : section === 'orders'
+          ? route.route === 'market' && marketTab === 'shares'
+            && marketOrderIdentity === `shares:${account?.toLowerCase() || ''}`
+            && currentDisplay(marketOrderSource) : false;
+  const publicPreviewSections = route.route === 'home' ? ['stats', 'pools']
+    : route.route === 'pools' ? ['pools', 'portfolios']
+      : route.route === 'market' && marketTab === 'shares' ? ['orders']
+        : route.route === 'detail' ? ['pools']
+          : route.route === 'portfolio' ? ['portfolios'] : [];
+  useEffect(() => {
+    resolvedPublicPreview.current = { key: publicDisplayKey,
+      sections: Object.fromEntries(publicPreviewSections.map(section => [section, !!publicPreviewResolved(section)])) };
+  });
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY !== 'fresh-v4') return;
     const activeRoute = parseProductRoute(location.hash);
@@ -451,7 +488,8 @@ export default function LivePlatform() {
       const refreshSection = async section => {
         const cacheKey = `${section}:${address ?? ''}`;
         const cached = publicDisplayCache.current.get(cacheKey);
-        if (cancelled || inFlight.has(section)) return;
+        if (cancelled || inFlight.has(section)
+          || !publicPreviewNeedsRefresh(resolvedPublicPreview.current, key, section)) return;
         if (cached && publicPreviewFresh(cached.source)) {
           showSection(section, cacheKey, cached);
         }
@@ -467,14 +505,25 @@ export default function LivePlatform() {
           while (publicDisplayCache.current.size > 32)
             publicDisplayCache.current.delete(publicDisplayCache.current.keys().next().value);
           showSection(section, cacheKey, result);
-        } catch { /* Normal authoritative reads continue without a preview. */ }
+        } catch (error) {
+          // A 503 makes this section's snapshot unavailable. Retire the old
+          // preview rather than keep displaying it until its age limit.
+          if (!cancelled && error?.code === 'http_unavailable' && error.details?.status === 503) {
+            publicDisplayCache.current.delete(cacheKey);
+            clearTimeout(expiryTimers.get(section));
+            expiryTimers.delete(section);
+            setPublicDisplay(previous => previous.key === key
+              ? { key, sections: { ...previous.sections, [section]: null } } : previous);
+          }
+          // Normal authoritative reads continue without a preview.
+        }
         finally { inFlight.delete(section); }
       };
       const checkVisible = () => {
         if (document.visibilityState === 'visible') for (const section of sections) void refreshSection(section);
       };
       checkVisible();
-      retryTimer = setInterval(checkVisible, 60_000);
+      retryTimer = setInterval(checkVisible, refreshIntervalMs(route.route) ?? 60_000);
       window.addEventListener('focus', checkVisible);
       document.addEventListener('visibilitychange', checkVisible);
       return () => { cancelled = true; for (const timer of expiryTimers.values()) clearTimeout(timer);
@@ -830,6 +879,7 @@ export default function LivePlatform() {
       })
       .catch((e) => {
         if (current()) {
+          invalidateDisplayOnReorg(client, e);
           setError(textError(e));
           setReadFailed(true);
           // A failed revalidation must not turn the last verified display into
@@ -895,7 +945,7 @@ export default function LivePlatform() {
         entries.set(cacheKey, { savedAt: Date.now(), result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
-      .catch(error => { if (!cancelled) setPositionsReadError(textError(error)); })
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setPositionsReadError(textError(error)); } })
       .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
     return () => { cancelled = true; ++positionsReadEpoch.current; };
   }, [client, account, route.route, refresh]);
@@ -937,7 +987,7 @@ export default function LivePlatform() {
         entries.set(cacheKey, { savedAt: Date.now(), result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
-      .catch(error => { if (!cancelled) setMarketOrdersError(textError(error)); })
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setMarketOrdersError(textError(error)); } })
       .finally(() => { if (!cancelled) setMarketOrdersLoading(false); });
     return () => { cancelled = true; ++marketOrdersEpoch.current; };
   }, [client, account, route.route, marketTab, refresh]);
@@ -979,7 +1029,7 @@ export default function LivePlatform() {
         entries.set(cacheKey, { savedAt: Date.now(), result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
-      .catch(error => { if (!cancelled) setActivityReadError(textError(error)); })
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
       .finally(() => { if (!cancelled) setActivityReadLoading(false); });
     return () => { cancelled = true; ++activityReadEpoch.current; };
   }, [client, account, route.route, refresh]);
@@ -1004,7 +1054,7 @@ export default function LivePlatform() {
         entries.set('stats', { savedAt: Date.now(), result });
         writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
       })
-      .catch(error => { if (!cancelled) setStatsReadError(textError(error)); });
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } });
     return () => { cancelled = true; };
   }, [client, route.route, refresh]);
 
@@ -1025,13 +1075,15 @@ export default function LivePlatform() {
       .then(result => { if (!cancelled) { setGovernance(result.data);
         setGovernanceProof({ pool, account: owner, source: result.source });
         writeDisplaySnapshot(displayStorage(), client.manifest, governanceKey, result); } })
-      .catch(() => { if (!cancelled && !governanceCache) { setGovernance(null); setGovernanceProof(null); } });
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error);
+        if (!governanceCache) { setGovernance(null); setGovernanceProof(null); } } });
     void client.readActivity({ pool })
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
           writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
       })
-      .catch(() => { if (!cancelled && !activityCache) { setActivity([]); setActivityCursor(null); } });
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error);
+        if (!activityCache) { setActivity([]); setActivityCursor(null); } } });
     return () => { cancelled = true; };
   }, [client, account, route.route, route.pool, detail, loading, refresh]);
 
@@ -1148,7 +1200,7 @@ export default function LivePlatform() {
           if (!cancelled) { setYieldData(result.data);
             writeDisplaySnapshot(displayStorage(), client.manifest, yieldKey, result); }
         })
-        .catch(() => {});
+        .catch(error => { if (!cancelled) invalidateDisplayOnReorg(client, error); });
     return () => {
       cancelled = true;
     };
@@ -2046,30 +2098,7 @@ export default function LivePlatform() {
   const displaySources = route.route === 'home' ? [pageSource, statsSource]
     : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
   const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
-  const publicDisplayKey = `${route.route}:${route.pool ?? ''}:${marketTab}`;
   const publicDisplaySections = publicDisplay.key === publicDisplayKey ? publicDisplay.sections : {};
-  const currentDisplay = value => value && value.stale !== true && value.readMode !== 'verified_snapshot';
-  const publicPreviewResolved = section => section === 'stats'
-    ? route.route === 'home' && currentDisplay(statsSource)
-    : section === 'pools'
-      ? route.route === 'home' && loadedRoute === 'home' && currentDisplay(source)
-        || route.route === 'pools' && loadedRoute === 'pools' && currentDisplay(source)
-        || route.route === 'detail' && detail && same(detail.pool, route.pool) && currentDisplay(source)
-      : section === 'portfolios'
-        ? portfolioReadState.mode === route.route
-          && portfolioReadState.pool === (route.route === 'portfolio' ? route.pool?.toLowerCase() : '')
-          && portfolioReadState.account === (account?.toLowerCase() || '')
-          && portfolioReadState.provider === client?.provider
-          && portfolioReadState.current
-        : section === 'orders'
-          ? route.route === 'market' && marketTab === 'shares'
-            && marketOrderIdentity === `shares:${account?.toLowerCase() || ''}`
-            && currentDisplay(marketOrderSource) : false;
-  const publicPreviewSections = route.route === 'home' ? ['stats', 'pools']
-    : route.route === 'pools' ? ['pools', 'portfolios']
-      : route.route === 'market' && marketTab === 'shares' ? ['orders']
-        : route.route === 'detail' ? ['pools']
-          : route.route === 'portfolio' ? ['portfolios'] : [];
   const detailActionsReady = currentDetailActionReady({ client, config, source,
     cachedPage, loading, busy, loadedRoute, routePool: route.pool, detailPool: detail?.pool,
     loadedAccount, account });
@@ -3282,6 +3311,7 @@ export default function LivePlatform() {
           {['pools','overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
+            onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
             onReadStateChange={state => { portfolioRead.current = state;
               setPortfolioReadState({ mode: route.route, pool: route.pool?.toLowerCase() || '',
@@ -3354,6 +3384,7 @@ export default function LivePlatform() {
               wallet={wallet} disabled={busy || !!pending} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
+              onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
               onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
           </> : <section className="panel" data-operator-access={operatorAccess}>

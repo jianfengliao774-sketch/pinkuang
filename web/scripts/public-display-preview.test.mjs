@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePublicDisplaySection, publicPreviewFresh, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
+import { parsePublicDisplaySection, publicPreviewFresh, publicPreviewNeedsRefresh,
+  readPublicDisplaySection } from '../lib/public-display-preview.mjs';
 
 const addr = byte => `0x${byte.repeat(20)}`;
 const hash = byte => `0x${byte.repeat(32)}`;
@@ -150,6 +151,20 @@ test('snapshot display validity advances with its original proof clock', () => {
   assert.equal(publicPreviewFresh({ ...source, checkedAt: new Date(now + 30_001).toISOString() }, now), false);
 });
 
+test('preview retries stop per resolved section and resume if that section loses current data', () => {
+  const routeKey = 'home::shares';
+  const before = { key: routeKey, sections: { pools: false, stats: false } };
+  const partial = { key: routeKey, sections: { pools: true, stats: false } };
+  const current = { key: routeKey, sections: { pools: true, stats: true } };
+  assert.equal(publicPreviewNeedsRefresh(before, routeKey, 'pools'), true);
+  assert.equal(publicPreviewNeedsRefresh(partial, routeKey, 'pools'), false);
+  assert.equal(publicPreviewNeedsRefresh(partial, routeKey, 'stats'), true);
+  assert.equal(publicPreviewNeedsRefresh(current, routeKey, 'stats'), false);
+  assert.equal(publicPreviewNeedsRefresh(before, routeKey, 'stats'), true);
+  assert.equal(publicPreviewNeedsRefresh(current, 'detail:0x123:shares', 'pools'), true,
+    'a previous route cannot suppress the new route preview');
+});
+
 test('route-aware reads use only the requested same-origin section without browser caching', async () => {
   const calls = [];
   const fetcher = async (url, options) => {
@@ -166,4 +181,12 @@ test('route-aware reads use only the requested same-origin section without brows
     assert.equal(call.options.cache, 'no-store');
     assert.equal(call.options.credentials, 'same-origin');
   }
+});
+
+test('a retired server snapshot reports 503 for the owning preview section', async () => {
+  const unavailable = async () => new Response(JSON.stringify({ error: 'No recent canonical verified display snapshot.' }),
+    { status: 503, headers: { 'Content-Type': 'application/json' } });
+  await assert.rejects(readPublicDisplaySection({ origin: 'https://example.test', manifest,
+    section: 'stats', fetcher: unavailable, now: () => now }),
+  { code: 'http_unavailable', details: { status: 503 } });
 });

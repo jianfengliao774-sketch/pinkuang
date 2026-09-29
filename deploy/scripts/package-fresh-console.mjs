@@ -125,7 +125,7 @@ function ensureSourceCommit(source, sourceHead, runtimeModules) {
     '../contracts/src', '../contracts/foundry.toml'];
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...cleanPaths],
     { cwd: source, encoding: 'utf8' });
-  assert(!dirty.trim(), 'Commit reviewed source before creating a fresh console release.');
+  assert(!dirty.trim(), `Commit reviewed source before creating a fresh console release. Dirty paths:\n${dirty.trim()}`);
   const tracked = execFileSync('git', ['ls-files', '--', ...runtimeModules],
     { cwd: source, encoding: 'utf8' }).trim().split('\n');
   assert.deepEqual(tracked.sort(), [...runtimeModules].sort(), 'Every packaged runtime module must be tracked at the source commit.');

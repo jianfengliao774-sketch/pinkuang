@@ -58,6 +58,13 @@ test('portfolio discovery uses parent registration and does not multiply 100 sha
     const broken=portfolioFixture(option);await assert.rejects(readPortfolioPage(broken.config,broken.provider,{fetcher:broken.fetcher}));
   }
 });
+test('budget index block mismatch is tagged as a reorg so stale display caches are retired',async()=>{
+  const f=portfolioFixture();
+  const fetcher=async url=>new Response(JSON.stringify({...f.index(url),
+    source:{...f.source(),indexedBlockHash:`0x${'ab'.repeat(32)}`}}),
+  {headers:{'content-type':'application/json'}});
+  await assert.rejects(readPortfolioPage(f.config,f.provider,{fetcher}),{code:'source_reorg'});
+});
 test('genesis budget sale shows the cost-based 60-share threshold only below purchase cost',async()=>{
   const f=portfolioFixture({stage:'genesis',activeProposalId:1n,nextProposalId:2n,
     proposal:{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,

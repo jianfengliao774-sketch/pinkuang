@@ -58,7 +58,7 @@ test('budget query and historical or changed blocks stop before candidate scans'
     f.state.hashes.set(10,hash(100));assert.equal((await f.get()).status,409);assert.equal(f.state.scans,0);
   }finally{await f.close();}
 });
-test('unregistered or absent budget parent cannot spend the shared graph proof budget',async()=>{
+test('unregistered or absent budget parent cannot spend a graph proof',async()=>{
   const f=await fixture();
   try{
     f.state.parentRegistered=false;
@@ -70,12 +70,17 @@ test('unregistered or absent budget parent cannot spend the shared graph proof b
     assert.equal(f.state.scans,0);
   }finally{await f.close();}
 });
-test('a real budget parent with changing pinned hashes cannot consume another visitor’s graph allowance',async()=>{
+test('rotating public clients cannot exceed the separate budget graph proof allowance',async()=>{
   const f=await fixture();try{
     assert.equal((await f.get(path(10),'198.51.100.1')).status,200);
     assert.equal((await f.get(path(11),'198.51.100.1')).status,429);
     assert.equal(f.state.graphs,1);
-    assert.equal((await f.get(path(11),'198.51.100.2')).status,200);
+    assert.equal((await f.get(path(11),'198.51.100.2')).status,429,
+      'another public IP cannot start a second budget proof before refill');
+    assert.equal(f.state.graphs,1);
+    f.state.time+=8_000;
+    assert.equal((await f.get(path(11),'198.51.100.2')).status,200,
+      'budget candidates retain their own replenishing proof allowance');
     assert.equal(f.state.graphs,2);
     f.state.time+=8_000;
     assert.equal((await f.get(path(12),'198.51.100.1')).status,200);

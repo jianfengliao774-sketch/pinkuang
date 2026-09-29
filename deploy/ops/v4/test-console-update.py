@@ -262,6 +262,45 @@ class UpdateOrderTests(unittest.TestCase):
                 ['systemctl', 'start', 'pinkuang-deploy-v4.service'],
             ])
 
+    def test_stop_error_after_process_exit_still_restarts_original_console(self):
+        with tempfile.TemporaryDirectory() as folder:
+            current, releases, args = self.staging(folder, reviewed_unit(credential=False, flags=True))
+            original = current.read_bytes()
+            snippet = Path(folder) / 'pinkuang-deploy-v4.conf'
+            snippet.write_text('location ^~ /pinkuang-deploy-v4/ {\n'
+                               '    auth_basic "BEMine deployment";\n'
+                               '    auth_basic_user_file /etc/nginx/pinkuang-deploy-v4.htpasswd;\n}\n')
+            commands = []
+            stop_count = 0
+
+            def command(value, **_):
+                nonlocal stop_count
+                commands.append(value)
+                if value[:2] == ['systemctl', 'stop']:
+                    stop_count += 1
+                    if stop_count == 1:
+                        raise RuntimeError('systemctl reported an error after the process stopped')
+
+            hooks = {'UNIT': current, 'RELEASES': releases,
+                     'SNIPPET': snippet, 'require_console_auth_file': lambda: None,
+                     'require_effective_unit_isolated': lambda: None,
+                     'empty_genesis_journals': lambda: None,
+                     'validate_archive': lambda _: None,
+                     'extract_archive': lambda _, target: target.mkdir(),
+                     'command': command}
+            with patch.dict(main.__globals__, hooks), \
+                 patch('os.geteuid', return_value=0), \
+                 patch('subprocess.check_output', return_value='active\n'), \
+                 patch.object(sys, 'argv', args), \
+                 self.assertRaisesRegex(RuntimeError, 'after the process stopped'):
+                main()
+            self.assertEqual(current.read_bytes(), original)
+            self.assertEqual(commands[-3:], [
+                ['systemctl', 'stop', 'pinkuang-deploy-v4.service'],
+                ['systemctl', 'daemon-reload'],
+                ['systemctl', 'start', 'pinkuang-deploy-v4.service'],
+            ])
+
 
 if __name__ == '__main__':
     unittest.main()

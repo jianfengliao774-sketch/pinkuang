@@ -53,6 +53,19 @@ class Configuration(unittest.TestCase):
   ns={};exec(compile(ast.Module(body=nodes,type_ignores=[]),'runtime-hotfix-functions','exec'),ns)
   candidate=ns['candidate_snippet'](source)
   self.assertEqual(candidate.replace(ns['quote_location'](),b'',1),source)
+ def test_product_update_accepts_only_retired_public_console(self):
+  seen=[]
+  ns={'public':lambda path:(seen.append(path) or 410,b'')}
+  functions(['retired_console_public_acceptance'],ns)
+  for path in ['/','/deployment-artifacts.json']:
+   ns['retired_console_public_acceptance'](path)
+  self.assertEqual(seen,['/pinkuang-deploy-v2/','/pinkuang-deploy-v2/deployment-artifacts.json'])
+  ns['public']=lambda path:(200,b'')
+  with self.assertRaisesRegex(AssertionError,'became public'):
+   ns['retired_console_public_acceptance']('/')
+  main=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='main')
+  self.assertTrue(any(isinstance(node,ast.Call) and isinstance(node.func,ast.Name)
+   and node.func.id=='retired_console_public_acceptance' for node in ast.walk(main)))
 
 class CatchupConfiguration(unittest.TestCase):
  def setUp(self):

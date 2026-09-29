@@ -244,14 +244,17 @@ def main():
     extract_archive(args.archive, new)
     command(['npm', 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
             timeout=300, cwd=new)
-    stopped = False
+    # Mark the transition before asking systemd to stop. A stop command can
+    # report an error after the process has already exited; in that case the
+    # original service still needs to be started by the rollback path.
+    transition_attempted = False
     try:
         empty_genesis_journals()
         require_effective_unit_isolated()
         require(digest(UNIT) == args.current_unit_sha256,
                 'v4 unit changed while the replacement release was staged.')
+        transition_attempted = True
         command(['systemctl', 'stop', 'pinkuang-deploy-v4.service'])
-        stopped = True
         # The active console could commit a wallet journal after the first read.
         empty_genesis_journals()
         require_effective_unit_isolated()
@@ -290,8 +293,13 @@ def main():
         print(f'ACTIVE v4 console release={args.release_id} archive_sha256={args.archive_sha256}')
         print(f'unit_sha256={digest(UNIT)} artifact_sha256={digest(new / "dist/deployment-artifacts.json")}')
     except Exception:
-        if stopped:
-            command(['systemctl', 'stop', 'pinkuang-deploy-v4.service'])
+        if transition_attempted:
+            # A failed first stop does not prove the service is still running.
+            # Retry the stop, but do not let its status suppress restoration.
+            try:
+                command(['systemctl', 'stop', 'pinkuang-deploy-v4.service'])
+            except RuntimeError:
+                pass
             if UNIT.read_text() == updated:
                 write_atomic(UNIT, original, 0o600)
             require(UNIT.read_text() == original, 'v4 unit changed unexpectedly during rollback.')

@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayListSnapshot, displayOnlySnapshot, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey,
+  readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 
 const manifest = { artifactDigest: `0x${'ab'.repeat(32)}`, factory: `0x${'11'.repeat(20)}`, shareMarket: `0x${'22'.repeat(20)}` };
 const source = { complete: true, unknownReason: null, chainId: 56, factory: manifest.factory,
   market: manifest.shareMarket, indexedThrough: 100, indexedTimestamp: 1700000000,
   indexedBlockHash: `0x${'cd'.repeat(32)}` };
 const storage = (map = new Map()) => {
-  return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) };
+  return { getItem: key => map.get(key) ?? null, setItem: (key, value) => map.set(key, value),
+    removeItem: key => map.delete(key), key: index => [...map.keys()][index] ?? null,
+    get length() { return map.size; } };
 };
 
 test('pre-boot and live display keys isolate routes, wallets and market tabs', () => {
@@ -101,4 +104,19 @@ test('a new page instance restores only its own wallet snapshot from persistent 
   assert.equal(restored.items[0].shares, 11n);
   assert.equal(restored.source.transactionReady, false);
   assert.equal(readDisplaySnapshot(storage(backing), manifest, `positions:${walletB}`, { now: 2000 }), null);
+});
+
+test('reorg invalidation retires every page for one deployment without touching another', () => {
+  const backing = new Map(), cache = storage(backing), other = { ...manifest, factory: `0x${'33'.repeat(20)}` };
+  assert.equal(writeDisplaySnapshot(cache, manifest, 'home', { source, items: [] }, { now: 1000 }), true);
+  assert.equal(writeDisplaySnapshot(cache, manifest, 'detail', { source, items: [] }, { now: 1000 }), true);
+  const otherSource = { ...source, factory: other.factory };
+  assert.equal(writeDisplaySnapshot(cache, other, 'home', { source: otherSource, items: [] }, { now: 1000 }), true);
+  cache.setItem('unrelated', 'keep');
+  assert.equal(invalidateDisplaySnapshots(cache, manifest), 2);
+  assert.equal(readDisplaySnapshot(cache, manifest, 'home', { now: 2000 }), null);
+  assert.equal(readDisplaySnapshot(cache, manifest, 'detail', { now: 2000 }), null);
+  assert.equal(readDisplaySnapshot(cache, other, 'home', { now: 2000 })?.items.length, 0);
+  assert.equal(cache.getItem('unrelated'), 'keep');
+  assert.equal(invalidateDisplaySnapshots(cache, manifest), 0);
 });

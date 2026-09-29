@@ -37,12 +37,20 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     catch { return send(400, { error: 'Invalid URL.' }); }
     try {
     let source = index.status();
+    // Wait briefly for a fresh proof before falling back to a display-only
+    // read view. Explicit snapshot routes remain historical and do not wait.
+    if (index.syncing && !url.pathname.startsWith('/v1/snapshot/')) {
+      await index.waitForSync(syncWaitMs);
+      source = index.status();
+    }
     if (url.pathname === '/health') {
       const view = index.syncing || !source.complete ? index.acquireVerifiedReadView() : null;
       try {
         // Keep `source` as the live operational status. Only browser display
         // reads may use the previously verified tip, clearly marked as stale.
-        return send(200, { source, ...(view ? { displaySource: {
+        const liveSource = index.syncing ? { ...source, complete: false,
+          unknownReason: 'index_refreshing', transactionReady: false } : source;
+        return send(200, { source: liveSource, ...(view ? { displaySource: {
           ...view.source, readMode: 'verified_snapshot', stale: true,
           refreshing: Boolean(index.syncing), transactionReady: false,
         } } : {}) });
@@ -129,12 +137,11 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     // coherent even after the writer commits new scan chunks. Label every
     // response from that copy as display-only history.
     let readView = index.syncing || !source.complete ? index.acquireVerifiedReadView() : null;
-    if (!source.complete && !readView && index.syncing) {
-      await index.waitForSync(index.verifiedDisplaySnapshot() ? Math.min(syncWaitMs, 250) : syncWaitMs);
-      source = index.status();
-      if (!source.complete) readView = index.acquireVerifiedReadView();
-    }
-    if (!source.complete && !readView) return send(503, { source, data: null, error: 'Index is not verified through the observed safe head.' });
+    if ((index.syncing || !source.complete) && !readView)
+      return send(503, { source: { ...source, complete: false,
+        unknownReason: index.syncing ? 'index_refreshing' : source.unknownReason,
+        transactionReady: false },
+        data: null, error: 'Index is not verified through the observed safe head.' });
     const reader = readView?.index ?? index;
     if (readView) source = { ...readView.source, readMode: 'verified_snapshot', stale: true,
       refreshing: index.syncing, transactionReady: false };
@@ -185,6 +192,15 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
       } else return send(404, { error: 'Unknown route.' });
       if (readView && !index.isVerifiedReadView(readView))
         return send(503, { source: index.status(), data: null, error: 'Previous verified snapshot was invalidated.' });
+      if (!readView) {
+        const current = index.status();
+        if (index.syncing || !current.complete || current.indexedThrough !== source.indexedThrough
+          || current.indexedBlockHash !== source.indexedBlockHash)
+          return send(503, { source: { ...current, complete: false,
+            unknownReason: index.syncing ? 'index_refreshing' : current.unknownReason,
+            transactionReady: false }, data: null,
+          error: 'Index changed during the read; retry with a fresh verified source.' });
+      }
       return send(200, { source, data });
     } catch (error) {
       const invalid = error instanceof InvalidQueryError;

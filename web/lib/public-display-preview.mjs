@@ -20,6 +20,11 @@ export function publicPreviewFresh(source, now = Date.now()) {
     && checkedAt <= now + 30_000 && now - checkedAt <= 30 * 60_000;
 }
 
+/** A preview is useful only until this route's authoritative section is current. */
+export function publicPreviewNeedsRefresh(resolution, routeKey, section) {
+  return resolution?.key !== routeKey || resolution.sections?.[section] !== true;
+}
+
 const sanitizeSource = source => Object.freeze({
   chainId: source.chainId, factory: source.factory, market: source.market,
   indexedThrough: source.indexedThrough, indexedBlockHash: source.indexedBlockHash,

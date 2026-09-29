@@ -272,11 +272,12 @@ test('expired verified graph returns immediately as display-only while one new p
   }
 });
 
-test('quiet product site refreshes its reviewed display graph before the current window expires', async () => {
+test('recent product visitor gets a warm graph, while a first visitor after idle waits for a new proof', async () => {
   const directory=await mkdtemp(join(tmpdir(),'product-graph-timer-api-'));
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
   const next={number:first.number+1,hash:salt('7'),timestamp:first.timestamp+3};
+  const afterIdle={number:next.number+1,hash:salt('8'),timestamp:next.timestamp+3};
   let finalized=first,clock=1_000_000,verifications=0,resolveNext;
   const nextProof=new Promise(resolve=>{resolveNext=resolve;});
   const addresses=genesisRecord.addresses;
@@ -287,6 +288,7 @@ test('quiet product site refreshes its reviewed display graph before the current
       if(tag==='finalized')return finalized;
       if(tag===first.number)return first;
       if(tag===next.number)return next;
+      if(tag===afterIdle.number)return afterIdle;
       if(tag===initial.receipt.blockNumber)
         return {number:tag,hash:initial.receipt.blockHash,timestamp:first.timestamp-100};
       throw new Error(`Unexpected block ${tag}`);
@@ -317,6 +319,14 @@ test('quiet product site refreshes its reviewed display graph before the current
     assert.equal(current.readMode,'current');
     assert.equal(current.verifiedBlockHash,next.hash);
     assert.equal(verifications,2,'no visitor request was needed to trigger the next proof');
+    clock+=120_001;finalized=afterIdle;
+    await new Promise(resolve=>setTimeout(resolve,220));
+    assert.equal(verifications,2,'idle traffic must not trigger another full graph proof');
+    const firstAfterIdle=await(await fetch(url)).json();
+    assert.equal(firstAfterIdle.readMode,'current');
+    assert.equal(firstAfterIdle.stale,false);
+    assert.equal(firstAfterIdle.verifiedBlockHash,afterIdle.hash);
+    assert.equal(verifications,3,'the first visitor after idle waits for a new verified graph');
   }finally{
     await new Promise(resolve=>server.close(resolve));
     await service.close();
@@ -324,7 +334,7 @@ test('quiet product site refreshes its reviewed display graph before the current
   }
 });
 
-test('two public budget proofs cannot consume the site graph refresh slot', async () => {
+test('a bounded public budget proof cannot consume the site graph refresh slot', async () => {
   const directory=await mkdtemp(join(tmpdir(),'product-graph-budget-cap-api-'));
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
@@ -368,7 +378,7 @@ test('two public budget proofs cannot consume the site graph refresh slot', asyn
     productGraphVerifier:async(_provider,factory,block)=>{
       if(factory.toLowerCase()===addresses.portfolioFactory.toLowerCase()){
         budgetProofs++;
-        if(budgetProofs===2)resolveBudgetStarted();
+        if(budgetProofs===1)resolveBudgetStarted();
         await budgetGate;
         throw new Error('Held candidate proof released');
       }
@@ -383,11 +393,15 @@ test('two public budget proofs cannot consume the site graph refresh slot', asyn
   try{
     const graphUrl=`${base}/api/journal/product-graph`;
     assert.equal((await(await fetch(graphUrl)).json()).verifiedBlockHash,first.hash);
-    for(const [index,block] of budgetBlocks.entries())
-      pending.push(fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${block.number}&hash=${block.hash}`,
-        {headers:{'X-Real-IP':`198.51.100.${index+1}`}}));
+    const firstBudget=budgetBlocks[0];
+    pending.push(fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${firstBudget.number}&hash=${firstBudget.hash}`,
+      {headers:{'X-Real-IP':'198.51.100.1'}}));
     await budgetStarted;
-    assert.equal(budgetProofs,2,'both candidate graph slots are occupied');
+    const secondBudget=budgetBlocks[1];
+    const denied=await fetch(`${base}/api/journal/budget-candidates?parent=${parent}&block=${secondBudget.number}&hash=${secondBudget.hash}`,
+      {headers:{'X-Real-IP':'198.51.100.2'}});
+    assert.equal(denied.status,503,'budget proofs have one active slot even across public clients');
+    assert.equal(budgetProofs,1);
     clock+=45_000;finalized=next;
     assert.equal((await(await fetch(graphUrl)).json()).readMode,'verified_snapshot');
     await new Promise(resolve=>setImmediate(resolve));

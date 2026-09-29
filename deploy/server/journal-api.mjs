@@ -57,10 +57,16 @@ const OFFICIAL_SCAN_MS = 60_000;
 const OFFICIAL_RPC_TIMEOUT_MS = 9_000;
 const MAX_OFFICIAL_SCANS = 2;
 const MAX_OFFICIAL_GRAPH_PROOFS = 2;
+const MAX_BUDGET_GRAPH_PROOFS = 1;
 const OFFICIAL_GRAPH_PROOF_BURST = 2;
 const OFFICIAL_GRAPH_PROOF_REFILL_MS = 4_000;
-// A single public visitor gets less than half of each shared refill rate.
-// Cached proofs and identical in-flight proofs do not consume this allowance.
+// Public budget previews have a smaller, independently replenishing proof
+// allowance. They cannot drain official-pool graph tokens or occupy both
+// shared candidate-proof slots.
+const BUDGET_GRAPH_PROOF_BURST = 1;
+const BUDGET_GRAPH_PROOF_REFILL_MS = 8_000;
+// Each visitor has its own cap in each candidate lane. Cached proofs and
+// identical in-flight proofs do not consume either allowance.
 const OFFICIAL_CLIENT_GRAPH_BURST = 1;
 const OFFICIAL_CLIENT_GRAPH_REFILL_MS = 8_000;
 const MAX_OFFICIAL_BLOCK_AGE = 120;
@@ -1016,14 +1022,17 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const publicDiscoveryJobs = new Map();
   const officialGraphCache = new Map(), officialGraphProofs = new Map();
   const activeOfficialGraphClients = new Map();
-  const officialRequestClients = new Map(), officialGraphClients = new Map();
+  const officialRequestClients = new Map(), officialGraphClients = new Map(), budgetGraphClients = new Map();
   const activationBlocks = new Map();
   let lastVerifiedProductGraphSnapshot = null;
   let productGraphRefresh = null;
   let lastProductGraphRefreshAttemptAt = null;
+  let lastProductGraphReadAt = null;
   let officialTokens = OFFICIAL_REQUEST_BURST, officialRefillAt = now(), activeOfficialScans = 0;
   let activeOfficialGraphProofs = 0, officialGraphTokens = OFFICIAL_GRAPH_PROOF_BURST;
   let officialGraphRefillAt = now();
+  let activeBudgetGraphProofs = 0, budgetGraphTokens = BUDGET_GRAPH_PROOF_BURST;
+  let budgetGraphRefillAt = now();
   let closed = false;
 
   function buildDigest() {
@@ -1088,16 +1097,24 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     officialTokens -= 1;
   }
 
-  function consumeOfficialGraphProofBudget(req) {
+  function consumeOfficialGraphProofBudget(req, budget = false) {
     const time = now();
-    officialGraphTokens = Math.min(OFFICIAL_GRAPH_PROOF_BURST,
-      officialGraphTokens + Math.max(0, time - officialGraphRefillAt) / OFFICIAL_GRAPH_PROOF_REFILL_MS);
-    officialGraphRefillAt = time;
-    if (officialGraphTokens < 1) fail(429, 'Product graph verification budget is busy; retry shortly.');
-    if (!consumeClientToken(officialGraphClients, clientAddress(req),
+    if (budget) {
+      budgetGraphTokens = Math.min(BUDGET_GRAPH_PROOF_BURST,
+        budgetGraphTokens + Math.max(0, time - budgetGraphRefillAt) / BUDGET_GRAPH_PROOF_REFILL_MS);
+      budgetGraphRefillAt = time;
+      if (budgetGraphTokens < 1) fail(429, 'Budget graph verification is busy; retry shortly.');
+    } else {
+      officialGraphTokens = Math.min(OFFICIAL_GRAPH_PROOF_BURST,
+        officialGraphTokens + Math.max(0, time - officialGraphRefillAt) / OFFICIAL_GRAPH_PROOF_REFILL_MS);
+      officialGraphRefillAt = time;
+      if (officialGraphTokens < 1) fail(429, 'Product graph verification budget is busy; retry shortly.');
+    }
+    if (!consumeClientToken(budget ? budgetGraphClients : officialGraphClients, clientAddress(req),
       OFFICIAL_CLIENT_GRAPH_BURST, OFFICIAL_CLIENT_GRAPH_REFILL_MS))
       fail(429, 'Too many product graph proofs from this client; retry shortly.');
-    officialGraphTokens -= 1;
+    if (budget) budgetGraphTokens -= 1;
+    else officialGraphTokens -= 1;
   }
 
   async function pinnedOfficialBlock(number, hash, missingTransient = false) {
@@ -1111,7 +1128,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return block;
   }
 
-  async function verifiedOfficialGraph(factory, block, hash, forProductGraph = false, req = null) {
+  async function verifiedOfficialGraph(factory, block, hash, forProductGraph = false, req = null,
+    budgetCandidate = false) {
     const key = `${identity(factory)}:${hash}`;
     const proofKey = forProductGraph ? `site:${key}` : key;
     const cached = officialGraphCache.get(key);
@@ -1126,10 +1144,13 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         client = clientAddress(req);
         if (activeOfficialGraphProofs >= MAX_OFFICIAL_GRAPH_PROOFS)
           fail(503, 'Product graph verification is busy; retry shortly.');
+        if (budgetCandidate && activeBudgetGraphProofs >= MAX_BUDGET_GRAPH_PROOFS)
+          fail(503, 'Budget graph verification is busy; retry shortly.');
         if (activeOfficialGraphClients.has(client))
           fail(503, 'This client already has a product graph proof running; retry shortly.');
-        consumeOfficialGraphProofBudget(req);
+        consumeOfficialGraphProofBudget(req, budgetCandidate);
         activeOfficialGraphProofs += 1;
+        if (budgetCandidate) activeBudgetGraphProofs += 1;
         activeOfficialGraphClients.set(client, true);
       }
       proof = Promise.resolve().then(async () => {
@@ -1152,6 +1173,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       proof.finally(() => {
         if (!forProductGraph) {
           activeOfficialGraphProofs -= 1;
+          if (budgetCandidate) activeBudgetGraphProofs -= 1;
           activeOfficialGraphClients.delete(client);
         }
         if (officialGraphProofs.get(proofKey) === proof) officialGraphProofs.delete(proofKey);
@@ -1356,7 +1378,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         || !await read(factory,'isPool',[parent])
         || identity(await read(parent,'OFFICIAL_FACTORY'))!==identity(factory))
         fail(409,'Budget parent is not registered to the reviewed Factory.');
-      const graph=await verifiedOfficialGraph(factory,block,hash,false,req);
+      const graph=await verifiedOfficialGraph(factory,block,hash,false,req,true);
       const key=`budget:${parent}:${hash}`, cached=officialCache.get(key);
       if(cached?.expires>now()){await pinnedOfficialBlock(number,hash);return cached.result;}
       let scan=officialScans.get(key);
@@ -1537,10 +1559,17 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     return refresh;
   }
 
-  // Keep display proof warm even when traffic is quiet. The timer uses the
-  // same single-flight path as HTTP reads; it never authorizes transactions.
+  // Keep a recently visited display warm. After a quiet period, the next
+  // visitor must get a new proof before receiving a current graph.
   const productGraphTimer=productMode && trustedProduct && officialProvider
-    ? setInterval(()=>{if(!closed)startProductGraphRefresh().catch(()=>{});},productGraphRefreshMs)
+    ? setInterval(()=>{
+      const time=now();
+      if(!closed && lastProductGraphReadAt!==null && time>=lastProductGraphReadAt
+        && time-lastProductGraphReadAt<PRODUCT_GRAPH_STALE_MS
+        && (lastProductGraphRefreshAttemptAt===null
+          || time-lastProductGraphRefreshAttemptAt>=productGraphRefreshMs))
+        startProductGraphRefresh().catch(()=>{});
+    },productGraphRefreshMs)
     : null;
   productGraphTimer?.unref?.();
   if(productGraphTimer)startProductGraphRefresh().catch(()=>{});
@@ -1574,6 +1603,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         if (url.search) fail(400, 'Product graph does not accept caller-selected parameters.');
         if (!officialProvider || !trustedProduct || !productMode)
           fail(503, 'Reviewed product graph is unavailable.');
+        lastProductGraphReadAt=now();
         const cached=lastVerifiedProductGraphSnapshot;
         const snapshotAgeMs=cached ? now()-cached.savedAt : Infinity;
         if (snapshotAgeMs>=0 && snapshotAgeMs<PRODUCT_GRAPH_SNAPSHOT_MS)

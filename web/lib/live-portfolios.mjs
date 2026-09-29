@@ -1,6 +1,6 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
-import { validateManifest, fetchLiveJson, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
+import { validateManifest, fetchLiveJson, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
@@ -114,7 +114,8 @@ export async function readPortfolioContext(config, provider, blockNumber) {
   requireValue(/^0x[\da-f]{64}$/i.test(block?.hash) && block.number && block.timestamp, '区块数据不可用。');
   requireValue(BigInt(block.number) >= BigInt(manifest.verifiedBlockNumber), '预算项目读取区块早于部署核验。');
   const tag = toQuantity(BigInt(block.number)), timestamp = BigInt(block.timestamp);
-  requireValue(blockNumber === undefined || BigInt(block.number) === uint(blockNumber), '读取区块不一致。');
+  insist(blockNumber === undefined || BigInt(block.number) === uint(blockNumber),
+    'source_reorg', '读取区块不一致。');
   const read = async (to, contract, method, args = []) => contract.decodeFunctionResult(method,
     await request('eth_call', [{ to, data: contract.encodeFunctionData(method, args) }, tag]));
   await Promise.all(PORTFOLIO_MANIFEST_KEYS.map(async key => {
@@ -144,8 +145,10 @@ export async function readPortfolioContext(config, provider, blockNumber) {
     && sellerFee[0] === 100n && buyerFee[0] === 100n, '预算市场实现、权限或双边费率不一致。');
   const canonical = async () => {
     const final = await request('eth_getBlockByNumber', [tag, false]);
-    requireValue(final?.hash?.toLowerCase() === block.hash.toLowerCase() && BigInt(await request('eth_chainId')) === 56n,
-      '读取期间链上状态变化，请重新核对。');
+    insist(BigInt(await request('eth_chainId')) === 56n,
+      'wrong_chain', '读取期间网络已变化，请切回 BSC 主网。');
+    insist(final?.hash?.toLowerCase() === block.hash.toLowerCase(),
+      'source_reorg', '读取期间链上状态变化，请重新核对。');
   };
   return { manifest, stage: config.stage, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
 }
@@ -248,8 +251,8 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
   requireValue(nextCursor === null || Number.isSafeInteger(nextCursor) && nextCursor > cursor, '索引返回重复游标。');
   await requireRecentSnapshotState(provider, source);
   const context = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
-  requireValue(context.block.hash.toLowerCase() === source.indexedBlockHash
-    && context.timestamp === BigInt(source.indexedTimestamp), '预算项目索引区块已变化。');
+  insist(context.block.hash.toLowerCase() === source.indexedBlockHash
+    && context.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '预算项目索引区块已变化。');
   if (source.readMode === 'verified_snapshot') {
     const count = (await context.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
     requireValue(typeof source.portfolioCount === 'string' && count === BigInt(source.portfolioCount), '预算项目快照数量与链上不一致。');
@@ -285,7 +288,7 @@ export async function readPortfolioOrders(config, provider, pool, { cursor, fetc
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算订单索引身份无效。');
   const ctx = await readPortfolioContext(config, provider, BigInt(source.indexedThrough));
-  requireValue(ctx.block.hash.toLowerCase() === source.indexedBlockHash, '预算订单索引区块已变化。');
+  insist(ctx.block.hash.toLowerCase() === source.indexedBlockHash, 'source_reorg', '预算订单索引区块已变化。');
   await readPortfolio(ctx, target, ZeroAddress, { includeChildren: false });
   const items = []; let last = cursor ? uint(String(cursor)) : null;
   for (const entry of reply.data.items) {

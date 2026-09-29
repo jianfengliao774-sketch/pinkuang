@@ -15,9 +15,28 @@ export function pageDisplayKey(route, account, marketTab = 'shares') {
     name === 'market' ? marketTab : '']);
 }
 
+function manifestPrefix(manifest) {
+  if (!HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory)) return null;
+  return `${PREFIX}${manifest.artifactDigest.toLowerCase()}:${manifest.factory.toLowerCase()}:`;
+}
+
 function key(manifest, page) {
-  if (!HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory) || typeof page !== 'string') return null;
-  return `${PREFIX}${manifest.artifactDigest.toLowerCase()}:${manifest.factory.toLowerCase()}:${page}`;
+  const prefix = manifestPrefix(manifest);
+  return prefix && typeof page === 'string' ? `${prefix}${page}` : null;
+}
+
+/** A canonical-source mismatch retires every display cache under that deployment. */
+export function invalidateDisplaySnapshots(storage, manifest) {
+  const prefix = manifestPrefix(manifest);
+  if (!storage || !prefix) return 0;
+  let removed = 0;
+  try {
+    for (let index = storage.length - 1; index >= 0; index--) {
+      const itemKey = storage.key(index);
+      if (itemKey?.startsWith(prefix)) { storage.removeItem(itemKey); removed++; }
+    }
+  } catch { /* Storage may be unavailable or disallow mutation. */ }
+  return removed;
 }
 
 function verifiedSource(result, manifest) {

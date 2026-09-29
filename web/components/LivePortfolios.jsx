@@ -6,10 +6,11 @@ import { genesisPortfolioProposalGate, portfolioCreateActionReady, portfolioPage
 import { amount, shortAddress, explorerAddress, explorerTransaction, exportActivityCsv } from '../lib/live-view.mjs';
 import { displayDecimal } from '../lib/amount-display.mjs';
 import { READ_CANCELLED, retryReadRound } from '../lib/read-retry.mjs';
-import { displayOnlySnapshot, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayOnlySnapshot, invalidateDisplaySnapshots, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
 import LiveYieldChart from './LiveYieldChart';
 import { sameUnsignedIntent } from '../lib/ui-context.mjs';
+import { insist } from '../lib/live-config.mjs';
 import './LivePortfolios.css';
 import { portfolioText } from '../lib/portfolio-copy.mjs';
 import { portfolioCreateForm } from '../lib/portfolio-create-form.mjs';
@@ -28,6 +29,7 @@ const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowe
 const brief = error => error?.shortMessage || error?.message || '预算项目读取未完成。';
 const officialPriceWithFeeCeiling = value => { const price=BigInt(value); return price+(price+99n)/100n; };
 const recentPages = new Map();
+export const clearRecentPortfolioDisplays = () => recentPages.clear();
 const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 
 function PortfolioSaleStatus({candidate,stage,locale}){
@@ -47,7 +49,7 @@ function PortfolioSaleStatus({candidate,stage,locale}){
 }
 
 /** A parent project owns its miners. Its 100 shares are never counted once per child. */
-export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onShare, onBuyChild, onReadStateChange, operatorVerified = false, refreshKey = 0 }) {
+export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, operatorVerified = false, refreshKey = 0 }) {
   const T=text=>portfolioText(locale,text);
   const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
   const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
@@ -68,6 +70,12 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const enabled=config?.kind==='integrated-v2' && provider;
   const mine=['overview','rewards'].includes(mode);
   const current=ticket=>ticket===sequence.current;
+  const invalidateDisplayOnReorg=problem=>{
+    if(problem?.code!=='source_reorg')return;
+    invalidateDisplaySnapshots(displayStorage(),config?.manifest||config);
+    clearRecentPortfolioDisplays();
+    onSourceReorg?.(problem);
+  };
   const isOperator=operatorVerified || same(operator,account);
   const visibleRows=loadedIdentity===identity?rows:[];
   const selectedCurrent=loadedIdentity===identity && selected && same(selected.account,account || ZeroAddress) ? selected:null;
@@ -150,23 +158,24 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         setSelected(initialPool?result.items[0]:selectedDetail);
         const children=initialPool?result.items[0]?.children:selectedDetail?.children;
         if(children)setChild(previous=>children.some(c=>same(c.pool,previous))?previous:children.find(c=>!c.sold)?.pool || '');}
-    }catch(problem){if(current(ticket)){setError(brief(problem));setReadFailed(true);}}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function select(row){
     const ticket=++sequence.current;setLoading(true);setError('');setPreview(null);setSelectedProof(null);setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);
     try{const details=await retryRead(async()=>{const ctx=await readPortfolioContext(config,provider);const result=await readPortfolio(ctx,row.pool,account || ZeroAddress);await ctx.canonical();return result;},ticket);
       if(details!==READ_CANCELLED&&current(ticket)){setSelected(details);setSelectedProof({identity,provider,wallet,pool:details.pool});setChild(details.children.find(c=>!c.sold)?.pool || '');}
-    }catch(problem){if(current(ticket)){setSelected(null);setError(brief(problem));setReadFailed(true);}}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setSelected(null);setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function moreChildren(){
     if(!selectedCurrent)return;const ticket=++sequence.current;setLoading(true);setError('');
     try{const more=await retryRead(async()=>{const ctx=await readPortfolioContext(config,provider,selectedCurrent.blockNumber);
-      if(ctx.block.hash.toLowerCase()!==selectedCurrent.blockHash.toLowerCase())throw new Error('项目区块已变化，请重新展开项目。');
+      insist(ctx.block.hash.toLowerCase()===selectedCurrent.blockHash.toLowerCase(),
+        'source_reorg', '项目区块已变化，请重新展开项目。');
       const result=await readPortfolioChildren(ctx,selectedCurrent.pool,selectedCurrent.childCount,BigInt(selectedCurrent.children.length));await ctx.canonical();return result;},ticket);
       if(more!==READ_CANCELLED&&current(ticket))setSelected({...selectedCurrent,children:[...selectedCurrent.children,...more]});
-    }catch(problem){if(current(ticket)){setError(brief(problem));setReadFailed(true);}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setError(brief(problem));setReadFailed(true);}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function loadOrders(nextCursor){
     if(!selectedCurrent)return;const target=selectedCurrent.pool,ticket=++sequence.current;setLoading(true);setError('');setPreview(null);
@@ -176,7 +185,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           || result.source.indexedBlockHash!==orderSource.indexedBlockHash))throw new Error('订单分页来源已变化，请重新读取。');
         setOrderPool(target);setOrderSource(result.source);
         setOrders(previous=>nextCursor?[...previous,...result.items]:result.items);setOrderCursor(result.nextCursor);}
-    }catch(problem){if(current(ticket)){if(nextCursor == null){setOrders([]);setOrderPool(null);setOrderSource(null);setReadFailed(true);}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);if(nextCursor == null){setOrders([]);setOrderPool(null);setOrderSource(null);setReadFailed(true);}
       else {setOrderCursor(null);setReadFailed(false);}setError(brief(problem));}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function prepare(action,pool=selectedCurrent?.pool){
