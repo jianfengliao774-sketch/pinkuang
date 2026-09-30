@@ -208,6 +208,9 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
     const userExit = graph.userExitReady === true && isFreshUserExitTransaction(config, transaction, action);
     const walletAction = isFreshWalletActionTransaction({ ...config, readMode: graph.readMode, stale: graph.stale,
       freshFactoryVerified: graph.freshFactoryVerified }, transaction, action);
+    // Worker/session readiness is mutable, not part of deployment identity.
+    // Authorize this submission using the current graph below and in normalize;
+    // never compare its readiness bits with an earlier preview or UI mask.
     requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
@@ -216,7 +219,6 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
     && graph.stageActivationBlock === config.stageActivationBlock
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
-    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady || userExit || walletAction)
     && (config.stage !== 'fresh-active' || graph.freshFactoryVerified === true
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)

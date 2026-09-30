@@ -125,3 +125,19 @@ test('v4 transaction precheck binds the current graph to its own pinned manifest
     async () => response({ ...graph, factory: oldManifest.factory })),
   { code: 'product_graph' });
 });
+
+test('a recovered service or wallet session does not masquerade as a deployment change', async () => {
+  const config = await loadFreshLiveConfig({ origin, basePath: '/bemine-v4',
+    manifestSha256: freshManifestDigest(manifest),
+    fetcher: url => response(url.endsWith('.v4.json') ? manifest : graph) });
+  // The UI masks readiness while reconnecting a wallet. The current graph
+  // restores it without changing any deployed address or activation proof.
+  const reconnecting = { ...config, ...config.manifest, walletSessionReady: false,
+    operationalReady: false, transactionReady: false };
+  const recovered = { ...graph, operationalReady: true, transactionReady: true };
+  const current = await requireCurrentProductStage(reconnecting, () => response(recovered));
+  assert.equal(current.operationalReady, true);
+  assert.equal(current.stageActivationHash, config.stageActivationHash);
+  await assert.rejects(requireCurrentProductStage({ ...reconnecting, stageActivationHash: hash(999) },
+    () => response(recovered)), /链上产品阶段已变化/);
+});

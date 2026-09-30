@@ -6,6 +6,8 @@ import { authenticate, connectWallet, readPending, sendProductTransaction, recov
   retryLegacyEnvelope, productGasLimit, requireCurrentProductStage, validateProductTransactionStage } from '../lib/live-transactions.mjs';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
+import { loadFreshLiveConfig } from '../lib/fresh-product-config.mjs';
+import { freshAuthorityBrowserFixture } from './fresh-authority-browser-fixture.mjs';
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
 const account=addr(1),factory=addr(2),pool=addr(3),market=addr(4);
 const config={status:'ready',chainId:56,factory,shareMarket:market,journalBase:'/api/journal',origin:'https://bemine.example'};
@@ -271,6 +273,25 @@ test('deposit uses exact integer payment, ACK before one wallet send, and verifi
   const ack=f.calls.findIndex(x=>x.url?.endsWith('/market')&&x.method==='PUT');
   assert(ack<f.calls.findIndex(x=>x.method==='eth_sendTransaction'));
   assert(!f.calls.some(x=>['personal_sign','eth_requestAccounts'].includes(x.method)));
+});
+
+test('fresh deposit survives a readiness recovery and opens the wallet once with the exact 50-share payment', async () => {
+  const fresh = freshAuthorityBrowserFixture();
+  const before = { ...fresh.graph(), operationalReady: false, transactionReady: false };
+  const current = { ...fresh.graph(), operationalReady: true, transactionReady: true };
+  const response = value => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+  const boot = await loadFreshLiveConfig({ origin: config.origin, basePath: '/bemine-v4',
+    manifestSha256: fresh.manifestSha,
+    fetcher: url => response(url.includes('/data/') ? fresh.manifest : before) });
+  const actionConfig = { ...boot, ...boot.manifest, journalBase: '/api/journal', walletSessionReady: false };
+  const f = fixture({ fastAuthorization: true });
+  const fetcher = (url, init) => url === boot.productGraphUrl ? response(current) : f.fetcher(url, init);
+  const result = await f.send('deposit', [50], '55550000000000000', pool, { config: actionConfig, fetcher });
+  assert.equal(result.status, 'confirmed');
+  assert.equal(result.shares, '50');
+  assert.equal(result.amountWei, '55550000000000000');
+  assert.equal(f.calls.filter(call => call.method === 'eth_sendTransaction').length, 1);
+  assert(!f.calls.some(call => ['eth_call', 'eth_estimateGas'].includes(call.method)));
 });
 
 test('wallet safe-number RPC quantities are accepted without changing the zero-value create-pool transaction',async()=>{
