@@ -743,6 +743,7 @@ export default function LivePlatform() {
 
   useEffect(() => {
     if (!client) return;
+    if (route.route === 'records' && recordsPage > 0) return;
     const pageSource = route.route === 'home'
       ? [source, statsSource].find(item => item?.readMode === 'verified_snapshot') ?? statsSource ?? source
       : route.route === 'market' && marketTab === 'shares' ? marketOrderSource : source;
@@ -765,7 +766,7 @@ export default function LivePlatform() {
     return () => clearTimeout(timer);
   }, [client, route.route, route.pool, account, marketTab, loadedRoute, loadedAccount,
     source, statsSource, marketOrderSource,
-    refresh, loading, revalidating, busy, modal, pending]);
+    refresh, loading, revalidating, busy, modal, pending, recordsPage]);
 
   useEffect(() => {
     if (!client) return;
