@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { prepareAdminAction, readOperatorStatus, OFFICIAL_COLLECTIONS } from '../lib/live-admin.mjs';
+import { operatorQuoteDraft, parseOperatorImport } from '../lib/operator-quotes.mjs';
+import { dataFixture } from './operator-quotes-fixture.mjs';
 const address = value => getAddress(`0x${value.toString(16).padStart(40, '0')}`);
 const account = address(1), factory = address(2), lens = address(3), pool = address(4);
 const config = { status: 'ready', chainId: 56, factory, lens };
@@ -73,4 +75,41 @@ test('invalid pool configuration fails closed before creation simulation', async
 test('wrong chain and reorg invalidate operator reads and creation preview', async () => {
   const f = fixture(); f.changeChain(); await assert.rejects(prepare(f), /BSC/);
   const other = fixture(); other.reorg(); await assert.rejects(prepare(other), /状态已变化/);
+});
+
+test('generated flexible quote reaches the real admin preview and preserves every encoded integer', async () => {
+  const data = dataFixture(), f = fixture();
+  const draft = operatorQuoteDraft({ quote: data.quote, reference: data.reference,
+    chain: { collection: data.quote.collection, tokenId: data.quote.tokenId, checkedAt: Date.now(),
+      registry: { supported: true, ready: true, pool: ZeroAddress } } },
+    { mode: 'createFlexiblePoolChecked', extraBps: 1234, fundingHours: '12', purchaseHours: '36' });
+  const preview = await prepareAdminAction({ provider: f.provider, config, account, ...draft });
+  const parsed = abi.PoolFactory.parseTransaction(preview.transaction);
+  assert.equal(parsed.name, 'createFlexiblePoolChecked');
+  const [params, flexible, task, weight] = parsed.args;
+  assert.equal(params.targetRaise, BigInt(draft.params.targetRaiseWei));
+  assert.equal(params.priceCap, BigInt(draft.params.priceCapWei));
+  assert.equal(params.fundingDeadline, 1_800_000_000n + 12n * 3600n);
+  assert.equal(params.purchaseDeadline, 1_800_000_000n + 48n * 3600n);
+  assert.equal(flexible.extraBps, 1234n);
+  assert.equal(flexible.referenceObservedAt, BigInt(Math.floor(data.reference.observedAt / 1000)));
+  assert.equal(flexible.referencePriceWei, BigInt(draft.flexible.referencePriceWei));
+  assert.equal(flexible.targetDailyYieldAtomic, BigInt(data.quote.estimated24hAtomic));
+  assert.equal(flexible.referenceBlock, BigInt(data.reference.sourceBlock));
+  assert.equal(flexible.referenceDigest, draft.flexible.referenceDigest);
+  assert.equal(task, 220n); assert.equal(weight, 61n);
+  f.advance();
+  const repeated = await prepareAdminAction({ provider: f.provider, config, account, ...preview.request });
+  assert.deepEqual(repeated.transaction, preview.transaction, 'confirmation never rewrites exact amounts or frozen deadlines');
+  const exported = JSON.parse(JSON.stringify(draft));
+  exported.flexible.extraBps = 1234;
+  exported.flexible.referenceObservedAt = Math.floor(data.reference.observedAt / 1000);
+  const imported = parseOperatorImport(JSON.stringify(exported));
+  const fromImport = await prepareAdminAction({ provider: f.provider, config, account,
+    ...imported, params: preview.request.params });
+  assert.deepEqual(fromImport.transaction, preview.transaction, 'the existing numeric metadata export remains importable');
+  const invalidAmount = structuredClone(imported); invalidAmount.flexible.referencePriceWei = Number(imported.flexible.referencePriceWei);
+  await assert.rejects(prepareAdminAction({ provider: f.provider, config, account,
+    ...invalidAmount, params: preview.request.params }), /exact bigint/);
+  assert.deepEqual(f.sent, []); assert.equal(f.simulated.length, 0);
 });

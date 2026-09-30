@@ -35,6 +35,7 @@ import {
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
+import { projectDirectory } from '../lib/project-directory.mjs';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
@@ -672,6 +673,7 @@ export default function LivePlatform() {
     setModal({ type: "action", kind, pool, ...extra });
   };
   const openDetails = (pool) => {
+    if (pool.kind === 'portfolio') { go('portfolio', pool.pool); return; }
     // This row was verified by the preceding catalog read. Show its public
     // facts immediately while the new detail read runs; it cannot authorize a
     // wallet action and is never persisted in browser storage.
@@ -1859,26 +1861,6 @@ export default function LivePlatform() {
     : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
       {L("重新读取", "Retry")}
     </button>;
-  const filtered = pools
-    .filter(
-      (p) =>
-        (filter === "all" ||
-          p.status === filter ||
-          (filter === "Funding" && p.status === "Funded")) &&
-        `${p.name} ${p.tokenId} ${p.pool}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    )
-    .sort((a, b) =>
-      sort === "capacity"
-        ? compare(currentPoolQuote(a)?.marketReferencePriceWei,
-          currentPoolQuote(b)?.marketReferencePriceWei)
-        : sort === "price"
-        ? compare(a.unitPriceWei, b.unitPriceWei)
-        : sort === "id"
-          ? compareToken(a.tokenId, b.tokenId)
-          : (b.funded ?? -1) - (a.funded ?? -1),
-    );
   const shareProject = (p) => ({
     poolAddress: p.pool,
     name: p.name,
@@ -1897,7 +1879,7 @@ export default function LivePlatform() {
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false, hideStatus = false) => (
+  const poolTable = (rows, holdings = false, hideStatus = false, directory = null) => (
     <div className="table-wrap">
       <table>
         <thead>
@@ -1923,16 +1905,15 @@ export default function LivePlatform() {
         </thead>
         <tbody>
           {rows.map((p) => (
-            <tr key={p.pool}>
+            <tr key={p.pool} data-project-kind={p.kind === 'portfolio' ? 'portfolio' : 'single'} data-project-address={p.pool}>
               <td>
                 <button className="asset-cell" onClick={() => openDetails(p)}>
                   <Chip pool={p} />
                   <span>
-                    <strong>
-                      {p.name} #{p.tokenId}
-                    </strong>
+                    <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
                     <small>{shortAddress(p.pool)}{currentPoolMetadata(p)?.taskId != null
                       ? ` · Task ${currentPoolMetadata(p).taskId}` : ""}</small>
+                    {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
                   </span>
                 </button>
               </td>
@@ -1956,12 +1937,12 @@ export default function LivePlatform() {
               <td title={currentPoolQuote(p)?.cached
                 ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window') : undefined}>{currentPoolQuote(p)
                 ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
-                : poolQuotePlaceholder(p)}</td>
+                : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p)}</td>
               <td className="num" title={currentPoolQuote(p)?.cached
                 ? L('此前核验的 Firsto 参考价，仍在有效期内；单位：BNB / (BEM/天)', 'Previously verified Firsto reference, still within its validity window; unit: BNB / (BEM/day)')
                 : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{currentPoolQuote(p)?.marketReferencePriceWei != null
                 ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
-                : poolQuotePlaceholder(p)}</td>
+                : p.kind === 'portfolio' ? '—' : poolQuotePlaceholder(p)}</td>
               <td>
                 {holdings && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
@@ -1975,7 +1956,7 @@ export default function LivePlatform() {
                       : L('当前状态不可挂牌', 'Listing unavailable in this state')}
                 </small>}
                 <button className="text-button" onClick={() => openDetails(p)}>
-                  {L("查看矿机", "View miner")}
+                  {p.kind === 'portfolio' ? L('查看项目', 'View project') : L("查看矿机", "View miner")}
                   <ArrowRight size={16} />
                 </button>
               </td>
@@ -1983,7 +1964,17 @@ export default function LivePlatform() {
           ))}
         </tbody>
       </table>
-      {rows.length === 0 && (
+      {rows.length === 0 && directory && <Empty title={directory.loading
+        ? L('正在读取项目…', 'Loading projects…')
+        : directory.failed || !directory.ready ? L('部分项目暂不可用，请刷新重试', 'Some projects are unavailable. Please refresh.')
+          : directory.total === 0 ? L('尚未创建拼矿项目', 'No projects have been created yet')
+            : L('暂无匹配项目', 'No matching projects')}>
+        {!directory.loading && directory.ready && !directory.failed && directory.total === 0 && <>
+          {L('运营方创建项目后，将在这里开放认购。', 'Subscriptions will appear here once the operator creates a project.')}
+          {hasOperatorAccess && <Button secondary disabled={busy} onClick={()=>go('operator')}>{L('创建首个项目','Create the first project')}</Button>}
+        </>}
+      </Empty>}
+      {rows.length === 0 && !directory && (
         <Empty
           title={
             (holdings ? positionsReadLoading : loading || boot.status === 'loading')
@@ -2006,6 +1997,44 @@ export default function LivePlatform() {
       )}
     </div>
   );
+  const renderProjectDirectory = page => {
+    const directory = projectDirectory(pools, page.rows, { filter, query, sort,
+      capacityFor: row => row.kind === 'portfolio' ? null : currentPoolQuote(row)?.marketReferencePriceWei });
+    const updating = loading || busy || page.loading || boot.status === 'loading' || page.enabled && !page.loaded && !page.failed;
+    const failed = readFailed || page.failed || !page.enabled && boot.status !== 'loading';
+    const ready = !!source && page.loaded && !!page.source;
+    const canLoadMore = poolCursor != null || page.cursor != null;
+    return <>
+      {heading(L('参与拼矿', 'Join a pool'), L('从一份开始，共持 BEM 矿机。', 'Start with one share. Own BEM miners together.'), refreshButton)}
+      <div className="live-project-summary">
+        {['Funding', 'Active', 'Listed'].map(status => <button key={status}
+          className={filter === status ? 'selected' : ''} onClick={()=>setFilter(status)}>
+          <span>{L(...statuses[status])}</span>
+          <strong>{ready && !updating && !failed && directory.all.every(row=>row.status!=='Unknown') ? directory.counts[status] : '—'}</strong>
+          <small>{L('已加载项目', 'loaded projects')}</small>
+        </button>)}
+      </div>
+      <section className="panel" data-project-directory="unified" aria-busy={!!updating}>
+        <div className="live-toolbar">
+          <div className="tabs">{[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale'],['all','项目总览','Overview']].map(([id,zh,en])=>
+            <button key={id} className={filter===id?'selected':''} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
+          <div className="live-search"><Search size={17}/><input aria-label={L('搜索矿机或地址','Search miner or address')}
+            placeholder={L('矿机编号 / 项目地址','Miner ID / project address')} value={query} onChange={event=>setQuery(event.target.value)}/></div>
+          <PoolSortMenu value={sort} onChange={setSort} locale={locale}/>
+        </div>
+        {page.error && <div className="portfolio-error" role="alert">
+          <p>{L('部分项目读取失败，已读取的项目仍可查看。', 'Some projects could not be loaded; available projects remain visible.')}</p>
+          <button className="btn secondary" disabled={page.loading || page.busy || busy || !!pending} onClick={()=>void page.load()}>{L('重新读取','Retry')}</button>
+        </div>}
+        {updating && directory.all.length>0 && <p className="subtle-note" role="status">{L('正在更新项目…','Updating projects…')}</p>}
+        {!updating && (source?.stale || page.source?.stale) && <p className="subtle-note">{L('项目资料待更新，参与前会重新核对。','Project information is being refreshed and is rechecked before participation.')}</p>}
+        {poolTable(directory.rows, false, filter === 'Funding', {loading:updating, failed, ready, total:directory.all.length})}
+        {canLoadMore && <div className="live-more"><Button secondary disabled={updating || failed || busy || !!pending}
+          onClick={()=>void Promise.allSettled([poolCursor!=null?more('pools'):Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>
+          {L('加载更多','Load more')}</Button></div>}
+      </section>
+    </>;
+  };
   const visibleActivity = route.route === "overview" ? summarizeOverviewActivity(activity) : activity;
   const activityTable = () => (
     <>
@@ -2438,75 +2467,12 @@ export default function LivePlatform() {
               </section>
             </>
           )}
-          {route.route === "pools" && (
-            <>
-              {heading(
-                L("参与拼矿", "Join a pool"),
-                L(
-                  "从一份开始，共持 BEM 矿机。",
-                  "Start with one share. Own BEM miners together.",
-                ),
-                refreshButton,
-              )}
-              <div className="live-project-summary">
-                {["Funding", "Active", "Listed"].map((status) => (
-                  <button
-                    key={status}
-                    className={filter === status ? "selected" : ""}
-                    onClick={() => setFilter(status)}
-                  >
-                    <span>{L(...statuses[status])}</span>
-                    <strong>
-                      {source &&
-                      !loading &&
-                      pools.every((p) => p.status !== "Unknown")
-                        ? pools.filter((p) => p.status === status).length
-                        : "—"}
-                    </strong>
-                    <small>{L("已加载项目", "loaded pools")}</small>
-                  </button>
-                ))}
-              </div>
-              <section className="panel">
-                <div className="live-toolbar">
-                  <div className="tabs">
-                    {[
-                      ["Funding", "募集中", "Funding"],
-                      ["Active", "挖矿中", "Operating"],
-                      ["Listed", "整机出售中", "For sale"],
-                      ["all", "项目总览", "Overview"],
-                    ].map(([id, zh, en]) => (
-                      <button
-                        key={id}
-                        className={filter === id ? "selected" : ""}
-                        onClick={() => setFilter(id)}
-                      >
-                        {L(zh, en)}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="live-search">
-                    <Search size={17} />
-                    <input
-                      aria-label={L(
-                        "搜索矿机或地址",
-                        "Search miner or address",
-                      )}
-                      placeholder={L(
-                        "矿机编号 / 项目地址",
-                        "Miner ID / pool address",
-                      )}
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                  </div>
-                  <PoolSortMenu value={sort} onChange={setSort} locale={locale} />
-                </div>
-                {poolTable(filtered, false, filter === "Funding")}
-                {moreButton(poolCursor, "pools")}
-              </section>
-            </>
-          )}
+          {route.route === "pools" && <LivePortfolios
+            config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode="pools"
+            disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
+            onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
+            onReadStateChange={state => { portfolioRead.current = state; }}
+            renderDirectory={renderProjectDirectory} refreshKey={refresh}/>}
           {route.route === "detail" &&
             (route.invalid ? (
               <Empty title={L("项目链接无效", "Invalid project link")}>
@@ -3243,7 +3209,8 @@ export default function LivePlatform() {
             </>
           )}
           {route.route === "market" && <FirstoMarketBoard refreshKey={refresh} />}
-          {['pools','overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
+          {route.route === 'portfolio' && <button className="back-link" onClick={()=>go('pools')}>{L('← 返回参与拼矿','← Back to projects')}</button>}
+          {['overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
@@ -3733,11 +3700,6 @@ function compare(a, b) {
   if (a == null) return 1;
   if (b == null) return -1;
   return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
-}
-function compareToken(a, b) {
-  return /^\d+$/.test(a) && /^\d+$/.test(b)
-    ? compare(BigInt(a), BigInt(b))
-    : String(a).localeCompare(String(b));
 }
 function eventName(value, L) {
   const map = {

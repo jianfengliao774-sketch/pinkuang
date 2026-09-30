@@ -49,7 +49,7 @@ function PortfolioSaleStatus({candidate,stage,locale}){
 }
 
 /** A parent project owns its miners. Its 100 shares are never counted once per child. */
-export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, operatorVerified = false, refreshKey = 0 }) {
+export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0 }) {
   const T=text=>portfolioText(locale,text);
   const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
   const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
@@ -217,6 +217,13 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const pChild=selectedCurrent?.children.find(c=>same(c.pool,p?.child));
   const genesisSale=config?.stage==='genesis';
   const genesisSaleGate=genesisSale&&selectedCurrent?genesisPortfolioProposalGate(selectedCurrent):null;
+  // The shared directory owns presentation; retain this reader's identity,
+  // retries, snapshot provenance and cancellation instead of adding a second reader.
+  if(mode==='pools'&&renderDirectory)return renderDirectory({ rows:visibleRows, enabled, loading,
+    error:loadedIdentity===identity||readFailed?error:'', failed:readFailed,
+    loaded:loadedIdentity===identity, source:loadedIdentity===identity?listingSource:null,
+    current:loadedIdentity===identity&&freshRead, cursor:loadedIdentity===identity?cursor:null,
+    load, busy, retry:readRetry });
   return <section id="multi-miner-projects" className="panel portfolio-panel" aria-label={T('多矿机预算项目')}>
     <div className="portfolio-heading"><div><h2><Layers3 size={21}/>{T("多矿机预算项目")}</h2><p>{T("整个项目共 100 份，共同持有项目内多台矿机。每台矿机的出售单独表决，余款与收益归项目份额持有人。")}</p></div>
       <button className="btn secondary" disabled={!enabled || busy || loading || !!preview || disabled || mine&&!account} onClick={()=>void load()}><RefreshCw size={15}/>{T("刷新项目")}</button></div>

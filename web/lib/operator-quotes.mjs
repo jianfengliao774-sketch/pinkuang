@@ -163,6 +163,24 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
     referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });
 }
 
+/** The public quote export uses numbers for these two bounded metadata fields.
+ * Normalize only safe, exact integers at the adapter boundary. Wei, yields and
+ * other chain integers still use the strict bigint/decimal-string encoder. */
+function exactFlexibleMetadata(config) {
+  requireValue(config && typeof config === 'object' && !Array.isArray(config), '灵活报价配置不完整，请重新生成。');
+  const exact = (value, bits, label) => {
+    if (typeof value === 'number') {
+      requireValue(Number.isSafeInteger(value) && value >= 0, `${label}必须是精确的非负整数，请重新生成报价。`);
+      value = String(value);
+    }
+    return uint(value, bits).toString();
+  };
+  return Object.freeze({ ...config,
+    extraBps: exact(config.extraBps, 16, '额外预算比例'),
+    referenceObservedAt: exact(config.referenceObservedAt, 64, '参考报价时间'),
+  });
+}
+
 /** Only drafts; no signing or broadcasts. Relative deadlines remain operator choices. */
 export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 1000, fundingHours = '24', purchaseHours = '48' } = {}, now = Date.now()) {
   const { quote, chain, reference } = checked;
@@ -184,7 +202,7 @@ export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 10
   requireValue(mode === 'createFlexiblePoolChecked' && reference, checked.referenceError || '日产能参考价不可用，请刷新报价。');
   const plan = createQuotePlan(quote, reference, extraBps, quote.verifiedWeight, now);
   return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: plan.funding.targetRaiseWei, priceCapWei: plan.funding.priceCapWei,
-    directSeller: ZeroAddress, directPrice: '0' }, flexible: plan.flexiblePurchase,
+    directSeller: ZeroAddress, directPrice: '0' }, flexible: exactFlexibleMetadata(plan.flexiblePurchase),
     expectedTaskId: plan.eligibility.expectedTaskId, expectedReferenceWeight: plan.eligibility.expectedReferenceVerifiedWeight });
 }
 
@@ -193,5 +211,5 @@ export function parseOperatorImport(text) {
   let raw;
   try { raw = JSON.parse(text); } catch { throw new Error('报价 JSON 不完整或格式错误，请重新导入完整文件。'); }
   requireValue(raw && raw.params && raw.flexible && raw.expectedTaskId !== undefined && raw.expectedReferenceWeight !== undefined, '报价缺少建池参数，请重新生成完整方案。');
-  return raw;
+  return { ...raw, flexible: exactFlexibleMetadata(raw.flexible) };
 }
