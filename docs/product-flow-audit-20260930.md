@@ -32,3 +32,7 @@
 - 新增 `web/scripts/portfolio-display-cache-browser.mjs`，5 组通过：主动暂停当前区块请求，确认首次与再次打开父项目均保留概况、暂停认购/退款/领取按钮；读失败保留概况且不授予操作资格；返回总览保留持仓；重新读取成功才恢复可用操作。
 
 浏览器证据目录：`outputs/pinkuang-formal-readiness-20260930/wallet-cache-readiness/` 下的 `portfolio-yield-five-final`、`activity-description-browser`、`product-flow-audit-integrated-final`、`portfolio-cache-browser-final`。收益脚本已在五位显示修改后再次通过五组验证。完整页面审查包含 `manual-exact-five-decimal-preview.png` 和 `results.json`，确认 `48.065004999999999900` 仅显示为 `≈ 48.06500`，聚焦及预览仍保留精确原值。测试脚本会拒绝真实钱包写请求；最终四组证据未记录页面异常或交易写请求。
+
+## 最后输入修正复测
+
+基于 `e53f768` 新增 `web/scripts/portfolio-create-inputs-browser.mjs`，三组通过。父项目募集预算、单机价格上限、日产能价上限均在失焦时显示五位约数；重复聚焦恢复精确原值。示例依次为 `48.06500499999999` → `≈ 48.06500`、`43.695679475146443511` → `≈ 43.69568`、`9.123455000000000001` → `≈ 9.12346`。不能按 100 份平均分配的预算，在合约模拟之前报告 16 位精度限制，保留输入且不打开确认窗口。三字段截图及结果保存在 `portfolio-create-inputs-post-e53-final`。缓存五组浏览器回归也重新通过，结果位于 `portfolio-cache-post-e53`。两组均无页面异常、签名、交易或写请求。

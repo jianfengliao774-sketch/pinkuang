@@ -19,3 +19,16 @@
 缓存隔离 8 项、钱包相关 37 项及金额相关 51 项单测通过。完整 Windows 执行另有 14 项依赖 POSIX 0700 目录权限的既有服务测试不适用；正式发布须以同一提交的 Linux CI 全量检查和已验签产物为准，不降低权限要求。
 
 合约、ABI、正式 artifact 与部署清单不随本次网页更新更改。原子撤回并付款候选独立保存于 `codex/atomic-refunds-20260930`，提交 `1f187ee146286f21690a375871a3d4a099562769`；候选未部署，现网仍使用原两步退款。候选 545 项非 fork 测试与升级/存储检查已通过，仍需正式安全 CI、部署新实现和两个 Beacon 的 48 小时时间锁升级后另行接入前端。
+
+## 正式网页发布结果
+
+2026-09-30 UTC 11:19 前完成网页切换（北京时间 19:19 前）。现网 `https://bemine.cc.cd/bemine-v4/` 使用前端 `e53f76830b49cfce0ad2594413c4e5bbbce4a304`，目录 `/var/www/bemine-v4/releases/v4-product-e53f76830b49`；五个后端角色仍为 `4986715e1f34bda98854c13b113f7c5c866b554c`。
+
+- [完整 Linux CI](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/36706418987) 与 [签名发布构建](https://github.com/jianfengliao774-sketch/pinkuang/actions/runs/36706414878) 均成功，包含正式产物一致性、产品前端全量测试、Slither 及固定区块 fork。Windows 权限限制没有被放宽。
+- GitHub/Sigstore 对三个实际 CI 文件验签成功；干净的 e53 工作区完成源码绑定验证。前端内容 SHA256 为 `192a32899d3f089e6b44ff8f2a48546fbaa327b4e5f2c776aed386b0e570efc6`；正式 manifest、ABI、合约地址与 artifact 未改变。
+- v2 静态发布工具独立审查、47 个离线回归和 14 个编排回归通过。当前 d91 前端的六份旧证据及完整静态树先重新核验；新后端的 129 份业务文件与 498 完全相同，后端新包仅供核验。此次服务操作、数据库写入、工具发链交易均为零，15 个受保护及退休服务的身份和配置保持。
+- 线上只读浏览器七个桌面页面、三个手机页面、两次刷新全部通过。已确认中文事件说明、公开记录五位金额、单一项目目录、父项目入口、角色隐藏及无页面溢出/最终错误。首次运行在短暂历史快照上过早断言父项目缺失，失败证据保留；后续仅将同一目录断言移动到既有当前数据恢复检查之后，最终所有校验保留。最终桌面首页 44.345 秒、手机首页 11.229 秒自动恢复当前数据，用户无需手工刷新。未改变浏览器时钟或页面权限门禁，未连接真实钱包或发送交易。
+
+原子退款 [候选 PR #35](https://github.com/jianfengliao774-sketch/pinkuang/pull/35) 的远端 `contracts` 安全检查（含 Slither）与固定区块 `fork` 已通过。该候选的 `deployment-console` 仍在正式 artifact 源码一致性门禁失败，符合“候选源码与现网产物隔离”的当前状态；不能宣称全 workflow 成功或已获正式部署验收。需制作独立候选部署包、实施时间锁升级并验证新 codehash 后才能发布调用新入口的前端。
+
+发布核验、保护状态和浏览器证据保存于本地 `outputs/pinkuang-formal-readiness-20260930/static-product-e53f76830b49-v2-verified/` 及 `wallet-cache-readiness/production-readonly-e53-bounded/`。后续本篇记录和输入测试的提交不代表另一次网页或合约发布。
