@@ -32,6 +32,10 @@ function upstreamUrl(value, name, { query = false } = {}) {
 export function liveDataProxyConfiguration(env = process.env, { freshProduct } = {}) {
   const config = { rpcUrl: upstreamUrl(env.BEMINE_READ_RPC_URL || env.DEPLOYMENT_JOURNAL_RPC_URL, 'BEMINE_READ_RPC_URL', { query: true }),
     indexUrl: upstreamUrl(env.BEMINE_INDEX_URL || 'http://127.0.0.1:4180', 'BEMINE_INDEX_URL') };
+  // Reuse the indexer's fixed log-capable destination. Ordinary product reads
+  // may have a different RPC allowance even for a single-block log request.
+  config.logsRpcUrl = env.CHAIN_INDEX_LOGS_RPC_URL
+    ? upstreamUrl(env.CHAIN_INDEX_LOGS_RPC_URL, 'CHAIN_INDEX_LOGS_RPC_URL', { query: true }) : config.rpcUrl;
   if (freshProduct) config.feeHistoryLogScope = normalizeFeeHistoryScope({
     authority: freshProduct.manifest?.authority, deploymentBlock: freshProduct.manifest?.deployment?.blockNumber });
   return config;
@@ -170,7 +174,7 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
   finally { clearTimeout(timer); controller.abort(); }
 }
 
-export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
+export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
   // A portfolio page can issue ~104 independent reads at once. Allow one
   // page's burst while bounding each client's share of the global wait queue.
@@ -178,6 +182,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
   pinnedRpcTtlMs = 60000,
   chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now, feeHistoryLogScope } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
+  logsRpcUrl = upstreamUrl(logsRpcUrl, 'logsRpcUrl', { query: true });
   feeHistoryLogScope = normalizeFeeHistoryScope(feeHistoryLogScope);
   for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent,
     maxQueuedPerClient, maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
@@ -250,6 +255,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
   };
   const pinnedRpc = new Map(), headerRpc = new Map(), feeLogRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
+  let verifiedLogsChainUntil = 0, logsChainProof = null, logsChainEpoch = 0;
   const clearReadCaches = () => {
     pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
   };
@@ -342,14 +348,66 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
     }
     await chainProof;
   };
+  // The extra identity proof belongs only to fee logs. A logs-node failure
+  // must neither fall back silently nor invalidate unrelated page reads.
+  const ensureLogsBscChain = async () => {
+    if (logsRpcUrl === rpcUrl) return ensureBscChain();
+    requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
+    if (now() < verifiedLogsChainUntil) return;
+    if (!logsChainProof) {
+      const proof = (async () => {
+        try {
+          const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
+          const { status, value } = await fetchJson(logsRpcUrl, { method: 'POST', body: JSON.stringify(request) },
+            { fetcher, timeoutMs, maxResponseBytes });
+          requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+            && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
+            && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
+          502, 'Read-only fee history RPC is not BSC mainnet.');
+          verifiedLogsChainUntil = now() + chainIdTtlMs;
+        } catch (error) {
+          verifiedLogsChainUntil = 0; logsChainEpoch++; feeLogRpc.clear();
+          for (const [key, entry] of pendingRpc) if (entry.isFeeLog) pendingRpc.delete(key);
+          throw error;
+        }
+      })();
+      logsChainProof = proof;
+      proof.finally(() => { if (logsChainProof === proof) logsChainProof = null; }).catch(() => {});
+    }
+    await logsChainProof;
+  };
   const readRpc = async (payload, key) => {
     let entry = key && pendingRpc.get(key);
     if (!entry) {
       const epoch = chainEpoch, startedForkEpoch = forkEpoch;
-      const sequence = payload.method === 'eth_getBlockByNumber' ? ++headerSequence : 0;
-      const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false };
+      const sequence = ['eth_getBlockByNumber', 'eth_getLogs'].includes(payload.method) ? ++headerSequence : 0;
+      const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false,
+        isFeeLog: payload.method === 'eth_getLogs', logsChainEpoch };
       created.pending = (async () => {
-        const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
+        const destination = created.isFeeLog ? logsRpcUrl : rpcUrl;
+        const dataRead = fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
+        let response;
+        if (created.isFeeLog && logsRpcUrl !== rpcUrl) {
+          const tag = payload.params[0].toBlock;
+          const request = { jsonrpc: '2.0', id: 0, method: 'eth_getBlockByNumber', params: [tag, false] };
+          const readAnchor = async url => {
+            const { status, value } = await fetchJson(url, { method: 'POST', body: JSON.stringify(request) },
+              { fetcher, timeoutMs, maxResponseBytes });
+            requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+              && Object.hasOwn(value, 'result') && !Object.hasOwn(value, 'error') && validHeader(value.result, tag),
+            502, 'Fee history range is not available on both BSC nodes.');
+            return value.result;
+          };
+          try {
+            // A same-chain logs node can lag behind or follow a different fork.
+            // Prove even empty ranges; parallel reads add no serial RPC round trip.
+            const [data, primary, logs] = await Promise.all([dataRead, readAnchor(rpcUrl), readAnchor(logsRpcUrl)]);
+            requireValue(primary.hash.toLowerCase() === logs.hash.toLowerCase()
+              && observeHeader(primary, sequence), 502, 'Fee history nodes disagree on the requested canonical block.');
+            response = data;
+          } catch (error) { if (key) feeLogRpc.delete(key); throw error; }
+        } else response = await dataRead;
+        const { status, value } = response;
         requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
           && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
         const normalized = value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
@@ -368,6 +426,8 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         // reuse, but the header remains a valid answer to its original caller.
         // That caller must perform its own post-read header check if needed.
       requireValue(entry.epoch === chainEpoch, 502, 'Read-only RPC chain changed during request.');
+      if (entry.isFeeLog) requireValue(entry.logsChainEpoch === logsChainEpoch,
+        502, 'Read-only fee history RPC chain changed during request.');
       if (payload.method !== 'eth_getBlockByNumber')
         requireValue(entry.forkEpoch === forkEpoch, 502, 'Read-only RPC fork changed during request.');
       if (key && canonical && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
@@ -420,6 +480,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         }
         const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
         await ensureBscChain();
+        if (feeLog) await ensureLogsBscChain();
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
         const readBlock = pinnedBlockKey(payload);
@@ -428,9 +489,9 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         const cache = pinned ? pinnedRpc : header ? headerRpc : feeLog ? feeLogRpc : null;
         const cached = cache?.get(key);
         const hit = cached && now() < cached.until;
-        if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
-        else if (cached) cache.delete(key);
+        if (!hit && cached) cache.delete(key);
         const value = hit ? cached.value : await readRpc(payload, key);
+        if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
         if (feeLog) invalidateHeadersForLogRead();
         return send(200, { jsonrpc: '2.0', id: payload.id, ...value });

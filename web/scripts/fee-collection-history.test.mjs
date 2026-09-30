@@ -4,6 +4,9 @@ import { getAddress, keccak256, toQuantity, toUtf8Bytes } from 'ethers';
 import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import { createReadOnlyHttpProvider } from '../lib/live-config.mjs';
 import { readFeeCollectionHistory } from '../lib/fee-collection-history.mjs';
+import { displayAmount } from '../lib/amount-display.mjs';
+import { createLiveDataProxy, liveDataProxyConfiguration } from '../../deploy/server/live-data-proxy.mjs';
+import { createDeploymentServer } from '../../deploy/server/index.mjs';
 
 const address = value => getAddress(`0x${value.toString(16).padStart(40, '0')}`);
 const digest = value => keccak256(toUtf8Bytes(String(value)));
@@ -78,7 +81,7 @@ function fixture(options = {}) {
       assert.equal(method, 'eth_getLogs', 'history must never sign, send, estimate or simulate transactions');
       assert.equal(kind, 'logs');
       const filter = params[0], lower = BigInt(filter.fromBlock), upper = BigInt(filter.toBlock);
-      assert.equal(filter.address, authority); assert.deepEqual(filter.topics, [event.topicHash]);
+      assert.equal(filter.address.toLowerCase(), authority.toLowerCase()); assert.deepEqual(filter.topics, [event.topicHash]);
       assert(upper <= state.finalized && lower >= state.origin);
       if (state.logsFailure) throw state.logsFailure;
       if (state.maxRange && upper - lower + 1n > state.maxRange) {
@@ -387,4 +390,91 @@ test('formal same-origin provider reads only bounded current Authority events wi
     { address: f.config.authority, topics: [event.topicHash], fromBlock: '0x100', toBlock: '0x2000' }])
     await assert.rejects(provider.request({ method: 'eth_getLogs', params: [filter] }), /不支持/);
   assert.equal(requests, count, 'rejected scopes do not reach the server');
+});
+
+async function httpHistoryFixture(t, options = {}) {
+  const f = fixture(options);
+  const readUrl = 'https://product-read.test/key', logsUrl = 'https://index-logs.test/key', upstream = [];
+  const proxy = createLiveDataProxy({ ...liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: readUrl,
+    CHAIN_INDEX_LOGS_RPC_URL: logsUrl }, { freshProduct: { manifest: f.config.manifest } }),
+    fetcher: async (url, init) => {
+      const body = JSON.parse(init.body); upstream.push({ url, method: body.method });
+      let result;
+      if (url === readUrl && body.method === 'eth_getLogs')
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id,
+          error: { code: -32005, message: 'limit exceeded' } }), { headers: { 'content-type': 'application/json' } });
+      if (url === logsUrl) {
+        assert(['eth_chainId', 'eth_getLogs', 'eth_getBlockByNumber'].includes(body.method), 'only fee logs and their chain/range proofs reach the logs endpoint');
+        result = await f.logsProvider.request(body);
+      } else {
+        assert.equal(url, readUrl, 'receipts, bindings and canonical headers retain the regular RPC');
+        result = await f.provider.request(body);
+      }
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }), { headers: { 'content-type': 'application/json' } });
+    },
+  });
+  const server = createDeploymentServer({ liveDataProxy: proxy });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const provider = createReadOnlyHttpProvider({ ...f.config, rpcUrl: `http://127.0.0.1:${server.address().port}/api/rpc` });
+  return { ...f, httpProvider: provider, upstream, readUrl, logsUrl };
+}
+
+test('real HTTP proxy uses the existing index logs RPC when the product RPC rejects even single-block logs', async t => {
+  const f = await httpHistoryFixture(t, { events: [
+    { block: 49995n, recipient: first, bnb: 1000000000000000001n, bem: 1234567890000000000n },
+    { block: 49990n, recipient: second, bnb: 20000000000000000n, bem: 3n },
+  ] });
+  const { httpProvider: provider, upstream, readUrl, logsUrl } = f;
+  const page = await readFeeCollectionHistory({ config: f.config, provider });
+  assert.deepEqual(page.rows.map(row => row.administrator), [first, second]);
+  assert(page.rows.every(row => row.administrator !== gasWallet), 'event recipients identify claimants, not relay receipt senders');
+  assert.equal(page.rows[0].bnbAmountWei, 1000000000000000001n);
+  assert.equal(displayAmount(page.rows[0].bnbAmountWei), '1.00000');
+  assert.equal(displayAmount(page.rows[0].bemAmountWei), '1.23457');
+  assert.equal(displayAmount(page.rows[1].bnbAmountWei), '0.02000');
+  assert.equal(displayAmount(page.rows[1].bemAmountWei), '<0.00001');
+  assert.equal(page.rows[0].blockNumber, 49995n); assert.equal(page.rows[0].timestamp, timestamp(49995n));
+  assert.equal(page.complete, false); assert(page.nextCursor);
+  assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_getLogs').length, 6,
+    'all six real 5000-block scan windows use the log-capable RPC');
+  assert.equal(upstream.filter(call => call.url === readUrl && call.method === 'eth_getLogs').length, 0);
+  assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_chainId').length, 1);
+  assert(upstream.some(call => call.url === readUrl && call.method === 'eth_getTransactionReceipt'));
+  assert(upstream.some(call => call.url === readUrl && call.method === 'eth_getBlockByNumber'));
+  const cached = await readFeeCollectionHistory({ config: f.config, provider });
+  assert.equal(cached.cached, true); assert.deepEqual(cached.rows, page.rows);
+  assert.equal(upstream.filter(call => call.method === 'eth_getLogs').length, 6, 'verified cache retains amounts and claimants without rescanning');
+});
+
+for (const failure of ['lagging', 'wrong fork', 'wrong number']) {
+  test(`real HTTP fee history rejects empty logs with a ${failure} log-node anchor while ordinary pages remain readable`, async t => {
+    const f = await httpHistoryFixture(t, { finalized: 300n, events: [],
+      changeBlock: (block, _input, kind) => kind !== 'logs' ? block : failure === 'lagging' ? null
+        : failure === 'wrong fork' ? { ...block, hash: digest('wrong-log-fork') }
+          : { ...block, number: toQuantity(BigInt(block.number) - 1n) },
+    });
+    await assert.rejects(readFeeCollectionHistory({ config: f.config, provider: f.httpProvider }), /HTTP 502/);
+    const block = await f.httpProvider.request({ method: 'eth_getBlockByNumber', params: ['0x12c', false] });
+    assert.equal(block.hash, blockHash(300n)); assert.equal(block.number, '0x12c');
+    assert.equal(f.upstream.filter(call => call.method === 'eth_getLogs').length, 1);
+    f.state.changeBlock = null;
+    const recovered = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+    assert.equal(recovered.complete, true); assert.deepEqual(recovered.rows, []); assert.equal(recovered.cached, false);
+    assert.equal(f.upstream.filter(call => call.method === 'eth_getLogs').length, 2, 'failed dual-node proof never populated an empty log cache');
+  });
+}
+
+test('real HTTP correct empty history is verified and cached without repeating split-node range proofs', async t => {
+  const f = await httpHistoryFixture(t, { finalized: 300n, events: [] });
+  const value = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert.deepEqual(value.rows, []); assert.equal(value.complete, true);
+  const before = f.upstream.filter(call => call.url === f.logsUrl).length;
+  // Force a helper refresh to exercise the server's exact-range cache, not
+  // only the helper's whole-page cache. A transient logs-node lag must not
+  // discard the already verified range or introduce another header check.
+  f.state.changeBlock = (block, _input, kind) => kind === 'logs' ? null : block;
+  const refresh = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider, refresh: true });
+  assert.deepEqual(refresh.rows, []); assert.equal(refresh.complete, true);
+  assert.equal(f.upstream.filter(call => call.url === f.logsUrl).length, before);
 });

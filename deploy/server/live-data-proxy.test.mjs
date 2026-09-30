@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLiveDataProxy, liveDataProxyConfiguration, validateReadRpc } from './live-data-proxy.mjs';
+import { createLiveDataProxy, liveDataProxyConfiguration, validateReadRpc, FEES_CLAIMED_TOPIC } from './live-data-proxy.mjs';
 import { createDeploymentServer } from './index.mjs';
 
 const address = `0x${'11'.repeat(20)}`;
 const transactionHash = `0x${'ab'.repeat(32)}`;
 const rpc = (method = 'eth_chainId', params = []) => ({ jsonrpc: '2.0', id: 1, method, params });
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+const feeHistoryLogScope = { authority: address, deploymentBlock: 10 };
+const feeLogs = () => rpc('eth_getLogs', [{ address, topics: [FEES_CLAIMED_TOPIC], fromBlock: '0xa', toBlock: '0x1389' }]);
+const feeAnchor = tag => ({ number: tag, hash: transactionHash, timestamp: '0xa' });
 async function fixture(t, options = {}) {
   const calls = [];
   const liveDataProxy = createLiveDataProxy({ rpcUrl: 'https://operator-rpc.test/key', indexUrl: 'http://127.0.0.1:4180',
@@ -21,11 +24,128 @@ async function fixture(t, options = {}) {
 }
 
 test('configuration uses only fixed operator destinations and existing journal RPC fallback', () => {
-  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
+  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, logsRpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
   assert.equal(liveDataProxyConfiguration({ DEPLOYMENT_JOURNAL_RPC_URL: 'https://bsc.example/rpc' }).rpcUrl, 'https://bsc.example/rpc');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', DEPLOYMENT_JOURNAL_RPC_URL: 'https://b.test' }).rpcUrl, 'https://a.test/');
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test' }).logsRpcUrl, 'https://a.test/');
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', CHAIN_INDEX_LOGS_RPC_URL: 'https://logs.test/rpc?key=fixed' }).logsRpcUrl,
+    'https://logs.test/rpc?key=fixed');
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: value }));
+  for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ CHAIN_INDEX_LOGS_RPC_URL: value }));
   assert.throws(() => liveDataProxyConfiguration({ BEMINE_INDEX_URL: 'http://127.0.0.1:4180?url=http://evil.test' }));
+});
+
+test('only validated fresh Authority fee logs use the fixed index log RPC; other reads retain their destination', async t => {
+  const logsRpcUrl = 'https://index-logs.test/key';
+  const f = await fixture(t, { logsRpcUrl, feeHistoryLogScope, upstream: (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id, result: feeAnchor(request.params[0]) });
+    if (request.method === 'eth_getLogs') return url === logsRpcUrl
+      ? json({ jsonrpc: '2.0', id: request.id, result: [] })
+      : json({ jsonrpc: '2.0', id: request.id, error: { code: -32005, message: 'limit exceeded' } });
+    assert.equal(url, 'https://operator-rpc.test/key');
+    return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+  } });
+  assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 200);
+  assert(!f.calls.some(call => call.url === logsRpcUrl), 'normal page reads never contact the log RPC');
+  const response = await f.post(feeLogs());
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).result, []);
+  assert.deepEqual(f.calls.filter(call => call.url === logsRpcUrl).map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_getLogs', 'eth_getBlockByNumber']);
+  assert(!f.calls.some(call => call.url !== logsRpcUrl && JSON.parse(call.init.body).method === 'eth_getLogs'));
+  for (const filter of [{ ...feeLogs().params[0], address: `0x${'22'.repeat(20)}` },
+    { ...feeLogs().params[0], topics: [transactionHash] }, { ...feeLogs().params[0], toBlock: '0x1392' },
+    { ...feeLogs().params[0], rpcUrl: 'https://attacker.test' }]) {
+    const before = f.calls.length;
+    assert.equal((await f.post(rpc('eth_getLogs', [filter]))).status, 400);
+    assert.equal(f.calls.length, before);
+  }
+  const disabled = await fixture(t, { logsRpcUrl });
+  assert.equal((await disabled.post(feeLogs())).status, 403); assert.equal(disabled.calls.length, 0);
+});
+
+test('default fee log destination reuses normal RPC identity without an extra proof', async t => {
+  const f = await fixture(t, { feeHistoryLogScope, upstream: (_url, init) => {
+    const request = JSON.parse(init.body);
+    return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0x38' : [] });
+  } });
+  assert.deepEqual((await (await f.post(feeLogs())).json()).result, []);
+  assert.deepEqual(f.calls.map(call => [call.url, JSON.parse(call.init.body).method]),
+    [['https://operator-rpc.test/key', 'eth_chainId'], ['https://operator-rpc.test/key', 'eth_getLogs']]);
+});
+
+test('log RPC identity expires within five seconds, clears its cache on failure and leaves ordinary read cache intact', async t => {
+  const logsRpcUrl = 'https://index-logs.test/key'; let clock = 100000, logsChain = '0x38';
+  const f = await fixture(t, { now: () => clock, logsRpcUrl, feeHistoryLogScope, upstream: (url, init) => {
+    const request = JSON.parse(init.body);
+    return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId'
+      ? url === logsRpcUrl ? logsChain : '0x38' : request.method === 'eth_getLogs' ? []
+        : request.method === 'eth_getBlockByNumber' ? feeAnchor(request.params[0]) : '0x6000' });
+  } });
+  assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 200);
+  assert.equal((await f.post(feeLogs())).status, 200);
+  clock += 4999;
+  const cached = await f.post(feeLogs());
+  assert.equal(cached.status, 200); assert.equal(cached.headers.get('x-bemine-server-cache'), 'hit');
+  assert.equal(f.calls.filter(call => call.url === logsRpcUrl).length, 3, 'verified cached log ranges do not repeat header proofs');
+  clock++; logsChain = '0x1';
+  const wrong = await f.post(feeLogs()); assert.equal(wrong.status, 502);
+  assert.equal(wrong.headers.get('x-bemine-server-cache'), null);
+  const ordinary = await f.post(rpc('eth_getCode', [address, '0xa']));
+  assert.equal(ordinary.status, 200); assert.equal(ordinary.headers.get('x-bemine-server-cache'), 'hit');
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getCode').length, 1);
+  assert.equal((await f.post(feeLogs())).status, 502, 'a failed identity proof is not cached');
+  logsChain = '0x38';
+  const recovered = await f.post(feeLogs()); assert.equal(recovered.status, 200);
+  assert.equal(recovered.headers.get('x-bemine-server-cache'), null, 'wrong-chain proof invalidated fee data');
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getLogs').length, 2);
+  assert.equal(f.calls.filter(call => call.url === logsRpcUrl && JSON.parse(call.init.body).method === 'eth_chainId').length, 4);
+});
+
+test('concurrent fee reads share the separate log-chain proof and bounded data cache, without caching errors or falling back', async t => {
+  const logsRpcUrl = 'https://index-logs.test/key'; let fail = true;
+  const f = await fixture(t, { logsRpcUrl, feeHistoryLogScope, upstream: async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    }
+    if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id, result: feeAnchor(request.params[0]) });
+    assert.equal(url, logsRpcUrl); assert.equal(request.method, 'eth_getLogs');
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return json({ jsonrpc: '2.0', id: request.id, ...(fail
+      ? { error: { code: -32005, message: 'private RPC quota detail' } } : { result: [] }) });
+  } });
+  for (const response of await Promise.all([f.post(feeLogs()), f.post(feeLogs()), f.post(feeLogs())])) {
+    assert.equal(response.status, 200); assert.equal((await response.json()).error.message, 'Upstream rejected the read request.');
+  }
+  assert.equal(f.calls.filter(call => call.url === logsRpcUrl && JSON.parse(call.init.body).method === 'eth_chainId').length, 1);
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getLogs').length, 1);
+  fail = false;
+  const response = await f.post(feeLogs()); assert.deepEqual((await response.json()).result, []);
+  assert.equal(response.headers.get('x-bemine-server-cache'), null);
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getLogs').length, 2);
+});
+
+test('failed log-chain reproving rejects an earlier in-flight log response before it can repopulate the cache', async t => {
+  const logsRpcUrl = 'https://index-logs.test/key'; let clock = 100000, logsChain = '0x38', releaseLog, startedLog;
+  const waiting = new Promise(resolve => { startedLog = resolve; });
+  const blocked = new Promise(resolve => { releaseLog = resolve; });
+  const f = await fixture(t, { now: () => clock, logsRpcUrl, feeHistoryLogScope, upstream: async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: url === logsRpcUrl ? logsChain : '0x38' });
+    if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id, result: feeAnchor(request.params[0]) });
+    assert.equal(request.method, 'eth_getLogs'); assert.equal(url, logsRpcUrl);
+    startedLog(); await blocked; return json({ jsonrpc: '2.0', id: request.id, result: [] });
+  } });
+  const earlier = f.post(feeLogs()); await waiting;
+  clock += 5000; logsChain = '0x1';
+  assert.equal((await f.post(feeLogs())).status, 502);
+  releaseLog(); assert.equal((await earlier).status, 502);
+  logsChain = '0x38';
+  const current = await f.post(feeLogs()); assert.equal(current.status, 200);
+  assert.equal(current.headers.get('x-bemine-server-cache'), null);
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getLogs').length, 2);
 });
 
 test('all eight read methods accept exact bounded parameters; unknown/write/batch/override routes fail closed', () => {
