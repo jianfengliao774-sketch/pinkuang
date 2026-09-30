@@ -103,3 +103,37 @@ export function writeDisplaySnapshot(storage, manifest, page, result, { now = Da
     return true;
   } catch { return false; }
 }
+
+const PERSONAL_POOL_FIELDS = ['shares', 'lockedShares', 'availableShares', 'claimableBEM', 'bnbOwed', 'initialContributedWei'];
+
+/** Save compact pool details independently of a catalog's size and wallet session. */
+export function writePoolDisplaySnapshots(storage, manifest, result, account, options = {}) {
+  const section = result?.detail ?? result?.catalog;
+  const rows = result?.detail ? [result.detail.item] : result?.catalog?.items;
+  if (!Array.isArray(rows) || !verifiedSource(result, manifest)) return 0;
+  let written = 0;
+  for (const row of rows) {
+    if (!ADDRESS.test(row?.pool) || row.trusted !== true) continue;
+    const route = { route: 'detail', pool: row.pool };
+    if (account && writeDisplaySnapshot(storage, manifest, pageDisplayKey(route, account),
+      { detail: { source: section.source, item: row } }, options)) written++;
+    const publicRow = { ...row };
+    for (const field of PERSONAL_POOL_FIELDS) publicRow[field] = null;
+    if (writeDisplaySnapshot(storage, manifest, pageDisplayKey(route, null),
+      { detail: { source: section.source, item: publicRow } }, options)) written++;
+  }
+  return written;
+}
+
+/** Public fallback never carries another wallet's balances or claimable amounts. */
+export function readPoolDisplaySnapshot(storage, manifest, route, account, options = {}) {
+  if (route?.route !== 'detail' || !ADDRESS.test(route.pool)) return null;
+  const own = readDisplaySnapshot(storage, manifest, pageDisplayKey(route, account), options);
+  if (own?.detail?.item?.pool?.toLowerCase() === route.pool.toLowerCase()) return own;
+  if (!account) return null;
+  const shared = readDisplaySnapshot(storage, manifest, pageDisplayKey(route, null), options);
+  if (shared?.detail?.item?.pool?.toLowerCase() !== route.pool.toLowerCase()) return null;
+  const item = { ...shared.detail.item };
+  for (const field of PERSONAL_POOL_FIELDS) item[field] = null;
+  return { detail: { source: shared.detail.source, item } };
+}

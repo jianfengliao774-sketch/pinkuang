@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey,
-  readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+  readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 
 const manifest = { artifactDigest: `0x${'ab'.repeat(32)}`, factory: `0x${'11'.repeat(20)}`, shareMarket: `0x${'22'.repeat(20)}` };
 const source = { complete: true, unknownReason: null, chainId: 56, factory: manifest.factory,
@@ -119,4 +119,41 @@ test('reorg invalidation retires every page for one deployment without touching 
   assert.equal(readDisplaySnapshot(cache, other, 'home', { now: 2000 })?.items.length, 0);
   assert.equal(cache.getItem('unrelated'), 'keep');
   assert.equal(invalidateDisplaySnapshots(cache, manifest), 0);
+});
+
+test('catalog reads seed deep-link details and public fallback never exposes a different wallet balance', () => {
+  const cache = storage(), walletA = `0x${'aa'.repeat(20)}`, walletB = `0x${'bb'.repeat(20)}`;
+  const row = { pool: manifest.factory, trusted: true, unitPriceWei: 1111000000000000n,
+    totalSupply: 100n, memberCount: 2n, shares: 50n, lockedShares: 3n, availableShares: 47n,
+    claimableBEM: 9n, bnbOwed: 5050000000000000n, initialContributedWei: 55550000000000000n };
+  const result = { catalog: { source, items: [row], nextCursor: null } };
+  const route = { route: 'detail', pool: row.pool.toUpperCase().replace('0X', '0x') };
+  assert.equal(writePoolDisplaySnapshots(cache, manifest, result, walletA, { now: 1000 }), 2);
+  const own = readPoolDisplaySnapshot(cache, manifest, route, walletA, { now: 2000 });
+  assert.equal(own.detail.item.shares, 50n);
+  assert.equal(own.detail.item.bnbOwed, row.bnbOwed);
+  for (const wallet of [null, walletB]) {
+    const shared = readPoolDisplaySnapshot(cache, manifest, route, wallet, { now: 2000 });
+    assert.equal(shared.detail.item.unitPriceWei, row.unitPriceWei);
+    assert.equal(shared.detail.item.totalSupply, 100n);
+    for (const field of ['shares', 'lockedShares', 'availableShares', 'claimableBEM', 'bnbOwed', 'initialContributedWei'])
+      assert.equal(shared.detail.item[field], null);
+    assert.equal(shared.detail.source.transactionReady, false);
+    assert.equal(shared.detail.source.stale, true);
+  }
+  assert.equal(row.shares, 50n, 'saving a public copy must not mutate the live wallet result');
+  assert.equal(readPoolDisplaySnapshot(cache, manifest, { route: 'detail', pool: `0x${'55'.repeat(20)}` }, walletB, { now: 2000 }), null);
+  assert.equal(readPoolDisplaySnapshot(cache, manifest, route, walletA, { now: 3_601_001 }), null);
+  assert.equal(writePoolDisplaySnapshots(cache, manifest, { catalog: { ...result.catalog, source: { ...source, complete: false } } }, walletB), 0);
+});
+
+test('compact details persist even when the combined page exceeds the browser snapshot size limit', () => {
+  const cache = storage(), route = { route: 'detail', pool: manifest.factory };
+  const result = { detail: { source, item: { pool: manifest.factory, trusted: true, unitPriceWei: 123n } },
+    snapshot: { irrelevantPagePayload: 'x'.repeat(400_000) } };
+  assert.equal(writeDisplaySnapshot(cache, manifest, pageDisplayKey(route, null), result, { now: 1000 }), false);
+  assert.equal(writePoolDisplaySnapshots(cache, manifest, result, null, { now: 1000 }), 1);
+  const restored = readPoolDisplaySnapshot(cache, manifest, route, null, { now: 2000 });
+  assert.equal(restored.detail.item.unitPriceWei, 123n);
+  assert.equal(restored.snapshot, undefined);
 });

@@ -2,7 +2,7 @@
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
 import ActivityOperation from './ActivityOperation';
-import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
@@ -481,13 +481,13 @@ export default function LivePlatform() {
     } catch {}
   }, [appearance]);
   useEffect(() => {
-    if (client || boot.status !== 'loading' || account) return;
+    if (client || boot.status !== 'loading') return;
     // The build-pinned genesis allows a display-only cache to paint while the
     // product graph and manifest are still loading. Route identity must match
     // the URL so a deep link never flashes the home page's previous data.
     const activeRoute = parseProductRoute(location.hash);
     if (activeRoute.route !== route.route || activeRoute.pool !== route.pool) return;
-    const pageKey = pageDisplayKey(route, null, marketTab);
+    const pageKey = pageDisplayKey(route, account, marketTab);
     // Route changes can precede product boot. Clear the previous route even
     // when this one has no local page to restore.
     setPools([]); setPoolCursor(null); setDetail(null); setSource(null);
@@ -497,14 +497,17 @@ export default function LivePlatform() {
       const pinned = freshV4
         ? validateFreshManifest(pinnedGenesis, process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256)
         : validatePinnedGenesis(pinnedGenesis);
-      const cached = readDisplaySnapshot(displayStorage(), pinned, pageKey,
-        freshV4 ? { maxAgeMs: 30 * 60_000 } : {});
+      const options = freshV4 ? { maxAgeMs: 30 * 60_000 } : {};
+      const cached = route.route === 'detail'
+        ? readPoolDisplaySnapshot(displayStorage(), pinned, route, account, options)
+        : readDisplaySnapshot(displayStorage(), pinned, pageKey, options);
       if (!cached?.catalog && !cached?.detail) return;
       const visiblePools = cached.catalog?.items.map(viewPool);
       const visibleDetail = cached.detail ? viewPool(cached.detail.item) : null;
       if (visiblePools) { setPools(visiblePools); setPoolCursor(cached.catalog.nextCursor); }
       if (visibleDetail) setDetail(visibleDetail);
       setSource(cached.detail?.source ?? cached.catalog?.source);
+      setLoadedAccount(account);
       setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
       setCachedPage(true);
     } catch { /* A corrupt browser cache cannot block the live read. */ }
@@ -779,7 +782,9 @@ export default function LivePlatform() {
     const cache = pageCache.current.get(client);
     const saved = cache?.get(pageKey);
     const recent = entry => entry && Date.now() - entry.savedAt < 120_000;
-    const persisted = recent(saved) ? null : readPageSnapshot(displayStorage(), client.manifest, pageKey);
+    const persisted = recent(saved) ? null : route.route === 'detail'
+      ? readPoolDisplaySnapshot(displayStorage(), client.manifest, route, account, { maxAgeMs: 30 * 60_000 })
+      : readPageSnapshot(displayStorage(), client.manifest, pageKey);
     const needsCatalog = ['home', 'pools'].includes(route.route)
       || route.route === 'market' && marketTab === 'whole' || (route.route === 'governance' && !account);
     const shared = needsCatalog && !recent(saved) && !persisted
@@ -837,6 +842,7 @@ export default function LivePlatform() {
           entries.set(pageKey, { savedAt: Date.now(), account: accountKey, result });
           if (entries.size > 8) entries.delete(entries.keys().next().value);
           writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
+          writePoolDisplaySnapshots(displayStorage(), client.manifest, result, account);
         }
         showResult(result);
         if (result.detail) setDetailPreview(null);
@@ -2534,7 +2540,9 @@ export default function LivePlatform() {
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
                   {(source?.stale || cachedPage) && <span className="subtle-note">
-                    {L('核验区块时状态 · 历史只读', 'Status at verified block · historical only')}
+                    {revalidating || loading
+                      ? L('已缓存资料 · 后台更新中', 'Cached details · updating in the background')
+                      : L('上次更新的资料', 'Details from the last update')}
                   </span>}
                   <StateBadge state={detail.status} L={L} />
                   {refreshButton}
