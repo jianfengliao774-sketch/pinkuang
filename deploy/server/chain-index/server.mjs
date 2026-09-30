@@ -1,4 +1,6 @@
 import { fileURLToPath } from 'node:url';
+import { join, dirname } from 'node:path';
+import { PoolDisplayCache } from './pool-display-cache.mjs';
 import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { ChainIndex } from './indexer.mjs';
 import { createChainIndexServer } from './api.mjs';
@@ -51,7 +53,7 @@ export function serverConfiguration(env = process.env) {
       required(env,'CHAIN_INDEX_FRESH_MANIFEST_SHA256'));
     return {rpc,logsRpc,fallbackLogsRpc,logsTimeoutMs:logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS),
       host,port,dbPath,scanRange,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
-      factory:manifest.factory,market:manifest.shareMarket,
+      factory:manifest.factory,market:manifest.shareMarket,lens:manifest.lens,
       portfolioFactory:manifest.portfolioFactory,portfolioMarket:manifest.portfolioMarket,
       startBlock:manifest.deployment.blockNumber,reservationMode:'required',
       freshCodehashes:Object.freeze([
@@ -156,9 +158,12 @@ export async function startChainIndex(config) {
   });
   let index;
   let server;
+  let displayCache;
+  let displayTimer;
   try {
     index = new ChainIndex(provider, config);
-    server = createChainIndexServer(index);
+    if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,path:join(dirname(config.dbPath),'pool-display-cache.json')});
+    server = createChainIndexServer(index,{displayCache});
     await new Promise((resolve, reject) => {
       const onError = error => { server.off('listening', onListening); reject(error); };
       const onListening = () => { server.off('error', onError); resolve(); };
@@ -188,16 +193,23 @@ export async function startChainIndex(config) {
       : index.status().complete ? 10_000 : 1_000;
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);
   }
+  const refreshDisplay=async()=>{
+    try { await displayCache?.refresh(); } catch { console.error('Display cache refresh failed; retaining previous verified data.'); }
+    if(!stopped && displayCache) displayTimer=setTimeout(()=>void refreshDisplay(),15_000);
+  };
+  if(displayCache) void refreshDisplay();
   running = tick();
   return { index, server, close() {
     if (closing) return closing;
     closing = (async () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if(displayTimer) clearTimeout(displayTimer);
       // Cancel queued reads now. Active primary requests stay bounded by 12s;
       // logs requests by at most 30s, within the deployment's 45s stop allowance.
       for (const source of providers) source.destroy();
       await running;
+      await displayCache?.close();
       await new Promise(resolve => server.close(resolve));
       index.close();
     })();

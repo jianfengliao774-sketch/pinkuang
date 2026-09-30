@@ -1074,3 +1074,30 @@ test('portfolio yield accepts the explicit parent scope and preserves receipt an
   await assert.rejects(parentClient({ ...data, buckets: [{ ...data.buckets[0], accountClaimedAtomic: '-1' }] }).readYield(query), { code: 'invalid_data' });
   await assert.rejects(client({ '/v1/yield': data }).readYield(query), { code: 'index_identity' });
 });
+
+
+test('server materialized display reads return exact page values without any browser RPC request', async()=>{
+  const rpc={request:async()=>{throw new Error('display must not call RPC');}}, requests=[];
+  const cachedSource={...source,readMode:'verified_snapshot',stale:true,refreshing:false,transactionReady:false,cacheOrigin:'server'};
+  const cachedRow={...row({shares:50n,bnbOwed:11n}),trusted:true};
+  const fetcher=async url=>{
+    const path=new URL(url).pathname;requests.push(path);
+    let data;
+    if(path.endsWith('/pools/'+pool))data={item:cachedRow};
+    else if(path.includes('/positions/'))data={items:[cachedRow],nextCursor:null,marketBnbOwed:13n};
+    else if(path.endsWith('/pools'))data={items:[cachedRow],nextCursor:null};
+    else if(path.endsWith('/orders'))data={items:[],nextCursor:null};
+    else if(path.endsWith('/stats'))data={scope:'confirmed_indexed_history',registeredPoolCount:'1'};
+    else throw new Error('unexpected request '+path);
+    return new Response(JSON.stringify({source:cachedSource,data},(_key,value)=>typeof value==='bigint'?{$bemineBigInt:value.toString()}:value),
+      {status:200,headers:{'content-type':'application/json'}});
+  };
+  const client=createLiveDataClient({...config,productFamily:'fresh-v4'},{provider:rpc,fetcher,now:()=>now});
+  const detail=await client.readDisplayPool({pool,account});assert.equal(detail.item.params.targetRaise,params.targetRaise);
+  assert.equal(detail.item.shares,50n);assert.equal(detail.source.transactionReady,false);
+  const list=await client.readDisplayPools({account});assert.equal(list.items[0].purchaseCostWei,params.priceCap);
+  const holdings=await client.readDisplayPositions({account});assert.equal(holdings.items[0].bnbOwed,11n);assert.equal(holdings.marketBnbOwed,13n);
+  assert.deepEqual((await client.readDisplayOrders()).items,[]);
+  assert.equal((await client.readDisplayStats()).data.registeredPoolCount,1n);
+  assert.equal(requests.length,5);assert(requests.every(path=>path.includes('/v1/display/')));
+});

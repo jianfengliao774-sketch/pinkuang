@@ -88,6 +88,7 @@ export const PRODUCT_BACKEND_MODULES = Object.freeze([
   "server/chain-index/notifications.mjs",
   "server/chain-index/portfolio-notifications.mjs",
   "server/chain-index/server.mjs",
+  "server/chain-index/pool-display-cache.mjs",
   "server/creation-cutover.mjs",
   "server/firsto-proxy.mjs",
   "server/firsto-sale-preflight.mjs",

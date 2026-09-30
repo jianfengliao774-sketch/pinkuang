@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { cacheEncode } from './pool-display-cache.mjs';
 import { communityPage } from './community.mjs';
 import { chainIndexInterfaces } from './indexer.mjs';
 
@@ -19,7 +20,7 @@ const displaySnapshots = Object.freeze({
 });
 
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
-export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
+export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache } = {}) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -27,7 +28,7 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     const send = (code, body) => {
       res.statusCode = code;
-      const bytes = JSON.stringify(body);
+      const bytes = JSON.stringify(body, cacheEncode);
       res.end(req.method === 'HEAD' ? undefined : bytes);
     };
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, { error: 'Read-only GET API.' });
@@ -36,6 +37,55 @@ export function createChainIndexServer(index, { syncWaitMs = 1000 } = {}) {
     try { url = new URL(req.url, 'http://localhost'); }
     catch { return send(400, { error: 'Invalid URL.' }); }
     try {
+    // No sync wait and no RPC calls on the materialized display path.
+    if (url.pathname.startsWith('/v1/display/')) {
+      const cached=displayCache?.snapshot();
+      if(!cached) return send(503,{error:'Server display cache is warming.'});
+      const source=cached.source;
+      const allowed=['cursor','limit','account','pool','seller','active'];
+      const seen=new Set();
+      for(const [name,value] of url.searchParams) {
+        if(!allowed.includes(name) || seen.has(name)) throw new InvalidQueryError('Invalid display query.');
+        seen.add(name);
+        if(['account','pool','seller'].includes(name) && !/^0x[\da-f]{40}$/i.test(value)) throw new InvalidQueryError('Invalid address.');
+      }
+      const account=url.searchParams.get('account')?.toLowerCase();
+      const own=account ? cached.accountRows[account] : null;
+      const poolMatch=/^\/v1\/display\/pools\/(0x[\da-f]{40})$/i.exec(url.pathname);
+      const positionMatch=/^\/v1\/display\/positions\/(0x[\da-f]{40})$/i.exec(url.pathname);
+      const cursor=url.pathname.endsWith('/orders') ? 0 : pageInt(url.searchParams.get('cursor'),'cursor',0,Number.MAX_SAFE_INTEGER);
+      const limit=pageInt(url.searchParams.get('limit'),'limit',20,20);
+      if(limit<1) throw new InvalidQueryError('Invalid limit.');
+      let data;
+      if(poolMatch) {
+        const pool=poolMatch[1].toLowerCase();
+        const item=own?.[pool] ?? cached.rows[pool];
+        if(!item) return send(404,{error:'Pool is not in the verified cache.'});
+        data={item};
+      } else if(url.pathname==='/v1/display/pools') {
+        const addresses=cached.directory.slice(cursor,cursor+limit);
+        data={items:addresses.map(a=>own?.[a.toLowerCase()] ?? cached.rows[a.toLowerCase()]),
+          nextCursor:cursor+limit<cached.directory.length?cursor+limit:null};
+      } else if(positionMatch) {
+        const wallet=positionMatch[1].toLowerCase(),walletRows=cached.accountRows[wallet];
+        if(!walletRows && !cached.accountsComplete) return send(503,{error:'Account display cache is not ready.'});
+        const rows=Object.values(walletRows ?? {}).filter(row=>['shares','claimableBEM','bnbOwed'].some(name=>row[name]===null || row[name]>0n));
+        data={items:rows.slice(cursor,cursor+limit),nextCursor:cursor+limit<rows.length?cursor+limit:null,
+          marketBnbOwed:cached.marketOwed[wallet] ?? 0n};
+      } else if(url.pathname==='/v1/display/stats') data=cached.stats;
+      else if(url.pathname==='/v1/display/orders') {
+        if(!cached.orders) return send(503,{error:'Order display cache is not ready.'});
+        const active=url.searchParams.get('active');
+        if(active!==null && !['true','false'].includes(active)) throw new InvalidQueryError('Invalid active filter.');
+        const pool=url.searchParams.get('pool')?.toLowerCase(),seller=url.searchParams.get('seller')?.toLowerCase();
+        const after=url.searchParams.get('cursor');
+        if(after!==null && !/^[1-9]\d{0,77}$/.test(after)) throw new InvalidQueryError('Invalid order cursor.');
+        const rows=cached.orders.filter(row=>(!pool || row.pool.toLowerCase()===pool) && (!seller || row.seller.toLowerCase()===seller)
+          && (active===null || row.openAtSourceBlock===(active==='true')) && (after===null || row.orderId<BigInt(after)));
+        data={items:rows.slice(0,limit),nextCursor:rows.length>limit?String(rows[limit-1].orderId):null};
+      } else return send(404,{error:'Unknown display route.'});
+      return send(200,{source,data});
+    }
     let source = index.status();
     // Wait briefly for a fresh proof before falling back to a display-only
     // read view. Explicit snapshot routes remain historical and do not wait.

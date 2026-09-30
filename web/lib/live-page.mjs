@@ -37,11 +37,11 @@ export async function readPageRound(client, { route, account, marketTab = 'whole
   // hold it behind unrelated catalog, governance or activity snapshots: those
   // can cross an index sync boundary while this pool remains perfectly valid.
   if (name === 'detail' && pool) {
-    const detail = await client.readPool({ pool, account: owner || ZeroAddress });
+    const detail = await (client.readDisplayPool ?? client.readPool)({ pool, account: owner || ZeroAddress });
     checkedSource(detail);
     return { detail };
   }
-  const catalog = await client.readPools({ account: owner || ZeroAddress });
+  const catalog = await (client.readDisplayPools ?? client.readPools)({ account: owner || ZeroAddress });
   checkedSource(catalog);
   return { catalog };
 }

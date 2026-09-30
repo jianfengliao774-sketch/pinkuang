@@ -754,7 +754,7 @@ export default function LivePlatform() {
       fastSnapshotRetries.current.delete(page);
       return;
     }
-    if (pageSource?.readMode !== 'verified_snapshot' || pageSource.refreshing !== true
+    if (pageSource?.cacheOrigin === 'server' || pageSource?.readMode !== 'verified_snapshot' || pageSource.refreshing !== true
       || (fastSnapshotRetries.current.get(page) ?? 0) >= 4) return;
     const timer = setTimeout(() => {
       const state = refreshState.current;
@@ -901,7 +901,7 @@ export default function LivePlatform() {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
     setPositionsReadLoading(true);
-    retryReadRound(() => client.readPositions({ account }), { isCurrent: () => !cancelled })
+    retryReadRound(() => (client.readDisplayPositions ?? client.readPositions)({ account }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setPositions(result.items.map(viewPool));
@@ -945,7 +945,7 @@ export default function LivePlatform() {
       setOrders([]); setOrderCursor(null);
     }
     setMarketOrdersLoading(true);
-    retryReadRound(() => client.readOrders(marketTab === 'mine' ? { seller: account } : { active: true }),
+    retryReadRound(() => (client.readDisplayOrders ?? client.readOrders)(marketTab === 'mine' ? { seller: account } : { active: true }),
       { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1016,7 +1016,7 @@ export default function LivePlatform() {
       : readPageSnapshot(displayStorage(), client.manifest, 'stats');
     setStats(cached?.data ?? null);
     setStatsSource(cached?.source ?? null);
-    retryReadRound(() => client.readStats(), { isCurrent: () => !cancelled })
+    retryReadRound(() => (client.readDisplayStats ?? client.readStats)(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setStats(result.data);
@@ -1748,7 +1748,7 @@ export default function LivePlatform() {
     setError("");
     try {
       if (kind === "pools") {
-        const result = await client.readPools({
+        const result = await (client.readDisplayPools ?? client.readPools)({
           account: account || ZeroAddress,
           cursor: poolCursor,
           source,
@@ -1757,7 +1757,7 @@ export default function LivePlatform() {
         setPools((old) => [...old, ...result.items.map(viewPool)]);
         setPoolCursor(result.nextCursor);
       } else if (kind === "positions") {
-        const result = await client.readPositions({
+        const result = await (client.readDisplayPositions ?? client.readPositions)({
           account,
           cursor: positionCursor,
           source: positionsReadSource,
@@ -1766,7 +1766,7 @@ export default function LivePlatform() {
         setPositions((old) => [...old, ...result.items.map(viewPool)]);
         setPositionCursor(result.nextCursor);
       } else if (kind === "orders") {
-        const result = await client.readOrders({
+        const result = await (client.readDisplayOrders ?? client.readOrders)({
           ...(marketTab === "mine" ? { seller: account } : { active: true }),
           cursor: orderCursor,
           source: marketOrderSource,

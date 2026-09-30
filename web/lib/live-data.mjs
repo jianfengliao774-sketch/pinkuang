@@ -288,6 +288,67 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     await verifyDeploymentAtHeader(header, { displayRead: true });
     return { source, data: response.data };
   }
+  async function serverDisplayRead(path, query = {}) {
+    const url=new URL(`${indexBase.href.replace(/\/$/,'')}/v1/display${path}`);
+    for(const [name,value] of Object.entries(query)) if(name!=='source' && value!==undefined && value!==null) url.searchParams.set(name,String(value));
+    const {body,serverNow,localReceivedAt}=await fetchLiveJsonWithClock(url.href,{fetcher,now,timeoutMs:2500});
+    insist(body?.source?.cacheOrigin==='server' && body.source.readMode==='verified_snapshot',
+      'index_identity','服务器展示快照身份无效。');
+    const source=validateIndexSource(body.source,manifest,{now:now(),
+      ...(serverNow===null?{}:{timeProof:{serverNow,localReceivedAt}})});
+    if(query.source) insist(sameSource(source,query.source),'source_changed','服务器快照已更新，请从第一页重新读取。');
+    const data=JSON.parse(JSON.stringify(body.data),(_name,value)=>value && typeof value==='object'
+      && Object.keys(value).length===1 && typeof value.$bemineBigInt==='string'
+      && /^(0|[1-9]\d*)$/.test(value.$bemineBigInt)?BigInt(value.$bemineBigInt):value);
+    return {source,data};
+  }
+  async function cachedDisplay(read, fallback) {
+    if(config.productFamily!=='fresh-v4') return fallback();
+    try {return await read();} catch(error) {
+      if(!isRetryableReadError(error) && !(error?.code==='http_unavailable' && [404,503].includes(error.details?.status))) throw error;
+      return fallback();
+    }
+  }
+  function displayRows(data,source) {
+    const snapshot={timestamp:BigInt(source.indexedTimestamp)};
+    return data.map(row=>{
+      insist(row?.trusted===true && typeof row.pool==='string' && typeof row.unitPriceWei==='bigint'
+        && (row.params===null || typeof row.params?.targetRaise==='bigint'), 'invalid_data','服务器项目快照不完整。');
+      liveAddress(row.pool);
+      return livePoolModel(row,snapshot);
+    });
+  }
+  const readDisplayPool=options=>cachedDisplay(async()=>{
+    const {source,data}=await serverDisplayRead(`/pools/${liveAddress(options.pool)}`,{account:options.account});
+    const [item]=displayRows([data.item],source);
+    insist(sameAddress(item.pool,options.pool),'pool_response','服务器项目与请求不一致。');
+    return {source,item,snapshot:null};
+  },()=>readPool(options));
+  const readDisplayPools=(options={})=>cachedDisplay(async()=>{
+    const {source,data}=await serverDisplayRead('/pools',options);page(data,options.limit ?? 20);
+    return {source,items:displayRows(data.items,source),nextCursor:data.nextCursor,snapshot:null};
+  },()=>readPools(options));
+  const readDisplayPositions=options=>cachedDisplay(async()=>{
+    const {account,...query}=options;
+    const {source,data}=await serverDisplayRead(`/positions/${liveAddress(account)}`,query);page(data,options.limit ?? 20);
+    insist(typeof data.marketBnbOwed==='bigint','invalid_data','服务器余额数据无效。');
+    return {source,items:displayRows(data.items,source),nextCursor:data.nextCursor,marketBnbOwed:data.marketBnbOwed,snapshot:null};
+  },()=>readPositions(options));
+  const readDisplayOrders=(options={})=>cachedDisplay(async()=>{
+    const {source,data}=await serverDisplayRead('/orders',options);page(data,options.limit ?? 20);
+    for(const row of data.items) insist(typeof row.orderId==='bigint' && typeof row.pricePerUnitWei==='bigint'
+      && typeof row.remaining==='bigint' && row.executable===false,'invalid_data','服务器订单数据无效。');
+    return {source,items:data.items,nextCursor:data.nextCursor,snapshot:null};
+  },()=>readOrders(options));
+  const readDisplayStats=(options={})=>cachedDisplay(async()=>{
+    const {source,data}=await serverDisplayRead('/stats');
+    insist(data?.scope==='confirmed_indexed_history','invalid_data','服务器统计口径无效。');
+    const values={...data};
+    for(const field of ['registeredPoolCount','everParticipantAddressCount','purchasedCostWei','shareMarketFilledGrossWei',
+      'harvestedToMembersBemAtomic','topLevelProjectCount','standalonePoolCount','portfolioCount','childPoolCount','reservedChildPoolCount'])
+      if(values[field]!==undefined) values[field]=exact(values[field],field);
+    return {source,data:values};
+  },()=>readStats(options));
   async function sourceFor(expected) { return (await indexRead('/health', {}, expected)).source; }
   const pageLimit = value => { safeInt(value, 'limit'); insist(value >= 1 && value <= 20, 'page_limit', '每页读取 1–20 条。'); return value; };
   async function childReservations(rows, source) {
@@ -693,5 +754,5 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         accountClaimedAtomic: account ? exact(row.accountClaimedAtomic, 'accountClaimedAtomic') : null }; });
     return Object.freeze({ source, data: Object.freeze({ ...data, buckets, accountUnclaimedDailyAccrual: null }) });
   }
-  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readPools, readPool, readPositions, readStats, readOrders, readGovernance, readActivity, readYield });
+  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readDisplayPool, readDisplayPools, readDisplayPositions, readDisplayOrders, readDisplayStats, readPools, readPool, readPositions, readStats, readOrders, readGovernance, readActivity, readYield });
 }
