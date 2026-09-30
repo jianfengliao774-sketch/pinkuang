@@ -20,6 +20,7 @@ import urllib.request
 
 GAS = '0xA285d1933e32b5990625aC1F5BEa205Cf2606619'
 PROOF = Path('/etc/pinkuang-v4/legacy-drain.json')
+EXTERNAL_EVIDENCE = Path('/etc/pinkuang-v4/external-finalized-migration.json')
 TERMINAL = {'confirmed', 'reverted', 'cancelled', 'cancel-reverted'}
 HEX = re.compile(r'0x[0-9a-fA-F]{64}')
 
@@ -29,6 +30,48 @@ def need(ok, reason):
 
 
 def sha(raw): return hashlib.sha256(raw).hexdigest()
+
+
+def evidence_bytes(value):
+    return (json.dumps(value, sort_keys=True, separators=(',', ':'))+'\n').encode()
+
+
+def external_transactions(plan):
+    """Explicitly disclosed transactions, never synthetic worker journal entries."""
+    rows=plan.get('acknowledgedExternalTransactions',[])
+    need(isinstance(rows,list) and len(rows)<=1000,'Invalid external migration inventory.')
+    if not rows:
+        need('expectedCutoverNonce' not in plan,'Pinned cutover requires external migration inventory.')
+        return []
+    end=plan.get('expectedCutoverNonce')
+    need(type(end) is int and 0<end<=1000,'Missing bounded expected external cutover nonce.')
+    acknowledgment=plan.get('externalMigrationAcknowledgement')
+    need(isinstance(acknowledgment,dict)
+         and set(acknowledgment)=={'userInstructions','scope','transactionOriginConfirmed'}
+         and acknowledgment.get('scope')=='continue-after-disclosed-transactions'
+         and acknowledgment.get('transactionOriginConfirmed') is False
+         and isinstance(acknowledgment.get('userInstructions'),list)
+         and 1<=len(acknowledgment['userInstructions'])<=5
+         and all(isinstance(t,str) and 0<len(t)<=500 for t in acknowledgment['userInstructions']),
+         'External migration must record the limited user acknowledgment, not an attributed sender.')
+    fields={'nonce','txHash','from','to','valueWei','inputSha256','blockNumber','blockHash','status'}
+    for row in rows:
+        need(isinstance(row,dict) and set(row)==fields,'External transaction fields must be exact.')
+        need(type(row['nonce']) is int and 0<=row['nonce']<end
+             and isinstance(row['txHash'],str) and HEX.fullmatch(row['txHash'])
+             and isinstance(row['blockHash'],str) and HEX.fullmatch(row['blockHash'])
+             and type(row['blockNumber']) is int and row['blockNumber']>0
+             and type(row['status']) is int and row['status'] in [0,1],
+             'Invalid external transaction identity.')
+        need(isinstance(row['from'],str) and row['from'].lower()==GAS.lower()
+             and isinstance(row['to'],str) and re.fullmatch(r'0x[0-9a-fA-F]{40}',row['to'])
+             and isinstance(row['valueWei'],str) and re.fullmatch(r'0|[1-9][0-9]{0,77}',row['valueWei'])
+             and int(row['valueWei'])<2**256
+             and isinstance(row['inputSha256'],str) and re.fullmatch(r'[0-9a-f]{64}',row['inputSha256']),
+             'Invalid external transaction payload binding.')
+    need(len({r['nonce'] for r in rows})==len(rows)
+         and len({r['txHash'].lower() for r in rows})==len(rows),'Duplicate external migration transaction.')
+    return rows
 
 
 def run(args, timeout=15, allow_failure=False):
@@ -68,6 +111,7 @@ def parse_plan(raw):
         need(isinstance(p.get(key),list) and len(p[key])<=1000,'Missing ledger inventory.')
         for path in p[key]:
             need(path.startswith('/var/lib/pinkuang-') and '/..' not in path,'Invalid legacy ledger root.')
+    external_transactions(p)
     return p
 
 
@@ -125,6 +169,7 @@ def rpc_client(plan):
 
 
 def reconcile(plan,rpc):
+    external=external_transactions(plan)
     need(rpc('eth_chainId',[])=='0x38','RPC is not BSC mainnet.')
     finalized=rpc('eth_getBlockByNumber',['finalized',False])
     final_number=int(finalized['number'],16)
@@ -135,6 +180,8 @@ def reconcile(plan,rpc):
     pending=int(rpc('eth_getTransactionCount',[GAS,'pending']),16)
     final_nonce=int(rpc('eth_getTransactionCount',[GAS,hex(final_number)]),16)
     need(latest==pending==final_nonce,'Gas nonce is pending or not finalized.')
+    if external:
+        need(latest==plan['expectedCutoverNonce'],'Gas nonce differs from the explicitly reviewed external cutover.')
     actual=set()
     for directory in plan['journalDirectories']:
         p=Path(directory);need(p.is_dir() and p.resolve()==p,'Legacy journal directory is missing or linked.')
@@ -172,21 +219,83 @@ def reconcile(plan,rpc):
         highest=max(highest,t['nonce'])
         journals.append({'journalSha256':sha(raw),'phase':t['phase'],'nonce':t['nonce'],'txHash':t['hash'],
                          'blockNumber':block_number,'blockHash':receipt['blockHash']})
-    need(highest+1==latest,'Ledger does not cover the latest consumed Gas nonce.')
     pointers=[]
+    pointer_hashes={}
     for path in plan['walletPointerPaths']:
         raw,p=private_file(path)
         need(p.get('chainId')==56 and str(p.get('address','')).lower()==GAS.lower()
              and p.get('journal') in hashes,'Wallet pointer references a missing or unreviewed journal.')
         pointers.append({'path':path,'sha256':sha(raw),'journal':p['journal']})
+        pointer_hashes[path]=sha(raw)
+    migration=None
+    if external:
+        for row in external:
+            tx=rpc('eth_getTransactionByHash',[row['txHash']])
+            receipt=rpc('eth_getTransactionReceipt',[row['txHash']])
+            header=rpc('eth_getBlockByNumber',[hex(row['blockNumber']),False])
+            need(tx.get('chainId') is not None and int(tx['chainId'],16)==56
+                 and tx['hash'].lower()==row['txHash'].lower()
+                 and tx['from'].lower()==row['from'].lower() and int(tx['nonce'],16)==row['nonce']
+                 and str(tx.get('to','')).lower()==row['to'].lower()
+                 and int(tx['value'],16)==int(row['valueWei'])
+                 and re.fullmatch(r'0x(?:[0-9a-fA-F]{2})*',tx.get('input',''))
+                 and sha(bytes.fromhex(tx['input'][2:]))==row['inputSha256'],
+                 'External transaction differs from the acknowledged payload.')
+            need(receipt['transactionHash'].lower()==row['txHash'].lower()
+                 and int(receipt['status'],16)==row['status']
+                 and int(receipt['blockNumber'],16)==row['blockNumber']<=final_number
+                 and int(tx['blockNumber'],16)==row['blockNumber']
+                 and int(header['number'],16)==row['blockNumber']
+                 and tx['blockHash'].lower()==receipt['blockHash'].lower()==header['hash'].lower()==row['blockHash'].lower(),
+                 'External transaction lacks its acknowledged canonical finalized receipt.')
+        all_nonces=[row['nonce'] for row in journals]+[row['nonce'] for row in external]
+        need(sorted(all_nonces)==list(range(latest)),
+             'Worker and external evidence must cover every nonce exactly once.')
+        migration={'schemaVersion':1,'kind':'external-finalized-migration-evidence','chainId':56,
+            'gasWallet':GAS,'expectedCutoverNonce':plan['expectedCutoverNonce'],
+            'acknowledgement':'Explicitly disclosed external transactions approved for nonce migration; not worker execution.',
+            'userAcknowledgment':plan['externalMigrationAcknowledgement'],
+            'transactions':sorted(external,key=lambda row:row['nonce']),
+            'finalizedBlockNumber':final_number,'finalizedBlockHash':finalized['hash'],
+            'originalJournalSha256':hashes,'originalWalletPointerSha256':pointer_hashes}
+        digest=sha(evidence_bytes(migration))
+        for row in external:
+            # 6a's root-reviewed drain validator calls this compatibility field
+            # journalSha256. Here it hashes the clearly typed independent chain
+            # evidence, not a fabricated worker journal or business completion.
+            journals.append({'evidenceKind':'external-finalized-migration-evidence',
+                'evidencePath':str(EXTERNAL_EVIDENCE),'evidenceSha256':digest,
+                'journalSha256':digest,'journalSha256Meaning':'independent-migration-evidence-bytes',
+                'phase':'confirmed' if row['status']==1 else 'reverted',
+                'nonce':row['nonce'],'txHash':row['txHash'],
+                'blockNumber':row['blockNumber'],'blockHash':row['blockHash']})
+        journals.sort(key=lambda row:row['nonce'])
+    else:
+        need(highest+1==latest,'Ledger does not cover the latest consumed Gas nonce.')
     # Re-read consumed nonces after receipt checks, without ever reserving a nonce.
     need(int(rpc('eth_getTransactionCount',[GAS,'latest']),16)==latest
          and int(rpc('eth_getTransactionCount',[GAS,'pending']),16)==pending,'Gas nonce changed during reconciliation.')
     need(rpc('eth_getBlockByNumber',[hex(final_number),False])['hash'].lower()==finalized['hash'].lower(),'Finalized history changed.')
     for path,digest in hashes.items():need(sha(Path(path).read_bytes())==digest,'Journal changed during reconciliation.')
-    return {'journals':journals,'cutoverNonce':latest,'latestNonce':latest,'pendingNonce':pending,
+    for path,digest in pointer_hashes.items():need(sha(Path(path).read_bytes())==digest,'Wallet pointer changed during reconciliation.')
+    result={'journals':journals,'cutoverNonce':latest,'latestNonce':latest,'pendingNonce':pending,
             'finalizedNonce':final_nonce,'finalizedBlockNumber':final_number,'finalizedBlockHash':finalized['hash'],
             'journalPaths':hashes,'walletPointers':pointers}
+    if migration:
+        result.update(externalMigrationEvidence=migration,externalMigrationEvidenceSha256=sha(evidence_bytes(migration)),
+                      externalMigrationEvidencePath=str(EXTERNAL_EVIDENCE),externalEvidenceWritten=False)
+    return result
+
+
+def write_root_evidence(path,raw):
+    parent=path.parent
+    need(parent.is_dir() and parent.resolve()==parent and parent.stat().st_uid==0
+         and stat.S_IMODE(parent.stat().st_mode)&0o022==0,'Proof directory must be root owned and not writable by other users.')
+    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
+    with os.fdopen(fd,'wb') as f:
+        os.fchown(f.fileno(),0,grp.getgrnam('pinkuang-v4-relay').gr_gid)
+        os.fchmod(f.fileno(),0o640)
+        f.write(raw);f.flush();os.fsync(f.fileno())
 
 
 def execute(plan,mode):
@@ -199,6 +308,9 @@ def execute(plan,mode):
         result['activeSendProcesses']=sender_processes();result.update(reconcile(plan,rpc_client(plan)))
         result['proofWritten']=False;return result
     need(not PROOF.exists() and not PROOF.is_symlink(),'Drain proof already exists; never overwrite it.')
+    if external_transactions(plan):
+        need(not EXTERNAL_EVIDENCE.exists() and not EXTERNAL_EVIDENCE.is_symlink(),
+             'External migration evidence already exists; never overwrite it.')
     if mode=='stop-and-attest':
         for item in plan['senders']:
             run(['systemctl','disable',item['unit']])
@@ -209,14 +321,12 @@ def execute(plan,mode):
     result['stopped']=verify_units(plan,stopped=True)
     need(not sender_processes(),'A sender appeared during reconciliation.')
     result['pendingClear']=True
-    parent=PROOF.parent
-    need(parent.is_dir() and parent.resolve()==parent and parent.stat().st_uid==0
-         and stat.S_IMODE(parent.stat().st_mode)&0o022==0,'Proof directory must be root owned and not writable by other users.')
-    fd=os.open(PROOF,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o640)
-    with os.fdopen(fd,'wb') as f:
-        os.fchown(f.fileno(),0,grp.getgrnam('pinkuang-v4-relay').gr_gid)
-        os.fchmod(f.fileno(),0o640)
-        f.write((json.dumps(result,indent=2)+'\n').encode());f.flush();os.fsync(f.fileno())
+    if result.get('externalMigrationEvidence'):
+        raw=evidence_bytes(result['externalMigrationEvidence'])
+        need(sha(raw)==result['externalMigrationEvidenceSha256'],'External evidence digest differs.')
+        write_root_evidence(EXTERNAL_EVIDENCE,raw)
+        result['externalEvidenceWritten']=True
+    write_root_evidence(PROOF,(json.dumps(result,indent=2)+'\n').encode())
     result['proofWritten']=True;result['proofSha256']=sha(PROOF.read_bytes())
     return result
 

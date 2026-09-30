@@ -27,6 +27,16 @@ EnvironmentFile **只能包含4个 RPC 白名单项**：DEPLOYMENT_JOURNAL_RPC_U
 
 普通成员的认购、交易、领取、退款、撤单由用户钱包支付 Gas。平台 Gas 钱包仅承担必要后端自动化手续费，调用 value=0；购机本金由矿池合约支付。
 
+## 已披露的账本外交易迁移
+
+旧 worker 账本与钱包指针必须原样保留。若链上另有已完成交易，先逐笔公开核对交易哈希、nonce、发送方、目标、value、原始 calldata **字节**的 SHA256、区块号/哈希、回执状态与最终确认，并确认用户接受这些已披露交易之后继续切换。不能把“继续”记录成操作者身份或另一发送端已确认停机。2026-09-30 本次接受范围仅为已披露 nonce 1–3，用户原话为“直接开启吧”“我要进行测试 然后上线了”。
+
+可审阅的 drain plan 使用可选 `acknowledgedExternalTransactions` 精确列表（每项仅上述9个字段）和 `expectedCutoverNonce`，以及 `externalMigrationAcknowledgement`：`userInstructions` 保存原话，`scope` 为 `continue-after-disclosed-transactions`，`transactionOriginConfirmed` 必须为 false。本次明确固定 cutover=4；任何新增 nonce 或 pending/finalized 不一致均拒绝。原 worker 证据与迁移证据的 nonce 必须连续覆盖 0–3，不能重叠、遗漏或只提供最高 nonce。
+
+`--inspect` 只返回待写证据与摘要，不停进程、不生成正式文件。经审核后 `--stop-and-attest` 仍先停止已登记旧 sender，再扫描本机所有持同类 Gas 凭据的自动发送进程、复查全部链上证据和最终 nonce。通过后 create-only 写入 root:relay0640 的 `/etc/pinkuang-v4/external-finalized-migration.json`，明确 kind 为 `external-finalized-migration-evidence`，随后才写固定 drain proof。文件已存在时拒绝覆盖；失败遗留证据应保留复核，不自动重试覆写。
+
+为复用已验签的 6a runtime 验证器，drain 的 `journals` 兼容数组仍包含所有已确认交易。迁移项明确标注 `evidenceKind`、独立 `evidencePath` 和 `evidenceSha256`；历史字段 `journalSha256` 在该项仅表示**独立迁移证据文件**的摘要，`journalSha256Meaning` 明确此语义，绝不仿造旧 worker journal，也不表示这些换币/授权操作由业务 worker 执行。此扩展只属于运维工具，正式业务 runtime 的源码和已验签包保持原样。
+
 ## 失败与恢复
 
 只读安装失败会 CAS 恢复原 index unit、保留新 DB/nonce记录/发布工件并停止新公共 API；已经写入的 root 配置保留作证据，重试不能直接覆写。自动化失败会停止全部新发送者、CAS 恢复原只读 attestor；**绝不自动重新启动 v2 sender**。前端发布失败只撤销自己的 vhost/current，不更改链上状态。
