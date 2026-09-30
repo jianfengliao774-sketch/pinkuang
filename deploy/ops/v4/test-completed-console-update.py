@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('completed_console_update',
     Path(__file__).with_name('update-completed-console.remote.py'))
@@ -37,6 +38,27 @@ class CompletedConsoleUpdateTests(unittest.TestCase):
         before = module.DB.read_bytes()
         self.assertEqual(module.journal_snapshot(self.plan), self.plan['journalSha256'])
         self.assertEqual(before, module.DB.read_bytes())
+
+    def test_console_update_preserves_an_already_released_hold(self):
+        credentials = self.directory.name + '/credentials'
+        Path(credentials).mkdir()
+        (Path(credentials) / 'authority-ipc-hmac').write_text('fixture')
+        root = Path('/reviewed-release')
+        dropin = module.DROPINS / '20-stage2-attestation.conf'
+        state = {'ActiveState': 'active', 'WorkingDirectory': str(root),
+                 'FragmentPath': str(module.UNIT), 'NeedDaemonReload': 'no',
+                 'DropInPaths': str(dropin), 'MainPID': '42'}
+        env = {**module.FLAGS, 'BEMINE_FRESH_STAGE2_HOLD': '0',
+               'CREDENTIALS_DIRECTORY': credentials}
+        with patch.object(module, 'service_state', return_value=state), \
+             patch.object(module, 'verify_dropin', return_value=dropin), \
+             patch.object(module, 'environment', return_value=env):
+            module.verify_process({'expectedStage2Hold': '0'}, root)
+            with self.assertRaisesRegex(RuntimeError, 'reviewed hold'):
+                module.verify_process({'expectedStage2Hold': '1'}, root)
+            env['AUTHORITY_RELAY_ENABLED'] = '1'
+            with self.assertRaisesRegex(RuntimeError, 'disabled relay'):
+                module.verify_process({'expectedStage2Hold': '0'}, root)
 
     def test_inflight_activation_blocks_runtime_switch(self):
         with closing(sqlite3.connect(module.DB)) as db, db:

@@ -1,4 +1,4 @@
-"""Replace a held v4 console after Stage1; never reset journals or enable Stage2."""
+"""Replace a v4 console after Stage1; preserve its reviewed hold and journals."""
 import argparse
 from contextlib import closing
 import hashlib
@@ -52,6 +52,11 @@ def service_state(name=SERVICE):
 def environment(pid):
     return dict(entry.decode().split('=', 1) for entry in Path(f'/proc/{pid}/environ').read_bytes().split(b'\0') if b'=' in entry)
 
+def required_flags(plan):
+    hold = plan.get('expectedStage2Hold', '1')
+    require(hold in ('0', '1'), 'Expected Stage2 hold must be explicitly 0 or 1.')
+    return {**FLAGS, 'BEMINE_FRESH_STAGE2_HOLD': hold}
+
 def verify_process(plan, root):
     state = service_state()
     require(state['ActiveState'] == 'active' and state['WorkingDirectory'] == str(root)
@@ -60,7 +65,8 @@ def verify_process(plan, root):
     expected_drop = verify_dropin(plan)
     require(state['DropInPaths'] == str(expected_drop), 'Unreviewed effective service drop-ins.')
     env = environment(int(state['MainPID']))
-    require(all(env.get(key) == value for key, value in FLAGS.items()), 'A required safety hold is absent.')
+    require(all(env.get(key) == value for key, value in required_flags(plan).items()),
+            'The reviewed hold or disabled relay flags changed.')
     require(not env.get('KEEPER_PRIVATE_KEY'), 'Public process must not receive a private key.')
     credentials = Path(env.get('CREDENTIALS_DIRECTORY', '/nonexistent'))
     require(credentials.is_dir() and sorted(p.name for p in credentials.iterdir()) == ['authority-ipc-hmac'],
@@ -170,7 +176,9 @@ def main():
     v2_before = service_state('pinkuang-purchase-v2.service')
     status('https://tapeout.cc.cd/pinkuang-deploy-v4/', 401)
     if args.dry_run:
-        print(json.dumps({'dryRun': True, 'stage1Preserved': True, 'stage2Held': True, 'sourceHead': plan['sourceHead']}))
+        print(json.dumps({'dryRun': True, 'stage1Preserved': True,
+                          'stage2Held': required_flags(plan)['BEMINE_FRESH_STAGE2_HOLD'] == '1',
+                          'sourceHead': plan['sourceHead']}))
         return
     shutil.copytree(args.package_dir, new)
     for path in [new, *new.rglob('*')]:
@@ -213,7 +221,8 @@ def main():
         status('https://tapeout.cc.cd/bemine-v2/', 200)
         require(service_state('pinkuang-purchase-v2.service') == v2_before, 'Old sender identity changed.')
         print(json.dumps({'updated': True, 'sourceHead': plan['sourceHead'], 'stage1Preserved': True,
-                          'stage2Held': True, 'unitSha256': sha(updated), 'relayEnabled': False}))
+                          'stage2Held': required_flags(plan)['BEMINE_FRESH_STAGE2_HOLD'] == '1',
+                          'unitSha256': sha(updated), 'relayEnabled': False}))
     except Exception:
         if stopped:
             subprocess.run(['systemctl', 'stop', SERVICE], capture_output=True, timeout=45)

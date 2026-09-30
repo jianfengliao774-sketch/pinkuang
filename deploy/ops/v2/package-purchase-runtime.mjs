@@ -20,6 +20,8 @@ export const PURCHASE_RUNTIME_FILES = Object.freeze({
   'src/firsto-purchase.mjs': 'src/firsto-purchase.mjs',
   'server/product-graph.mjs': 'server/product-graph.mjs',
   'shared/firsto-upgrade-proof.mjs': 'shared/firsto-upgrade-proof.mjs',
+  'shared/fresh-activation-chain-proof.mjs': 'shared/fresh-activation-chain-proof.mjs',
+  'shared/fresh-activation-execution.mjs': 'shared/fresh-activation-execution.mjs',
   'shared/integrated-upgrade-plan.mjs': 'shared/integrated-upgrade-plan.mjs',
   'shared/original-gas-wallet.mjs': 'shared/original-gas-wallet.mjs',
 });

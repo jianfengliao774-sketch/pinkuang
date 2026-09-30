@@ -7,6 +7,7 @@ import {
   type ArtifactBundle, type DeploymentSnapshot, type StepRecord,
 } from './deployment';
 import { deploymentManifest, type DeploymentManifest } from './manifest';
+import { freshActivationReadWallet, readFreshActivationAnchors } from './fresh-activation-reader';
 import type { ServerJournal } from './server-journal';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
 import { assertFreshActivationWalletScope } from '../shared/fresh-activation-execution.mjs';
@@ -212,7 +213,7 @@ export class FreshActivationEngine {
     private readonly journal: ServerJournal, private readonly genesis: DeploymentSnapshot,
     private readonly onUpdate?: (record: FreshActivationRecord) => void) {
     validateArtifacts(bundle);
-    this.provider = new BrowserProvider(wallet, 'any', { cacheTimeout: -1, pollingInterval: 1500 });
+    this.provider = new BrowserProvider(freshActivationReadWallet(wallet), 'any', { cacheTimeout: -1, pollingInterval: 1500 });
   }
 
   private async account() {
@@ -299,11 +300,8 @@ export class FreshActivationEngine {
     await this.account();
     // A finalized anchor proves the completed prefix; checking the current
     // head as well catches a newer role change before another signature.
-    const [finalized, head] = await Promise.all([
-      this.provider.getBlock('finalized'), this.provider.getBlock('latest'),
-    ]);
-    requireThat(finalized?.hash && head?.hash && head.number >= finalized.number,
-      'BSC 最终确认区块或最新区块不可用。');
+    const { finalized, head } = await readFreshActivationAnchors(this.provider);
+    requireThat(finalized.hash && head.hash, 'BSC 最终确认区块或最新区块缺少哈希。');
     await this.proveAncestor(finalized.number, finalized.hash, head);
     if (completed < FRESH_ACTIVATION_STEPS.length) {
       const code = await this.provider.getCode(record.account, finalized.number);
