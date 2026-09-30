@@ -113,7 +113,7 @@ jobs:
               deploy/ops/v4/test-install-attestor.py|deploy/ops/v4/test-release-stage2-hold.py)
                 # These tests use only temporary files and a fake service host,
                 # but must exercise actual POSIX root ownership checks.
-                sudo "$(command -v python)" -B "$test_file" ;;
+                sudo env HOLD_DEPLOY_ROOT="$PWD/deploy" "$(command -v python)" -B "$test_file" ;;
               *) python -B "$test_file" ;;
             esac
           done
