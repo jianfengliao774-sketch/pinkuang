@@ -473,10 +473,14 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     const normalized = normalize(currentConfig, transaction, action);
     const { account, factory, target, targetType, value, data } = normalized;
     // Independent reads overlap, but every started read settles before an intent can be saved.
-    const { session, view } = await settleReadRound({
+    const { session, view, latest, pending, price, balance } = await settleReadRound({
       wallet: () => requireWallet(provider, account),
       session: () => request(config, 'session', 'GET', undefined, account, fetcher),
       view: () => readPending({ account, config, fetcher }),
+      latest: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
+      pending: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
+      price: () => provider.request({ method: 'eth_gasPrice' }),
+      balance: () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] }),
     });
     requireValue(same(session.account, account), '请先点击连接钱包并完成本站登录。');
     requireValue(!view.record, '这个钱包有待核对交易，请先核对回执；不要重复发送。');
@@ -484,12 +488,6 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     const unsigned = { from: account, to: target, data, value: toQuantity(value) };
     // The wallet confirmation displays a bounded gas limit. Do not run a
     // transaction simulation or dynamic gas estimate during submission.
-    const { latest, pending, price, balance } = await settleReadRound({
-      latest: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
-      pending: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
-      price: () => provider.request({ method: 'eth_gasPrice' }),
-      balance: () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] }),
-    });
     const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(normalized.action.kind, targetType), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
     requireValue(nonce === rpcQuantity(pending, '钱包待处理 nonce') && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
     requireValue(gas > 0n && gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n

@@ -505,38 +505,31 @@ test('missing, lost or modified single-use signing permission never opens the wa
   }
 });
 
-test('independent preflight reads overlap while intent ACK and signing permission stay sequential', async () => {
-  const f=fixture(), original=f.provider.request.bind(f.provider), states=[];
-  const groups=[new Set(),new Set()], release=[], gates=groups.map((_,i)=>new Promise(resolve=>{release[i]=resolve;}));
-  const timers=groups.map((_,i)=>setTimeout(()=>release[i](),1500));
-  const enter=async(i,name)=>{groups[i].add(name);if(groups[i].size===[4,4][i])release[i]();await gates[i];};
-  let phase=0;
+test('wallet metadata and journal reads share one round without transaction simulation', async () => {
+  const f=fixture({fastAuthorization:true}), original=f.provider.request.bind(f.provider), seen=new Set();
+  let release, armed=false;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const timer=setTimeout(release,1500);
+  const enter=async name=>{seen.add(name);if(seen.size===8)release();await gate;};
   f.provider.request=async payload=>{
     const {method,params}=payload;
-    if(phase===0&&['eth_chainId','eth_accounts'].includes(method))await enter(0,method);
-    if(phase===1&&['eth_gasPrice','eth_getBalance','eth_getTransactionCount'].includes(method))
-      await enter(1,method==='eth_getTransactionCount'?method+params[1]:method);
+    if(!armed && ['eth_chainId','eth_accounts','eth_gasPrice','eth_getBalance','eth_getTransactionCount'].includes(method))
+      await enter(method==='eth_getTransactionCount'?method+params[1]:method);
     return original(payload);
   };
   const fetcher=async(url,init)=>{
-    if(phase===0&&(!init.method||init.method==='GET')){
-      await enter(0,url.endsWith('/session')?'session':'journal');
-      if(groups[0].size===4)phase=1;
-    }
-    if(init.method==='PUT'){
-      assert.equal(groups[0].size,4,'initial reads must overlap');
-      assert.equal(groups[1].size,4,'Gas price, balance and both nonces must overlap');phase=2;
+    if(!armed && init.method==='GET')await enter(url.endsWith('/session')?'session':'journal');
+    if(url.endsWith('/market/prepare-and-arm')){
+      assert.equal(seen.size,8,'all independent reads must start in one round');armed=true;
     }
     return f.fetcher(url,init);
   };
   try{
-    const result=await sendProductTransaction({provider:f.provider,config,transaction:transaction(),action:'deposit',fetcher,onState:s=>states.push(s.status)});
-    assert.equal(result.status,'confirmed');
-    assert.deepEqual(states.slice(0,4),['preparing','recording-intent','authorizing','awaiting-signature']);
-    assert(f.calls.findIndex(x=>x.url?.endsWith('/market')&&x.method==='PUT')<f.calls.findIndex(x=>x.url?.endsWith('/market/arm')));
-    assert(f.calls.findIndex(x=>x.url?.endsWith('/market/arm'))<f.calls.findIndex(x=>x.method==='eth_sendTransaction'));
-    assert.equal(f.calls.filter(x=>x.method==='eth_sendTransaction').length,1);
-  }finally{timers.forEach(clearTimeout);release.forEach(resolve=>resolve());}
+    assert.equal((await sendProductTransaction({provider:f.provider,config,transaction:transaction(),action:'deposit',fetcher})).status,'confirmed');
+    assert(!f.calls.some(call=>['eth_call','eth_estimateGas'].includes(call.method)));
+    assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
+    assert.equal(seen.size,8);
+  }finally{clearTimeout(timer);release();}
 });
 
 test('failed parallel gas-price read drains reads and retains the wallet lane without signing',async()=>{
@@ -560,12 +553,13 @@ test('failed parallel gas-price read drains reads and retains the wallet lane wi
 });
 
 test('a rejected chain read drains its concurrent account read before releasing the send lane',async()=>{
-  const f=fixture();let release, accountsStarted;
+  const f=fixture(), original=f.provider.request.bind(f.provider);let release, accountsStarted;
   const waiting=new Promise(resolve=>{release=resolve;}), started=new Promise(resolve=>{accountsStarted=resolve;});
-  f.provider.request=async({method})=>{
+  f.provider.request=async payload=>{
+    const {method}=payload;
     if(method==='eth_chainId')throw new Error('chain unavailable');
     if(method==='eth_accounts'){accountsStarted();await waiting;return [account];}
-    assert.fail(`Unexpected request after identity failure: ${method}`);
+    return original(payload);
   };
   let settled=false;
   const send=f.send().then(()=>assert.fail('identity failure must reject'),error=>{assert.match(error.message,/chain unavailable/);settled=true;});

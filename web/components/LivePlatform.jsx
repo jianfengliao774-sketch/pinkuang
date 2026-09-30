@@ -140,7 +140,7 @@ const transactionLabels = {
   rechecking: ['正在核对最新交易信息…', 'Checking the latest transaction details…'],
   preparing: ['正在核对余额与 Gas 费用…', 'Checking your balance and Gas fees…'],
   'recording-intent': ['正在确认订单信息…', 'Confirming order details…'],
-  authorizing: ['正在完成发送前检查…', 'Completing final transaction checks…'],
+  authorizing: ['正在打开钱包…', 'Opening your wallet…'],
   'awaiting-signature': ['请在钱包弹窗中确认交易', 'Confirm the transaction in your wallet'],
   pending: ['交易已提交，正在核对链上结果…', 'Transaction submitted. Checking the on-chain result…'],
   'needs-verification': ['发送结果待核对，请检查钱包记录', 'Submission needs verification. Check your wallet history'],
