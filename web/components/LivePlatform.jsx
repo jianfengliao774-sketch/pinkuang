@@ -2377,7 +2377,9 @@ export default function LivePlatform() {
                   onClick={() => setBootAttempt(value => value + 1)}>{L('重新核对服务', 'Recheck services')}</Button></>}
             </p>}
           {historicalSource && operatorServiceReady && !(loading || revalidating) &&
-            <p className="subtle-note" role="status">{L('资料待更新，相关操作暂不可用。', 'Data needs updating; related actions are temporarily unavailable.')}</p>}
+            <p className="subtle-note" role="status">{historicalSource.cacheOrigin === 'server'
+              ? L('已读取服务器缓存，后台持续同步链上数据。', 'Loaded server cache; on-chain data continues syncing in the background.')
+              : L('资料待更新，相关操作暂不可用。', 'Data needs updating; related actions are temporarily unavailable.')}</p>}
           {error && (
             <div className="live-notice error" role="alert">
               <AlertCircle size={18} />
@@ -2540,7 +2542,9 @@ export default function LivePlatform() {
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
                   {(source?.stale || cachedPage) && <span className="subtle-note">
-                    {revalidating || loading
+                    {source?.cacheOrigin === 'server'
+                      ? L('服务器缓存 · 后台同步', 'Server cache · background sync')
+                      : revalidating || loading
                       ? L('已缓存资料 · 后台更新中', 'Cached details · updating in the background')
                       : L('上次更新的资料', 'Details from the last update')}
                   </span>}
@@ -3384,7 +3388,7 @@ export default function LivePlatform() {
             </span>
             {route.route !== 'notifications' && <span>
               {pageSource
-                ? L(pageSource.stale ? "历史快照区块" : "数据区块", pageSource.stale ? "Historical snapshot block" : "Data block") +
+                ? L(pageSource.cacheOrigin === "server" ? "已同步区块" : pageSource.stale ? "历史快照区块" : "数据区块", pageSource.cacheOrigin === "server" ? "Synced block" : pageSource.stale ? "Historical snapshot block" : "Data block") +
                   ` ${pageSource.indexedBlock ?? pageSource.indexedThrough ?? pageSource.blockNumber ?? "—"}`
                 : route.route === 'portfolio'
                   ? L('预算项目独立核对', 'Portfolio data verified separately')
