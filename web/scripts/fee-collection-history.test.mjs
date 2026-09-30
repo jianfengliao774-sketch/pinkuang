@@ -138,6 +138,34 @@ test('fee history remains readable when an unrelated mining worker is not operat
   assert.equal(value.complete, true); assert.equal(value.nextCursor, null);
 });
 
+test('a verified stale global snapshot does not block independently live-proved same-origin fee history', async t => {
+  const f = await httpHistoryFixture(t, { finalized: 300n,
+    events: [{ block: 280n, recipient: rotated, bnb: 12345600000000000n, bem: 2000000000000000000n }] });
+  Object.assign(f.config, { stale: true, readMode: 'verified_snapshot', operationalReady: false,
+    transactionReady: false, userExitReady: false });
+  const value = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert.equal(value.complete, true); assert.equal(value.rows.length, 1);
+  assert.equal(value.rows[0].administrator, rotated); assert.equal(value.rows[0].blockNumber, 280n);
+  assert.equal(displayAmount(value.rows[0].bnbAmountWei), '0.01235');
+  assert(f.calls.some(call => call.method === 'eth_getCode' && call.params[1] === '0x12c'));
+  assert(f.calls.filter(call => call.method === 'eth_call').every(call => call.params[1] === '0x12c'));
+  assert(f.calls.some(call => call.method === 'eth_getTransactionReceipt' && call.params[0] === value.rows[0].transactionHash));
+  assert(!f.calls.some(call => /^(?:eth_sign|personal_sign|eth_send|eth_estimateGas)/.test(call.method)));
+  assert.equal(f.config.transactionReady, false, 'a successful independent read does not enable financial actions');
+});
+
+test('stale global snapshots never substitute for current chain, code, deployment or canonical receipt proofs', async () => {
+  for (const change of [f => { f.state.chain = '0x1'; }, f => { f.state.badCode = true; },
+    f => { f.state.wrongCore = address(999); }, f => { f.deployment.contractAddress = address(999); },
+    f => { f.config.authority = address(999); }, f => { f.state.logsFailure = new Error('fee logs unavailable'); },
+    f => { f.state.changeReceipt = (receipt, txHash) => txHash === digest('authority-deployment')
+      ? receipt : { ...receipt, blockHash: digest('noncanonical-fee-receipt') }; }]) {
+    const f = fixture({ finalized: 300n, events: [{ block: 280n }] });
+    Object.assign(f.config, { stale: true, readMode: 'verified_snapshot', operationalReady: false, transactionReady: false });
+    change(f); await assert.rejects(read(f));
+  }
+});
+
 test('deduplicates identical unordered events and orders transactions and logs within a block', async () => {
   const f = fixture({ finalized: 300n, events: [
     { block: 280n, txIndex: 1n, logIndex: 2n },
@@ -170,6 +198,62 @@ test('empty recent windows return a continuation and older data remains reachabl
   const lastPage = await read(f, { cursor: firstPage.nextCursor });
   assert.equal(lastPage.rows.length, 1); assert.equal(lastPage.rows[0].blockNumber, 150n);
   assert.equal(lastPage.complete, true); assert.equal(lastPage.nextCursor, null);
+});
+
+test('old pagination and cached history work without archive state, retaining historical receipt and anchor proofs', async () => {
+  const f = fixture({ events: [{ block: 150n, recipient: rotated, bnb: 1000000000000000001n, bem: 2000000000000000000n }] });
+  let now = 100000;
+  const firstPage = await read(f, { now: () => now });
+  assert.equal(firstPage.rows.length, 0); assert(firstPage.nextCursor);
+  const initialLogCount = logCalls(f).length, before = f.calls.length;
+  f.state.finalized = 60000n; now += 1000;
+  f.state.beforeRead = input => {
+    if (['eth_getCode', 'eth_call'].includes(input.method) && BigInt(input.params[1]) < 59000n)
+      throw new Error('missing trie node: historical state has been pruned');
+  };
+  const cached = await read(f, { now: () => now });
+  assert.equal(cached.cached, true); assert.equal(cached.safeBlockNumber, 50000n);
+  assert.equal(logCalls(f).length, initialLogCount);
+  const older = await read(f, { cursor: firstPage.nextCursor, now: () => now });
+  assert.equal(older.complete, true); assert.equal(older.safeBlockNumber, 50000n);
+  assert.equal(older.rows.length, 1); assert.equal(older.rows[0].administrator, rotated);
+  assert.equal(older.rows[0].blockNumber, 150n); assert.equal(older.rows[0].bnbAmountWei, 1000000000000000001n);
+  const subsequent = f.calls.slice(before);
+  assert(subsequent.filter(call => ['eth_getCode', 'eth_call'].includes(call.method))
+    .every(call => call.params[1] === '0xea60'), 'identity reads use one current finalized block, never old cursor state or latest');
+  assert(subsequent.some(call => call.method === 'eth_getTransactionReceipt' && call.params[0] === older.rows[0].transactionHash));
+  assert(subsequent.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === '0x96'), 'old event block remains canonical-verified');
+  assert(subsequent.filter(call => call.method === 'eth_getBlockByNumber' && call.kind === 'main' && call.params[0] === '0xc350').length >= 4,
+    'historical pagination anchor is still checked before and after every read');
+});
+
+test('a current finalized identity-state fork rejects an old-cursor page and never caches it', async () => {
+  const f = fixture({ events: [{ block: 150n }] });
+  const firstPage = await read(f);
+  f.state.finalized = 60000n;
+  const historicalAnchorHashes = [];
+  f.state.beforeRead = input => { if (input.method === 'eth_getLogs') f.state.stateForked = true; };
+  f.state.changeBlock = (block, input, kind) => {
+    if (kind === 'main' && input.params[0] === '0xc350') historicalAnchorHashes.push(block.hash);
+    return f.state.stateForked && kind === 'main' && input.params[0] === '0xea60'
+      ? { ...block, hash: digest('forked-current-identity-state') } : block;
+  };
+  await assert.rejects(read(f, { cursor: firstPage.nextCursor }), /管理员状态规范链/);
+  assert(historicalAnchorHashes.length >= 2);
+  assert.deepEqual([...new Set(historicalAnchorHashes)], [blockHash(50000n)], 'the old history anchor itself did not change');
+  const failedLogCount = logCalls(f).length;
+  f.state.beforeRead = null; f.state.changeBlock = null;
+  const recovered = await read(f, { cursor: firstPage.nextCursor });
+  assert.equal(recovered.cached, false); assert.equal(recovered.rows.length, 1);
+  assert(logCalls(f).length > failedLogCount, 'failed current-state proof cannot leave a cached history page');
+});
+
+test('current finalized identity state must remain finalized even when the older history anchor still is', async () => {
+  const f = fixture({ events: [] });
+  const firstPage = await read(f);
+  f.state.finalized = 60000n;
+  f.state.beforeRead = input => { if (input.method === 'eth_getLogs') f.state.finalized = 59000n; };
+  await assert.rejects(read(f, { cursor: firstPage.nextCursor }), /最终性区块/);
 });
 
 test('fully scanned empty history differs from unavailable data', async () => {
@@ -397,6 +481,7 @@ async function httpHistoryFixture(t, options = {}) {
   const readUrl = 'https://product-read.test/key', logsUrl = 'https://index-logs.test/key', upstream = [];
   const proxy = createLiveDataProxy({ ...liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: readUrl,
     CHAIN_INDEX_LOGS_RPC_URL: logsUrl }, { freshProduct: { manifest: f.config.manifest } }),
+    ...(options.proxyNow ? { now: options.proxyNow } : {}),
     fetcher: async (url, init) => {
       const body = JSON.parse(init.body); upstream.push({ url, method: body.method });
       let result;
@@ -445,6 +530,28 @@ test('real HTTP proxy uses the existing index logs RPC when the product RPC reje
   const cached = await readFeeCollectionHistory({ config: f.config, provider });
   assert.equal(cached.cached, true); assert.deepEqual(cached.rows, page.rows);
   assert.equal(upstream.filter(call => call.method === 'eth_getLogs').length, 6, 'verified cache retains amounts and claimants without rescanning');
+});
+
+test('real same-origin slow pagination survives pinned-state cache expiry on a non-archive RPC', async t => {
+  let clock = 100000;
+  const f = await httpHistoryFixture(t, { proxyNow: () => clock,
+    events: [{ block: 150n, recipient: second, bnb: 12345600000000000n, bem: 2000000000000000000n }] });
+  const firstPage = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert(firstPage.nextCursor); assert.equal(firstPage.rows.length, 0);
+  clock += 61000; f.state.finalized = 60000n;
+  f.state.beforeRead = input => {
+    if (['eth_getCode', 'eth_call'].includes(input.method) && BigInt(input.params[1]) < 59000n)
+      throw new Error('missing trie node: historical state has been pruned');
+  };
+  const before = f.calls.length;
+  const older = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider, cursor: firstPage.nextCursor });
+  assert.equal(older.complete, true); assert.equal(older.safeBlockNumber, 50000n);
+  assert.equal(older.rows.length, 1); assert.equal(older.rows[0].administrator, second);
+  assert.equal(older.rows[0].blockNumber, 150n); assert.equal(displayAmount(older.rows[0].bnbAmountWei), '0.01235');
+  const identity = f.calls.slice(before).filter(call => ['eth_getCode', 'eth_call'].includes(call.method));
+  assert.equal(identity.length, 4); assert(identity.every(call => call.params[1] === '0xea60'));
+  assert(f.calls.slice(before).some(call => call.method === 'eth_getBlockByNumber' && call.kind === 'main' && call.params[0] === '0xea60'),
+    'current finalized identity state also receives a canonical hash proof');
 });
 
 for (const failure of ['lagging', 'wrong fork', 'wrong number']) {

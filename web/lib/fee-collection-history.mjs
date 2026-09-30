@@ -159,7 +159,8 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
   need(manifest.kind === 'integrated-v2' && manifest.freshAuthority, '当前部署缺少手续费管理员合约。');
   for (const key of ['authority', 'factory', 'portfolioFactory', 'gasWallet'])
     need(same(config[key], manifest[key]), '领取记录配置与当前正式部署不一致。');
-  need(config.stale !== true, '请先读取当前正式部署状态。');
+  // A verified product-graph snapshot does not gate this independent read:
+  // the finalized node, exact Authority identity and every receipt are proved below.
   const parsedCursor = validateCursor(cursor, manifest), key = scopeKey(manifest, provider, logsProvider, parsedCursor, limit);
   const startedAt = now();
   need(Number.isSafeInteger(startedAt) && startedAt >= 0, '领取记录核验时间无效。');
@@ -181,7 +182,7 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
       : header(await request('eth_getBlockByNumber', [toQuantity(pinnedNumber), false]), pinnedNumber);
     need(!parsedCursor || same(anchor.hash, parsedCursor.anchorHash), '领取记录分页区块已变化，请刷新重新读取。');
     need(!cached || same(anchor.hash, cached.safeBlockHash), '已缓存领取记录区块已变化，请刷新重新读取。');
-    const tag = toQuantity(anchor.number), authority = manifest.authority;
+    const tag = toQuantity(anchor.number), stateTag = toQuantity(finalized.number), authority = manifest.authority;
     async function proveLogsProvider() {
       if (logsProvider === provider) return;
       const [logsChain, logsBlock] = await Promise.all([
@@ -191,11 +192,16 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
         '领取记录日志服务的网络或区块与正式链上数据不一致。');
     }
     await proveLogsProvider();
+    // Authority is directly deployed; the exact runtime hash and immutable
+    // factory/token bindings identify every historical event. Read that
+    // identity at this request's finalized block, rather than requiring an
+    // archive node for an old pagination anchor. Logs and receipts keep the
+    // original historical anchor and canonical checks.
     const read = async name => abi.PlatformAuthority.decodeFunctionResult(name,
-      await request('eth_call', [{ to: authority, data: abi.PlatformAuthority.encodeFunctionData(name) }, tag]))[0];
+      await request('eth_call', [{ to: authority, data: abi.PlatformAuthority.encodeFunctionData(name) }, stateTag]))[0];
     const [deployment, code, coreFactory, budgetFactory, token] = await Promise.all([
       request('eth_getTransactionReceipt', [manifest.freshAuthority.deploymentTxHash]),
-      request('eth_getCode', [authority, tag]), read('coreFactory'), read('budgetFactory'), read('BEM'),
+      request('eth_getCode', [authority, stateTag]), read('coreFactory'), read('budgetFactory'), read('BEM'),
     ]);
     need(same(deployment?.transactionHash, manifest.freshAuthority.deploymentTxHash)
       && deployment?.status === '0x1' && same(deployment.contractAddress, authority) && deployment.to === null
@@ -211,12 +217,15 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
     need(upper >= firstBlock, '领取记录分页早于管理员合约部署。');
 
     async function finalProof() {
-      const [endChain, endAnchorRaw, endFinalizedRaw] = await Promise.all([
+      const [endChain, endAnchorRaw, endFinalizedRaw, endStateRaw] = await Promise.all([
         request('eth_chainId'), request('eth_getBlockByNumber', [tag, false]),
         request('eth_getBlockByNumber', ['finalized', false]),
+        stateTag === tag ? null : request('eth_getBlockByNumber', [stateTag, false]),
       ]);
       need(quantity(endChain, '链号') === 56n && same(header(endAnchorRaw, anchor.number).hash, anchor.hash)
-        && header(endFinalizedRaw).number >= anchor.number, '领取记录规范链或最终性区块已变化，请重新读取。');
+        && header(endFinalizedRaw).number >= finalized.number, '领取记录规范链或最终性区块已变化，请重新读取。');
+      need(same(header(stateTag === tag ? endAnchorRaw : endStateRaw, finalized.number).hash, finalized.hash),
+        '领取记录管理员状态规范链已变化，请重新读取。');
       await proveLogsProvider();
       abortCheck(signal);
     }
