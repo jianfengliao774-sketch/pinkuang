@@ -255,7 +255,6 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
   };
   const pinnedRpc = new Map(), headerRpc = new Map(), feeLogRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
-  let verifiedLogsChainUntil = 0, logsChainProof = null, logsChainEpoch = 0;
   const clearReadCaches = () => {
     pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
   };
@@ -348,41 +347,13 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
     }
     await chainProof;
   };
-  // The extra identity proof belongs only to fee logs. A logs-node failure
-  // must neither fall back silently nor invalidate unrelated page reads.
-  const ensureLogsBscChain = async () => {
-    if (logsRpcUrl === rpcUrl) return ensureBscChain();
-    requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
-    if (now() < verifiedLogsChainUntil) return;
-    if (!logsChainProof) {
-      const proof = (async () => {
-        try {
-          const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-          const { status, value } = await fetchJson(logsRpcUrl, { method: 'POST', body: JSON.stringify(request) },
-            { fetcher, timeoutMs, maxResponseBytes });
-          requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
-            && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
-            && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
-          502, 'Read-only fee history RPC is not BSC mainnet.');
-          verifiedLogsChainUntil = now() + chainIdTtlMs;
-        } catch (error) {
-          verifiedLogsChainUntil = 0; logsChainEpoch++; feeLogRpc.clear();
-          for (const [key, entry] of pendingRpc) if (entry.isFeeLog) pendingRpc.delete(key);
-          throw error;
-        }
-      })();
-      logsChainProof = proof;
-      proof.finally(() => { if (logsChainProof === proof) logsChainProof = null; }).catch(() => {});
-    }
-    await logsChainProof;
-  };
   const readRpc = async (payload, key) => {
     let entry = key && pendingRpc.get(key);
     if (!entry) {
       const epoch = chainEpoch, startedForkEpoch = forkEpoch;
       const sequence = ['eth_getBlockByNumber', 'eth_getLogs'].includes(payload.method) ? ++headerSequence : 0;
       const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false,
-        isFeeLog: payload.method === 'eth_getLogs', logsChainEpoch };
+        isFeeLog: payload.method === 'eth_getLogs' };
       created.pending = (async () => {
         const destination = created.isFeeLog ? logsRpcUrl : rpcUrl;
         const dataRead = fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
@@ -399,8 +370,9 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
             return value.result;
           };
           try {
-            // A same-chain logs node can lag behind or follow a different fork.
-            // Prove even empty ranges; parallel reads add no serial RPC round trip.
+            // The primary BSC proof plus this exact block hash identifies the
+            // logs node's range, even when its standalone chainId is unavailable.
+            // Prove empty ranges too; these reads run in parallel with the logs.
             const [data, primary, logs] = await Promise.all([dataRead, readAnchor(rpcUrl), readAnchor(logsRpcUrl)]);
             requireValue(primary.hash.toLowerCase() === logs.hash.toLowerCase()
               && observeHeader(primary, sequence), 502, 'Fee history nodes disagree on the requested canonical block.');
@@ -426,8 +398,6 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
         // reuse, but the header remains a valid answer to its original caller.
         // That caller must perform its own post-read header check if needed.
       requireValue(entry.epoch === chainEpoch, 502, 'Read-only RPC chain changed during request.');
-      if (entry.isFeeLog) requireValue(entry.logsChainEpoch === logsChainEpoch,
-        502, 'Read-only fee history RPC chain changed during request.');
       if (payload.method !== 'eth_getBlockByNumber')
         requireValue(entry.forkEpoch === forkEpoch, 502, 'Read-only RPC fork changed during request.');
       if (key && canonical && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
@@ -480,7 +450,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
         }
         const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
         await ensureBscChain();
-        if (feeLog) await ensureLogsBscChain();
+        if (feeLog) requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
         const readBlock = pinnedBlockKey(payload);

@@ -489,7 +489,7 @@ async function httpHistoryFixture(t, options = {}) {
         return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id,
           error: { code: -32005, message: 'limit exceeded' } }), { headers: { 'content-type': 'application/json' } });
       if (url === logsUrl) {
-        assert(['eth_chainId', 'eth_getLogs', 'eth_getBlockByNumber'].includes(body.method), 'only fee logs and their chain/range proofs reach the logs endpoint');
+        assert(['eth_getLogs', 'eth_getBlockByNumber'].includes(body.method), 'only fee logs and their canonical range proofs reach the logs endpoint');
         result = await f.logsProvider.request(body);
       } else {
         assert.equal(url, readUrl, 'receipts, bindings and canonical headers retain the regular RPC');
@@ -524,7 +524,7 @@ test('real HTTP proxy uses the existing index logs RPC when the product RPC reje
   assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_getLogs').length, 6,
     'all six real 5000-block scan windows use the log-capable RPC');
   assert.equal(upstream.filter(call => call.url === readUrl && call.method === 'eth_getLogs').length, 0);
-  assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_chainId').length, 1);
+  assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_chainId').length, 0);
   assert(upstream.some(call => call.url === readUrl && call.method === 'eth_getTransactionReceipt'));
   assert(upstream.some(call => call.url === readUrl && call.method === 'eth_getBlockByNumber'));
   const cached = await readFeeCollectionHistory({ config: f.config, provider });

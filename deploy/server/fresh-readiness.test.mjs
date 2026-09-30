@@ -2,10 +2,15 @@ import {isFreshUserExit,FRESH_USER_EXIT_ACTIONS} from '../shared/fresh-user-exit
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
+import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import { createFreshProductGate, validateFreshProductBindings, freshProductConfiguration } from './fresh-product-gate.mjs';
 import { createFreshMachineReadiness, verifyFreshLegacyDrain } from './fresh-machine-readiness.mjs';
 import { createFreshProductReadinessReader, createAuthoritySignerServer, createAuthorityRelayProxy } from './authority-ipc.mjs';
 import { freshGraphIdentity, validateFreshWorker } from '../shared/fresh-runtime-identity.mjs';
+import {freshIndexManifestBytes,freshIndexManifestSha256} from './chain-index/fresh-manifest.mjs';
 const a=n=>'0x'+n.toString(16).padStart(40,'0'), h=n=>'0x'+n.toString(16).padStart(64,'0');
 const stamp=2_000_000_000_000, sourceHead='a'.repeat(40);
 function fixture(){
@@ -32,6 +37,51 @@ test('fresh product stays closed without explicit isolated-process configuration
 });
 test('fresh graph+two worker processes+canonical fresh index admit only the exact release',async()=>{
  const f=fixture();assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
+});
+test('installed product configuration defaults to its own source and accepts only an explicit lowercase machine pin',async t=>{
+ const root=mkdtempSync(join(tmpdir(),'fresh-machine-source-pin-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
+ for(const folder of ['server/chain-index','shared','public'])mkdirSync(join(root,folder),{recursive:true});
+ writeFileSync(join(root,'package.json'),JSON.stringify({type:'module'}),{mode:0o600});
+ for(const path of ['server/fresh-product-gate.mjs','server/chain-index/fresh-manifest.mjs','shared/fresh-runtime-identity.mjs'])
+  copyFileSync(new URL('../'+path,import.meta.url),join(root,path));
+ symlinkSync(fileURLToPath(new URL('../node_modules',import.meta.url)),join(root,'node_modules'),'dir');
+ const ownHead='b'.repeat(40),f=fixture();
+ const manifest={...f.manifest,schemaVersion:1,freshAuthority:{...f.manifest.freshAuthority,address:f.manifest.authority,gasWallet:f.manifest.gasWallet}};
+ const manifestPath=join(root,'index-manifest.json');writeFileSync(manifestPath,freshIndexManifestBytes(manifest),{mode:0o600});
+ writeFileSync(join(root,'public/fresh-release-manifest.json'),JSON.stringify({chainId:56,kind:'fresh-v4-product-backend-draft',sourceHead:ownHead}),{mode:0o600});
+ const {freshProductConfiguration:configure}=await import(pathToFileURL(join(root,'server/fresh-product-gate.mjs')));
+ const env={BEMINE_FRESH_PRODUCT_ENABLED:'1',BEMINE_FRESH_CONSOLE_PRE_GENESIS:'0',BEMINE_FRESH_STAGE2_HOLD:'1',
+  HOST:'127.0.0.1',PORT:'4187',AUTHORITY_RELAY_PUBLIC_ENABLED:'1',AUTHORITY_RELAY_ENABLED:'0',
+  BEMINE_INDEX_URL:'http://127.0.0.1:4184',BEMINE_FRESH_PRODUCT_MANIFEST_PATH:manifestPath,
+  BEMINE_FRESH_PRODUCT_MANIFEST_SHA256:freshIndexManifestSha256(manifest)};
+ const normal=configure(env);assert.equal(normal.sourceHead,ownHead);assert.equal(normal.machineSourceHead,ownHead);
+ const pinned=configure({...env,BEMINE_FRESH_MACHINE_SOURCE_HEAD:sourceHead});
+ assert.equal(pinned.sourceHead,ownHead);assert.equal(pinned.machineSourceHead,sourceHead);
+ for(const value of ['',null,42,'A'.repeat(40),'a'.repeat(39),'a'.repeat(41),'g'.repeat(40),' '+sourceHead,sourceHead+'\n'])
+  assert.throws(()=>configure({...env,BEMINE_FRESH_MACHINE_SOURCE_HEAD:value}),/lowercase forty/);
+});
+test('an explicit machine release pin allows a product-only update without weakening readiness or graph checks',async()=>{
+ const f=fixture();f.config.sourceHead='b'.repeat(40);f.config.machineSourceHead=sourceHead;
+ assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
+ assert.equal(f.config.sourceHead,'b'.repeat(40),'product retains its own installed release identity');
+ for(const [name,mutate]of Object.entries({machineHead:f=>{f.machine.sourceHead='b'.repeat(40);},
+  purchaseHead:f=>{f.machine.workers.purchase.sourceHead='b'.repeat(40);},miningHead:f=>{f.machine.workers.mining.sourceHead='b'.repeat(40);},
+  wrongIdentity:f=>{f.machine.identity={...f.machine.identity,authority:a(999)};},
+  stale:f=>{f.machine.checkedAt-=16000;},notReady:f=>{f.machine.ready=false;},workerNotReady:f=>{f.machine.workers.mining.ready=false;},
+  notDrained:f=>{f.machine.drain.oldSendersDisabled=false;},incompleteIndex:f=>{f.source.complete=false;},
+  oldGraph:f=>{f.graph.freshFactoryVerified=false;}})){
+  const bad=fixture();bad.config.sourceHead='b'.repeat(40);bad.config.machineSourceHead=sourceHead;mutate(bad);
+  await assert.rejects(async()=>bad.gate()(bad.provider,bad.graph,bad.block),undefined,name);
+ }
+});
+test('no explicit machine pin preserves strict own-release matching and invalid pins cannot create a gate',async()=>{
+ const f=fixture();f.config.sourceHead='b'.repeat(40);
+ await assert.rejects(async()=>f.gate()(f.provider,f.graph,f.block),/proved readiness/);
+ f.config.machineSourceHead='c'.repeat(40);
+ await assert.rejects(async()=>f.gate()(f.provider,f.graph,f.block),/proved readiness/);
+ for(const value of ['',null,42,'A'.repeat(40),'a'.repeat(39),'g'.repeat(40)]){
+  const invalid=fixture();invalid.config.machineSourceHead=value;assert.throws(invalid.gate,/lowercase forty/);
+ }
 });
 for(const [name,mutate]of Object.entries({oldGraph:f=>{f.graph.freshFactoryVerified=false;},wrongManifest:f=>{f.manifest.factory=a(90);},wrongHash:f=>{f.source.indexedBlockHash=h(999);},partialIndex:f=>{f.source.complete=false;},staleIndex:f=>{f.source.indexedTimestamp-=91;},wrongBudget:f=>{f.source.portfolioFactory=a(90);},behindIndex:f=>{f.source.observedSafeHead=121;},wrongSource:f=>{f.machine.sourceHead='d'.repeat(40);},attestationOnly:f=>{f.machine.attestOnly=true;},oldHeartbeat:f=>{f.machine.checkedAt-=16000;},missingWorker:f=>{delete f.machine.workers.mining;},notDrained:f=>{f.machine.drain.oldSendersDisabled=false;}}))test('product readiness rejects '+name,async()=>{const f=fixture();mutate(f);await assert.rejects(async()=>f.gate()(f.provider,f.graph,f.block));});
 test('old graph or extra Factory cannot become fresh via a feature flag',()=>{const f=fixture();f.factories.add(a(999));assert.throws(()=>validateFreshProductBindings(f.config,f.trusted,f.factories),/exactly/);});

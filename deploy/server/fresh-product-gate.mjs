@@ -8,8 +8,12 @@ export function freshProductConfiguration(env=process.env) {
     && env.AUTHORITY_RELAY_PUBLIC_ENABLED==='1' && env.AUTHORITY_RELAY_ENABLED==='0',
   'Fresh product mode requires its separate 4187 process and private relay proxy.');
   need(env.BEMINE_INDEX_URL==='http://127.0.0.1:4184','Fresh product requires the dedicated v4 index.');
-  return {manifest:loadFreshIndexManifest(env.BEMINE_FRESH_PRODUCT_MANIFEST_PATH,
-    env.BEMINE_FRESH_PRODUCT_MANIFEST_SHA256),sourceHead:freshRuntimeSource(),
+  const machineSourceHead=env.BEMINE_FRESH_MACHINE_SOURCE_HEAD;
+  need(machineSourceHead===undefined || typeof machineSourceHead==='string' && /^[0-9a-f]{40}$/.test(machineSourceHead),
+    'Fresh machine source head must be an explicit lowercase forty-character commit.');
+  const manifest=loadFreshIndexManifest(env.BEMINE_FRESH_PRODUCT_MANIFEST_PATH,env.BEMINE_FRESH_PRODUCT_MANIFEST_SHA256),
+    sourceHead=freshRuntimeSource();
+  return {manifest,sourceHead,machineSourceHead:machineSourceHead??sourceHead,
     indexUrl:'http://127.0.0.1:4184/health'};
 }
 
@@ -38,6 +42,9 @@ export function validateFreshProductBindings(config,trusted,factories) {
 export function createFreshProductGate(config,{trusted,factories,machineReader,fetcher=fetch,now=Date.now}={}) {
   if(!config)return null;
   validateFreshProductBindings(config,trusted,factories);
+  need(config.machineSourceHead===undefined || typeof config.machineSourceHead==='string' && /^[0-9a-f]{40}$/.test(config.machineSourceHead),
+    'Fresh machine source head must be an explicit lowercase forty-character commit.');
+  const machineSourceHead=config.machineSourceHead??config.sourceHead;
   need(typeof machineReader==='function','Fresh product machine readiness reader is required.');
   return async(provider,graph,block)=>{
     const identity=freshGraphIdentity(graph),m=config.manifest;
@@ -60,13 +67,13 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
       && Number.isSafeInteger(source.indexedTimestamp) && now()/1000-source.indexedTimestamp>=0
       && now()/1000-source.indexedTimestamp<=90,'Fresh index is incomplete, stale or belongs to another graph.');
     need(machine?.schemaVersion===1 && machine.ready===true && machine.relayEnabled===true
-      && machine.attestOnly===false && machine.sourceHead===config.sourceHead
+      && machine.attestOnly===false && machine.sourceHead===machineSourceHead
       && Number.isSafeInteger(machine.checkedAt) && now()-machine.checkedAt>=0
       && now()-machine.checkedAt<=15_000 && machine.drain?.oldSendersDisabled===true,
     'Fresh operational services have not proved readiness.');
     assertFreshIdentity(machine.identity,identity);
     for(const role of ['purchase','mining']) need(machine.workers?.[role]?.ready===true
-      && machine.workers[role].sourceHead===config.sourceHead,'Fresh '+role+' worker is unavailable.');
+      && machine.workers[role].sourceHead===machineSourceHead,'Fresh '+role+' worker is unavailable.');
     need(same((await provider.getBlock(source.indexedThrough))?.hash,source.indexedBlockHash)
       && same((await provider.getBlock(block.number))?.hash,block.hash),'Fresh readiness chain changed.');
     return {ready:true,indexedThrough:source.indexedThrough,checkedAt:now()};

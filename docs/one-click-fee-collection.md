@@ -18,6 +18,8 @@ Historical pagination fixes only the event range and its canonical finalized anc
 
 A verified graph snapshot marked stale does not block this independent read: the loader still verifies the fixed formal manifest and deployment graph, and history proves the live finalized Authority identity and receipts itself. Worker and transaction readiness are neither prerequisites for reading history nor changed by the read.
 
+The logs endpoint is bound to the primary BSC node by the identical numbered canonical block and hash for every uncached range. It does not require a separate serial `eth_chainId` probe on the logs endpoint. Main-node BSC identity, bounded log scope, canonical headers and event receipt checks remain. A product-only backend update may explicitly pin `BEMINE_FRESH_MACHINE_SOURCE_HEAD` to its existing machine release after verifying all unchanged worker bytes, so a read-proxy change does not require replacing healthy signer, purchase, mining or index processes.
+
 ## Historical formal publication — 2026-09-30 21:06 CST
 
 This is the receipt for the earlier frontend-only publication, retained as history. Its unchanged-backend statements apply to that publication, not to the full-runtime update below.
@@ -59,3 +61,10 @@ Production read-only probes established that the ordinary product RPC rejects `e
 ## Historical pagination follow-up
 
 The complete four-page read above succeeded with a recent anchor. A later real Chrome page-3 read at anchor `124934369` reproduced `rpc_error`: the ordinary RPC returned `-32000` for old `eth_getCode` and all three identity binding calls, while the six historical log windows and both nodes' historical headers succeeded. The same identity reads at current state succeeded. This identifies pruned historical state, rather than a missing fee event, range restriction or pagination gap. The frontend correction reads the directly deployed Authority's identity at this request's current finalized block and retains the historical event anchor. Non-archive pagination/cache-expiry, current identity-state fork and finality regression checks cover this case. This follow-up requires only a static frontend publication; the installed `10e243b35db19cc251a63a1c705dba8e5d6fe4c1` backend remains unchanged.
+
+## Historical frontend-only publication — 2026-10-01 00:17 CST
+
+- Published frontend `7ea0d515deb7ae34bc5db9621d94631638416a24` after 671 frontend tests, successful Contracts run `36741364482` (all three jobs) and Release run `36741366700`, with actual signed artifacts. Backend remained `10e243b35db19cc251a63a1c705dba8e5d6fe4c1`.
+- Receipt `/root/bemine-fee-history-static-7ea0d515deb7-publish-evidence/result.json`, SHA256 `31e6212489c9ecbf4f0b3cded49f306995894eaf9be0289704e64c7c02421bec`, proves the static switch and zero service operations, database writes or tool-sent transactions. Independent follow-up SHA256 `3494fb08e15cf06cba80c0f96d1292cb1194407dfa88210b6bc2b41041e9cca0` confirms unchanged service processes, configuration and state identities.
+- Real Chrome reading traversed all four pages to the earliest records at fixed anchor `124940078`, including the formerly failing third page. Both balances displayed `0.00000`; the full independent read through Authority creation also found zero actual fee claims.
+- An independent log-node chain-ID probe intermittently failed with HTTP 502 despite matching historical BSC headers and successful log reads. The successful second full read does not erase that failure. Removing this redundant serial probe is a separate product-service-only correction; the four financial/index roles retain their exact existing source and processes.
