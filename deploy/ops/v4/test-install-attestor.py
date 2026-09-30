@@ -251,6 +251,21 @@ ReadWritePaths=/var/lib/pinkuang-deploy-v4
         with self.assertRaises(m.Rejected):
             m.Installer(self.host, self.plan, self.package, self.draft).apply()
 
+    def test_npm_uses_distinct_empty_private_configs_and_explicit_umask(self):
+        self.installer.apply()
+        argv, options = next(call for call in self.host.calls if call[0][:2] == ['npm', 'ci'])
+        user = Path(next(arg.split('=', 1)[1] for arg in argv if arg.startswith('--userconfig=')))
+        global_config = Path(next(arg.split('=', 1)[1] for arg in argv if arg.startswith('--globalconfig=')))
+        self.assertNotEqual(user, global_config)
+        for path in (user, global_config):
+            self.assertEqual(path.parent, self.installer.evidence)
+            self.assertEqual(path.read_bytes(), b'')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(path.stat().st_uid, 0)
+            self.assertFalse(path.is_symlink())
+        self.assertEqual(options['umask'], 0o022)
+        self.assertEqual(options['env']['HOME'], str(self.installer.evidence))
+
     def test_invalid_proof_stops_signer_without_stopping_public(self):
         self.host.proof_ok = False
         with self.assertRaisesRegex(m.Rejected, 'rolled back'):

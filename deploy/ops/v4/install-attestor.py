@@ -599,8 +599,14 @@ class Installer:
             validate_package(self.release, self.plan)
             env = {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
                    'HOME': str(self.evidence), 'NODE_ENV': 'production'}
+            # npm 11 rejects one file used as both user and global config.
+            # Keep separate empty private files rather than inheriting host settings.
+            npm_user_config = self.evidence / 'npm-user.config'
+            npm_global_config = self.evidence / 'npm-global.config'
+            exclusive_file(npm_user_config, b'', 0o600)
+            exclusive_file(npm_global_config, b'', 0o600)
             self.host.run(['npm', 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund',
-                           '--userconfig=/dev/null', '--globalconfig=/dev/null',
+                           '--userconfig=' + str(npm_user_config), '--globalconfig=' + str(npm_global_config),
                            '--cache=' + str(self.evidence / 'npm-cache')],
                           timeout=240, cwd=self.release, env=env, umask=0o022)
             secure_dependencies(self.release / 'node_modules')
