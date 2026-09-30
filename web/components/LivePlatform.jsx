@@ -5,7 +5,7 @@ import ActivityOperation from './ActivityOperation';
 import AutoPageLoader from './AutoPageLoader';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
   Sun,
@@ -362,11 +362,11 @@ export default function LivePlatform() {
     qrConnector.current?.cancel();
     if (ticket?.remote && ticket.provider !== connectedWallet.current) void ticket.provider?.disconnect?.().catch(() => {});
   }, []);
-  const config =
+  const config = useMemo(() =>
     boot.status === "ready"
       ? { ...boot, ...boot.manifest, journalBase: boot.journalBase || "/api/journal",
         ...(walletChecking ? { walletSessionReady: false, operationalReady: false, transactionReady: false, userExitReady: false } : {}) }
-      : null;
+      : null, [boot, walletChecking]);
   if (boot.status === 'ready') verifiedBoot.current = boot;
   const walletRevision = walletEpoch.current;
   // A permission result belongs to this exact provider, account and read revision.
@@ -660,7 +660,7 @@ export default function LivePlatform() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const openAction = (kind, pool, extra = {}) => {
-    if (busy || (loading && !['overview', 'rewards', 'market'].includes(route.route))
+    if (busy || (loading && kind !== 'deposit' && !['overview', 'rewards', 'market'].includes(route.route))
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;

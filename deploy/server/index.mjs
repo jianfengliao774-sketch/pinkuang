@@ -87,11 +87,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       console.error(message);
     }),
   });
-  const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
+  const journalConfig = journalConfiguration({ ...process.env, NODE_ENV: 'production' });
+  const journalService = createJournalService({ ...journalConfig, notificationService: notifications,
     gasWalletProofReader: ipc ? createGasSignerProofReader(ipc) : undefined,
     freshProductReadinessReader: ipc ? createFreshProductReadinessReader(ipc) : undefined,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
-  const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
+  const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration(process.env, { freshProduct: journalConfig.freshProduct }));
   const authorityRelayService = process.env.AUTHORITY_RELAY_PUBLIC_ENABLED === '1'
     ? createAuthorityRelayProxy(ipc, {verifyOperationalReadiness:()=>journalService.verifyFreshOperationalReadiness()}) : null;
   const server = createDeploymentServer({ journalService, liveDataProxy, authorityRelayService });

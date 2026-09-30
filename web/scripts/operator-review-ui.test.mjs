@@ -45,6 +45,7 @@ function host(code, exportName, props, modules = {}) {
     '../lib/display-snapshot.mjs': { readDisplaySnapshot: () => null, writeDisplaySnapshot: () => true },
     '../lib/authority-client.mjs': { authorityActionStatus: async () => ({ status: 'idle' }) },
     './SaleReviewRequests': { __esModule: true, default: function RequestList() {} },
+    './FeeCollectionHistory.jsx': { __esModule: true, default: function HistoryPane() {} },
     './FeeCollection': { __esModule: true, default: function FeePane() {} } };
   new Function('require', 'module', 'exports', 'window', 'document', 'setInterval', 'clearInterval', code)(
     name => modules[name] ?? defaults[name] ?? require(name), exported, exported.exports,
@@ -260,9 +261,13 @@ test('fee pane discovers all supplied sources automatically, without address inp
   assert.equal(elements(ui.tree).some(node => ['input', 'select', 'textarea'].includes(node.type)), false);
   assert.match(text(ui.tree), /0\.00500 BNB/); assert.match(text(ui.tree), /0\.04000 BEM/);
   assert.match(text(ui.tree), /5 个有余额来源/);
+  const history = () => elements(ui.tree).find(node => node.type?.name === 'HistoryPane')?.props;
+  assert.equal(history().refreshKey, '0:0');
+  assert.equal(history().account, address(7));
   button(ui, '一键归集手续费').onClick(); await ui.settle();
   assert.equal(calls.length, 2);
   assert.deepEqual(calls.map(call => call[1]), feePlan().batches.map(batch => ({ ...batch, recipient: address(7) })));
+  assert.equal(history().refreshKey, '0:1', 'confirmed collection refreshes its independent history');
   assert.match(text(ui.tree), /已完成 2 批归集/); ui.unmount();
 });
 

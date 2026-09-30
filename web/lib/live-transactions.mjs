@@ -7,6 +7,7 @@ import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
 import { isFreshUserExit, isFreshUserExitTransaction } from './fresh-user-exits.mjs';
+import { freshWalletActionReady, isFreshWalletAction, isFreshWalletActionTransaction } from './fresh-wallet-actions.mjs';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
@@ -168,14 +169,15 @@ function normalize(config, transaction, action) {
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
   const userExit = config.stage === 'fresh-active' && config.userExitReady === true && isFreshUserExit(targetType, decoded.name, value);
-  requireValue(!config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit,
+  const walletAction = freshWalletActionReady(config, targetType, decoded.name) && isFreshWalletAction(targetType, decoded.name, value);
+  requireValue(!config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit || walletAction,
     config.stage === 'fresh-active' ? '新增交易服务尚未启用；仅已核验的领取、退款和撤单可由用户钱包自付 Gas。'
       : '历史产品资料仅供展示，请等待最新链上核对。');
   if (config.manifest && config.stage !== 'genesis') {
     const oldContract = targetType === 'portfolioFactory' ? genesisAbi.BudgetPortfolioFactory
       : targetType === 'portfolio' ? genesisAbi.BudgetPortfolioVault : targetType === 'factory' ? genesisAbi.PoolFactory
         : targetType === 'pool' ? genesisAbi.PoolVault : genesisAbi.ShareMarket;
-    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true || userExit,
+    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true || userExit || walletAction,
       '新合约操作须等待权限、Gas 服务和产品接线全部核验完成。');
   }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
@@ -204,6 +206,8 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
   for (;;) {
     const graph = validateCurrentProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }), config);
     const userExit = graph.userExitReady === true && isFreshUserExitTransaction(config, transaction, action);
+    const walletAction = isFreshWalletActionTransaction({ ...config, readMode: graph.readMode, stale: graph.stale,
+      freshFactoryVerified: graph.freshFactoryVerified }, transaction, action);
     requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
@@ -212,13 +216,13 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
     && graph.stageActivationBlock === config.stageActivationBlock
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
-    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady || userExit)
+    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady || userExit || walletAction)
     && (config.stage !== 'fresh-active' || graph.freshFactoryVerified === true
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
       && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),
     '链上产品阶段已变化，请刷新页面后重新确认交易。');
-    if (graph.readMode === 'current' && graph.stale === false && (graph.transactionReady !== false || userExit)) return graph;
+    if (graph.readMode === 'current' && graph.stale === false && (graph.transactionReady !== false || userExit || walletAction)) return graph;
     requireValue(graph.readMode === 'verified_snapshot' && graph.stale === true
       && graph.transactionReady === false, '产品阶段资料尚未通过最新链上核验。');
     requireValue(now() < deadline, '链上产品阶段仍在刷新，请稍后重试；尚未发送交易。');

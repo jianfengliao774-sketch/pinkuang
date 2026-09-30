@@ -8,6 +8,12 @@ Collection uses the existing `claimFees` EIP-712 action. Its recipient is the cu
 
 Regression coverage exercises complete 501-pool enumeration, child and historical sources, deduplication, direct-only and zero balances, cross-provider block binding, concurrency/abort, exact large integers, batch limits/order/throttling, wallet cancellation, unknown results, and React lifecycle changes caused by parent busy state or equivalent config objects. Browser checks use local test fixtures; no administrator signature or real fee transaction is executed by the agent.
 
+## Withdrawal history
+
+The Fees pane also shows finalized `PlatformAuthority.FeesClaimed` events for this formal deployment: receiving administrator, time, separate BNB/BEM amounts with five decimal places, and the transaction receipt. The event's administrator is the recipient; the Gas transaction sender is not presented as the claimant. Records from former administrators remain visible. There are no manual addresses or filters.
+
+The server's configured read RPC supplies event lookup, restricted to the current formal Authority and the exact `FeesClaimed` topic in fixed ranges of at most 5,000 blocks. General log scans and signing/sending RPCs remain unavailable. The read provider verifies the Authority's own creation receipt to determine the history start; the later Factory/genesis deployment block is not a log-query lower bound. It also verifies event receipts and canonical finalized blocks. Pages contain at most 20 records, use bounded ranges and retain continuation through empty ranges. Reads have a 30-second cache and four-request concurrency limit. Only the visible newest page refreshes every 30 seconds; confirmed collection refreshes it immediately. Failed or cancelled reads do not become an empty history or affect the collection controls. Fee balance/history reads do not depend on purchase or mining worker readiness.
+
 ## Formal publication — 2026-09-30 21:06 CST
 
 - Product: https://bemine.cc.cd/bemine-v4/#operator — 运营工作台 → 领取手续费。

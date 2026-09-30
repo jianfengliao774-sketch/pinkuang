@@ -172,10 +172,15 @@ test('rejects changed Authority, Factory, market, Gas wallet, BEM and runtime bi
 test('accepts only the complete current formal manifest and rejects conflicting page configuration before RPC', async () => {
   for (const mutate of [f => { f.config.stage = 'genesis'; }, f => { f.config.authority = address(999); },
     f => { delete f.config.manifest.freshAuthority; }, f => { f.config.manifest.artifactDigest = digest('f'); },
-    f => { f.config.stale = true; }, f => { f.config.operationalReady = false; }]) {
+    f => { f.config.stale = true; }]) {
     const f = fixture(); mutate(f);
     await assert.rejects(readFeeCollection(f)); assert.equal(f.calls.length, 0);
   }
+});
+
+test('read-only fee balances remain available when an unrelated worker is unavailable', async () => {
+  const f = fixture(); f.config.operationalReady = false;
+  assert.equal((await readFeeCollection(f)).totalBnbWei, 125n);
 });
 
 test('invalid pool registration, factory binding or BEM asset rejects the entire plan', async () => {

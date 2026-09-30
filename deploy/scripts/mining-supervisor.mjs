@@ -3,7 +3,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, KEEPER_STATE_ROOT, readJournal, writeJournal } from './purchase-keeper.mjs';
-import { runMiningCycle } from './mining-keeper.mjs';
+import { assertStage, readMiningState, runMiningCycle } from './mining-keeper.mjs';
 import { createFreshWorkerReadiness } from './fresh-worker-readiness.mjs';
 import { configureFreshPurchase, verifyFreshPurchaseGraph, verifyFreshPurchasePool } from './fresh-purchase-guard.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
@@ -15,8 +15,21 @@ const followup = journal => ['arming', 'starting'].includes(journal.miningStage)
   && journal.transaction?.phase === 'confirmed';
 export const walletReviewRequired = status => /unknown|nonce-or-chain-changed|operator-wallet-has-pending-transaction/.test(status ?? '');
 export const poolReviewRequired = status => /review-required|inactive-requires-review/.test(status ?? '');
+const ordinaryWalletWait = new Set(['operator-wallet-has-pending-transaction', 'pending-receipt',
+  'pending-not-indexed', 'pending-confirmations', 'pending-finality', 'pending-finality-rpc-unavailable',
+  'receipt-not-canonical', 'broadcast-result-unknown', 'arming-broadcast', 'starting-broadcast',
+  'stopped-before-broadcast']);
+const walletContention = error => error.message === 'Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.'
+  || /^Keeper lock already exists: .+\. Another process holds it\.$/.test(error.message ?? '');
+export const awaitingWallet = result => result.results?.some(row => row.walletWait === true) === true;
+/** A waiting scan keeps the last heartbeat, but cannot renew proof of readiness. */
+export function publishSupervisorReadiness(heartbeat, proof, result) {
+  if (awaitingWallet(result)) return false;
+  heartbeat.publish(proof.graph, proof.block, result);
+  return true;
+}
 export function reportOperatorReview(result, send, log = console.error) {
-  const review = result.results?.find(item => item.walletBlocked || walletReviewRequired(item.status));
+  const review = result.results?.find(item => !item.walletWait && (item.walletBlocked || walletReviewRequired(item.status)));
   if (!review && !(send && result.status === 'all-pools-quarantined')) return false;
   log(json({ at: new Date().toISOString(), status: 'operator-review-required',
     pool: review?.pool ?? null, reason: review?.status ?? result.status,
@@ -94,21 +107,60 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
     : state.quarantined.size === pools.length ? 'all-pools-quarantined' : 'waiting-pool-retry',
     poolCount: pools.length, checked: 0, quarantinedCount: state.quarantined.size, results: [] };
   const results = [];
+  let walletBusy = false;
   for (const pool of selected) {
     const journal = journalPath(pool);
     let releaseJournal;
     let releaseWallet;
+    let acquiringWallet = false;
     try {
       releaseJournal = (dependencies.acquireKeeperLock ?? acquireKeeperLock)(journal);
+      const poolOptions = { ...options, pool, journal, transactionTarget: options.authority ?? pool };
+      const existing = journalFor(pool);
       if (options.send) {
+        // Pending mining actions must reconcile their own journal first. New
+        // work is inspected without taking the shared purchase/relay wallet.
+        if (!unresolved(existing) && !followup(existing)
+          && (!existing.transaction || existing.transaction.phase === 'confirmed')) {
+          assertStage(existing, poolOptions);
+          const snapshot = await (dependencies.readMiningState ?? readMiningState)(provider, poolOptions);
+          if (snapshot.status === 'pool-not-active') {
+            results.push({ pool, ...snapshot });
+            continue;
+          }
+          if (snapshot.status !== 'restart-eligible') {
+            // Reuse the keeper's identity/quality checks. This invocation
+            // cannot sign even if the pool changes state during the reads.
+            const observed = await (dependencies.runMiningCycle ?? runMiningCycle)(provider,
+              { ...poolOptions, send: false }, null);
+            if (!['dry-run-arming', 'dry-run-starting'].includes(observed.status)) {
+              results.push({ pool, ...observed });
+              if (poolReviewRequired(observed.status)) state.quarantined.set(pool, observed.status);
+              continue;
+            }
+          }
+        }
+        if (walletBusy) {
+          results.push({ pool, status: 'wallet-lane-busy', walletWait: true });
+          continue;
+        }
+        acquiringWallet = true;
         releaseWallet = (dependencies.acquireWalletLock ?? acquireWalletLock)(signer.address, journal);
+        acquiringWallet = false;
         if (!existsSync(journal)) writeJournal(journal, journalFor(pool));
       }
-      const result = await (dependencies.runMiningCycle ?? runMiningCycle)(provider, { ...options, pool, journal,
-        transactionTarget: options.authority ?? pool }, signer);
+      const result = await (dependencies.runMiningCycle ?? runMiningCycle)(provider, poolOptions, signer);
       const record = { pool, ...result };
       results.push(record);
       const pending = options.send && unresolved(journalFor(pool));
+      if (options.send && ordinaryWalletWait.has(result.status)
+        && (pending || result.status === 'operator-wallet-has-pending-transaction')) {
+        // Re-enter the normal receipt-only reconciliation on the next pass.
+        // Do not exit, rebroadcast, release the persistent nonce reservation,
+        // or claim a complete healthy scan while this wallet is waiting.
+        record.walletWait = true;
+        break;
+      }
       if (pending || walletReviewRequired(result.status)) {
         // A signed pending journal keeps the wallet nonce reserved. Ordinary
         // broadcast waits for receipt reconciliation; review + pending exits.
@@ -123,6 +175,11 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
       }
       if (options.send && followup(journalFor(pool))) break;
     } catch (error) {
+      if (options.send && acquiringWallet && walletContention(error)) {
+        walletBusy = true;
+        results.push({ pool, status: 'wallet-lane-busy', walletWait: true });
+        continue;
+      }
       // A wallet-lock failure or a newly signed pending journal affects every
       // pool using this wallet. Stop globally, never send a different nonce.
       if (options.send && (!releaseWallet || unresolved(journalFor(pool)))) throw error;
@@ -180,7 +237,7 @@ export async function main(args = process.argv.slice(2)) {
         const result = await runSupervisorCycle(provider, { ...options, shouldStop: () => stopping }, signer, state);
         console.log(json({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
         if (reportOperatorReview(result, options.send)) break;
-        if (heartbeat && !stopping) heartbeat.publish(proof.graph,proof.block,result);
+        if (heartbeat && !stopping) publishSupervisorReadiness(heartbeat,proof,result);
       } catch (error) {
         heartbeat?.clear();
         const detail = String(error.shortMessage ?? error.message).replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');

@@ -107,7 +107,7 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
   const authority = manifest.authority;
   for (const key of ['authority', 'factory', 'shareMarket', 'portfolioFactory', 'portfolioMarket', 'gasWallet'])
     check(same(config[key], manifest[key]), '手续费配置与当前正式部署不一致。');
-  check(config.stale !== true && config.operationalReady !== false, '请先读取当前正式部署状态。');
+  check(config.stale !== true, '请先读取当前正式部署状态。');
   const queue = readQueue(provider, signal);
   const request = (method, params = []) => queue.request({ method, params });
   const balanceRequest = (method, params = []) => queue.request({ method, params }, balanceProvider);

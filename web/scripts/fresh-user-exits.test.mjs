@@ -40,19 +40,21 @@ for(const [target,kind,args] of [['pool','withdrawBnb',[]],['pool','finalizeFail
   });
 }
 
-test('new deposits, listings, fills, share transfers and forged target types do not inherit exit permission',()=>{
+test('direct user actions do not inherit exit permission; independent wallet policy handles them',()=>{
   for(const [target,kind,args] of [['pool','deposit',[1]],['portfolio','deposit',[1]],['portfolio','transfer',[f.other.address,1]],
     ['market','list',[f.child,1,10000000000000n]],['market','fill',[1,1]]]){
     const {transaction,action}=make(target,kind,args);
     assert.equal(isFreshUserExitTransaction(config,transaction,action),false);
-    assert.throws(()=>validateProductTransactionStage(config,transaction,action));
+    if (['deposit','fill'].includes(kind)) assert.throws(()=>validateProductTransactionStage(config,transaction,action));
+    else assert.equal(validateProductTransactionStage(config,transaction,action).action.kind,kind);
   }
   const {transaction,action}=make('market','cancel',[1]);
   assert.equal(isFreshUserExitTransaction(config,transaction,{...action,targetType:'portfolioMarket'}),false);
 });
 
-test('historical graphs and missing exit attestation never enable exits',()=>{
-  for(const blocked of [{...config,userExitReady:false},{...config,stale:true,readMode:'verified_snapshot'}]){
+test('historical graphs never enable sending; current direct-wallet actions need no worker exit attestation',()=>{
+  assert.equal(validateProductTransactionStage({...config,userExitReady:false},make('pool','claim').transaction,'claim').action.kind,'claim');
+  for(const blocked of [{...config,stale:true,readMode:'verified_snapshot'}]){
     const tx=make('pool','claim');assert.equal(freshUserExitReady(blocked,'pool','claim'),false);
     assert.throws(()=>validateProductTransactionStage(blocked,tx.transaction,tx.action));
   }
@@ -60,15 +62,15 @@ test('historical graphs and missing exit attestation never enable exits',()=>{
   assert.equal(historical.userExitReady,false);
 });
 
-test('UI requires exact current row/account/order provenance and distinguishes exits from investment',()=>{
+test('UI distinguishes current deployment from independent worker readiness',()=>{
   assert.equal(currentActionSourceReady({client:{},config,source,action:'claim'}),true);
   assert.equal(currentActionSourceReady({client:{},config,source,action:'list'}),false);
-  assert.equal(currentActionSourceReady({client:{},config,source:{...source,stale:true},action:'claim'}),false);
+  assert.equal(currentActionSourceReady({client:{},config,source:{...source,stale:true},action:'claim'}),true);
   assert.equal(portfolioConfigActionReady(config,'claimBem'),true);
   assert.equal(portfolioConfigActionReady(config,'createPortfolio'),false);
   assert.equal(portfolioSelectedActionReady({config,selectedProofCurrent:false,action:'claimBem'}),false);
   const input={config,selectedProofCurrent:true,source,orderPool:f.child,selectedPool:f.child};
   assert.equal(portfolioOrderActionReady({...input,action:'cancel'}),true);
-  assert.equal(portfolioOrderActionReady({...input,action:'fill'}),false);
+  assert.equal(portfolioOrderActionReady({...input,action:'fill'}),true);
   assert.equal(portfolioOrderActionReady({...input,action:'cancel',selectedPool:f.other.address}),false);
 });

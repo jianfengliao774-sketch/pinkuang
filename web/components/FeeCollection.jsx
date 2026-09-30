@@ -5,6 +5,7 @@ import { readFeeCollection } from '../lib/fee-collection.mjs';
 import { collectFeeBatches } from '../lib/fee-collection-flow.mjs';
 import { authorityActionStatus } from '../lib/authority-client.mjs';
 import { amount } from '../lib/live-view.mjs';
+import FeeCollectionHistory from './FeeCollectionHistory.jsx';
 
 const errorText = value => value?.shortMessage || value?.message || String(value);
 const settled = status => !status?.status || ['idle', 'confirmed', 'failed'].includes(status.status);
@@ -20,6 +21,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [readError, setReadError] = useState('');
   const [progress, setProgress] = useState(null), [notice, setNotice] = useState('');
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const lifecycle = useRef(null), readTicket = useRef(null), actionTicket = useRef(null);
   const latest = useRef(null);
   const identity = deploymentIdentity(config);
@@ -75,7 +77,8 @@ export default function FeeCollection({ config, provider, account, wallet, disab
         }, readStatus: () => authorityActionStatus(config, account),
         onStatus: value => { if (current()) latest.current.onStatus?.(value); },
         onProgress: value => { if (current()) setProgress(value); } });
-      if (current()) { setNotice(`已完成 ${completed.length} 批归集，手续费已转到当前管理员钱包。`); }
+      if (current()) { setNotice(`已完成 ${completed.length} 批归集，手续费已转到当前管理员钱包。`);
+        setHistoryRefresh(value => value + 1); }
     } catch (problem) { if (current()) setError(errorText(problem)); }
     finally {
       if (actionTicket.current === ticket) { actionTicket.current = null; setBusy(false); }
@@ -105,5 +108,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
       <button className="btn" disabled={blocked} onClick={() => void collect()}>{busy ? '正在归集…' : '一键归集手续费'}</button>
       <button className="btn secondary" disabled={busy || reading} onClick={() => void refresh()}>刷新手续费余额</button>
     </div>
+    <FeeCollectionHistory config={config} provider={provider} wallet={wallet} account={account}
+      refreshKey={`${refreshKey ?? ''}:${historyRefresh}`} />
   </div>;
 }

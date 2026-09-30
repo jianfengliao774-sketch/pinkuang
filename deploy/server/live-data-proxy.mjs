@@ -8,6 +8,10 @@ const HASH = /^0x[\da-f]{64}$/i;
 const BSC_CHAIN_ID = '0x38';
 const MAX_HEADER_CACHE_ENTRIES = 64;
 const MAX_CACHED_HEADER_BYTES = 64 * 1024;
+const MAX_FEE_LOG_CACHE_ENTRIES = 64;
+const MAX_CACHED_FEE_LOG_BYTES = 64 * 1024;
+const FEE_LOG_CACHE_MS = 30_000;
+export const FEES_CLAIMED_TOPIC = '0x1ac537f0ad67b64ac68a04587ff3a4cb6977de22eb2c37ee560897a92c6d07c7';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const ownKeys = (value, allowed) => isRecord(value) && Object.keys(value).every(key => allowed.includes(key));
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
@@ -25,12 +29,24 @@ function upstreamUrl(value, name, { query = false } = {}) {
 }
 
 /** Only operator environment chooses destinations; incoming URL/query/body never can. */
-export function liveDataProxyConfiguration(env = process.env) {
-  return { rpcUrl: upstreamUrl(env.BEMINE_READ_RPC_URL || env.DEPLOYMENT_JOURNAL_RPC_URL, 'BEMINE_READ_RPC_URL', { query: true }),
+export function liveDataProxyConfiguration(env = process.env, { freshProduct } = {}) {
+  const config = { rpcUrl: upstreamUrl(env.BEMINE_READ_RPC_URL || env.DEPLOYMENT_JOURNAL_RPC_URL, 'BEMINE_READ_RPC_URL', { query: true }),
     indexUrl: upstreamUrl(env.BEMINE_INDEX_URL || 'http://127.0.0.1:4180', 'BEMINE_INDEX_URL') };
+  if (freshProduct) config.feeHistoryLogScope = normalizeFeeHistoryScope({
+    authority: freshProduct.manifest?.authority, deploymentBlock: freshProduct.manifest?.deployment?.blockNumber });
+  return config;
 }
 
-export function validateReadRpc(payload) {
+function normalizeFeeHistoryScope(scope) {
+  if (scope == null) return null;
+  if (!ownKeys(scope, ['authority', 'deploymentBlock']) || typeof scope.authority !== 'string'
+    || !ADDRESS.test(scope.authority) || BigInt(scope.authority) === 0n
+    || !Number.isSafeInteger(scope.deploymentBlock) || scope.deploymentBlock < 1)
+    throw new Error('Fee history requires the pinned fresh Authority and a positive genesis deployment block.');
+  return Object.freeze({ authority: scope.authority.toLowerCase(), deploymentBlock: scope.deploymentBlock });
+}
+
+export function validateReadRpc(payload, { feeHistoryLogScope } = {}) {
   requireValue(ownKeys(payload, ['jsonrpc', 'id', 'method', 'params']) && payload.jsonrpc === '2.0'
     && (Number.isSafeInteger(payload.id) && payload.id >= 0 || typeof payload.id === 'string' && payload.id.length > 0 && payload.id.length <= 64)
     && Array.isArray(payload.params), 400, 'A single identified JSON-RPC request is required.');
@@ -44,6 +60,20 @@ export function validateReadRpc(payload) {
     eth_getCode: () => p.length === 2 && typeof p[0] === 'string' && ADDRESS.test(p[0]) && BLOCK(p[1]),
     eth_getStorageAt: () => p.length === 3 && typeof p[0] === 'string' && ADDRESS.test(p[0])
       && typeof p[1] === 'string' && QUANTITY.test(p[1]) && BLOCK(p[2]),
+    eth_getLogs: () => {
+      const scope = normalizeFeeHistoryScope(feeHistoryLogScope), filter = p[0];
+      return p.length === 1 && ownKeys(filter, ['address', 'topics', 'fromBlock', 'toBlock'])
+        && typeof filter.address === 'string' && filter.address.toLowerCase() === scope.authority
+        && Array.isArray(filter.topics) && filter.topics.length === 1
+        && typeof filter.topics[0] === 'string' && filter.topics[0].toLowerCase() === FEES_CLAIMED_TOPIC
+        && typeof filter.fromBlock === 'string' && QUANTITY.test(filter.fromBlock)
+        && typeof filter.toBlock === 'string' && QUANTITY.test(filter.toBlock)
+        // Manifest deployment is the later Factory/genesis transaction, not
+        // Authority creation. The client verifies that separate receipt; do
+        // not discard legitimate earlier events from this exact Authority.
+        && BigInt(filter.toBlock) >= BigInt(filter.fromBlock)
+        && BigInt(filter.toBlock) - BigInt(filter.fromBlock) < 5000n;
+    },
     eth_call: () => p.length === 2 && BLOCK(p[1]) && ownKeys(p[0], ['to', 'data', 'from', 'value', 'gas'])
       && typeof p[0].to === 'string' && ADDRESS.test(p[0].to) && typeof p[0].data === 'string'
       && DATA.test(p[0].data) && p[0].data.length <= 32770
@@ -52,7 +82,11 @@ export function validateReadRpc(payload) {
       && (p[0].gas === undefined || typeof p[0].gas === 'string' && QUANTITY.test(p[0].gas) && BigInt(p[0].gas) <= 30000000n),
   };
   requireValue(Object.hasOwn(valid, payload.method), 403, 'RPC method is not enabled on this read-only endpoint.');
+  requireValue(payload.method !== 'eth_getLogs' || feeHistoryLogScope, 403, 'Fee history logs are not enabled for this deployment.');
   requireValue(valid[payload.method](), 400, 'Invalid read-only RPC parameters.');
+  if (payload.method === 'eth_getLogs') return { jsonrpc: '2.0', id: payload.id, method: payload.method,
+    params: [{ address: feeHistoryLogScope.authority.toLowerCase(), topics: [FEES_CLAIMED_TOPIC],
+      fromBlock: `0x${BigInt(p[0].fromBlock).toString(16)}`, toBlock: `0x${BigInt(p[0].toBlock).toString(16)}` }] };
   return { jsonrpc: '2.0', id: payload.id, method: payload.method,
     params: payload.method === 'eth_call' ? [{ ...p[0], gas: p[0].gas ?? '0x1c9c380' }, p[1]] : p };
 }
@@ -142,8 +176,9 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
   // page's burst while bounding each client's share of the global wait queue.
   maxQueued = 128, maxQueuedPerClient = 96, maxConcurrentPerClient = 12, queueTimeoutMs = 8000,
   pinnedRpcTtlMs = 60000,
-  chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now } = {}) {
+  chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now, feeHistoryLogScope } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
+  feeHistoryLogScope = normalizeFeeHistoryScope(feeHistoryLogScope);
   for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent,
     maxQueuedPerClient, maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
@@ -213,16 +248,17 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       next.resolve();
     }
   };
-  const pinnedRpc = new Map(), headerRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
+  const pinnedRpc = new Map(), headerRpc = new Map(), feeLogRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
   const clearReadCaches = () => {
-    pinnedRpc.clear(); headerRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
+    pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
   };
   const canonicalBlockTag = tag => `0x${BigInt(tag).toString(16)}`;
   const pinnedKey = payload => ['eth_call', 'eth_getCode'].includes(payload.method) && QUANTITY.test(payload.params[1])
     ? JSON.stringify([payload.method, payload.params]) : null;
   const headerKey = payload => payload.method === 'eth_getBlockByNumber' && QUANTITY.test(payload.params[0])
     ? canonicalBlockTag(payload.params[0]) : null;
+  const feeLogKey = payload => payload.method === 'eth_getLogs' ? JSON.stringify([payload.method, payload.params]) : null;
   const pinnedBlockKey = payload => {
     const tag = payload.method === 'eth_getStorageAt' ? payload.params[2]
       : ['eth_call', 'eth_getCode'].includes(payload.method) ? payload.params[1] : null;
@@ -238,6 +274,23 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       pendingRpc.delete(tag);
     }
   };
+  const invalidateHeadersForLogRead = () => {
+    // A caller's post-log canonical proof may be at a newer safe head, rather
+    // than a range endpoint. It must not reuse a header begun before the logs.
+    headerRpc.clear();
+    for (const [key, entry] of pendingRpc) if (QUANTITY.test(key)) {
+      entry.invalidated = true; pendingRpc.delete(key);
+    }
+  };
+  const validFeeLogs = (rows, filter) => Array.isArray(rows) && rows.every(row => isRecord(row)
+    && typeof row.address === 'string' && row.address.toLowerCase() === feeHistoryLogScope.authority
+    && Array.isArray(row.topics) && row.topics.length === 2 && row.topics[0]?.toLowerCase() === FEES_CLAIMED_TOPIC
+    && typeof row.topics[1] === 'string' && HASH.test(row.topics[1])
+    && typeof row.data === 'string' && /^0x[\da-f]{128}$/i.test(row.data)
+    && typeof row.blockNumber === 'string' && QUANTITY.test(row.blockNumber)
+    && BigInt(row.blockNumber) >= BigInt(filter.fromBlock) && BigInt(row.blockNumber) <= BigInt(filter.toBlock)
+    && HASH.test(row.blockHash ?? '') && HASH.test(row.transactionHash ?? '')
+    && typeof row.logIndex === 'string' && QUANTITY.test(row.logIndex) && row.removed !== true);
   const validHeader = (header, requestedTag) => isRecord(header) && QUANTITY.test(header.number)
     && HASH.test(header.hash ?? '') && QUANTITY.test(header.timestamp)
     && (requestedTag === null || BigInt(header.number) === BigInt(requestedTag));
@@ -254,6 +307,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
       // repopulate the cache after this newer header has been observed.
       headerRpc.delete(key);
       pinnedRpc.clear();
+      feeLogRpc.clear();
       pendingRpc.clear();
       forkEpoch++;
     }
@@ -299,6 +353,8 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
           && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
         const normalized = value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+        if (payload.method === 'eth_getLogs' && !value.error)
+          requireValue(validFeeLogs(normalized.result, payload.params[0]), 502, 'Upstream fee history is outside the pinned event scope.');
         const canonical = !created.invalidated && epoch === chainEpoch && payload.method === 'eth_getBlockByNumber'
           && observeHeader(normalized.result, sequence);
         return { value: normalized, canonical };
@@ -321,7 +377,13 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         headerRpc.delete(tag);
         headerRpc.set(tag, { value, hash: value.result.hash.toLowerCase(), until: now() + headerTtlMs });
         if (headerRpc.size > MAX_HEADER_CACHE_ENTRIES) headerRpc.delete(headerRpc.keys().next().value);
-      } else if (key && payload.method !== 'eth_getBlockByNumber'
+      } else if (key && payload.method === 'eth_getLogs' && Array.isArray(value.result)
+        && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
+        && Buffer.byteLength(JSON.stringify(value.result)) <= MAX_CACHED_FEE_LOG_BYTES) {
+        feeLogRpc.delete(key);
+        feeLogRpc.set(key, { value, until: now() + FEE_LOG_CACHE_MS });
+        if (feeLogRpc.size > MAX_FEE_LOG_CACHE_ENTRIES) feeLogRpc.delete(feeLogRpc.keys().next().value);
+      } else if (key && payload.method !== 'eth_getBlockByNumber' && payload.method !== 'eth_getLogs'
         && chainEpoch === entry.epoch && entry.forkEpoch === forkEpoch && now() < verifiedChainUntil
         && typeof value.result === 'string' && value.result.length <= 65536) {
         pinnedRpc.delete(key);
@@ -348,7 +410,7 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
         requireValue(req.method === 'POST', 405, 'RPC requires POST.');
         requireValue(!url.search && !url.hash, 400, 'RPC does not accept URL parameters.');
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');
-        const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }));
+        const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }), { feeHistoryLogScope });
         if (payload.method === 'eth_chainId' && now() < verifiedChainUntil)
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         await acquire(client); acquired = true;
@@ -356,18 +418,21 @@ export function createLiveDataProxy({ rpcUrl, indexUrl = 'http://127.0.0.1:4180'
           await ensureBscChain();
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         }
-        const pinned = pinnedKey(payload), header = headerKey(payload), key = pinned ?? header;
+        const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
         await ensureBscChain();
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
         const readBlock = pinnedBlockKey(payload);
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
-        const cached = pinned ? pinnedRpc.get(pinned) : header ? headerRpc.get(header) : null;
+        if (feeLog) invalidateHeadersForLogRead();
+        const cache = pinned ? pinnedRpc : header ? headerRpc : feeLog ? feeLogRpc : null;
+        const cached = cache?.get(key);
         const hit = cached && now() < cached.until;
         if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
-        else if (cached) (pinned ? pinnedRpc : headerRpc).delete(pinned ?? header);
+        else if (cached) cache.delete(key);
         const value = hit ? cached.value : await readRpc(payload, key);
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
+        if (feeLog) invalidateHeadersForLogRead();
         return send(200, { jsonrpc: '2.0', id: payload.id, ...value });
       }
       requireValue(url.pathname.startsWith('/api/chain-index/'), 404, 'Unknown data route.');

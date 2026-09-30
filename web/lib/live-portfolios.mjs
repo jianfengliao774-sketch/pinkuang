@@ -8,6 +8,7 @@ import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
 import { saleReferenceState } from './sale-governance-gate.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
+import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
 
 const identity = new Interface(['function implementation() view returns(address)', 'function owner() view returns(address)']);
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -18,7 +19,7 @@ const address = value => { const a = getAddress(value); requireValue(a !== ZeroA
 export function portfolioConfigActionReady(config,action,targetType='portfolio') {
   const v4Ready = config?.productFamily !== 'fresh-v4'
     || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
-    || freshUserExitReady(config,targetType,action);
+    || freshUserExitReady(config,targetType,action) || freshWalletActionReady(config,targetType,action);
   return !!config && v4Ready;
 }
 export function portfolioCreateActionReady({ config, operatorVerified, operator, currentOperatorRead,

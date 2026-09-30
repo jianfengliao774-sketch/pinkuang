@@ -11,7 +11,7 @@ import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mj
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
-import { isFreshUserExit } from '../shared/fresh-user-exits.mjs';
+import { isFreshWalletAction } from '../shared/fresh-wallet-actions.mjs';
 import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY } from './fresh-product-gate.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
@@ -357,10 +357,14 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     const graph = await graphVerifier(provider, record.factory, block);
     if (graph?.freshAuthority) {
       if (!freshProductVerifier) fail(409, 'Fresh product signing is not enabled in this process.');
-      if (!isFreshUserExit(record.targetType, decoded.name, record.value))
-        await freshProductVerifier(provider, graph, block);
       if (FRESH_AUTHORITY_ONLY.has(decoded.name) || record.targetType === 'factory' || record.targetType === 'portfolioFactory')
         fail(403, 'Fresh operator actions require an administrator signature through the isolated Authority relay.');
+      // A member's deposit/share/governance/claim transaction is sent by that
+      // wallet. An offline purchase/mining worker cannot prevent this path.
+      // Registered targets, canonical calldata, exact value, fees and nonce
+      // are still verified below; operator calls keep their service proof.
+      if (!isFreshWalletAction(record.targetType, decoded.name, record.value))
+        await freshProductVerifier(provider, graph, block);
     }
     // This selector does not exist on the independently pinned genesis Factory.
     // A stale page must not reserve a nonce for candidate-only calldata before

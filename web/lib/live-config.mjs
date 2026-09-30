@@ -1,4 +1,4 @@
-import { getAddress, ZeroAddress } from 'ethers';
+import { getAddress, ZeroAddress, id } from 'ethers';
 import { ARTIFACT_DIGEST } from './chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 
@@ -223,13 +223,25 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
 }
 
 const READ_RPC = new Set(['eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt',
-  'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
+  'eth_getTransactionByHash', 'eth_getTransactionReceipt', 'eth_getLogs']);
+const FEE_HISTORY_TOPIC = id('FeesClaimed(address,uint256,uint256)');
 /** Only used for reads. A wallet provider may instead be injected by the UI. */
 export function createReadOnlyHttpProvider(config, { fetcher = globalThis.fetch } = {}) {
   insist(config?.status === 'ready', 'unconfigured', '尚未配置正式合约。');
   let id = 0;
   return Object.freeze({ async request({ method, params = [] }) {
     insist(READ_RPC.has(method), 'rpc_method_denied', '只读连接不支持该操作。');
+    if (method === 'eth_getLogs') {
+      const filter = params[0], q = value => typeof value === 'string' && /^0x(?:0|[1-9a-f][\da-f]*)$/i.test(value);
+      insist(config.stage === 'fresh-active' && config.manifest?.freshAuthority
+        && params.length === 1 && filter && !Array.isArray(filter)
+        && Object.keys(filter).length === 4 && Object.keys(filter).every(key => ['address','topics','fromBlock','toBlock'].includes(key))
+        && typeof filter.address === 'string' && filter.address.toLowerCase() === config.manifest.authority?.toLowerCase()
+        && Array.isArray(filter.topics) && filter.topics.length === 1 && filter.topics[0] === FEE_HISTORY_TOPIC
+        && q(filter.fromBlock) && q(filter.toBlock)
+        && BigInt(filter.toBlock) >= BigInt(filter.fromBlock) && BigInt(filter.toBlock) - BigInt(filter.fromBlock) < 5000n,
+      'rpc_method_denied', '只读连接不支持该领取记录范围。');
+    }
     const requestId = ++id;
     const response = await fetchLiveJson(config.rpcUrl, { fetcher, method: 'POST', body: { jsonrpc: '2.0', id: requestId, method, params } });
     insist(response?.jsonrpc === '2.0' && response.id === requestId && !response.error && Object.hasOwn(response, 'result'), 'rpc_error', '只读 RPC 返回错误或不匹配的响应。');

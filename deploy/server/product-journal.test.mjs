@@ -965,20 +965,89 @@ test('budget creation archives only its own authenticated caps and parent addres
   } finally {await f.close();}
 });
 
-test('fresh product user deposit, claim and share actions pass the same intent checks only with live operational proof',async()=>{
- const p=proof(),allow=new Set([factory.toLowerCase()]);let checks=0,ready=true;
+test('fresh direct user deposits, share trades and governance do not read operational worker readiness',async()=>{
+ const p=proof(),allow=new Set([factory.toLowerCase()]);let checks=0;
  const graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
- const options={freshProductVerifier:async()=>{checks++;if(!ready)throw Error('machines not ready');}};
- for(const [name,args,value,type]of [['deposit',[2],'20','pool'],['claim',[],'0','pool'],['withdrawBnb',[],'0','pool'],['list',[pool,2,5],'0','market'],['fill',[1,2],'10','market']]){
+ const options={freshProductVerifier:async()=>{checks++;throw Error('mining worker offline');}};
+ for(const [name,args,value,type]of [['deposit',[2],'20','pool'],['claim',[],'0','pool'],['withdrawBnb',[],'0','pool'],
+   ['propose',[200,200,1],'0','pool'],['vote',[1,true],'0','pool'],['executeSale',[1],'0','pool'],
+   ['list',[pool,2,5],'0','market'],['fill',[1,2],'10','market']]){
    await verifyWithGraph(p.provider,intent(name,args,value,type),allow,graph,options);
  }
- assert.equal(checks,3);ready=false;await assert.rejects(verifyWithGraph(p.provider,intent(),allow,graph,options));
+ assert.equal(checks,0,'the user wallet path never calls index/purchase/mining readiness');
+ assert.equal(p.state.simulations,0);assert.equal(p.state.estimates,0);
  await assert.rejects(verifyWithGraph(p.provider,intent(),allow,graph),/not enabled/);
 });
-test('fresh operator operations cannot use a member wallet even when operational readiness succeeds',async()=>{
+test('fresh operator actions remain on Authority and automated purchases retain service readiness',async()=>{
  const p=proof(),graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
- await assert.rejects(verifyWithGraph(p.provider,intent('mine',[new Interface(['function reclaim(bytes32)']).encodeFunctionData('reclaim',[hash(2)])],'0'),new Set([factory.toLowerCase()]),graph,
-   {freshProductVerifier:async()=>{}}),/administrator signature/);
+ const allow=new Set([factory.toLowerCase()]);let readinessCalls=0;
+ const options={freshProductVerifier:async()=>{readinessCalls++;throw Error('mining worker offline');}};
+ const params=[addr(4),9,1000,900,addr(0),0,2000,3000];
+ const mine=intent('mine',[new Interface(['function reclaim(bytes32)']).encodeFunctionData('reclaim',[hash(2)])],'0');
+ const budgetCreate={...intent(),target:factory,targetType:'portfolioFactory',action:{kind:'createPortfolio'},value:'0',
+   data:portfolioFactoryAbi.encodeFunctionData('createPortfolio',[1000,900,10,2000,3000])};
+ const budgetBuy={...intent(),targetType:'portfolio',action:{kind:'buyOfficial'},value:'0',
+   data:portfolioAbi.encodeFunctionData('buyOfficial',[addr(40),1])};
+ for(const record of [mine,intent('createPool',[params],'0','factory'),budgetCreate,budgetBuy])
+   await assert.rejects(verifyWithGraph(p.provider,record,allow,graph,options),/administrator signature/);
+ assert.equal(readinessCalls,0,'Authority-only operations are denied before worker access');
+ for(const name of ['buyFromMarket','buyAlternativeFromMarket'])
+   await assert.rejects(verifyWithGraph(p.provider,intent(name,[1],'0'),allow,graph,options));
+ assert.equal(readinessCalls,2,'operator pool purchase paths still require service readiness');
+});
+
+test('fresh member wallet outage exception preserves target, exact calldata/value, graph, fee and nonce checks',async()=>{
+ const p=proof(),allow=new Set([factory.toLowerCase()]),graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
+ let readinessCalls=0;const options={freshProductVerifier:async()=>{readinessCalls++;throw Error('worker offline');}};
+ const verify=record=>verifyWithGraph(p.provider,record,allow,graph,options);
+ await verify(intent());
+ await assert.rejects(verify(intent('deposit',[2],'21')),/Deposit value/);
+ await assert.rejects(verify({...intent(),action:{kind:'claim'}}),/exact calldata/);
+ await assert.rejects(verify({...intent(),data:intent().data+'00'}),/exact calldata/);
+ await assert.rejects(verify({...intent(),targetType:'market'}),/Unsupported product call|exact calldata/);
+ await assert.rejects(verify(intent('claim',[],'1')),/nonpayable|value|send BNB/i);
+ p.state.registered=false;await assert.rejects(verify(intent()),/registered/);p.state.registered=true;
+ const getCode=p.provider.getCode;p.provider.getCode=async target=>target===pool?'0x':getCode(target);
+ await assert.rejects(verify(intent()),/no code/);p.provider.getCode=getCode;
+ await assert.rejects(verifyWithGraph(p.provider,intent(),allow,async()=>{throw Error('untrusted graph');},options));
+ p.state.orderPrice=101n;
+ await assert.rejects(verify(intent('fill',[1,2],'202','market')),/buyer fee/);
+ await verify(intent('fill',[1,2],'204','market'));
+ p.state.buyerFeeBps=0n;await assert.rejects(verify(intent('fill',[1,2],'204','market')),/Bilateral/);p.state.buyerFeeBps=100n;
+ p.state.pendingNonce=8;await assert.rejects(verify(intent()),/nonce/);p.state.pendingNonce=7;
+ p.state.balance=0n;await assert.rejects(verify(intent()),/balance|funds/i);
+ assert.equal(readinessCalls,0,'failures are precise user-intent failures, not worker checks');
+});
+
+test('fresh budget wallet deposits, transfers, governance, claims and market orders are independent of workers',async()=>{
+ const p=proof(),allow=new Set([factory.toLowerCase()]),child=addr(40),legacy=addr(10);
+ const graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true,productKind:'budget',factory,legacyFactory:legacy});
+ let readinessCalls=0;const options={freshProductVerifier:async()=>{readinessCalls++;throw Error('worker offline');}};
+ const extra=new Interface(['function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)',
+   'function factory() view returns(address)','function OFFICIAL_FACTORY() view returns(address)']);
+ const send=p.provider.send.bind(p.provider);
+ p.provider.send=async(method,params)=>{
+   if(method==='eth_call'){
+     const parsed=extra.parseTransaction(params[0]);
+     if(parsed?.name==='childInfo')return extra.encodeFunctionResult('childInfo',[addr(41),7,100,true,false]);
+     if(params[0].to.toLowerCase()===child.toLowerCase()&&parsed)
+       return extra.encodeFunctionResult(parsed.name,[legacy]);
+   }
+   return send(method,params);
+ };
+ const make=(name,args=[],value='0')=>({...intent(),targetType:'portfolio',action:{kind:name},
+   data:portfolioAbi.encodeFunctionData(name,args),value});
+ for(const [name,args,value] of [['deposit',[2],'20'],['transfer',[addr(42),1],'0'],
+   ['withdrawDeposit',[],'0'],['finalizeFundingFailure',[],'0'],['claimFailedFunding',[],'0'],['finalizeAcquisition',[],'0'],
+   ['collectChildBem',[child],'0'],['claimBem',[],'0'],['withdrawBnb',[],'0'],['proposeChildSale',[child,100,100,1],'0'],
+   ['voteChildSale',[1,true],'0'],['executeChildSale',[1],'0'],['settleChildSale',[],'0'],['expireChildSale',[],'0']])
+   await verifyWithGraph(p.provider,make(name,args,value),allow,graph,options);
+ for(const [name,args,value] of [['list',[pool,2,5],'0'],['fill',[1,2],'10'],['cancel',[1],'0'],['expire',[1],'0'],['withdrawBnb',[],'0']])
+   await verifyWithGraph(p.provider,intent(name,args,value,'portfolioMarket'),allow,graph,options);
+ await assert.rejects(verifyWithGraph(p.provider,make('deposit',[2],'21'),allow,graph,options),/share price/);
+ await assert.rejects(verifyWithGraph(p.provider,make('transfer',[addr(0),1]),allow,graph,options),/recipient/);
+ p.state.registered=false;await assert.rejects(verifyWithGraph(p.provider,make('claimBem'),allow,graph,options),/registered/);
+ assert.equal(readinessCalls,0);
 });
 
 

@@ -1,6 +1,7 @@
 import { getAddress } from 'ethers';
 import { displayAmount } from './amount-display.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
+import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
 
 export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding'];
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
@@ -8,6 +9,7 @@ export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40
 export const amount = displayAmount;
 /** Shared UI provenance gate; transaction preparation still rechecks the chain. */
 export function currentActionSourceReady({ client, config, source, action, targetType='pool' }) {
+  if (client && freshWalletActionReady(config, targetType, action)) return true;
   const v4Ready = config?.productFamily !== 'fresh-v4'
     || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
     || freshUserExitReady(config,targetType,action);
@@ -17,10 +19,12 @@ export function currentActionSourceReady({ client, config, source, action, targe
 /** Historical detail values may be displayed, but cannot enable any action preview. */
 export function currentDetailActionReady({ cachedPage, loading, busy,
   loadedRoute, routePool, detailPool, loadedAccount, account, ...context }) {
+  const directWallet = freshWalletActionReady(context.config, context.targetType ?? 'pool', context.action);
   const currentIdentity = typeof routePool === 'string' && typeof detailPool === 'string'
     && loadedRoute === `detail/${routePool}` && routePool.toLowerCase() === detailPool.toLowerCase()
-    && (loadedAccount?.toLowerCase() || '') === (account?.toLowerCase() || '');
-  return currentActionSourceReady(context) && currentIdentity && !cachedPage && !loading && !busy;
+    && (directWallet || (loadedAccount?.toLowerCase() || '') === (account?.toLowerCase() || ''));
+  return currentActionSourceReady(context) && currentIdentity && !busy
+    && (directWallet || !cachedPage && !loading);
 }
 export function currentPositionsActionReady({ positionsAccount, account, wallet, positionsLoaded,
   loading, error, ...context }) {
@@ -38,7 +42,7 @@ export function currentMarketOrderActionReady({ route, marketTab, readIdentity, 
 }
 /** Subscription also needs current pool eligibility; action preparation rechecks the chain. */
 export function canOpenFundingAction({ detail, ...context }) {
-  return currentDetailActionReady(context)
+  return currentDetailActionReady({ ...context, action: 'deposit' })
     && detail?.trusted === true && detail.depositPaused === false
     && typeof detail.remaining === 'number' && Number.isFinite(detail.remaining)
     && detail.remaining > 0;
