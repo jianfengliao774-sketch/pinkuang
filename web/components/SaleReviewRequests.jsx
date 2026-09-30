@@ -34,7 +34,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
   const [cached, setCached] = useState(!!result);
   const [loading, setLoading] = useState(false), [acting, setActing] = useState(false);
   const [error, setError] = useState(''), [filter, setFilter] = useState('all'), [selectedKey, setSelectedKey] = useState(null);
-  const sequence = useRef(0), working = useRef(false), actionLock = useRef(false);
+  const sequence = useRef(0), working = useRef(false), actionLock = useRef(null);
   const current = useRef({});
   current.current = { config, provider, disabled, result, onReview, onSelect, selectedKey };
   const selected = result?.items?.find(item => item.key === selectedKey);
@@ -58,18 +58,24 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
   }
 
   useEffect(() => {
+    setActing(false);
     void load();
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && !current.current.disabled && !current.current.selectedKey) void load();
     }, 30_000);
-    return () => { clearInterval(timer); ++sequence.current; working.current = false; };
+    return () => {
+      clearInterval(timer); ++sequence.current; working.current = false;
+      // Retire the previous read/action context before the next refresh starts.
+      // Its eventual completion must not keep or release a newer action's lock.
+      actionLock.current = null;
+    };
   }, [provider, refreshKey]);
 
   async function review(approved) {
     if (!selected || disabled || actionLock.current || loading || cached) return;
-    const original = selected, ticket = sequence.current;
+    const original = selected, ticket = sequence.current, action = {};
     let submitted = false;
-    actionLock.current = true; setActing(true); setError('');
+    actionLock.current = action; setActing(true); setError('');
     try {
       const fresh = await refreshSaleReviewRequest({ config: current.current.config, provider: current.current.provider, item: original });
       if (ticket !== sequence.current) return;
@@ -87,7 +93,12 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
       const response = await current.current.onReview(latest.kind === 'pool' ? 'reviewSale' : 'reviewChildSale', args);
       if (ticket === sequence.current && response) { submitted = true; setSelectedKey(null); setCached(true); }
     } catch (problem) { if (ticket === sequence.current) setError(message(problem)); }
-    finally { if (ticket === sequence.current) { actionLock.current = false; setActing(false); if (submitted) void load(); } }
+    finally {
+      if (actionLock.current === action) {
+        actionLock.current = null; setActing(false);
+        if (ticket === sequence.current && submitted) void load();
+      }
+    }
   }
 
   const items = result?.items || [];

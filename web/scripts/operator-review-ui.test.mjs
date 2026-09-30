@@ -154,6 +154,27 @@ test('a delayed old page read cannot replace a newer refresh', async () => {
   assert.match(text(ui.tree), /#42/); assert.doesNotMatch(text(ui.tree), /#13043/); ui.unmount();
 });
 
+test('status refresh cancels an approval preflight and its late completion cannot unlock a newer action', async () => {
+  const first = deferred(), second = deferred(); let attempts = 0;
+  const { ui, props, calls, reads } = requestHost({ refresh: () => ++attempts === 1 ? first.promise : second.promise });
+  await ui.settle(); button(ui, '查看申请').onClick(); ui.render();
+  button(ui, '签名批准').onClick(); ui.render();
+  assert.equal(button(ui, '正在处理…').disabled, true);
+  ui.render({ ...props, refreshKey: 1 }); await ui.settle();
+  assert.equal(reads.length, 2, 'a fresh directory read starts without the abandoned action lock');
+  assert.equal(button(ui, '查看申请').disabled, false);
+  button(ui, '查看申请').onClick(); ui.render();
+  assert.equal(button(ui, '签名批准').disabled, false);
+  button(ui, '签名批准').onClick(); ui.render(); assert.equal(attempts, 2);
+  first.resolve(application()); await ui.settle();
+  assert.equal(calls.length, 0, 'the cancelled preflight never calls signing');
+  assert.equal(button(ui, '正在处理…').disabled, true, 'old finally cannot unlock the new preflight');
+  assert.equal(button(ui, '查看申请').disabled, true);
+  second.resolve(application()); await ui.settle();
+  assert.equal(calls.length, 1); assert.equal(calls[0][0], 'reviewSale');
+  assert.equal(button(ui, '查看申请').disabled, false); ui.unmount();
+});
+
 test('pagination and 30-second refresh stay on the selected directory page', async () => {
   const { ui, reads } = requestHost({ read: args => page([application()], { cursor: args.cursor, nextCursor: args.cursor === 0 ? 10 : null }) });
   await ui.settle(); button(ui, '查看后续项目申请').onClick(); await ui.settle();
