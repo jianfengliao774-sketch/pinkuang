@@ -83,7 +83,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } }); attach(page);
     const fixture = await installLiveFixture(page, { fundingShares: 1n });
     await page.goto(base); await page.getByText('数据区块 100', { exact: true }).waitFor();
-    await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
     const open = async kind => {
       const route = `detail/${FIXTURE_POOLS[kind]}`;
       await page.evaluate(hash => { location.hash = hash; }, route);
@@ -105,7 +105,7 @@ try {
     }
     await open('funding');
     assert.equal(await page.locator('.live-details').getByRole('button', { name: invite, exact: true }).count(), 1);
-    await page.reload(); await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+    await page.reload(); await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
     await page.locator('.live-details').getByRole('button', { name: invite, exact: true }).waitFor();
     checks.push('live: one-share eligibility returns from chain positions after reload, no receipt fabrication');
     assert.deepEqual(fixture.controls.sentTransactions, []);
@@ -113,7 +113,7 @@ try {
     const zero = await browser.newPage({ viewport: { width: 375, height: 812 } }); attach(zero);
     await installLiveFixture(zero, { fundingShares: 0n });
     await zero.goto(`${base}/#detail/${FIXTURE_POOLS.funding}`); await zero.getByText('数据区块 100', { exact: true }).waitFor();
-    await zero.getByRole('button', { name: '连接钱包', exact: true }).click(); await zero.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await zero.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+    await zero.getByRole('button', { name: '连接钱包', exact: true }).click(); await zero.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await zero.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
     await zero.waitForFunction(() => document.querySelector('main')?.getAttribute('aria-busy') === 'false');
     assert.equal(await zero.locator('.live-details').getByRole('button', { name: invite, exact: true }).count(), 0);
     assert.equal(await zero.locator('.purchase-panel').getByRole('button', { name: invite, exact: true }).count(), 1);

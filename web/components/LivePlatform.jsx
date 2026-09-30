@@ -44,7 +44,6 @@ import LiveOperator from "./LiveOperator";
 import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios, { clearRecentPortfolioDisplays } from "./LivePortfolios";
-import PublicDisplayPreview from './PublicDisplayPreview';
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
 import { prepareBudgetQueueStep, beginBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
 import { recoverAuthorityQueueStep } from "../lib/authority-queue-recovery.mjs";
@@ -62,7 +61,9 @@ import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
 import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
-import { publicPreviewFresh, publicPreviewNeedsRefresh, publicPreviewRemaining, readPublicDisplaySection } from '../lib/public-display-preview.mjs';
+import { freshIdentityReadable, freshOperationsReady, startFreshBootRecovery } from '../lib/fresh-boot-recovery.mjs';
+import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
+import { readDeploymentAccount } from '../lib/deployment-account.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
@@ -219,13 +220,10 @@ export default function LivePlatform() {
     [menu, setMenu] = useState(false),
     [route, setRoute] = useState({ route: "home", pool: null });
   const routeIdentity = useRef(route);
-  const publicDisplayCache = useRef(new Map());
-  const resolvedPublicPreview = useRef({ key: '', sections: {} });
   const [boot, setBoot] = useState({ status: "loading" }),
     [bootAttempt, setBootAttempt] = useState(0),
+    [bootRecoveryExhausted, setBootRecoveryExhausted] = useState(false),
     [client, setClient] = useState(null),
-    [publicDisplay, setPublicDisplay] = useState({ key: '', sections: {} }),
-    [portfolioReadState, setPortfolioReadState] = useState({ mode: '', pool: '', account: '', provider: null, current: false }),
     [account, setAccount] = useState(null),
     [wallet, setWallet] = useState(null);
   const [wallets, setWallets] = useState([]),
@@ -263,6 +261,8 @@ export default function LivePlatform() {
   const [marketOrderIdentity, setMarketOrderIdentity] = useState('');
   const [positionsAccount, setPositionsAccount] = useState(null);
   const [operator, setOperator] = useState(null);
+  const [deploymentIdentity, setDeploymentIdentity] = useState(null);
+  const deploymentProof = useRef(null);
   const [positionsLoaded, setPositionsLoaded] = useState(false);
   const [positionsReadLoading, setPositionsReadLoading] = useState(false);
   const [marketOrdersLoading, setMarketOrdersLoading] = useState(false);
@@ -357,6 +357,7 @@ export default function LivePlatform() {
   // A permission result belongs to this exact provider, account and read revision.
   // Reject it during render, before the effect cleanup, when any identity changes.
   const operatorContextCurrent = !!wallet && !!account && !!config
+    && (config.productFamily !== 'fresh-v4' || freshIdentityReadable(config))
     && connectedWallet.current === wallet && operator?.provider === wallet
     && operator.walletRevision === walletRevision && operator.refresh === operatorRefresh
     && operator.deployment === boot && same(operator.account, account)
@@ -371,13 +372,39 @@ export default function LivePlatform() {
       && operator.isAuthorityAdmin === true && same(operator.portfolioOperator, config.authority))
     && !connectingId && !connectionLock.current;
   const hasOperatorAccess = isOperator || isPortfolioOperator;
+  const hasDeploymentAccess = freshIdentityReadable(config) && !!wallet && !!account
+    && connectedWallet.current === wallet && deploymentIdentity?.wallet === wallet
+    && deploymentIdentity.revision === walletRevision && deploymentIdentity.boot === boot
+    && same(deploymentIdentity.account, account) && same(deploymentIdentity.deployer, account)
+    && !connectingId && !connectionLock.current;
+  const operatorServiceReady = config?.productFamily !== 'fresh-v4' || freshOperationsReady(config);
   const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
+    : config.productFamily === 'fresh-v4' && !freshIdentityReadable(config) ? 'unavailable'
     : hasOperatorAccess ? 'verified' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
       : operator.status === 'error' ? 'unavailable' : 'denied';
 
   useEffect(() => {
     if (route.route === 'operator' && ['disconnected', 'denied'].includes(operatorAccess)) location.hash = 'home';
   }, [route.route, operatorAccess]);
+
+  useEffect(() => {
+    let active=true;
+    setDeploymentIdentity(null);
+    if(wallet&&account&&freshIdentityReadable(config)&&client?.provider){
+      const key=JSON.stringify([config.rpcUrl,config.chainId,config.artifactDigest,config.factory,config.portfolioFactory,
+        config.authority,config.manifest.deployment]);
+      if(deploymentProof.current?.key!==key){
+        const proof={key,promise:readDeploymentAccount(client.provider,config.manifest)};
+        deploymentProof.current=proof;
+        proof.promise.catch(()=>{if(deploymentProof.current===proof)deploymentProof.current=null;});
+      }
+      deploymentProof.current.promise.then(deployer=>{
+        if(active&&connectedWallet.current===wallet&&walletEpoch.current===walletRevision)
+          setDeploymentIdentity({wallet,account,deployer,revision:walletRevision,boot});
+      }).catch(()=>{}); // A missing or inconsistent proof keeps the private-console link hidden.
+    }
+    return()=>{active=false;};
+  },[wallet,account,boot,client,walletRevision]);
 
   useEffect(() => {
     const service = createWalletDiscovery(window, setWallets);
@@ -388,18 +415,28 @@ export default function LivePlatform() {
 
   useEffect(() => {
     let active = true;
+    let retryTimer;
     setOperator(null);
-    if (wallet && account && config) {
+    if (wallet && account && config
+      && (config.productFamily !== 'fresh-v4' || freshIdentityReadable(config) && client?.provider)) {
       const binding = { provider: wallet, account, factory: config.factory,
         walletRevision, refresh: operatorRefresh, deployment: boot };
       const current = () => active && connectedWallet.current === wallet && walletEpoch.current === walletRevision;
       setOperator({ ...binding, status: 'checking' });
-      readOperatorStatus({ provider: wallet, config, account }).then(result => {
+      // Identity is read-only: extensions need not proxy all chain reads. The
+      // actual connected account/provider still owns this result and every signature.
+      const provider = config.productFamily === 'fresh-v4' ? client.provider : wallet;
+      const read = attempt => readOperatorStatus({ provider, config, account }).then(result => {
         if (current()) setOperator({ ...binding, ...result, status: 'verified' });
-      }).catch(() => { if (current()) setOperator({ ...binding, status: 'error' }); });
+      }).catch(() => {
+        if (!current()) return;
+        if (attempt < 2) retryTimer = setTimeout(() => { if (current()) void read(attempt + 1); }, (attempt + 1) * 2_500);
+        else setOperator({ ...binding, status: 'error' });
+      });
+      void read(0);
     }
-    return () => { active = false; };
-  }, [wallet, account, boot, operatorRefresh, walletRevision]);
+    return () => { active = false; clearTimeout(retryTimer); };
+  }, [wallet, account, boot, client, operatorRefresh, walletRevision]);
 
   useEffect(() => {
     try {
@@ -427,113 +464,6 @@ export default function LivePlatform() {
       localStorage.setItem("bemine-appearance", appearance);
     } catch {}
   }, [appearance]);
-  const publicDisplayKey = `${route.route}:${route.pool ?? ''}:${marketTab}`;
-  const currentDisplay = value => value && value.stale !== true && value.readMode !== 'verified_snapshot';
-  const publicPreviewResolved = section => section === 'stats'
-    ? route.route === 'home' && currentDisplay(statsSource)
-    : section === 'pools'
-      ? route.route === 'home' && loadedRoute === 'home' && currentDisplay(source)
-        || route.route === 'pools' && loadedRoute === 'pools' && currentDisplay(source)
-        || route.route === 'detail' && detail && same(detail.pool, route.pool) && currentDisplay(source)
-      : section === 'portfolios'
-        ? portfolioReadState.mode === route.route
-          && portfolioReadState.pool === (route.route === 'portfolio' ? route.pool?.toLowerCase() : '')
-          && portfolioReadState.account === (account?.toLowerCase() || '')
-          && portfolioReadState.provider === client?.provider
-          && portfolioReadState.current
-        : section === 'orders'
-          ? route.route === 'market' && marketTab === 'shares'
-            && marketOrderIdentity === `shares:${account?.toLowerCase() || ''}`
-            && currentDisplay(marketOrderSource) : false;
-  const publicPreviewSections = route.route === 'home' ? ['stats', 'pools']
-    : route.route === 'pools' ? ['pools', 'portfolios']
-      : route.route === 'market' && marketTab === 'shares' ? ['orders']
-        : route.route === 'detail' ? ['pools']
-          : route.route === 'portfolio' ? ['portfolios'] : [];
-  useEffect(() => {
-    resolvedPublicPreview.current = { key: publicDisplayKey,
-      sections: Object.fromEntries(publicPreviewSections.map(section => [section, !!publicPreviewResolved(section)])) };
-  });
-  useEffect(() => {
-    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY !== 'fresh-v4') return;
-    const activeRoute = parseProductRoute(location.hash);
-    if (activeRoute.route !== route.route || activeRoute.pool !== route.pool) return;
-    const sections = route.route === 'home' ? ['pools', 'stats']
-      : route.route === 'pools' ? ['pools', 'portfolios']
-        : route.route === 'market' && marketTab === 'shares' ? ['orders']
-          : route.route === 'detail' && route.pool ? ['pools']
-            : route.route === 'portfolio' && route.pool ? ['portfolios'] : [];
-    const key = `${route.route}:${route.pool ?? ''}:${marketTab}`;
-    setPublicDisplay({ key, sections: {} });
-    if (!sections.length) return;
-    let cancelled = false;
-    let retryTimer;
-    const expiryTimers = new Map(), inFlight = new Set();
-    try {
-      // Each page requests only its needed verified public section. These reads
-      // are independent of product boot, wallet state and each other.
-      const pinned = validateFreshManifest(pinnedGenesis, process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256);
-      const address = route.route === 'detail' || route.route === 'portfolio' ? route.pool : null;
-      const showSection = (section, cacheKey, result) => {
-        setPublicDisplay(previous => previous.key === key
-          ? { key, sections: { ...previous.sections, [section]: result } } : previous);
-        clearTimeout(expiryTimers.get(section));
-        const remaining = publicPreviewRemaining(result.source);
-        expiryTimers.set(section, setTimeout(() => {
-          if (cancelled) return;
-          if (publicDisplayCache.current.get(cacheKey) === result) publicDisplayCache.current.delete(cacheKey);
-          setPublicDisplay(previous => previous.key === key && previous.sections[section] === result
-            ? { key, sections: { ...previous.sections, [section]: null } } : previous);
-          if (document.visibilityState === 'visible') void refreshSection(section);
-        }, Math.max(1, remaining + 1)));
-      };
-      const refreshSection = async section => {
-        const cacheKey = `${section}:${address ?? ''}`;
-        const cached = publicDisplayCache.current.get(cacheKey);
-        if (cancelled || inFlight.has(section)
-          || !publicPreviewNeedsRefresh(resolvedPublicPreview.current, key, section)) return;
-        if (cached && publicPreviewFresh(cached.source)) {
-          showSection(section, cacheKey, cached);
-        }
-        inFlight.add(section);
-        try {
-          const result = await readPublicDisplaySection({ origin: location.origin,
-            manifest: pinned, section, address });
-          if (cancelled || !publicPreviewFresh(result.source)) return;
-          for (const [oldKey, oldValue] of publicDisplayCache.current)
-            if (!publicPreviewFresh(oldValue.source)) publicDisplayCache.current.delete(oldKey);
-          publicDisplayCache.current.delete(cacheKey);
-          publicDisplayCache.current.set(cacheKey, result);
-          while (publicDisplayCache.current.size > 32)
-            publicDisplayCache.current.delete(publicDisplayCache.current.keys().next().value);
-          showSection(section, cacheKey, result);
-        } catch (error) {
-          // A 503 makes this section's snapshot unavailable. Retire the old
-          // preview rather than keep displaying it until its age limit.
-          if (!cancelled && error?.code === 'http_unavailable' && error.details?.status === 503) {
-            publicDisplayCache.current.delete(cacheKey);
-            clearTimeout(expiryTimers.get(section));
-            expiryTimers.delete(section);
-            setPublicDisplay(previous => previous.key === key
-              ? { key, sections: { ...previous.sections, [section]: null } } : previous);
-          }
-          // Normal authoritative reads continue without a preview.
-        }
-        finally { inFlight.delete(section); }
-      };
-      const checkVisible = () => {
-        if (document.visibilityState === 'visible') for (const section of sections) void refreshSection(section);
-      };
-      checkVisible();
-      retryTimer = setInterval(checkVisible, refreshIntervalMs(route.route) ?? 60_000);
-      window.addEventListener('focus', checkVisible);
-      document.addEventListener('visibilitychange', checkVisible);
-      return () => { cancelled = true; for (const timer of expiryTimers.values()) clearTimeout(timer);
-        clearInterval(retryTimer);
-        window.removeEventListener('focus', checkVisible);
-        document.removeEventListener('visibilitychange', checkVisible); };
-    } catch { /* A mismatched build trust root cannot provide a preview. */ }
-  }, [route.route, route.pool, marketTab]);
   useEffect(() => {
     if (client || boot.status !== 'loading' || account) return;
     // The build-pinned genesis allows a display-only cache to paint while the
@@ -564,6 +494,20 @@ export default function LivePlatform() {
     } catch { /* A corrupt browser cache cannot block the live read. */ }
   }, [client, boot.status, account, route.route, route.pool, marketTab]);
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4') {
+      setBoot({ status: 'loading' }); setClient(null); setError('');
+      return startFreshBootRecovery({ load: () => loadProductConfig({ basePath }),
+        getContext: () => ({ wallet: connectedWallet.current, revision: walletEpoch.current, route: routeIdentity.current }),
+        isBusy: () => !!(refreshState.current?.busy || refreshState.current?.modal || refreshState.current?.pending
+          || submissionLock.current || connectionLock.current || document.querySelector('[role="dialog"][aria-modal="true"]')
+          || document.activeElement?.matches('input, textarea, select')),
+        isVisible: () => document.visibilityState === 'visible',
+        onConfig: result => { setBoot(result); setClient(result.status === 'ready' ? createLiveDataClient(result) : null); },
+        onError: (problem, shown) => { if (!shown) { setBoot({ status: 'error' }); setError(textError(problem)); } },
+        onExhausted: setBootRecoveryExhausted,
+        onExpired: () => { setBoot({ status: 'error' }); setClient(null); clearWalletDisplay(); setStats(null); setStatsSource(null); },
+      });
+    }
     let cancelled = false;
     let retryTimer;
     let pollTimer;
@@ -1251,12 +1195,7 @@ export default function LivePlatform() {
       setPrepared(null);
       setModal(null);
       setPending(null);
-      setMessage(
-        L(
-          "钱包已连接。发送交易前会请你确认。",
-          "Wallet connected. Each transaction requires your confirmation.",
-        ),
-      );
+      setMessage("");
     } catch (e) {
       if (current() && e?.code !== 'WC_CANCELLED') setConnectionError(e?.code === 'WC_TIMEOUT'
         ? L('扫码连接已超时，请重新扫码。', 'QR connection timed out. Please scan again.') : walletConnectionError(e, locale));
@@ -1484,7 +1423,7 @@ export default function LivePlatform() {
   async function submitFreshAuthority(kind, args, current) {
     let enteredRelay = false;
     try {
-    if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account)
+    if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account || !operatorServiceReady)
       throw new Error('当前钱包没有新合约管理员权限。');
     await requireCurrentProductStage(config);
     const previous = await authorityActionStatus(config, account);
@@ -1662,7 +1601,7 @@ export default function LivePlatform() {
   }
   async function sendAdminAction(preview) {
     const requestEpoch = walletEpoch.current, revision = epoch.current;
-    if (busy || submissionLock.current || pending || !isOperator) throw new Error(L("运营权限或交易状态已变化，请重新读取。", "Operator permissions or transaction state changed."));
+    if (busy || submissionLock.current || pending || !isOperator || !operatorServiceReady) throw new Error(L("运营权限或交易状态已变化，请重新读取。", "Operator permissions or transaction state changed."));
     const ticket = {};
     submissionLock.current = ticket;
     setBusy(true); setError("");
@@ -1672,7 +1611,8 @@ export default function LivePlatform() {
       await connectJournal({ inspect: false, onState: state => { if (current()) showTransactionProgress(state); } });
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
       showTransactionProgress('rechecking');
-      const checked = await prepareAdminAction({ provider: wallet, config, account, ...preview.input });
+      const checked = await boundedReadPreview(({ provider }) => prepareAdminAction({ provider, config, account, ...preview.input }),
+        { provider: config?.productFamily === 'fresh-v4' ? client?.provider : wallet, isCurrent: current });
       if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction)
         || !sameAdminPurchasePreview(preview, checked))
         throw new Error(L("运营操作参数已变化，请重新预览。", "Operation changed. Preview again."));
@@ -1859,6 +1799,9 @@ export default function LivePlatform() {
     </div>
   );
   const refreshButton = (
+    <div className="live-actions">
+    {(boot.status === 'loading' || loading || revalidating || readRetry) &&
+      <small role="status" data-read-status="updating">{L('更新中…', 'Updating…')}</small>}
     <Button
       secondary
       onClick={() => {
@@ -1868,9 +1811,13 @@ export default function LivePlatform() {
         setRefresh(v => v + 1);
         // Refresh page data immediately; only rebootstrap the page if the
         // independently verified contract stage actually changed.
+        const refreshIdentity = { wallet: connectedWallet.current, revision: walletEpoch.current, route: routeIdentity.current };
+        const current = () => refreshIdentity.wallet === connectedWallet.current && refreshIdentity.revision === walletEpoch.current
+          && refreshIdentity.route === routeIdentity.current && !activeModal.current && !submissionLock.current;
         void fetchLiveJson(boot.productGraphUrl, { maxBytes: 65536 })
           .then(graph => validateCurrentProductGraph(graph, boot))
           .then(graph => {
+            if (!current()) return;
             if (graph.stage !== boot.stage || graph.artifactDigest !== boot.artifactDigest
               || graph.stageActivationBlock !== boot.stageActivationBlock
               || graph.stageActivationHash !== boot.stageActivationHash
@@ -1883,13 +1830,13 @@ export default function LivePlatform() {
                 || graph.transactionReady !== boot.transactionReady || graph.userExitReady !== boot.userExitReady
                 || boot.readMode !== 'current')) setBootAttempt(v => v + 1);
           })
-          .catch(error => setError(textError(error)));
+          .catch(error => { if (current()) setError(textError(error)); });
       }}
-      disabled={loading || busy || boot.status === "loading"}
+      disabled={loading || busy || !!modal || !!pending || boot.status === "loading"}
     >
       <RefreshCw size={16} />
       {L("刷新", "Refresh")}
-    </Button>
+    </Button></div>
   );
   const claimable = positionsLoaded
       ? sumKnown(positions, "claimableBEM")
@@ -2132,7 +2079,6 @@ export default function LivePlatform() {
   const displaySources = route.route === 'home' ? [pageSource, statsSource]
     : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
   const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
-  const publicDisplaySections = publicDisplay.key === publicDisplayKey ? publicDisplay.sections : {};
   const detailActionReadyFor = action => currentDetailActionReady({ client, config, source, action,
     cachedPage, loading, busy, loadedRoute, routePool: route.pool, detailPool: detail?.pool,
     loadedAccount, account });
@@ -2189,7 +2135,7 @@ export default function LivePlatform() {
             {L("平台规则", "Platform rules")}
             <ArrowUpRight size={14} />
           </button>
-          {hasOperatorAccess && deploymentConsoleUrl && (
+          {hasDeploymentAccess && deploymentConsoleUrl && (
             <a
               className="rules-link deployment-console-link"
               href={deploymentConsoleUrl}
@@ -2284,69 +2230,27 @@ export default function LivePlatform() {
             positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
             blocked={busy || !!modal} onConnect={connect} onOpen={() => go('notifications')}
             isCurrent={() => connectedWallet.current === wallet && walletEpoch.current === walletRevision}/>
-          {boot.status !== "ready" && (
-            <div className="live-service-note" role="status">
-              <ShieldCheck size={20} />
-              <div>
-                <strong>
-                  {boot.status === "loading"
-                    ? L("正在核对链上数据…", "Checking on-chain data…")
-                    : boot.status === "unconfigured"
-                    ? L("项目尚未开放，等待部署核验", "Project not yet open — awaiting deployment verification")
-                    : L("数据暂不可用", "Data temporarily unavailable")}
-                </strong>
-                <p>
-                  {boot.status === "loading"
-                    ? L("正在核对合约和链上项目，请稍候。", "Checking contracts and on-chain pools. Please wait.")
-                    : boot.status === "unconfigured"
-                    ? L(boot.reason || "尚未配置已核验的正式合约。", "Verified production contracts have not been configured yet.")
-                    : L("暂时无法完成链上核验，请稍后刷新。", "On-chain verification is temporarily unavailable. Please refresh later.")}
-                </p>
-              </div>
-              {boot.status !== "loading" && <Button secondary disabled={busy} onClick={() => setBootAttempt((v) => v + 1)}>
-                <RefreshCw size={16} />{L("重新加载", "Retry loading")}
-              </Button>}
-              <a
-                className="text-button"
-                href={`${basePath}/preview${process.env.NODE_ENV === "production" ? ".html" : ""}`}
-              >
-                {L("浏览页面预览", "Explore the preview")}
-                <ArrowUpRight size={16} />
-              </a>
+          {boot.status !== "ready" && boot.status !== "loading" && (
+            <div className="live-notice" role="status">
+              <span>{boot.status === "unconfigured"
+                ? L("项目尚未开放，等待部署核验", "Project not yet open — awaiting deployment verification")
+                : L("数据暂不可用，请稍后重试。", "Data is unavailable. Please try again later.")}</span>
+              <Button secondary disabled={busy || !!modal || !!pending} onClick={() => setBootAttempt(v => v + 1)}>
+                <RefreshCw size={16}/>{L("重新加载", "Retry loading")}
+              </Button>
             </div>
           )}
-          {config?.stage === "fresh-active" && config.operationalReady !== true &&
-            <div className="live-service-note" role="status">
-              <ShieldCheck size={20} />
-              <div>
-                <strong>{L("新增交易服务暂未就绪", "New transaction services are not ready")}</strong>
-                <p>{L("当前可查看已核验的链上数据。领取、退款和撤单在当前链上核验通过后仍可使用，由你的钱包支付网络 Gas；新增投资和管理员操作等待服务就绪。",
-                  "Verified chain data is available. Claims, refunds and cancellations remain available after current chain verification; your wallet pays network Gas. New investments and administrator operations wait for service readiness.")}</p>
-              </div>
-            </div>}
-          {config?.stale === true && <div className="live-service-note" role="status">
-            <AlertCircle size={20}/><div>
-              <strong>{L('产品阶段使用历史核验资料，仅供展示', 'Product stage uses historical verified data for display only')}</strong>
-              <p>{L('当前只可浏览；恢复最新链上核对前不能提交产品交易。',
-                'Browsing remains available. Product transactions require a current on-chain verification.')}</p>
-            </div>
-          </div>}
-          {(loading || revalidating) && readRetry && <div className="live-notice" role="status">
-            <RefreshCw size={18}/><span>{L(`数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`,
-              `Data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`)}</span>
-          </div>}
-          {revalidating && cachedPage && !historicalSource && <div className="live-notice" role="status">
-            <RefreshCw size={18}/><span>{L('显示上次核验的数据，正在更新；操作将重新核对最新链上状态。', 'Showing previously verified data while refreshing; actions recheck current on-chain state.')}</span>
-          </div>}
-          {historicalSource && <div className="live-notice" role="status">
-            <AlertCircle size={18}/><span>{historicalSource.cacheOrigin === 'local' ? L(
-              `本机历史快照，仅供展示 · 区块 #${historicalSource.indexedThrough} · 核验于 ${new Date(historicalSource.checkedAt).toLocaleString('zh-CN')}。资料可能已变化；操作会重新核对最新链上状态。`,
-              `Local historical snapshot, display only · block #${historicalSource.indexedThrough} · verified ${new Date(historicalSource.checkedAt).toLocaleString('en-GB')}. Data may have changed; actions recheck current on-chain state.`,
-            ) : L(
-              `历史展示快照 · 区块 #${historicalSource.indexedThrough} · 核验于 ${new Date(historicalSource.checkedAt).toLocaleString('zh-CN')}。索引${historicalSource.refreshing ? '正在同步' : '尚未追平'}；列表不代表当前可成交状态，交易预览会重新核对最新链上状态。`,
-              `Historical display snapshot · block #${historicalSource.indexedThrough} · verified ${new Date(historicalSource.checkedAt).toLocaleString('en-GB')}. Index ${historicalSource.refreshing ? 'is syncing' : 'has not caught up'}; listings may have changed. Transaction previews recheck current on-chain state.`,
-            )}</span>
-          </div>}
+          {config?.stage === "fresh-active" && !operatorServiceReady &&
+            <p className="subtle-note" role="status" data-service-readiness="waiting">
+              {config.stale === true
+                ? L('资料更新中，操作暂不可用。', 'Updating data; actions are temporarily unavailable.')
+                : L('交易服务恢复中；领取、退款和撤单仍需当前核验，由你的钱包支付 Gas。', 'Transaction services are recovering. Verified claims, refunds and cancellations use your wallet Gas.')}
+              {bootRecoveryExhausted && <><span>{L(' 自动复查已暂停。', ' Automatic checks have paused.')}</span>
+                <Button secondary disabled={busy || !!modal || !!pending || !!connectionLock.current}
+                  onClick={() => setBootAttempt(value => value + 1)}>{L('重新核对服务', 'Recheck services')}</Button></>}
+            </p>}
+          {historicalSource && operatorServiceReady && !(loading || revalidating) &&
+            <p className="subtle-note" role="status">{L('资料待更新，相关操作暂不可用。', 'Data needs updating; related actions are temporarily unavailable.')}</p>}
           {error && (
             <div className="live-notice error" role="alert">
               <AlertCircle size={18} />
@@ -2362,12 +2266,6 @@ export default function LivePlatform() {
               </button>
             </div>
           )}
-          {publicPreviewSections.map(section => {
-            const preview = publicDisplaySections[section];
-            return !publicPreviewResolved(section) && publicPreviewFresh(preview?.source)
-              ? <PublicDisplayPreview key={section} preview={preview} section={section} route={route} locale={locale}/>
-              : null;
-          })}
           {message && (
             <div className="live-notice" role="status">
               <CheckCircle2 size={18} />
@@ -3350,10 +3248,7 @@ export default function LivePlatform() {
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
-            onReadStateChange={state => { portfolioRead.current = state;
-              setPortfolioReadState({ mode: route.route, pool: route.pool?.toLowerCase() || '',
-                account: account?.toLowerCase() || '', provider: client?.provider,
-                current: state.current === true }); }}
+            onReadStateChange={state => { portfolioRead.current = state; }}
             onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>}
 
           {route.route === "governance" && (
@@ -3413,14 +3308,16 @@ export default function LivePlatform() {
           )}
           {route.route === 'operator' && !['disconnected', 'denied'].includes(operatorAccess) && (hasOperatorAccess ? <>
             {heading(L('运营工作台', 'Pool operations'), L('创建矿池、购机与管理矿机。', 'Create pools, purchase and manage miners.'))}
-            {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}`} config={config} wallet={wallet} account={account}
-              operator={operator} disabled={busy || !!pending} onSend={sendAdminAction}
+            {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}`} config={config} wallet={wallet} readProvider={client?.provider} account={account}
+              operator={operator} disabled={busy || !!pending || !operatorServiceReady} onSend={sendAdminAction}
+              disabledReason={!operatorServiceReady ? L('交易服务恢复中，暂不能预览或签名；恢复后会自动启用。', 'Transaction services are recovering; previews and signatures will resume after verification.')
+                : pending ? L('请先核对上一笔交易结果。', 'Verify the previous transaction first.') : undefined}
               gasFeeWei={transactionGasWei}
               onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
             {isOperator && config?.stage === 'fresh-active' && <FreshAuthorityConsole config={config} account={account}
-              wallet={wallet} disabled={busy || !!pending} onAction={sendFreshAuthority}/>}
+              wallet={wallet} disabled={busy || !!pending || !operatorServiceReady} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
-              disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
+              disabled={busy || !!pending || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
               onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onAuthenticateQueue={connectBudgetQueue} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
@@ -3437,7 +3334,8 @@ export default function LivePlatform() {
             <div className="live-actions">
               <Button secondary onClick={() => go('home')}>{L('返回拼矿首页', 'Back to home')}</Button>
               {wallet && account && operatorAccess !== 'checking' && <Button secondary disabled={busy}
-              onClick={() => setOperatorRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
+              onClick={() => config.productFamily === 'fresh-v4' && !freshIdentityReadable(config)
+                ? setBootAttempt(value => value + 1) : setOperatorRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
             </div>
           </section>)}
           {route.route === "records" && (
@@ -3486,7 +3384,7 @@ export default function LivePlatform() {
                 : route.route === 'portfolio'
                   ? L('预算项目独立核对', 'Portfolio data verified separately')
                 : boot.status === 'loading' || loading
-                  ? L("正在核对链上数据", "Checking on-chain data")
+                  ? L("更新中…", "Updating…")
                   : L("数据暂不可用", "Data temporarily unavailable")}
             </span>}
           </footer>

@@ -39,7 +39,7 @@ async function preparePage() {
   await page.goto(base);
   await page.locator('header').getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
-  await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
   await page.locator('.operator-quote-table').getByRole('button', { name: '链上核对并选择', exact: true }).waitFor();
   const select = async () => {

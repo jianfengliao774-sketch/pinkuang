@@ -50,6 +50,7 @@ try{
   await page.goto(base+'/#home');
   await page.locator('header').getByRole('button',{name:'连接钱包',exact:true}).click();
   await page.getByRole('button',{name:'连接 MetaMask',exact:true}).click();
+  await page.locator('header .live-wallet-label').filter({hasText:/^0x[0-9a-f]/i}).waitFor();
   await page.locator('nav').getByRole('button',{name:'运营工作台',exact:true}).click();
 
   await page.locator('.portfolio-card').first().click();
@@ -68,6 +69,7 @@ try{
   await page.reload();
   await page.locator('header').getByRole('button',{name:'连接钱包',exact:true}).click();
   await page.getByRole('button',{name:'连接 MetaMask',exact:true}).click();
+  await page.locator('header .live-wallet-label').filter({hasText:/^0x[0-9a-f]/i}).waitFor();
   await page.locator('nav').getByRole('button',{name:'运营工作台',exact:true}).click();
   await page.locator('.portfolio-card').first().click();
   await page.getByRole('button',{name:'只读核对并恢复',exact:true}).waitFor();
@@ -94,6 +96,7 @@ try{
   checks.push('account switch removes admin forms and cannot retain the purchase confirmation');
   await page.locator('header').getByRole('button',{name:'连接钱包',exact:true}).click();
   await page.getByRole('button',{name:'连接 MetaMask',exact:true}).click();
+  await page.locator('header .live-wallet-label').filter({hasText:/^0x[0-9a-f]/i}).waitFor();
   await page.evaluate(a=>{location.hash='portfolio/'+a;},PORTFOLIOS[0]);
   await page.getByRole('heading',{name:'出售我的项目份额',exact:true}).waitFor();
   await page.getByLabel('每份价格（BNB）',{exact:true}).fill('0.005');
@@ -107,6 +110,7 @@ try{
   await page.reload();
   await page.locator('header').getByRole('button',{name:'连接钱包',exact:true}).click();
   await page.getByRole('button',{name:'连接 MetaMask',exact:true}).click();
+  await page.locator('header .live-wallet-label').filter({hasText:/^0x[0-9a-f]/i}).waitFor();
   await page.evaluate(a=>{location.hash='portfolio/'+a;},PORTFOLIOS[0]);
   await page.getByRole('heading',{name:'出售我的项目份额',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'预览挂卖份额',exact:true}).isDisabled(),true);

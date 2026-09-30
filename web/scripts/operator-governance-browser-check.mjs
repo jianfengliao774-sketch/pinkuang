@@ -10,8 +10,8 @@ const errors = [], checks = [];
 try {
   const page = await browser.newPage(); page.setDefaultTimeout(8000); page.on('pageerror', error => errors.push(error.message));
   const ordinary = await installLiveFixture(page);
-  await page.goto(base); await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
-  await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.goto(base); await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
+  await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   assert.equal(await page.locator('nav').getByRole('button', { name: '运营工作台' }).count(), 0);
   await page.evaluate(() => { location.hash = 'operator'; });
   await page.waitForURL(/#home$/);
@@ -20,7 +20,7 @@ try {
 
   const owner = await browser.newPage(); owner.setDefaultTimeout(8000); owner.on('pageerror', error => errors.push(error.message));
   const fixture = await installLiveFixture(owner, { isOperator: true });
-  await owner.goto(base); await owner.getByRole('button', { name: '连接钱包', exact: true }).click(); await owner.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await owner.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await owner.goto(base); await owner.getByRole('button', { name: '连接钱包', exact: true }).click(); await owner.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await owner.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   await owner.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
   await owner.getByLabel('矿机编号', { exact: true }).fill('7');
   await owner.getByLabel('募集总额（BNB）', { exact: true }).fill('0.0011');
@@ -49,7 +49,7 @@ try {
   const open = async pool => { await race.evaluate(value => { location.hash = `detail/${value}`; }, pool);
     await race.waitForFunction(expected => document.querySelector('main')?.dataset.readyRoute === `detail/${expected}`, pool);
     await race.getByRole('button', { name: '共同决策', exact: true }).last().click(); };
-  await race.goto(base); await race.getByRole('button', { name: '连接钱包', exact: true }).click(); await race.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await race.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await race.goto(base); await race.getByRole('button', { name: '连接钱包', exact: true }).click(); await race.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await race.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   await open(FIXTURE_POOLS.voting); await started;
   await open(FIXTURE_POOLS.active);
   await race.getByText('发起新一轮出售提案', { exact: true }).waitFor();

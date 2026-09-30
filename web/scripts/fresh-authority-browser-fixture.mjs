@@ -73,7 +73,7 @@ export function freshAuthorityBrowserFixture(){
         if(parsed?.name==='operator'||parsed?.name==='treasury')return contract.encodeFunctionResult(parsed.fragment,[authority]);
         if(parsed?.name==='machinePool')return machineRegistryAbi.encodeFunctionResult(parsed.fragment,[state.created?child:ZeroAddress]);
         if(parsed?.name==='isPool'&&same(parsed.args[0],child))return contract.encodeFunctionResult(parsed.fragment,[state.created]);
-        if(parsed?.name==='designatedSubscriber')return contract.encodeFunctionResult(parsed.fragment,[PORTFOLIOS[0]]);
+        if(parsed?.name==='designatedSubscriber')return contract.encodeFunctionResult(parsed.fragment,[same(parsed.args[0],child)?PORTFOLIOS[0]:ZeroAddress]);
       }
       if(same(target,child)){
         const parsed=abi.PoolVault.parseTransaction(tx),values={params,factory:manifest.factory,state:state.bought?2n:0n,totalSupply:state.bought?100n:0n};
@@ -144,5 +144,11 @@ export function freshAuthorityBrowserFixture(){
     throw Error(`Unexpected fixture journal ${method} ${path}`);
   };
   return {f,manifest,config,graph,manifestSha:freshManifestDigest(manifest),state,signer,other,ordinary,child,request,journal,
-    index:url=>f.index(url),data,params};
+    index:url=>{
+      const result=f.index(url),path=new URL(url).pathname;
+      if(result.data&&(path.endsWith('/v1/pools')||path.endsWith('/v1/stats')))
+        result.data={...result.data,registeredPoolCount:String(f.base.rows.length),standalonePoolCount:String(f.base.rows.length),
+          childPoolCount:'0',reservedChildPoolCount:'0',reservedChildPoolAddresses:[],reservedChildPoolAddressesComplete:true};
+      return result;
+    },data,params};
 }

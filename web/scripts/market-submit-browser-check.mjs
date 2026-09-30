@@ -66,7 +66,7 @@ try {
     }, { market, selector: abi.ShareMarket.getFunction(kind).selector });
     await page.locator('header').getByRole('button', { name: '连接钱包', exact: true }).click();
     await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
-    await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+    await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
     await page.getByText('数据区块 100', { exact: true }).waitFor();
     assert.equal(await page.locator('nav').getByRole('button', {name:'运营工作台',exact:true}).count(),0);
     await page.getByRole('button', { name: kind === 'list' ? '挂单 Behemoth #8204' : '买入份额', exact: true }).click();

@@ -112,7 +112,7 @@ try {
     await installLiveFixture(page);
     await page.goto(base);
     await page.getByText('数据区块 100', { exact: true }).waitFor();
-    await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '连接钱包', exact: true }).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
     const open = async route => {
       await page.evaluate(hash => { location.hash = hash; }, route);
       await page.waitForFunction(route => document.querySelector('main')?.dataset.readyRoute === route && document.querySelector('main')?.getAttribute('aria-busy') === 'false', route);

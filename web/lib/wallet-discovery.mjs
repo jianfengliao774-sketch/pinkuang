@@ -35,7 +35,15 @@ function legacyBrand(provider) {
 export function createWalletDiscovery(target, onChange = () => {}) {
   const byProvider = new Map(), byUuid = new Map();
   let nextId = 0, stopped = false;
-  const getWallets = () => [...byProvider.values()];
+  const getWallets = () => {
+    const entries = [...byProvider.values()];
+    // Extensions can expose different wrapper objects through their legacy
+    // namespace and EIP-6963. Prefer the explicitly announced brand, without
+    // merging independent announcements or guessing from names/isMetaMask.
+    const announcedBrands = new Set(entries.filter(entry => entry.source === 'eip6963'
+      && brand(entry.brandId)?.rdns.includes(entry.rdns.toLowerCase())).map(entry => entry.brandId));
+    return entries.filter(entry => entry.source === 'eip6963' || !announcedBrands.has(entry.brandId));
+  };
   const publish = () => { if (!stopped) onChange(getWallets()); };
   function add(provider, metadata = {}) {
     if (!isProvider(provider) || stopped || byProvider.size >= 32) return;

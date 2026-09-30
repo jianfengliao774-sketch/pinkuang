@@ -44,7 +44,7 @@ try {
   await page.goto(base);
   await page.getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
-  await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   await page.evaluate(() => { location.hash = 'pools'; });
   await page.waitForFunction(() => document.querySelector('main')?.dataset.readyRoute === 'pools');
   const main = page.locator('main'), tabs = main.locator('.live-toolbar .tabs');
