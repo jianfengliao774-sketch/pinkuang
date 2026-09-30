@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { FetchRequest, Interface, JsonRpcProvider, getAddress, getCreateAddress, keccak256, toUtf8Bytes, verifyMessage } from 'ethers';
 import { fileURLToPath } from 'node:url';
 import { JournalConflict, JournalStore } from './journal-store.mjs';
-import { validateFreshActivation, verifyFinalizedFreshAttempt, verifyRecoveredFreshSigning } from './fresh-activation-journal.mjs';
+import { validateFreshActivation, verifyFinalizedFreshAttempt, verifyRecoveredFreshSigning, verifyConfirmedFreshActivation } from './fresh-activation-journal.mjs';
 import { verifyInitializationExecution } from '../shared/initialization-proof.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
@@ -1673,6 +1673,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         || (path === '/api/journal/market' && method !== 'GET')
         || (path.startsWith('/api/journal/market/') && method !== 'GET')
       )) fail(409, 'Product transactions are unavailable in the pre-genesis deployment console.');
+      // Solidity digest is unchanged by this recovery fix. Old tabs must not
+      // sign with a client that mistakes a successful wrapper for cancellation.
+      if ((path === '/api/journal/fresh-activation' || path.startsWith('/api/journal/fresh-activation/'))
+        && req.headers['x-pinkuang-activation-protocol'] !== '2')
+        fail(426, '部署台已更新，请刷新页面后继续。');
       if (freshStage2Hold && path.startsWith('/api/journal/fresh-activation') && method !== 'GET')
         fail(409, 'Stage 2 signing is held until failed-transaction recovery is verified.');
       if (path.startsWith('/api/journal/notifications/')) {
@@ -1730,6 +1735,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
           try { await verifyRecoveredFreshSigning(provider, previous, genesis, account,
             freshRecoveryBundle(previous)); }
           catch { fail(409, 'Archived same-nonce winner or current Authority roles changed.'); }
+        }
+        if(record.steps.some((step,i)=>i>0 && step.status==='confirmed' && previous?.steps?.[i]?.status!=='confirmed')) {
+          if(!provider || !previous || !genesis) fail(409,'Confirmed Stage 2 history has no independent chain reader.');
+          try { await verifyConfirmedFreshActivation(provider,record,previous,genesis,account,freshRecoveryBundle(record)); }
+          catch { fail(409,'Confirmed Stage 2 wallet execution or permission prefix cannot be verified.'); }
         }
         return send(200, { revision: store.putFreshActivation(account, record, exactRevision(body.expectedRevision)) });
       }

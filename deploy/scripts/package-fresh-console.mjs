@@ -49,6 +49,7 @@ export const RUNTIME_MODULES = Object.freeze([
   'server/product-graph.mjs',
   'server/request-limiter.mjs',
   'shared/budget-queue.mjs',
+  'shared/fresh-activation-execution.mjs', 'shared/fresh-activation-chain-proof.mjs',
   'shared/firsto-upgrade-proof.mjs',
   'shared/gas-signer-attestation.mjs',
   'shared/initialization-proof.mjs',

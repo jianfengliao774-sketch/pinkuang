@@ -7,8 +7,11 @@ import {
   type ArtifactBundle, type DeploymentSnapshot, type StepRecord,
 } from './deployment';
 import { deploymentManifest, type DeploymentManifest } from './manifest';
+import { freshActivationReadWallet, readFreshActivationAnchors } from './fresh-activation-reader';
 import type { ServerJournal } from './server-journal';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
+import { assertFreshActivationWalletScope } from '../shared/fresh-activation-execution.mjs';
+import { isFreshActivationWrapper, verifyWrappedFreshActivation } from '../shared/fresh-activation-chain-proof.mjs';
 
 export { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
 // The v4 sender remains disabled until the active v2 sender has drained or
@@ -210,7 +213,7 @@ export class FreshActivationEngine {
     private readonly journal: ServerJournal, private readonly genesis: DeploymentSnapshot,
     private readonly onUpdate?: (record: FreshActivationRecord) => void) {
     validateArtifacts(bundle);
-    this.provider = new BrowserProvider(wallet, 'any', { cacheTimeout: -1, pollingInterval: 1500 });
+    this.provider = new BrowserProvider(freshActivationReadWallet(wallet), 'any', { cacheTimeout: -1, pollingInterval: 1500 });
   }
 
   private async account() {
@@ -297,12 +300,13 @@ export class FreshActivationEngine {
     await this.account();
     // A finalized anchor proves the completed prefix; checking the current
     // head as well catches a newer role change before another signature.
-    const [finalized, head] = await Promise.all([
-      this.provider.getBlock('finalized'), this.provider.getBlock('latest'),
-    ]);
-    requireThat(finalized?.hash && head?.hash && head.number >= finalized.number,
-      'BSC 最终确认区块或最新区块不可用。');
+    const { finalized, head } = await readFreshActivationAnchors(this.provider);
+    requireThat(finalized.hash && head.hash, 'BSC 最终确认区块或最新区块缺少哈希。');
     await this.proveAncestor(finalized.number, finalized.hash, head);
+    if (completed < FRESH_ACTIVATION_STEPS.length) {
+      const code = await this.provider.getCode(record.account, finalized.number);
+      if (code !== '0x') assertFreshActivationWalletScope(code);
+    }
     for (const step of record.steps.slice(0, completed + 1)) for (const attempt of step.attempts ?? []) {
       const winnerHash = attempt.recovery.winnerHash;
       const [tx, receipt] = await Promise.all([
@@ -316,9 +320,12 @@ export class FreshActivationEngine {
         && receipt.status === attempt.receipt.status && receipt.fee.toString() === attempt.receipt.feeWei
         && keccak256(planned.data) === attempt.dataHash,
       '归档交易的同 nonce 赢家、回执或原动作已变化。');
-      if (!attempt.replacementHash) requireThat(tx.to === (planned.to ?? null)
-        && tx.value === 0n && keccak256(tx.data) === attempt.dataHash,
-      '归档失败交易不是原计划动作。');
+      if (!attempt.replacementHash) {
+        if (isFreshActivationWrapper(tx)) await this.verifyWrapped(record, attempt, tx, receipt, false, false);
+        else requireThat(tx.to === (planned.to ?? null)
+          && tx.value === 0n && keccak256(tx.data) === attempt.dataHash,
+        '归档失败交易不是原计划动作。');
+      }
       requireThat(receipt.blockNumber <= attempt.recovery.finalizedBlockNumber,
         '归档时的最终确认高度早于获胜交易。');
       await this.requireCanonicalFinalizedBlock(attempt.recovery.finalizedBlockNumber,
@@ -331,7 +338,13 @@ export class FreshActivationEngine {
         '原权限合约地址已出现代码；不得重新部署。');
       }
     }
-    for (const block of head.hash === finalized.hash ? [finalized] : [finalized, head]) {
+    for (const block of head.hash === finalized.hash ? [finalized] : [finalized, head])
+      await this.verifyPrefixAt(record, completed, block);
+    return finalized;
+  }
+
+  private async verifyPrefixAt(record: FreshActivationRecord, completed: number,
+    block: { number: number; hash: string | null }) {
     const at = { blockTag: block.number };
     const names = ['factory','portfolioFactory','shareMarket','portfolioMarket','timelock'];
     await Promise.all(names.map(async name => {
@@ -402,8 +415,15 @@ export class FreshActivationEngine {
     }
     requireThat((await this.provider.getBlock(block.number))?.hash === block.hash,
       '核验过程中区块发生重组。');
-    }
-    return finalized;
+  }
+
+  private async verifyWrapped(record: FreshActivationRecord, step: FreshActivationStepRecord,
+    tx: unknown, receipt: TransactionReceipt, includeCurrent = false, historicalPrefix = true) {
+    return verifyWrappedFreshActivation(this.provider, record, step, tx, receipt, {
+      includeCurrent, historicalPrefix,
+      verifyPrefix: (completed: number, block: {number: number; hash: string | null}) =>
+        this.verifyPrefixAt(record, completed, block),
+    });
   }
 
   async verifiedManifest(saved: FreshActivationRecord): Promise<ActivatedDeploymentManifest> {
@@ -679,10 +699,12 @@ export class FreshActivationEngine {
         && (step.status !== 'replaced' || receipt.status === 1),
       '同 nonce 获胜交易或最终确认回执与不可变日志不一致。');
       const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
-      requireThat(step.dataHash === keccak256(planned.data)
-        && (step.replacementHash || tx.to === (planned.to ?? null)
-          && tx.value === 0n && keccak256(tx.data) === step.dataHash),
-      '失败尝试的原动作或链上交易数据与当前构建不一致。');
+      requireThat(step.dataHash === keccak256(planned.data), '失败尝试的原动作与当前构建不一致。');
+      if (!step.replacementHash) {
+        if (isFreshActivationWrapper(tx)) await this.verifyWrapped(record, step, tx, receipt, true);
+        else requireThat(tx.to === (planned.to ?? null) && tx.value === 0n
+          && keccak256(tx.data) === step.dataHash, '失败尝试的链上交易数据与原动作不一致。');
+      }
       const proofBlock = await this.verifyPinnedState(record, index);
       await this.requireCanonicalFinalizedBlock(receipt.blockNumber,receipt.blockHash,proofBlock);
       if (index === 0) {
@@ -737,9 +759,16 @@ export class FreshActivationEngine {
         && tx.blockHash === receipt.blockHash && tx.blockNumber === receipt.blockNumber,
         '交易链、签名钱包、nonce 或规范链身份与写前记录不一致。');
       const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
-      const exact = tx.value === 0n && keccak256(tx.data) === step.dataHash
+      let exact = tx.value === 0n && keccak256(tx.data) === step.dataHash
         && keccak256(planned.data) === step.dataHash
         && (planned.to === undefined ? tx.to === null : tx.to !== null && same(tx.to, planned.to));
+      if (!exact && isFreshActivationWrapper(tx)) {
+        requireThat(keccak256(planned.data) === step.dataHash, '包装交易的原动作与构建不一致。');
+        // Unknown/runtime/RPC failures remain unresolved. Never relabel a
+        // successful permission change as a cancellable replacement.
+        await this.verifyWrapped(record, step, tx, receipt, true);
+        exact = true;
+      }
       if (!exact || receipt.status !== 1) {
         step.status = receipt.status !== 1 ? 'failed' : 'replaced';
         if (step.txHash && !same(step.txHash, hash)) step.replacementHash = hash;

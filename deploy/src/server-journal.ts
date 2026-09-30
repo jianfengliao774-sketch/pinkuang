@@ -17,6 +17,8 @@ async function request<T>(path: string, method = 'GET', body?: unknown, account?
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (account) headers['X-Pinkuang-Account'] = account;
+  if (path === 'fresh-activation' || path.startsWith('fresh-activation/'))
+    headers['X-Pinkuang-Activation-Protocol'] = '2';
   const response = await fetch(`${base}/${path}`, {
     method, credentials: 'same-origin', cache: 'no-store',
     headers,
@@ -113,7 +115,7 @@ export class ServerJournal {
     if (record.chainId !== 56 || record.account.toLowerCase() !== this.account.toLowerCase())
       throw new Error('激活记录与当前钱包不匹配。');
     const result = await this.request<{ revision: number }>('fresh-activation', 'PUT',
-      { record, expectedRevision: this.freshActivationRevision });
+      { record, expectedRevision: this.freshActivationRevision }, 90_000);
     this.freshActivationRevision = result.revision;
   }
 
@@ -139,7 +141,7 @@ export class ServerJournal {
       throw new Error('新合约激活的失败交易证明无效。');
     const result = await this.request<{ revision: number; record: FreshActivationRecord }>(
       'fresh-activation/recover-finalized-attempt', 'POST',
-      { expectedRevision: this.freshActivationRevision, stepId, nonce, winnerHash });
+      { expectedRevision: this.freshActivationRevision, stepId, nonce, winnerHash }, 90_000);
     const step = result.record?.steps.find(item => item.id === stepId);
     const attempt = step?.attempts?.at(-1);
     if (!Number.isSafeInteger(result.revision) || result.revision <= this.freshActivationRevision

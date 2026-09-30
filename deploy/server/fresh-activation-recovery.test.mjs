@@ -249,7 +249,7 @@ test('authenticated recovery API checks the chain and journal revision before ar
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const url=`http://127.0.0.1:${server.address().port}/api/journal/fresh-activation/recover-finalized-attempt`;
   const request=async(expectedRevision,winnerHash=f.winnerHash)=>{
-    const response=await fetch(url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',
+    const response=await fetch(url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Pinkuang-Activation-Protocol':'2',
       Cookie:`pinkuang_journal=${token}`},body:JSON.stringify({expectedRevision,
       stepId:'coreTreasury',nonce:8,winnerHash})});
     return {status:response.status,body:await response.json()};
@@ -266,7 +266,7 @@ test('authenticated recovery API checks the chain and journal revision before ar
       maxFeeWei:'150000000000000'});
     const signing=async()=>{
       const response=await fetch(`http://127.0.0.1:${server.address().port}/api/journal/fresh-activation`,
-        {method:'PUT',headers:{Origin:origin,'Content-Type':'application/json',
+        {method:'PUT',headers:{Origin:origin,'Content-Type':'application/json','X-Pinkuang-Activation-Protocol':'2',
           Cookie:`pinkuang_journal=${token}`},body:JSON.stringify({expectedRevision:2,record:next})});
       return response.status;
     };
@@ -300,7 +300,7 @@ test('authenticated first-step recovery requires the exact reviewed creation art
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   try {
     const request=()=>fetch(`http://127.0.0.1:${server.address().port}/api/journal/fresh-activation/recover-finalized-attempt`,
-      {method:'POST',headers:{Origin:origin,'Content-Type':'application/json',
+      {method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Pinkuang-Activation-Protocol':'2',
         Cookie:`pinkuang_journal=${token}`},body:JSON.stringify({expectedRevision:1,
         stepId:'deployAuthority',nonce:8,winnerHash:f.winnerHash})});
     f.bundle.artifacts.PlatformAuthority.bytecode='0x6001';
@@ -477,4 +477,36 @@ test('a reorg during refreshed state reads rejects both recovery and later signi
     await assert.rejects(()=>verifyRecoveredFreshSigning(providerWithLateReorg(),recovered,
       f.genesis,hardware,f.bundle),/proof failed/);
   }
+});
+
+
+test('fresh activation PUT independently reads a newly confirmed role receipt and cannot persist an unproved wrapper',async()=>{
+  const f=fixture(2),{provider}=chain(f,f,2);
+  const previous=structuredClone(f.record);
+  previous.status='paused';previous.spentWei='0';previous.steps[2].status='submitted';delete previous.steps[2].receipt;
+  const confirmed=structuredClone(previous);confirmed.steps[2].status='confirmed';
+  confirmed.steps[2].receipt={...receipt,status:1};confirmed.spentWei=receipt.feeWei;
+  const dir=mkdtempSync(join(tmpdir(),'fresh-stage2-confirm-api-'));
+  const dbPath=join(dir,'journal.sqlite'),origin='http://127.0.0.1:4173';
+  let rpcReads=0;
+  provider.getTransaction=async()=>{rpcReads++;throw new Error('independent RPC unavailable');};
+  const service=createJournalService({dbPath,origin,provider,currentArtifactDigest:()=>bundleDigest,
+    genesisBundle:f.bundle,expectedGasWallet:gasWallet,freshStage2Hold:false});
+  const store=new JournalStore(dbPath),token=randomBytes(32).toString('base64url');
+  store.putDeployment(hardware,f.genesis,0);store.putFreshActivation(hardware,previous,0);
+  store.db.prepare('INSERT INTO sessions(token_hash,account,expires) VALUES(?,?,?)')
+    .run(createHash('sha256').update(token).digest('hex'),hardware.toLowerCase(),Date.now()+60_000);
+  const server=createServer((req,res)=>service.handle(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/api/journal/fresh-activation`,{
+      method:'PUT',headers:{Origin:origin,'Content-Type':'application/json','X-Pinkuang-Activation-Protocol':'2',Cookie:`pinkuang_journal=${token}`},
+      body:JSON.stringify({expectedRevision:1,record:confirmed}),
+    });
+    assert.equal(response.status,409);
+    assert.match((await response.json()).error,/execution or permission prefix/);
+    assert.equal(rpcReads,1,'the real HTTP handler must invoke independent receipt proof');
+    const after=store.freshActivation(hardware);
+    assert.equal(after.revision,1);assert.equal(after.record.steps[2].status,'submitted');
+  }finally{await new Promise(resolve=>server.close(resolve));await service.close();store.close();rmSync(dir,{recursive:true,force:true});}
 });
