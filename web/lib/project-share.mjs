@@ -4,8 +4,8 @@
 // https://docs.x.com/x-for-websites/post-button/overview
 import { shareMotto } from './share-copy.mjs';
 import { makeArtworkShareUrl } from './share-landing.mjs';
-export const DEFAULT_PUBLIC_SHARE_BASE = 'https://tapeout.cc.cd/bemine/';
-const PUBLIC_ORIGINS = new Set(['https://tapeout.cc.cd']);
+import { PUBLIC_SHARE_ORIGIN, isTrustedShareOrigin } from './public-share-origin.mjs';
+export const DEFAULT_PUBLIC_SHARE_BASE = `${PUBLIC_SHARE_ORIGIN}/bemine/`;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
@@ -17,7 +17,7 @@ export const validShareBasePath = value => typeof value === 'string' && /^\/bemi
 export function publicShareBaseForPath(basePath = '') {
   if (basePath === '') return DEFAULT_PUBLIC_SHARE_BASE;
   if (!validShareBasePath(basePath)) return null;
-  return `https://tapeout.cc.cd${basePath.replace(/\/$/, '')}/`;
+  return `${PUBLIC_SHARE_ORIGIN}${basePath.replace(/\/$/, '')}/`;
 }
 
 function address(value) {
@@ -30,7 +30,7 @@ export function validatePublicBaseUrl(value) {
   if (typeof value !== 'string' || value !== value.trim() || /[\\\s]/u.test(value)) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || !PUBLIC_ORIGINS.has(url.origin) || url.username || url.password
+    if (url.protocol !== 'https:' || !isTrustedShareOrigin(url.origin) || url.username || url.password
       || url.search || url.hash || !validShareBasePath(url.pathname)) return null;
     url.pathname = `${url.pathname.replace(/\/$/,'')}/`;
     return url.href;

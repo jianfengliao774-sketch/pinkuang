@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_DEPLOYER, FRESH_GAS_WALLET } from '../../deploy/shared/fresh-roles.mjs';
 import { freshManifestDigest, validateFreshManifest } from '../lib/fresh-product-config.mjs';
+import { DEFAULT_PUBLIC_SHARE_ORIGIN, isExactHttpsOrigin } from '../lib/public-share-origin.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, '..');
@@ -19,11 +20,22 @@ const same = (left, right) => typeof left === 'string' && typeof right === 'stri
 const HASH = /^0x[\da-f]{64}$/i;
 const activationSteps = ['deployAuthority', 'coreOperator', 'coreTreasury', 'budgetOperator',
   'budgetTreasury', 'coreOwner', 'budgetOwner'];
+const defaultPublicOrigin = DEFAULT_PUBLIC_SHARE_ORIGIN;
+const deployConsoleUrl = 'https://tapeout.cc.cd/pinkuang-deploy-v4/';
 
-export function prepareFreshProductBuild(manifest) {
+/** Require an explicit canonical HTTPS origin, never a path, redirect or credentials. */
+export function validateFreshProductOrigin(value = defaultPublicOrigin) {
+  if (!isExactHttpsOrigin(value))
+    fail('Fresh product public origin must be an exact HTTPS origin without a path, credentials, query or fragment.');
+  return value;
+}
+
+export function prepareFreshProductBuild(manifest, { publicOrigin = defaultPublicOrigin } = {}) {
+  const origin = validateFreshProductOrigin(publicOrigin);
   const manifestSha256 = freshManifestDigest(manifest);
   const checked = validateFreshManifest(manifest, manifestSha256);
   return Object.freeze({ basePath: '/bemine-v4', productFamily: 'fresh-v4',
+    publicOrigin: origin, publicUrl: `${origin}/bemine-v4/`, deployConsoleUrl,
     manifestSha256, artifactDigest: checked.artifactDigest,
     factory: checked.factory, portfolioFactory: checked.portfolioFactory,
     authority: checked.authority, gasWallet: checked.gasWallet, deployment: checked.deployment,
@@ -107,7 +119,8 @@ function isolatedCheckout(repository, sourceHead, checkout) {
 
 /** Build from an isolated source snapshot; publish a separate static release. */
 export function buildFreshProduct(manifestPath, activationEvidencePath,
-  { run = spawnSync, repositoryDir = repositoryRoot, outputDir = defaultOutputRoot } = {}) {
+  { run = spawnSync, repositoryDir = repositoryRoot, outputDir = defaultOutputRoot,
+    publicOrigin = process.env.BEMINE_FRESH_PRODUCT_ORIGIN ?? defaultPublicOrigin } = {}) {
   if (!isAbsolute(manifestPath) || !isAbsolute(activationEvidencePath))
     fail('Reviewed manifest and activation evidence must use absolute paths.');
   if (!isAbsolute(outputDir) || existsSync(outputDir))
@@ -115,7 +128,7 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
   const repository = realpathSync(repositoryDir);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const evidence = JSON.parse(readFileSync(activationEvidencePath, 'utf8'));
-  const plan = prepareFreshProductBuild(manifest);
+  const plan = prepareFreshProductBuild(manifest, { publicOrigin });
   verifyFreshBuildEvidence(manifest, evidence);
   const frontendSourceHead = reviewedSourceHead(repository);
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'bemine-v4-build-')));
@@ -139,8 +152,9 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
     const env = { ...process.env, NEXT_PUBLIC_BASE_PATH: plan.basePath,
       NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY: plan.productFamily,
       NEXT_PUBLIC_V4_MANIFEST_SHA256: plan.manifestSha256,
-      NEXT_PUBLIC_BEMINE_PUBLIC_URL: 'https://tapeout.cc.cd/bemine-v4/',
-      NEXT_PUBLIC_DEPLOY_CONSOLE_URL: 'https://tapeout.cc.cd/pinkuang-deploy-v4/' };
+      NEXT_PUBLIC_BEMINE_PUBLIC_ORIGIN: plan.publicOrigin,
+      NEXT_PUBLIC_BEMINE_PUBLIC_URL: plan.publicUrl,
+      NEXT_PUBLIC_DEPLOY_CONSOLE_URL: plan.deployConsoleUrl };
     for (const args of [['scripts/sync-contracts.mjs', '--check'],
       ['node_modules/next/dist/bin/next', 'build', '--webpack']]) {
       const build = run(process.execPath, args, { cwd: isolatedWeb, stdio: 'inherit', env });

@@ -9,6 +9,17 @@ cd web
 node scripts/build-fresh-product.mjs /absolute/path/to/reviewed-fresh-manifest.json /absolute/path/to/fresh-activation-evidence.json
 ```
 
+公开产品域名通过构建进程环境变量 `BEMINE_FRESH_PRODUCT_ORIGIN` 设置；例如正式域名为 `https://bemine.cc.cd`（不能带结尾斜杠）。缺省仍为 `https://tapeout.cc.cd`。该值必须是规范的 HTTPS origin，不接受用户名、密码、路径、查询参数或片段；空值也会拒绝。构建会将分享地址固定为 `${origin}/bemine-v4/`，并在 `fresh-product-release.json` 记录 `publicOrigin`、`publicUrl` 和 `deployConsoleUrl`。修改域名后必须重新构建，不能只换 DNS。部署台链接始终是受保护的 `https://tapeout.cc.cd/pinkuang-deploy-v4/`，不会随公开产品域名迁移。
+
+```powershell
+$env:BEMINE_FRESH_PRODUCT_ORIGIN = 'https://bemine.cc.cd'
+node scripts/build-fresh-product.mjs C:/absolute/reviewed-fresh-manifest.json C:/absolute/fresh-activation-evidence.json
+```
+
+正式站点可将新域名根路径以 `308` 跳转到 `/bemine-v4/`，保持既有严格路径校验。静态分享地址配置不代替服务端 HTTPS、Origin、会话 Cookie 和签名来源校验；这些仍须在新域名上线验收中分别确认，也不会开启产品交易门禁。
+
+构建同时固定 `NEXT_PUBLIC_BEMINE_PUBLIC_ORIGIN`，供单机、多机分享链接与海报预览图片使用。分享只接受原站或这一明确的构建来源，不从浏览器地址、邀请参数或待校验 URL 扩大信任范围；历史设计预览保持原样。
+
 这里的 `integrated-v2` 是现有清单 schema 的名称，不能取用旧 v2 的合约地址或旧清单文件。构建要求新清单含独立 Factory、预算 Factory 和已核验的 Authority/Gas 钱包字段，并与当前编译 ABI 的 artifact digest 相符；管理员和 Gas 公开地址还必须与部署台固定角色、七步激活证据一致。脚本设置 `NEXT_PUBLIC_BASE_PATH=/bemine-v4`、`NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY=fresh-v4`、固定的 `NEXT_PUBLIC_V4_MANIFEST_SHA256`。它从干净的 Git HEAD 建立一次性检出目录，只在那里编译新清单，不改动旧站源码或 `web/out/`；完成后原子发布到独立的 `web/out-v4/`。发布包仅包含 `data/frontend-manifest.v4.json` 和 `fresh-product-release.json`，不包含旧文件名。产物中的 `public/` 内容应原样放在专属 release 的 `public/` 目录；cutover 草案的 nginx `alias` 将 `/bemine-v4/` 对应到该目录。
 
 页面启动时只请求 `/bemine-v4/data/frontend-manifest.v4.json`、`/bemine-v4/api/journal/product-graph`，后续读取 `/bemine-v4/api/chain-index` 和 `/bemine-v4/api/rpc`。新清单内容由构建摘要固定；产品图必须为 `fresh-active`，且 Factory、预算 Factory、所有部署地址、代码摘要、Authority、部署交易及阶段区块与新清单一致。交易前同样重验该新图；历史快照仅供展示。旧 v2 的静态清单不作为 v4 信任根，旧页面预加载缓存不会在 v4 构建使用。

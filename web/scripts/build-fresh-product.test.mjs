@@ -7,7 +7,8 @@ import test from 'node:test';
 import { getAddress } from 'ethers';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_DEPLOYER, FRESH_GAS_WALLET } from '../../deploy/shared/fresh-roles.mjs';
-import { buildFreshProduct, reviewedSourceHead, verifyFreshBuildEvidence } from './build-fresh-product.mjs';
+import { buildFreshProduct, prepareFreshProductBuild, reviewedSourceHead,
+  validateFreshProductOrigin, verifyFreshBuildEvidence } from './build-fresh-product.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const hash = n => `0x${n.toString(16).padStart(64, '0')}`;
@@ -67,6 +68,29 @@ function temporaryRepository() {
       rmSync(input, { recursive: true, force: true }); } };
 }
 
+test('v4 product origin defaults to the existing site and keeps the protected console separate', () => {
+  const { manifest } = fixture();
+  const legacy = prepareFreshProductBuild(manifest);
+  assert.equal(validateFreshProductOrigin(), 'https://tapeout.cc.cd');
+  assert.equal(legacy.publicUrl, 'https://tapeout.cc.cd/bemine-v4/');
+  const product = prepareFreshProductBuild(manifest, { publicOrigin: 'https://bemine.cc.cd' });
+  assert.equal(product.publicOrigin, 'https://bemine.cc.cd');
+  assert.equal(product.publicUrl, 'https://bemine.cc.cd/bemine-v4/');
+  assert.equal(product.basePath, legacy.basePath);
+  assert.equal(product.manifestSha256, legacy.manifestSha256);
+  assert.equal(product.deployConsoleUrl, 'https://tapeout.cc.cd/pinkuang-deploy-v4/');
+});
+
+for (const value of ['', null, {}, 'http://bemine.cc.cd', '//bemine.cc.cd', 'https://bemine.cc.cd/',
+  'https://bemine.cc.cd/bemine-v4', 'https://bemine.cc.cd?other=1', 'https://bemine.cc.cd#other',
+  'https://user@bemine.cc.cd', 'https://user:password@bemine.cc.cd', 'https://BEMINE.cc.cd',
+  ' https://bemine.cc.cd', 'https://bemine.cc.cd\n', 'https://bemine.cc.cd:443',
+  'https://bemine.cc.cd\\other', 'https://bemine.cc.cd?', 'https://bemine.cc.cd#']) {
+  test(`v4 product origin rejects non-canonical value ${JSON.stringify(value)}`, () => {
+    assert.throws(() => validateFreshProductOrigin(value), /exact HTTPS origin/);
+  });
+}
+
 test('v4 build rejects uncommitted imports outside web', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'bemine-v4-build-source-')));
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -101,12 +125,21 @@ test('v4 production build binds public roles and all activation evidence to the 
   /pinned manifest block/);
 });
 
-test('v4 build exports from an isolated commit and never changes old source or old output', () => {
+for (const configuredOrigin of [undefined, 'https://bemine.cc.cd']) {
+test(`v4 isolated build binds ${configuredOrigin ?? 'default'} product origin without changing the old site`, () => {
   const scenario = temporaryRepository();
+  const previousOrigin = process.env.BEMINE_FRESH_PRODUCT_ORIGIN;
+  const expectedOrigin = configuredOrigin ?? 'https://tapeout.cc.cd';
   let isolatedWeb;
   try {
+    if (configuredOrigin === undefined) delete process.env.BEMINE_FRESH_PRODUCT_ORIGIN;
+    else process.env.BEMINE_FRESH_PRODUCT_ORIGIN = configuredOrigin;
     const run = (_command, args, options) => {
       isolatedWeb = options.cwd;
+      assert.equal(options.env.NEXT_PUBLIC_BASE_PATH, '/bemine-v4');
+      assert.equal(options.env.NEXT_PUBLIC_BEMINE_PUBLIC_ORIGIN, expectedOrigin);
+      assert.equal(options.env.NEXT_PUBLIC_BEMINE_PUBLIC_URL, `${expectedOrigin}/bemine-v4/`);
+      assert.equal(options.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL, 'https://tapeout.cc.cd/pinkuang-deploy-v4/');
       assert.notEqual(isolatedWeb, join(scenario.root, 'web'));
       assert.equal(execFileSync('git', ['rev-parse', 'HEAD'],
         { cwd: isolatedWeb, encoding: 'utf8' }).trim(), scenario.git('rev-parse', 'HEAD'));
@@ -126,6 +159,10 @@ test('v4 build exports from an isolated commit and never changes old source or o
     const release = buildFreshProduct(scenario.manifestPath, scenario.evidencePath,
       { run, repositoryDir: scenario.root, outputDir: scenario.outputDir });
     assert.equal(release.productFamily, 'fresh-v4');
+    assert.equal(release.publicOrigin, expectedOrigin);
+    assert.equal(release.publicUrl, `${expectedOrigin}/bemine-v4/`);
+    assert.equal(release.deployConsoleUrl, 'https://tapeout.cc.cd/pinkuang-deploy-v4/');
+    assert.equal(release.activationAllowed, false);
     assert.equal(release.frontendSourceHead, scenario.git('rev-parse', 'HEAD'));
     assert.equal(readFileSync(join(scenario.root, 'web/out/old-site.txt'), 'utf8'), 'unchanged\n');
     assert.equal(readFileSync(join(scenario.root, 'web/public/data/frontend-manifest.json'), 'utf8'),
@@ -133,8 +170,13 @@ test('v4 build exports from an isolated commit and never changes old source or o
     assert.equal(readFileSync(join(scenario.outputDir, 'index.html'), 'utf8'), '<html>fresh</html>');
     assert.equal(existsSync(join(scenario.outputDir, 'data/frontend-manifest.json')), false);
     assert.equal(existsSync(join(isolatedWeb, 'public/data/frontend-manifest.v4.json')), false);
-  } finally { scenario.dispose(); }
+  } finally {
+    if (previousOrigin === undefined) delete process.env.BEMINE_FRESH_PRODUCT_ORIGIN;
+    else process.env.BEMINE_FRESH_PRODUCT_ORIGIN = previousOrigin;
+    scenario.dispose();
+  }
 });
+}
 
 test('failed v4 build leaves the old site and new publication path untouched', () => {
   const scenario = temporaryRepository();

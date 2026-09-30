@@ -20,6 +20,23 @@ CI 的 `validate-release-ci.mjs` 用**合成合约图**走真实静态构建、�
 
 真实前端的独立 Git 溯源仍是上线门槛。2026-09-30 在相同提交和相同合成 manifest 的隔离 checkout 连续两次真实 Next 构建，303 个文件中有 103 个字节不同；固定 build ID 并将 webpack parallelism 设为 1 后仍不一致，主要差异包括 chunk 顺序、内容哈希文件名及引用它们的 HTML。因此不能把“重新构建后逐字节相等”直接加入校验器，否则会错误拒绝正常包。下一步需让构建可复现并在独立环境验证，或由可信 CI 对真实 manifest 的产物摘要、Git commit、依赖锁文件和构建命令形成可验签证明，再让配对校验器验证证明与实际包；仅复制包内自报 SHA-256 不够。
 
+## 真实清单的 CI 来源证明
+
+`.github/workflows/v4-product-release.yml` 在 GitHub 托管 runner 上用锁定依赖和已提交的 `docs/deployments/bsc-v4-20260930` 公开证据构建真实包，固定域名 `https://bemine.cc.cd`。`build-reviewed-product-ci.mjs` 校验前后端配对，输出前端、后端两个归档及 `build-summary.json`；摘要记录确切源码 HEAD、部署清单、依赖锁文件、构建命令和归档 SHA256。工作流随后使用固定版本的 `actions/attest` 为三份文件生成 Sigstore 签名。工作流不持有服务器或钱包密钥，不部署。
+
+从成功的同一轮工作流下载产物后，执行以下验证器。它调用官方 `gh attestation verify`，强制核对仓库、工作流、源码提交和签名工作流提交，并拒绝自托管 runner；任何文件无有效证明都不会输出可用摘要。`gh` 需要支持 `--source-digest`、`--signer-digest` 选项。
+
+```sh
+node deploy/ops/v4/verify-ci-product-provenance.mjs \
+  --directory /absolute/downloaded-release \
+  --source-head <reviewed-40-hex-commit> \
+  --out /absolute/new-ci-verification.json
+```
+
+只有验签成功后，才可将输出 `releasePair` 中的独立前端内容 SHA256 和后端清单 SHA256 交给上述配对校验器。解包仍须遵循下方暂存工具的普通文件、目录和逐文件哈希规则。不可把本地自报摘要、另一提交的 CI、合成清单回归或仅仅 CI 绿色当成真实产物来源证明。验签不改变 `activationAllowed: false`；链上权限、运行时门禁及资金操作另行验收。
+
+实现依据：[GitHub 官方 attest action](https://github.com/actions/attest) 与 [gh attestation verify](https://cli.github.com/manual/gh_attestation_verify)。
+
 ## 按配对计划安装到未启用的发布目录
 
 `stage-fresh-release-pair.remote.py` 只把经上述校验的前后端文件写入计划指定的全新 release 目录，不切换 nginx、systemd 或 current 链接。先以 `tar -C <frontend-out> -czf <frontend-archive> .` 和相同方式制作后端归档；归档只允许普通文件和目录。将两个归档、配对计划及脚本上传到服务器 root 专用目录，独立核对计划文件的 SHA-256。服务器上的两个 releases 父目录须预先存在、由 root 拥有且不可被组或其他用户写入。执行时从已审查的本地计划记录填写摘要：
