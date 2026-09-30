@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Result } from 'ethers';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey,
   readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 
@@ -156,4 +157,21 @@ test('compact details persist even when the combined page exceeds the browser sn
   const restored = readPoolDisplaySnapshot(cache, manifest, route, null, { now: 2000 });
   assert.equal(restored.detail.item.unitPriceWei, 123n);
   assert.equal(restored.snapshot, undefined);
+});
+
+test('RPC tuple parameters retain named amounts, addresses and deadlines across cache restores', () => {
+  const cache = storage(), route = { route: 'detail', pool: manifest.factory };
+  const names = ['circuits', 'circuitId', 'targetRaise', 'priceCap', 'directSeller', 'directPrice', 'fundingDeadline', 'purchaseDeadline'];
+  const values = [manifest.shareMarket, 12962n, 111100000000000000n, 101000000000000000n,
+    `0x${'44'.repeat(20)}`, 100000000000000000n, 1790860226n, 1791033026n];
+  const params = Result.fromItems(values, names);
+  const result = { detail: { source, item: { pool: route.pool, trusted: true, params } } };
+  assert.equal(writePoolDisplaySnapshots(cache, manifest, result, null, { now: 1000 }), 1);
+  const restored = readPoolDisplaySnapshot(cache, manifest, route, null, { now: 2000 });
+  assert.deepEqual(restored.detail.item.params, Object.fromEntries(names.map((name, i) => [name, values[i]])));
+  assert.equal(params.targetRaise, values[2], 'normalizing the display must not mutate the RPC tuple');
+  // Existing caches written before tuple normalization are repaired when read.
+  assert.equal(writeDisplaySnapshot(cache, manifest, pageDisplayKey(route, null), result, { now: 1000 }), true);
+  assert.deepEqual(readPoolDisplaySnapshot(cache, manifest, route, null, { now: 2000 }).detail.item.params,
+    restored.detail.item.params);
 });

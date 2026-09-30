@@ -105,6 +105,14 @@ export function writeDisplaySnapshot(storage, manifest, page, result, { now = Da
 }
 
 const PERSONAL_POOL_FIELDS = ['shares', 'lockedShares', 'availableShares', 'claimableBEM', 'bnbOwed', 'initialContributedWei'];
+const POOL_PARAM_FIELDS = ['circuits', 'circuitId', 'targetRaise', 'priceCap', 'directSeller', 'directPrice', 'fundingDeadline', 'purchaseDeadline'];
+
+// RPC tuples have named getters, but JSON serializes them as unnamed arrays.
+function poolDisplayItem(row) {
+  if (!row?.params) return { ...row };
+  return { ...row, params: Object.fromEntries(POOL_PARAM_FIELDS.map((name, index) =>
+    [name, row.params[name] ?? row.params[index]])) };
+}
 
 /** Save compact pool details independently of a catalog's size and wallet session. */
 export function writePoolDisplaySnapshots(storage, manifest, result, account, options = {}) {
@@ -115,9 +123,10 @@ export function writePoolDisplaySnapshots(storage, manifest, result, account, op
   for (const row of rows) {
     if (!ADDRESS.test(row?.pool) || row.trusted !== true) continue;
     const route = { route: 'detail', pool: row.pool };
+    const item = poolDisplayItem(row);
     if (account && writeDisplaySnapshot(storage, manifest, pageDisplayKey(route, account),
-      { detail: { source: section.source, item: row } }, options)) written++;
-    const publicRow = { ...row };
+      { detail: { source: section.source, item } }, options)) written++;
+    const publicRow = { ...item };
     for (const field of PERSONAL_POOL_FIELDS) publicRow[field] = null;
     if (writeDisplaySnapshot(storage, manifest, pageDisplayKey(route, null),
       { detail: { source: section.source, item: publicRow } }, options)) written++;
@@ -129,11 +138,12 @@ export function writePoolDisplaySnapshots(storage, manifest, result, account, op
 export function readPoolDisplaySnapshot(storage, manifest, route, account, options = {}) {
   if (route?.route !== 'detail' || !ADDRESS.test(route.pool)) return null;
   const own = readDisplaySnapshot(storage, manifest, pageDisplayKey(route, account), options);
-  if (own?.detail?.item?.pool?.toLowerCase() === route.pool.toLowerCase()) return own;
+  if (own?.detail?.item?.pool?.toLowerCase() === route.pool.toLowerCase())
+    return { ...own, detail: { ...own.detail, item: poolDisplayItem(own.detail.item) } };
   if (!account) return null;
   const shared = readDisplaySnapshot(storage, manifest, pageDisplayKey(route, null), options);
   if (shared?.detail?.item?.pool?.toLowerCase() !== route.pool.toLowerCase()) return null;
-  const item = { ...shared.detail.item };
+  const item = poolDisplayItem(shared.detail.item);
   for (const field of PERSONAL_POOL_FIELDS) item[field] = null;
   return { detail: { source: shared.detail.source, item } };
 }
