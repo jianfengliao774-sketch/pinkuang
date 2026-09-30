@@ -2,7 +2,6 @@
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
 import ActivityOperation from './ActivityOperation';
-import AutoPageLoader from './AutoPageLoader';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -107,6 +106,7 @@ import {
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const minimumSharePriceWei = 10000000000000n;
+const recordsPageSize = 5;
 const displayStorage = () => { try { return window.localStorage; } catch { return null; } };
 const sessionDisplayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const readPageSnapshot = (storage, manifest, page) => readDisplaySnapshot(storage, manifest, page,
@@ -256,6 +256,7 @@ export default function LivePlatform() {
     [orders, setOrders] = useState([]),
     [activity, setActivity] = useState([]),
     [source, setSource] = useState(null);
+  const [recordsPage, setRecordsPage] = useState(0);
   const [detailPreview, setDetailPreview] = useState(null);
   const [poolCursor, setPoolCursor] = useState(null),
     [positionCursor, setPositionCursor] = useState(null),
@@ -723,6 +724,7 @@ export default function LivePlatform() {
     const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
     lastPageRefresh.current.set(page, Date.now());
     const check = () => {
+      if (route.route === 'records' && recordsPage > 0) return;
       const state = refreshState.current;
       const now = Date.now();
       if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
@@ -737,7 +739,7 @@ export default function LivePlatform() {
     document.addEventListener('visibilitychange', check);
     return () => { clearInterval(timer); window.removeEventListener('focus', check);
       document.removeEventListener('visibilitychange', check); };
-  }, [client, route.route, route.pool, account]);
+  }, [client, route.route, route.pool, account, recordsPage]);
 
   useEffect(() => {
     if (!client) return;
@@ -962,6 +964,7 @@ export default function LivePlatform() {
     let cancelled = false;
     ++activityReadEpoch.current;
     const owner = route.route === 'records' ? undefined : account;
+    setRecordsPage(0);
     setActivityReadError('');
     setActivityReadSource(null);
     if (route.route !== 'records' && !owner) {
@@ -982,7 +985,8 @@ export default function LivePlatform() {
       setActivity([]); setActivityCursor(null);
     }
     setActivityReadLoading(true);
-    retryReadRound(() => client.readActivity({ account: owner }), { isCurrent: () => !cancelled })
+    retryReadRound(() => client.readActivity({ account: owner,
+      limit: route.route === 'records' ? recordsPageSize : 20 }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setActivity(result.items);
@@ -1774,6 +1778,7 @@ export default function LivePlatform() {
             ? account
             : undefined,
           cursor: activityCursor,
+          limit: route.route === 'records' ? recordsPageSize : 20,
           source: route.route === 'detail' ? source : activityReadSource,
         });
         if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return false;
@@ -2096,7 +2101,15 @@ export default function LivePlatform() {
     </>;
   };
   const thisMorePositions = () => more('positions');
-  const visibleActivity = route.route === "overview" ? summarizeOverviewActivity(activity) : activity;
+  const recordsPageIndex = Math.min(recordsPage, Math.max(0, Math.ceil(activity.length / recordsPageSize) - 1));
+  const hasLoadedRecordsPage = activity.length > (recordsPageIndex + 1) * recordsPageSize;
+  async function nextRecordsPage() {
+    if (hasLoadedRecordsPage) setRecordsPage(recordsPageIndex + 1);
+    else if (activityCursor && await more('activity')) setRecordsPage(recordsPageIndex + 1);
+  }
+  const visibleActivity = route.route === "overview" ? summarizeOverviewActivity(activity)
+    : route.route === 'records' ? activity.slice(recordsPageIndex * recordsPageSize, (recordsPageIndex + 1) * recordsPageSize)
+      : activity;
   const activityTable = () => (
     <>
       <div className="table-wrap">
@@ -2159,10 +2172,15 @@ export default function LivePlatform() {
             : L("暂无已确认记录", "No confirmed records")} />}
       </div>
       {activityReadError && route.route !== 'detail' && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
-      {route.route === 'records' ? <AutoPageLoader
-        pageKey={JSON.stringify([config?.artifactDigest,activityReadSource?.indexedThrough,activityReadSource?.indexedBlockHash,refresh])}
-        cursor={activityCursor} locale={locale} onLoad={()=>more('activity')}
-        disabled={!client || busy || loading || activityReadLoading || !!activityReadError} />
+      {route.route === 'records' ? <nav className="live-actions" aria-label={L('记录分页', 'Records pagination')}>
+        <Button secondary disabled={recordsPageIndex === 0 || busy || activityReadLoading}
+          onClick={() => setRecordsPage(recordsPageIndex - 1)}>{L('上一页', 'Previous')}</Button>
+        <span aria-live="polite">{L(`第 ${recordsPageIndex + 1} 页 · 每页 ${recordsPageSize} 条`,
+          `Page ${recordsPageIndex + 1} · ${recordsPageSize} per page`)}</span>
+        <Button secondary disabled={busy || activityReadLoading
+          || (!hasLoadedRecordsPage && (!client || !activityCursor || !!activityReadError))}
+          onClick={() => void nextRecordsPage()}>{L('下一页', 'Next')}</Button>
+      </nav>
         : moreButton(activityCursor, "activity")}
     </>
   );
