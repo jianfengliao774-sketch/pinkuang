@@ -507,9 +507,9 @@ test('missing, lost or modified single-use signing permission never opens the wa
 
 test('wallet metadata and journal reads share one round without transaction simulation', async () => {
   const f=fixture({fastAuthorization:true}), original=f.provider.request.bind(f.provider), seen=new Set();
-  let release, armed=false;
+  let release, armed=false, timedOut=false;
   const gate=new Promise(resolve=>{release=resolve;});
-  const timer=setTimeout(release,1500);
+  const timer=setTimeout(()=>{timedOut=true;release();},1500);
   const enter=async name=>{seen.add(name);if(seen.size===8)release();await gate;};
   f.provider.request=async payload=>{
     const {method,params}=payload;
@@ -529,6 +529,7 @@ test('wallet metadata and journal reads share one round without transaction simu
     assert(!f.calls.some(call=>['eth_call','eth_estimateGas'].includes(call.method)));
     assert.equal(f.calls.filter(call=>call.method==='eth_sendTransaction').length,1);
     assert.equal(seen.size,8);
+    assert.equal(timedOut,false,'all eight reads must start before any read completes');
   }finally{clearTimeout(timer);release();}
 });
 
