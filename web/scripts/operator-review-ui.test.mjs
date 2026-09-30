@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { transform, loadBindings } from 'next/dist/build/swc/index.js';
 import * as ethers from 'ethers';
 import * as view from '../lib/live-view.mjs';
+import { collectFeeBatches } from '../lib/fee-collection-flow.mjs';
 
 // Exercise the actual JSX event handlers with deterministic hook lifecycle and
 // deferred read fixtures. No browser, wallet, RPC or signature is used here.
@@ -19,8 +20,8 @@ async function compile(name, extra = '') {
   return result.code;
 }
 await loadBindings();
-const [requestsCode, consoleCode] = await Promise.all([
-  compile('SaleReviewRequests', '\nexport { RequestsPage };'), compile('FreshAuthorityConsole'),
+const [requestsCode, consoleCode, feeCode] = await Promise.all([
+  compile('SaleReviewRequests', '\nexport { RequestsPage };'), compile('FreshAuthorityConsole'), compile('FeeCollection'),
 ]);
 
 function host(code, exportName, props, modules = {}) {
@@ -39,18 +40,19 @@ function host(code, exportName, props, modules = {}) {
       }
     },
   };
-  const exported = { exports: {} };
+  const exported = { exports: {} }, document = { visibilityState: 'visible' };
   const defaults = { react: hooks, ethers, '../lib/live-view.mjs': view,
     '../lib/display-snapshot.mjs': { readDisplaySnapshot: () => null, writeDisplaySnapshot: () => true },
     '../lib/authority-client.mjs': { authorityActionStatus: async () => ({ status: 'idle' }) },
-    './SaleReviewRequests': { __esModule: true, default: function RequestList() {} } };
+    './SaleReviewRequests': { __esModule: true, default: function RequestList() {} },
+    './FeeCollection': { __esModule: true, default: function FeePane() {} } };
   new Function('require', 'module', 'exports', 'window', 'document', 'setInterval', 'clearInterval', code)(
     name => modules[name] ?? defaults[name] ?? require(name), exported, exported.exports,
-    { sessionStorage: {} }, { visibilityState: 'visible' },
+    { sessionStorage: {} }, document,
     (fn, ms) => { const id = {}; intervals.set(id, { fn, ms }); return id; }, id => intervals.delete(id));
   const Component = exported.exports[exportName];
   const result = {
-    get tree() { return tree; }, get intervals() { return [...intervals.values()]; },
+    get tree() { return tree; }, get intervals() { return [...intervals.values()]; }, document,
     render(next = props) { props = next; position = 0; tree = Component(props); while (effects.length) effects.shift()(); return tree; },
     async settle() { for (let i = 0; i < 4; i++) { await turn(); result.render(); } },
     unmount() { disposed = true; for (const slot of slots) slot?.cleanup?.(); },
@@ -95,9 +97,10 @@ test('review and fee panels mount only their own forms and reads', async () => {
     await ui.settle();
     const nodes = elements(ui.tree), hasInbox = nodes.some(node => node.type?.name === 'RequestList');
     assert.equal(hasInbox, mode === 'review');
-    assert.equal(nodes.some(node => node.type === 'textarea'), mode === 'fees');
+    assert.equal(nodes.some(node => node.type?.name === 'FeePane'), mode === 'fees');
+    assert.equal(nodes.some(node => node.type === 'textarea'), false);
     assert.equal(text(ui.tree).includes('更新 Firsto 市场参考价'), mode === 'review');
-    assert.equal(text(ui.tree).includes('签名领取到当前管理员钱包'), mode === 'fees');
+    assert.equal(text(ui.tree).includes('签名领取到当前管理员钱包'), false);
     ui.unmount();
   }
 });
@@ -229,4 +232,140 @@ test('leaving the review console during relay-status lookup cannot invoke its ac
   const inbox = elements(ui.tree).find(node => node.type?.name === 'RequestList');
   const processing = inbox.props.onReview('reviewSale', { proposalId: '3' });
   ui.unmount(); pending.resolve({ status: 'idle' }); await processing; assert.equal(actions.length, 0);
+});
+
+const feeReceipt = (value, status = 'confirmed') => ({ kind: 'claimFees', hash: `0x${BigInt(value).toString(16).padStart(64, '0')}`, status });
+const feePlan = () => ({ totalBnbWei: 5000000000000001n, totalBemWei: 40000000000000001n,
+  sourceCount: 5, blockNumber: 123456n,
+  batches: [{ markets: [address(2), address(3)], pools: [address(21), address(22)] }, { markets: [], pools: [address(23)] }] });
+function feeHost(options = {}) {
+  let clock = 0;
+  const calls = [], reads = [], statuses = [], waits = [];
+  const props = { config, provider: { request: async () => assert.fail('Unexpected real RPC') },
+    account: address(7), wallet: {}, disabled: false, status: { status: 'idle' }, refreshKey: 0,
+    onAction: async (...args) => { calls.push(args); return options.action ? options.action(...args) : feeReceipt(calls.length); },
+    onStatus: value => statuses.push(value), ...options.props };
+  const ui = host(feeCode, 'default', props, {
+    '../lib/fee-collection.mjs': { readFeeCollection: async args => { reads.push(args); return options.read ? options.read(args) : feePlan(); } },
+    '../lib/fee-collection-flow.mjs': { collectFeeBatches: input => collectFeeBatches({ ...input,
+      now: () => clock, wait: async (ms, signal) => { waits.push(ms); clock += ms; if (options.wait) await options.wait(ms, signal); } }) },
+    '../lib/authority-client.mjs': { authorityActionStatus: async (...args) => options.status ? options.status(...args) : assert.fail('Unexpected status poll') },
+  });
+  return { ui, props, calls, reads, statuses, waits };
+}
+
+test('fee pane discovers all supplied sources automatically, without address input, and formats five decimals', async () => {
+  const { ui, calls, reads } = feeHost(); await ui.settle();
+  assert.equal(reads.length, 1, 'initial refresh effects share one read');
+  assert.equal(elements(ui.tree).some(node => ['input', 'select', 'textarea'].includes(node.type)), false);
+  assert.match(text(ui.tree), /0\.00500 BNB/); assert.match(text(ui.tree), /0\.04000 BEM/);
+  assert.match(text(ui.tree), /5 个有余额来源/);
+  button(ui, '一键归集手续费').onClick(); await ui.settle();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(call => call[1]), feePlan().batches.map(batch => ({ ...batch, recipient: address(7) })));
+  assert.match(text(ui.tree), /已完成 2 批归集/); ui.unmount();
+});
+
+test('fee balance polling runs every 30 seconds only while the pane is visible and mounted', async () => {
+  const { ui, reads } = feeHost(); await ui.settle();
+  assert.equal(ui.intervals.length, 1); assert.equal(ui.intervals[0].ms, 30000);
+  ui.document.visibilityState = 'hidden'; ui.intervals[0].fn(); await ui.settle(); assert.equal(reads.length, 1);
+  ui.document.visibilityState = 'visible'; ui.intervals[0].fn(); await ui.settle(); assert.equal(reads.length, 2);
+  ui.unmount(); assert.equal(ui.intervals.length, 0);
+});
+
+test('double-clicking one-click collection cannot start a second current-balance scan or action', async () => {
+  const pending = deferred(); let reading = 0;
+  const { ui, calls, reads } = feeHost({ read: () => ++reading === 1 ? feePlan() : reading === 2 ? pending.promise : feePlan() });
+  await ui.settle(); const click = button(ui, '一键归集手续费').onClick;
+  click(); click(); ui.render(); assert.equal(reads.length, 2); assert.equal(button(ui, '正在归集…').disabled, true);
+  pending.resolve(feePlan()); await ui.settle(); assert.equal(calls.length, 2); ui.unmount();
+});
+
+test('leaving fee pane or changing permissions before current balances arrive prevents signatures', async () => {
+  for (const leave of [false, true]) {
+    const pending = deferred(); let reading = 0;
+    const { ui, props, calls } = feeHost({ read: () => ++reading === 2 ? pending.promise : feePlan() });
+    await ui.settle(); button(ui, '一键归集手续费').onClick();
+    if (leave) ui.unmount(); else ui.render({ ...props, disabled: true });
+    pending.resolve(feePlan()); if (leave) { await turn(); await turn(); } else await ui.settle();
+    assert.equal(calls.length, 0); ui.unmount();
+  }
+});
+
+test('a permission change between confirmed batches prevents the next signature', async () => {
+  let context;
+  context = feeHost({ wait: async () => context.ui.render({ ...context.props, disabled: true }) });
+  await context.ui.settle(); button(context.ui, '一键归集手续费').onClick(); await context.ui.settle();
+  assert.equal(context.calls.length, 1); assert.match(text(context.ui.tree), /已完成 1 \/ 2 批/);
+  context.ui.unmount();
+});
+
+test('cloned config and own parent busy preserve collection and later batches use the latest action callback', async () => {
+  const response = deferred(), laterCalls = []; let context;
+  context = feeHost({ action: () => response.promise });
+  await context.ui.settle(); button(context.ui, '一键归集手续费').onClick(); await context.ui.settle();
+  assert.equal(context.calls.length, 1);
+  const signal = context.reads[1].signal;
+  context.ui.render({ ...context.props, config: { ...context.props.config }, disabled: true }); await context.ui.settle();
+  assert.equal(signal.aborted, false); assert.equal(context.reads.length, 2);
+  context.ui.render({ ...context.props, config: { ...context.props.config }, disabled: false,
+    onAction: async (...args) => { laterCalls.push(args); return feeReceipt(2); } });
+  response.resolve(feeReceipt(1)); await context.ui.settle();
+  assert.equal(context.calls.length, 1, 'the initial callback is not reused after a parent render');
+  assert.deepEqual(laterCalls, [['claimFees', { ...feePlan().batches[1], recipient: address(7) }]]);
+  assert.match(text(context.ui.tree), /已完成 2 批归集/);
+  context.ui.unmount();
+});
+
+test('equivalent config reconstruction does not abort or duplicate an in-flight fee balance read', async () => {
+  const pending = deferred(); const { ui, props, reads } = feeHost({ read: () => pending.promise });
+  ui.render({ ...props, config: { ...props.config } }); ui.render({ ...props, config: { ...props.config } });
+  assert.equal(reads.length, 1); assert.equal(reads[0].signal.aborted, false);
+  pending.resolve(feePlan()); await ui.settle(); assert.match(text(ui.tree), /0\.00500 BNB/);
+  assert.equal(reads.length, 1); ui.unmount();
+});
+
+test('semantic factory change aborts the old signed batch sequence and immediately reads the new deployment', async () => {
+  const response = deferred();
+  const { ui, props, calls, reads, statuses } = feeHost({ action: () => response.promise });
+  await ui.settle(); button(ui, '一键归集手续费').onClick(); await ui.settle();
+  assert.equal(calls.length, 1); const signal = reads[1].signal;
+  ui.render({ ...props, config: { ...props.config, factory: address(88) } }); await ui.settle();
+  assert.equal(signal.aborted, true); assert.equal(reads.length, 3);
+  assert.equal(reads[2].config.factory, address(88));
+  response.resolve(feeReceipt(1)); await ui.settle();
+  assert.equal(calls.length, 1, 'a previous deployment must not request a second batch');
+  assert.equal(statuses.length, 0, 'its late receipt must not update new deployment state');
+  assert.doesNotMatch(text(ui.tree), /已完成 2 批归集/);
+  assert.equal(button(ui, '一键归集手续费').disabled, false); ui.unmount();
+});
+
+test('later collection failure retains its explanation and prior receipts after balance refresh', async () => {
+  let actions = 0;
+  const { ui, calls, reads } = feeHost({ action: () => feeReceipt(++actions, actions === 1 ? 'confirmed' : 'failed') });
+  await ui.settle(); button(ui, '一键归集手续费').onClick(); await ui.settle();
+  assert.equal(calls.length, 2); assert.equal(reads.length, 3);
+  assert.match(text(ui.tree), /第 2 批归集失败/); assert.match(text(ui.tree), /已完成 1 \/ 2 批/);
+  assert(elements(ui.tree).some(node => node.type === 'a' && node.props.href.endsWith(feeReceipt(1).hash)));
+  ui.unmount();
+});
+
+test('identity change during cancelled balance scan starts new pane read immediately and ignores old results', async () => {
+  const pending = deferred(); let reading = 0;
+  const { ui, props, calls, reads } = feeHost({ read: () => ++reading === 2 ? pending.promise : feePlan() });
+  await ui.settle(); button(ui, '一键归集手续费').onClick(); ui.render();
+  ui.render({ ...props, account: address(8) }); await ui.settle();
+  assert.equal(reads.length, 3); assert.match(text(ui.tree), /0\.00500 BNB/);
+  pending.resolve({ ...feePlan(), totalBnbWei: 999000000000000000000n }); await ui.settle();
+  assert.doesNotMatch(text(ui.tree), /999\.00000/); assert.equal(calls.length, 0);
+  assert.equal(button(ui, '一键归集手续费').disabled, false); ui.unmount();
+});
+
+test('status refresh during collection cannot duplicate the balance read or cancel the active sequence', async () => {
+  const pending = deferred(); let reading = 0;
+  const { ui, props, calls, reads } = feeHost({ read: () => ++reading === 2 ? pending.promise : feePlan() });
+  await ui.settle(); button(ui, '一键归集手续费').onClick();
+  ui.render({ ...props, refreshKey: 1 }); await ui.settle(); assert.equal(reads.length, 2);
+  pending.resolve(feePlan()); await ui.settle(); assert.equal(calls.length, 2); ui.unmount();
 });

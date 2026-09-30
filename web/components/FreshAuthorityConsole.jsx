@@ -3,16 +3,15 @@ import { useEffect, useRef, useState } from 'react';
 import { getAddress, keccak256, parseEther, toUtf8Bytes } from 'ethers';
 import { authorityActionStatus } from '../lib/authority-client.mjs';
 import SaleReviewRequests from './SaleReviewRequests';
+import FeeCollection from './FeeCollection';
 
 const errorText = value => value instanceof Error ? value.message : String(value);
-const addresses = value => value.split(/[\s,，]+/).map(item => item.trim()).filter(Boolean).map(getAddress);
 
 /** Administrator approvals are exact EIP-712 messages; the service Gas wallet sends them. */
 export default function FreshAuthorityConsole({ config, account, wallet, provider, disabled, onAction, mode = 'review' }) {
   const [pool, setPool] = useState('');
   const [referencePrice, setReferencePrice] = useState('');
   const [referenceSource, setReferenceSource] = useState('');
-  const [feePools, setFeePools] = useState('');
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -57,7 +56,10 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     <div className="section-head"><div><h2>{mode === 'fees' ? '领取手续费' : '用户申请审核'}</h2>
       <p>任意一位链上登记的管理员签名，独立 Gas 钱包代付。</p></div>
       <button className="btn secondary" disabled={busy} onClick={() => void authorityActionStatus(config, account).then(value => { setStatus(value); setReviewRefresh(key => key + 1); }).catch(problem => setError(errorText(problem)))}>刷新交易状态</button></div>
-    <p className="subtle-note">Authority：{config.authority}　Gas 钱包：{config.gasWallet}</p>
+    {mode === 'fees'
+      ? <details className="operator-fee-connections"><summary>合约信息</summary>
+        <p>Authority：{config.authority}　Gas 钱包：{config.gasWallet}</p></details>
+      : <p className="subtle-note">Authority：{config.authority}　Gas 钱包：{config.gasWallet}</p>}
     {status?.hash && <p className="subtle-note">代付交易：<a href={`https://bscscan.com/tx/${status.hash}`} target="_blank" rel="noreferrer">{status.hash}</a> · {status.status}</p>}
     {notice && <p className="live-notice" role="status">{notice}</p>}
     {error && <p className="live-notice error" role="alert">{error}</p>}
@@ -82,14 +84,7 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     } catch (problem) { setError(errorText(problem)); } })()}>签名更新参考价</button>
     </details>
     </>}
-    {mode === 'fees' && <>
-    <h3>领取平台手续费</h3>
-    <p className="subtle-note">任意管理员可把所选市场和矿池当前可领的平台费全部领到自己的管理员地址。请核对来源；同一笔不能由两人重复领取。</p>
-    <label>矿池或预算项目地址（可选，用逗号分隔）<textarea value={feePools} onChange={event => setFeePools(event.target.value)} placeholder="0x…，0x…"/></label>
-    <button className="btn secondary" disabled={frozen} onClick={() => { try { void submit('claimFees', {
-      markets: [getAddress(config.shareMarket), getAddress(config.portfolioMarket)],
-      pools: addresses(feePools), recipient: getAddress(account),
-    }); } catch (problem) { setError(errorText(problem)); } }}>签名领取到当前管理员钱包</button>
-    </>}
+    {mode === 'fees' && <FeeCollection config={config} provider={provider} account={account} wallet={wallet}
+      disabled={disabled} status={status} refreshKey={reviewRefresh} onAction={onAction} onStatus={setStatus}/>}
   </section>;
 }
