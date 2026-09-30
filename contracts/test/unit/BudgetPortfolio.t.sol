@@ -15,6 +15,7 @@ import {PurchaseMockBem, PurchaseMockNft, PurchaseMockMining, PurchaseMockMarket
 import {Addresses} from "../../script/Addresses.sol";
 import {FirstoSignedAskMock} from "../utils/FirstoMocks.sol";
 import {IFirstoSignedAskExchange} from "../../src/interfaces/IFirstoExchange.sol";
+import {AtomicRefundRecipient} from "../utils/AtomicRefundRecipient.sol";
 
 contract BudgetRoundAttacker {
     function expireThenPropose(BudgetPortfolioVault project, address child) external {
@@ -331,6 +332,196 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
         project.claimFailedFunding();
         assertEq(address(project).balance, 0);
+    }
+
+    function test_atomicCancellationPaysSubscriptionAndOwnEarlierCredit() public {
+        _subscribe(ALICE, 2);
+        vm.prank(ALICE);
+        project.withdrawDeposit();
+        _subscribe(BOB, 5);
+        vm.prank(BOB);
+        project.withdrawDeposit();
+        _subscribe(ALICE, 3);
+        _subscribe(CAROL, 4);
+        uint256 before = ALICE.balance;
+        vm.prank(ALICE);
+        assertEq(project.withdrawDepositAndWithdrawBnb(), 0.65 ether);
+        assertEq(ALICE.balance - before, 0.65 ether);
+        assertEq(project.balanceOf(ALICE), 0);
+        assertEq(project.bnbOwed(ALICE), 0);
+        assertEq(project.bnbOwed(BOB), 0.65 ether);
+        assertEq(project.totalBnbOwed(), 0.65 ether);
+        assertEq(project.totalSupply(), 4);
+        assertEq(project.memberCount(), 1);
+        assertEq(address(project).balance, 1.17 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
+        project.withdrawDepositAndWithdrawBnb();
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
+        project.withdrawBnb();
+    }
+
+    function test_atomicCancellationRejectedPaymentRestoresSubscriptionAndEarlierCredit() public {
+        AtomicRefundRecipient recipient = new AtomicRefundRecipient(address(project));
+        _subscribe(address(recipient), 2);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawDeposit, ()));
+        _subscribe(address(recipient), 3);
+        _subscribe(BOB, 4);
+        recipient.configure(true, "");
+        uint256 before = address(project).balance;
+        vm.expectRevert(BudgetPortfolioVault.TransferFailed.selector);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawDepositAndWithdrawBnb, ()));
+        assertEq(project.balanceOf(address(recipient)), 3);
+        assertEq(project.totalSupply(), 7);
+        assertEq(project.memberCount(), 2);
+        assertEq(project.bnbOwed(address(recipient)), 0.26 ether);
+        assertEq(project.totalBnbOwed(), 0.26 ether);
+        assertEq(address(project).balance, before);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawDeposit, ()));
+        assertEq(project.bnbOwed(address(recipient)), 0.65 ether);
+        recipient.configure(false, "");
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawBnb, ()));
+        assertEq(address(recipient).balance, 0.65 ether);
+        assertEq(address(project).balance, 0.52 ether);
+    }
+
+    function test_atomicCancellationCallbackCannotTakeCreditOrBurnAgain() public {
+        bytes[3] memory attempts = [
+            abi.encodeCall(BudgetPortfolioVault.withdrawBnb, ()),
+            abi.encodeCall(BudgetPortfolioVault.withdrawDeposit, ()),
+            abi.encodeCall(BudgetPortfolioVault.withdrawDepositAndWithdrawBnb, ())
+        ];
+        for (uint256 i; i < attempts.length; ++i) {
+            AtomicRefundRecipient recipient = new AtomicRefundRecipient(address(project));
+            _subscribe(address(recipient), 3);
+            recipient.configure(false, attempts[i]);
+            recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawDepositAndWithdrawBnb, ()));
+            assertTrue(recipient.callbackSeen());
+            assertFalse(recipient.reentrySucceeded());
+            assertEq(address(recipient).balance, 0.39 ether);
+            assertEq(project.bnbOwed(address(recipient)), 0);
+            assertEq(project.balanceOf(address(recipient)), 0);
+        }
+        assertEq(address(project).balance, 0);
+        assertEq(project.totalBnbOwed(), 0);
+    }
+
+    function test_atomicCancellationWorksAfterFundingDeadlineBeforeFinalization() public {
+        _subscribe(ALICE, 3);
+        vm.warp(project.fundingDeadline());
+        uint256 before = ALICE.balance;
+        vm.prank(ALICE);
+        assertEq(project.withdrawDepositAndWithdrawBnb(), 0.39 ether);
+        assertEq(ALICE.balance - before, 0.39 ether);
+        assertEq(project.totalSupply(), 0);
+        assertEq(project.totalBnbOwed(), 0);
+    }
+
+    function test_atomicFundingFailurePaysInOneTransactionAndCannotRefundTwice() public {
+        _subscribe(ALICE, 2);
+        vm.prank(ALICE);
+        project.withdrawDeposit();
+        _subscribe(ALICE, 3);
+        _subscribe(BOB, 4);
+        vm.warp(project.fundingDeadline());
+        project.finalizeFundingFailure();
+        uint256 before = ALICE.balance;
+        vm.prank(ALICE);
+        assertEq(project.claimFailedFundingAndWithdrawBnb(), 0.65 ether);
+        assertEq(ALICE.balance - before, 0.65 ether);
+        assertEq(project.balanceOf(ALICE), 0);
+        assertEq(project.bnbOwed(ALICE), 0);
+        assertEq(project.totalBnbOwed(), 0);
+        assertEq(project.totalSupply(), 4);
+        assertEq(project.memberCount(), 1);
+        assertEq(address(project).balance, 0.52 ether);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
+        project.claimFailedFundingAndWithdrawBnb();
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
+        project.withdrawBnb();
+        vm.prank(BOB);
+        assertEq(project.claimFailedFundingAndWithdrawBnb(), 0.52 ether);
+        assertEq(address(project).balance, 0);
+    }
+
+    function test_atomicFailedFundingRejectedPaymentRestoresSharesAndCredit() public {
+        AtomicRefundRecipient recipient = new AtomicRefundRecipient(address(project));
+        _subscribe(address(recipient), 2);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawDeposit, ()));
+        _subscribe(address(recipient), 3);
+        _subscribe(BOB, 4);
+        vm.warp(project.fundingDeadline());
+        project.finalizeFundingFailure();
+        recipient.configure(true, "");
+        uint256 before = address(project).balance;
+        vm.expectRevert(BudgetPortfolioVault.TransferFailed.selector);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.claimFailedFundingAndWithdrawBnb, ()));
+        assertEq(project.balanceOf(address(recipient)), 3);
+        assertEq(project.totalSupply(), 7);
+        assertEq(project.memberCount(), 2);
+        assertEq(project.bnbOwed(address(recipient)), 0.26 ether);
+        assertEq(project.totalBnbOwed(), 0.26 ether);
+        assertFalse(project.refundSettled(address(recipient)));
+        assertEq(address(project).balance, before);
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.claimFailedFunding, ()));
+        assertEq(project.bnbOwed(address(recipient)), 0.65 ether);
+        recipient.configure(false, "");
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.withdrawBnb, ()));
+        assertEq(address(recipient).balance, 0.65 ether);
+        assertEq(address(project).balance, 0.52 ether);
+    }
+
+    function test_atomicFailedFundingCallbackCannotClaimOrWithdrawTwice() public {
+        AtomicRefundRecipient recipient = new AtomicRefundRecipient(address(project));
+        _subscribe(address(recipient), 3);
+        _subscribe(BOB, 4);
+        vm.warp(project.fundingDeadline());
+        project.finalizeFundingFailure();
+        recipient.configure(false, abi.encodeCall(BudgetPortfolioVault.claimFailedFundingAndWithdrawBnb, ()));
+        recipient.execute(abi.encodeCall(BudgetPortfolioVault.claimFailedFundingAndWithdrawBnb, ()));
+        assertTrue(recipient.callbackSeen());
+        assertFalse(recipient.reentrySucceeded());
+        assertEq(address(recipient).balance, 0.39 ether);
+        assertEq(project.bnbOwed(address(recipient)), 0);
+        assertEq(project.balanceOf(address(recipient)), 0);
+        assertEq(address(project).balance, 0.52 ether);
+    }
+
+    function test_atomicRefundEntriesRetainFundingAndFailureStateGuards() public {
+        _subscribe(ALICE, 100);
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
+        project.withdrawDepositAndWithdrawBnb();
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
+        project.claimFailedFundingAndWithdrawBnb();
+        vm.warp(project.purchaseDeadline());
+        project.finalizeAcquisition();
+        assertFalse(project.fundingFailed());
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
+        project.withdrawDepositAndWithdrawBnb();
+        vm.prank(ALICE);
+        vm.expectRevert(BudgetPortfolioVault.WrongState.selector);
+        project.claimFailedFundingAndWithdrawBnb();
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 13 ether);
+        assertEq(address(project).balance, 0);
+    }
+
+    function testFuzz_atomicCancellationConservesEveryPartialBudget(uint8 seed) public {
+        uint8 shares = uint8(bound(seed, 1, 99));
+        _subscribe(ALICE, shares);
+        uint256 before = ALICE.balance;
+        vm.prank(ALICE);
+        assertEq(project.withdrawDepositAndWithdrawBnb(), uint256(shares) * 0.13 ether);
+        assertEq(ALICE.balance - before, uint256(shares) * 0.13 ether);
+        assertEq(address(project).balance, 0);
+        assertEq(project.totalSupply(), 0);
+        assertEq(project.totalBnbOwed(), 0);
     }
 
     function test_competingWalletsForLastShareCannotOverfundProject() public {

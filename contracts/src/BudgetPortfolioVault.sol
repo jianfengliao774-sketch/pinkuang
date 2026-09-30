@@ -206,6 +206,17 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     }
 
     function withdrawDeposit() external nonReentrant {
+        _withdrawDeposit();
+    }
+
+    /// @notice Cancels the caller's subscription and pays all their BNB credit atomically.
+    /// @dev A rejected BNB payment reverts both the cancellation and any credit update.
+    function withdrawDepositAndWithdrawBnb() external nonReentrant returns (uint256 amount) {
+        _withdrawDeposit();
+        return _withdrawBnb();
+    }
+
+    function _withdrawDeposit() private {
         if (state != IPoolVault.State.Funding) revert WrongState();
         uint256 shares = balanceOf(msg.sender);
         if (shares == 0) revert NothingToClaim();
@@ -220,6 +231,16 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     }
 
     function claimFailedFunding() external nonReentrant {
+        _claimFailedFunding();
+    }
+
+    /// @notice Redeems a failed-funding subscription and pays the caller's BNB in one transaction.
+    function claimFailedFundingAndWithdrawBnb() external nonReentrant returns (uint256 amount) {
+        _claimFailedFunding();
+        return _withdrawBnb();
+    }
+
+    function _claimFailedFunding() private {
         if (state != IPoolVault.State.Refunding || !fundingFailed) revert WrongState();
         uint256 shares = balanceOf(msg.sender);
         if (shares == 0) revert NothingToClaim();
@@ -374,6 +395,10 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     }
 
     function withdrawBnb() external nonReentrant returns (uint256 amount) {
+        return _withdrawBnb();
+    }
+
+    function _withdrawBnb() private returns (uint256 amount) {
         _settleBnb(msg.sender, balanceOf(msg.sender));
         amount = bnbOwed[msg.sender];
         if (amount == 0) revert NothingToClaim();

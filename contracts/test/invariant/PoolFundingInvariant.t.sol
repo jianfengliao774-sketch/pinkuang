@@ -58,6 +58,17 @@ contract FundingHandler is Test {
         paidBy[actor] += amount;
     }
 
+    function withdrawDepositAndWithdrawBnb(uint256 actorSeed) external {
+        if (pool.state() != IPoolVault.State.Funding) return;
+        address actor = actors[actorSeed % 8];
+        if (pool.shareOf(actor) == 0) return;
+        uint256 amount = pool.contributedWei(actor) + pool.bnbOwed(actor);
+        vm.prank(actor);
+        pool.withdrawDepositAndWithdrawBnb();
+        paidTotal += amount;
+        paidBy[actor] += amount;
+    }
+
     function advanceTime(uint256 secondsSeed) external {
         vm.warp(block.timestamp + bound(secondsSeed, 0, 4 days));
     }
@@ -90,7 +101,7 @@ contract PoolFundingInvariantTest is FundingTestBase {
     function setUp() public override {
         super.setUp();
         handler = new FundingHandler(pool, OPERATOR);
-        bytes4[] memory selectors = new bytes4[](7);
+        bytes4[] memory selectors = new bytes4[](8);
         selectors[0] = FundingHandler.deposit.selector;
         selectors[1] = FundingHandler.withdrawDeposit.selector;
         selectors[2] = FundingHandler.withdrawBnb.selector;
@@ -98,6 +109,7 @@ contract PoolFundingInvariantTest is FundingTestBase {
         selectors[4] = FundingHandler.finalizeFailure.selector;
         selectors[5] = FundingHandler.setPause.selector;
         selectors[6] = FundingHandler.forceBnb.selector;
+        selectors[7] = FundingHandler.withdrawDepositAndWithdrawBnb.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
