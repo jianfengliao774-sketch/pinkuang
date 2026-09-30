@@ -46,7 +46,8 @@ import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios, { clearRecentPortfolioDisplays } from "./LivePortfolios";
 import PublicDisplayPreview from './PublicDisplayPreview';
 import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
-import { prepareBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
+import { prepareBudgetQueueStep, beginBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
+import { recoverAuthorityQueueStep } from "../lib/authority-queue-recovery.mjs";
 import PortfolioProjectShare from "./PortfolioProjectShare";
 import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect.mjs";
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
@@ -54,7 +55,7 @@ import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-disc
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
-import { approvedOperatorCall, authorityActionStatus, signAuthorityAction, submitAuthorityAction } from "../lib/authority-client.mjs";
+import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, signAuthorityAction, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
@@ -76,6 +77,7 @@ import {
   cancelPendingNonce,
   retryLegacyEnvelope,
   abandonPrepared,
+  requireCurrentProductStage,
 } from "../lib/live-transactions.mjs";
 import { prepareProductAction } from "../lib/live-actions.mjs";
 import { shareListingView } from "../lib/share-listing-view.mjs";
@@ -701,14 +703,14 @@ export default function LivePlatform() {
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
     if (route.route === 'detail' && ['deposit', 'completeFirstoSale', 'finalizeFailure',
-      'withdrawDeposit', 'claim', 'withdrawBnb', 'list'].includes(kind) && !detailActionsReady) return;
+      'withdrawDeposit', 'claim', 'withdrawBnb', 'list'].includes(kind) && !detailActionReadyFor(kind)) return;
     if (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
-      && !positionsActionsReady) return;
+      && !positionsActionReadyFor(kind)) return;
     if (['fill', 'cancel', 'expire'].includes(kind)) {
       const order = orders.find(row => String(row.id ?? row.orderId) === String(extra.orderId)
         && same(row.pool, pool?.pool));
-      if (!marketOrderActionReady(order)) return;
+      if (!marketOrderActionReady(order, kind)) return;
     }
     setError("");
     if (
@@ -1480,8 +1482,11 @@ export default function LivePlatform() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [pending?.hash, pending?.recoveryHashes?.at(-1), account, config, busy]);
   async function submitFreshAuthority(kind, args, current) {
+    let enteredRelay = false;
+    try {
     if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account)
       throw new Error('当前钱包没有新合约管理员权限。');
+    await requireCurrentProductStage(config);
     const previous = await authorityActionStatus(config, account);
     if (previous?.status && !['idle', 'confirmed', 'failed'].includes(previous.status))
       throw new Error('已有管理员代付交易待确认；先核对状态，不能重复发送。');
@@ -1491,7 +1496,7 @@ export default function LivePlatform() {
     // A network error after submission is ambiguous. The relay journal is the
     // source of truth; never resend the same signed command automatically.
     let result;
-    try { result = await submitAuthorityAction(config, account, command); }
+    try { enteredRelay = true; result = await submitAuthorityAction(config, account, command); }
     catch (problem) {
       const status = await authorityActionStatus(config, account).catch(() => null);
       if (status?.status && status.status !== 'idle') result = status;
@@ -1504,6 +1509,10 @@ export default function LivePlatform() {
       setRefresh(value => value + 1);
     }
     return result;
+    } catch (problem) {
+      if (!enteredRelay) throw Object.assign(new Error(textError(problem)), { beforeWalletSubmission: true });
+      throw problem;
+    }
   }
   async function sendFreshAuthority(kind, args) {
     if (busy || submissionLock.current || !isOperator || !wallet || !account)
@@ -1531,6 +1540,10 @@ export default function LivePlatform() {
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
       if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
         return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
+      if (config?.stage === 'fresh-active' && ['buyOfficial', 'buyFirsto'].includes(checked.action.kind)) {
+        const command = approvedPortfolioPurchase(config, checked);
+        return await submitFreshAuthority(command.kind, command.args, current);
+      }
       const result = await sendProductTransaction({ provider: wallet, config, transaction: checked.transaction,
         action: checked.action, onState: state => { if (current()) showTransactionProgress(state); } });
       if (revision === walletEpoch.current) await handleResult(result, revision);
@@ -1553,18 +1566,36 @@ export default function LivePlatform() {
       const checked = await prepareBudgetQueueStep({ ...input, config, provider: wallet, account });
       if (!current() || !budgetQueuePreviewMatches(confirmed, checked)) throw new Error(L('采购内容已改变，请重新预览。', 'Purchase details changed. Preview again.'));
       enteredSender = true;
+      if (config.stage === 'fresh-active') {
+        if (!checked.authority) throw Object.assign(new Error('缺少逐笔管理员采购意图。'), { beforeWalletSubmission: true });
+        const relay = await submitFreshAuthority(checked.authority.kind, checked.authority.args, current);
+        if (!relay.hash) return { status: 'pending', message: '签名已提交；先核对代付状态，不能重复发送。' };
+        return await recoverAuthorityQueueStep({ config, provider: client?.provider ?? createReadOnlyHttpProvider(config), plan: beginBudgetQueueStep(input.plan, checked),
+          index: input.index, hash: relay.hash });
+      }
       const result = await sendProductTransaction({ provider: wallet, config, transaction: checked.transaction,
         action: checked.action, onState: state => { if (current()) showTransactionProgress(state); } });
       if (revision === walletEpoch.current) await handleResult(result, revision);
       return result;
     } catch (problem) {
       // This proof is local to this call; never infer it from a timeout or empty journal.
-      if (!enteredSender || problem?.beforeIntent === true)
+      if (!enteredSender || problem?.beforeIntent === true || problem?.beforeWalletSubmission === true)
         throw Object.assign(new Error(textError(problem)), { beforeWalletSubmission: true });
       throw problem;
     } finally {
       if (submissionLock.current === ticket) submissionLock.current = null;
       setBusy(false); setTransactionStage(null);
+    }
+  }
+  async function connectBudgetQueue() {
+    if (busy || submissionLock.current || !wallet || !account) throw new Error('请先完成当前钱包操作。');
+    const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
+    submissionLock.current = ticket; setBusy(true);
+    try {
+      await connectJournal({ inspect: false });
+      if (revision !== walletEpoch.current || page !== routeIdentity.current) throw new Error('页面或钱包已改变，请重新读取采购记录。');
+    } finally {
+      if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); }
     }
   }
   async function submit() {
@@ -1646,9 +1677,11 @@ export default function LivePlatform() {
         || !sameAdminPurchasePreview(preview, checked))
         throw new Error(L("运营操作参数已变化，请重新预览。", "Operation changed. Preview again."));
       if (config?.stage === 'fresh-active') {
-        if (!['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(checked.kind))
-          throw new Error('新管理员 Gas 代付购机功能尚未启用；建池可先签名提交。');
-        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
+        if (!['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(checked.kind)
+          && !(checked.kind === 'mine' && checked.miningAction === 'reclaim'))
+          throw new Error('单机采购与挖矿准备、启动由独立服务执行；此处只接受精确建池或回收签名。');
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction,
+          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current);
       }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
@@ -1847,6 +1880,7 @@ export default function LivePlatform() {
               || (graph.manifest?.portfolioFactory ?? '').toLowerCase()
                 !== (boot.manifest?.portfolioFactory ?? '').toLowerCase()
               || graph.readMode === 'current' && (graph.operationalReady !== boot.operationalReady
+                || graph.transactionReady !== boot.transactionReady || graph.userExitReady !== boot.userExitReady
                 || boot.readMode !== 'current')) setBootAttempt(v => v + 1);
           })
           .catch(error => setError(textError(error)));
@@ -2099,13 +2133,16 @@ export default function LivePlatform() {
     : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
   const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
   const publicDisplaySections = publicDisplay.key === publicDisplayKey ? publicDisplay.sections : {};
-  const detailActionsReady = currentDetailActionReady({ client, config, source,
+  const detailActionReadyFor = action => currentDetailActionReady({ client, config, source, action,
     cachedPage, loading, busy, loadedRoute, routePool: route.pool, detailPool: detail?.pool,
     loadedAccount, account });
-  const positionsActionsReady = currentPositionsActionReady({ client, config,
+  const detailActionsReady = detailActionReadyFor();
+  const positionsActionReadyFor = action => currentPositionsActionReady({ client, config,
+    action:action==='marketWithdraw'?'withdrawBnb':action,targetType:action==='marketWithdraw'?'market':'pool',
     source: positionsReadSource, positionsAccount, account, wallet, positionsLoaded,
     loading: positionsReadLoading, error: positionsReadError });
-  const marketOrderActionReady = order => currentMarketOrderActionReady({ client, config,
+  const positionsActionsReady = positionsActionReadyFor();
+  const marketOrderActionReady = (order, action='fill') => currentMarketOrderActionReady({ client, config, action, targetType:'market',
     source: marketOrderSource, route: route.route, marketTab, readIdentity: marketOrderIdentity,
     account, wallet, loading: marketOrdersLoading, error: marketOrdersError, order });
 
@@ -2282,9 +2319,9 @@ export default function LivePlatform() {
             <div className="live-service-note" role="status">
               <ShieldCheck size={20} />
               <div>
-                <strong>{L("新合约已核验，交易接线尚未开放", "New contracts verified; trading is not yet open")}</strong>
-                <p>{L("当前可查看已核验的链上数据。建池、认购及其他产品交易将在独立服务启用后开放。",
-                  "Verified on-chain data is available to view. Pool creation, subscriptions and other product transactions will open after the separate services are activated.")}</p>
+                <strong>{L("新增交易服务暂未就绪", "New transaction services are not ready")}</strong>
+                <p>{L("当前可查看已核验的链上数据。领取、退款和撤单在当前链上核验通过后仍可使用，由你的钱包支付网络 Gas；新增投资和管理员操作等待服务就绪。",
+                  "Verified chain data is available. Claims, refunds and cancellations remain available after current chain verification; your wallet pays network Gas. New investments and administrator operations wait for service readiness.")}</p>
               </div>
             </div>}
           {config?.stale === true && <div className="live-service-note" role="status">
@@ -2775,7 +2812,7 @@ export default function LivePlatform() {
                           {["Funding", "Funded"].includes(detail.status) && (
                             <Button
                               secondary
-                              disabled={!detailActionsReady || !account}
+                              disabled={!detailActionReadyFor('finalizeFailure') || !account}
                               onClick={() =>
                                 openAction("finalizeFailure", detail)
                               }
@@ -2787,7 +2824,7 @@ export default function LivePlatform() {
                             detail.shares > 0n && (
                               <Button
                                 secondary
-                                disabled={!detailActionsReady}
+                                disabled={!detailActionReadyFor('withdrawDeposit')}
                                 onClick={() =>
                                   openAction("withdrawDeposit", detail)
                                 }
@@ -2954,7 +2991,7 @@ export default function LivePlatform() {
                     <div className="live-actions live-actions-stack">
                       <Button
                         secondary
-                        disabled={!detailActionsReady || !account || !detail.claimableBEM}
+                        disabled={!detailActionReadyFor('claim') || !account || !detail.claimableBEM}
                         onClick={() => openAction("claim", detail)}
                       >
                         {source?.stale || cachedPage
@@ -2963,7 +3000,7 @@ export default function LivePlatform() {
                       </Button>
                       <Button
                         secondary
-                        disabled={!detailActionsReady || !account || !detail.bnbOwed}
+                        disabled={!detailActionReadyFor('withdrawBnb') || !account || !detail.bnbOwed}
                         onClick={() => openAction("withdrawBnb", detail)}
                       >
                         {source?.stale || cachedPage
@@ -3042,7 +3079,7 @@ export default function LivePlatform() {
                   note={
                     <button
                       className="text-button"
-                      disabled={!positionsActionsReady || !marketCredit || busy}
+                      disabled={!positionsActionReadyFor('marketWithdraw') || !marketCredit || busy}
                       onClick={() => openAction("marketWithdraw", null)}
                     >
                       {L("领取市场款项", "Withdraw market proceeds")}
@@ -3081,21 +3118,21 @@ export default function LivePlatform() {
                             <div className="live-actions">
                               <Button
                                 secondary
-                                disabled={!positionsActionsReady || busy || !p.claimableBEM}
+                                disabled={!positionsActionReadyFor('claim') || busy || !p.claimableBEM}
                                 onClick={() => openAction("claim", p)}
                               >
                                 {L("领 BEM", "Claim BEM")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={!positionsActionsReady || busy || !p.bnbOwed}
+                                disabled={!positionsActionReadyFor('withdrawBnb') || busy || !p.bnbOwed}
                                 onClick={() => openAction("withdrawBnb", p)}
                               >
                                 {L("领 BNB", "Claim BNB")}
                               </Button>
                               <Button
                                 secondary
-                                disabled={!positionsActionsReady || busy ||
+                                disabled={!positionsActionReadyFor('harvest') || busy ||
                                   !["Active", "Listed"].includes(p.status)
                                 }
                                 onClick={() => openAction("harvest", p)}
@@ -3225,7 +3262,7 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={!marketOrderActionReady(o) ||
+                                disabled={!marketOrderActionReady(o, same(o.seller, account) ? 'cancel' : 'fill') ||
                                   busy ||
                                   o.active !== true ||
                                   (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
@@ -3385,7 +3422,7 @@ export default function LivePlatform() {
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
-              onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onShare={pool => setModal({ type: 'portfolio-share', pool })}
+              onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onAuthenticateQueue={connectBudgetQueue} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
           </> : <section className="panel" data-operator-access={operatorAccess}>
             <Empty title={operatorAccess === 'checking'
@@ -3680,6 +3717,7 @@ export default function LivePlatform() {
                         </label>
                       )}
                       {modal.kind === 'list' && <p className="subtle-note">{L('每份最低 0.00001 BNB；低于此价格的旧挂单只能撤销或到期解锁。', 'Minimum 0.00001 BNB per share. Older cheaper orders may only be cancelled or expired.')}</p>}
+                      {['claim','withdrawBnb','marketWithdraw','withdrawDeposit','finalizeFailure','harvest','cancel','expire','cancelExpired'].includes(modal.kind) && <p className="subtle-note">{L('这笔领取、退款或撤单由你的钱包直接发送，并由你的钱包支付网络 Gas。','Your wallet sends this claim, refund or cancellation and pays the network Gas.')}</p>}
                       {modal.kind === "vote" && (
                         <p>
                           {modal.support

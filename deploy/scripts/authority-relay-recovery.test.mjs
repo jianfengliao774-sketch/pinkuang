@@ -78,6 +78,23 @@ test('prelaunch checks all sender states before systemd-run and passes a fresh p
     .some(value => value.startsWith('--property=LoadCredential=')));
 });
 
+test('the actual launcher blocks active mining before systemd-run and excludes it for the entire recovery', () => {
+  const mining = 'pinkuang-v4-mining.service';
+  let spawned = false;
+  assert.throws(() => runAuthorityRecovery(send, { env,
+    query: unit => unit === mining ? 'active' : 'inactive',
+    spawn: () => { spawned = true; return { status: 0 }; },
+  }), /Stop and reconcile pinkuang-v4-mining/);
+  assert.equal(spawned, false);
+  for (const args of [send, acknowledge]) {
+    const launch = authorityRecoveryLaunchArguments(args, env, 1234);
+    for (const property of ['Conflicts', 'After']) {
+      const value = launch.find(item => item.startsWith(`--property=${property}=`));
+      assert(value && value.split('=')[2].split(' ').includes(mining));
+    }
+  }
+});
+
 test('hash-pinned recovery can use the private journal when the original admin command is unavailable', () => {
   const commandless = ['--journal', V4_AUTHORITY_JOURNAL, '--authority',
     '0x0000000000000000000000000000000000000011', '--expected-codehash', '0x'+'c'.repeat(64),

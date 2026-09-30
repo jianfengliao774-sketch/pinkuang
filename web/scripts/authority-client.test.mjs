@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Wallet, getAddress, keccak256 } from 'ethers';
-import { authorityAction, approvedOperatorCall } from '../lib/authority-client.mjs';
+import { authorityAction, approvedOperatorCall, approvedPortfolioPurchase } from '../lib/authority-client.mjs';
 import { prepareAuthorityCall } from '../../deploy/scripts/authority-relay.mjs';
 import { abi } from '../lib/chain-client.mjs';
 
@@ -80,4 +80,38 @@ test('every signed factory operation exposes exact business terms as JSON-safe E
   assert.equal(budgetTyped.primaryType, 'CreatePortfolio');
   assert.equal(budgetTyped.message.budgetWei, '100000');
   await matchesServer('executeApprovedOperation', { target: budget, data: budgetData });
+});
+
+test('fresh purchase approval binds one exact official listing or original Firsto bytes and current Wei quote', async () => {
+  const config = { stage: 'fresh-active' };
+  const fixture = (method, second, route) => ({ row: { pool: budget },
+    transaction: { to: budget, chainId: '0x38', value: '0x0', data: abi.BudgetPortfolioVault.encodeFunctionData(method, [pool, second]) },
+    procurement: { child: pool, priceWei: 1000000000000001n, capWei: 1000000000000099n, route,
+      ...(route === 'firsto' ? { frozenOrder: second } : {}) } });
+  for (const prepared of [fixture('buyOfficial', 77n, 'official'), fixture('buyFirsto', '0x123456', 'firsto')]) {
+    const command = approvedPortfolioPurchase(config, prepared);
+    assert.equal(command.args.maxCost, '1000000000000001');
+    assert.equal(command.args.child, pool);
+    assert.equal(command.args.portfolio, budget);
+    await matchesServer(command.kind, command.args);
+    assert.throws(() => approvedPortfolioPurchase(config, { ...prepared, transaction: { ...prepared.transaction, to: core } }), /目标/);
+    assert.throws(() => approvedPortfolioPurchase(config, { ...prepared, transaction: { ...prepared.transaction, data: prepared.transaction.data + '00' } }), /规范/);
+    assert.throws(() => approvedPortfolioPurchase(config, { ...prepared, procurement: { ...prepared.procurement, capWei: 1n } }), /上限/);
+  }
+  const firsto = fixture('buyFirsto', '0x123456', 'firsto');
+  assert.throws(() => approvedPortfolioPurchase(config, { ...firsto, procurement: { ...firsto.procurement, frozenOrder: '0x123457' } }), /订单/);
+});
+
+test('only exact reclaim for the freshly previewed pool can use an administrator mining signature', async () => {
+  const config = { stage: 'fresh-active', factory: core, portfolioFactory: budget };
+  const mining = new (await import('ethers')).Interface(['function reclaim(bytes32)', 'function arm(address,uint256)']);
+  const data = abi.PoolVault.encodeFunctionData('mine', [mining.encodeFunctionData('reclaim', [keccak256('0x1234')])]);
+  const args = approvedOperatorCall(config, { to: pool, data, value: '0x0' }, { pool });
+  await matchesServer('executeApprovedOperation', args);
+  assert.throws(() => approvedOperatorCall(config, { to: pool, data, value: '0x0' }), /建池/);
+  const arm = abi.PoolVault.encodeFunctionData('mine', [mining.encodeFunctionData('arm', [pool, 7])]);
+  assert.throws(() => approvedOperatorCall(config, { to: pool, data: arm, value: '0x0' }, { pool }), /回收/);
+  assert.throws(() => approvedOperatorCall(config, { to: pool, data: data + '00', value: '0x0' }, { pool }), /回收/);
+  const pause = abi.PoolVault.encodeFunctionData('setDepositPaused', [true]);
+  assert.throws(() => approvedOperatorCall(config, { to: pool, data: pause, value: '0x0' }, { pool }), /建池/);
 });

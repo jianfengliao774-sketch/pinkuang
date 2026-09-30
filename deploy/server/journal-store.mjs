@@ -443,13 +443,21 @@ function validateBudgetQueueProgress(previous, next) {
     if (!allowed[old.status]?.includes(item.status)) throw new JournalConflict('Purchase step cannot regress.');
     if (old.child && old.child.toLowerCase() !== item.child?.toLowerCase())
       throw new JournalConflict('Confirmed child pool cannot change.');
-    if (old.hash && old.hash.toLowerCase() !== item.hash?.toLowerCase()
+    const startingPurchase = old.status === 'created' && item.status === 'buying'
+      && old.child && old.child.toLowerCase() === item.child?.toLowerCase()
+      && old.hash && old.creationHash?.toLowerCase() === old.hash.toLowerCase()
+      && item.creationHash?.toLowerCase() === old.hash.toLowerCase()
+      && old.lastResult?.status === 'confirmed' && old.lastResult.hash?.toLowerCase() === old.hash.toLowerCase()
+      && same(old.lastResult,item.lastResult) && item.hash === undefined && item.nonce === undefined;
+    if (old.creationHash && old.creationHash.toLowerCase() !== item.creationHash?.toLowerCase())
+      throw new JournalConflict('Confirmed creation hash cannot change.');
+    if (!startingPurchase && old.hash && old.hash.toLowerCase() !== item.hash?.toLowerCase()
       && !(item.status === 'failed' && ['replaced','cancelled'].includes(item.lastResult?.status)
         && item.previousHashes?.some(hash => hash.toLowerCase() === old.hash.toLowerCase())))
       throw new JournalConflict('Transaction hash cannot be erased.');
-    if (old.nonce !== undefined && old.nonce !== item.nonce)
+    if (!startingPurchase && old.nonce !== undefined && old.nonce !== item.nonce)
       throw new JournalConflict('Transaction nonce cannot change.');
-    if (old.intent && !terminal(item) && item.status !== 'created' && item.status !== 'ready'
+    if (!startingPurchase && old.intent && !terminal(item) && item.status !== 'created' && item.status !== 'ready'
       && !same(old.intent, item.intent)) throw new JournalConflict('Purchase intent cannot change.');
     if (old.status === 'creating' && item.status === 'ready' || old.status === 'buying' && item.status === 'created') {
       if (old.hash || old.nonce !== undefined || item.hash || item.nonce !== undefined)

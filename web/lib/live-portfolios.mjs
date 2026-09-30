@@ -7,6 +7,7 @@ import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/first
 import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
 import { saleReferenceState } from './sale-governance-gate.mjs';
+import { freshUserExitReady } from './fresh-user-exits.mjs';
 
 const identity = new Interface(['function implementation() view returns(address)', 'function owner() view returns(address)']);
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -14,9 +15,10 @@ const requireValue = (condition, message) => { if (!condition) throw new Error(m
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
 /** A saved directory or local page can supply identities, never action eligibility. */
-export function portfolioConfigActionReady(config) {
+export function portfolioConfigActionReady(config,action,targetType='portfolio') {
   const v4Ready = config?.productFamily !== 'fresh-v4'
-    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false;
+    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
+    || freshUserExitReady(config,targetType,action);
   return !!config && v4Ready;
 }
 export function portfolioCreateActionReady({ config, operatorVerified, operator, currentOperatorRead,
@@ -31,11 +33,11 @@ export function portfolioPageActionReady({ config, freshRead, listingSource, ini
     && (!!initialPool || !!listingSource && listingSource.stale !== true
       && listingSource.readMode !== 'verified_snapshot');
 }
-export function portfolioSelectedActionReady({ config, selectedProofCurrent }) {
-  return portfolioConfigActionReady(config) && selectedProofCurrent === true;
+export function portfolioSelectedActionReady({ config, selectedProofCurrent, action, targetType }) {
+  return portfolioConfigActionReady(config,action,targetType) && selectedProofCurrent === true;
 }
-export function portfolioOrderActionReady({ config, selectedProofCurrent, source, orderPool, selectedPool }) {
-  return portfolioSelectedActionReady({ config, selectedProofCurrent })
+export function portfolioOrderActionReady({ config, selectedProofCurrent, source, orderPool, selectedPool, action }) {
+  return portfolioSelectedActionReady({ config, selectedProofCurrent, action, targetType:'portfolioMarket' })
     && !!source && source.stale !== true && source.readMode !== 'verified_snapshot'
     && typeof orderPool === 'string' && typeof selectedPool === 'string'
     && same(orderPool, selectedPool);

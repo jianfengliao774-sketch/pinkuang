@@ -964,3 +964,35 @@ test('budget creation archives only its own authenticated caps and parent addres
     assert.equal(done.status,200);assert.equal(done.body.result.portfolioAddress,pool);
   } finally {await f.close();}
 });
+
+test('fresh product user deposit, claim and share actions pass the same intent checks only with live operational proof',async()=>{
+ const p=proof(),allow=new Set([factory.toLowerCase()]);let checks=0,ready=true;
+ const graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
+ const options={freshProductVerifier:async()=>{checks++;if(!ready)throw Error('machines not ready');}};
+ for(const [name,args,value,type]of [['deposit',[2],'20','pool'],['claim',[],'0','pool'],['withdrawBnb',[],'0','pool'],['list',[pool,2,5],'0','market'],['fill',[1,2],'10','market']]){
+   await verifyWithGraph(p.provider,intent(name,args,value,type),allow,graph,options);
+ }
+ assert.equal(checks,3);ready=false;await assert.rejects(verifyWithGraph(p.provider,intent(),allow,graph,options));
+ await assert.rejects(verifyWithGraph(p.provider,intent(),allow,graph),/not enabled/);
+});
+test('fresh operator operations cannot use a member wallet even when operational readiness succeeds',async()=>{
+ const p=proof(),graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
+ await assert.rejects(verifyWithGraph(p.provider,intent('mine',[new Interface(['function reclaim(bytes32)']).encodeFunctionData('reclaim',[hash(2)])],'0'),new Set([factory.toLowerCase()]),graph,
+   {freshProductVerifier:async()=>{}}),/administrator signature/);
+});
+
+
+test('fresh user exits survive machine outage but preserve registration, amount and nonce checks',async()=>{
+ const p=proof(),allow=new Set([factory.toLowerCase()]),graph=async()=>({freshFactoryVerified:true,freshAuthority:{address:addr(90)}});
+ let readinessCalls=0;const options={freshProductVerifier:async()=>{readinessCalls++;throw Error('worker offline');}};
+ const nonce=p.provider.getTransactionCount,balance=p.provider.getBalance;
+ p.provider.getTransactionCount=async(address,tag)=>{assert.equal(address,account,'only the user funds this exit');return nonce(address,tag);};
+ p.provider.getBalance=async address=>{assert.equal(address,account,'platform Gas balance is never queried for a member exit');return balance(address);};
+ for(const [name,args,type]of [['claim',[],'pool'],['withdrawBnb',[],'pool'],['withdrawDeposit',[],'pool'],['finalizeFailure',[],'pool'],['harvest',[],'pool'],['cancelExpired',[],'pool'],['cancel',[1],'market'],['expire',[1],'market'],['withdrawBnb',[],'market']])
+  await verifyWithGraph(p.provider,intent(name,args,'0',type),allow,graph,options);
+ await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'1'),allow,graph,options),/nonpayable|value|send BNB/i);
+ p.state.registered=false;await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'0'),allow,graph,options),/registered/);
+ p.state.registered=true;p.state.pendingNonce=8;await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'0'),allow,graph,options),/nonce/);
+ await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'0'),new Set(),graph,options),/not enabled/);
+ assert.equal(readinessCalls,0,'member exits never enter the machine/relay proof reader');
+});

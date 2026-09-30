@@ -4,6 +4,7 @@ import { createLiveDataProxy, liveDataProxyConfiguration, validateReadRpc } from
 import { createDeploymentServer } from './index.mjs';
 
 const address = `0x${'11'.repeat(20)}`;
+const transactionHash = `0x${'ab'.repeat(32)}`;
 const rpc = (method = 'eth_chainId', params = []) => ({ jsonrpc: '2.0', id: 1, method, params });
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 async function fixture(t, options = {}) {
@@ -27,8 +28,9 @@ test('configuration uses only fixed operator destinations and existing journal R
   assert.throws(() => liveDataProxyConfiguration({ BEMINE_INDEX_URL: 'http://127.0.0.1:4180?url=http://evil.test' }));
 });
 
-test('all six read methods accept exact bounded parameters; unknown/write/batch/override routes fail closed', () => {
+test('all eight read methods accept exact bounded parameters; unknown/write/batch/override routes fail closed', () => {
   const calls = [rpc(), rpc('eth_blockNumber'), rpc('eth_getBlockByNumber', ['0xa', false]), rpc('eth_getCode', [address, 'latest']),
+    rpc('eth_getTransactionByHash', [transactionHash]), rpc('eth_getTransactionReceipt', [transactionHash]),
     rpc('eth_getStorageAt', [address, '0x0', '0xa']), rpc('eth_call', [{ to: address, data: '0xab' }, '0xa'])];
   for (const input of calls) assert.equal(validateReadRpc(input).method, input.method);
   assert.equal(validateReadRpc(calls.at(-1)).params[0].gas, '0x1c9c380');
@@ -36,6 +38,67 @@ test('all six read methods accept exact bounded parameters; unknown/write/batch/
     rpc('debug_traceCall'), [rpc()], { ...rpc(), id: null }, { ...rpc(), url: 'https://evil.test' },
     rpc('eth_getBlockByNumber', ['latest', true]), rpc('eth_call', [{ to: address, data: '0x' }, 'latest', {}]),
     rpc('eth_call', [{ to: address, data: '0x', gas: '0x1c9c381' }, 'latest']), rpc('eth_call', [{ data: '0x' }, 'latest'])]) assert.throws(() => validateReadRpc(input));
+});
+
+test('transaction recovery reads require one exact 32-byte hash before contacting upstream', async t => {
+  const f = await fixture(t);
+  for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt']) {
+    for (const params of [[], [address], ['latest'], ['0x'], [`0x${'ab'.repeat(31)}`],
+      [`0x${'ab'.repeat(33)}`], [`0x${'zz'.repeat(32)}`], [null], [7], [{}],
+      [transactionHash, 'latest'], [transactionHash, {}]]) {
+      assert.throws(() => validateReadRpc(rpc(method, params)), /Invalid read-only RPC parameters/);
+      assert.equal((await f.post(rpc(method, params))).status, 400);
+    }
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('transaction recovery stays BSC-verified, uncached and preserves pending null to mined transitions', async t => {
+  const seen = [], counts = new Map();
+  const f = await fixture(t, { upstream: (_url, init) => {
+    const request = JSON.parse(init.body); seen.push(request);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    const count = (counts.get(request.method) ?? 0) + 1; counts.set(request.method, count);
+    const result = count === 1 ? null : request.method === 'eth_getTransactionByHash'
+      ? { hash: transactionHash, blockNumber: '0xa' }
+      : { transactionHash, blockNumber: '0xa', status: '0x1' };
+    return json({ jsonrpc: '2.0', id: request.id, result });
+  } });
+  for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt']) {
+    const pending = await f.post(rpc(method, [transactionHash]));
+    assert.equal(pending.status, 200); assert.equal((await pending.json()).result, null);
+    const mined = await f.post(rpc(method, [transactionHash]));
+    assert.equal(mined.status, 200); assert.equal((await mined.json()).result.blockNumber, '0xa');
+    assert.equal(mined.headers.get('x-bemine-server-cache'), null);
+    assert.equal(mined.headers.get('cache-control'), 'no-store');
+    assert.equal(counts.get(method), 2);
+  }
+  assert.equal(seen[0].method, 'eth_chainId');
+  assert.deepEqual(seen.slice(1).map(request => request.params), Array(4).fill([transactionHash]));
+  const wrong = await fixture(t, { upstream: (_url, init) => {
+    const request = JSON.parse(init.body);
+    assert.equal(request.method, 'eth_chainId');
+    return json({ jsonrpc: '2.0', id: request.id, result: '0x1' });
+  } });
+  for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt'])
+    assert.equal((await wrong.post(rpc(method, [transactionHash]))).status, 502);
+});
+
+test('transaction recovery preserves upstream response size and timeout bounds', async t => {
+  for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt']) {
+    const oversized = await fixture(t, { maxResponseBytes: 256, upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId'
+        ? '0x38' : { input: '0x' + 'ab'.repeat(256) } });
+    } });
+    assert.equal((await oversized.post(rpc(method, [transactionHash]))).status, 502);
+    const stalled = await fixture(t, { timeoutMs: 50, upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' })
+        : new Promise(() => {});
+    } });
+    assert.equal((await stalled.post(rpc(method, [transactionHash]))).status, 504);
+  }
 });
 
 test('same-origin routing retains journal/static behavior and proxies RPC without request headers', async t => {

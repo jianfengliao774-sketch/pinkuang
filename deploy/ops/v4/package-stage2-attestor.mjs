@@ -10,17 +10,29 @@ const SOURCE=fileURLToPath(new URL('../../',import.meta.url));
 const ENTRY='server/authority-signer.mjs';
 const COMMIT=/^[0-9a-f]{40}$/i;
 export const STAGE2_SIGNER_MODULES=Object.freeze([
-  'scripts/authority-relay.mjs', 'scripts/budget-multicall-read.mjs',
-  'scripts/keeper-credential.mjs', 'scripts/official-market-discovery.mjs',
-  'scripts/purchase-keeper.mjs', 'server/authority-ipc.mjs',
-  'server/authority-relay-api.mjs', 'server/authority-role.mjs',
-  'server/authority-signer.mjs', 'server/fresh-activation-journal.mjs',
-  'server/journal-store.mjs', 'server/product-graph.mjs',
-  'server/request-limiter.mjs', 'shared/authority-typed.mjs',
-  'shared/fresh-activation-execution.mjs', 'shared/fresh-activation-chain-proof.mjs',
-  'shared/firsto-upgrade-proof.mjs', 'shared/gas-signer-attestation.mjs',
-  'shared/integrated-upgrade-plan.mjs', 'shared/original-gas-wallet.mjs',
-  'src/firsto-purchase.mjs',
+  "scripts/authority-relay.mjs",
+  "scripts/budget-multicall-read.mjs",
+  "scripts/keeper-credential.mjs",
+  "scripts/official-market-discovery.mjs",
+  "scripts/purchase-keeper.mjs",
+  "server/authority-ipc.mjs",
+  "server/authority-relay-api.mjs",
+  "server/authority-role.mjs",
+  "server/authority-signer.mjs",
+  "server/fresh-activation-journal.mjs",
+  "server/fresh-machine-readiness.mjs",
+  "server/journal-store.mjs",
+  "server/product-graph.mjs",
+  "server/request-limiter.mjs",
+  "shared/authority-typed.mjs",
+  "shared/firsto-upgrade-proof.mjs",
+  "shared/fresh-activation-chain-proof.mjs",
+  "shared/fresh-activation-execution.mjs",
+  "shared/fresh-runtime-identity.mjs",
+  "shared/gas-signer-attestation.mjs",
+  "shared/integrated-upgrade-plan.mjs",
+  "shared/original-gas-wallet.mjs",
+  "src/firsto-purchase.mjs"
 ]);
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 

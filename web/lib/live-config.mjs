@@ -145,7 +145,8 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
   return Object.freeze({ stage: input.stage, manifest, artifactDigest: expectedDigest,
     operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
     verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
-    readMode, stale, ...(input.transactionReady === false ? { transactionReady: false } : {}),
+    readMode, stale, userExitReady: fresh && !stale && input.userExitReady === true,
+    ...(input.transactionReady === false ? { transactionReady: false } : {}),
     ...(stale ? { refreshing: input.refreshing, snapshotAgeMs: input.snapshotAgeMs } : {}),
     stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase(),
     ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),freshFactoryVerified:true} : {}) });
@@ -212,7 +213,7 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
   return Object.freeze({ status: 'ready', manifest: graph.manifest, stage: graph.stage,
     artifactDigest: graph.artifactDigest, operationId: graph.operationId,
     productGraphUrl, verifiedBlockHash: graph.verifiedBlockHash, operationalReady: graph.operationalReady,
-    readMode: graph.readMode, stale: graph.stale,
+    readMode: graph.readMode, stale: graph.stale, userExitReady: graph.userExitReady,
     ...(graph.transactionReady === false ? { transactionReady: false } : {}),
     ...(graph.stale ? { refreshing: graph.refreshing, snapshotAgeMs: graph.snapshotAgeMs } : {}),
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
@@ -221,7 +222,8 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
     indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }
 
-const READ_RPC = new Set(['eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt']);
+const READ_RPC = new Set(['eth_chainId', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt',
+  'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
 /** Only used for reads. A wallet provider may instead be injected by the UI. */
 export function createReadOnlyHttpProvider(config, { fetcher = globalThis.fetch } = {}) {
   insist(config?.status === 'ready', 'unconfigured', '尚未配置正式合约。');

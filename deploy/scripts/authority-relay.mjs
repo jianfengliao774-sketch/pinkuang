@@ -14,6 +14,7 @@ export const V4_KEEPER_STATE_ROOT = '/var/lib/pinkuang-v4-signer/keeper';
 export const AUTHORITY_RECOVERY_UNIT = 'pinkuang-v4-authority-recovery.service';
 export const AUTHORITY_RECOVERY_SENDERS = Object.freeze([
   'pinkuang-purchase-v2.service', 'pinkuang-v4-signer.service', 'pinkuang-v4-purchase.service',
+  'pinkuang-v4-mining.service',
 ]);
 const CANCEL_GAS_LIMIT = 21_000n;
 const CANCEL_MAX_GAS_PRICE = 3_000_000_000n;

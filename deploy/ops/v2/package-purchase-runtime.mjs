@@ -9,6 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const deploy = realpathSync(resolve(here, '../..'));
 const root = realpathSync(resolve(deploy, '..'));
 export const PURCHASE_RUNTIME_FILES = Object.freeze({
+  "shared/fresh-runtime-identity.mjs": "shared/fresh-runtime-identity.mjs",
+  "server/fresh-machine-readiness.mjs": "server/fresh-machine-readiness.mjs",
+  "scripts/fresh-worker-readiness.mjs": "scripts/fresh-worker-readiness.mjs",
   'package.json': 'ops/v2/purchase-runtime/package.json',
   'package-lock.json': 'ops/v2/purchase-runtime/package-lock.json',
   'scripts/purchase-supervisor.mjs': 'scripts/purchase-supervisor.mjs',

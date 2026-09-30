@@ -11,6 +11,9 @@ import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mj
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
+import { isFreshUserExit } from '../shared/fresh-user-exits.mjs';
+import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY } from './fresh-product-gate.mjs';
+import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
 import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
@@ -341,7 +344,7 @@ export async function cancellationIntent(provider, record, envelope = record.ver
 }
 
 /** The trusted server RPC validates registration/value before issuing the first durable signing ACK. */
-export async function verifyProductIntent(provider, record, allowedFactories, graphVerifier, { legacyFactory } = {}) {
+export async function verifyProductIntent(provider, record, allowedFactories, graphVerifier, { legacyFactory, freshProductVerifier } = {}) {
   if (!provider) fail(503, 'BSC product verifier is unavailable.');
   if (!allowedFactories.has(identity(record.factory))) fail(403, 'This Factory is not enabled for product transactions.');
   const decoded = decodeProduct(record);
@@ -352,7 +355,13 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     const tag = `0x${block.number.toString(16)}`;
     if (typeof graphVerifier !== 'function') fail(503, 'Trusted product graph verifier is unavailable.');
     const graph = await graphVerifier(provider, record.factory, block);
-    if (graph?.freshAuthority) fail(409, 'Fresh Authority deployment is still closed to product transactions until the administrator relay is enabled and reviewed.');
+    if (graph?.freshAuthority) {
+      if (!freshProductVerifier) fail(409, 'Fresh product signing is not enabled in this process.');
+      if (!isFreshUserExit(record.targetType, decoded.name, record.value))
+        await freshProductVerifier(provider, graph, block);
+      if (FRESH_AUTHORITY_ONLY.has(decoded.name) || record.targetType === 'factory' || record.targetType === 'portfolioFactory')
+        fail(403, 'Fresh operator actions require an administrator signature through the isolated Authority relay.');
+    }
     // This selector does not exist on the independently pinned genesis Factory.
     // A stale page must not reserve a nonce for candidate-only calldata before
     // the reviewed upgrade has actually become the verified chain graph.
@@ -944,7 +953,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
-  freshStage2Hold = true } = {}) {
+  freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
@@ -1016,6 +1025,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   };
   const graphVerifier = productGraphVerifier ?? ((rpc,factory,block)=>verifyProductGraph(rpc,factory,trustedProduct,block));
   const signingGraphVerifier = createPinnedSigningGraphVerifier(graphVerifier, trustedProduct, now);
+  const freshProductVerifier = createFreshProductGate(freshProduct, {trusted:trustedProduct,
+    factories:productFactories,machineReader:freshProductReadinessReader,now});
   const productMode = Boolean(trustedProduct) || typeof productGraphVerifier === 'function' && productFactories.size > 0;
   const inFlight = new Set();
   const officialCache = new Map(), officialScans = new Map();
@@ -1072,7 +1083,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
 
   function verifyBoundedProductIntent(req, account, record) {
     consumeProductIntentBudget(req, account);
-    return verifyProductIntent(provider, record, productFactories, signingGraphVerifier, { legacyFactory });
+    return verifyProductIntent(provider, record, productFactories, signingGraphVerifier, { legacyFactory, freshProductVerifier });
   }
 
   function consumeClientToken(map, client, burst, refillMs) {
@@ -1529,9 +1540,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         // Product signing remains closed until its separate API/relay cutover.
         ...(stage==='fresh-active' ? {freshFactoryVerified:true} : {}),
         operationalReady:false,
+        userExitReady:stage==='fresh-active' && Boolean(freshProductVerifier),
         manifest};
       if (closed) fail(503, 'Journal is unavailable.');
-      lastVerifiedProductGraphSnapshot={savedAt:now(),body};
+      lastVerifiedProductGraphSnapshot={savedAt:now(),body,graph};
       return body;
     } catch (error) {
       // A transport failure is not evidence that a previously verified graph
@@ -1574,6 +1586,15 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   productGraphTimer?.unref?.();
   if(productGraphTimer)startProductGraphRefresh().catch(()=>{});
 
+  async function operationalBody(body) {
+    if (!freshProductVerifier || body.stage !== 'fresh-active') return body;
+    try {
+      const block=await officialProvider.getBlock('latest');
+      await freshProductVerifier(officialProvider,lastVerifiedProductGraphSnapshot.graph,block);
+      return {...body,operationalReady:true};
+    } catch { return {...body,operationalReady:false}; }
+  }
+
   async function respond(req, res) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -1585,6 +1606,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if (!req.url || req.url.length > 2048) fail(400, 'Invalid request URL.');
       const url = new URL(req.url, origin), path = url.pathname;
       const method = req.method;
+      if (freshProduct && (/^\/api\/journal\/deployment(?:\/|$)/.test(path)
+        || /^\/api\/journal\/fresh-activation(?:\/|$)/.test(path)))
+        fail(403, 'Deployment and activation are unavailable in the public product process.');
       if (!['GET','POST','PUT','DELETE'].includes(method)) fail(405, 'Method is not allowed.');
       // Telegram authenticates with its configured secret header, never a wallet
       // cookie. This narrow endpoint is the sole exception to browser Origin checks.
@@ -1607,7 +1631,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const cached=lastVerifiedProductGraphSnapshot;
         const snapshotAgeMs=cached ? now()-cached.savedAt : Infinity;
         if (snapshotAgeMs>=0 && snapshotAgeMs<PRODUCT_GRAPH_SNAPSHOT_MS)
-          return send(200,{...cached.body,snapshotAgeMs,readMode:'current',stale:false});
+          return send(200,{...await operationalBody(cached.body),snapshotAgeMs,readMode:'current',stale:false});
         if (cached && snapshotAgeMs>=PRODUCT_GRAPH_SNAPSHOT_MS
           && snapshotAgeMs<PRODUCT_GRAPH_STALE_MS) {
           // The response remains display-only even if a prior transient RPC
@@ -1617,13 +1641,13 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
             || now()-lastProductGraphRefreshAttemptAt>=productGraphRefreshMs)
             startProductGraphRefresh();
           return send(200,{...cached.body,snapshotAgeMs,readMode:'verified_snapshot',
-            stale:true,refreshing:Boolean(productGraphRefresh),transactionReady:false,operationalReady:false});
+            stale:true,refreshing:Boolean(productGraphRefresh),transactionReady:false,operationalReady:false,userExitReady:false});
         }
         // Cached verified display reads are cheap and often share a NAT IP.
         // Bound only requests that must wait for a new chain proof.
         if (!allowPublicGraph(req)) fail(429, 'Too many product-graph reads; retry shortly.');
         const body=await startProductGraphRefresh();
-        return send(200,{...body,snapshotAgeMs:0,readMode:'current',stale:false});
+        return send(200,{...await operationalBody(body),snapshotAgeMs:0,readMode:'current',stale:false});
       }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
         const response=await discoveryResponse(req,url,path.endsWith('/budget-candidates')?'budget':'official');
@@ -1691,6 +1715,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       if (method === 'GET' && path === '/api/journal/session') return send(200, { account });
       if (method === 'GET' && path === '/api/journal/build') return send(200, { artifactDigest: signingBuildDigest() });
       if (path === '/api/journal/budget-queue' && ['GET','PUT'].includes(method)) {
+        if (freshProduct) {
+          try { await verifyCurrentAuthorityAdministrator(provider,trustedProduct,account); }
+          catch(error) { fail([403,409,503].includes(error.status)?error.status:503,
+            [403,409,503].includes(error.status)?error.message:'Current administrator proof is unavailable.'); }
+        }
         if (!expectedAccount) fail(400, 'The selected wallet is required.');
         const url = new URL(req.url, origin);
         if ([...url.searchParams.keys()].some(key => key !== 'parent') || url.searchParams.getAll('parent').length !== 1)
@@ -1946,6 +1975,12 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   return {
+    async verifyFreshOperationalReadiness() {
+      if (closed || !freshProductVerifier || !officialProvider) fail(503, 'Fresh product operations are not enabled.');
+      const block = await officialProvider.getBlock('latest');
+      const graph = await graphVerifier(officialProvider,trustedProduct.record.addresses.factory,block);
+      return freshProductVerifier(officialProvider,graph,block);
+    },
     handle(req, res) {
       const task = respond(req, res);
       inFlight.add(task);
@@ -1981,6 +2016,7 @@ export function journalConfiguration(env = process.env) {
     // Missing configuration must never enable the seven Authority writes.
     // A reviewed cutover must explicitly set 0 after recovery is proven.
     freshStage2Hold: env.BEMINE_FRESH_STAGE2_HOLD !== '0',
+    freshProduct: freshProductConfiguration(env),
     legacyFactory: legacyFactoryConfiguration(env.BEMINE_LEGACY_FACTORY),
     allowedProductFactories: (env.BEMINE_JOURNAL_FACTORIES || '').split(',').map(value => value.trim()).filter(Boolean),
     productDeploymentRecordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,

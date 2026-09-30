@@ -19,8 +19,9 @@ const statuses={ready:['待建子池','Ready to create'],creating:['建池结果
   buying:['采购结果待核对','Purchase needs reconciliation'],pending:['等待核对交易','Awaiting reconciliation'],completed:['已购入','Purchased'],failed:['本台已停止','Stopped'],skipped:['已跳过','Skipped']};
 
 /** Each explicit confirmation delegates one transaction to the parent's authenticated, locked journal lane. */
-export default function BudgetPurchaseQueue({config,provider,wallet,account,portfolio,disabled,onSend,onComplete,locale='zh-CN'}){
+export default function BudgetPurchaseQueue({config,provider,wallet,account,portfolio,disabled,onSend,onAuthenticate,onComplete,locale='zh-CN'}){
   const en=locale==='en',L=(zh,english)=>en?english:zh;
+  const relayed=config?.stage==='fresh-active';
   const [plan,setPlan]=useState(null),[draft,setDraft]=useState(null),[preview,setPreview]=useState(null),[busy,setBusy]=useState(false);
   const [error,setError]=useState(''),[stage,setStage]=useState(''),[limit,setLimit]=useState(''),[count,setCount]=useState('5'),[recoveryHash,setRecoveryHash]=useState('');
   const [queueReady,setQueueReady]=useState(false);
@@ -49,6 +50,14 @@ export default function BudgetPurchaseQueue({config,provider,wallet,account,port
     const revision=await writeBudgetQueue({config,account,parent,record:next,expectedRevision:serverRevision.current});
     serverRevision.current=revision;
     if(current(ticket)){setPlan(next);planRef.current=next;}return next;
+  }
+  async function connectQueue(){
+    if(frozen||!onAuthenticate)return;const ticket=++epoch.current;setBusy(true);setError('');
+    try{
+      await onAuthenticate();if(!current(ticket))return;
+      const view=await readBudgetQueue({config,account,parent});
+      if(current(ticket)){serverRevision.current=view.revision;planRef.current=view.record;setPlan(view.record);setQueueReady(true);}
+    }catch(problem){if(current(ticket))setError(brief(problem));}finally{if(current(ticket))setBusy(false);}
   }
   async function discover(){
     if(frozen)return;const ticket=++epoch.current;setBusy(true);setError('');setPreview(null);setDraft(null);
@@ -92,7 +101,7 @@ export default function BudgetPurchaseQueue({config,provider,wallet,account,port
   }
   async function reconcile(){
     if(busy||!unresolved||!wallet)return;const ticket=++epoch.current,previous=plan;setBusy(true);setError('');setPreview(null);
-    try{const next=await reconcileBudgetQueue({config,provider:wallet,account,parent,plan:previous,index,hash:recoveryHash.trim()||undefined});
+    try{const next=await reconcileBudgetQueue({config,provider:relayed?provider:wallet,wallet,account,parent,plan:previous,index,hash:recoveryHash.trim()||undefined});
       await persist(next,previous,ticket);if(current(ticket)){setRecoveryHash('');onComplete?.();}}
     catch(problem){if(current(ticket))setError(brief(problem));}finally{if(current(ticket))setBusy(false);}
   }
@@ -108,8 +117,9 @@ export default function BudgetPurchaseQueue({config,provider,wallet,account,port
   return <section className="budget-queue" aria-label={L('连续采购队列','Purchase queue')}>
     <div className="budget-queue-title"><ListChecks size={20}/><h3>{L('按预算连续采购','Purchase within the project budget')}</h3></div>
     <p>{L('系统先核对全部官网候选；没有符合限额的官网矿机时，才核验 Firsto。每台先创建子矿池，再由本项目合约购买，共两笔钱包确认。','The system checks complete official-market coverage first, then verified Firsto asks when no official miner fits. Each miner requires two wallet confirmations: create a child pool, then purchase through this project.')}</p>
-    <p className="budget-queue-note">{L('购机款来自项目预算，当前钱包只支付 Gas。两笔之间若有人认购子池，系统会暂停该台采购；已登记矿机不会释放或重复建池。','The project pays for miners; your wallet pays Gas. If someone funds a child between the two transactions, that purchase pauses. NFT reservations are permanent.')}</p>
+    <p className="budget-queue-note">{relayed?L('每台的建池与购机分别确认；任意一位已授权管理员可以依次签名两步。先建子池，核验最终回执后再签本台订单与最高支出。购机款来自项目预算，Gas 钱包代付手续费。签名不授予任意采购权限。','Creation and purchase need separate confirmations; either authorized administrator may sign both steps. Create the child, verify its finalized receipt, then sign its exact order and spending cap. The project funds the miner; the Gas wallet pays fees. This never grants arbitrary purchasing authority.'):L('购机款来自项目预算，当前钱包只支付 Gas。两笔之间若有人认购子池，系统会暂停该台采购；已登记矿机不会释放或重复建池。','The project pays for miners; your wallet pays Gas. If someone funds a child between the two transactions, that purchase pauses. NFT reservations are permanent.')}</p>
     {error&&<p className="budget-queue-error" role="alert"><AlertCircle size={16}/>{error}</p>}
+    {!queueReady&&onAuthenticate&&<button className="btn secondary" disabled={frozen||!wallet||!account} onClick={()=>void connectQueue()}>{L('连接并读取采购记录','Connect and load purchase records')}</button>}
     {busy&&<p role="status">{stage==='official'?L('正在核对官网候选…','Checking official listings…'):stage==='firsto'?L('官网无合适候选，正在逐页核验 Firsto…','No official candidate fits; verifying Firsto pages…'):L('正在核对交易，请稍候…','Checking the transaction…')}</p>}
     {(!plan||index<0)&&!draft&&<div className="budget-queue-controls"><label>{L('本批购机预算上限（BNB）','Batch spending limit (BNB)')}<input inputMode="decimal" value={limit} disabled={frozen} onChange={e=>setLimit(e.target.value)}/></label>
       <label>{L('最多采购台数','Maximum miners')}<input type="number" min="1" max="20" step="1" value={count} disabled={frozen} onChange={e=>setCount(e.target.value)}/></label>
@@ -123,9 +133,9 @@ export default function BudgetPurchaseQueue({config,provider,wallet,account,port
     {(draft||plan)?.firstoView&&<p className="budget-queue-note">{L('Firsto 候选来自当前报价快照的前 5 页，逐台核验后才可购买，不代表全站最低价。','Firsto candidates come from up to five pages of the current quote snapshot. Each order is verified before purchase; this is not a guarantee of the lowest market price.')}</p>}
     {plan&&index<0&&<p role="status">{L('本批已处理完毕。可以按剩余预算重新查找下一批。','This batch is finished. Review another batch within the remaining budget.')}</p>}
     {item&&!unresolved&&<div className="budget-queue-controls"><button className="btn" disabled={frozen} onClick={()=>void prepare()}><ArrowRight size={16}/>{item.status==='ready'?L('预览创建下一台子矿池','Preview next child creation'):L('预览由项目购买这台矿机','Preview project purchase')}</button><button className="btn secondary" disabled={frozen} onClick={()=>void skip()}>{L('跳过本台','Skip this miner')}</button></div>}
-    {unresolved&&<div className="budget-queue-recovery"><p>{L('先核对原交易，不会自动重发。可填写原交易、同 nonce 加速或取消交易哈希。','Reconcile the original transaction first. No automatic resend. Enter the original, speed-up or cancellation hash if needed.')}</p><input aria-label={L('交易哈希','Transaction hash')} value={recoveryHash} onChange={e=>setRecoveryHash(e.target.value)} placeholder="0x…"/><button className="btn secondary" disabled={busy||!wallet} onClick={()=>void reconcile()}>{L('只读核对并恢复','Reconcile and recover')}</button></div>}
+    {unresolved&&<div className="budget-queue-recovery"><p>{relayed?L('先核对 Gas 钱包的原交易或相同内容加速交易。取消或不同内容的交易须由运营核对，不会自动解锁重发。','Reconcile the Gas wallet transaction or a speed-up with identical content. Cancellations or changed content require operator review; they never unlock an automatic resend.'):L('先核对原交易，不会自动重发。可填写原交易、同 nonce 加速或取消交易哈希。','Reconcile the original transaction first. No automatic resend. Enter the original, speed-up or cancellation hash if needed.')}</p><input aria-label={L('交易哈希','Transaction hash')} value={recoveryHash} onChange={e=>setRecoveryHash(e.target.value)} placeholder="0x…"/><button className="btn secondary" disabled={busy||!wallet} onClick={()=>void reconcile()}>{L('只读核对并恢复','Reconcile and recover')}</button></div>}
     {preview&&current(preview.ticket)&&<div className="budget-queue-confirm" role="dialog" aria-modal="true" aria-label={L('确认本笔采购步骤','Confirm purchase step')}><h4>{preview.result.phase==='create'?L('第 1 笔：创建子矿池','Step 1: create child pool'):L('第 2 笔：项目合约采购','Step 2: project contract purchase')}</h4>
-      <p>{L('项目','Project')}: {shortAddress(parent)} · #{item?.tokenId}</p><p>{L('本钱包支付','Your wallet pays')}: 0 BNB + Gas</p>
+      <p>{L('项目','Project')}: {shortAddress(parent)} · #{item?.tokenId}</p><p>{relayed?L('本钱包仅签名，手续费由 Gas 钱包代付。','This wallet signs only; the Gas wallet pays transaction fees.'):L('本钱包支付：0 BNB + Gas','Your wallet pays: 0 BNB + Gas')}</p>
       {preview.result.procurement&&<><p title={`${formatEther(BigInt(preview.result.procurement.priceWei))} BNB`}>{L('项目本次矿机价格','Project miner price')}: {bnb(preview.result.procurement.priceWei)} BNB</p>{preview.result.procurement.route==='official'&&<p title={`${formatEther(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB`}>{L('含官网服务费的项目支出上限','Project spend ceiling incl. official fee')}: {bnb(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB</p>}</>}
       <p>{L('合约价格上限只约束矿机成交价，不包含官网 1% 服务费。官网费用在购机期结算时从余款扣除，且不超过剩余预算；多笔官网采购合并计费，实际尾数可能更低。Firsto 没有额外本项目采购费。','The contract price cap applies to the miner price, not the 1% official-market fee. The fee is deducted from the remaining project funds at acquisition settlement and capped by those funds. Multiple official purchases are charged together, so the final rounding may be lower. Firsto has no additional project purchase fee.')}</p>
       <div className="budget-queue-controls"><button className="btn secondary" disabled={busy} onClick={()=>setPreview(null)}>{L('返回','Back')}</button><button className="btn" disabled={frozen} onClick={()=>void submit()}>{L('发送这一笔到钱包','Send this step to wallet')}</button></div>

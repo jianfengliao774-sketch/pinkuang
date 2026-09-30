@@ -1,6 +1,6 @@
-# v4 产品前端独立接线（候选包）
+# v4 产品前端、后台与独立发布
 
-本分支只准备 `/bemine-v4/` 静态前端与新合约图的接线，不安装线上服务，也不发送链上交易。部署台 `/pinkuang-deploy-v4/` 的 16 笔部署和 7 笔 Authority 接线是另外的链上流程。未取得完整回执、独立索引、审核代发与购机服务验收前，候选包中的 `activationAllowed` 固定为 `false`。
+本分支将 `/bemine-v4/` 静态前端、独立产品 API、索引和后台自动化接到已经完成部署的新合约图。部署台 `/pinkuang-deploy-v4/` 的 16 笔部署和 7 笔 Authority 接线保留原始证据，不重部署或覆盖。构建出的候选包 `activationAllowed` 固定为 `false`；现场启用使用 [分阶段发布工具](PRODUCT-RUNTIME.md)，要求完整回执、实际索引、审核代发与采购/挖矿服务验收。构建和签名产物本身不发送链上交易。
 
 完成新图链上核验并生成新的 `integrated-v2` *结构格式*清单后，在独立检出目录执行：
 
@@ -24,6 +24,8 @@ node scripts/build-fresh-product.mjs C:/absolute/reviewed-fresh-manifest.json C:
 
 页面启动时只请求 `/bemine-v4/data/frontend-manifest.v4.json`、`/bemine-v4/api/journal/product-graph`，后续读取 `/bemine-v4/api/chain-index` 和 `/bemine-v4/api/rpc`。新清单内容由构建摘要固定；产品图必须为 `fresh-active`，且 Factory、预算 Factory、所有部署地址、代码摘要、Authority、部署交易及阶段区块与新清单一致。交易前同样重验该新图；历史快照仅供展示。旧 v2 的静态清单不作为 v4 信任根，旧页面预加载缓存不会在 v4 构建使用。
 
-当前服务端仍把新图的 `operationalReady` 固定为 `false`，`prepare-fresh-cutover.mjs` 也只输出禁用状态的 unit 草案。因此本构建不证明正式产品已经上线，也不能仅靠改前端变量开放交易。正式开放前需独立核对新图最终链上回执、产品 API、索引追到安全链头、钱包交易与 Authority 审核代付及自动购机的真实端到端结果，再用独立守卫激活；旧 v2 的 Factory、索引和资产不得接入这套服务。
+服务端已提供独立的 fresh 产品模式：只有 `127.0.0.1:4187`、明确的 `BEMINE_FRESH_PRODUCT_ENABLED=1`、精确双 Factory 清单及专用索引配置可进入。`operationalReady` 每次重新核对 `4184` 索引和私有 signer 的机器状态，要求同源码版本、真实运行的采购/挖矿进程、有效心跳、规范区块以及已停止的旧 Gas 发送端。部署和激活接口仍在公开产品进程禁用；前端不能自行更改变量绕过门禁。详细配置见 `docs/ops/v4/FRESH_PRODUCT_READINESS.md`。
 
-当前离线 cutover 草案继续设置 `BEMINE_FRESH_CONSOLE_PRE_GENESIS=1`，故候选页面只读，产品报价、预算队列和交易写入均未开放。不能单独把这个开关改为 `0`：还需另行实现并验收产品写入门禁、审核代付与自动购机，避免进入只有部分接口可写的状态。静态候选包与后端候选包必须用同一份新部署清单核对摘要，完成链上与本机探针后才可切换站点。
+普通成员领取、退款、撤单由用户钱包直接发送并支付 Gas。共享退出白名单仅在当前完整合约图验证通过时提供 `userExitReady`，不依赖平台 Gas 服务可用性；原有账户、精确调用、金额、nonce 和链上规则核验保留。历史快照只用于展示。购机本金由矿池按规则支付，Gas 钱包仅用于必要的后端自动化手续费和受管理员签名约束的平台调用。
+
+离线 `prepare-fresh-cutover.mjs` 继续输出禁用草案，不应直接作为正式产品的 systemd 单元使用。产品实例必须与部署台 `4177` 分开，用独立数据库与严格产品模式配置；启用需通过完整链上及实际运行验收。静态候选包与后端候选包必须使用同一份新部署清单、源码提交和已验签的真实 CI 产物，完成链上与本机探针后才可切换站点。旧 v2 的 Factory、索引和资产不接入这套新图。

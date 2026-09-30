@@ -28,13 +28,13 @@ test('genesis stage accepts old selectors but rejects candidate-only Factory met
   assert.throws(() => validateProductTransactionStage({ ...upgraded, artifactDigest: pinnedGenesis.artifactDigest }, oldCall, 'claim'));
 });
 
-test('a verified fresh graph remains read-only until its product services are active', () => {
+test('a verified fresh graph without a user-exit attestation remains read-only until services are active', () => {
   const transaction = { from: account, to: pool, chainId: '0x38', value: '0',
     data: abi.PoolVault.encodeFunctionData('claim') };
   const fresh = { ...config, stage: 'fresh-active', artifactDigest: ARTIFACT_DIGEST,
     manifest: { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST }, operationalReady: false };
   assert.throws(() => validateProductTransactionStage(fresh, transaction, 'claim'),
-    /产品交易服务尚未启用/);
+    /新增交易服务尚未启用/);
   assert.equal(validateProductTransactionStage({ ...fresh, operationalReady: true }, transaction, 'claim').action.kind, 'claim');
 });
 

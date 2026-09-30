@@ -10,6 +10,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JournalStore, JournalConflict } from '../../deploy/server/journal-store.mjs';
+import { abi } from '../lib/chain-client.mjs';
 const address=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`),H=`0x${'a'.repeat(64)}`,D=`0x${'d'.repeat(64)}`;
 const C=getAddress('0xb1024b89886b9a34aa4ff5f31c411d708b20a14c'),account=address(1),parent=address(2),factory=address(3),portfolioFactory=address(4),child=address(5);
 const config={kind:'integrated-v2',factory,portfolioFactory,artifactDigest:D,stage:'role-wired',operationalReady:true};
@@ -32,7 +33,7 @@ function final(phase,overrides={}){return{status:'confirmed',finalized:true,acco
   factory:phase==='create'?factory:portfolioFactory,action:phase==='create'?'createBudgetChildPool':'buyOfficial',hash:H,nonce:4,poolAddress:child,
   receipt:{transactionHash:H,status:1},...overrides};}
 
-test('genesis and fresh Authority stages cannot discover or submit a budget child purchase',async()=>{
+test('genesis and incomplete fresh Authority configuration cannot discover or submit a budget child purchase',async()=>{
   const f=fixture();let reads=0;
   for(const stage of ['genesis','fresh-active']){
     const blocked={...config,stage};
@@ -42,6 +43,8 @@ test('genesis and fresh Authority stages cannot discover or submit a budget chil
   }
   assert.equal(budgetPurchaseQueueSupported({...config,operationalReady:false}),false);
   assert.equal(budgetPurchaseQueueSupported(config),true);
+  assert.equal(budgetPurchaseQueueSupported({...config,stage:'fresh-active',authority:address(10),gasWallet:address(11)}),true);
+  assert.equal(budgetPurchaseQueueSupported({...config,stage:'fresh-active',authority:address(10),gasWallet:address(11),transactionReady:false}),false);
   assert.equal(reads,0);
 });
 
@@ -175,4 +178,38 @@ test('recovery only reads: an empty journal is not permission to resend; archive
   await assert.rejects(reconcileBudgetQueue({config,provider,account,parent,plan:begun,index:0,hash:H,fetcher}),/differs/);
   input='0x1234';const recovered=await reconcileBudgetQueue({config,provider,account,parent,plan:begun,index:0,hash:H,fetcher});
   assert.equal(recovered.items[0].status,'created');assert(calls.every(method=>['eth_accounts','eth_chainId','eth_getTransactionByHash'].includes(method)));
+});
+
+test('fresh queue binds two independent Authority commands and persists the confirmed child before exact-cost purchase',async()=>{
+  const f=fixture([candidate(1)]),fresh={...config,stage:'fresh-active',authority:address(10),gasWallet:address(11)},
+    plan={...await f.discover(),approved:true};
+  const create=await prepareBudgetQueueStep({config:fresh,provider:{},account,parent,plan,index:0,
+    readParent:f.readParent,readMiner:f.readMiner,prepareCreate:async({params,subscriber})=>({
+      transaction:{from:account,to:factory,chainId:'0x38',value:'0x0',data:abi.PoolFactory.encodeFunctionData('createBudgetChildPool',[
+        [params.circuits,params.circuitId,params.targetRaiseWei,params.priceCapWei,ZeroAddress,0n,params.fundingDeadline,params.purchaseDeadline],subscriber])},
+    })});
+  assert.equal(create.authority.kind,'executeApprovedOperation');
+  assert.equal(create.authority.args.target,factory);
+  const begun=beginBudgetQueueStep(plan,create);
+  assert.deepEqual(begun.items[0].intent.authority,create.authority);
+  await assert.rejects(prepareBudgetQueueStep({config:fresh,provider:{},account,parent,plan:begun,index:0}),/未知/);
+  const created=applyBudgetQueueResult(begun,0,final('create'));
+  const buy=await prepareBudgetQueueStep({config:fresh,provider:{},account,parent,plan:created,index:0,
+    readParent:f.readParent,readMiner:async()=>({...await f.readMiner(),registry:{ready:true,pool:child}}),
+    preparePurchase:async()=>({row:{pool:parent},transaction:{from:account,to:parent,chainId:'0x38',value:'0x0',
+      data:abi.BudgetPortfolioVault.encodeFunctionData('buyOfficial',[child,1n])},
+      action:{kind:'buyOfficial',targetType:'portfolio'},procurement:{route:'official',child,priceWei:199n,capWei:200n}})});
+  assert.deepEqual(buy.authority,{kind:'buyBudgetOfficial',args:{portfolio:parent,child,maxCost:'199',listingId:'1'}});
+  const buying=beginBudgetQueueStep(created,buy);
+  assert.equal(buying.items[0].creationHash,H);assert.equal(buying.items[0].hash,undefined);
+  assert.deepEqual(buying.items[0].intent.authority,buy.authority);
+  assert.equal(budgetQueuePreviewMatches(buy,{...buy,authority:{...buy.authority,args:{...buy.authority.args,maxCost:'200'}}}),false);
+  assert.equal(applyBudgetQueueResult(buying,0,final('purchase')).items[0].status,'completed');
+});
+
+test('queue preview rejects official listing replacement rather than silently substituting an approved source',async()=>{
+  const f=fixture(),plan={...await f.discover(),approved:true};
+  await assert.rejects(prepareBudgetQueueStep({config,provider:{},account,parent,plan,index:0,
+    readParent:f.readParent,readMiner:async()=>({...await f.readMiner(),official:{id:'999',priceWei:'200'}}),
+    prepareCreate:()=>{throw Error('must not build a changed listing');}}),/Official listing or purchase source changed/);
 });

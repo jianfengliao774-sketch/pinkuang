@@ -182,6 +182,18 @@ test('mutating CLI requires its own systemd unit with reciprocal sender exclusio
     property === 'After' ? '' : query(unit, property), 123), /must conflict/);
 });
 
+test('Authority recovery explicitly excludes the v4 mining sender at preflight and inside the transient unit', () => {
+  const mining = 'pinkuang-v4-mining.service';
+  assert(AUTHORITY_RECOVERY_SENDERS.includes(mining));
+  assert.throws(() => requireAuthorityRecoverySendersStopped(unit => unit === mining ? 'active' : 'inactive'),
+    /Stop and reconcile pinkuang-v4-mining/);
+  for (const omitted of ['Conflicts', 'After']) {
+    assert.throws(() => requireAuthorityRecoveryUnit((_unit, property) => property === 'MainPID' ? '123'
+      : AUTHORITY_RECOVERY_SENDERS.filter(unit => property !== omitted || unit !== mining).join(' '), 123),
+    /must conflict with and follow pinkuang-v4-mining/);
+  }
+});
+
 test('Authority recovery refuses links or public permissions in its private path chain', () => {
   const base = mkdtempSync(join(tmpdir(), 'authority-cli-paths-'));
   try {

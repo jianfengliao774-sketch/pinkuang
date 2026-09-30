@@ -110,7 +110,7 @@ jobs:
         run: |
           for test_file in deploy/ops/v2/test-*.py deploy/ops/v3/test-*.py deploy/ops/v4/test-*.py; do
             case "$test_file" in
-              deploy/ops/v4/test-install-attestor.py|deploy/ops/v4/test-release-stage2-hold.py)
+              deploy/ops/v4/test-install-attestor.py|deploy/ops/v4/test-release-stage2-hold.py|deploy/ops/v4/test-product-runtime.py)
                 # These tests use only temporary files and a fake service host,
                 # but must exercise actual POSIX root ownership checks.
                 sudo env HOLD_DEPLOY_ROOT="$PWD/deploy" "$(command -v python)" -B "$test_file" ;;

@@ -62,10 +62,10 @@ test('fresh console runtime allowlist includes the complete static import closur
 test('independent product backend package closes both API and index entrypoints', () => {
   const files=new Map(PRODUCT_BACKEND_MODULES.map(name=>[name,readFileSync(join(deploy,name))]));
   assert.equal(verifyRuntimeClosure(files,PRODUCT_BACKEND_MODULES,
-    ['server/index.mjs','server/chain-index/server.mjs']),PRODUCT_BACKEND_MODULES.length);
+    ['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs','scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs']),PRODUCT_BACKEND_MODULES.length);
   files.delete('server/chain-index/portfolio-notifications.mjs');
   assert.throws(()=>verifyRuntimeClosure(files,PRODUCT_BACKEND_MODULES,
-    ['server/index.mjs','server/chain-index/server.mjs']),/Missing packaged runtime module/);
+    ['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs','scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs']),/Missing packaged runtime module/);
 });
 
 test('pre-genesis package contains only fresh dist and required runtime files', async () => {

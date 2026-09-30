@@ -1,14 +1,16 @@
 import { getAddress } from 'ethers';
 import { displayAmount } from './amount-display.mjs';
+import { freshUserExitReady } from './fresh-user-exits.mjs';
 
 export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding'];
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 /** Formatting never feeds back into transaction amounts. */
 export const amount = displayAmount;
 /** Shared UI provenance gate; transaction preparation still rechecks the chain. */
-export function currentActionSourceReady({ client, config, source }) {
+export function currentActionSourceReady({ client, config, source, action, targetType='pool' }) {
   const v4Ready = config?.productFamily !== 'fresh-v4'
-    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false;
+    || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
+    || freshUserExitReady(config,targetType,action);
   return !!client && !!config && !!source && source.stale !== true
     && source.readMode !== 'verified_snapshot' && v4Ready;
 }

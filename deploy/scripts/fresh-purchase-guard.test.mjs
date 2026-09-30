@@ -52,11 +52,11 @@ test('fresh auto purchase requires a current canonical graph before signing', as
   const guard = configureFreshPurchase(options(), env, dependencies);
   const block = { number: 1, timestamp: Math.floor(Date.now() / 1000), hash: '0x'+'f'.repeat(64) };
   const provider = { getNetwork: async () => ({ chainId: 56n }), getBlock: async () => block };
-  const graph = { freshFactoryVerified: true, freshAuthority: { address: authority, gasWallet }, addresses: { factory } };
+  const graph = { freshFactoryVerified: true, artifactDigest: '0x'+'1'.repeat(64), freshAuthority: { address: authority, gasWallet, codehash:'0x'+'2'.repeat(64) }, addresses: { factory, shareMarket:authority,portfolioFactory:factory,portfolioShareMarket:authority } };
   let checks = 0;
-  const proof = await verifyFreshPurchaseGraph(provider, options(), guard, { verifyGraph: async () => { checks++; return graph; } });
+  const proof = await verifyFreshPurchaseGraph(provider, options(), guard, { verifyDrain:async()=>{checks++;}, verifyGraph: async () => { checks++; return graph; } });
   assert.equal(proof.block, block);
-  assert.equal(checks, 1);
+  assert.equal(checks, 2);
   await assert.rejects(verifyFreshPurchaseGraph(provider, options(), guard,
     { verifyGraph: async () => ({ ...graph, freshFactoryVerified: false }) }), /graph/);
   await assert.rejects(verifyFreshPurchaseGraph({ ...provider, getNetwork: async () => ({ chainId: 97n }) },

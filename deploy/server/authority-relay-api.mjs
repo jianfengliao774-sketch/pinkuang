@@ -1,3 +1,4 @@
+import { createFreshMachineReadiness } from './fresh-machine-readiness.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
@@ -84,6 +85,7 @@ function privatePath(path, directory = false) {
 
 export function authorityRelayConfiguration(env = process.env) {
   if (env.AUTHORITY_RELAY_ENABLED !== '1') return null;
+  if (env.AUTHORITY_REQUIRE_FRESH_READINESS !== '1') throw new Error('Fresh relay requires machine readiness verification.');
   const origin = env.DEPLOYMENT_JOURNAL_ORIGIN, rpcUrl = env.DEPLOYMENT_JOURNAL_RPC_URL;
   if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://'))
     throw new Error('Authority relay requires the exact HTTPS journal origin.');
@@ -107,7 +109,7 @@ export function authorityRelayConfiguration(env = process.env) {
     'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH', 'BEMINE_PRODUCT_ACTIVATION_PATH']) {
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Authority relay requires ${key}.`);
   }
-  return { origin, rpcUrl, journal, maxGasWei, maxGasPrice, expectedGasWallet,
+  return { origin, rpcUrl, journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
     dbPath: env.DEPLOYMENT_JOURNAL_DB, recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
@@ -267,8 +269,11 @@ export function createAuthorityRelayService(config, dependencies = {}) {
       || graph.freshAuthority.codehash.toLowerCase()
         !== (trusted.freshAuthority.authority.codehash ?? graph.freshAuthority.codehash).toLowerCase())
       fail(409, 'Fresh Authority graph is not verified and active.');
-    return graph;
+    return {...graph,blockHash:block.hash};
   }
+
+  const machineReadiness = config.requireMachineReadiness
+    ? (dependencies.machineReadiness ?? createFreshMachineReadiness({provider,verifyGraph:freshGraph})) : null;
 
   function rate(account) {
     const stamp = Date.now(), key = account.toLowerCase();
@@ -302,6 +307,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   }
 
   async function submit(command, account) {
+    if (machineReadiness) await machineReadiness();
     if (!command || typeof command !== 'object' || Array.isArray(command)) fail(400, 'Invalid administrator command.');
     let prepared;
     try { prepared = prepareAuthorityCall(command); }
@@ -334,6 +340,10 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   }
 
   return {
+    readiness: async () => {
+      if (closed || !machineReadiness) fail(503, "Fresh machine readiness is unavailable.");
+      return machineReadiness();
+    },
     handle(req, res) {
       const task = (async () => {
         try {

@@ -38,6 +38,8 @@ export function validateReadRpc(payload) {
   const valid = {
     eth_chainId: () => p.length === 0,
     eth_blockNumber: () => p.length === 0,
+    eth_getTransactionByHash: () => p.length === 1 && typeof p[0] === 'string' && HASH.test(p[0]),
+    eth_getTransactionReceipt: () => p.length === 1 && typeof p[0] === 'string' && HASH.test(p[0]),
     eth_getBlockByNumber: () => p.length === 2 && BLOCK(p[0]) && p[1] === false,
     eth_getCode: () => p.length === 2 && typeof p[0] === 'string' && ADDRESS.test(p[0]) && BLOCK(p[1]),
     eth_getStorageAt: () => p.length === 3 && typeof p[0] === 'string' && ADDRESS.test(p[0])

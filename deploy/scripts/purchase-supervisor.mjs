@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, createKeeperRuntime, KEEPER_STATE_ROOT,
   readJournal, runKeeperCycle, writeJournal } from './purchase-keeper.mjs';
+import { createFreshWorkerReadiness } from './fresh-worker-readiness.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
 const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function allPools(uint256) view returns(address)'];
@@ -137,10 +138,10 @@ export async function main(args = process.argv.slice(2)) {
   if (options.send && process.env.BEMINE_PRODUCT_ACTIVATION_PATH && !options.freshGraph)
     throw new Error('Fresh product runtime requires --fresh-graph before automatic purchases.');
   const releaseFactory = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'purchase-factories', `56-${options.factory.toLowerCase()}`));
-  let stopping = false;
+  let stopping = false, heartbeat = null;
   const state = { pools: [], cursor: 0, runtimes: new Map() };
   const stop = () => {
-    stopping = true;
+    stopping = true; heartbeat?.clear();
     for (const runtime of state.runtimes.values()) {
       for (const current of [runtime, runtime.autoOfficial, runtime.autoFirsto].filter(Boolean)) {
         current.stopped = true;
@@ -153,11 +154,11 @@ export async function main(args = process.argv.slice(2)) {
   const provider = new JsonRpcProvider(request);
   try {
     let signer = null;
-    let freshGuard = null;
+    let freshGuard = null, fresh = null;
     if (options.freshGraph) {
-      const fresh = await import('./fresh-purchase-guard.mjs');
+      fresh = await import('./fresh-purchase-guard.mjs');
       freshGuard = fresh.configureFreshPurchase(options);
-      await fresh.verifyFreshPurchaseGraph(provider, options, freshGuard);
+      await fresh.verifyFreshPurchaseGraph(provider, {...options,reconcileExisting:true}, freshGuard);
       options.verifyBeforeSend = (currentProvider, pool) =>
         fresh.verifyFreshPurchasePool(currentProvider, options, freshGuard, pool);
     }
@@ -168,12 +169,16 @@ export async function main(args = process.argv.slice(2)) {
       mkdirSync(options.journalDir, { recursive: true, mode: 0o700 });
       if ((statSync(options.journalDir).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
     }
+    if (options.send && freshGuard) heartbeat = createFreshWorkerReadiness('purchase');
     do {
       try {
+        const proof = freshGuard ? await fresh.verifyFreshPurchaseGraph(provider,{...options,reconcileExisting:true},freshGuard) : null;
         const result = await runSupervisorCycle(provider, options, signer, state);
         console.log(serial({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
         if (reportOperatorReview(result.results)) break;
+        if (heartbeat && !stopping) heartbeat.publish(proof.graph,proof.block,result);
       } catch (error) {
+        heartbeat?.clear();
         const message = String(error.shortMessage ?? error.message ?? 'Purchase supervisor cycle failed.')
           .replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]')
           .split(signer?.privateKey ?? '\0').join('[redacted]');
