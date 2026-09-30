@@ -17,6 +17,7 @@ export const STAGE2_SIGNER_MODULES=Object.freeze([
   'server/authority-signer.mjs', 'server/fresh-activation-journal.mjs',
   'server/journal-store.mjs', 'server/product-graph.mjs',
   'server/request-limiter.mjs', 'shared/authority-typed.mjs',
+  'shared/fresh-activation-execution.mjs', 'shared/fresh-activation-chain-proof.mjs',
   'shared/firsto-upgrade-proof.mjs', 'shared/gas-signer-attestation.mjs',
   'shared/integrated-upgrade-plan.mjs', 'shared/original-gas-wallet.mjs',
   'src/firsto-purchase.mjs',

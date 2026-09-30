@@ -1,4 +1,5 @@
 import { ContractFactory, Interface, getAddress, getCreateAddress, keccak256, parseEther, parseUnits } from 'ethers';
+import { isFreshActivationWrapper, verifyWrappedFreshActivation } from '../shared/fresh-activation-chain-proof.mjs';
 
 export const FRESH_ACTIVATION_STEPS = [
   'deployAuthority', 'coreOperator', 'coreTreasury', 'budgetOperator',
@@ -259,7 +260,7 @@ async function assertAnchorStillCanonical(provider, receipts, finalized, latest,
   return {finalizedTag,latestTag};
 }
 
-async function verifyPrefixAt(provider, record, genesis, account, completed, block, bundle) {
+export async function verifyFreshPrefixAt(provider, record, genesis, account, completed, block, bundle) {
   const deny = () => { throw new Error('Finalized fresh activation recovery proof failed.'); };
   const g=record.genesis;
   const read=async(to,iface,name,args=[])=>iface.decodeFunctionResult(name,
@@ -333,7 +334,7 @@ async function expectedDataHash(record,index,bundle) {
   return target && destination ? keccak256(FACTORY_WRITE.encodeFunctionData(method,[destination])) : null;
 }
 
-async function proveAttemptWinner(provider,record,account,index,step,bundle,commonAnchor) {
+async function proveAttemptWinner(provider,record,genesis,account,index,step,bundle,commonAnchor) {
   const deny=()=>{throw new Error('Finalized fresh activation recovery proof failed.');};
   const winnerHash=step.replacementHash??step.txHash;
   if (!HASH.test(winnerHash) || !validReceipt(step.receipt)
@@ -354,7 +355,11 @@ async function proveAttemptWinner(provider,record,account,index,step,bundle,comm
       || step.replacementHash.toLowerCase()===step.txHash?.toLowerCase())) deny();
   if (!step.replacementHash) {
     const target=index===0?null:EXPECTED_ACTIONS(record.genesis)[index][0];
-    if (!sameAddress(tx.to,target) && !(target===null && tx.to===null)
+    if(isFreshActivationWrapper(tx)) await verifyWrappedFreshActivation(provider,record,step,tx,receipt,{
+      historicalPrefix:!commonAnchor,
+      verifyPrefix:(completed,block)=>verifyFreshPrefixAt(provider,record,genesis,account,completed,block,bundle),
+    });
+    else if (!sameAddress(tx.to,target) && !(target===null && tx.to===null)
       || tx.value!==0n || keccak256(tx.data)!==step.dataHash) deny();
   }
   const anchors=commonAnchor??await currentChainAnchor(provider);
@@ -378,15 +383,15 @@ export async function verifyFinalizedFreshAttempt(provider,record,genesis,accoun
     || !HASH.test(winnerHash) || (step.replacementHash??step.txHash)?.toLowerCase()!==winnerHash.toLowerCase()
     || !record.steps.slice(0,index).every(item=>item.status==='confirmed')
     || !record.steps.slice(index+1).every(item=>item.status==='waiting')) deny();
-  const proof=await proveAttemptWinner(provider,record,account,index,step,bundle);
+  const proof=await proveAttemptWinner(provider,record,genesis,account,index,step,bundle);
   const {finalized,latest}=proof.anchors;
   for (const block of finalized.hash===latest.hash?[finalized]:[finalized,latest])
-    await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,block,bundle);
   const checked=await assertAnchorStillCanonical(provider,[proof.receipt],finalized,latest);
   if (checked.finalizedTag.hash!==finalized.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
   if (checked.latestTag.hash!==latest.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
   // State reads can race a reorg. Recheck every evidence block after the last
   // role/code call, including both original and refreshed anchors.
   await assertAnchorStillCanonical(provider,[proof.receipt],finalized,latest,
@@ -407,7 +412,7 @@ export async function verifyRecoveredFreshSigning(provider,record,genesis,accoun
   const commonAnchor=await currentChainAnchor(provider);
   const receipts=[],archivedAnchors=[];
   for (let i=0;i<=index;i++) for (const attempt of record.steps[i].attempts??[]) {
-    const proof=await proveAttemptWinner(provider,record,account,i,attempt,bundle,commonAnchor);
+    const proof=await proveAttemptWinner(provider,record,genesis,account,i,attempt,bundle,commonAnchor);
     const archived=attempt.recovery;
     if (!archived || !Number.isSafeInteger(archived.finalizedBlockNumber)
       || archived.finalizedBlockNumber < proof.receipt.blockNumber
@@ -419,13 +424,32 @@ export async function verifyRecoveredFreshSigning(provider,record,genesis,accoun
   if (!receipts.length) return;
   for (const block of commonAnchor.finalized.hash===commonAnchor.latest.hash
     ?[commonAnchor.finalized]:[commonAnchor.finalized,commonAnchor.latest])
-    await verifyPrefixAt(provider,record,genesis,account,index,block,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,block,bundle);
   const checked=await assertAnchorStillCanonical(provider,receipts,
     commonAnchor.finalized,commonAnchor.latest,archivedAnchors);
   if (checked.finalizedTag.hash!==commonAnchor.finalized.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,checked.finalizedTag,bundle);
   if (checked.latestTag.hash!==commonAnchor.latest.hash)
-    await verifyPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
+    await verifyFreshPrefixAt(provider,record,genesis,account,index,checked.latestTag,bundle);
   await assertAnchorStillCanonical(provider,receipts,
     commonAnchor.finalized,commonAnchor.latest,[...archivedAnchors,checked.finalizedTag,checked.latestTag]);
+}
+
+/** Newly confirmed role operations are independently read before journal acceptance. */
+export async function verifyConfirmedFreshActivation(provider,record,previous,genesis,account,bundle) {
+  for(let i=1;i<record.steps.length;i++){
+    const step=record.steps[i];
+    if(step.status!=='confirmed' || previous?.steps?.[i]?.status==='confirmed')continue;
+    const [tx,receipt]=await Promise.all([provider.getTransaction(step.txHash),provider.getTransactionReceipt(step.txHash)]);
+    if(!tx || !receipt)throw new Error('Confirmed activation receipt is unavailable.');
+    if(!isFreshActivationWrapper(tx))continue; // Existing direct envelope validation remains unchanged.
+    if(receipt.status!==1 || receipt.blockNumber!==step.receipt.blockNumber
+      || receipt.blockHash!==step.receipt.blockHash || receipt.fee.toString()!==step.receipt.feeWei
+      || step.dataHash!==await expectedDataHash(record,i,bundle))
+      throw new Error('Confirmed wrapped activation differs from the immutable journal.');
+    await verifyWrappedFreshActivation(provider,record,step,tx,receipt,{
+      includeCurrent:true,
+      verifyPrefix:(completed,block)=>verifyFreshPrefixAt(provider,record,genesis,account,completed,block,bundle),
+    });
+  }
 }

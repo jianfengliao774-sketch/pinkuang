@@ -144,6 +144,7 @@ async function fixture(provider = chainProof(), currentArtifactDigest = () => he
   const request = async (path, method = 'GET', body, cookie, requestOrigin = origin, extraHeaders = {}) => {
     const response = await fetch(`${base}${path}`, { method,
       headers: { ...(method === 'GET' ? {} : { Origin: requestOrigin, 'Content-Type': 'application/json' }),
+        ...(path.startsWith('/api/journal/fresh-activation') ? {'X-Pinkuang-Activation-Protocol':'2'} : {}),
         ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: await response.json(), cookie: response.headers.get('set-cookie') };
@@ -1085,4 +1086,24 @@ test('journal refuses a group-readable database directory, including its WAL fil
     assert.throws(() => createJournalService({ dbPath: join(directory, 'journal.sqlite'), origin,
       provider: chainProof(), currentArtifactDigest: () => hex(5) }), /private/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('Stage 2 protocol handshake rejects authenticated old tabs before reading or writing activation',async()=>{
+  const f=await fixture();
+  try {
+    const {cookie}=await f.login(wallet);
+    for(const version of ['','1','3']) for(const [path,method] of [
+      ['/api/journal/fresh-activation/config','GET'],['/api/journal/fresh-activation','GET'],
+      ['/api/journal/fresh-activation','PUT'],['/api/journal/fresh-activation/release-unused-signing','POST'],
+      ['/api/journal/fresh-activation/recover-finalized-attempt','POST'],
+    ]){
+      const result=await f.request(path,method,method==='GET'?undefined:{},cookie,origin,
+        {'X-Pinkuang-Activation-Protocol':version});
+      assert.equal(result.status,426);
+      assert.match(result.body.error,/部署台已更新/);
+    }
+    assert.equal((await f.request('/api/journal/fresh-activation','GET',undefined,cookie)).status,200);
+    assert.equal((await f.request('/api/journal/deployment','GET',undefined,cookie)).status,200);
+  } finally {await f.close();}
 });

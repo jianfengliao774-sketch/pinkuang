@@ -1,3 +1,4 @@
+import { isFreshActivationWrapper, verifyWrappedFreshActivation } from '../shared/fresh-activation-chain-proof.mjs';
 import { lstatSync, readFileSync } from 'node:fs';
 import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof, evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
@@ -216,10 +217,19 @@ export async function verifyFreshAuthority(provider,record,bundle,evidence,block
     check(tx && receipt && inclusion && receipt.status===1 && receipt.blockNumber===step.blockNumber
       && same(receipt.blockHash,step.blockHash) && same(inclusion.hash,step.blockHash)
       && step.blockNumber<=block.number && same(tx.hash,step.txHash)
-      && same(tx.from,record.account) && (expected[index].to===null ? tx.to===null : same(tx.to,expected[index].to))
-      && same(tx.data,expected[index].data) && tx.value===0n
+      && same(tx.from,record.account) && tx.value===0n
       && (index===0 ? same(receipt.contractAddress,authority.address) : receipt.contractAddress===null),
     `Fresh Authority transaction ${step.id} differs from the finalized reviewed action.`);
+    if(index>0 && isFreshActivationWrapper(tx)){
+      const activation={schemaVersion:1,kind:'fresh-authority',chainId:56,account:record.account,
+        authorityAddress:authority.address,genesis:{factory:a.factory,portfolioFactory:a.portfolioFactory,timelock:a.timelock},steps};
+      const plannedStep={...step,nonce:tx.nonce,dataHash:keccak256(expected[index].data)};
+      // Historical receipts remain independently checkable after RPC state
+      // pruning. The complete current graph is verified by verifyProductGraph;
+      // this proves the immutable role transition, not a past account runtime.
+      await verifyWrappedFreshActivation(provider,activation,plannedStep,tx,receipt,{historicalPrefix:false});
+    } else check((expected[index].to===null?tx.to===null:same(tx.to,expected[index].to))
+      && same(tx.data,expected[index].data),`Fresh Authority transaction ${step.id} has an unreviewed envelope.`);
     return {step,tx,receipt};
   }));
   check(read.every((item,index)=>index===0 || item.step.blockNumber>=read[index-1].step.blockNumber

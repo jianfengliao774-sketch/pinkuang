@@ -158,3 +158,20 @@ test('fresh activation config exposes the server hold and an unverified public G
     await assert.rejects(journal.freshActivationCredentialStatus(), /状态格式异常/);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test('every fresh-activation request advertises recovery protocol 2 and 426 asks an old tab to reload',async()=>{
+  const originalFetch=globalThis.fetch;
+  const seen:string[]=[];
+  globalThis.fetch=async(_input,init)=>{
+    assert.equal(new Headers(init?.headers).get('X-Pinkuang-Activation-Protocol'),'2');
+    seen.push(String(_input));
+    return new Response(JSON.stringify({error:'部署台已更新，请刷新页面后继续。'}),{status:426});
+  };
+  try{
+    const journal=new ServerJournal('0x1111111111111111111111111111111111111111');
+    await assert.rejects(journal.freshActivationCredentialStatus(),/部署台已更新/);
+    await assert.rejects(journal.loadFreshActivation(),/部署台已更新/);
+    assert.equal(seen.length,2);
+  }finally{globalThis.fetch=originalFetch;}
+});
