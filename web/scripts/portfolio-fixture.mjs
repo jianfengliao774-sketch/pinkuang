@@ -75,7 +75,7 @@ export function portfolioFixture(options={}) {
     if(path.endsWith('/portfolio-orders'))return {source:source(),data:{items:[{orderId:'1',pool:PORTFOLIOS[0],seller:FIXTURE_OTHER_ACCOUNT,remaining:'5',pricePerUnitWei:'100'}],nextCursor:null}};
     if(path.endsWith('/v1/yield')&&PORTFOLIOS.some(pool=>same(pool,u.searchParams.get('pool')||''))){
       const days=Number(u.searchParams.get('days')||7),last=new Date((source().indexedTimestamp+28800)*1000).toISOString().slice(0,10);
-      return {source:source(),data:{scope:'pool',pool:u.searchParams.get('pool'),account:u.searchParams.get('account')||null,timezone:'Asia/Shanghai',token:'BEM',tokenDecimals:8,accountUnclaimedDailyAccrual:null,
+      return {source:source(),data:{scope:'portfolio',pool:u.searchParams.get('pool'),account:u.searchParams.get('account')||null,timezone:'Asia/Shanghai',token:'BEM',tokenDecimals:8,accountUnclaimedDailyAccrual:null,
         buckets:Array.from({length:days},(_,i)=>({date:new Date(Date.parse(`${last}T00:00:00Z`)-(days-i-1)*86400000).toISOString().slice(0,10),poolHarvestNetAtomic:'100000000',accountClaimedAtomic:u.searchParams.get('account')?'50000000':null}))}};
     }
     if(path.endsWith('/v1/activity')&&PORTFOLIOS.some(pool=>same(pool,u.searchParams.get('pool')||'')))return {source:source(),data:{items:[],nextCursor:null}};

@@ -1,6 +1,6 @@
-/** Display only: round half away from zero to three places using integers.
+/** Display only: round half away from zero to five places using integers.
  * Never use these strings to construct calldata, quotes or transaction values. */
-export function displayAmount(value, decimals = 18, places = 3) {
+export function displayAmount(value, decimals = 18, places = 5) {
   if (value === null || value === undefined) return '—';
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 80) throw new Error('Invalid display decimals');
   if (!Number.isInteger(places) || places < 1 || places > 18) throw new Error('Invalid display precision');
@@ -15,7 +15,7 @@ export function displayAmount(value, decimals = 18, places = 3) {
 }
 
 /** Keep small, positive subscription prices visible without changing their wei value. */
-export function displayPreciseAmount(value, decimals = 18, places = 3) {
+export function displayPreciseAmount(value, decimals = 18, places = 5) {
   if (value === null || value === undefined) return '—';
   const atomic = BigInt(value);
   if (atomic < 0n) throw new Error('Invalid positive amount');
@@ -26,9 +26,9 @@ export function displayPreciseAmount(value, decimals = 18, places = 3) {
 export function displayGasFee(wei) {
   const value = BigInt(wei);
   if (value < 0n) throw new Error('Invalid Gas fee');
-  const unit = 10n ** 15n;
+  const unit = 10n ** 13n;
   const rounded = (value + unit - 1n) / unit;
-  return `${rounded / 1000n}.${(rounded % 1000n).toString().padStart(3, '0')}`;
+  return `${rounded / 100000n}.${(rounded % 100000n).toString().padStart(5, '0')}`;
 }
 
 /** Decimal input is a presentation source only; preserve its original elsewhere. */

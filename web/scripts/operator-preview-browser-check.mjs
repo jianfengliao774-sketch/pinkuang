@@ -23,8 +23,8 @@ try {
   const dialog = page.getByRole('dialog', { name: '确认运营操作' });
   await dialog.waitFor();
   assert.match(await dialog.innerText(), /5500/);
-  assert.match(await dialog.innerText(), /1\.515 BNB/);
-  assert.match(await dialog.innerText(), /1\.667 BNB/);
+  assert.match(await dialog.innerText(), /1\.51500 BNB/);
+  assert.match(await dialog.innerText(), /1\.66700 BNB/);
   assert.equal(await page.locator('.operator-preview-overlay').count(), 1);
   assert(await dialog.getByRole('button', { name: '发送到钱包确认' }).isVisible());
   assert.equal(fixture.controls.sentTransactions.length, 0);

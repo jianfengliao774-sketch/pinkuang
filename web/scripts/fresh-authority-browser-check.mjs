@@ -102,7 +102,7 @@ try{
   await page.getByLabel('每份价格（BNB）',{exact:true}).fill('0.005');
   await page.getByRole('button',{name:'预览挂卖份额',exact:true}).click();
   const listing=page.getByRole('dialog',{name:'确认预算项目操作',exact:true});
-  await listing.waitFor();assert((await listing.innerText()).includes('挂卖 10 份，每份 0.005 BNB'));
+  await listing.waitFor();assert((await listing.innerText()).includes('挂卖 10 份，每份 0.00500 BNB'));
   assert.equal(f.state.posts.length,2);assert.equal(f.state.signatures.length,2);
   await listing.getByRole('button',{name:'返回',exact:true}).click();
   checks.push('ordinary holder lists their selected project without administrator access or manually entering its address');

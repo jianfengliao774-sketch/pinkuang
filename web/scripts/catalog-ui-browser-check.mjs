@@ -51,7 +51,7 @@ try {
   assert.deepEqual(await tabs.locator('button').allTextContents(), ['募集中', '挖矿中', '整机出售中', '项目总览']);
   assert.equal(await tabs.locator('.selected').innerText(), '募集中');
   assert.equal(await main.locator('table th').getByText('状态', { exact: true }).count(), 0);
-  await main.getByText('10.000', { exact: true }).waitFor();
+  await main.getByText('10.00000', { exact: true }).waitFor();
   assert.match(await main.locator('table tbody').innerText(), /0\.95000 BEM/);
   checks.push('funding default, overview fourth, no redundant status, verified daily output and reference render');
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
@@ -71,7 +71,7 @@ try {
   await page.evaluate(pool => { location.hash = `detail/${pool}`; }, FIXTURE_POOLS.active);
   await page.waitForFunction(pool => document.querySelector('main')?.dataset.readyRoute === `detail/${pool}`, FIXTURE_POOLS.active);
   const panel = page.locator('.purchase-panel');
-  await panel.getByRole('button', { name: '领取 0.120 BNB', exact: true }).waitFor();
+  await panel.getByRole('button', { name: '领取 0.12000 BNB', exact: true }).waitFor();
   assert.match(await panel.locator('.unit-price').innerText(), /0\.08800/);
   await panel.getByText(/日产能参考价：2\.00000/).waitFor();
   assert.equal(await noOverflow(), true);

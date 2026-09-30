@@ -18,7 +18,7 @@ const collections = [
 const initial = { circuits: collections[0][1], circuitId: '', targetRaise: '', priceCap: '', fundingHours: '24', purchaseHours: '48' };
 const errorText = operatorQuoteError;
 const when = value => value == null ? '—' : new Date(Number(value) * 1000).toLocaleString('zh-CN');
-const fundingDisplay = value => { try { const result=fundingAmount(value); return `${result.approximate?'≈ ':''}${result.rounded}`; } catch { return value; } };
+const fundingDisplay = value => { try { return fundingAmount(value).display; } catch { return value; } };
 function FundingPreview({ value }) {
   const exact = formatEther(value), amount = fundingAmount(exact);
   return <div><dt>募集总额</dt><dd>{fundingDisplay(exact)} BNB{amount.approximate && <details><summary>查看精确金额</summary>{exact} BNB</details>}</dd></div>;
@@ -30,7 +30,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [progress,setProgress]=useState(''),[capFocused,setCapFocused]=useState(false);
   const [autoSelection, setAutoSelection] = useState(null);
-  const [fundingFocused, setFundingFocused] = useState(false), fundingEdited = useRef(false);
+  const [fundingFocused, setFundingFocused] = useState(false);
   const context = useRef(createUiContext()), identity = useRef(null);
   const previewRead = useRef(null);
   const key = `${config?.factory}:${account}`;
@@ -55,9 +55,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     setForm(current => ({ ...current, [name]: value })); };
   const finishFundingEdit = () => {
     setFundingFocused(false);
-    if (!fundingEdited.current) return; // Focusing a quoted amount is not permission to round its actual value.
-    fundingEdited.current = false;
-    setForm(current => { try { return { ...current, targetRaise: fundingAmount(current.targetRaise).rounded }; } catch { return current; } });
+    // Rounding is presentation only, including amounts entered manually.
   };
   const switchMode = next => { context.current.invalidate(); setMode(next); setPreview(null); setError(''); setAutoSelection(null); setImported(''); };
   function applyQuote(selection) {
@@ -136,7 +134,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
         <label>矿机系列<select value={form.circuits} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuits', event.target.value)}>{collections.map(([name, address]) => <option key={address} value={address}>{name}</option>)}</select></label>
         <label>矿机编号<input inputMode="numeric" placeholder="可在上方选择后自动填入" value={form.circuitId} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuitId', event.target.value)}/></label>
-        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" title={form.targetRaise?`精确金额 ${form.targetRaise} BNB`:undefined} value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => { fundingEdited.current = false; setFundingFocused(true); }} onBlur={finishFundingEdit} onChange={event => { fundingEdited.current = true; change('targetRaise', event.target.value); }}/></label>
+        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" title={form.targetRaise?`精确金额 ${form.targetRaise} BNB`:undefined} value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => setFundingFocused(true)} onBlur={finishFundingEdit} onChange={event => change('targetRaise', event.target.value)}/></label>
         <label>购机价格上限（BNB）<input inputMode="decimal" title={form.priceCap?`精确金额 ${form.priceCap} BNB`:undefined} value={capFocused?form.priceCap:fundingDisplay(form.priceCap)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={()=>setCapFocused(true)} onBlur={()=>setCapFocused(false)} onChange={event => change('priceCap', event.target.value)}/></label>
         <label>募集截止（距当前小时）<input inputMode="numeric" value={form.fundingHours} disabled={frozen || !!preview} onChange={event => change('fundingHours', event.target.value)}/></label>
         <label>购机期限（募集结束后小时）<input inputMode="numeric" value={form.purchaseHours} disabled={frozen || !!preview} onChange={event => change('purchaseHours', event.target.value)}/></label>

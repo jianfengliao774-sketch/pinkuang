@@ -7,6 +7,7 @@ import { amount, shortAddress, explorerAddress, explorerTransaction, exportActiv
 import { displayDecimal } from '../lib/amount-display.mjs';
 import { READ_CANCELLED, retryReadRound } from '../lib/read-retry.mjs';
 import { displayOnlySnapshot, invalidateDisplaySnapshots, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
+import { rememberPortfolioDisplay, readPortfolioDisplay, clearPortfolioDisplays } from '../lib/portfolio-display-cache.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
 import LiveYieldChart from './LiveYieldChart';
 import ActivityOperation from './ActivityOperation';
@@ -30,7 +31,7 @@ const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowe
 const brief = error => error?.shortMessage || error?.message || '预算项目读取未完成。';
 const officialPriceWithFeeCeiling = value => { const price=BigInt(value); return price+(price+99n)/100n; };
 const recentPages = new Map();
-export const clearRecentPortfolioDisplays = () => recentPages.clear();
+export const clearRecentPortfolioDisplays = () => { recentPages.clear(); clearPortfolioDisplays(); };
 const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 
 function PortfolioSaleStatus({candidate,stage,locale}){
@@ -61,6 +62,8 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const [listingQuantity,setListingQuantity]=useState('1');
   const [quantity,setQuantity]=useState('1'),[recipient,setRecipient]=useState(''),[child,setChild]=useState(''),[price,setPrice]=useState(''),[reference,setReference]=useState('');
   const [budget,setBudget]=useState(''),[cap,setCap]=useState(''),[dailyCap,setDailyCap]=useState(''),[fundHours,setFundHours]=useState('24'),[buyHours,setBuyHours]=useState('48');
+  const [editingAmount,setEditingAmount]=useState(null);
+  const inputAmount=(name,value)=>{if(editingAmount===name||!value)return value;try{return fundingAmount(value).display;}catch{return value;}};
   const [dailyReference,setDailyReference]=useState(null),[dailyReferenceError,setDailyReferenceError]=useState(''),[capacitySample,setCapacitySample]=useState(null),[capacityBusy,setCapacityBusy]=useState(false);
   const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null);
   const identity=`${config?.artifactDigest || ''}:${config?.stage || ''}:${config?.portfolioFactory || ''}:${account || ''}:${mode}:${initialPool || ''}`;
@@ -109,7 +112,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         config?.productFamily==='fresh-v4'?{maxAgeMs:30*60_000}:{});
     setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);setRows(cached?.items || []);
     setListingSource(cached?.source || null);
-    setSelected(initialPool?cached?.items[0] || null:null);setChild(initialPool?cached?.items[0]?.children.find(item=>!item.sold)?.pool || '':'');
+    const cachedDetail=initialPool?readPortfolioDisplay(config,initialPool,account):null;
+    if(cachedDetail)setLoadedIdentity(identity);
+    setSelected(initialPool?cachedDetail || cached?.items[0] || null:null);setChild(initialPool?(cachedDetail || cached?.items[0])?.children.find(item=>!item.sold)?.pool || '':'');
     setPreview(null);setError('');setReadRetry(null);setReadFailed(false);setFreshRead(false);setSelectedProof(null);
     setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);
     if(enabled && (!mine || account))void load();},[identity,provider,wallet]);
@@ -154,6 +159,8 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       },ticket);
       if(result===READ_CANCELLED||!current(ticket))return;
       const {selectedDetail,...page}=result;
+      if(initialPool&&page.items[0])rememberPortfolioDisplay(config,page.items[0],account);
+      if(selectedDetail)rememberPortfolioDisplay(config,selectedDetail,account);
       setFreshRead(initialPool ? !!page.items[0] : !!page.source && page.source.stale !== true);
       if(!nextCursor && (initialPool ? page.items[0] : selectedDetail))
         setSelectedProof({identity,provider,wallet,pool:(initialPool ? page.items[0] : selectedDetail).pool});
@@ -170,9 +177,12 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   }
   async function select(row){
     const ticket=++sequence.current;setLoading(true);setError('');setPreview(null);setSelectedProof(null);setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);
+    if(!readPortfolioDisplay(config,row.pool,account))rememberPortfolioDisplay(config,row,account);
+    const cached=readPortfolioDisplay(config,row.pool,account);
+    if(cached){setSelected(cached);setChild(cached.children.find(c=>!c.sold)?.pool || '');}
     try{const details=await retryRead(async()=>{const ctx=await readPortfolioContext(config,provider);const result=await readPortfolio(ctx,row.pool,account || ZeroAddress);await ctx.canonical();return result;},ticket);
-      if(details!==READ_CANCELLED&&current(ticket)){setSelected(details);setSelectedProof({identity,provider,wallet,pool:details.pool});setChild(details.children.find(c=>!c.sold)?.pool || '');}
-    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setSelected(null);setError(brief(problem));setReadFailed(true);}}
+      if(details!==READ_CANCELLED&&current(ticket)){rememberPortfolioDisplay(config,details,account);setSelected(details);setSelectedProof({identity,provider,wallet,pool:details.pool});setChild(details.children.find(c=>!c.sold)?.pool || '');}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);if(problem?.code==='source_reorg')setSelected(null);setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function moreChildren(){
@@ -220,7 +230,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const genesisSaleGate=genesisSale&&selectedCurrent?genesisPortfolioProposalGate(selectedCurrent):null;
   // The shared directory owns presentation; retain this reader's identity,
   // retries, snapshot provenance and cancellation instead of adding a second reader.
-  if(mode==='pools'&&renderDirectory)return renderDirectory({ rows:visibleRows, enabled, loading,
+  if(['pools','overview'].includes(mode)&&renderDirectory)return renderDirectory({ rows:visibleRows, enabled, loading,
     error:loadedIdentity===identity||readFailed?error:'', failed:readFailed,
     loaded:loadedIdentity===identity, source:loadedIdentity===identity?listingSource:null,
     current:loadedIdentity===identity&&freshRead, cursor:loadedIdentity===identity?cursor:null,
@@ -235,9 +245,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         ? `Historical portfolio snapshot · block #${listingSource.indexedThrough}, verified ${new Date(listingSource.checkedAt).toLocaleString('en-GB')}. Listings may have changed; every transaction preview rechecks current on-chain state.`
         : `预算项目历史快照 · 区块 #${listingSource.indexedThrough}，核验于 ${new Date(listingSource.checkedAt).toLocaleString('zh-CN')}。列表可能已变化；每次交易预览均重新核对最新链上状态。`}</p>}
       {mode==='operator'&&isOperator&&<section id="multi-miner-create" className="portfolio-create"><h3>{T("创建多矿机预算项目")}</h3><p>{T("预算项目固定 100 份；总预算、单机绝对上限及换算后的每 H 限价写入合约，采购不能突破这些链上限额。")}</p><p>{T("先创建共享 100 份的预算项目；募满后在项目中设置本批最多采购台数（1–20 台），从当前合格挂单逐台核验并买入。矿机可能在募集期间售出，因此创建时不锁定具体编号；同一项目可用剩余预算继续采购下一批。")}</p>
-        <p>{T('Firsto 市场参考日产能价')}: <strong>{dailyReference&&!referenceIssue(dailyReference)?`${amount(dailyReference.dailyCapacityPriceWei,18,3)} BNB / (BEM / 天)`:'—'}</strong>{dailyReference&&!referenceIssue(dailyReference)?` · ${new Date(dailyReference.observedAt).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:dailyReferenceError?` · ${dailyReferenceError}`:''} <button className="btn secondary" disabled={capacityBusy} onClick={()=>void refreshCapacity()}>{T('刷新市场产能')}</button></p>
+        <p>{T('Firsto 市场参考日产能价')}: <strong>{dailyReference&&!referenceIssue(dailyReference)?`${amount(dailyReference.dailyCapacityPriceWei,18,5)} BNB / (BEM / 天)`:'—'}</strong>{dailyReference&&!referenceIssue(dailyReference)?` · ${new Date(dailyReference.observedAt).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:dailyReferenceError?` · ${dailyReferenceError}`:''} <button className="btn secondary" disabled={capacityBusy} onClick={()=>void refreshCapacity()}>{T('刷新市场产能')}</button></p>
         <p>{T('输入日产能价上限后，系统按当前 Firsto 样本的最低日产出 / H 比率向下折算为链上每 H 上限；合约不会随未来产能变化自动更新。')}</p>
-        <div className="portfolio-actions"><label>{T("募集预算（BNB）")}<input inputMode="decimal" placeholder="0.005" value={budget} onChange={e=>setBudget(e.target.value)}/></label><label>{T("单机价格上限（BNB）")}<input inputMode="decimal" value={cap} onChange={e=>setCap(e.target.value)}/></label><label>{T("日产能价上限（BNB / (BEM / 天)）")}<input inputMode="decimal" placeholder="9" value={dailyCap} onChange={e=>setDailyCap(e.target.value)}/></label><label>{T("募集期（小时）")}<input inputMode="numeric" value={fundHours} onChange={e=>setFundHours(e.target.value)}/></label><label>{T("募集结束后购机期（小时）")}<input inputMode="numeric" value={buyHours} onChange={e=>setBuyHours(e.target.value)}/></label><button className="btn" disabled={createFrozen} onClick={()=>{
+        <div className="portfolio-actions"><label>{T("募集预算（BNB）")}<input inputMode="decimal" placeholder="0.00500" value={inputAmount('budget',budget)} onFocus={()=>setEditingAmount('budget')} onBlur={()=>setEditingAmount(null)} onChange={e=>setBudget(e.target.value)}/></label><label>{T("单机价格上限（BNB）")}<input inputMode="decimal" value={inputAmount('cap',cap)} onFocus={()=>setEditingAmount('cap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setCap(e.target.value)}/></label><label>{T("日产能价上限（BNB / (BEM / 天)）")}<input inputMode="decimal" placeholder="9.00000" value={inputAmount('dailyCap',dailyCap)} onFocus={()=>setEditingAmount('dailyCap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setDailyCap(e.target.value)}/></label><label>{T("募集期（小时）")}<input inputMode="numeric" value={fundHours} onChange={e=>setFundHours(e.target.value)}/></label><label>{T("募集结束后购机期（小时）")}<input inputMode="numeric" value={buyHours} onChange={e=>setBuyHours(e.target.value)}/></label><button className="btn" disabled={createFrozen} onClick={()=>{
           let fields;try{fields=portfolioCreateForm({budget,absoluteCap:cap,dailyCap,capacitySample, fundHours,buyHours});setBudget(fields.budget);}
           catch(problem){setError(brief(problem));return;}
           const now=BigInt(Math.floor(Date.now()/1000)),fundingDeadline=now+BigInt(fundHours)*3600n;
@@ -321,7 +331,7 @@ function PortfolioHistory({client,config,pool,account,locale}){
   const epoch=useRef(0);useEffect(()=>()=>{epoch.current++;},[]);
   async function load(window=days,more=false){const ticket=++epoch.current;setBusy(true);setError('');
     try{
-      const yieldResult=more?{data:history.yield,source:history.source}:await client.readYield({pool,account:account || undefined,days:window});
+      const yieldResult=more?{data:history.yield,source:history.source}:await client.readYield({pool,account:account || undefined,days:window,scope:'portfolio'});
       if(!same(yieldResult.source.portfolioFactory,config.portfolioFactory)||!same(yieldResult.source.portfolioMarket,config.portfolioMarket))throw new Error('预算历史记录来源不一致。');
       const events=await client.readActivity({pool,source:yieldResult.source,...(more?{cursor:history.nextCursor}:{})});
       if(ticket===epoch.current)setHistory({yield:yieldResult.data,source:yieldResult.source,items:more?[...history.items,...events.items]:events.items,nextCursor:events.nextCursor});

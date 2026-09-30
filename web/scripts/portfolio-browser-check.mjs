@@ -88,7 +88,7 @@ try {
   await panel.getByLabel('认购份数',{exact:true}).fill('2');
   await panel.getByRole('button',{name:'预览认购',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'确认预算项目操作',exact:true});await dialog.waitFor();
-  await dialog.getByText('本次支付 <0.001 BNB + Gas',{exact:true}).waitFor();
+  await dialog.getByText('本次支付 0.00010 BNB + Gas',{exact:true}).waitFor();
   await page.screenshot({path:join(output,'desktop-budget-confirm.png'),fullPage:true});
   await dialog.getByRole('button',{name:'发送到钱包确认',exact:true}).click();
   await page.getByText('交易已在链上确认。',{exact:true}).waitFor();
@@ -129,7 +129,7 @@ try {
   await sellPanel.waitFor();assert.equal(await sellPanel.getByLabel('挂牌份数',{exact:true}).inputValue(),'10');
   await sellPanel.getByLabel('每份价格（BNB）',{exact:true}).fill('0.075500000000000001');
   await sellPanel.getByRole('button',{name:'预览挂卖份额',exact:true}).click();
-  await dialog.getByText('挂卖 10 份，每份 0.076 BNB；全部成交基价 0.755 BNB；挂牌时本钱包仅支付 Gas，买卖双方在成交时各承担基价的 1%。',{exact:true}).waitFor();
+  await dialog.getByText('挂卖 10 份，每份 0.07550 BNB；全部成交基价 0.75500 BNB；挂牌时本钱包仅支付 Gas，买卖双方在成交时各承担基价的 1%。',{exact:true}).waitFor();
   const listing=f.simulations.findLast(s=>s.parsed.name==='list');
   assert.equal(listing.parsed.args[0].toLowerCase(),PORTFOLIOS[1].toLowerCase());
   assert.equal(listing.parsed.args[1],10n);assert.equal(listing.parsed.args[2],75500000000000001n);
@@ -138,9 +138,9 @@ try {
 
   await panel.getByText('项目收益与公开记录',{exact:true}).click();
   await panel.getByRole('button',{name:'读取项目收益与记录',exact:true}).click();
-  await panel.getByRole('heading',{name:'矿池收益归集',exact:true}).waitFor();
+  await panel.getByRole('heading',{name:'项目收益归集',exact:true}).waitFor();
   await panel.getByText('暂无该项目已确认记录。',{exact:true}).waitFor();
-  assert.equal(await panel.locator('.chart-summary strong').first().innerText(),'7.000 BEM');
+  assert.equal(await panel.locator('.chart-summary strong').first().innerText(),'7.00000 BEM');
   checks.push('parent yield and public history use the selected parent and do not add child harvest totals');
 
   await page.evaluate(pool=>{location.hash=`portfolio/${pool}`;},PORTFOLIOS[0]);
@@ -194,7 +194,7 @@ try {
   await english.getByRole('heading',{name:'Portfolio details',exact:true}).waitFor();
   await english.getByText('Combined daily-output reference',{exact:true}).click();
   await english.getByRole('button',{name:'Verify combined daily output',exact:true}).click();
-  await english.locator('.portfolio-capacity-result strong').first().getByText('1.000 BEM',{exact:true}).waitFor();
+  await english.locator('.portfolio-capacity-result strong').first().getByText('1.00000 BEM',{exact:true}).waitFor();
   assert.deepEqual(capacityMode.quotes,['3']);
   await page.screenshot({path:join(output,'mobile-budget-capacity.png'),fullPage:true});
   checks.push('real capacity adapter plus mock RPC/API displays exact retained-miner daily output and excludes both sold and awaiting-settlement miners');

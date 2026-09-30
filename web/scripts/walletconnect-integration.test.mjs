@@ -33,7 +33,7 @@ function liveHandlers(c,checkWallet){
  const state={wallet:null,account:null,busy:false,error:null},refs={connectionLock:{current:null},activeModal:{current:{type:'connect-wallet'}},walletEpoch:{current:0},connectedWallet:{current:null},qrConnector:{current:c}};
  const context={...refs,busy:false,wallet:null,account:null,locale:'en',walletConnectEnabled:true,discovery:{current:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message,
   clearWalletDisplay:()=>{}};
- for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
+ for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','WalletChecking','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
  return{...new Function(...Object.keys(context),functions+'\nreturn {selectWallet,cancelWalletScan};')(...Object.values(context)),state,refs};
 }
 test('cancel after relay approval invalidates outer chain-check; late result cannot replace retry wallet',async()=>{
@@ -43,7 +43,7 @@ test('cancel after relay approval invalidates outer chain-check; late result can
  const original=ui.selectWallet(entry,true);await tick();first.approval.resolve();await tick();assert.equal(reads,1);
  ui.cancelWalletScan();assert.equal(ui.refs.connectionLock.current,null);assert.equal(ui.state.busy,false);
  const retry=ui.selectWallet(entry,true);await tick();second.approval.resolve();await retry;
- assert.equal(ui.state.account,account);const adopted=ui.state.wallet;
+ assert.equal(ui.state.account,account);assert.equal(ui.state.walletChecking,false);const adopted=ui.state.wallet;
  oldOwner.resolve(account);await original;
  assert.equal(ui.state.wallet,adopted);assert.equal(second.disconnects,0);assert(first.disconnects>=1);
  await c.disconnect();

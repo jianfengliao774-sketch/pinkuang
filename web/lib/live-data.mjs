@@ -671,10 +671,16 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     insist(data.nextCursor === null || (items.length > 0 && data.nextCursor === previous.join(':')), 'invalid_cursor', '流水下一页游标无效。');
     return Object.freeze({ source, items, nextCursor: data.nextCursor });
   }
-  async function readYield({ pool, account, days = 30, source: expected } = {}) {
+  async function readYield({ pool, account, days = 30, scope = 'pool', source: expected } = {}) {
     pool = liveAddress(pool); if (account) account = liveAddress(account); safeInt(days, 'days'); insist(days >= 1 && days <= 90, 'invalid_query', '收益窗口为1–90天。');
+    // Callers choose the accounting scope. A parent receipt must never be
+    // accepted as a child harvest (or combined with it) just because both are BEM.
+    insist(scope === 'pool' || scope === 'portfolio', 'invalid_query', '收益统计范围无效。');
     const { source, data } = await indexRead('/v1/yield', { pool, account, days }, expected);
-    insist(data?.scope === 'pool' && sameAddress(data.pool, pool) && (account ? sameAddress(data.account, account) : data.account === null)
+    if (scope === 'portfolio') insist(manifest.kind === 'integrated-v2'
+      && sameAddress(source.portfolioFactory, manifest.portfolioFactory)
+      && sameAddress(source.portfolioMarket, manifest.portfolioMarket), 'index_identity', '预算历史记录来源不一致。');
+    insist(data?.scope === scope && sameAddress(data.pool, pool) && (account ? sameAddress(data.account, account) : data.account === null)
       && data.token === 'BEM' && data.tokenDecimals === 8 && data.timezone === 'Asia/Shanghai' && Array.isArray(data.buckets)
       && data.buckets.length === days && data.accountUnclaimedDailyAccrual === null, 'invalid_yield', '收益数据口径无效。');
     const lastDay = new Date((source.indexedTimestamp + 8 * 3600) * 1000).toISOString().slice(0, 10);

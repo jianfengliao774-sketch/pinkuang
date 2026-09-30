@@ -14,7 +14,9 @@ test('portfolio form identifies the missing cap instead of reporting a generic B
 test('portfolio form rejects oversized budgets and amounts beyond wei precision',()=>{
   assert.throws(()=>portfolioCreateForm({...valid,absoluteCap:'1.1'}),/不能超过募集预算/);
   assert.throws(()=>portfolioCreateForm({...valid,dailyCap:'9.0000000000000000001'}),/日产能价上限/);
-  assert.throws(()=>portfolioCreateForm({...valid,budget:'0.0004',absoluteCap:'0.0001'}),/为 0/);
+  assert.equal(portfolioCreateForm({...valid,budget:'0.0004',absoluteCap:'0.0001'}).budget,'0.0004');
+  assert.equal(portfolioCreateForm({...valid,budget:'0.200004999999999900',absoluteCap:'0.200004999999999899'}).budget,'0.200004999999999900');
+  assert.throws(()=>portfolioCreateForm({...valid,budget:'0.200004999999999999',absoluteCap:'0.2'}),/平均分为 100 份/);
 });
 test('daily cap conversion uses the lowest verified fresh output per H and fails closed on stale data',()=>{
   const rows=[{status:'verified',unverifiedWeight:'0',verifiedWeight:'40',estimated24hAtomic:'18700000',source:{observedAt:Date.now()}},

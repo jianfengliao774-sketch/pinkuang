@@ -2,6 +2,7 @@
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
 import ActivityOperation from './ActivityOperation';
+import AutoPageLoader from './AutoPageLoader';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
@@ -53,6 +54,7 @@ import PortfolioProjectShare from "./PortfolioProjectShare";
 import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect.mjs";
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
+import { startWalletSession } from '../lib/wallet-session.mjs';
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
@@ -63,7 +65,9 @@ import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
 import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
-import { freshIdentityReadable, freshOperationsReady, startFreshBootRecovery } from '../lib/fresh-boot-recovery.mjs';
+import { freshIdentityReadable, freshOperationsReady, freshRecheckDisplay, freshReadClientIdentity, startFreshBootRecovery } from '../lib/fresh-boot-recovery.mjs';
+import { assetOverview } from '../lib/asset-overview.mjs';
+import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio-display-cache.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { readDeploymentAccount } from '../lib/deployment-account.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
@@ -222,12 +226,18 @@ export default function LivePlatform() {
     [menu, setMenu] = useState(false),
     [route, setRoute] = useState({ route: "home", pool: null });
   const routeIdentity = useRef(route);
+  const verifiedBoot = useRef(null);
+  const readClientIdentity = useRef(null);
+  const walletLanguage = useRef(locale);
+  const portfolioReturnRoute = useRef('pools');
+  walletLanguage.current = locale;
   const [boot, setBoot] = useState({ status: "loading" }),
     [bootAttempt, setBootAttempt] = useState(0),
     [bootRecoveryExhausted, setBootRecoveryExhausted] = useState(false),
     [client, setClient] = useState(null),
     [account, setAccount] = useState(null),
-    [wallet, setWallet] = useState(null);
+    [wallet, setWallet] = useState(null),
+    [walletChecking, setWalletChecking] = useState(false);
   const [wallets, setWallets] = useState([]),
     [walletUiReady, setWalletUiReady] = useState(false),
     [walletInfo, setWalletInfo] = useState(null),
@@ -353,8 +363,10 @@ export default function LivePlatform() {
   }, []);
   const config =
     boot.status === "ready"
-      ? { ...boot, ...boot.manifest, journalBase: boot.journalBase || "/api/journal" }
+      ? { ...boot, ...boot.manifest, journalBase: boot.journalBase || "/api/journal",
+        ...(walletChecking ? { walletSessionReady: false, operationalReady: false, transactionReady: false, userExitReady: false } : {}) }
       : null;
+  if (boot.status === 'ready') verifiedBoot.current = boot;
   const walletRevision = walletEpoch.current;
   // A permission result belongs to this exact provider, account and read revision.
   // Reject it during render, before the effect cleanup, when any identity changes.
@@ -497,17 +509,28 @@ export default function LivePlatform() {
   }, [client, boot.status, account, route.route, route.pool, marketTab]);
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4') {
-      setBoot({ status: 'loading' }); setClient(null); setError('');
+      const retained = freshRecheckDisplay(verifiedBoot.current);
+      if (retained) setBoot(retained);
+      else { verifiedBoot.current = null; readClientIdentity.current = null;
+        setBoot({ status: 'loading' }); setClient(null); }
+      setError('');
       return startFreshBootRecovery({ load: () => loadProductConfig({ basePath }),
+        initialConfig: retained,
         getContext: () => ({ wallet: connectedWallet.current, revision: walletEpoch.current, route: routeIdentity.current }),
         isBusy: () => !!(refreshState.current?.busy || refreshState.current?.modal || refreshState.current?.pending
           || submissionLock.current || connectionLock.current || document.querySelector('[role="dialog"][aria-modal="true"]')
           || document.activeElement?.matches('input, textarea, select')),
         isVisible: () => document.visibilityState === 'visible',
-        onConfig: result => { setBoot(result); setClient(result.status === 'ready' ? createLiveDataClient(result) : null); },
+        onConfig: result => { if (result.status !== 'ready') {
+            verifiedBoot.current = null; readClientIdentity.current = null; setClient(null);
+          } else {
+            const key = freshReadClientIdentity(result);
+            if (readClientIdentity.current !== key) { readClientIdentity.current = key; setClient(createLiveDataClient(result)); }
+          }
+          setBoot(result); },
         onError: (problem, shown) => { if (!shown) { setBoot({ status: 'error' }); setError(textError(problem)); } },
         onExhausted: setBootRecoveryExhausted,
-        onExpired: () => { setBoot({ status: 'error' }); setClient(null); clearWalletDisplay(); setStats(null); setStatsSource(null); },
+        onExpired: () => { verifiedBoot.current = null; readClientIdentity.current = null; setBoot({ status: 'error' }); setClient(null); clearWalletDisplay(); setStats(null); setStatsSource(null); },
       });
     }
     let cancelled = false;
@@ -574,37 +597,29 @@ export default function LivePlatform() {
     };
   }, [bootAttempt]);
   useEffect(() => {
-    if (!wallet?.on) return;
-    const changed = () => {
+    if (!wallet?.on || !account) return;
+    const invalidate = () => {
       if (connectedWallet.current !== wallet) return;
       epoch.current++;
       walletEpoch.current++;
       setOperator(null);
-      setAccount(null);
-      setWallet(null);
-      setWalletInfo(null);
-      connectedWallet.current = null;
       setPending(null);
       setPrepared(null);
       setModal(null);
-      clearWalletDisplay();
-      setMessage(
-        L(
-          "钱包账户或网络已改变，请重新连接。",
-          "Wallet or network changed. Please reconnect.",
-        ),
-      );
-      setRefresh((v) => v + 1);
     };
-    wallet.on("accountsChanged", changed);
-    wallet.on("chainChanged", changed);
-    wallet.on("disconnect", changed);
-    return () => {
-      wallet.removeListener?.("accountsChanged", changed);
-      wallet.removeListener?.("chainChanged", changed);
-      wallet.removeListener?.("disconnect", changed);
-    };
-  }, [wallet, locale]);
+    return startWalletSession({ provider: wallet, account, chainId: 56,
+      isCurrent: () => connectedWallet.current === wallet,
+      onInvalidate: invalidate,
+      onChecking: () => setWalletChecking(true),
+      onRecovered: () => { setWalletChecking(false); setOperatorRefresh(v => v + 1); setRefresh(v => v + 1); },
+      onDisconnected: () => {
+        setWalletChecking(false); setAccount(null); setWallet(null); setWalletInfo(null);
+        connectedWallet.current = null; clearWalletDisplay();
+        setMessage(walletLanguage.current==='en' ? 'Wallet or network changed. Please reconnect.' : '钱包账户或网络已改变，请重新连接。');
+        setRefresh(v => v + 1);
+      },
+    });
+  }, [wallet, account]);
   useEffect(() => {
     if (!modal) return;
     restoreFocus.current = document.activeElement;
@@ -674,7 +689,7 @@ export default function LivePlatform() {
     setModal({ type: "action", kind, pool, ...extra });
   };
   const openDetails = (pool) => {
-    if (pool.kind === 'portfolio') { go('portfolio', pool.pool); return; }
+    if (pool.kind === 'portfolio') { portfolioReturnRoute.current = ['overview','rewards'].includes(route.route) ? route.route : 'pools'; if(!readPortfolioDisplay(config,pool.pool,account))rememberPortfolioDisplay(config,pool,account); go('portfolio', pool.pool); return; }
     // This row was verified by the preceding catalog read. Show its public
     // facts immediately while the new detail read runs; it cannot authorize a
     // wallet action and is never persisted in browser storage.
@@ -1191,6 +1206,7 @@ export default function LivePlatform() {
       if (!current()) { if (remote && provider !== connectedWallet.current) await provider.disconnect?.().catch(() => {}); return; }
       walletEpoch.current++;
       connectedWallet.current = provider;
+      setWalletChecking(false);
       clearWalletDisplay();
       setWallet(provider);
       setWalletInfo({ ...entry, provider });
@@ -1715,6 +1731,7 @@ export default function LivePlatform() {
     }
   }
   async function more(kind) {
+    if (!client || busy || (kind === 'activity' && (activityReadLoading || !!activityReadError))) return false;
     const revision = epoch.current;
     const positionsRevision = positionsReadEpoch.current;
     const ordersRevision = marketOrdersEpoch.current;
@@ -1728,7 +1745,7 @@ export default function LivePlatform() {
           cursor: poolCursor,
           source,
         });
-        if (revision !== epoch.current) return;
+        if (revision !== epoch.current) return false;
         setPools((old) => [...old, ...result.items.map(viewPool)]);
         setPoolCursor(result.nextCursor);
       } else if (kind === "positions") {
@@ -1737,7 +1754,7 @@ export default function LivePlatform() {
           cursor: positionCursor,
           source: positionsReadSource,
         });
-        if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return;
+        if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return false;
         setPositions((old) => [...old, ...result.items.map(viewPool)]);
         setPositionCursor(result.nextCursor);
       } else if (kind === "orders") {
@@ -1746,7 +1763,7 @@ export default function LivePlatform() {
           cursor: orderCursor,
           source: marketOrderSource,
         });
-        if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return;
+        if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return false;
         setOrders((old) => [...old, ...result.items]);
         setOrderCursor(result.nextCursor);
       } else {
@@ -1758,12 +1775,14 @@ export default function LivePlatform() {
           cursor: activityCursor,
           source: route.route === 'detail' ? source : activityReadSource,
         });
-        if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return;
+        if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return false;
         setActivity((old) => [...old, ...result.items]);
         setActivityCursor(result.nextCursor);
       }
+      return true;
     } catch (e) {
-      setError(textError(e));
+      if (revision === epoch.current && (kind !== 'activity' || activityRevision === activityReadEpoch.current)) setError(textError(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -1899,8 +1918,8 @@ export default function LivePlatform() {
                 <th>{L("购机金额", "Purchase cost")}</th>
               </>}
             </>}
-            <th>{L("预计日产 BEM", "Estimated BEM / day")}</th>
-            <th>{L("日产能价", "Daily capacity price")}</th>
+            <th>{holdings ? L('可领取 BEM', 'Claimable BEM') : L("预计日产 BEM", "Estimated BEM / day")}</th>
+            <th>{holdings ? L('待领取 BNB', 'Claimable BNB') : L("日产能价", "Daily capacity price")}</th>
             <th />
           </tr>
         </thead>
@@ -1935,7 +1954,7 @@ export default function LivePlatform() {
                   <td className="num">{displayPreciseAmount(p.purchaseCost)} BNB</td>
                 </>}
               </>}
-              <td title={currentPoolQuote(p)?.cached
+              {holdings ? <><td className="num">{amount(p.claimableBEM,8)} BEM</td><td className="num">{amount(p.bnbOwed)} BNB</td></> : <><td title={currentPoolQuote(p)?.cached
                 ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window') : undefined}>{currentPoolQuote(p)
                 ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
                 : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p)}</td>
@@ -1943,13 +1962,13 @@ export default function LivePlatform() {
                 ? L('此前核验的 Firsto 参考价，仍在有效期内；单位：BNB / (BEM/天)', 'Previously verified Firsto reference, still within its validity window; unit: BNB / (BEM/day)')
                 : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{currentPoolQuote(p)?.marketReferencePriceWei != null
                 ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
-                : p.kind === 'portfolio' ? '—' : poolQuotePlaceholder(p)}</td>
+                : p.kind === 'portfolio' ? '—' : poolQuotePlaceholder(p)}</td></>}
               <td>
-                {holdings && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
+                {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   {L('挂单出售', 'List shares')}
                 </button>}
-                {holdings && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
+                {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
                   {p.status === 'Funding' || p.status === 'Funded'
                     ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
                     : p.status === 'Active' && p.availableShares === 0n
@@ -1968,11 +1987,13 @@ export default function LivePlatform() {
       {rows.length === 0 && directory && <Empty title={directory.loading
         ? L('正在读取项目…', 'Loading projects…')
         : directory.failed || !directory.ready ? L('部分项目暂不可用，请刷新重试', 'Some projects are unavailable. Please refresh.')
-          : directory.total === 0 ? L('尚未创建拼矿项目', 'No projects have been created yet')
+          : directory.total === 0 ? holdings ? L('暂无持仓和待领取权益', 'No positions or outstanding entitlements') : L('尚未创建拼矿项目', 'No projects have been created yet')
             : L('暂无匹配项目', 'No matching projects')}>
         {!directory.loading && directory.ready && !directory.failed && directory.total === 0 && <>
-          {L('运营方创建项目后，将在这里开放认购。', 'Subscriptions will appear here once the operator creates a project.')}
-          {hasOperatorAccess && <Button secondary disabled={busy} onClick={()=>go('operator')}>{L('创建首个项目','Create the first project')}</Button>}
+          {holdings ? <Button secondary onClick={()=>go('pools')}>{L('浏览拼矿项目','Browse projects')}</Button> : <>
+            {L('运营方创建项目后，将在这里开放认购。', 'Subscriptions will appear here once the operator creates a project.')}
+            {hasOperatorAccess && <Button secondary disabled={busy} onClick={()=>go('operator')}>{L('创建首个项目','Create the first project')}</Button>}
+          </>}
         </>}
       </Empty>}
       {rows.length === 0 && !directory && (
@@ -2036,6 +2057,43 @@ export default function LivePlatform() {
       </section>
     </>;
   };
+  const renderAssetOverview = page => {
+    if (!account) return null;
+    const view = assetOverview({singlePositions:positions,portfolioRows:page.rows,
+      singleLoaded:positionsLoaded && same(positionsAccount,account),portfolioLoaded:page.loaded,
+      singleCursor:positionCursor,portfolioCursor:page.cursor,singleError:!!positionsReadError,portfolioError:page.failed || !page.enabled});
+    const totals = view.complete ? view.totals : view.loadedTotals;
+    const partial = view.partial;
+    const historical = positionsReadSource?.stale || page.source?.stale || boot.rechecking || walletChecking;
+    const updating = positionsReadLoading || page.loading;
+    const more = positionCursor != null || page.cursor != null;
+    return <>
+      {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton)}
+      <div className="metrics" data-asset-summary="unified">
+        <Metric primary title={historical?L('上次核验可领取','Previously verified BEM'):partial?L('已加载可领取','Loaded claimable BEM'):L('当前可领取','Claimable BEM')}
+          value={amount(totals.claimableBem,8)} unit="BEM" note={L('项目已入账收益，不重复计入子矿机','Booked project rewards; child rewards are not counted twice')}/>
+        <Metric title={historical?L('上次核验待领取','Previously verified proceeds'):partial?L('已加载待领取','Loaded proceeds'):L('项目待领取','Project proceeds')}
+          value={amount(totals.bnbOwed)} unit="BNB" note={L('包含退款、余款与售款','Includes refunds, surplus and sale proceeds')}/>
+        <Metric title={partial?L('已加载持有项目','Loaded projects held'):L('持有项目','Projects held')}
+          value={totals.projectsHeld?.toString()??'—'} unit={L('个','projects')} note={L('一个多矿机项目计为一个项目','Each multi-miner parent counts as one project')}/>
+        <Metric title={partial?L('已加载持有份额','Loaded shares held'):L('持有份额','Shares held')}
+          value={totals.shares?.toString()??'—'} unit={L('份','shares')} note={L('清仓后的历史权益仍可领取','Former positions retain owed balances')}/>
+      </div>
+      <section className="panel holdings" data-asset-directory="unified" aria-busy={updating}>
+        <div className="section-head"><div><h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
+          <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p></div></div>
+        {page.error&&<div className="portfolio-error" role="alert"><p>{L('部分项目读取失败，已读取持仓仍可查看。','Some projects could not be loaded; available positions remain visible.')}</p>
+          <button className="btn secondary" disabled={updating||busy||!!pending} onClick={()=>void page.load()}>{L('重新读取','Retry')}</button></div>}
+        {updating&&view.rows.length>0&&<p className="subtle-note" role="status">{L('正在更新持仓…','Updating positions…')}</p>}
+        {partial&&view.loaded&&<p className="subtle-note">{L('当前汇总仅包含已加载持仓。','The summary includes only loaded positions.')}</p>}
+        {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length})}
+        {more&&<div className="live-more"><Button secondary disabled={updating||busy||!!pending||page.failed||!!positionsReadError}
+          onClick={()=>void Promise.allSettled([positionCursor!=null?thisMorePositions():Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>{L('加载更多','Load more')}</Button></div>}
+      </section>
+      <section className="panel live-section"><div className="section-head"><h2>{L('最近链上记录','Recent on-chain activity')}</h2></div>{activityTable()}</section>
+    </>;
+  };
+  const thisMorePositions = () => more('positions');
   const visibleActivity = route.route === "overview" ? summarizeOverviewActivity(activity) : activity;
   const activityTable = () => (
     <>
@@ -2099,7 +2157,11 @@ export default function LivePlatform() {
             : L("暂无已确认记录", "No confirmed records")} />}
       </div>
       {activityReadError && route.route !== 'detail' && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
-      {moreButton(activityCursor, "activity")}
+      {route.route === 'records' ? <AutoPageLoader
+        pageKey={JSON.stringify([config?.artifactDigest,activityReadSource?.indexedThrough,activityReadSource?.indexedBlockHash,refresh])}
+        cursor={activityCursor} locale={locale} onLoad={()=>more('activity')}
+        disabled={!client || busy || loading || activityReadLoading || !!activityReadError} />
+        : moreButton(activityCursor, "activity")}
     </>
   );
   function renderGovernance() {
@@ -2397,82 +2459,6 @@ export default function LivePlatform() {
                 {L("连接钱包", "Connect wallet")}
               </Button>
             </section>
-          )}
-          {route.route === "overview" && account && (
-            <>
-              {heading(
-                L("资产总览", "My portfolio"),
-                L(
-                  "查看持仓、已入账收益与待领取款项。",
-                  "Your positions, booked rewards and available proceeds.",
-                ),
-                refreshButton,
-              )}
-              <div className="metrics">
-                <Metric
-                  primary
-                  title={positionsReadSource?.stale
-                    ? L("上次核验可领取", "Claimable at last verification")
-                    : L("当前可领取", "Claimable BEM")}
-                  value={amount(claimable, 8)}
-                  unit="BEM"
-                  note={L("本页矿池 · 已入账", "Loaded pools · booked rewards")}
-                />
-                <Metric
-                  title={L("矿池待领取", "Pool proceeds")}
-                  value={amount(poolBnb)}
-                  unit="BNB"
-                  note={L(
-                    "包含余款与售款，不重复计数",
-                    "Includes surplus and sale proceeds once",
-                  )}
-                />
-                <Metric
-                  title={L("持有矿机", "Miners held")}
-                  value={
-                    positionsLoaded && positions.every((p) => p.shares != null)
-                      ? positions.filter((p) => p.shares > 0n).length
-                      : "—"
-                  }
-                  unit={L("台", "miners")}
-                  note={L("本页持仓", "Loaded positions")}
-                />
-                <Metric
-                  title={L("持有份额", "Shares held")}
-                  value={
-                    positionsLoaded
-                      ? (sumKnown(positions, "shares")?.toString() ?? "—")
-                      : "—"
-                  }
-                  unit={L("份", "shares")}
-                  note={L(
-                    "已售完份额的历史权益仍可领取",
-                    "Former holders can still claim owed rewards",
-                  )}
-                />
-              </div>
-              <section className="panel holdings">
-                <div className="section-head">
-                  <div>
-                    <h2>{L("我的矿机与权益", "My miners and entitlements")}</h2>
-                    <p>
-                      {L(
-                        "包含清仓后仍有待领取款项的项目。",
-                        "Includes former positions with outstanding balances.",
-                      )}
-                    </p>
-                  </div>
-                </div>
-                {poolTable(positions, true)}
-                {moreButton(positionCursor, "positions")}
-              </section>
-              <section className="panel live-section">
-                <div className="section-head">
-                  <h2>{L("最近链上记录", "Recent on-chain activity")}</h2>
-                </div>
-                {activityTable()}
-              </section>
-            </>
           )}
           {route.route === "pools" && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode="pools"
@@ -2929,7 +2915,7 @@ export default function LivePlatform() {
                   primary
                   title={positionsReadSource?.stale
                     ? L("上次核验可领取 BEM", "BEM claim at last verification")
-                    : L("可领取 BEM", "Claimable BEM")}
+                    : L("单矿机可领取 BEM", "Single-miner claimable BEM")}
                   value={amount(claimable, 8)}
                   unit="BEM"
                   note={L(
@@ -2938,7 +2924,7 @@ export default function LivePlatform() {
                   )}
                 />
                 <Metric
-                  title={L("矿池 BNB", "Pool BNB")}
+                  title={L("单矿机待领取 BNB", "Single-miner claimable BNB")}
                   value={amount(poolBnb)}
                   unit="BNB"
                   note={L("按矿池分别领取", "Withdraw from each pool")}
@@ -3028,7 +3014,7 @@ export default function LivePlatform() {
               </section>
               <section className="panel live-section">
                 <div className="section-head">
-                  <h2>{L("已确认收益记录", "Confirmed reward activity")}</h2>
+                  <h2>{L("已确认账户记录", "Confirmed account activity")}</h2>
                 </div>
                 {activityTable()}
               </section>
@@ -3216,13 +3202,14 @@ export default function LivePlatform() {
             </>
           )}
           {route.route === "market" && <FirstoMarketBoard refreshKey={refresh} />}
-          {route.route === 'portfolio' && <button className="back-link" onClick={()=>go('pools')}>{L('← 返回参与拼矿','← Back to projects')}</button>}
+          {route.route === 'portfolio' && <button className="back-link" onClick={()=>go(portfolioReturnRoute.current)}>{portfolioReturnRoute.current === 'overview' ? L('← 返回资产总览','← Back to my portfolio') : portfolioReturnRoute.current === 'rewards' ? L('← 返回收益中心','← Back to rewards') : L('← 返回参与拼矿','← Back to projects')}</button>}
           {['overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio}
             onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}
             onReadStateChange={state => { portfolioRead.current = state; }}
+            renderDirectory={route.route === 'overview' ? renderAssetOverview : undefined}
             onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>}
 
           {route.route === "governance" && (
@@ -3439,6 +3426,7 @@ export default function LivePlatform() {
                       setOperator(null);
                       setAccount(null);
                       setWallet(null);
+                      setWalletChecking(false);
                       setWalletInfo(null);
                       connectedWallet.current = null;
                       setPending(null);

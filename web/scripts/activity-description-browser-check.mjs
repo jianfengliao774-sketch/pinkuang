@@ -58,10 +58,10 @@ try {
   await page.goto(base + '/#records');
   await event('PortfolioCreated').getByText('创建多矿机项目', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-activity-event]').count(), rows.length);
-  assert.match(await event('PortfolioCreated').innerText(), /募集预算：0.123 BNB/);
+  assert.match(await event('PortfolioCreated').innerText(), /募集预算：0.12346 BNB/);
   assert.match(await event('PortfolioCreated').innerText(), /此记录不是认购付款/);
   assert.match(await event('DepositWithdrawn').innerText(), /尚不代表钱包收到款项/);
-  assert.match(await event('BemClaimed').innerText(), /1.235 BEM/);
+  assert.match(await event('BemClaimed').innerText(), /1.23450 BEM/);
   assert.match(await event('OrderFilled').innerText(), /成交份数：3/);
   assert.match(await event('FutureUnknown').innerText(), /其他链上记录/);
   assert.equal(await event('PortfolioCreated').locator('code').innerText(), 'PortfolioCreated');
@@ -79,9 +79,9 @@ try {
   await page.screenshot({ path: join(out, 'records-desktop-zh.png'), fullPage: true });
   await page.locator('.topbar select').selectOption('en');
   await event('PortfolioCreated').getByText('Multi-miner project created', { exact: true }).waitFor();
-  assert.match(await event('PortfolioCreated').innerText(), /Funding budget: 0.123 BNB/);
+  assert.match(await event('PortfolioCreated').innerText(), /Funding budget: 0.12346 BNB/);
   assert.match(await event('DepositWithdrawn').innerText(), /does not itself pay the wallet/);
-  assert.match(await event('BemClaimed').innerText(), /1.235 BEM/);
+  assert.match(await event('BemClaimed').innerText(), /1.23450 BEM/);
   checks.push('Language switch translates operation names, explanations and facts without changing raw event names or values');
   await page.screenshot({ path: join(out, 'records-desktop-en.png'), fullPage: true });
   await page.locator('.topbar select').selectOption('zh');

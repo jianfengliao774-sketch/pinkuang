@@ -64,9 +64,9 @@ try {
   await page.locator('nav').getByRole('button', { name: '运营工作台', exact: true }).click();
   await page.getByRole('button', { name: '链上核对并选择', exact: true }).waitFor();
   await page.getByRole('button', { name: '链上核对并选择', exact: true }).click();
-  await page.getByText('矿池总支出 0.005 BNB', { exact: true }).waitFor();
+  await page.getByText('矿池总支出 0.00505 BNB', { exact: true }).waitFor();
   await page.getByRole('button', { name: '填入建池表单', exact: true }).click();
-  assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '0.005050000000000001');
+  assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '≈ 0.00505');
   checks.push('Firsto selected quote fills fee-inclusive cap');
   f.state.registryPool = f.pool;
   await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
@@ -77,8 +77,8 @@ try {
   await page.getByRole('button', { name: '先查官网并预览购机', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '确认运营操作' }); await modal.waitFor();
   const text = await modal.innerText();
-  assert.match(text, /TapeOut #7/); assert.match(text, /0.005 BNB（由矿池余额支付）/);
-  assert.match(text, /仅 Gas，不从运营钱包转入购机款/); assert.match(text, /0.000 BNB/);
+  assert.match(text, /TapeOut #7/); assert.match(text, /0.00505 BNB（由矿池余额支付）/);
+  assert.match(text, /仅 Gas，不从运营钱包转入购机款/); assert.match(text, /0.00005 BNB/);
   assert.equal(f.simulations.length, 1); assert.deepEqual(forbidden, []);
   await page.screenshot({ path: join(output, 'firsto-pool-funded-preview.png'), fullPage: true, animations: 'disabled' });
   checks.push('one click reads original target and previews exact seller price, source fee, pool gross and wallet Gas only');
