@@ -156,6 +156,7 @@ interface IPoolVault {
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
     function withdrawDeposit() external;
+    function withdrawDepositAndWithdrawBnb() external;
     function finalizeFailure() external;
     function withdrawBnb() external;
     function setDepositPaused(bool paused) external;

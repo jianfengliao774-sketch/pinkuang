@@ -105,6 +105,17 @@ contract PoolVault is
 
     /// @notice Withdraws the full subscription into the caller's pull-payment balance.
     function withdrawDeposit() external nonReentrant {
+        _withdrawDeposit();
+    }
+
+    /// @notice Cancels the caller's subscription and pays their BNB credit in one transaction.
+    /// @dev A rejected BNB payment reverts the cancellation and preserves earlier credit.
+    function withdrawDepositAndWithdrawBnb() external nonReentrant {
+        _withdrawDeposit();
+        _withdrawBnb();
+    }
+
+    function _withdrawDeposit() private {
         VaultStorage storage s = _vaultStorage();
         if (s.state != State.Funding) revert WrongState();
         uint256 shares = balanceOf(msg.sender);
@@ -128,6 +139,10 @@ contract PoolVault is
     }
 
     function withdrawBnb() external nonReentrant {
+        _withdrawBnb();
+    }
+
+    function _withdrawBnb() private {
         VaultStorage storage s = _vaultStorage();
         _materializePurchaseSurplus(s, msg.sender);
         _materializeSaleProceeds(s, msg.sender);
