@@ -1,10 +1,11 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summary.mjs';
+import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, writeDisplaySnapshot } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { useEffect, useRef, useState } from "react";
-import { ZeroAddress, getAddress } from "ethers";
+import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
   Sun,
   Moon,
@@ -2043,7 +2044,7 @@ export default function LivePlatform() {
           <thead>
             <tr>
               <th>{L("区块", "Block")}</th>
-              <th>{L("类型", "Event")}</th>
+              <th>{L("操作 / 说明", "Operation / description")}</th>
               <th>{L("金额 / 费用", "Amount / fee")}</th>
               <th>{L("合约", "Contract")}</th>
               <th>{L("链上记录", "Transaction")}</th>
@@ -2052,11 +2053,13 @@ export default function LivePlatform() {
           <tbody>
             {visibleActivity.map((row, i) => {
               const hash = row.transactionHash ?? row.txHash;
+              const contract = row.contract ?? row.address ?? row.pool;
+              const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
               const entries = activityAmounts(row);
               return (
                 <tr key={`${hash}-${row.logIndex ?? i}`}>
                   <td>{row.blockNumber}</td>
-                  <td>{eventName(row.event ?? row.name, L)}</td>
+                  <td><ActivityOperation row={row} locale={locale} /></td>
                   <td>{entries.length ? entries.map((item, index) => {
                     const labels = { amount: ["金额", "Amount"], gross: ["成交基价", "Base price"],
                       sellerFee: ["卖方费用", "Seller fee"], buyerFee: ["买方费用", "Buyer fee"] };
@@ -2064,7 +2067,11 @@ export default function LivePlatform() {
                       {displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</span>;
                   }) : "—"}</td>
                   <td>
-                    {shortAddress(row.contract ?? row.address ?? row.pool)}
+                    {contractUrl ? <a
+                      className="text-button" href={contractUrl}
+                      title={contract} target="_blank" rel="noopener noreferrer">
+                      {shortAddress(contract)}<ArrowUpRight size={14} />
+                    </a> : "—"}
                   </td>
                   <td>
                     {explorerTransaction(hash) ? (
@@ -3700,22 +3707,4 @@ function compare(a, b) {
   if (a == null) return 1;
   if (b == null) return -1;
   return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
-}
-function eventName(value, L) {
-  const map = {
-    Deposited: ["份额认购", "Subscription"],
-    Harvested: ["收益归集", "Output collected"],
-    BemClaimed: ["BEM 领取", "BEM claimed"],
-    BnbWithdrawn: ["BNB 领取", "BNB withdrawn"],
-    Purchased: ["矿机购入", "Miner purchased"],
-    FirstoPurchased: ["Firsto 采购明细", "Firsto purchase details"],
-    OrderListed: ["份额挂单", "Shares listed"],
-    OrderFilled: ["份额成交", "Shares traded"],
-    BuyerFeeCharged: ["份额买方手续费", "Share buyer fee"],
-    SaleProposed: ["出售提案", "Sale proposed"],
-    Voted: ["表决", "Vote"],
-    SaleCompleted: ["整机成交", "Miner sold"],
-    Transfer: ["份额变更", "Share transfer"],
-  };
-  return map[value] ? L(...map[value]) : (value ?? "—");
 }

@@ -11,9 +11,9 @@ test('fundraising BNB uses three decimals and exact positive half-up rounding', 
 
 test('quoted display marks every hidden Wei without altering the exact input', () => {
   const raw = '2.2000000000000001', result = fundingAmount(raw);
-  assert.equal(result.display, '≈ 2.20000'); assert.equal(raw, '2.2000000000000001'); assert.equal(result.approximate, true);
-  assert.deepEqual(fundingAmount('0.005000000000000000'), { rounded: '0.005', approximate: false, display: '0.00500' });
-  assert.equal(fundingAmount('0.000000000000000001').display, '≈ <0.00001');
+  assert.equal(result.display, '≈ 2.200'); assert.equal(raw, '2.2000000000000001'); assert.equal(result.approximate, true);
+  assert.deepEqual(fundingAmount('0.005000000000000000'), { rounded: '0.005', approximate: false, display: '0.005' });
+  assert.equal(fundingAmount('0.000000000000000001').display, '≈ <0.001');
 });
 
 test('invalid amounts are not silently coerced to a different payment', () => {

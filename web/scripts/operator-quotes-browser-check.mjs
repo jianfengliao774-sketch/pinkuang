@@ -91,9 +91,9 @@ try {
   try {
     const funding = manual.page.getByLabel('募集总额（BNB）', { exact: true });
     assert.equal(await funding.getAttribute('placeholder'), '例如 0.005');
-    await funding.fill('0.0054'); await funding.blur(); assert.equal(await funding.inputValue(), '0.00500');
+    await funding.fill('0.0054'); await funding.blur(); assert.equal(await funding.inputValue(), '0.005');
     await funding.focus(); await manual.page.waitForFunction(() => document.activeElement?.value === '0.005');
-    await funding.fill('0.0055'); await funding.blur(); assert.equal(await funding.inputValue(), '0.00600');
+    await funding.fill('0.0055'); await funding.blur(); assert.equal(await funding.inputValue(), '0.006');
     await manual.page.getByLabel('矿机编号', { exact: true }).fill('7');
     await manual.page.getByLabel('购机价格上限（BNB）', { exact: true }).fill('0.001234567890123456');
     await manual.page.getByRole('button', { name: '预览创建矿池', exact: true }).click();

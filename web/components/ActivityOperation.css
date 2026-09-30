@@ -1,0 +1,6 @@
+.activity-operation{min-width:240px;max-width:540px;white-space:normal;line-height:1.6}
+.activity-operation strong{font-weight:600}
+.activity-operation p{margin:5px 0;font-size:13px;line-height:1.65;color:var(--muted,#68746c);overflow-wrap:anywhere}
+.activity-operation small{display:block;font-size:11px;color:var(--muted,#68746c)}
+.activity-operation code{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:760px){.activity-operation{min-width:220px;max-width:340px}}

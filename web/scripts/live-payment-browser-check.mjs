@@ -23,7 +23,7 @@ try{
    await page.getByLabel('份额数量',{exact:true}).fill('2');
    await page.getByRole('button',{name:'核对交易金额',exact:true}).click();
    await page.getByRole('button',{name:'确认并前往钱包',exact:true}).waitFor();
-   assert((await page.locator('.confirm-lines').innerText()).includes('0.14300 BNB'));
+   assert((await page.locator('.confirm-lines').innerText()).includes('0.143 BNB'));
    assert.equal(fixture.controls.sentTransactions.length,0,'preview must never broadcast');
    await page.getByRole('button',{name:'确认并前往钱包',exact:true}).click();
    if(pendingDeposit){
