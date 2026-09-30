@@ -986,8 +986,7 @@ export default function LivePlatform() {
       setActivity([]); setActivityCursor(null);
     }
     setActivityReadLoading(true);
-    retryReadRound(() => client.readActivity({ account: owner,
-      limit: route.route === 'records' ? recordsPageSize : 20 }), { isCurrent: () => !cancelled })
+    retryReadRound(() => client.readActivity({ account: owner }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setActivity(result.items);
@@ -1779,12 +1778,18 @@ export default function LivePlatform() {
             ? account
             : undefined,
           cursor: activityCursor,
-          limit: route.route === 'records' ? recordsPageSize : 20,
-          source: route.route === 'detail' ? source : activityReadSource,
+          // Public history uses a descending block/transaction/log cursor.
+          // A newer verified index does not invalidate that historical boundary.
+          source: route.route === 'records' ? undefined
+            : route.route === 'detail' ? source : activityReadSource,
         });
         if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return false;
         setActivity((old) => [...old, ...result.items]);
         setActivityCursor(result.nextCursor);
+        if (route.route === 'records') {
+          setActivityReadSource(result.source);
+          setSource(result.source);
+        }
       }
       return true;
     } catch (e) {
