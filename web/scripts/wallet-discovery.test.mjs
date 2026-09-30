@@ -28,6 +28,61 @@ test('multiple legacy wallets retain exact providers and specific flags take pri
   assert.equal(found.find(wallet => wallet.brandId === 'okx').provider, okx); discovery.destroy();
 });
 
+test('OKX and Binance EIP announcements replace different legacy wrappers without permission requests', () => {
+  const target = new EventTarget(), meta = provider({ isMetaMask: true }),
+    oldOkx = provider({ isOkxWallet: true, isMetaMask: true }), oldBinance = provider({}),
+    okx = provider({ isMetaMask: true }), binance = provider({});
+  target.ethereum = meta; target.okxwallet = oldOkx; target.BinanceChain = oldBinance;
+  const discovery = createWalletDiscovery(target);
+  const legacyChoice = discovery.getWallets().find(wallet => wallet.provider === oldOkx);
+  const announce = () => {
+    target.dispatchEvent(announcement(okx, { uuid: 'e98644f7-de75-4bd5-b1d4-cc8086c10449', name: 'OKX Wallet', rdns: 'com.okex.wallet' }));
+    target.dispatchEvent(announcement(binance, { uuid: 'c2c91b7f-b564-44fa-bac7-fb49eb06b9fa', name: 'Binance Wallet', rdns: 'com.binance.wallet' }));
+  };
+  target.addEventListener('eip6963:requestProvider', announce);
+  announce();
+  for (let count = 0; count < 3; count++) {
+    const wallets = discovery.getWallets();
+    assert.deepEqual(wallets.map(wallet => wallet.provider), [meta, okx, binance]);
+    assert.deepEqual(wallets.map(wallet => wallet.brandId), ['metamask', 'okx', 'binance']);
+    discovery.refresh();
+  }
+  // A caller already awaiting this exact legacy provider keeps its binding.
+  assert.equal(legacyChoice.provider, oldOkx);
+  discovery.destroy();
+});
+
+test('legacy wrappers injected after an EIP announcement stay hidden for its recognized brand', () => {
+  const target = new EventTarget(), okx = provider({});
+  const discovery = createWalletDiscovery(target);
+  target.dispatchEvent(announcement(okx, { name: 'OKX Wallet', rdns: 'COM.OKX.WALLET' }));
+  const chosen = discovery.getWallets()[0];
+  target.okxwallet = provider({}); target.ethereum = provider({ isOkxWallet: true, isMetaMask: true });
+  discovery.refresh();
+  assert.deepEqual(discovery.getWallets(), [chosen]);
+  discovery.destroy();
+});
+
+test('distinct EIP instances of one brand remain selectable', () => {
+  const target = new EventTarget(), one = provider({}), two = provider({});
+  target.okxwallet = provider({});
+  const discovery = createWalletDiscovery(target);
+  target.dispatchEvent(announcement(one, { name: 'OKX Wallet', rdns: 'com.okx.wallet' }));
+  target.dispatchEvent(announcement(two, { uuid: 'e98644f7-de75-4bd5-b1d4-cc8086c10449', name: 'OKX Wallet', rdns: 'com.okex.wallet' }));
+  assert.deepEqual(discovery.getWallets().map(wallet => wallet.provider), [one, two]);
+  discovery.destroy();
+});
+
+test('unknown RDNS, display names and compatibility flags cannot hide another wallet', () => {
+  const target = new EventTarget(), legacy = provider({ isMetaMask: true }), unknown = provider({ isMetaMask: true }), named = provider({});
+  target.ethereum = legacy;
+  const discovery = createWalletDiscovery(target);
+  target.dispatchEvent(announcement(unknown, { name: 'Other compatible wallet', rdns: 'org.example.wallet' }));
+  target.dispatchEvent(announcement(named, { uuid: 'e98644f7-de75-4bd5-b1d4-cc8086c10449', name: 'MetaMask', rdns: 'org.example.other' }));
+  assert.deepEqual(discovery.getWallets().map(wallet => wallet.provider), [legacy, unknown, named]);
+  discovery.destroy();
+});
+
 test('late announcements stay discoverable, while UUID conflicts and malformed providers are rejected', () => {
   const target = new EventTarget(), first = provider({}), other = provider({});
   let changes = 0; const discovery = createWalletDiscovery(target, () => changes++);

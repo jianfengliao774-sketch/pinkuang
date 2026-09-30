@@ -76,7 +76,7 @@ async function signedReview(f) {
 
 test('Gas relay is disabled by default and requires a systemd credential when enabled',()=>{
   assert.equal(authorityRelayConfiguration({}),null);
-  assert.throws(()=>authorityRelayConfiguration({AUTHORITY_RELAY_ENABLED:'1',
+  assert.throws(()=>authorityRelayConfiguration({AUTHORITY_RELAY_ENABLED:'1',AUTHORITY_REQUIRE_FRESH_READINESS:'1',
     DEPLOYMENT_JOURNAL_ORIGIN:'https://example.test',DEPLOYMENT_JOURNAL_RPC_URL:'https://example.test/rpc',
     KEEPER_PRIVATE_KEY:'0x'+'1'.repeat(64)}),/systemd Gas-wallet credential/);
 });

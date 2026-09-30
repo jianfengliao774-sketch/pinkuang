@@ -8,7 +8,7 @@ import { servedArtifactDigest } from './artifact-digest.mjs';
 import { startOptionalNotifications } from './notifications/runtime.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
 import { authorityIpcConfiguration, createAuthorityRelayProxy,
-  createGasSignerProofReader } from './authority-ipc.mjs';
+  createGasSignerProofReader, createFreshProductReadinessReader } from './authority-ipc.mjs';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const types = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2'};
@@ -89,10 +89,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   });
   const journalService = createJournalService({ ...journalConfiguration({ ...process.env, NODE_ENV: 'production' }), notificationService: notifications,
     gasWalletProofReader: ipc ? createGasSignerProofReader(ipc) : undefined,
+    freshProductReadinessReader: ipc ? createFreshProductReadinessReader(ipc) : undefined,
     currentArtifactDigest: () => servedArtifactDigest(resolve(root, 'deployment-artifacts.json')) });
   const liveDataProxy = createLiveDataProxy(liveDataProxyConfiguration());
   const authorityRelayService = process.env.AUTHORITY_RELAY_PUBLIC_ENABLED === '1'
-    ? createAuthorityRelayProxy(ipc) : null;
+    ? createAuthorityRelayProxy(ipc, {verifyOperationalReadiness:()=>journalService.verifyFreshOperationalReadiness()}) : null;
   const server = createDeploymentServer({ journalService, liveDataProxy, authorityRelayService });
   server.listen(port, host, () => {
     console.log(`拼矿部署台：http://${host}:${port}`);

@@ -9,6 +9,8 @@ import { readPending, recoverPending, requireWallet } from './live-transactions.
 import { sameUnsignedIntent } from './ui-context.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus } from './authority-client.mjs';
+import { recoverAuthorityQueueStep } from './authority-queue-recovery.mjs';
 
 const need=(value,message)=>{if(!value)throw new Error(message);};
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase();
@@ -20,12 +22,13 @@ const key=row=>`${row.collection.toLowerCase()}:${row.tokenId}`;
 export const BUDGET_FIRSTO_PAGE_LIMIT=5;
 
 // The genesis factory has neither createBudgetChildPool nor
-// designatedSubscriber. The fresh deployment uses the Authority relay, while
-// this queue submits directly from an operator wallet. Neither can safely run
-// this two-transaction flow.
+// designatedSubscriber. Fresh deployments use two separately signed Authority
+// actions and may advance only after the previous step's finalized receipt.
 export function budgetPurchaseQueueSupported(config){
   return config?.kind==='integrated-v2' && config.operationalReady===true
-    && ['code-upgraded','role-migrating','role-wired'].includes(config.stage);
+    && config.transactionReady!==false
+    && (['code-upgraded','role-migrating','role-wired'].includes(config.stage)
+      || config.stage==='fresh-active' && !!config.authority && !!config.gasWallet);
 }
 
 /** No display rounding enters approval or calldata. The temporary deposit needs 100 equal integer shares. */
@@ -56,7 +59,15 @@ async function officialSnapshot(config,context,parent,fetcher){
 async function freshParent(input){
   const context=await readPortfolioContext(input.config,input.provider),row=await readPortfolio(context,input.parent,input.account,{includeChildren:false});
   const coreOperator=(await context.read(context.manifest.factory,abi.PoolFactory,'operator'))[0];
-  need(same(context.operator,input.account)&&same(coreOperator,input.account),'Only the current operator of both factories may purchase');
+  if(input.config.stage==='fresh-active'){
+    const authority=addr(input.config.authority);
+    const [first,second,core,budget]=await Promise.all(['administratorOne','administratorTwo','coreFactory','budgetFactory']
+      .map(name=>context.read(authority,abi.PlatformAuthority,name)));
+    need(same(context.operator,authority)&&same(coreOperator,authority)
+      &&(same(first[0],input.account)||same(second[0],input.account))
+      &&same(core[0],context.manifest.factory)&&same(budget[0],context.manifest.portfolioFactory),
+    'Only a verified current Authority administrator may purchase');
+  }else need(same(context.operator,input.account)&&same(coreOperator,input.account),'Only the current operator of both factories may purchase');
   need(row.state===1n&&row.timestamp<row.purchaseDeadline&&row.spentWei<row.budgetWei,'项目不在购机期 / Acquisition window is closed');
   return {context,row};
 }
@@ -136,6 +147,8 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
   const miner=await readMiner(provider,item.collection,item.tokenId,{config,blockTag:context.tag});
   need(same(miner.blockHash,context.block.hash)&&miner.registry?.ready&&exact(miner.verifiedWeight)===exact(item.verifiedWeight),'Miner eligibility/weight changed; preview again');
   const official=miner.official&&exact(miner.official.priceWei)<=exact(item.maxCostWei)?miner.official:null;
+  if(official)need(item.venue==='official'&&item.listingId!==undefined&&exact(official.id)===exact(item.listingId),
+    '官网挂单或采购来源与已批准清单不同，请重新预览 / Official listing or purchase source changed');
   if(!official){
     need(item.venue==='firsto','官网挂单已变化，请跳过或重新预览 / Official listing changed');
     const full=await readOfficial(config,context,parent,fetcher);
@@ -169,7 +182,10 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
     need(official?prepared.procurement.route==='official':prepared.procurement.route==='firsto','Purchase source changed');
   }
   await context.canonical();
-  return {...prepared,queue:{id:plan.id,approvalDigest:plan.approvalDigest,parent,account,index,phase},
+  const authority=config.stage==='fresh-active'?(phase==='create'
+    ?{kind:'executeApprovedOperation',args:approvedOperatorCall(config,prepared.transaction)}
+    :approvedPortfolioPurchase(config,prepared)):undefined;
+  return {...prepared,...(authority?{authority}:{}),queue:{id:plan.id,approvalDigest:plan.approvalDigest,parent,account,index,phase},
     input:{plan:clone(plan),index,parent,account},phase};
 }
 
@@ -177,7 +193,8 @@ export function beginBudgetQueueStep(plan,prepared){
   validateBudgetQueue(plan);const {index,phase}=prepared.queue;
   need(prepared.queue.id===plan.id&&prepared.queue.approvalDigest===plan.approvalDigest&&index===nextBudgetQueueItem(plan),'Queue preview changed');
   const next=clone(plan),item=next.items[index];need(item.status===(phase==='create'?'ready':'created'),'Queue step changed');
-  item.status=phase==='create'?'creating':'buying';item.pendingPhase=phase;item.intent={transaction:prepared.transaction,action:prepared.action};delete item.hash;delete item.nonce;
+  item.status=phase==='create'?'creating':'buying';item.pendingPhase=phase;item.intent={transaction:prepared.transaction,action:prepared.action,
+    ...(prepared.authority?{authority:prepared.authority}:{})};delete item.hash;delete item.nonce;
   next.revision++;return next;
 }
 
@@ -216,9 +233,14 @@ export function applyBudgetQueueResult(plan,index,result){
 }
 
 /** Never rebroadcasts. A missing receipt/empty journal is not proof that no transaction was sent. */
-export async function reconcileBudgetQueue({config,provider,account,parent,plan,index,hash:recoveryHash,fetcher=globalThis.fetch}){
-  validateBudgetQueue(plan,{config,account,parent});await requireWallet(provider,account);
+export async function reconcileBudgetQueue({config,provider,wallet=provider,account,parent,plan,index,hash:recoveryHash,fetcher=globalThis.fetch}){
+  validateBudgetQueue(plan,{config,account,parent});await requireWallet(wallet,account);
   const item=plan.items[index];need(item&&['creating','buying','pending'].includes(item.status),'Queue has no pending step');
+  if(config.stage==='fresh-active'){
+    const status=recoveryHash||item.hash?null:await authorityActionStatus(config,account);
+    const result=await recoverAuthorityQueueStep({config,provider,plan,index,hash:recoveryHash||item.hash||status?.hash});
+    return applyBudgetQueueResult(plan,index,result);
+  }
   const view=await readPending({account,config,fetcher});
   if(view.record)need(same(view.record.account,account)&&same(view.record.target,item.intent.transaction.to)
     &&same(view.record.data,item.intent.transaction.data)&&BigInt(view.record.value)===BigInt(item.intent.transaction.value),'Another wallet operation is pending; reconcile it first');
@@ -239,4 +261,5 @@ export async function reconcileBudgetQueue({config,provider,account,parent,plan,
 export function budgetQueuePreviewMatches(left,right){return left?.queue?.approvalDigest===right?.queue?.approvalDigest
   &&left?.queue?.index===right?.queue?.index&&left?.queue?.phase===right?.queue?.phase&&sameUnsignedIntent(left.transaction,right.transaction)
   &&String(left.procurement?.priceWei??'')===String(right.procurement?.priceWei??'')
-  &&String(left.procurement?.route??'')===String(right.procurement?.route??'');}
+  &&String(left.procurement?.route??'')===String(right.procurement?.route??'')
+  &&JSON.stringify(left.authority??null)===JSON.stringify(right.authority??null);}

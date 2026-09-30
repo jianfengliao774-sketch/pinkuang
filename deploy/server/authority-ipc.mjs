@@ -8,6 +8,7 @@ import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { JournalStore } from './journal-store.mjs';
 import { productGraphConfiguration } from './product-graph.mjs';
 import { createKeyedLimiter, createRequestLimiter } from './request-limiter.mjs';
+import { FRESH_READINESS_PATH } from '../shared/fresh-runtime-identity.mjs';
 import { gasSignerAttestationMessage } from '../shared/gas-signer-attestation.mjs';
 
 export const AUTHORITY_SOCKET = '/run/pinkuang-v4-relay/authority.sock';
@@ -92,7 +93,7 @@ export function authorityIpcConfiguration(env = process.env) {
     rpcUrl: env.DEPLOYMENT_JOURNAL_RPC_URL, expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
-    activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
+    activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH, freshProductRequired: env.BEMINE_FRESH_PRODUCT_ENABLED === '1' };
 }
 
 function sessionAccount(req, store) {
@@ -152,6 +153,37 @@ export function createGasSignerProofReader(config, dependencies = {}) {
     });
     if (result.status !== 200) throw new Error('The isolated Gas signer did not attest its public address.');
     return JSON.parse(result.body.toString('utf8'));
+  };
+}
+
+/** Authenticated machine query, not a wallet session or possession signature. */
+export function createFreshProductReadinessReader(config, dependencies = {}) {
+  if (!config || (!dependencies.allowTestPath && config.socketPath !== AUTHORITY_SOCKET)
+    || !isAbsolute(config.socketPath) || !config.origin?.startsWith('https://'))
+    throw new Error('Machine readiness requires the reviewed private socket.');
+  const key = keyBytes(config.key), transport = dependencies.transport ?? httpRequest;
+  return async () => {
+    const nonce = randomBytes(16).toString('hex');
+    const body = Buffer.from(JSON.stringify({nonce, gasWallet:getAddress(config.expectedGasWallet)}));
+    const assertion = signAuthorityAssertion(key,{account:config.expectedGasWallet,
+      method:'POST',path:FRESH_READINESS_PATH,body});
+    const result = await new Promise((resolve,reject)=>{
+      const upstream=transport({socketPath:config.socketPath,path:FRESH_READINESS_PATH,method:'POST',
+        headers:{[ASSERTION_HEADER]:assertion,origin:config.origin,
+          'content-type':'application/json','content-length':String(body.length)}},response=>{
+        let size=0;const parts=[];
+        response.on('data',part=>{size+=part.length;if(size>MAX_REPLY){upstream.destroy();reject(new Error('Oversized readiness response.'));}else parts.push(part);});
+        response.on('end',()=>resolve({status:response.statusCode,body:Buffer.concat(parts)}));
+        response.on('error',reject);
+      });
+      upstream.setTimeout(30_000,()=>upstream.destroy(new Error('Machine readiness timed out.')));
+      upstream.on('error',reject);upstream.end(body);
+    });
+    if(result.status!==200)throw new Error('Fresh signing and operational services are not ready.');
+    const value=JSON.parse(result.body.toString('utf8'));
+    if(value.nonce!==nonce || getAddress(value.identity?.gasWallet)!==getAddress(config.expectedGasWallet))
+      throw new Error('Machine readiness identity changed.');
+    return value;
   };
 }
 
@@ -237,6 +269,8 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
   if (!config) return null;
   if (!isAbsolute(config.socketPath) || !config.origin?.startsWith('https://'))
     throw new Error('Authority IPC proxy needs an absolute socket and exact HTTPS origin.');
+  if (config.freshProductRequired && typeof dependencies.verifyOperationalReadiness !== 'function')
+    throw new Error('Fresh product relay requires its independent graph and index gate.');
   const key = keyBytes(config.key);
   const store = dependencies.store ?? new JournalStore(config.dbPath);
   const transport = dependencies.transport ?? httpRequest;
@@ -275,6 +309,7 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
         if (!allowSessionAccount(account.toLowerCase())) fail(429, 'Too many authority relay requests for this wallet.');
         await prefilterAdministrator(account);
         await verifyAdministrator(account);
+        if (req.method === 'POST' && config.freshProductRequired) await dependencies.verifyOperationalReadiness();
         if (!allowAdministrator(account.toLowerCase())) fail(429, 'Too many authority relay requests for this administrator.');
         const assertion = signAuthorityAssertion(key, { account, method: req.method, path, body });
         const status = await new Promise((resolve, reject) => {
@@ -313,6 +348,7 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
 export function createAuthoritySignerServer(service, key, dependencies = {}) {
   const verify = dependencies.verify ?? createAuthorityAssertionVerifier(key);
   const attestation = dependencies.attestation;
+  const machine = dependencies.machine;
   const allowAttestation = createKeyedLimiter({ windowMs: 60_000, perKey: 12, maxKeys: 1024 });
   // A compromised proxy can mint assertions for many accounts. Keep a
   // signer-wide ceiling on actual signatures as well as the account quota.
@@ -343,6 +379,19 @@ export function createAuthoritySignerServer(service, key, dependencies = {}) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify({ gasWallet: attestation.wallet.address, signature }));
         return;
+      }
+      if (req.url === FRESH_READINESS_PATH && req.method === 'POST') {
+        if (!service?.readiness || !machine) fail(503, 'Fresh relay is not active.');
+        const body=await bodyBytes(req);
+        if(body.length>1024 || req.headers.origin!==machine.origin) fail(400,'Invalid machine readiness request.');
+        const account=verify(req.headers[ASSERTION_HEADER],req,body);
+        let challenge;try{challenge=JSON.parse(body.toString('utf8'));}catch{fail(400,'Invalid readiness JSON.');}
+        if(!/^[a-f0-9]{32}$/.test(challenge.nonce ?? '')
+          || getAddress(challenge.gasWallet)!==getAddress(machine.gasWallet)
+          || account!==getAddress(machine.gasWallet)) fail(403,'Machine readiness identity differs.');
+        const result=await service.readiness();
+        res.statusCode=200;res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
+        res.end(JSON.stringify({...result,nonce:challenge.nonce}));return;
       }
       exactRoute(req);
       if (!service) fail(503, 'Authority relay is not active.');

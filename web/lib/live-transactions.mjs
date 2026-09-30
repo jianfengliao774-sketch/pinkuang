@@ -6,6 +6,7 @@ import { validateCurrentProductGraph } from './product-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
+import { isFreshUserExit, isFreshUserExitTransaction } from './fresh-user-exits.mjs';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
@@ -142,13 +143,11 @@ export async function abandonPrepared({ account, config = {}, fetcher = globalTh
 function normalize(config, transaction, action) {
   requireValue(config?.status === 'ready' && Number(config.chainId) === 56, '当前尚未配置已验证的 BSC 部署。');
   if (config.manifest) {
-    requireValue((config.readMode === undefined || config.readMode === 'current') && config.stale !== true
-      && config.transactionReady !== false, '历史产品资料仅供展示，请等待最新链上核对。');
+    requireValue((config.readMode === undefined || config.readMode === 'current') && config.stale !== true,
+      '历史产品资料仅供展示，请等待最新链上核对。');
     const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
     requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
       && same(config.artifactDigest, expected), '产品阶段或合约摘要已变化，请刷新页面。');
-    requireValue(config.stage !== 'fresh-active' || config.operationalReady === true,
-      '新部署已通过链上核验，产品交易服务尚未启用。');
   }
   const budgetTarget = typeof action === 'object' && ['portfolioFactory', 'portfolio', 'portfolioMarket'].includes(action?.targetType);
   requireValue(!budgetTarget || config.kind === 'integrated-v2' && config.portfolioFactory && config.portfolioMarket, '预算部署尚未核验。');
@@ -168,11 +167,15 @@ function normalize(config, transaction, action) {
   const kind = typeof action === 'string' ? action : action?.kind;
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
+  const userExit = config.stage === 'fresh-active' && config.userExitReady === true && isFreshUserExit(targetType, decoded.name, value);
+  requireValue(!config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit,
+    config.stage === 'fresh-active' ? '新增交易服务尚未启用；仅已核验的领取、退款和撤单可由用户钱包自付 Gas。'
+      : '历史产品资料仅供展示，请等待最新链上核对。');
   if (config.manifest && config.stage !== 'genesis') {
     const oldContract = targetType === 'portfolioFactory' ? genesisAbi.BudgetPortfolioFactory
       : targetType === 'portfolio' ? genesisAbi.BudgetPortfolioVault : targetType === 'factory' ? genesisAbi.PoolFactory
         : targetType === 'pool' ? genesisAbi.PoolVault : genesisAbi.ShareMarket;
-    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true,
+    requireValue(oldContract.parseTransaction({ data, value }) || config.operationalReady === true || userExit,
       '新合约操作须等待权限、Gas 服务和产品接线全部核验完成。');
   }
   requireValue(['deposit','completeFirstoSale','fill'].includes(decoded.name) || value === 0n, '该操作不能附带 BNB。');
@@ -187,7 +190,7 @@ export function validateProductTransactionStage(config, transaction, action) {
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function requireCurrentProductStage(config, fetcher, { wait = pause, now = Date.now } = {}) {
+export async function requireCurrentProductStage(config, fetcher, { wait = pause, now = Date.now, transaction, action } = {}) {
   if (!config.manifest) return; // Legacy isolated test fixtures never reach production boot.
   requireValue(typeof config.productGraphUrl === 'string' && typeof config.origin === 'string',
     '缺少已核验的产品阶段，请刷新页面。');
@@ -200,6 +203,7 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
   const deadline = now() + 8000;
   for (;;) {
     const graph = validateCurrentProductGraph(await fetchLiveJson(url.href, { fetcher, maxBytes: 65536 }), config);
+    const userExit = graph.userExitReady === true && isFreshUserExitTransaction(config, transaction, action);
     requireValue(graph.stage === config.stage && same(graph.artifactDigest, config.artifactDigest)
     && same(graph.manifest.factory, config.factory)
     && same(graph.manifest.shareMarket, config.shareMarket)
@@ -208,13 +212,13 @@ export async function requireCurrentProductStage(config, fetcher, { wait = pause
     && graph.stageActivationBlock === config.stageActivationBlock
     && same(graph.stageActivationHash, config.stageActivationHash)
     && sameNullable(graph.operationId, config.operationId)
-    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady)
+    && (graph.readMode !== 'current' || graph.operationalReady === config.operationalReady || userExit)
     && (config.stage !== 'fresh-active' || graph.freshFactoryVerified === true
       && same(graph.freshAuthority?.address, config.freshAuthority?.address)
       && same(graph.freshAuthority?.codehash, config.freshAuthority?.codehash)
       && same(graph.freshAuthority?.deploymentTxHash, config.freshAuthority?.deploymentTxHash)),
     '链上产品阶段已变化，请刷新页面后重新确认交易。');
-    if (graph.readMode === 'current' && graph.stale === false && graph.transactionReady !== false) return graph;
+    if (graph.readMode === 'current' && graph.stale === false && (graph.transactionReady !== false || userExit)) return graph;
     requireValue(graph.readMode === 'verified_snapshot' && graph.stale === true
       && graph.transactionReady === false, '产品阶段资料尚未通过最新链上核验。');
     requireValue(now() < deadline, '链上产品阶段仍在刷新，请稍后重试；尚未发送交易。');
@@ -367,7 +371,6 @@ export async function retryLegacyEnvelope({ provider, config = {}, account, onSt
   active.add(lane);
   let record, hash, revision;
   try {
-    const graph = await requireCurrentProductStage(config, fetcher);
     await requireWallet(provider, owner);
     const session = await request(config, 'session', 'GET', undefined, owner, fetcher);
     requireValue(same(session.account, owner), '请先点击连接钱包并完成本站登录。');
@@ -376,10 +379,14 @@ export async function retryLegacyEnvelope({ provider, config = {}, account, onSt
     requireValue(view.canRequestLegacyEnvelope === true && original?.version === 2 && !original.hash
       && !(original.recoveryHashes?.length) && !(original.cancellationRequests?.length),
     '这笔交易不能切换为兼容信封，请先核对钱包交易记录。');
-    const currentConfig = { ...config, readMode: 'current', stale: false, transactionReady: true,
+    const transaction = { from: owner, to: original.target, chainId: '0x38', data: original.data, value: original.value };
+    const action = { ...original.action, targetType: original.targetType };
+    const graph = await requireCurrentProductStage(config, fetcher, { transaction, action });
+    const currentConfig = { ...config, readMode: 'current', stale: false,
+      transactionReady: graph?.transactionReady ?? config.transactionReady,
+      userExitReady: graph?.userExitReady ?? config.userExitReady,
       operationalReady: graph?.operationalReady ?? config.operationalReady };
-    const normalized = normalize(currentConfig, { from: owner, to: original.target, chainId: '0x38',
-      data: original.data, value: original.value }, { ...original.action, targetType: original.targetType });
+    const normalized = normalize(currentConfig, transaction, action);
     requireValue(same(normalized.factory, original.factory) && normalized.targetType === original.targetType,
       '兼容交易的产品目标已变化。');
     const nonce = BigInt(original.nonce), gas = exact(original.gas, '兼容交易 Gas'),
@@ -453,12 +460,12 @@ export async function sendProductTransaction({ provider, config, transaction, ac
   let record, hash, revision, intentRequestStarted = false;
   try {
     emit(onState, { status: 'preparing' });
-    const graph = await requireCurrentProductStage(config, fetcher);
+    const graph = await requireCurrentProductStage(config, fetcher, { transaction, action });
     // The boot response may have been a verified display-only snapshot. Only
     // a freshly verified response with the identical pinned graph can clear
     // that local display marker for this one submission.
-    const currentConfig = graph && config.transactionReady === false
-      ? { ...config, readMode: 'current', stale: false, transactionReady: true } : config;
+    const currentConfig = graph ? { ...config, readMode: graph.readMode, stale: graph.stale,
+      transactionReady: graph.transactionReady, operationalReady: graph.operationalReady, userExitReady: graph.userExitReady } : config;
     const normalized = normalize(currentConfig, transaction, action);
     const { account, factory, target, targetType, value, data } = normalized;
     // Independent reads overlap, but every started read settles before an intent can be saved.

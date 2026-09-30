@@ -1,3 +1,5 @@
+import { verifyFreshLegacyDrain } from '../server/fresh-machine-readiness.mjs';
+import { freshGraphIdentity } from '../shared/fresh-runtime-identity.mjs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { Contract, getAddress } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph } from '../server/product-graph.mjs';
@@ -61,6 +63,7 @@ export async function verifyFreshPurchaseGraph(provider, options, guard, depende
     || !same(graph.freshAuthority.address, guard.trusted.freshAuthority.authority.address)
     || !same(graph.freshAuthority.gasWallet, guard.gasWallet))
     throw new Error('Fresh purchase graph or Gas-wallet binding changed.');
+  if (options.send) await (dependencies.verifyDrain ?? verifyFreshLegacyDrain)(provider, freshGraphIdentity(graph), {allowCurrentPending:options.reconcileExisting === true});
   return { block, graph };
 }
 

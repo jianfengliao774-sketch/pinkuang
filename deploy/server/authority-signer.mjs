@@ -19,6 +19,9 @@ export async function startAuthoritySigner(env = process.env, dependencies = {})
     || !env.DEPLOYMENT_JOURNAL_ORIGIN?.startsWith('https://')
     || new URL(env.DEPLOYMENT_JOURNAL_ORIGIN).origin !== env.DEPLOYMENT_JOURNAL_ORIGIN)
     throw new Error('Independent Gas attestation requires a protected credential and exact HTTPS origin.');
+  const attestationOrigin = env.AUTHORITY_ATTESTATION_ORIGIN ?? env.DEPLOYMENT_JOURNAL_ORIGIN;
+  if (!attestationOrigin?.startsWith('https://') || new URL(attestationOrigin).origin !== attestationOrigin)
+    throw new Error('Exact HTTPS attestation origin is required.');
   const key = dependencies.key ?? readAuthorityIpcKey(env);
   const gasWallet = dependencies.wallet ?? new Wallet(readKeeperPrivateKey(env));
   if (getAddress(gasWallet.address) !== getAddress(env.BEMINE_EXPECTED_GAS_WALLET))
@@ -36,7 +39,8 @@ export async function startAuthoritySigner(env = process.env, dependencies = {})
     },
   });
   const server = createAuthoritySignerServer(relay, key, {
-    attestation: { wallet: gasWallet, origin: env.DEPLOYMENT_JOURNAL_ORIGIN },
+    attestation: { wallet: gasWallet, origin: attestationOrigin },
+    machine: { gasWallet: gasWallet.address, origin: env.DEPLOYMENT_JOURNAL_ORIGIN },
   });
   try { await listenAuthoritySigner(server); }
   catch (error) { await relay?.close(); throw error; }

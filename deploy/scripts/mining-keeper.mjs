@@ -151,6 +151,8 @@ async function submitAction(provider, options, signer, journal, stage, data, gas
   const budget = gasBudget(journal, gasLimit, gasPrice, options.maxGasWei);
   if (!budget.allowed || balance < budget.reservedFee) return { status: 'gas-budget-or-balance-exceeded' };
   if (options.shouldStop?.()) return { status: 'stopped-before-signing' };
+  if (options.verifyBeforeSend) await options.verifyBeforeSend(provider,options.pool);
+  if (options.shouldStop?.()) return { status: 'stopped-before-signing' };
   const to = options.transactionTarget ?? options.pool;
   const raw = await signer.signTransaction({ type: 0, chainId: 56, to, data,
     value: 0n, nonce: pendingNonce, gasLimit, gasPrice });

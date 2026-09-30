@@ -5,6 +5,7 @@ import { formatEther, parseEther } from 'ethers';
 import { Plus, ShieldCheck, ArrowRight, RefreshCw } from 'lucide-react';
 import { prepareAdminAction } from '../lib/live-admin.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
+import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
 import OperatorQuotePicker from './OperatorQuotePicker';
 import { loadOperatorQuote, operatorQuoteDraft, operatorQuoteError, parseOperatorImport } from '../lib/operator-quotes.mjs';
@@ -20,32 +21,41 @@ const when = value => value == null ? '—' : new Date(Number(value) * 1000).toL
 const fundingDisplay = value => { try { return fundingAmount(value).display; } catch { return value; } };
 function FundingPreview({ value }) {
   const exact = formatEther(value), amount = fundingAmount(exact);
-  return <div><dt>募集总额</dt><dd>{amount.display} BNB{amount.approximate && <details><summary>查看精确金额</summary>{exact} BNB</details>}</dd></div>;
+  return <div><dt>募集总额</dt><dd>{fundingDisplay(exact)} BNB{amount.approximate && <details><summary>查看精确金额</summary>{exact} BNB</details>}</dd></div>;
 }
 
-export default function LiveOperator({ config, account, wallet, operator, disabled, onSend, onRefresh, gasFeeWei }) {
+export default function LiveOperator({ config, account, wallet, readProvider, operator, disabled, disabledReason, onSend, onRefresh, gasFeeWei }) {
   const [form, setForm] = useState(initial), [mode, setMode] = useState('createPool');
   const [imported, setImported] = useState(''), [pool, setPool] = useState(''), [listingId, setListingId] = useState('');
   const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [progress,setProgress]=useState(''),[capFocused,setCapFocused]=useState(false);
   const [autoSelection, setAutoSelection] = useState(null);
-  const [fundingFocused, setFundingFocused] = useState(false), fundingEdited = useRef(false);
+  const [fundingFocused, setFundingFocused] = useState(false);
   const context = useRef(createUiContext()), identity = useRef(null);
+  const previewRead = useRef(null);
   const key = `${config?.factory}:${account}`;
-  if (identity.current?.key !== key || identity.current?.wallet !== wallet) {
-    context.current.invalidate(); identity.current = { key, wallet };
+  // The parent derives a new config object on render; progress updates must not cancel a valid preview.
+  const deploymentKey = JSON.stringify([config?.stage, config?.artifactDigest, config?.authority, config?.portfolioFactory,
+    config?.operationId, config?.stageActivationBlock, config?.stageActivationHash, config?.manifest]);
+  if (identity.current?.key !== key || identity.current?.wallet !== wallet || identity.current?.deploymentKey !== deploymentKey || identity.current?.readProvider !== readProvider) {
+    context.current.invalidate(); identity.current = { key, wallet, deploymentKey, readProvider };
   }
-  useEffect(() => { setPreview(null); setError(''); setBusy(false); setAutoSelection(null); setImported(''); }, [key, wallet]);
-  useEffect(() => () => context.current.invalidate(), []);
+  useEffect(() => { previewRead.current?.abort(); setPreview(null); setError(''); setBusy(false); setProgress(''); setAutoSelection(null); setImported(''); }, [key, wallet, deploymentKey, readProvider]);
+  useEffect(() => () => { context.current.invalidate(); previewRead.current?.abort(); }, []);
   const frozen = busy || disabled || !operator?.isOperator;
   const creationBlocked = frozen || !!preview || operator?.creationPaused || !operator?.machineRegistry?.supported || !operator.machineRegistry.ready;
+  const creationReason = busy ? progress || '正在核对，请稍候…'
+    : disabled ? disabledReason || '请先核对当前交易状态，再创建项目。'
+      : !operator?.isOperator ? '请先完成运营权限核验。'
+        : preview ? '请在确认窗口完成操作，或返回修改。'
+          : operator.creationPaused ? '链上已暂停建池。'
+            : !operator.machineRegistry?.supported || !operator.machineRegistry.ready ? '矿机登记尚未就绪，暂不能创建。' : '';
   const change = (name, value) => { context.current.invalidate(); setPreview(null); setError('');
     if (!['fundingHours', 'purchaseHours'].includes(name)) setAutoSelection(null);
     setForm(current => ({ ...current, [name]: value })); };
   const finishFundingEdit = () => {
     setFundingFocused(false);
-    if (!fundingEdited.current) return; // Focusing a quoted amount is not permission to round its actual value.
-    fundingEdited.current = false;
-    setForm(current => { try { return { ...current, targetRaise: fundingAmount(current.targetRaise).rounded }; } catch { return current; } });
+    // Rounding is presentation only, including amounts entered manually.
   };
   const switchMode = next => { context.current.invalidate(); setMode(next); setPreview(null); setError(''); setAutoSelection(null); setImported(''); };
   function applyQuote(selection) {
@@ -55,12 +65,12 @@ export default function LiveOperator({ config, account, wallet, operator, disabl
       targetRaise: formatEther(params.targetRaiseWei), priceCap: formatEther(params.priceCapWei) }));
     setAutoSelection(selection); setImported(JSON.stringify(selection.draft, null, 2));
   }
-  async function recheckSelection(selection = autoSelection) {
+  async function recheckSelection(selection = autoSelection, optionsForRead = {}) {
     if (!selection) return null;
     const options = { mode, extraBps: selection.extraBps, fundingHours: form.fundingHours, purchaseHours: form.purchaseHours };
     const original = operatorQuoteDraft(selection.checked, options);
     const checked = await loadOperatorQuote({ collection: selection.checked.chain.collection,
-      tokenId: selection.checked.chain.tokenId, config, mode });
+      tokenId: selection.checked.chain.tokenId, config, mode, ...optionsForRead });
     const current = operatorQuoteDraft(checked, options);
     if (current.params.targetRaiseWei !== original.params.targetRaiseWei || current.params.priceCapWei !== original.params.priceCapWei
       || current.expectedTaskId !== original.expectedTaskId || current.expectedReferenceWeight !== original.expectedReferenceWeight) {
@@ -72,9 +82,12 @@ export default function LiveOperator({ config, account, wallet, operator, disabl
 
   async function prepare(kind = mode, miningAction) {
     const ticket = context.current.begin(); setBusy(true); setError(''); setPreview(null);
+    const controller = new AbortController(); previewRead.current = controller;
+    setProgress(autoSelection?'正在核对最新报价…':'正在核对建池条件…');
     try {
+      const prepared = await boundedReadPreview(async ({ provider, check, signal }) => {
       let input;
-      if (autoSelection && ['createPool', 'createFlexiblePoolChecked'].includes(kind)) input = await recheckSelection();
+      if (autoSelection && ['createPool', 'createFlexiblePoolChecked'].includes(kind)) input = await recheckSelection(autoSelection, { provider, signal });
       else if (kind === 'createPool') input = { kind, params: { circuits: form.circuits, circuitId: form.circuitId,
         targetRaiseWei: parseEther(form.targetRaise).toString(), priceCapWei: parseEther(form.priceCap).toString(),
         fundingHours: form.fundingHours, purchaseHours: form.purchaseHours } };
@@ -83,21 +96,27 @@ export default function LiveOperator({ config, account, wallet, operator, disabl
         input = { kind, params: data.params, flexible: data.flexible,
           expectedTaskId: data.expectedTaskId, expectedReferenceWeight: data.expectedReferenceWeight };
       } else input = { kind, pool, listingId, miningAction };
+      check();
+      setProgress('正在核对链上条件，完成后显示确认窗口…');
+      return prepareAdminAction({ provider, config, account, ...input });
+      }, { provider: config?.productFamily === 'fresh-v4' ? readProvider : wallet,
+        isCurrent: () => context.current.current(ticket), signal: controller.signal });
       if (!context.current.current(ticket)) return;
-      const prepared = await prepareAdminAction({ provider: wallet, config, account, ...input });
-      if (!context.current.current(ticket)) return;
-      setPreview({ ...prepared, input: prepared.request || { ...input, ...(prepared.params ? { params: prepared.params } : {}) }, ticket, identity: key });
-    } catch (problem) { if (context.current.current(ticket)) setError(errorText(problem)); }
-    finally { if (context.current.current(ticket)) setBusy(false); }
+      setPreview({ ...prepared, input: prepared.request, ticket, identity: key });
+    } catch (problem) { if (context.current.current(ticket)) { context.current.invalidate(); setError(errorText(problem)); setBusy(false); setProgress(''); } }
+    finally { if (previewRead.current === controller) previewRead.current = null; if (context.current.current(ticket)) {setBusy(false);setProgress('');} }
   }
+  function cancelPreviewRead() { context.current.invalidate(); previewRead.current?.abort(); previewRead.current = null; setBusy(false); setProgress(''); setError(''); }
   async function send() {
     if (!preview || preview.identity !== key || !context.current.current(preview.ticket)) return;
     const ticket = preview.ticket; setBusy(true); setError('');
-    try { if (autoSelection && preview.input.params) await recheckSelection();
+    setProgress('正在准备钱包确认…');
+    try { if (autoSelection && preview.input.params) await boundedReadPreview(({ provider, signal }) => recheckSelection(autoSelection, { provider, signal }),
+      { provider: config?.productFamily === 'fresh-v4' ? readProvider : wallet, isCurrent: () => context.current.current(ticket) });
       if (!context.current.current(ticket)) return;
       await onSend(preview); if (context.current.current(ticket)) setPreview(null); }
     catch (problem) { if (context.current.current(ticket)) { setError(errorText(problem)); setPreview(null); } }
-    finally { if (context.current.current(ticket)) setBusy(false); }
+    finally { if (context.current.current(ticket)) {setBusy(false);setProgress('');} }
   }
 
   return <section className="panel live-operator" aria-label="运营建池与矿机管理">
@@ -115,21 +134,23 @@ export default function LiveOperator({ config, account, wallet, operator, disabl
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
         <label>矿机系列<select value={form.circuits} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuits', event.target.value)}>{collections.map(([name, address]) => <option key={address} value={address}>{name}</option>)}</select></label>
         <label>矿机编号<input inputMode="numeric" placeholder="可在上方选择后自动填入" value={form.circuitId} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuitId', event.target.value)}/></label>
-        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => { fundingEdited.current = false; setFundingFocused(true); }} onBlur={finishFundingEdit} onChange={event => { fundingEdited.current = true; change('targetRaise', event.target.value); }}/></label>
-        <label>购机价格上限（BNB）<input inputMode="decimal" value={form.priceCap} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('priceCap', event.target.value)}/></label>
+        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" title={form.targetRaise?`精确金额 ${form.targetRaise} BNB`:undefined} value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => setFundingFocused(true)} onBlur={finishFundingEdit} onChange={event => change('targetRaise', event.target.value)}/></label>
+        <label>购机价格上限（BNB）<input inputMode="decimal" title={form.priceCap?`精确金额 ${form.priceCap} BNB`:undefined} value={capFocused?form.priceCap:fundingDisplay(form.priceCap)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={()=>setCapFocused(true)} onBlur={()=>setCapFocused(false)} onChange={event => change('priceCap', event.target.value)}/></label>
         <label>募集截止（距当前小时）<input inputMode="numeric" value={form.fundingHours} disabled={frozen || !!preview} onChange={event => change('fundingHours', event.target.value)}/></label>
         <label>购机期限（募集结束后小时）<input inputMode="numeric" value={form.purchaseHours} disabled={frozen || !!preview} onChange={event => change('purchaseHours', event.target.value)}/></label>
       </div>}
       {mode === 'createFlexiblePoolChecked' && <details className="operator-import"><summary>高级：手动导入完整报价</summary><label>已核验矿机报价 JSON<textarea value={imported} disabled={frozen || !!preview} onChange={event => { context.current.invalidate(); setPreview(null); setAutoSelection(null); setError(''); setImported(event.target.value); }} placeholder={'{"params": {...}, "flexible": {...}, "expectedTaskId": "...", "expectedReferenceWeight": "..."}'}/></label><small>通常在上方选择矿机即可自动生成，无需填写 JSON。</small></details>}
       <p className="subtle-note">每池固定 100 份。创建矿池只支付 Gas；募集款在成员认购时进入矿池。</p>
       <button className="btn" disabled={creationBlocked} onClick={() => void prepare()}><Plus size={17}/>预览创建矿池</button>
+      {creationReason&&<p className="subtle-note" role="status" data-creation-block-reason>{creationReason}</p>}
+      {busy && previewRead.current && <button className="btn secondary" onClick={cancelPreviewRead}>取消核对</button>}
       <hr/>
-      {config.stage === 'fresh-active' ? <p className="live-notice">新合约的运营地址是平台权限合约。Gas 钱包购机入口正在完成逐笔核验；在启用前不显示会从管理员钱包直接付 Gas 的旧入口。</p> : <><h3>已募集矿池管理</h3><p className="subtle-note">填写矿池地址后，先检查原目标的官网挂单。灵活矿池还会扫描同任务的官网替代矿机；确认没有可执行的官网购机路径后，才核验 Firsto 原目标单笔签名订单。</p>
+      {config.stage === 'fresh-active' ? <><p className="live-notice">单机采购与挖矿准备、启动由已核验的独立服务执行。多机预算采购在下方逐台签名：先建子池，再核对订单与最高支出。管理员钱包不直接支付 Gas。</p><h3>协议回收</h3><p className="subtle-note">回收需要管理员对指定矿池、精确矿机标识单独签名；不会授权挖矿服务任意回收。</p><label>已核验矿池合约<input placeholder="0x…" value={pool} disabled={frozen || !!preview} onChange={event => { context.current.invalidate(); setPool(event.target.value); setPreview(null); }}/></label><button className="btn secondary" disabled={frozen || !!preview || !pool} onClick={() => void prepare('mine', 'reclaim')}>预览协议回收签名</button><p className="subtle-note">首发不提供暂停认购代付入口。</p></> : <><h3>已募集矿池管理</h3><p className="subtle-note">填写矿池地址后，先检查原目标的官网挂单。灵活矿池还会扫描同任务的官网替代矿机；确认没有可执行的官网购机路径后，才核验 Firsto 原目标单笔签名订单。</p>
       <div className="operator-grid"><label>矿池合约<input placeholder="0x…" value={pool} disabled={frozen || !!preview} onChange={event => { context.current.invalidate(); setPool(event.target.value); setPreview(null); }}/></label><label>矿机市场订单编号<input inputMode="numeric" value={listingId} disabled={frozen || !!preview} onChange={event => { context.current.invalidate(); setListingId(event.target.value); setPreview(null); }}/></label></div>
       <button className="btn" disabled={frozen || !!preview || !pool} onClick={() => void prepare('autoPurchase')}><RefreshCw size={16}/>先查官网并预览购机</button>
       <div className="operator-tabs"><button className="btn secondary" disabled={frozen || !!preview || !pool || !listingId} onClick={() => void prepare('buyFromMarket')}>预览购入指定矿机</button><button className="btn secondary" disabled={frozen || !!preview || !pool} onClick={() => void prepare('mine', 'arm')}>预览挖矿准备</button><button className="btn secondary" disabled={frozen || !!preview || !pool} onClick={() => void prepare('mine', 'reclaim')}>预览协议回收</button></div>
       <p className="subtle-note">协议回收须满足链上状态和冷却条件；重新启动需要有效计算证明。</p></>}
-      {preview && preview.identity === key && <div className="operator-preview-overlay"><div className="operator-confirm" role="dialog" aria-label="确认运营操作" aria-modal="true"><h3>核对后前往钱包</h3><dl><div><dt>操作</dt><dd>{preview.kind === 'buyFromFirsto' ? '从 Firsto 购入原目标矿机' : preview.kind === 'buyAlternativeFromMarket' ? '从官网市场购入同任务替代矿机' : preview.official ? '从官网市场购入原目标矿机' : preview.requestKind || preview.kind}</dd></div><div><dt>接收合约</dt><dd>{preview.transaction.to}</dd></div>{preview.official && <><div><dt>购入矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.official.collection?.toLowerCase())?.[0]} #{preview.official.tokenId}</dd></div>{preview.official.verifiedWeight && <div><dt>验证产能权重</dt><dd>{preview.official.verifiedWeight}</dd></div>}<div><dt>官网挂单编号</dt><dd>#{preview.official.id}</dd></div><div><dt>官网成交价</dt><dd>{displayAmount(preview.official.priceWei)} BNB（由矿池余额支付）</dd></div><div><dt>钱包支付</dt><dd>仅 Gas</dd></div></>}{preview.firsto ? <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.firsto.ask.collection.toLowerCase())?.[0]} #{preview.firsto.ask.tokenId}</dd></div><div><dt>矿机合约</dt><dd>{preview.firsto.ask.collection}</dd></div><div><dt>卖家报价</dt><dd>{displayAmount(preview.firsto.priceWei)} BNB</dd></div><div><dt>Firsto 来源手续费</dt><dd>{displayAmount(preview.firsto.feeWei)} BNB</dd></div><div><dt>矿池总支出</dt><dd>{displayAmount(preview.firsto.grossWei)} BNB（由矿池余额支付）</dd></div><div><dt>订单有效期</dt><dd>{when(preview.firsto.ask.expiry)}</dd></div><div><dt>钱包支付</dt><dd>仅 Gas，不从运营钱包转入购机款</dd></div></> : !preview.official && <div><dt>业务支付</dt><dd>{displayAmount(preview.transaction.value || 0)} BNB + Gas</dd></div>}{preview.input.params && <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.input.params.circuits.toLowerCase())?.[0] || preview.input.params.circuits} #{preview.input.params.circuitId.toString()}</dd></div><div><dt>购机上限</dt><dd>{displayAmount(preview.input.params.priceCap)} BNB</dd></div><FundingPreview value={preview.input.params.targetRaise}/><div><dt>募集截止</dt><dd>{when(preview.input.params.fundingDeadline)}</dd></div><div><dt>购机截止</dt><dd>{when(preview.input.params.purchaseDeadline)}</dd></div></>}{busy && gasFeeWei != null && <div><dt>Gas 费用上限</dt><dd>{displayGasFee(gasFeeWei)} BNB</dd></div>}</dl>{preview.official && <p className="subtle-note">官网预览价未锁定；交易只包含挂单编号。卖家可能在成交前调价，合约仍会检查矿池购机上限{preview.kind === 'buyAlternativeFromMarket' ? '及单位验证产能价格上限' : ''}。</p>}{preview.firsto && <p className="subtle-note">此预览已锁定订单。发送前会再次扫描官网市场并核验原 Firsto 订单；条件变化时需要重新预览，不会自动替换成交订单。</p>}<div className="operator-tabs"><button className="btn secondary" disabled={busy} onClick={() => { context.current.invalidate(); setPreview(null); }}>返回修改</button><button className="btn" disabled={frozen} onClick={() => void send()}>发送到钱包确认<ArrowRight size={16}/></button></div></div></div>}
+      {preview && preview.identity === key && <div className="operator-preview-overlay"><div className="operator-confirm" role="dialog" aria-label="确认运营操作" aria-modal="true"><h3>核对后前往钱包</h3><dl><div><dt>操作</dt><dd>{preview.kind === 'buyFromFirsto' ? '从 Firsto 购入原目标矿机' : preview.kind === 'buyAlternativeFromMarket' ? '从官网市场购入同任务替代矿机' : preview.official ? '从官网市场购入原目标矿机' : preview.requestKind || preview.kind}</dd></div><div><dt>接收合约</dt><dd>{preview.transaction.to}</dd></div>{preview.official && <><div><dt>购入矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.official.collection?.toLowerCase())?.[0]} #{preview.official.tokenId}</dd></div>{preview.official.verifiedWeight && <div><dt>验证产能权重</dt><dd>{preview.official.verifiedWeight}</dd></div>}<div><dt>官网挂单编号</dt><dd>#{preview.official.id}</dd></div><div><dt>官网成交价</dt><dd>{displayAmount(preview.official.priceWei)} BNB（由矿池余额支付）</dd></div><div><dt>钱包支付</dt><dd>仅 Gas</dd></div></>}{preview.firsto ? <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.firsto.ask.collection.toLowerCase())?.[0]} #{preview.firsto.ask.tokenId}</dd></div><div><dt>矿机合约</dt><dd>{preview.firsto.ask.collection}</dd></div><div><dt>卖家报价</dt><dd>{displayAmount(preview.firsto.priceWei)} BNB</dd></div><div><dt>Firsto 来源手续费</dt><dd>{displayAmount(preview.firsto.feeWei)} BNB</dd></div><div><dt>矿池总支出</dt><dd>{displayAmount(preview.firsto.grossWei)} BNB（由矿池余额支付）</dd></div><div><dt>订单有效期</dt><dd>{when(preview.firsto.ask.expiry)}</dd></div><div><dt>钱包支付</dt><dd>仅 Gas，不从运营钱包转入购机款</dd></div></> : !preview.official && <div><dt>业务支付</dt><dd>{config.stage === 'fresh-active' ? '本钱包仅签名，Gas 钱包代付手续费' : <>{displayAmount(preview.transaction.value || 0)} BNB + Gas</>}</dd></div>}{preview.input.params && <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.input.params.circuits.toLowerCase())?.[0] || preview.input.params.circuits} #{preview.input.params.circuitId.toString()}</dd></div><div><dt>购机上限</dt><dd>{displayAmount(preview.input.params.priceCap)} BNB</dd></div><FundingPreview value={preview.input.params.targetRaise}/><div><dt>募集截止</dt><dd>{when(preview.input.params.fundingDeadline)}</dd></div><div><dt>购机截止</dt><dd>{when(preview.input.params.purchaseDeadline)}</dd></div></>}{busy && gasFeeWei != null && <div><dt>Gas 费用上限</dt><dd>{displayGasFee(gasFeeWei)} BNB</dd></div>}</dl>{preview.official && <p className="subtle-note">官网预览价未锁定；交易只包含挂单编号。卖家可能在成交前调价，合约仍会检查矿池购机上限{preview.kind === 'buyAlternativeFromMarket' ? '及单位验证产能价格上限' : ''}。</p>}{preview.firsto && <p className="subtle-note">此预览已锁定订单。发送前会再次扫描官网市场并核验原 Firsto 订单；条件变化时需要重新预览，不会自动替换成交订单。</p>}<div className="operator-tabs"><button className="btn secondary" disabled={busy} onClick={() => { context.current.invalidate(); setPreview(null); }}>返回修改</button><button className="btn" disabled={frozen} onClick={() => void send()}>发送到钱包确认<ArrowRight size={16}/></button></div></div></div>}
     </>}
   </section>;
 }

@@ -1,5 +1,4 @@
 import { parseEther } from 'ethers';
-import { fundingAmount } from './funding-amount.mjs';
 import { dailyCapToWeightCap } from './portfolio-daily-cap.mjs';
 
 function positiveBnb(value,label){
@@ -13,13 +12,11 @@ function positiveBnb(value,label){
 /** UI validation only; the contract independently enforces wei-denominated caps. */
 export function portfolioCreateForm({budget,absoluteCap,dailyCap,capacitySample,fundHours,buyHours}){
   const total=positiveBnb(budget,'募集预算');
+  if(total%100n!==0n)throw new Error('募集预算需能平均分为 100 份，最多保留 16 位小数。');
   const perMiner=positiveBnb(absoluteCap,'单机价格上限');
   const unitCap=dailyCapToWeightCap(dailyCap,capacitySample);
   if(perMiner>total)throw new Error('单机价格上限不能超过募集预算。');
   if(!/^[1-9]\d{0,2}$/.test(fundHours)||!/^[1-9]\d{0,2}$/.test(buyHours))
     throw new Error('募集期与购机期请输入 1–999 的整数小时。');
-  const rounded=fundingAmount(budget).rounded;
-  if(parseEther(rounded)===0n)throw new Error('募集预算按 0.001 BNB 展示后为 0，请提高预算。');
-  if(perMiner>parseEther(rounded))throw new Error('单机价格上限不能超过最终募集预算。');
-  return {budget:rounded,absoluteCap,dailyCap,unitCap,fundHours,buyHours};
+  return {budget:budget.trim(),absoluteCap,dailyCap,unitCap,fundHours,buyHours};
 }

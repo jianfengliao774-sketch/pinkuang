@@ -23,17 +23,50 @@ export function authorityAction(authority, kind, args, nonce, deadline) {
 }
 
 /** A fresh operator preview already contains exact Factory calldata; bind that byte string. */
-export function approvedOperatorCall(config, transaction) {
+export function approvedOperatorCall(config, transaction, { pool } = {}) {
   need(config?.stage === 'fresh-active', '仅新部署使用管理员签名代付。');
   need(transaction?.value === '0x0' || transaction?.value === '0x', '管理员代付交易不得附带 BNB。');
   const target = getAddress(transaction.to);
   const core = getAddress(config.factory), budget = getAddress(config.portfolioFactory);
-  const parsed = target === core ? abi.PoolFactory.parseTransaction({ data: transaction.data })
-    : target === budget ? abi.BudgetPortfolioFactory.parseTransaction({ data: transaction.data }) : null;
+  const contract = target === core ? abi.PoolFactory : target === budget ? abi.BudgetPortfolioFactory
+    : pool && same(pool, target) ? abi.PoolVault : null;
+  const parsed = contract?.parseTransaction({ data: transaction.data });
+  if (parsed?.name === 'mine' && pool && same(pool, target)) {
+    const reclaim = new Interface(['function reclaim(bytes32)']);
+    const inner = reclaim.parseTransaction({ data: parsed.args[0] });
+    need(inner?.name === 'reclaim' && reclaim.encodeFunctionData(inner.fragment, inner.args).toLowerCase() === parsed.args[0].toLowerCase()
+      && abi.PoolVault.encodeFunctionData(parsed.fragment, parsed.args).toLowerCase() === transaction.data.toLowerCase(),
+    '管理员只能签名已核对矿池的精确回收；挖矿准备与启动由独立服务执行。');
+    return { target, data: transaction.data };
+  }
   need(parsed && (target !== core || ['createPool','createPoolWithExpiry','createBudgetChildPool',
     'createFlexiblePool','createFlexiblePoolChecked'].includes(parsed.name))
     && (target !== budget || parsed.name === 'createPortfolio'), '只有已预览的建池或预算项目能由管理员代付。');
+  need([core, budget].includes(target)
+    && contract.encodeFunctionData(parsed.fragment, parsed.args).toLowerCase() === transaction.data.toLowerCase(), '管理员建池 calldata 不规范。');
   return { target, data: transaction.data };
+}
+
+/** Sign one verified child/order and its exact previewed cost, never a reusable budget. */
+export function approvedPortfolioPurchase(config, prepared) {
+  need(config?.stage === 'fresh-active' && prepared?.procurement && prepared.row?.pool,
+    '预算采购缺少当前项目与逐笔报价核验。');
+  const { transaction, procurement } = prepared;
+  need(BigInt(transaction.value) === 0n && BigInt(transaction.chainId) === 56n
+    && same(transaction.to, prepared.row.pool), '预算采购目标或付款发生变化。');
+  const parsed = abi.BudgetPortfolioVault.parseTransaction({ data: transaction.data });
+  need(parsed && ['buyOfficial', 'buyFirsto'].includes(parsed.name)
+    && abi.BudgetPortfolioVault.encodeFunctionData(parsed.fragment, parsed.args).toLowerCase() === transaction.data.toLowerCase(),
+  '预算采购 calldata 不规范。');
+  need(same(parsed.args[0], procurement.child) && integer(procurement.priceWei) > 0n
+    && integer(procurement.priceWei) <= integer(procurement.capWei), '本台采购超过已预览的上限。');
+  const args = { portfolio: getAddress(transaction.to), child: getAddress(parsed.args[0]), maxCost: integer(procurement.priceWei).toString() };
+  if (parsed.name === 'buyOfficial') {
+    need(procurement.route === 'official', '采购来源已改变。');
+    return { kind: 'buyBudgetOfficial', args: { ...args, listingId: parsed.args[1].toString() } };
+  }
+  need(procurement.route === 'firsto' && parsed.args[1].toLowerCase() === procurement.frozenOrder?.toLowerCase(), 'Firsto 签名订单已改变。');
+  return { kind: 'buyBudgetFirsto', args: { ...args, encodedOrder: parsed.args[1] } };
 }
 
 /** Read a single canonical block before asking the connected admin wallet to sign. */

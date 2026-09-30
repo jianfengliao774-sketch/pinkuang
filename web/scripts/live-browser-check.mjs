@@ -15,13 +15,13 @@ try{
  const page=await browser.newPage({viewport:{width:1440,height:1050}});
  page.setDefaultTimeout(5000);page.on('pageerror',error=>errors.push(error.message));
  await page.route(/\/data\/frontend-manifest\.json(?:\?.*)?$/, route => route.fulfill({status:404,contentType:'application/json',body:'{}'}));
- await page.goto(base);await page.locator('.live-service-note strong').getByText('项目尚未开放，等待部署核验',{exact:true}).waitFor();
+ await page.goto(base);await page.getByText('项目尚未开放，等待部署核验',{exact:true}).waitFor();
  assert(await page.getByRole('button',{name:'连接钱包',exact:true}).isEnabled());
  assert.equal(await page.locator('.bemine-stat').filter({hasText:'累计立项'}).locator('strong').innerText(),'—个');
  checks.push('unconfigured: no fabricated balances or enabled wallet writes');
  await installLiveFixture(page);
  await page.goto(base);await page.getByText('数据区块 100',{exact:true}).waitFor();
- await page.getByRole('button',{name:'连接钱包',exact:true}).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+ await page.getByRole('button',{name:'连接钱包',exact:true}).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
  const open=async route=>{await page.evaluate(hash=>{location.hash=hash},route);await page.waitForFunction(expected=>document.querySelector('main')?.dataset.readyRoute===expected&&document.querySelector('main')?.getAttribute('aria-busy')==='false',route);assert.equal(await page.locator('.live-notice.error').count(),0,await page.locator('.live-notice.error').allTextContents());};
  for(const route of ['overview','pools','market','rewards','governance','records']){
   await open(route);assert.equal(await page.locator('main h1').count(),1,route);checks.push(`desktop ${route}`);

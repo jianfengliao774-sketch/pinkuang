@@ -17,7 +17,7 @@ try {
   await page.goto(`${base}/#market`);
   await page.locator('header').getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
-  await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   const buy = page.getByRole('button', { name: '买入份额', exact: true });
   const cancel = page.getByRole('button', { name: '撤单', exact: true });
   await buy.waitFor();

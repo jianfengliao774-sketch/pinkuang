@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, KEEPER_STATE_ROOT, readJournal, writeJournal } from './purchase-keeper.mjs';
 import { runMiningCycle } from './mining-keeper.mjs';
+import { createFreshWorkerReadiness } from './fresh-worker-readiness.mjs';
+import { configureFreshPurchase, verifyFreshPurchaseGraph, verifyFreshPurchasePool } from './fresh-purchase-guard.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
 const factoryAbi = ['function poolCount() view returns(uint256)', 'function allPools(uint256) view returns(address)'];
@@ -42,7 +44,7 @@ export function parseSupervisorArguments(args) {
   for (let i = 0; i < args.length; i += 1) {
     const key = args[i].startsWith('--') ? args[i].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[i]}`);
-    if (['send', 'once', 'help'].includes(key)) values[key] = true;
+    if (['send', 'once', 'help', 'fresh-graph'].includes(key)) values[key] = true;
     else if (keys.has(key) && args[i + 1] && !args[i + 1].startsWith('--')) values[key] = args[++i];
     else throw new Error(`Unknown option or missing value: --${key}`);
   }
@@ -61,6 +63,8 @@ export function parseSupervisorArguments(args) {
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
   return { factory: getAddress(values.factory), authority: values.authority ? getAddress(values.authority) : undefined,
     rpc, interval, batch, maxPools, send: values.send === true,
+    freshGraph: values['fresh-graph'] === true,
+    journalDirExplicitAbsolute: Boolean(values['journal-dir'] && isAbsolute(values['journal-dir'])),
     once: values.once === true, journalDir: resolve(values['journal-dir'] ?? 'keeper-journal/mining'), maxGasWei, maxGasPrice };
 }
 
@@ -143,28 +147,42 @@ export async function main(args = process.argv.slice(2)) {
       'When Factory operator is PlatformAuthority, add --authority 0x... and use a fresh journal directory.');
     return;
   }
+  if (options.send && process.env.BEMINE_PRODUCT_ACTIVATION_PATH && !options.freshGraph)
+    throw new Error('Fresh mining requires --fresh-graph before sending.');
   const releaseFactory = acquireKeeperLock(resolve(KEEPER_STATE_ROOT, 'mining-factories', `56-${options.factory.toLowerCase()}`));
-  let stopping = false;
-  const stop = () => { stopping = true; };
+  let stopping = false, heartbeat = null, provider = null;
+  const stop = () => { stopping = true; heartbeat?.clear(); };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   try {
     const request = new FetchRequest(options.rpc); request.timeout = 15_000;
-    const provider = new JsonRpcProvider(request);
+    provider = new JsonRpcProvider(request);
+    const freshGuard = options.freshGraph ? configureFreshPurchase(options) : null;
+    if (freshGuard) {
+      if (getAddress(options.authority) !== getAddress(freshGuard.trusted.freshAuthority.authority.address))
+        throw new Error("Fresh mining Authority differs from reviewed graph.");
+      options.verifyBeforeSend = (rpc,pool) => verifyFreshPurchasePool(rpc,options,freshGuard,pool);
+    }
     let signer = null;
     let keeperKey;
     if (options.send) {
       keeperKey = readKeeperPrivateKey();
       signer = new Wallet(keeperKey, provider);
+      if (freshGuard && getAddress(signer.address) !== freshGuard.gasWallet)
+        throw new Error("Fresh mining signer differs from Gas wallet.");
       mkdirSync(options.journalDir, { recursive: true, mode: 0o700 });
       if ((statSync(options.journalDir).mode & 0o077) !== 0) throw new Error('Journal directory must be private (0700).');
     }
+    if (options.send && freshGuard) heartbeat = createFreshWorkerReadiness('mining');
     const state = { pools: [], cursor: 0, quarantined: new Map(), cooldowns: new Map() };
     do {
       try {
+        const proof = freshGuard ? await verifyFreshPurchaseGraph(provider,{...options,reconcileExisting:true},freshGuard) : null;
         const result = await runSupervisorCycle(provider, { ...options, shouldStop: () => stopping }, signer, state);
         console.log(json({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
         if (reportOperatorReview(result, options.send)) break;
+        if (heartbeat && !stopping) heartbeat.publish(proof.graph,proof.block,result);
       } catch (error) {
+        heartbeat?.clear();
         const detail = String(error.shortMessage ?? error.message).replace(/0x[0-9a-f]{130,}/ig, '[signed-data-redacted]');
         console.error(json({ at: new Date().toISOString(), status: 'supervisor-error',
           message: (signer ? detail.split(keeperKey).join('[redacted]') : detail).slice(0, 300) }));
@@ -174,6 +192,7 @@ export async function main(args = process.argv.slice(2)) {
       await new Promise(done => setTimeout(done, options.interval * 1000));
     } while (true);
   } finally {
+    stop(); provider?.destroy();
     process.off('SIGINT', stop); process.off('SIGTERM', stop); releaseFactory();
   }
 }

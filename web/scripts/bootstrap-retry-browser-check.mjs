@@ -52,7 +52,7 @@ try {
       const retry = page.getByRole('button', { name: failure === '403' ? '刷新' : '重新加载', exact: true });
       await retry.evaluate(button => { button.click(); button.click(); });
       await retryEntered;
-      await page.locator('.live-service-note').getByText('正在核对链上数据…', { exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelector('main')?.getAttribute('aria-busy') === 'true');
       assert.equal(await page.locator('.live-notice.error').count(), 0);
       assert.equal(await page.getByRole('button', { name: '重新加载', exact: true }).count(), 0);
       if (route === 'pools') assert(await page.getByRole('button', { name: '刷新', exact: true }).isDisabled());

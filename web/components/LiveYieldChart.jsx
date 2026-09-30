@@ -2,6 +2,7 @@ import { amount } from "../lib/live-view.mjs";
 
 export default function LiveYieldChart({ data, locale, days, onDays }) {
   const L = (zh, en) => (locale === "en" ? en : zh);
+  const portfolio = data?.scope === 'portfolio';
   const rows = data?.buckets ?? [],
     maximum = rows.reduce(
       (n, r) => (r.poolHarvestNetAtomic > n ? r.poolHarvestNetAtomic : n),
@@ -17,9 +18,12 @@ export default function LiveYieldChart({ data, locale, days, onDays }) {
     <section className="panel live-yield">
       <div className="section-head">
         <div>
-          <h2>{L("矿池收益归集", "Output collected into the pool")}</h2>
+          <h2>{portfolio ? L("项目收益归集", "Output collected into the portfolio") : L("矿池收益归集", "Output collected into the pool")}</h2>
           <p>
-            {L(
+            {portfolio ? L(
+              "仅统计实际进入本项目的 BEM，不重复累加子矿池归集；按实际交易日期统计。",
+              "BEM actually received by this portfolio, grouped by transaction date; child-pool collections are not added again.",
+            ) : L(
               "已归集、扣除平台费用的 BEM；按实际交易日期统计。",
               "BEM collected after platform fees, grouped by transaction date.",
             )}
@@ -57,7 +61,10 @@ export default function LiveYieldChart({ data, locale, days, onDays }) {
         <div
           className="live-yield-bars"
           role="img"
-          aria-label={L(
+          aria-label={portfolio ? L(
+            `本期项目归集 ${amount(total, 8)} BEM，${days} 天`,
+            `Portfolio collected ${amount(total, 8)} BEM over ${days} days`,
+          ) : L(
             `本期矿池归集 ${amount(total, 8)} BEM，${days} 天`,
             `Pool collected ${amount(total, 8)} BEM over ${days} days`,
           )}
@@ -88,7 +95,10 @@ export default function LiveYieldChart({ data, locale, days, onDays }) {
         <span>{rows.at(-1)?.date ?? "—"}</span>
       </div>
       <p className="chart-foot">
-        {L(
+        {portfolio ? L(
+          "归集金额不等于当日产能。个人未领取权益以项目当前记录为准。",
+          "Collected amounts are not daily mining estimates. Your unclaimed entitlement follows current portfolio records.",
+        ) : L(
           "归集金额不等于当日产能。个人未领取权益以矿池当前记录为准。",
           "Collected amounts are not daily mining estimates. Your unclaimed entitlement is the current pool balance.",
         )}

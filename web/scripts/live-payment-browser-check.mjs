@@ -18,7 +18,7 @@ try{
   const fixture=await installLiveFixture(page,{confirmDeposit:true,pendingDeposit});
   try{
    await page.goto(`${base}/#detail/${FIXTURE_POOLS.funding}`);
-   await page.getByRole('button',{name:'连接钱包',exact:true}).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+   await page.getByRole('button',{name:'连接钱包',exact:true}).click(); await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click(); await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
    await page.locator('.purchase-panel').getByRole('button',{name:'参与拼矿',exact:true}).click();
    await page.getByLabel('份额数量',{exact:true}).fill('2');
    await page.getByRole('button',{name:'核对交易金额',exact:true}).click();

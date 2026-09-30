@@ -138,7 +138,7 @@ try {
 
   await panel.getByText('项目收益与公开记录',{exact:true}).click();
   await panel.getByRole('button',{name:'读取项目收益与记录',exact:true}).click();
-  await panel.getByRole('heading',{name:'矿池收益归集',exact:true}).waitFor();
+  await panel.getByRole('heading',{name:'项目收益归集',exact:true}).waitFor();
   await panel.getByText('暂无该项目已确认记录。',{exact:true}).waitFor();
   assert.equal(await panel.locator('.chart-summary strong').first().innerText(),'7.00000 BEM');
   checks.push('parent yield and public history use the selected parent and do not add child harvest totals');

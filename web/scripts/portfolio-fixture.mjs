@@ -8,13 +8,13 @@ export const PORTFOLIOS = [address(0x901),address(0x902)];
 const binds=new Interface(['function implementation() view returns(address)','function owner() view returns(address)']);
 const code='0x60006000';
 export function portfolioFixture(options={}) {
-  const base=createLiveBrowserFixture({isOperator:true}), calls=[], simulations=[];
+  const base=createLiveBrowserFixture({isOperator:true,...options.baseOptions}), calls=[], simulations=[];
   const extra=Object.fromEntries(PORTFOLIO_MANIFEST_KEYS.map((key,i)=>[key,address(0x801+i)]));
   const manifest={...base.manifest,...extra,kind:'integrated-v2',
     artifactDigest:options.stage==='genesis'?GENESIS_ARTIFACT_DIGEST:base.manifest.artifactDigest,
     codehash:{...base.manifest.codehash,...Object.fromEntries(PORTFOLIO_MANIFEST_KEYS.map(key=>[key,keccak256(code)]))}};
   const config={status:'ready',stage:options.stage??'fresh-active',...manifest,manifest,origin:'http://127.0.0.1:3198',indexBaseUrl:'http://127.0.0.1:3198/api/chain-index',journalBase:'/api/journal'};
-  const state={...options,account:FIXTURE_ACCOUNT,beforeRead:null};
+  const state={...options,account:base.account,beforeRead:null};
   const same=(a,b)=>a.toLowerCase()===b.toLowerCase();
   const source=()=>({...base.source(),portfolioFactory:extra.portfolioFactory,portfolioMarket:extra.portfolioMarket});
   const request=async input=>{
@@ -41,8 +41,8 @@ export function portfolioFixture(options={}) {
     if(params[1]!=='0x64'&&!(tx.from&&params[1]==='latest'))throw new Error('Unpinned portfolio read');
     const parsed=contract.parseTransaction(tx);if(!parsed)throw new Error('Unknown portfolio ABI');
     if(tx.from){simulations.push({transaction:tx,parsed});if(state.simulationFails)throw new Error('simulation reverted');return contract.encodeFunctionResult(parsed.fragment,parsed.fragment.outputs.map(output=>output.type==='address'?address(13):13n));}
-    const member=parsed.args.length>0&&parsed.args[0]&&typeof parsed.args[0]==='string'&&same(parsed.args[0],FIXTURE_ACCOUNT);
-    const values={legacyFactory:manifest.factory,shareMarket:extra.portfolioMarket,beacon:extra.portfolioBeacon,operator:FIXTURE_ACCOUNT,
+    const member=parsed.args.length>0&&parsed.args[0]&&typeof parsed.args[0]==='string'&&same(parsed.args[0],base.account);
+    const values={legacyFactory:manifest.factory,shareMarket:extra.portfolioMarket,beacon:extra.portfolioBeacon,operator:base.account,
       implementation:extra.portfolioImplementation,owner:manifest.timelock,timelock:manifest.timelock,factory:extra.portfolioFactory,OFFICIAL_FACTORY:extra.portfolioFactory,
       isPool:state.foreign!==true,portfolioCount:2n,state:state.poolState??(same(tx.to,PORTFOLIOS[1])?2n:0n),budgetWei:5000000000000000n,
       absoluteCapWei:3000000000000000n,unitCapWei:100000000000n,spentWei:0n,totalSupply:50n,memberCount:2n,
@@ -75,12 +75,12 @@ export function portfolioFixture(options={}) {
     if(path.endsWith('/portfolio-orders'))return {source:source(),data:{items:[{orderId:'1',pool:PORTFOLIOS[0],seller:FIXTURE_OTHER_ACCOUNT,remaining:'5',pricePerUnitWei:'100'}],nextCursor:null}};
     if(path.endsWith('/v1/yield')&&PORTFOLIOS.some(pool=>same(pool,u.searchParams.get('pool')||''))){
       const days=Number(u.searchParams.get('days')||7),last=new Date((source().indexedTimestamp+28800)*1000).toISOString().slice(0,10);
-      return {source:source(),data:{scope:'pool',pool:u.searchParams.get('pool'),account:u.searchParams.get('account')||null,timezone:'Asia/Shanghai',token:'BEM',tokenDecimals:8,accountUnclaimedDailyAccrual:null,
+      return {source:source(),data:{scope:'portfolio',pool:u.searchParams.get('pool'),account:u.searchParams.get('account')||null,timezone:'Asia/Shanghai',token:'BEM',tokenDecimals:8,accountUnclaimedDailyAccrual:null,
         buckets:Array.from({length:days},(_,i)=>({date:new Date(Date.parse(`${last}T00:00:00Z`)-(days-i-1)*86400000).toISOString().slice(0,10),poolHarvestNetAtomic:'100000000',accountClaimedAtomic:u.searchParams.get('account')?'50000000':null}))}};
     }
     if(path.endsWith('/v1/activity')&&PORTFOLIOS.some(pool=>same(pool,u.searchParams.get('pool')||'')))return {source:source(),data:{items:[],nextCursor:null}};
     return base.index(url);
   };
   const fetcher=async url=>({ok:true,status:200,redirected:false,headers:new Headers({'content-type':'application/json'}),text:async()=>JSON.stringify(index(url))});
-  return {base,state,manifest,config,request,provider:{request},index,fetcher,calls,simulations,source,account:FIXTURE_ACCOUNT};
+  return {base,state,manifest,config,request,provider:{request},index,fetcher,calls,simulations,source,account:base.account};
 }

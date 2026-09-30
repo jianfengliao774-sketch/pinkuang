@@ -1,7 +1,7 @@
 import { pools } from './demo-data.js';
 import { normalizeSharePoster } from './share-artwork.mjs';
+import { isTrustedShareOrigin } from './public-share-origin.mjs';
 
-const ORIGIN = 'https://tapeout.cc.cd';
 const validBase = value => /^\/bemine(?:-[a-z0-9_-]+)?$/.test(value);
 const DEMO_IDS = new Set(pools.map(pool => pool.id));
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
@@ -18,7 +18,7 @@ export function makeArtworkShareUrl(projectUrl, posterId = 'original') {
   try {
     const source = new URL(projectUrl);
     const base = source.pathname.replace(/\/(?:preview\.html)?$/, '');
-    if (source.origin !== ORIGIN || source.username || source.password
+    if (!isTrustedShareOrigin(source.origin) || source.username || source.password
       || !validBase(base) || ![`${base}/`, `${base}/preview.html`].includes(source.pathname)
       || [...source.searchParams.keys()].some(key => key !== 'source')
       || source.searchParams.getAll('source').length > 1) return null;
@@ -26,7 +26,7 @@ export function makeArtworkShareUrl(projectUrl, posterId = 'original') {
     const project = source.hash.startsWith('#detail/') ? source.hash.slice(8) : '';
     const attribution = source.searchParams.get('source');
     if (!validProject(mode, project) || attribution !== null && !SOURCES.has(attribution)) return null;
-    const target = new URL(`${base}/share/${normalizeSharePoster(posterId)}.html`, ORIGIN);
+    const target = new URL(`${base}/share/${normalizeSharePoster(posterId)}.html`, source.origin);
     target.searchParams.set('mode', mode);
     target.searchParams.set('project', mode === 'live' ? project.toLowerCase() : project);
     if (attribution) target.searchParams.set('source', attribution);

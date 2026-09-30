@@ -1044,3 +1044,33 @@ test('yield exposes harvested/claimed amounts without inventing daily unpaid acc
   assert.equal(result.data.buckets[0].poolHarvestNetAtomic, 123456789012345678901234n); assert.equal(result.data.accountUnclaimedDailyAccrual, null);
   await assert.rejects(client({ '/v1/yield': { ...data, buckets: [{ ...data.buckets[0], date: '2000-01-01' }] } }).readYield({ pool, account, days: 1 }), { code: 'invalid_yield' });
 });
+
+test('portfolio yield accepts the explicit parent scope and preserves receipt and actual claim amounts', async () => {
+  const data = { scope: 'portfolio', pool: portfolio, account, timezone: 'Asia/Shanghai', token: 'BEM', tokenDecimals: 8,
+    buckets: [{ date: new Date((timestamp + 8 * 3600) * 1000).toISOString().slice(0, 10),
+      poolHarvestNetAtomic: '123456789012345678901234', accountClaimedAtomic: '100000005' }], accountUnclaimedDailyAccrual: null };
+  const parentClient = (value, inputSource = { ...source, portfolioFactory, portfolioMarket }) => createLiveDataClient(integratedConfig,
+    { provider: provider(), fetcher: indexFetcher({ '/v1/yield': value }, inputSource), now: () => now });
+  const query = { pool: portfolio, account, days: 1, scope: 'portfolio' };
+  const result = await parentClient(data).readYield(query);
+  assert.equal(result.data.scope, 'portfolio');
+  assert.equal(result.data.buckets[0].poolHarvestNetAtomic, 123456789012345678901234n);
+  assert.equal(result.data.buckets[0].accountClaimedAtomic, 100000005n);
+  assert.equal(result.data.accountUnclaimedDailyAccrual, null);
+  const anonymous = { ...data, account: null, buckets: [{ ...data.buckets[0], accountClaimedAtomic: null }] };
+  assert.equal((await parentClient(anonymous).readYield({ ...query, account: undefined })).data.buckets[0].accountClaimedAtomic, null);
+  // Scope is a caller requirement, not a permissive union of unrelated ledgers.
+  await assert.rejects(parentClient(data).readYield({ ...query, scope: undefined }), { code: 'invalid_yield' });
+  await assert.rejects(parentClient({ ...data, scope: 'pool' }).readYield(query), { code: 'invalid_yield' });
+  await assert.rejects(parentClient(data).readYield({ ...query, scope: 'all' }), { code: 'invalid_query' });
+  for (const field of ['portfolioFactory', 'portfolioMarket']) {
+    await assert.rejects(parentClient(data, { ...source, portfolioFactory, portfolioMarket, [field]: addr(999) }).readYield(query), { code: 'index_identity' });
+  }
+  for (const change of [{ pool }, { account: addr(888) }, { tokenDecimals: 18 }, { timezone: 'UTC' },
+    { accountUnclaimedDailyAccrual: '1' }, { buckets: [{ ...data.buckets[0], date: '2000-01-01' }] }]) {
+    await assert.rejects(parentClient({ ...data, ...change }).readYield(query), { code: 'invalid_yield' });
+  }
+  await assert.rejects(parentClient({ ...data, buckets: [{ ...data.buckets[0], poolHarvestNetAtomic: 1 }] }).readYield(query), { code: 'invalid_data' });
+  await assert.rejects(parentClient({ ...data, buckets: [{ ...data.buckets[0], accountClaimedAtomic: '-1' }] }).readYield(query), { code: 'invalid_data' });
+  await assert.rejects(client({ '/v1/yield': data }).readYield(query), { code: 'index_identity' });
+});

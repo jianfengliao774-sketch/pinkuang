@@ -44,7 +44,7 @@ try {
   await page.goto(base);
   await page.getByRole('button', { name: '连接钱包', exact: true }).click();
   await page.getByRole('button', { name: '连接 MetaMask', exact: true }).click();
-  await page.getByText('钱包已连接。发送交易前会请你确认。', { exact: true }).waitFor();
+  await page.locator('header .live-wallet-label').filter({hasText:/0x[0-9a-f]/i}).waitFor();
   await page.evaluate(() => { location.hash = 'pools'; });
   await page.waitForFunction(() => document.querySelector('main')?.dataset.readyRoute === 'pools');
   const main = page.locator('main'), tabs = main.locator('.live-toolbar .tabs');
@@ -62,8 +62,8 @@ try {
   assert.equal(await main.locator('table th').getByText('状态', { exact: true }).count(), 1);
   await main.getByRole('button', { name: '筛选排序', exact: true }).click();
   await main.getByRole('combobox').selectOption('capacity');
-  await main.getByText('2.00000', { exact: true }).waitFor();
-  await main.getByText('3.00000', { exact: true }).waitFor();
+  await main.getByText('2.000', { exact: true }).waitFor();
+  await main.getByText('3.000', { exact: true }).waitFor();
   assert.deepEqual(await main.locator('table tbody .asset-cell strong').allTextContents(), ['Behemoth #8204', 'TapeOut #15832', 'TapeOut #16210', 'Behemoth #9052']);
   assert.equal(await noOverflow(), true);
   await page.screenshot({ path: `/tmp/bemine-ui-review/catalog-overview-${width}.png`, fullPage: true });

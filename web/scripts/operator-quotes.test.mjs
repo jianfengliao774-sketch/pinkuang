@@ -11,8 +11,8 @@ test('listing daily capacity price divides the displayed ask by daily BEM with e
   assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.12346');
   assert.equal(listingDailyCapacityPrice('1000000000000000000', '300000000'), '0.33333');
   assert.equal(listingDailyCapacityPrice('1', '1'), '<0.00001');
-  assert.equal(listingDailyCapacityPrice('123499999999999999', '100000000'), '0.12350');
-  assert.equal(listingDailyCapacityPrice('123500000000000000', '100000000'), '0.12350');
+  assert.equal(listingDailyCapacityPrice('123494999999999999', '100000000'), '0.12349');
+  assert.equal(listingDailyCapacityPrice('123495000000000000', '100000000'), '0.12350');
   for (const [ask, daily] of [[null, '100000000'], ['1000000000000000000', null], ['0', '100000000'], ['1000000000000000000', '0']])
     assert.equal(listingDailyCapacityPrice(ask, daily), null);
   assert.throws(() => listingDailyCapacityPrice('-1', '100000000'));
@@ -103,7 +103,8 @@ test('flexible draft uses capacity reference times atomic BEM yield, exact round
   assert.equal(draft.flexible.minVerifiedWeight, '61'); assert.equal(draft.flexible.targetDailyYieldAtomic, '123456789');
   assert.match(draft.flexible.referenceDigest, /^0x[\da-f]{64}$/i);
   assert.equal(draft.flexible.referenceBlock, data.reference.sourceBlock);
-  assert.equal(draft.flexible.referenceObservedAt, Math.floor(data.reference.observedAt / 1000));
+  assert.equal(draft.flexible.extraBps, '1234');
+  assert.equal(draft.flexible.referenceObservedAt, String(Math.floor(data.reference.observedAt / 1000)));
 });
 
 test('stale/future quotes, expired asks and stale/future chain checks never become drafts', async () => {
@@ -216,9 +217,27 @@ test('empty/truncated imports and malformed public JSON explain recovery in plai
   for (const input of ['', '   ', null, undefined]) assert.throws(() => parseOperatorImport(input), /选择矿机.*完整报价/);
   for (const input of ['{', '{"params":', 'not json']) assert.throws(() => parseOperatorImport(input), /JSON.*不完整或格式错误/);
   for (const input of ['{}', 'null', '[]']) assert.throws(() => parseOperatorImport(input), /缺少建池参数/);
-  const imported = { params: {}, flexible: {}, expectedTaskId: '220', expectedReferenceWeight: '61' };
+  const imported = { params: {}, flexible: { extraBps: '1000', referenceObservedAt: '1800000000' }, expectedTaskId: '220', expectedReferenceWeight: '61' };
   assert.deepEqual(parseOperatorImport(JSON.stringify(imported)), imported);
   const data = dataFixture(), api = apiFixture(data, { invalidJson: true });
   await assert.rejects(listOperatorQuotes({}, { fetcher: api.fetcher }), error => /内容不完整.*重新获取/.test(operatorQuoteError(error)));
   assert.match(operatorQuoteError(Object.assign(new Error('abort'), { name: 'AbortError' })), /超时.*重新获取/);
+});
+
+test('quote-import metadata numbers are accepted only when exact; money is never coerced from numbers', () => {
+  const input = { params: { targetRaiseWei: '437890679475146443600' },
+    flexible: { extraBps: 1234, referenceObservedAt: 1800000000, referencePriceWei: '397890679475146443511' },
+    expectedTaskId: '220', expectedReferenceWeight: '61' };
+  const parsed = parseOperatorImport(JSON.stringify(input));
+  assert.equal(parsed.flexible.extraBps, '1234');
+  assert.equal(parsed.flexible.referenceObservedAt, '1800000000');
+  assert.equal(parsed.flexible.referencePriceWei, input.flexible.referencePriceWei);
+  assert.deepEqual(parsed.params, input.params);
+  for (const field of ['extraBps', 'referenceObservedAt']) {
+    for (const value of [0.5, -1, Number.MAX_SAFE_INTEGER + 1, null, true, '', '1.5', '1e3']) {
+      assert.throws(() => parseOperatorImport(JSON.stringify({ ...input, flexible: { ...input.flexible, [field]: value } })), undefined, `${field}: ${value}`);
+    }
+  }
+  assert.throws(() => parseOperatorImport(JSON.stringify({ ...input, flexible: { ...input.flexible, extraBps: 65536 } })), /uint16/);
+  assert.throws(() => parseOperatorImport(JSON.stringify({ ...input, flexible: { ...input.flexible, referenceObservedAt: (1n << 64n).toString() } })), /uint64/);
 });

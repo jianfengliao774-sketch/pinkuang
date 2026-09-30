@@ -2,7 +2,7 @@
 
 中继默认只对未完成交易查询链上状态，不会自动重播、替换或释放 Gas 钱包 nonce。恢复前先核对私有 journal、BSC 交易哈希、当前 nonce 和签名动作；保留原 journal 备份。以下命令仅适用于独立的 v4 签名服务，不适用于 v2/v3。
 
-**先隔离发送者。** 停止 `pinkuang-purchase-v2.service`、`pinkuang-v4-signer.service` 和 `pinkuang-v4-purchase.service`，逐一确认处于 `inactive`；同时排查其他机器或手动进程是否也持有原 Gas 地址 `0xA285…6619`。核对 v2 未决 journal、BSC `pending` nonce 和 v4 journal 后，才能将 `BEMINE_V2_GAS_SENDER_DRAINED=1` 作为已完成接管的断言。必须使用 `authority-relay-recovery.mjs`：它在启动 `systemd-run` **之前**查询三个 unit，任一活跃或状态不明即拒绝，避免 `Conflicts=` 先自动停掉 v2、掩盖其原先在跑的事实。CLI 还要求 30 秒内生成的启动前检查标记，并在独占的 transient unit 中再次核对状态；直接运行下方内部 CLI 命令没有标记会被拒绝。这个本机检查不能代替跨机器核对。恢复期间不要重新启动发送服务。`systemd-run` 的 `Conflicts=`/`After=` 作为检查后的竞态互斥。
+**先隔离发送者。** 停止 `pinkuang-purchase-v2.service`、`pinkuang-v4-signer.service`、`pinkuang-v4-purchase.service` 和 `pinkuang-v4-mining.service`，逐一确认处于 `inactive`；同时排查其他机器或手动进程是否也持有原 Gas 地址 `0xA285…6619`。核对 v2 未决 journal、BSC `pending` nonce 和 v4 journal 后，才能将 `BEMINE_V2_GAS_SENDER_DRAINED=1` 作为已完成接管的断言。必须使用 `authority-relay-recovery.mjs`：它在启动 `systemd-run` **之前**查询四个 unit，任一活跃或状态不明即拒绝，避免 `Conflicts=` 先自动停掉 v2、掩盖其原先在跑的事实。CLI 还要求 30 秒内生成的启动前检查标记，并在独占的 transient unit 中再次核对状态；直接运行下方内部 CLI 命令没有标记会被拒绝。这个本机检查不能代替跨机器核对。恢复期间不要重新启动发送服务。`systemd-run` 的 `Conflicts=`/`After=` 同样包含这四个发送者，作为检查后的竞态互斥。
 
 以下命令从服务器上的 v4 部署根目录执行；将 `/ABS/PATH/TO/v4/deploy`、`/private/action.json`、RPC 和哈希替换为实际核验值。命令文件须能由 `pinkuang-v4-signer` 读取，且为私有 0600 文件；`/var/lib/pinkuang-v4-signer`、`keeper`、`authority` 目录均应为该用户可读写的 0700 真实目录，journal 为 0600 普通文件，不允许符号链接。**不要**在 shell 中导出 `KEEPER_PRIVATE_KEY` 或使用 `KEY=… node`；发送 CLI 只接受 systemd `LoadCredential`。复用原受保护凭据文件，不生成另一份私钥。
 
