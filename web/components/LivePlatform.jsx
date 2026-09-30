@@ -309,7 +309,8 @@ export default function LivePlatform() {
     [filter, setFilter] = useState("Funding"),
     [sort, setSort] = useState("funded"),
     [detailTab, setDetailTab] = useState("asset"),
-    [marketTab, setMarketTab] = useState("shares");
+    [marketTab, setMarketTab] = useState("shares"),
+    [operatorTab, setOperatorTab] = useState("publish");
   const epoch = useRef(0),
     pageCache = useRef(new WeakMap()),
     readCache = useRef(new WeakMap()),
@@ -3269,19 +3270,32 @@ export default function LivePlatform() {
           )}
           {route.route === 'operator' && !['disconnected', 'denied'].includes(operatorAccess) && (hasOperatorAccess ? <>
             {heading(L('运营工作台', 'Pool operations'), L('创建矿池、购机与管理矿机。', 'Create pools, purchase and manage miners.'))}
+            <div className="operator-tabs operator-workspace-tabs" role="tablist" aria-label={L('运营板块', 'Operations sections')}>
+              {[["publish", L('发布项目', 'Publish projects')], ["review", L('审核', 'Review requests')], ["fees", L('领取手续费', 'Collect fees')]].map(([value, label]) =>
+                <button key={value} id={`operator-tab-${value}`} role="tab" aria-selected={operatorTab === value}
+                  aria-controls={`operator-panel-${value}`} className={`btn${operatorTab === value ? '' : ' secondary'}`}
+                  disabled={busy} onClick={() => setOperatorTab(value)}>{label}</button>)}
+            </div>
+            <div role="tabpanel" id={`operator-panel-${operatorTab}`} aria-labelledby={`operator-tab-${operatorTab}`}>
+            {operatorTab === 'publish' && <>
             {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}`} config={config} wallet={wallet} readProvider={client?.provider} account={account}
               operator={operator} disabled={busy || !!pending || !operatorServiceReady} onSend={sendAdminAction}
               disabledReason={!operatorServiceReady ? L('交易服务恢复中，暂不能预览或签名；恢复后会自动启用。', 'Transaction services are recovering; previews and signatures will resume after verification.')
                 : pending ? L('请先核对上一笔交易结果。', 'Verify the previous transaction first.') : undefined}
               gasFeeWei={transactionGasWei}
               onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
-            {isOperator && config?.stage === 'fresh-active' && <FreshAuthorityConsole config={config} account={account}
-              wallet={wallet} disabled={busy || !!pending || !operatorServiceReady} onAction={sendFreshAuthority}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
               onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onAuthenticateQueue={connectBudgetQueue} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>
+            </>}
+            {operatorTab !== 'publish' && (isOperator && config?.stage === 'fresh-active'
+              ? <FreshAuthorityConsole key={`${config?.factory}:${account}:${walletRevision}:${operatorTab}`}
+                  mode={operatorTab} config={config} account={account} provider={client?.provider}
+                  wallet={wallet} disabled={busy || !!pending || !operatorServiceReady} onAction={sendFreshAuthority}/>
+              : <section className="panel"><Empty title={L('当前钱包没有此板块的管理员权限', 'This wallet does not have administrator access to this section')}/></section>)}
+            </div>
           </> : <section className="panel" data-operator-access={operatorAccess}>
             <Empty title={operatorAccess === 'checking'
               ? L('正在核对访问权限', 'Checking access')
