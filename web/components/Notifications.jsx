@@ -130,9 +130,8 @@ export default function Notifications({ account, wallet, config, locale, route, 
   }, [isPage, account, enabled, needsLogin, !!status]);
 
   useEffect(() => {
-    if (!prompt || blocked) return;
-    const previous = document.activeElement, overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (!prompt || blocked || isPage) return;
+    const previous = document.activeElement;
     dialog.current?.querySelector('button')?.focus();
     const keydown = e => {
       if (e.key === 'Escape' && !operation.current) setPrompt(null);
@@ -144,8 +143,8 @@ export default function Notifications({ account, wallet, config, locale, route, 
       if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     };
     document.addEventListener('keydown', keydown);
-    return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', keydown); previous?.focus?.(); };
-  }, [prompt, blocked]);
+    return () => { document.removeEventListener('keydown', keydown); previous?.focus?.(); };
+  }, [prompt, blocked, isPage]);
 
   async function act(work) {
     if (operation.current || blocked) return;

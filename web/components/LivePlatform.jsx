@@ -625,8 +625,6 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!modal) return;
     restoreFocus.current = document.activeElement;
-    const before = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     modalRef.current?.querySelector("button,input")?.focus();
     const key = (e) => {
       if (e.key === "Escape" && (!busy || modal.type === "connect-wallet")) setModal(null);
@@ -648,7 +646,6 @@ export default function LivePlatform() {
     };
     document.addEventListener("keydown", key);
     return () => {
-      document.body.style.overflow = before;
       document.removeEventListener("keydown", key);
       restoreFocus.current?.focus();
     };
