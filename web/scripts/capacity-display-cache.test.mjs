@@ -11,6 +11,7 @@ const store = () => { const entries = new Map(); return {
 const quote = { available: true, pool, collection, tokenId: '16480', pricePerUnitWei: 10_000_000_000_000_000n,
   forPriceWei: '10000000000000000', sourceBlock: 123n, miningSourceBlock: 122n,
   estimated24hAtomic: 123_456_789n, marketReferencePriceWei: 8_100_000_000_000_000_000n,
+  minerAskPriceWei: 100_000_000_000_000_000n,
   observedAt: now - 1000, validUntil: now + 299_000 };
 
 test('restores only a fresh, exact-price, deployment-bound capacity display', () => {
@@ -28,8 +29,19 @@ test('restores only a fresh, exact-price, deployment-bound capacity display', ()
 test('unavailable, malformed, and expired estimates are never persisted', () => {
   const storage = store();
   for (const change of [{ available: false }, { estimated24hAtomic: 0n },
-    { marketReferencePriceWei: -1n }, { validUntil: now }, { pool: `0x${'44'.repeat(20)}`,
+    { marketReferencePriceWei: -1n }, { minerAskPriceWei: undefined }, { minerAskPriceWei: -1n },
+    { validUntil: now }, { pool: `0x${'44'.repeat(20)}`,
       forPriceWei: 'wrong' }]) {
     assert.equal(writeCapacityDisplay(storage, manifest, { ...quote, ...change }, { now }), false);
   }
+});
+
+test('old class-reference cache cannot populate the miner-specific price', () => {
+  const storage = store();
+  assert.equal(writeCapacityDisplay(storage, manifest, quote, { now }), true);
+  const newKey = `bemine:capacity-display:v2:${manifest.artifactDigest}:${manifest.factory}:${pool}`;
+  const oldKey = `bemine:capacity-display:v1:${manifest.artifactDigest}:${manifest.factory}:${pool}`;
+  storage.setItem(oldKey, storage.getItem(newKey));
+  storage.setItem(newKey, null);
+  assert.equal(readCapacityDisplay(storage, manifest, pool, quote.pricePerUnitWei, { now }), null);
 });

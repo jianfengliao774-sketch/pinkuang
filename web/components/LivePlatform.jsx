@@ -71,7 +71,7 @@ import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { readDeploymentAccount } from '../lib/deployment-account.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
-import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
+import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei, poolDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
 import { readCurrentPoolMembers } from "../lib/live-members.mjs";
@@ -1877,6 +1877,7 @@ export default function LivePlatform() {
       && quote.collection?.toLowerCase() === p.params?.circuits?.toLowerCase()
       && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
   };
+  const currentPoolCapacityPrice = p => poolDailyCapacityPriceWei(p, currentPoolQuote(p));
   const poolQuotePlaceholder = p => !["pools", "detail"].includes(route.route) ? "—" : poolCapacity[p.pool.toLowerCase()]?.loading
     ? L("读取中…", "Loading…")
     : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
@@ -1960,10 +1961,10 @@ export default function LivePlatform() {
                 ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
                 : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p)}</td>
               <td className="num" title={currentPoolQuote(p)?.cached
-                ? L('此前核验的 Firsto 参考价，仍在有效期内；单位：BNB / (BEM/天)', 'Previously verified Firsto reference, still within its validity window; unit: BNB / (BEM/day)')
-                : L('单位：BNB / (BEM/天)', 'Unit: BNB / (BEM/day)')}>{currentPoolQuote(p)?.marketReferencePriceWei != null
-                ? displayPreciseAmount(currentPoolQuote(p).marketReferencePriceWei)
-                : p.kind === 'portfolio' ? '—' : poolQuotePlaceholder(p)}</td></>}
+                ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
+                : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')}>{currentPoolCapacityPrice(p) != null
+                ? displayPreciseAmount(currentPoolCapacityPrice(p))
+                : p.kind === 'portfolio' || currentPoolQuote(p) ? '—' : poolQuotePlaceholder(p)}</td></>}
               <td>
                 {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                   onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
@@ -2022,7 +2023,7 @@ export default function LivePlatform() {
   );
   const renderProjectDirectory = page => {
     const directory = projectDirectory(pools, page.rows, { filter, query, sort,
-      capacityFor: row => row.kind === 'portfolio' ? null : currentPoolQuote(row)?.marketReferencePriceWei });
+      capacityFor: row => currentPoolCapacityPrice(row) });
     const updating = loading || busy || page.loading || boot.status === 'loading' || page.enabled && !page.loaded && !page.failed;
     const failed = readFailed || page.failed || !page.enabled && boot.status !== 'loading';
     const ready = !!source && page.loaded && !!page.source;
@@ -2767,8 +2768,8 @@ export default function LivePlatform() {
                       <small>BNB / {L("份", "share")}</small>
                     </div>
                     <p className="order-rule purchase-explanation">
-                      {L('日产能参考价', 'Daily capacity reference')}：{currentPoolQuote(detail)?.marketReferencePriceWei != null
-                        ? `${displayPreciseAmount(currentPoolQuote(detail).marketReferencePriceWei)} BNB / (BEM/${L('天', 'day')})`
+                      {L('该矿机日产能价', 'This miner daily capacity price')}：{currentPoolCapacityPrice(detail) != null
+                        ? `${displayPreciseAmount(currentPoolCapacityPrice(detail))} BNB / (BEM/${L('天', 'day')})`
                         : '—'}
                     </p>
                     <p className="order-rule purchase-explanation">

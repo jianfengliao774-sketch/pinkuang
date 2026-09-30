@@ -1,4 +1,4 @@
-const PREFIX = 'bemine:capacity-display:v1:';
+const PREFIX = 'bemine:capacity-display:v2:';
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const HASH = /^0x[0-9a-f]{64}$/i;
 const BIGINT = '$bemineBigInt';
@@ -18,6 +18,8 @@ function usable(quote, pool, priceWei, now) {
     && typeof quote.pricePerUnitWei === 'bigint' && quote.pricePerUnitWei === priceWei
     && quote.forPriceWei === priceWei.toString()
     && typeof quote.estimated24hAtomic === 'bigint' && quote.estimated24hAtomic > 0n
+    && (quote.minerAskPriceWei === null || typeof quote.minerAskPriceWei === 'bigint'
+      && quote.minerAskPriceWei > 0n)
     && (quote.marketReferencePriceWei === null || typeof quote.marketReferencePriceWei === 'bigint'
       && quote.marketReferencePriceWei > 0n)
     && typeof quote.sourceBlock === 'bigint' && typeof quote.miningSourceBlock === 'bigint'

@@ -3,7 +3,10 @@ import test from 'node:test';
 import { Interface, getAddress, toQuantity } from 'ethers';
 import { fetchMineDetail } from '../../deploy/src/pricing.ts';
 import { abi } from '../lib/chain-client.mjs';
-import { parseMinerDisplayMetadata, readShareDailyCapacityPrice, shareDailyCapacityPriceWei } from '../lib/share-daily-capacity.mjs';
+import { parseMinerDisplayMetadata, readShareDailyCapacityPrice, shareDailyCapacityPriceWei,
+  minerAskPriceWei, minerDailyCapacityPriceWei, poolDailyCapacityPriceWei } from '../lib/share-daily-capacity.mjs';
+import { displayPreciseAmount } from '../lib/amount-display.mjs';
+import { projectDirectory } from '../lib/project-directory.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = address(1), pool = address(2), original = '16210', replacement = '16481';
@@ -75,6 +78,56 @@ test('daily capacity price uses exact BigInt and rounds up at most one wei', () 
   assert.equal(shareDailyCapacityPriceWei(0n, 1n), 0n);
   assert.throws(() => shareDailyCapacityPriceWei(1n, 0n), /unavailable/);
   assert.throws(() => shareDailyCapacityPriceWei(1.1, 1n), /exact bigint/);
+});
+
+test('TapeOut 12962 uses its 0.1 BNB ask / 0.00432 BEM, not the class reference or funding reserve', async () => {
+  const seller = address(12), ask = { status: 'open', maker: seller, collection, tokenId: replacement,
+    priceWei: '100000000000000000', buyerCostWei: '101000000000000000', expiry: String(now / 1000 + 3600) };
+  const result = await input(rpc({ owner: seller }), { allowUnownedTarget: true,
+    pricePerUnitWei: 1_111_000_000_000_000n,
+    quoteLoader: async () => ({ ...detail({ owner: seller, mining: { estimated24hAtomic: '432000' },
+      listingReference: { priceWei: '33724590960000000', dailyCapacityPriceWei: '7806530000000000000' } }),
+      orders: { signedAsks: [ask], asksAndOnchainBids: [] } }) });
+  assert.equal(result.available, true);
+  assert.equal(result.minerAskPriceWei, 100_000_000_000_000_000n);
+  const funding = { status: 'Funding', unitPriceWei: 1_111_000_000_000_000n };
+  const capacity = poolDailyCapacityPriceWei(funding, result);
+  assert.equal(displayPreciseAmount(capacity), '23.14815');
+  assert.notEqual(capacity, result.marketReferencePriceWei);
+  assert.notEqual(capacity, result.priceWeiPerDailyBem, 'share-order economics still include their own price');
+  assert.equal(poolDailyCapacityPriceWei({ ...funding, status: 'Funded' }, result), capacity);
+  assert.equal(poolDailyCapacityPriceWei({ ...funding, status: 'Listed' }, result), capacity);
+  assert.equal(displayPreciseAmount(poolDailyCapacityPriceWei({ status: 'Active',
+    purchaseCost: 101_000_000_000_000_000n }, result)), '23.37963');
+  const other = { pool: address(22), status: 'Funding', funded: 0 };
+  const rows = projectDirectory([{ ...funding, pool, funded: 0 }, other], [], {
+    sort: 'capacity', capacityFor: row => poolDailyCapacityPriceWei(row,
+      row.pool === pool ? result : { ...result, minerAskPriceWei: 50_000_000_000_000_000n }) }).rows;
+  assert.equal(rows[0].pool, other.pool, 'sort by miner-specific price rather than the shared class reference');
+});
+
+test('own miner price rejects bids, other NFTs/owners/chains, expired and malformed orders', () => {
+  const ask = { status: 'open', maker: pool, collection, tokenId: replacement,
+    priceWei: '100000000000000000', expiry: String(now / 1000 + 60) };
+  const asset = detail().asset;
+  for (const change of [{ side: 'bid' }, { tokenId: original }, { collection: otherCollection },
+    { maker: address(12) }, { status: 'filled' }, { chainId: 1 },
+    { expiry: String(now / 1000) }, { priceWei: '1e17' }, { priceWei: '0' }]) {
+    assert.equal(minerAskPriceWei({ asset, orders: { signedAsks: [{ ...ask, ...change }] } }, now), null);
+  }
+  assert.equal(minerAskPriceWei({ asset, orders: { signedAsks: [ask, { ...ask, priceWei: '200000000000000000' }] } }, now), 100_000_000_000_000_000n);
+  assert.equal(minerAskPriceWei({ asset, orders: { asksAndOnchainBids: [{ ...ask, side: 'ask' }] } }, now), 100_000_000_000_000_000n);
+  assert.equal(minerAskPriceWei({ asset, orders: { asksAndOnchainBids: [ask] } }, now), null);
+});
+
+test('no own ask does not substitute a class average, funding target or price cap', () => {
+  const quote = { available: true, estimated24hAtomic: 432000n, minerAskPriceWei: null,
+    marketReferencePriceWei: 7806530000000000000n };
+  assert.equal(poolDailyCapacityPriceWei({ status: 'Funding', unitPriceWei: 1111000000000000n,
+    params: { priceCap: 101000000000000000n } }, quote), null);
+  assert.equal(poolDailyCapacityPriceWei({ status: 'Active', purchaseCost: 0n }, quote), null);
+  assert.equal(poolDailyCapacityPriceWei({ kind: 'portfolio', status: 'Active', purchaseCost: 1n }, quote), null);
+  assert.equal(minerDailyCapacityPriceWei(100000000000000000n, 432000n), 23148148148148148149n);
 });
 
 test('uses the actual replacement NFT and its source block, with no sell order required', async () => {

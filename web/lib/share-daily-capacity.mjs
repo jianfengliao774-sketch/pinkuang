@@ -43,6 +43,51 @@ export function shareDailyCapacityPriceWei(pricePerUnitWei, estimated24hAtomic) 
   return (numerator + daily - 1n) / daily;
 }
 
+/** Whole-miner price / this NFT's gross daily output; never a class average. */
+export function minerDailyCapacityPriceWei(priceWei, estimated24hAtomic) {
+  const price = uint(priceWei), daily = uint(estimated24hAtomic);
+  if (daily === 0n) throw new Error('Estimated daily BEM output is unavailable.');
+  return (price * BEM_ATOMIC_PER_TOKEN + daily - 1n) / daily;
+}
+
+/** Display quote only. Bids, expired orders and another NFT's asks cannot supply its price. */
+export function minerAskPriceWei(detail, now = Date.now()) {
+  const asset = detail?.asset;
+  if (!asset || exactDecimal(asset.tokenId) === null || !Number.isSafeInteger(now) || now <= 0) return null;
+  const groups = [detail.orders?.signedAsks, detail.orders?.asksAndOnchainBids];
+  let best = null;
+  for (const [group, orders] of groups.entries()) {
+    if (!Array.isArray(orders) || orders.length > 500) continue;
+    for (const order of orders) {
+      try {
+        const price = exactDecimal(order.priceWei);
+        const expiry = order.expiry ?? order.expiresAt;
+        if (order.status !== 'open' || (order.side != null && order.side !== 'ask')
+          || (order.side == null && group !== 0)
+          || getAddress(order.collection) !== getAddress(asset.collection)
+          || exactDecimal(order.tokenId) !== exactDecimal(asset.tokenId)
+          || getAddress(order.maker) !== getAddress(asset.owner)
+          || (order.chainId != null && BigInt(order.chainId) !== CHAIN_ID)
+          || price === null || price === 0n
+          || (expiry != null && (!/^(0|[1-9]\d*)$/.test(String(expiry))
+            || BigInt(expiry) * 1000n <= BigInt(now)))) continue;
+        if (best === null || price < best) best = price;
+      } catch { /* An incomplete external order is not a display price. */ }
+    }
+  }
+  return best;
+}
+
+/** Fundraising/sale uses this miner's ask; mining uses its actual acquisition cost. */
+export function poolDailyCapacityPriceWei(pool, quote) {
+  if (!quote?.available || typeof quote.estimated24hAtomic !== 'bigint'
+    || quote.estimated24hAtomic <= 0n || pool?.kind === 'portfolio') return null;
+  const price = ['Funding', 'Funded', 'Listed'].includes(pool?.status)
+    ? quote.minerAskPriceWei : pool?.purchaseCost;
+  return typeof price === 'bigint' && price > 0n
+    ? minerDailyCapacityPriceWei(price, quote.estimated24hAtomic) : null;
+}
+
 /**
  * Display-only quote. The PoolVault's *current* params identify the purchased
  * NFT even after an alternative miner replaces the original target. A failed
@@ -147,9 +192,11 @@ export async function readShareDailyCapacityPrice(provider, {
       return metadata.miningClassification ? Object.freeze({ ...missing, ...context, ...metadata,
         metadataAvailable: true }) : missing;
     }
+    const minerPrice = minerAskPriceWei(detail, now);
     return Object.freeze({ available: true, ...context, ...metadata, metadataAvailable: true,
       estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
       priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
+      minerAskPriceWei: minerPrice,
       marketReferencePriceWei: (() => {
         const value = exactDecimal(asset.listingReference?.dailyCapacityPriceWei);
         return value !== null && value > 0n ? value : null;
