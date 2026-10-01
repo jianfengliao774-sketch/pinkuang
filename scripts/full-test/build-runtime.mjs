@@ -37,6 +37,7 @@ const exact={
  'shared/integrated-upgrade-plan.mjs':[['const MIN_DELAY = 172800;', 'const MIN_DELAY = 0;']],
  'shared/firsto-upgrade-proof.mjs':[['decoded.args[5] >= 172800n','decoded.args[5] >= 0n']],
  'server/chain-index/server.mjs':[
+  ['batchMaxCount: 8,','batchMaxCount: 1,'],
   ["!/^\\/srv\\/pinkuang-deploy-v4\\/releases\\/v4-[a-z0-9][a-z0-9-]{1,70}\\/public\\/fresh-product-manifest\\.json$/.test(manifestPath)","manifestPath!=='/etc/bemine-full-test/index-manifest.json'"],
  ],
  'server/chain-index/fresh-manifest.mjs':[
