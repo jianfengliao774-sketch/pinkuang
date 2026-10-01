@@ -43,7 +43,7 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
     try {
       const result = await readFirstoMarketBoard({ page, viewId, signal: abort.signal });
       if (sequence === request.current.sequence) {
-        recentBoard = { savedAt: Date.now(), data: result };
+        recentBoard = { savedAt: Date.now(), refreshKey, data: result };
         setData(result); setNow(Date.now());
       }
     } catch (problem) {
@@ -56,7 +56,12 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
   }
 
   useEffect(() => {
-    void load(data?.page || 1);
+    const stamp = Date.now();
+    const cached = recentBoard && recentBoard.refreshKey === refreshKey && stamp - recentBoard.savedAt < 120_000
+      && recentBoard.data.rows.every(row => row.validUntil == null || row.validUntil > stamp)
+      && (!recentBoard.data.reference || stamp <= recentBoard.data.reference.observedAt + MAX_QUOTE_AGE_MS);
+    if (cached) { setData(recentBoard.data); setNow(Date.now()); }
+    else void load(data?.page || 1);
     const tick = setInterval(() => setNow(Date.now()), 15_000);
     return () => { clearInterval(tick); invalidate(); };
   }, [refreshKey]);
@@ -85,7 +90,7 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
     </div>
     {busy && <p className="firsto-board-status" role="status">{text(locale, '正在读取市场报价…', 'Loading market quotes…')}</p>}
     {error && <p className="firsto-board-error" role="alert">{error}</p>}
-    {!busy && data && <>
+    {data && <>
       <div className="firsto-board-table-wrap"><table><thead><tr>
         <th>{text(locale, '矿机 / 来源', 'Miner / venue')}</th>
         <th>{text(locale, '卖家挂单价', 'Seller ask')}<small>BNB</small></th>

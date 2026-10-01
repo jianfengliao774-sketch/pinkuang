@@ -3,29 +3,36 @@ import { abi, uint } from './chain-client.mjs';
 import { hash, insist, liveAddress, validateManifest } from './live-config.mjs';
 import { displayIndexSource, fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
 import { saleReferenceState } from './sale-governance-gate.mjs';
+import { createDisplayReadCache, displayConfigIdentity, displayProviderIdentity } from './display-read-cache.mjs';
 
 const same = (a, b) => getAddress(a) === getAddress(b);
 const message = error => error?.shortMessage || error?.message || '申请读取失败，请重试。';
 const check = (ok, text) => insist(ok, 'review_requests', text);
 const candidateLimit = kind => kind === 'pool' ? 100n : 16n;
+const displayReads = createDisplayReadCache();
+const abortCheck = signal => { if (signal?.aborted) throw Object.assign(new Error('申请读取已取消。'), { name: 'AbortError' }); };
 
 // Bound actual RPC requests, not just projects. One slow project must not open
 // hundreds of concurrent view calls when its voting round has many candidates.
-function readQueue(provider) {
+function readQueue(provider, signal) {
   let active = 0;
   const waiting = [], running = new Set();
   const request = input => new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(Object.assign(new Error('申请读取已取消。'), { name: 'AbortError' })); return; }
     waiting.push({ input, resolve, reject }); pump();
   });
+  const cancel = () => { for (const job of waiting.splice(0)) job.reject(Object.assign(new Error('申请读取已取消。'), { name: 'AbortError' })); };
+  signal?.addEventListener('abort', cancel, { once: true });
   function pump() {
-    while (active < 4 && waiting.length) {
+    while (!signal?.aborted && active < 4 && waiting.length) {
       const job = waiting.shift(); active++;
-      const task = Promise.resolve().then(() => provider.request(job.input))
+      const task = Promise.resolve().then(() => { abortCheck(signal); return provider.request(job.input); })
         .then(job.resolve, job.reject).finally(() => { active--; running.delete(task); pump(); });
       running.add(task);
     }
   }
-  return { request, async drain() { while (running.size) await Promise.allSettled([...running]); } };
+  return { request, async drain() { try { while (running.size) await Promise.allSettled([...running]); }
+    finally { signal?.removeEventListener('abort', cancel); } } };
 }
 
 function settings(config, provider) {
@@ -37,15 +44,18 @@ function settings(config, provider) {
 }
 
 async function indexRead(base, path, manifest, options) {
+  abortCheck(options.signal);
   const result = await fetchLiveJsonWithClock(`${base}${path}`, options);
+  abortCheck(options.signal);
   const { body, serverNow, localReceivedAt } = result;
   const source = validateIndexSource(body.source, manifest, { now: options.now(),
     ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
   return { source: options.displayOnly === true ? displayIndexSource(source) : source, data: body.data };
 }
 
-async function context(config, provider, source) {
-  const { manifest, base } = settings(config, provider), queue = readQueue(provider);
+async function context(config, provider, source, signal) {
+  abortCheck(signal);
+  const { manifest, base } = settings(config, provider), queue = readQueue(provider, signal);
   const request = (method, params = []) => queue.request({ method, params });
   try {
     if (config.displayOnly === true) {
@@ -273,12 +283,21 @@ async function identifyPortfolioProposers(ctx, project, candidates, options) {
 
 /** Read one directory page; every displayed application comes from pinned views.
  * Errors remain separate from empty projects and other pages keep working. */
-export async function readSaleReviewRequests({ config, provider, scope = 'pool', cursor = 0, limit = 10,
-  fetcher = globalThis.fetch, now = Date.now }) {
+export function readSaleReviewRequests(input = {}) {
+  const { config, provider, account = '', scope = 'pool', cursor = 0, limit = 10,
+    fetcher = globalThis.fetch, signal, force = false, refreshToken = 0, cacheMs = 120_000, now = Date.now } = input;
+  if (config?.displayOnly !== true || !provider?.request) return readSaleReviewRequestsUncached(input);
+  const key = JSON.stringify([displayConfigIdentity(config), (account || '').toLowerCase(), scope, cursor, limit, displayProviderIdentity(fetcher)]);
+  return displayReads(provider, key, sharedSignal => readSaleReviewRequestsUncached({ ...input, signal: sharedSignal }),
+    { signal, force, refreshToken, cacheMs, now, shouldCache: value => !value.errors?.length });
+}
+
+async function readSaleReviewRequestsUncached({ config, provider, scope = 'pool', cursor = 0, limit = 10,
+  fetcher = globalThis.fetch, now = Date.now, signal }) {
   check(scope === 'pool' || scope === 'portfolio', '申请类型无效。');
   check(Number.isSafeInteger(cursor) && cursor >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 20,
     '申请分页无效。');
-  const { manifest, base } = settings(config, provider), options = { fetcher, now, displayOnly: config.displayOnly === true };
+  const { manifest, base } = settings(config, provider), options = { fetcher, now, signal, displayOnly: config.displayOnly === true };
   const { source, data } = await indexRead(base, `/v1/${scope === 'pool' ? 'pools' : 'portfolios'}?cursor=${cursor}&limit=${limit}`,
     manifest, options);
   if (scope === 'portfolio') check(manifest.portfolioFactory && same(source.portfolioFactory, manifest.portfolioFactory)
@@ -291,7 +310,7 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
     return liveAddress(entry.address);
   });
   check(new Set(projects).size === projects.length, '申请目录有重复项目。');
-  const ctx = await context(config, provider, source), items = [], errors = [];
+  const ctx = await context(config, provider, source, signal), items = [], errors = [];
   try {
     let total;
     if (scope === 'portfolio') {
@@ -310,6 +329,7 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
       && (data.nextCursor === null ? offset + count === total : BigInt(data.nextCursor) < total),
     '申请目录未覆盖当前页全部项目，请刷新。');
     for (let offset = 0; offset < projects.length; offset += 4) {
+      abortCheck(signal);
       const batch = await Promise.allSettled(projects.slice(offset, offset + 4)
         .map(project => projectRequests(ctx, scope, project, options)));
       batch.forEach((result, index) => {
@@ -317,6 +337,7 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
         else errors.push({ project: projects[offset + index], message: message(result.reason) });
       });
     }
+    abortCheck(signal);
     await ctx.canonical();
     return { items, nextCursor: data.nextCursor, source, errors, projectsRead: projects.length,
       scope, cursor, complete: errors.length === 0 };

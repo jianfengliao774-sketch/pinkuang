@@ -66,7 +66,7 @@ function provider(options = {}) {
             ? deploymentHash : blockHash };
     }
     if (method === 'eth_getCode') return options.badCode ? '0x6001' : code;
-    assert.equal(method, 'eth_call'); assert.equal(args[1], toQuantity(options.blockNumber ?? 10n));
+    assert.equal(method, 'eth_call'); assert.equal(args[1], options.directLatest ? 'latest' : toQuantity(options.blockNumber ?? 10n));
     const { to, data } = args[0];
     let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
       : to === portfolioFactory ? abi.BudgetPortfolioFactory : (options.portfolios ?? []).includes(to) ? abi.BudgetPortfolioVault
@@ -985,6 +985,50 @@ test('governance reads masks, so unknown eligibility cannot silently be treated 
   assert.equal(noProposal.data.discounted, null);
   assert.equal(noProposal.data.passed, null);
   assert.equal(noProposal.data.canExecute, null);
+});
+
+test('fresh direct governance reads active proposals and exact review via latest business calls only', async () => {
+  const directConfig = { ...config, productFamily: 'fresh-v4', displayOnly: true, stage: 'fresh-active' };
+  const directNow = now + 60000, below = { ...proposal, price: 8000n, yesShares: 51n };
+  const rpc = provider({ directLatest: true, governance: { proposal: below, canExecute: false },
+    referenceAt: BigInt(timestamp + 50), reviewStatus: 1n, reviewPrice: 8000n });
+  const result = await createLiveDataClient(directConfig, { provider: rpc, fetcher: indexFetcher(),
+    now: () => directNow }).readGovernance({ pool, account });
+  assert.equal(result.source.displayOnly, true); assert.equal(result.source.transactionReady, false);
+  assert.equal(result.data.pool, pool); assert.equal(result.data.account, account);
+  assert.equal(result.data.passed, true); assert.equal(result.data.discounted, true);
+  assert.equal(result.data.requiredYesShares, 51n); assert.equal(result.data.reviewApproved, true);
+  assert.equal(result.data.canExecute, true);
+  assert.equal(result.data.saleReference.observedAt, BigInt(timestamp + 50),
+    'Latest business rules use the current clock rather than the older indexed block timestamp');
+  assert.equal(rpc.calls.length, 4);
+  const names = rpc.calls.map(input => {
+    assert.equal(input.method, 'eth_call', 'No chain identity, code, storage or canonical block proofs');
+    assert.equal(input.params[1], 'latest');
+    const iface = input.params[0].to === lens ? abi.PoolLens
+      : input.params[0].to === pool ? abi.PoolVault : saleViews;
+    return iface.parseTransaction(input.params[0]).name;
+  });
+  assert.deepEqual(names, ['governance', 'proposalPassed', 'saleReference', 'saleReview']);
+});
+
+test('fresh direct governance preserves missing Lens fields and required business review gates', async () => {
+  const directConfig = { ...config, productFamily: 'fresh-v4', displayOnly: true, stage: 'fresh-active' };
+  const below = { ...proposal, price: 8000n, yesShares: 51n };
+  for (const change of [{ reviewStatus: 1n, reviewPrice: 7999n }, { reviewStatus: 2n, reviewPrice: 8000n },
+    { referenceAt: BigInt(timestamp - 901) }, { reviewReadError: true }]) {
+    const rpc = provider({ directLatest: true, governance: { proposal: below, canExecute: true }, ...change });
+    const result = await createLiveDataClient(directConfig, { provider: rpc, fetcher: indexFetcher(),
+      now: () => now }).readGovernance({ pool, account });
+    assert.equal(result.data.canExecute, false);
+    assert(rpc.calls.every(input => input.method === 'eth_call' && input.params[1] === 'latest'));
+  }
+  const rpc = provider({ directLatest: true, governance: { status: { validMask: 1n,
+    errorMask: 1n << 11n, trustError: 0n } } });
+  const unknown = await createLiveDataClient(directConfig, { provider: rpc, fetcher: indexFetcher(),
+    now: () => now }).readGovernance({ pool, account });
+  assert.equal(unknown.data.proposal, null); assert.equal(unknown.data.canVote, null);
+  assert.equal(unknown.data.canExecute, null); assert.equal(rpc.calls.length, 1);
 });
 
 test('governance ignores the fixed old Lens sale threshold after the dual-majority Vault upgrade', async () => {

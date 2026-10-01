@@ -40,6 +40,15 @@ test('direct fees retain all exact balances, source enumeration and batches with
   assert.deepEqual(plan.pools, [corePool, portfolio]); assert.equal(plan.blockNumber, null); assert.equal(plan.blockHash, null);
   assert.equal(seen.length, 10); assert.equal(plan.batches.length, 1);
   assert.equal(plan.displayOnly, true);
+  const cached = await readFeeCollection({ config: { ...config }, provider });
+  assert.equal(cached, plan); assert.equal(seen.length, 10, 'returning to fees reuses exact balances');
+  await Promise.all([readFeeCollection({ config, provider, refreshToken: 1 }),
+    readFeeCollection({ config, provider, refreshToken: 1 })]);
+  assert.equal(seen.length, 20, 'pushed invalidation performs one shared scan');
+  await readFeeCollection({ config, provider, refreshToken: 1, force: true });
+  assert.equal(seen.length, 30, 'manual refresh bypasses cached balances');
+  await readFeeCollection({ config, provider, refreshToken: 1, account: address(600) });
+  assert.equal(seen.length, 40, 'another administrator has a separate read context');
 });
 
 test('direct fee history keeps pagination and administrator amounts with no receipt or deployment verification', async () => {
@@ -84,4 +93,11 @@ test('direct review inbox keeps proposals and approval eligibility despite false
   const item = await refreshSaleReviewRequest({ config, provider, item: page.items[0] });
   assert.equal(item.project, PORTFOLIOS[0]); assert.equal(f.calls.length, callsBefore, 'selected review must not repeat all project reads');
   await assert.rejects(refreshSaleReviewRequest({ config, provider, item: { ...item, priceWei: '-1' } }));
+  const options = { config, provider, fetcher: f.fetcher, now: () => Number(f.source().indexedTimestamp) * 1000, scope: 'portfolio' };
+  assert.equal(await readSaleReviewRequests(options), page); assert.equal(f.calls.length, callsBefore);
+  const reread = await Promise.all([readSaleReviewRequests({ ...options, refreshToken: 1 }),
+    readSaleReviewRequests({ ...options, refreshToken: 1 })]);
+  assert.equal(reread[0], reread[1]); assert.equal(f.calls.length, callsBefore * 2, 'changed revision shares one proposal read');
+  await readSaleReviewRequests({ ...options, refreshToken: 1, force: true });
+  assert.equal(f.calls.length, callsBefore * 3);
 });

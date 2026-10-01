@@ -25,15 +25,22 @@ export function isConfirmedPortfolioDeposit(confirmation,project){
     &&/^[1-9]\d*$/.test(String(confirmation.amountWei)));
 }
 export function createPortfolioShare({publicBaseUrl,project,confirmation,locale='zh'}={}){
-  if(project?.kind!=='portfolio'||!valid(project.pool)||!valid(project.OFFICIAL_FACTORY)||!HASH.test(project.blockHash||'')
-    ||typeof project.blockNumber!=='bigint'||project.blockNumber<0n)return null;
+  if(project?.kind!=='portfolio'||!valid(project.pool)||!valid(project.OFFICIAL_FACTORY))return null;
+  const direct=project.displayOnly===true;
+  if(direct ? !valid(project.legacyFactory)
+    ||['state','totalSupply','timestamp','fundingDeadline'].some(key=>typeof project[key]!=='bigint'||project[key]<0n)
+    ||project.state>5n||project.totalSupply>100n
+    ||project.blockNumber!==null&&project.blockNumber!==undefined&&(typeof project.blockNumber!=='bigint'||project.blockNumber<0n)
+    ||project.blockHash!==null&&project.blockHash!==undefined&&!HASH.test(project.blockHash)
+    : !HASH.test(project.blockHash||'')||typeof project.blockNumber!=='bigint'||project.blockNumber<0n)return null;
   const projectUrl=buildPortfolioShareUrl(publicBaseUrl,project.pool),url=portfolioLandingUrl(publicBaseUrl,project.pool);
   if(!url)return null;const en=locale==='en',title=en?'BEMine · Multi-miner portfolio':'拼矿 BEMine · 多矿机共同项目';
   const confirmed=isConfirmedPortfolioDeposit(confirmation,project);
   const funded=typeof project.totalSupply==='bigint'&&project.totalSupply>=0n&&project.totalSupply<=100n;
   const canSubscribe=project.state===0n&&funded&&project.totalSupply<100n&&typeof project.fundingDeadline==='bigint'
     &&typeof project.timestamp==='bigint'&&project.timestamp<project.fundingDeadline;
-  const status=canSubscribe?(en?`${100n-project.totalSupply}/100 shares remain. Check current availability.`:`剩余 ${100n-project.totalSupply}/100 份，参与前请核对最新进度。`)
+  const status=canSubscribe?(direct ? en?`${100n-project.totalSupply}/100 shares remain. View the latest progress.`:`剩余 ${100n-project.totalSupply}/100 份，查看项目最新进度。`
+    :en?`${100n-project.totalSupply}/100 shares remain. Check current availability.`:`剩余 ${100n-project.totalSupply}/100 份，参与前请核对最新进度。`)
     :(en?'See the current project status and public records.':'查看项目最新状态与公开记录。');
   const text=[confirmed?(en?'I have joined a BEMine multi-miner portfolio.':'我已参与拼矿 BEMine 的多矿机共同项目。')
     :(en?'Explore a BEMine multi-miner portfolio.':'一起了解拼矿 BEMine 的多矿机共同项目。'),

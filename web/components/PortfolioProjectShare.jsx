@@ -15,7 +15,7 @@ export default function PortfolioProjectShare({locale='zh',publicBaseUrl,project
     <div className={styles.top}><span className={styles.badge}>{model?.confirmed?<CheckCircle2 size={17}/>:<Share2 size={17}/>}{model?.confirmed?L('预算认购已确认','Portfolio subscription confirmed'):L('分享多矿机项目','Share a multi-miner portfolio')}</span>
       {onDismiss&&<button className={styles.dismiss} onClick={onDismiss} aria-label={L('收起分享','Dismiss sharing')}><X size={20}/></button>}</div>
     <h2 id={id} className={styles.heading}>{L('多台矿机，一个共同项目','Multiple miners. One shared project.')}</h2>
-    {!model?<p>{L('项目资料尚未核验，请刷新后重试。','Project details have not been verified. Refresh and try again.')}</p>:<>
+    {!model?<p>{L('项目资料暂不可用，请刷新后重试。','Project details are unavailable. Refresh and try again.')}</p>:<>
       <img src={image} width="1200" height="630" style={{width:'100%',height:'auto',borderRadius:10,marginTop:16}} alt={L('拼矿 BEMine 多矿机项目海报：整个项目共100份，逐台共同决策','BEMine multi-miner portfolio poster: 100 project shares and shared decisions for each miner')}/>
       <div className={styles.preview}><strong className={styles.project}>{model.title}</strong><textarea ref={textRef} readOnly aria-label={L('预算项目分享文案','Portfolio share text')} value={`${model.text}\n${model.url}`} rows={6}/></div>
       <div className={styles.actions}>

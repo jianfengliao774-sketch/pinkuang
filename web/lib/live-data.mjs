@@ -2,11 +2,15 @@ import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ether
 import { abi, uint, readPoolSnapshot, decodePoolRow, hasPosition, assetKey } from './chain-client.mjs';
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
-import { readSaleReference, readSaleReview, saleExecutionGate } from './sale-governance-gate.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
   'function beacon() view returns(address)', 'function VERSION() view returns(uint256)']);
+const governanceViews = new Interface([
+  'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
+  'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
+]);
 const STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding'];
 const COLLECTIONS = { '0xb1024b89886b9a34aa4ff5f31c411d708b20a14c': ['TapeOut', 'TAPEOUT'],
   '0x1f5cb4aeae1807bf60c3b9c0d8adbcc14e91f12c': ['Behemoth', 'BEHEMOTH'] };
@@ -733,7 +737,9 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   }
   async function readGovernance({ pool, account = ZeroAddress, source: expected } = {}) {
     pool = liveAddress(pool); account = getAddress(account); const source = await sourceFor(expected);
-    const g = (await call(manifest.lens, abi.PoolLens, 'governance', [pool, account], BigInt(source.indexedThrough)))[0];
+    const block = displayReads ? 'latest' : BigInt(source.indexedThrough);
+    const timestamp = displayReads ? BigInt(Math.floor(now() / 1000)) : BigInt(source.indexedTimestamp);
+    const g = (await call(manifest.lens, abi.PoolLens, 'governance', [pool, account], block))[0];
     insist(g.status.trustError === 0n && good(g.status, 0), 'untrusted_pool', '该治理项目未通过官方身份核验。');
     const result = { pool, account, status: { validMask: g.status.validMask, errorMask: g.status.errorMask, trustError: g.status.trustError } };
     const bits = { state: 1, activeProposalId: 2, proposal: 3, purchaseCost: 4, hasVoted: 5, snapshotShares: 6,
@@ -757,7 +763,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       const requiredYesShares = oldDiscount ? 60n : p.snapshotTotalShares / 2n + 1n;
       const expectedPassed = p.snapshotTs + 86400n === p.endsAt && p.price > 0n
         && p.yesCount >= requiredYesCount && p.yesShares >= requiredYesShares;
-      const passed = (await call(pool, abi.PoolVault, 'proposalPassed', [result.activeProposalId], BigInt(source.indexedThrough)))[0];
+      const passed = (await call(pool, abi.PoolVault, 'proposalPassed', [result.activeProposalId], block))[0];
       insist(passed === expectedPassed, 'governance_mismatch', '链上提案门槛与双过半规则不一致。');
       result.requiredYesCount = requiredYesCount;
       result.requiredYesShares = requiredYesShares;
@@ -765,23 +771,30 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       if (config.stage === 'genesis') {
         result.discounted = oldDiscount;
         result.canExecute = passed && result.state === 2n && !p.executed
-          && BigInt(source.indexedTimestamp) < p.endsAt;
+          && timestamp < p.endsAt;
         // Genesis ShareMarket has no review interface; do not display a review proof.
         await ensureCanonical(source);
         return Object.freeze({ source, data: Object.freeze(result) });
       }
       try {
-        result.saleReference = await readSaleReference(request, manifest.shareMarket, pool,
-          BigInt(source.indexedThrough), BigInt(source.indexedTimestamp));
+        result.saleReference = displayReads
+          ? saleReferenceState(await call(manifest.shareMarket, governanceViews, 'saleReference', [pool], block), timestamp)
+          : await readSaleReference(request, manifest.shareMarket, pool, block, timestamp);
       } catch (error) { result.saleReference = Object.freeze({ available: false,
         reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
       if (result.saleReference.available && p.price < result.saleReference.priceWei) {
-        try { result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
-          result.activeProposalId, BigInt(source.indexedThrough)); }
+        try {
+          if (displayReads) {
+            const [status, priceWei] = await call(manifest.shareMarket, governanceViews, 'saleReview', [pool, result.activeProposalId], block);
+            insist(status <= 2n, 'governance_mismatch', 'Firsto 出售审核状态无效。');
+            result.saleReview = Object.freeze({ status, priceWei });
+          } else result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
+            result.activeProposalId, block);
+        }
         catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
       }
       const gate = saleExecutionGate({ proposal: p, passed, state: result.state,
-        timestamp: BigInt(source.indexedTimestamp), reference: result.saleReference, review: result.saleReview });
+        timestamp, reference: result.saleReference, review: result.saleReview });
       Object.assign(result, gate);
     }
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });

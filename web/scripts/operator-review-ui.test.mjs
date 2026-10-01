@@ -374,3 +374,24 @@ test('status refresh during collection cannot duplicate the balance read or canc
   ui.render({ ...props, refreshKey: 1 }); await ui.settle(); assert.equal(reads.length, 2);
   pending.resolve(feePlan()); await ui.settle(); assert.equal(calls.length, 2); ui.unmount();
 });
+
+test('direct fee refresh propagates revision and manual/confirmed invalidation only to business reads', async () => {
+  const { ui, props, reads } = feeHost({ props: { config: { ...config, displayOnly: true } } });
+  await ui.settle();
+  assert.equal(reads[0].account, props.account); assert.equal(reads[0].refreshToken, 0); assert.equal(reads[0].force, false);
+  button(ui, '刷新手续费余额').onClick(); await ui.settle(); assert.equal(reads[1].force, true);
+  ui.render({ ...props, refreshKey: 7 }); await ui.settle();
+  assert.equal(reads[2].refreshToken, 7); assert.equal(reads[2].force, true);
+  button(ui, '一键归集手续费').onClick(); await ui.settle();
+  assert.equal(reads.at(-1).force, true, 'confirmed collection refreshes business balances'); ui.unmount();
+});
+
+test('direct review refresh carries the account/revision and manual or completed review bypasses display reuse', async () => {
+  const { ui, props, reads } = requestHost({ props: { config: { ...config, displayOnly: true } } });
+  await ui.settle();
+  assert.equal(reads[0].account, props.account); assert.equal(reads[0].refreshToken, 0); assert.equal(reads[0].force, false);
+  button(ui, '刷新申请').onClick(); await ui.settle(); assert.equal(reads[1].force, true);
+  ui.render({ ...props, refreshKey: 7 }); await ui.settle(); assert.equal(reads[2].refreshToken, 7);
+  button(ui, '查看申请').onClick(); await ui.settle(); button(ui, '签名批准').onClick(); await ui.settle();
+  assert.equal(reads.at(-1).force, true); ui.unmount();
+});

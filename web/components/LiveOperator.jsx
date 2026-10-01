@@ -24,7 +24,7 @@ function FundingPreview({ value }) {
   return <div><dt>募集总额</dt><dd>{fundingDisplay(exact)} BNB{amount.approximate && <details><summary>查看精确金额</summary>{exact} BNB</details>}</dd></div>;
 }
 
-export default function LiveOperator({ config, account, wallet, readProvider, operator, disabled, disabledReason, onSend, onRefresh, gasFeeWei }) {
+export default function LiveOperator({ config, account, wallet, readProvider, operator, disabled, disabledReason, refreshKey = 0, onSend, onRefresh, gasFeeWei }) {
   const [form, setForm] = useState(initial), [mode, setMode] = useState('createPool');
   const [imported, setImported] = useState(''), [pool, setPool] = useState(''), [listingId, setListingId] = useState('');
   const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -131,7 +131,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       <div className="operator-tabs"><button className={`btn${mode === 'createPool' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createPool')}>指定单台矿机</button><button className={`btn${mode === 'createFlexiblePoolChecked' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createFlexiblePoolChecked')}>单台矿机灵活替代</button><button className="btn secondary" disabled={frozen} onClick={() => document.getElementById('multi-miner-projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>多矿机同一项目（100 份）↓</button></div>
       <p className="subtle-note">当前表单只建单台矿机池。若要用固定 BNB 预算购买多台矿机，请进入下方“多矿机预算项目”；募满后可设置本批最多采购台数。</p>
       {operator.creationPaused && <p className="live-notice error">链上建池已暂停，需要治理权限恢复后才能新建。</p>}
-      <OperatorQuotePicker config={config} mode={mode} disabled={frozen || !!preview} onApply={applyQuote}/>
+      <OperatorQuotePicker config={config} mode={mode} disabled={frozen || !!preview} refreshKey={refreshKey} onApply={applyQuote}/>
       {autoSelection && <p className="live-notice">{direct ? '已自动填入矿机与募集方案。请核对金额和期限。' : '已自动填入矿机与募集方案。请核对金额和期限；预览前会重新读取最新报价。'}</p>}
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
         <label>矿机系列<select value={form.circuits} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuits', event.target.value)}>{collections.map(([name, address]) => <option key={address} value={address}>{name}</option>)}</select></label>

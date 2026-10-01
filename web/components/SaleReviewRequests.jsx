@@ -36,17 +36,19 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
   const [loading, setLoading] = useState(false), [acting, setActing] = useState(false);
   const [error, setError] = useState(''), [filter, setFilter] = useState('all'), [selectedKey, setSelectedKey] = useState(null);
   const sequence = useRef(0), working = useRef(false), actionLock = useRef(null);
+  const readTicket = useRef(null);
   const current = useRef({});
   current.current = { config, provider, disabled, result, onReview, onSelect, selectedKey };
   const selected = result?.items?.find(item => item.key === selectedKey);
 
-  async function load(cursor = current.current.result?.cursor ?? 0) {
+  async function load(cursor = current.current.result?.cursor ?? 0, { force = false } = {}) {
     if (working.current || actionLock.current || !current.current.provider) return;
     const ticket = ++sequence.current;
+    const abort = new AbortController(); readTicket.current = abort;
     working.current = true; setLoading(true); setError('');
     try {
       const next = await readSaleReviewRequests({ config: current.current.config, provider: current.current.provider,
-        scope, cursor, limit: 10 });
+        account, scope, cursor, limit: 10, force, refreshToken: refreshKey, signal: abort.signal });
       if (ticket !== sequence.current) return;
       setResult(next); setCached(false); setSelectedKey(null);
       // Only the first directory page is restored on return; pagination stays explicit.
@@ -54,7 +56,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
     } catch (problem) {
       if (ticket === sequence.current) { setError(message(problem)); setCached(true); }
     } finally {
-      if (ticket === sequence.current) { working.current = false; setLoading(false); }
+      if (ticket === sequence.current) { readTicket.current = null; working.current = false; setLoading(false); }
     }
   }
 
@@ -66,6 +68,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
     }, 30_000);
     return () => {
       clearInterval(timer); ++sequence.current; working.current = false;
+      readTicket.current?.abort(); readTicket.current = null;
       // Retire the previous read/action context before the next refresh starts.
       // Its eventual completion must not keep or release a newer action's lock.
       actionLock.current = null;
@@ -97,7 +100,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
     finally {
       if (actionLock.current === action) {
         actionLock.current = null; setActing(false);
-        if (ticket === sequence.current && submitted) void load();
+        if (ticket === sequence.current && submitted) void load(undefined, { force: true });
       }
     }
   }
@@ -110,7 +113,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
       <label>申请状态<select value={filter} onChange={event => setFilter(event.target.value)}>
         <option value="all">全部本轮申请</option><option value="pending">待处理</option>
       </select></label>
-      <button className="btn secondary" disabled={loading || acting || disabled || !provider} onClick={() => void load()}>刷新申请</button>
+      <button className="btn secondary" disabled={loading || acting || disabled || !provider} onClick={() => void load(undefined, { force: true })}>刷新申请</button>
     </div>
     <p className="subtle-note">显示用户已上链的本轮出售申请。低于当前市场参考价需审核，投票仍须双过半；不低于参考价无需审核。</p>
     {!direct && cached && result && <p className="live-notice" role="status">正在显示上次读取的申请，更新后可审核。</p>}

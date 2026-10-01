@@ -5,16 +5,16 @@ const zero='0x0000000000000000000000000000000000000000';
 const address=value=>/^0x[\da-f]{40}$/i.test(value||'') && !same(value,zero);
 const integers=['blockNumber','state','budgetWei','absoluteCapWei','unitCapWei','spentWei','shares',
   'totalSupply','availableShares','claimableBem','withdrawableBnb','fundingDeadline','purchaseDeadline','timestamp'];
-const key = (config,pool,account) => JSON.stringify([config?.artifactDigest,config?.stage,
+const key = (config,pool,account,revision=0) => JSON.stringify([config?.artifactDigest,config?.stage,
   config?.factory?.toLowerCase(), config?.stageActivationBlock,config?.stageActivationHash,
   (config?.deployment || config?.manifest?.deployment)?.txHash,
   (config?.deployment || config?.manifest?.deployment)?.blockHash,
   config?.portfolioFactory?.toLowerCase(),config?.portfolioMarket?.toLowerCase(),
-  pool?.toLowerCase(),(account||zero).toLowerCase()]);
+  pool?.toLowerCase(),(account||zero).toLowerCase(),revision]);
 
 /** Rows from a completed bound read only. The cached row is display data;
  * callers always clear their current action proof before showing it. */
-export function rememberPortfolioDisplay(config,row,account,now=Date.now()) {
+export function rememberPortfolioDisplay(config,row,account,now=Date.now(),revision=0) {
   if(config?.kind!=='integrated-v2'||row?.kind!=='portfolio'
     || !same(row.OFFICIAL_FACTORY,config.portfolioFactory) || !same(row.legacyFactory,config.factory)
     || !same(row.account,account||zero) || !address(row.pool)
@@ -24,13 +24,13 @@ export function rememberPortfolioDisplay(config,row,account,now=Date.now()) {
     || row.budgetWei===0n || row.budgetWei%100n!==0n
     || !row.displayOnly && !/^0x[\da-f]{64}$/i.test(row.blockHash||'') || !Array.isArray(row.children)
     || !Array.isArray(row.proposals))return false;
-  const id=key(config,row.pool,account); entries.delete(id);
+  const id=key(config,row.pool,account,revision); entries.delete(id);
   entries.set(id,{row,savedAt:now});
   if(entries.size>24)entries.delete(entries.keys().next().value);
   return true;
 }
-export function readPortfolioDisplay(config,pool,account,now=Date.now()) {
-  const id=key(config,pool,account),saved=entries.get(id);
+export function readPortfolioDisplay(config,pool,account,now=Date.now(),revision=0) {
+  const id=key(config,pool,account,revision),saved=entries.get(id);
   if(!saved||now<saved.savedAt||now-saved.savedAt>=ttl){entries.delete(id);return null;}
   return saved.row;
 }

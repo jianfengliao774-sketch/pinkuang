@@ -16,6 +16,16 @@ async function completedRead(account) {
 }
 test.beforeEach(clearPortfolioDisplays);
 
+test('a pushed revision prevents reuse of a project remembered on another page before that update', async () => {
+  const { config, row, account } = await completedRead();
+  assert.equal(rememberPortfolioDisplay(config, row, account, savedAt, 1), true);
+  assert.equal(readPortfolioDisplay(config, row.pool, account, savedAt + 1, 1), row);
+  assert.equal(readPortfolioDisplay(config, row.pool, account, savedAt + 1, 2), null);
+  const updated = { ...row, claimableBem: row.claimableBem + 1n };
+  assert.equal(rememberPortfolioDisplay(config, updated, account, savedAt + 2, 2), true);
+  assert.equal(readPortfolioDisplay(config, row.pool, account, savedAt + 3, 2), updated);
+});
+
 test('a completed parent read remains exact display data until the two-minute expiry boundary', async () => {
   const { config, row, account } = await completedRead();
   assert.equal(rememberPortfolioDisplay(config, row, account, savedAt), true);

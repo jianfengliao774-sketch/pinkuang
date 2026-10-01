@@ -1,9 +1,11 @@
 import { Interface, getAddress, keccak256, toQuantity } from 'ethers';
 import { uint } from './chain-client.mjs';
 import { hash, insist, liveAddress, validateManifest } from './live-config.mjs';
+import { createDisplayReadCache, displayConfigIdentity, displayProviderIdentity } from './display-read-cache.mjs';
 
 const BEM = getAddress('0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a');
 const MAX_BATCH_SOURCES = 24;
+const displayReads = createDisplayReadCache();
 const bindings = new Interface([
   'function coreFactory() view returns(address)',
   'function budgetFactory() view returns(address)',
@@ -97,7 +99,17 @@ function collectionBatches(markets, pools, directBnbWei, directBemWei) {
  * Only view RPCs are issued. Every registry, binding and balance uses one block;
  * any incomplete read rejects the entire plan instead of returning assumed zero.
  */
-export async function readFeeCollection({ config, provider, balanceProvider = provider, signal } = {}) {
+export function readFeeCollection(input = {}) {
+  const { config, provider, balanceProvider = provider, account = '', signal,
+    force = false, refreshToken = 0, cacheMs = 120_000, now = Date.now } = input;
+  if (config?.displayOnly !== true || !provider?.request || !balanceProvider?.request)
+    return readFeeCollectionUncached(input);
+  const key = JSON.stringify([displayConfigIdentity(config), (account || '').toLowerCase(), displayProviderIdentity(balanceProvider)]);
+  return displayReads(provider, key, sharedSignal => readFeeCollectionUncached({ ...input, signal: sharedSignal }),
+    { signal, force, refreshToken, cacheMs, now });
+}
+
+async function readFeeCollectionUncached({ config, provider, balanceProvider = provider, signal } = {}) {
   abortCheck(signal);
   check(config?.stage === 'fresh-active', '手续费归集仅用于当前正式部署。');
   check(typeof provider?.request === 'function', '手续费只读服务暂不可用。');

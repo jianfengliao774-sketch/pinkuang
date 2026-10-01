@@ -25,15 +25,17 @@ export default function FeeCollection({ config, provider, account, wallet, disab
   const lifecycle = useRef(null), readTicket = useRef(null), actionTicket = useRef(null);
   const latest = useRef(null);
   const identity = deploymentIdentity(config);
-  latest.current = { config, identity, provider, account, wallet, disabled, onAction, onStatus };
+  const refreshSeen = useRef({ identity, key: refreshKey });
+  latest.current = { config, identity, provider, account, wallet, disabled, onAction, onStatus, refreshKey };
 
-  async function refresh() {
-    if (actionTicket.current || readTicket.current || !lifecycle.current) return null;
+  async function refresh({ force = false } = {}) {
+    if (actionTicket.current || !lifecycle.current || readTicket.current && !force) return null;
+    if (readTicket.current) { readTicket.current.abort(); readTicket.current = null; }
     const ticket = new AbortController(), life = lifecycle.current;
     readTicket.current = ticket; setReading(true);
     try {
       const result = await readFeeCollection({ config: latest.current.config, provider,
-        balanceProvider: wallet, signal: ticket.signal });
+        balanceProvider: wallet, account, signal: ticket.signal, force, refreshToken: latest.current.refreshKey });
       if (lifecycle.current === life && !ticket.signal.aborted) { setPlan(result); setReadError(''); }
       return result;
     } catch (problem) {
@@ -46,6 +48,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
 
   useEffect(() => {
     const life = {}; lifecycle.current = life; setPlan(null); setReading(false); setBusy(false);
+    refreshSeen.current = { identity, key: refreshKey };
     setError(''); setReadError(''); setNotice(''); setProgress(null);
     void refresh();
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 30_000);
@@ -53,7 +56,11 @@ export default function FeeCollection({ config, provider, account, wallet, disab
       readTicket.current?.abort(); readTicket.current = null;
       actionTicket.current?.abort(); actionTicket.current = null; };
   }, [identity, provider, account, wallet]);
-  useEffect(() => { void refresh(); }, [refreshKey]);
+  useEffect(() => {
+    if (refreshSeen.current.identity === identity && refreshSeen.current.key === refreshKey) return;
+    refreshSeen.current = { identity, key: refreshKey };
+    void refresh({ force: true });
+  }, [identity, refreshKey]);
 
   async function collect() {
     if (actionTicket.current || disabled || !wallet || !account || !settled(status)) return;
@@ -66,7 +73,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
     try {
       const fresh = latest.current.config.displayOnly === true && plan ? plan
         : await readFeeCollection({ config: latest.current.config, provider,
-          balanceProvider: wallet, signal: ticket.signal });
+          balanceProvider: wallet, account, signal: ticket.signal, refreshToken: latest.current.refreshKey });
       if (!current()) return;
       if (latest.current.disabled) throw new Error('管理员权限或交易状态已变化，请刷新后再归集。');
       setPlan(fresh);
@@ -83,7 +90,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
     } catch (problem) { if (current()) setError(errorText(problem)); }
     finally {
       if (actionTicket.current === ticket) { actionTicket.current = null; setBusy(false); }
-      if (current()) void refresh();
+      if (current()) void refresh({ force: true });
     }
   }
 
@@ -107,7 +114,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
     {error && <p className="live-notice error" role="alert">{error}</p>}
     <div className="live-actions">
       <button className="btn" disabled={blocked} onClick={() => void collect()}>{busy ? '正在归集…' : '一键归集手续费'}</button>
-      <button className="btn secondary" disabled={busy || reading} onClick={() => void refresh()}>刷新手续费余额</button>
+      <button className="btn secondary" disabled={busy || reading} onClick={() => void refresh({ force: true })}>刷新手续费余额</button>
     </div>
     <FeeCollectionHistory config={config} provider={provider} wallet={wallet} account={account}
       refreshKey={`${refreshKey ?? ''}:${historyRefresh}`} />
