@@ -14,6 +14,7 @@ export const cacheDecode = (_key, value) => value && typeof value === 'object' &
   && /^(0|[1-9]\d*)$/.test(value.$bemineBigInt ?? '') ? BigInt(value.$bemineBigInt) : value;
 const same = (a,b) => a?.toLowerCase() === b?.toLowerCase();
 const need = (ok, message) => { if (!ok) throw new Error(message); };
+const revisionStats = stats => stats ? {...stats,miningOverview:{...stats.miningOverview,observedAt:null}} : null;
 function decodeRow(raw) {
   const s = raw.status, good = bit => (s.validMask & (1n << BigInt(bit))) !== 0n && (s.errorMask & (1n << BigInt(bit))) === 0n;
   const trusted = s.trustError === 0n && good(0);
@@ -117,8 +118,7 @@ export class PoolDisplayCache {
   }
   save(value) {
     value.miningQuotes=this.miningOverview.persistedQuotes();
-    const revisionStats=value.stats ? {...value.stats,miningOverview:{...value.stats.miningOverview,observedAt:null}} : null;
-    value.displayRevision=createHash('sha256').update(JSON.stringify([value.rows,value.accountRows,value.marketOwed,value.orders,revisionStats],cacheEncode)).digest('hex');
+    value.displayRevision=createHash('sha256').update(JSON.stringify([value.rows,value.accountRows,value.marketOwed,value.orders,revisionStats(value.stats)],cacheEncode)).digest('hex');
     if(this.path) {const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(value,cacheEncode),{mode:0o600});renameSync(temporary,this.path);}
     this.value=value;
   }
@@ -138,7 +138,13 @@ export class PoolDisplayCache {
     if(!v || !this.index.snapshotTrusted || !this.index.verifiedDisplaySnapshot()
       || this.now()-v.savedAt>30*60_000 || v.savedAt>this.now()
       || !same(this.index._header(v.source.indexedThrough)?.hash,v.source.indexedBlockHash)) return null;
-    return {...v,source:{...v.source,readMode:'verified_snapshot',stale:true,transactionReady:false,
+    // Quote lifetimes are independent of the longer business display lifetime.
+    // Derive them for reads too, including after restart or a failed RPC refresh.
+    const stats=v.stats ? {...v.stats,...this.miningOverview.snapshot(Object.values(v.rows))} : null;
+    // Reuse the stored business generation; hashing every account row per HTTP
+    // request would turn a small overview refresh into fleet-wide CPU work.
+    const displayRevision=createHash('sha256').update(JSON.stringify([v.displayRevision,revisionStats(stats)],cacheEncode)).digest('hex');
+    return {...v,stats,displayRevision,source:{...v.source,readMode:'verified_snapshot',stale:true,transactionReady:false,
       refreshing:Boolean(this.running),cacheOrigin:'server',cacheAgeMs:this.now()-v.savedAt}};
   }
   revision() {

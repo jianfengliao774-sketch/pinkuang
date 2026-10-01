@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Interface, ZeroAddress } from 'ethers';
@@ -75,6 +75,37 @@ test('background materialization persists exact public and per-wallet state; HTT
 test('expired or invalidated caches cannot be served after restart',async()=>{
   const f=fixture(),cache=new PoolDisplayCache(f.index,f.provider,{lens,now:f.now});await cache.refresh();
   f.advance(30*60_000+1);assert.equal(cache.snapshot(),null);await cache.close();
+});
+
+test('public overview expires a quote after ten minutes even when RPC refresh fails or the cache reopens',async()=>{
+  const f=fixture(),dir=mkdtempSync(join(tmpdir(),'pool-display-ttl-')),path=join(dir,'cache.json');
+  const cache=new PoolDisplayCache(f.index,f.provider,{lens,path,now:f.now,quoteLoader:async()=>({asset:{collection,tokenId:'12962',
+    mining:{status:'verified',estimated24hAtomic:'432000',tokenSymbol:'BEM',tokenDecimals:8}}})});
+  let reopened,server;
+  try {
+    await cache.refresh();await cache.quoteRunning;
+    const initial=cache.snapshot(),initialRevision=cache.revision(),disk=readFileSync(path,'utf8');
+    assert.equal(initial.stats.estimatedDailyBemAtomic,'432000');
+    f.advance(10*60_000+1);f.fail();await assert.rejects(cache.refresh(),/offline/);
+    const expired=cache.snapshot();assert(expired,'business data remains within its separate thirty-minute lifetime');
+    assert.equal(expired.accountRows[account][pool].shares,50n);
+    assert.equal(expired.stats.currentlyActivePoolCount,'1');assert.equal(expired.stats.estimatedDailyBemAtomic,null);
+    assert.equal(expired.stats.miningOverview.dailyOutputComplete,false);assert.equal(expired.stats.miningOverview.quotedMinerCount,'0');
+    assert.equal(expired.stats.miningOverview.missingMinerCount,'1');assert.equal(expired.stats.miningOverview.observedAt,null);
+    assert.notEqual(cache.revision(),initialRevision,'quote expiry creates a different public display generation');
+    assert.equal(expired.savedAt,initial.savedAt,'serving an expired quote cannot extend the business lifetime');
+    assert.equal(readFileSync(path,'utf8'),disk,'public reads do not rewrite the stored cache or its timestamps');
+    reopened=new PoolDisplayCache(f.index,f.provider,{lens,path,now:f.now});
+    assert.equal(reopened.miningOverview.quotes.size,0,'restart discards expired persisted estimates');
+    assert.equal(reopened.snapshot().stats.estimatedDailyBemAtomic,null,'persisted aggregate cannot outlive its discarded quotes');
+    assert.equal(reopened.snapshot().stats.currentlyActivePoolCount,'1');
+    server=createChainIndexServer(f.index,{displayCache:reopened});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const before=f.calls,response=await fetch(`http://127.0.0.1:${server.address().port}/v1/display/stats`);
+    assert.equal(response.status,200);const body=JSON.parse(await response.text(),cacheDecode);
+    assert.equal(body.data.estimatedDailyBemAtomic,null);assert.equal(body.data.miningOverview.dailyOutputComplete,false);
+    assert.equal(body.data.currentlyActivePoolCount,'1');assert.equal(f.calls,before,'expiry is derived without HTTP-triggered RPC');
+    f.advance(20*60_000);assert.equal(reopened.snapshot(),null,'the underlying business cache still expires at thirty minutes');
+  } finally {await cache.close();await reopened?.close();if(server)await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});}
 });
 
 test('a slow Firsto quote never blocks pool, wallet, order or initial count materialization',async()=>{
