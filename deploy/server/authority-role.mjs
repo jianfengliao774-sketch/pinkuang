@@ -20,6 +20,16 @@ async function readPinnedState(provider, trusted, account, blockNumber) {
   return { core, budget, first, second, gasWallet, code };
 }
 
+/** A single-admin deployment fills both ABI role slots with the same wallet.
+ * Only trusted deployment evidence can enable this; browser input cannot. */
+export function reviewedSingleAdministrator(trusted) {
+  const role = trusted?.freshAuthority?.authority;
+  try {
+    return !same(role.administratorOne, ZERO)
+      && same(role.administratorOne, role.administratorTwo);
+  } catch { return false; }
+}
+
 /** Fail closed unless this wallet occupies a current role on a canonical BSC block. */
 export async function verifyCurrentAuthorityAdministrator(provider, trusted, account, { readState = null } = {}) {
   if (!trusted?.freshAuthority?.authority || !trusted?.bundle?.artifacts?.PlatformAuthority)
@@ -38,7 +48,8 @@ export async function verifyCurrentAuthorityAdministrator(provider, trusted, acc
     const expected = trusted.record.addresses;
     if (!same(core, expected.factory) || !same(budget, expected.portfolioFactory)
       || !same(gasWallet, authority.gasWallet)
-      || same(first, ZERO) || same(second, ZERO) || same(first, second)
+      || same(first, ZERO) || same(second, ZERO)
+      || same(first, second) && !reviewedSingleAdministrator(trusted)
       || same(first, gasWallet) || same(second, gasWallet)
       || !reviewedAuthorityRuntimeMatches(trusted, code)
       || (authority.codehash && keccak256(code).toLowerCase() !== authority.codehash.toLowerCase()))

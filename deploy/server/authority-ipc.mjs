@@ -4,7 +4,7 @@ import { chmodSync, existsSync, lstatSync, readFileSync, statSync } from 'node:f
 import { dirname, isAbsolute, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { FetchRequest, Interface, JsonRpcProvider, getAddress } from 'ethers';
-import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
+import { reviewedSingleAdministrator, verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { JournalStore } from './journal-store.mjs';
 import { productGraphConfiguration } from './product-graph.mjs';
 import { createKeyedLimiter, createRequestLimiter } from './request-limiter.mjs';
@@ -247,7 +247,8 @@ export function createAuthorityRolePrefilter(provider, trusted, { now = Date.now
     ]);
     if (!canonical || canonical.hash?.toLowerCase() !== block.hash.toLowerCase()
       || BigInt(chainId) !== 56n) fail(503, 'Current BSC block changed during role prefilter.');
-    if (first === ZERO_ADDRESS || second === ZERO_ADDRESS || first === second)
+    if (first === ZERO_ADDRESS || second === ZERO_ADDRESS
+      || first === second && !reviewedSingleAdministrator(trusted))
       fail(409, 'Current Authority administrators are invalid.');
     return new Set([first.toLowerCase(), second.toLowerCase()]);
   }
