@@ -149,7 +149,7 @@ test('sync failure diagnostics identify a bounded RPC method without leaking pro
 const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',
   'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
 const hex = number => `0x${number.toString(16).padStart(64, '0')}`;
-function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', firstLogsDelayMs = 0 } = {}) {
+function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', chainIdFailure = false, firstLogsDelayMs = 0 } = {}) {
   const calls = [];
   let delayed = false;
   const server = createServer(async (request, response) => {
@@ -187,7 +187,9 @@ function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, log
       delayed = true;
       await new Promise(resolve => setTimeout(resolve, firstLogsDelayMs));
     }
-    if (logsFailure && list.some(payload => payload.method === 'eth_getLogs')) {
+    if (chainIdFailure && list.some(payload => payload.method === 'eth_chainId')) {
+      response.writeHead(403, { 'content-type': 'application/json' }); response.end('{"error":"forbidden"}');
+    } else if (logsFailure && list.some(payload => payload.method === 'eth_getLogs')) {
       response.writeHead(429, { 'Retry-After': '90' }); response.end('rate limited');
     } else { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(Array.isArray(input) ? replies : replies[0])); }
   });
@@ -307,4 +309,46 @@ test('HTTP 429 Retry-After cannot trap the index in a hidden long retry or advan
     assert(performance.now() - begin < 2_000, 'Retry-After is handled by the sync loop, not an HTTP backoff');
     assert.equal(requests, 1, 'no invisible retry loop after stopping');
   } finally { await service?.close(); await stop(upstream); }
+});
+
+
+test('an unused forbidden fallback cannot block healthy indexing or empty its display directory', async () => {
+  const primary = rpcFixture(), logs = rpcFixture({ logs: true });
+  const fallback = rpcFixture({ logs: true, chainIdFailure: true }); let service;
+  try {
+    const rpc = await listen(primary.server), logsRpc = await listen(logs.server), fallbackLogsRpc = await listen(fallback.server);
+    service = await startChainIndex({ ...config(rpc), logsRpc, fallbackLogsRpc });
+    await until(() => service.index.status().complete);
+    assert.equal(service.index.indexedThrough, 2);
+    assert.equal(fallback.calls.length, 0, 'unused fallback never participates in the primary sync');
+    assert(logs.calls.some(row => row.method === 'eth_chainId'));
+    assert(logs.calls.some(row => row.method === 'eth_getLogs'));
+  } finally { await service?.close(); await stop(primary.server); await stop(logs.server); await stop(fallback.server); }
+});
+
+test('a logs identity outage can use the independently checked fallback', async () => {
+  const primary = rpcFixture(), logs = rpcFixture({ logs: true, chainIdFailure: true });
+  const fallback = rpcFixture({ logs: true }); let service;
+  try {
+    const rpc = await listen(primary.server), logsRpc = await listen(logs.server), fallbackLogsRpc = await listen(fallback.server);
+    service = await startChainIndex({ ...config(rpc), logsRpc, fallbackLogsRpc });
+    await until(() => service.index.status().complete);
+    assert.equal(service.index.indexedThrough, 2);
+    assert.equal(logs.calls.filter(row => row.method === 'eth_getLogs').length, 0);
+    assert(fallback.calls.some(row => row.method === 'eth_chainId'));
+    assert(fallback.calls.some(row => row.method === 'eth_getBlockByNumber'));
+    assert(fallback.calls.some(row => row.method === 'eth_getLogs'));
+  } finally { await service?.close(); await stop(primary.server); await stop(logs.server); await stop(fallback.server); }
+});
+
+test('a fallback on a different chain cannot rescue failed logs or advance the cursor', async () => {
+  const primary = rpcFixture(), logs = rpcFixture({ logs: true, chainIdFailure: true });
+  const fallback = rpcFixture({ logs: true, chainId: '0x1' }); let service;
+  try {
+    const rpc = await listen(primary.server), logsRpc = await listen(logs.server), fallbackLogsRpc = await listen(fallback.server);
+    service = await startChainIndex({ ...config(rpc), logsRpc, fallbackLogsRpc });
+    await until(() => service.index.status().unknownReason === 'wrong_chain');
+    assert.equal(service.index.indexedThrough, 0);
+    assert.equal(fallback.calls.filter(row => row.method === 'eth_getLogs').length, 0);
+  } finally { await service?.close(); await stop(primary.server); await stop(logs.server); await stop(fallback.server); }
 });

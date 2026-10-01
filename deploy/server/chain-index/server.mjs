@@ -109,6 +109,7 @@ export async function startChainIndex(config) {
   const fallbackLogs = config.fallbackLogsRpc ? readProvider(config.fallbackLogsRpc, logsTimeoutMs) : null;
   const providers = [...new Set([primary, logs, fallbackLogs].filter(Boolean))];
   let verifiedTips = new Map();
+  let verifiedChains = new Map();
   async function observedRead(method, operation) {
     try { return await operation(); }
     catch (error) {
@@ -124,7 +125,13 @@ export async function startChainIndex(config) {
     if (source !== primary) {
       const key = `${source === logs ? 'primary' : 'fallback'}:${filter.toBlock}`;
       if (!verifiedTips.has(key)) {
-        const proof = Promise.all([primary.getBlock(filter.toBlock), source.getBlock(filter.toBlock)]).then(([canonical, served]) => {
+        // A spare endpoint must not gate healthy primary reads. Verify its
+        // identity only when this endpoint actually serves an event range.
+        if (!verifiedChains.has(source)) verifiedChains.set(source, source.send('eth_chainId', []).then(id => {
+          if (!/^0x[0-9a-f]+$/i.test(id) || BigInt(id) !== 56n)
+            throw new Error('RPC is not BSC mainnet (56).');
+        }));
+        const proof = verifiedChains.get(source).then(() => Promise.all([primary.getBlock(filter.toBlock), source.getBlock(filter.toBlock)])).then(([canonical, served]) => {
           if (!canonical?.hash || !served?.hash || canonical.number !== filter.toBlock
             || served.number !== filter.toBlock || canonical.hash.toLowerCase() !== served.hash.toLowerCase())
             throw new Error('Logs RPC is behind or differs from the canonical chain.');
@@ -139,10 +146,11 @@ export async function startChainIndex(config) {
     send: (method, params) => observedRead(method === 'eth_chainId' ? method : 'other', async () => {
       if (method === 'eth_chainId') {
         verifiedTips = new Map();
-        const ids = await Promise.all(providers.map(source => source.send(method, params)));
-        if (ids.some(id => !/^0x[0-9a-f]+$/i.test(id) || BigInt(id) !== 56n))
+        verifiedChains = new Map();
+        const id = await primary.send(method, params);
+        if (!/^0x[0-9a-f]+$/i.test(id) || BigInt(id) !== 56n)
           throw new Error('RPC is not BSC mainnet (56).');
-        return ids[0];
+        return id;
       }
       return primary.send(method, params);
     }),
