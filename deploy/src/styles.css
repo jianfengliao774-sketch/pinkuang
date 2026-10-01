@@ -37,3 +37,10 @@
 .fresh-role-plan b{display:block;font-size:12px;font-weight:600;color:#3c4c4e}.fresh-role-plan b:not(:first-child){margin-top:12px}
 .fresh-role-plan p{margin-top:5px;overflow-wrap:anywhere}
 @media(max-width:1160px){.fresh-role-plan{margin-left:20px;margin-right:20px}}
+.full-test-nav-close,.full-test-nav-backdrop{display:none}
+@media(max-width:680px){
+ .full-test-console .sidebar:not(.mobile-open){visibility:hidden;pointer-events:none;transform:translateX(-100%);transition:none;box-shadow:none}
+ .full-test-console .sidebar.mobile-open{visibility:visible;transform:none;transition:none;overflow-y:auto}
+ .full-test-console .full-test-nav-close{display:flex;position:absolute;top:12px;right:12px;color:#d7dfdf}
+ .full-test-console .full-test-nav-backdrop{display:block;position:fixed;inset:0;z-index:19;background:#10171970}
+}

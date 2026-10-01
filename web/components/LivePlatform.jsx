@@ -3489,6 +3489,7 @@ export default function LivePlatform() {
           {route.route === 'portfolio' && <button className="back-link" onClick={()=>go(portfolioReturnRoute.current)}>{portfolioReturnRoute.current === 'overview' ? L('← 返回资产总览','← Back to my portfolio') : portfolioReturnRoute.current === 'rewards' ? L('← 返回收益中心','← Back to rewards') : L('← 返回参与拼矿','← Back to projects')}</button>}
           {['overview','rewards','governance','market','portfolio'].includes(route.route) && <LivePortfolios
             config={config} provider={client?.provider} client={client} locale={locale} account={account} wallet={wallet} mode={route.route} initialPool={route.route === 'portfolio' ? route.pool : null}
+            unconfigured={fullTestBuild && boot.status === 'unconfigured'}
             disabled={busy || !!pending} onConnect={connect} onSend={sendPortfolio} marketTransactions={memberTransactions}
             onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
             onShare={pool => setModal({ type: 'portfolio-share', pool })}

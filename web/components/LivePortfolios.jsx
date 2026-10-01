@@ -54,7 +54,7 @@ function PortfolioSaleStatus({candidate,stage,locale}){
 }
 
 /** A parent project owns its miners. Its 100 shares are never counted once per child. */
-export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0, marketTransactions = [] }) {
+export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, unconfigured = false, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0, marketTransactions = [] }) {
   const T=text=>portfolioText(locale,text);
   const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
   const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
@@ -291,7 +291,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   return <section id="multi-miner-projects" className="panel portfolio-panel" aria-label={T('多矿机预算项目')}>
     <div className="portfolio-heading"><div><h2><Layers3 size={21}/>{T("多矿机预算项目")}</h2><p>{T("整个项目共 100 份，共同持有项目内多台矿机。每台矿机的出售单独表决，余款与收益归项目份额持有人。")}</p></div>
       <button className="btn secondary" disabled={!enabled || busy || loading || !!preview || disabled || mine&&!account} onClick={()=>void load()}><RefreshCw size={15}/>{T("刷新项目")}</button></div>
-    {!enabled ? <p role="status">{locale==='en'?(config?'Project data is temporarily unavailable.':'Loading project data…'):(config?'项目数据暂不可用。':'正在读取项目…')}</p> : mine&&!account ? <button className="btn" onClick={onConnect}>{T("连接钱包查看项目权益")}</button> : <>
+    {!enabled ? <p role="status">{unconfigured ? (locale==='en'?'No test projects yet. Deploy and activate the test contracts to create projects.':'尚无测试项目。完成测试合约部署与权限激活后，即可创建项目。') : locale==='en'?(config?'Project data is temporarily unavailable.':'Loading project data…'):(config?'项目数据暂不可用。':'正在读取项目…')}</p> : mine&&!account ? <button className="btn" onClick={onConnect}>{T("连接钱包查看项目权益")}</button> : <>
       {error&&<div className="portfolio-error" role="alert"><p>{T(error)}</p>{readFailed&&<button className="btn secondary" disabled={busy || loading || disabled} onClick={()=>void load()}>{locale==='en'?'Retry portfolio data':'重新读取预算项目'}</button>}</div>}
       {loading&&<p role="status">{readRetry?(locale==='en'?`Portfolio data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`:`预算数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`):locale==='en'?'Loading portfolios…':'正在读取预算项目…'}</p>}
       {mode==='operator'&&isOperator&&<section id="multi-miner-create" className="portfolio-create"><h3>{T("创建多矿机预算项目")}</h3><p>{T("预算项目固定 100 份；总预算、单机绝对上限及换算后的每 H 限价写入合约，采购不能突破这些链上限额。")}</p><p>{T("先创建共享 100 份的预算项目；募满后在项目中设置本批最多采购台数（1–20 台），从当前合格挂单逐台核验并买入。矿机可能在募集期间售出，因此创建时不锁定具体编号；同一项目可用剩余预算继续采购下一批。")}</p>

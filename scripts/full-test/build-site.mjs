@@ -61,6 +61,14 @@ export function buildFullTestSite({ output, allowDirty = false } = {}) {
     const retiredRoot = join(exported, 'data/frontend-manifest.json'); if (existsSync(retiredRoot)) rmSync(retiredRoot);
     cpSync(exported, destination, { recursive: true, errorOnExist: true, force: false });
     cpSync(join(repository, 'deploy/dist-full-test'), join(destination, 'deploy'), { recursive: true, errorOnExist: true, force: false });
+    // The isolated release has no production quote worker. Serve an honest
+    // unavailable cache instead of a missing URL or a fabricated live price.
+    writeFileSync(join(destination, 'data/bem-price.json'), `${JSON.stringify({ status: 'unavailable',
+      priceUsdt: null, quoteCurrency: 'USDT', updatedAt: null, checkedAt: null,
+      lastSuccessAt: null, refreshSeconds: 15 })}\n`, { flag: 'wx' });
+    // Full-test Vite disables publicDir to exclude retired deployment records.
+    cpSync(join(repository, 'deploy/public/favicon.svg'), join(destination, 'deploy/favicon.svg'),
+      { errorOnExist: true, force: false });
     const metadata = { schemaVersion: 1, kind: 'bemine-full-test-static-site', profile: 'full-test',
       chainId: 56, sourceHead, sourceBound: dirty.length === 0, artifactDigest, basePath,
       publicUrl: `${publicOrigin}${basePath}/`, deployConsoleUrl: `${publicOrigin}${basePath}/deploy/`,
