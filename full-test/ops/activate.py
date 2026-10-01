@@ -26,7 +26,7 @@ def encoded(values):return ''.join(key+'='+str(value)+'\n' for key,value in valu
 
 need(os.geteuid()==0,'Root provisioner required')
 release=ROOT.resolve()
-need(ROOT.is_symlink() and release.parent==Path('/srv/bemine-full-test/releases') and re.fullmatch('full-test-[a-f0-9]{12}-[a-f0-9]{12}',release.name),'Unexpected installed test release')
+need(ROOT.is_symlink() and release.parent==Path('/srv/bemine-full-test/releases') and re.fullmatch(r'(?:full-test-[a-f0-9]{12}-[a-f0-9]{12}|gas-reader-[a-f0-9]{12}|single-admin-[a-f0-9]{12})',release.name),'Unexpected installed test release')
 rpc=environment(CONFIG/'rpc.env')
 check=subprocess.run(['/usr/bin/node',str(release/'activate-proof.mjs')],env={**os.environ,**rpc},capture_output=True,text=True,timeout=180)
 need(check.returncode==0,'Test graph proof failed; no service configuration changed')
