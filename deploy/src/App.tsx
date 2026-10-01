@@ -6,7 +6,8 @@ import { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from './fresh-acti
 import { FRESH_DEPLOYER } from '../shared/fresh-roles.mjs';
 import { ArchiveCompletedAction } from './ArchiveAction';
 import { displayDecimal, displayUnits } from './display';
-import { DeploymentEngine, LIBRARY_NAMES, INTEGRATED_TRANSACTION_COUNT, preflight, validateArtifacts, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
+import { artifactDigest, DeploymentEngine, LIBRARY_NAMES, INTEGRATED_TRANSACTION_COUNT, preflight, validateArtifacts, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type PreflightReport } from './deployment';
+import { fullTestActivationProfile, validateFullTestConsoleConfig, type FullTestConsoleConfig } from './full-test-profile';
 import { migrateLegacyDeployment } from './legacy-deployment';
 import { deploymentManifest } from './manifest';
 import { authenticateJournal, ServerJournal } from './server-journal';
@@ -14,14 +15,16 @@ import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption,
 
 const EXPLORER = 'https://bscscan.com';
 const IS_FRESH = import.meta.env.MODE === 'fresh';
+const IS_FULL_TEST = import.meta.env.MODE === 'full-test';
+const IS_ISOLATED = IS_FRESH || IS_FULL_TEST;
 // The new deployment console must not expose the old product's market or
 // persist its browser intents into the new deployment journal.
-const MarketPage = IS_FRESH ? null : lazy(() => import('./MarketPage'));
-const PricingPanel = IS_FRESH ? null : lazy(() => import('./PricingPanel'));
+const MarketPage = IS_ISOLATED ? null : lazy(() => import('./MarketPage'));
+const PricingPanel = IS_ISOLATED ? null : lazy(() => import('./PricingPanel'));
 // The fresh console has no legacy upgrade signing route. Vite removes this
 // dynamic import entirely from the reviewed fresh-mode bundle.
-const UpgradeConsole = IS_FRESH ? null : lazy(() => import('./UpgradeConsole'));
-const LegacyCutover = IS_FRESH ? null : lazy(() => import('./LegacyCutover'));
+const UpgradeConsole = IS_ISOLATED ? null : lazy(() => import('./UpgradeConsole'));
+const LegacyCutover = IS_ISOLATED ? null : lazy(() => import('./LegacyCutover'));
 const short = (value: string) => value.length > 17 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 const protocols = Object.entries(PROTOCOL_ADDRESSES);
 
@@ -46,6 +49,7 @@ export default function App() {
   const [walletDialog, setWalletDialog] = useState(false);
   const [qrPending, setQrPending] = useState(false);
   const [bundle, setBundle] = useState<ArtifactBundle | null>(null);
+  const [fullTestConfig, setFullTestConfig] = useState<FullTestConsoleConfig | null>(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -77,6 +81,11 @@ export default function App() {
       const value = await response.json();
       if (value.schemaVersion !== 1 || !value.artifacts?.AtomicDeployment?.abi?.some((item: { name?: string }) => item.name === 'deployIntegratedSingleOwner')) throw new Error('编译产物不支持单机与多机项目完整部署，请重新生成。');
       validateArtifacts(value);
+      if (IS_FULL_TEST) {
+        const response = await fetch('../api/full-test/config', { signal: abort.signal, cache: 'no-store' });
+        if (!response.ok) throw new Error('完整测试部署配置未加载。');
+        setFullTestConfig(validateFullTestConsoleConfig(await response.json(), artifactDigest(value)));
+      }
       setBundle(value);
     }).catch(err => { if (err.name !== 'AbortError') setLoadError(messageOf(err)); });
     return () => abort.abort();
@@ -106,8 +115,8 @@ export default function App() {
 
   const activeInput: DeploymentInput = {
     governanceMode: 'single', ownerMultisig: wallet?.address || '',
-    operator: !IS_FRESH && customRoles ? operator : wallet?.address || '',
-    treasury: !IS_FRESH && customRoles ? treasury : wallet?.address || '',
+    operator: !IS_ISOLATED && customRoles ? operator : wallet?.address || '',
+    treasury: !IS_ISOLATED && customRoles ? treasury : wallet?.address || '',
     maxGasBudgetBnb: budget, gasPriceCapGwei: gasCap, governanceReviewed, protocolReviewed,
   };
   const confirmed = snapshot?.steps.filter(step => step.status === 'confirmed').length || 0;
@@ -153,10 +162,12 @@ export default function App() {
       if (!connected) throw new Error('钱包未返回账户。');
       if (IS_FRESH && connected.address.toLowerCase() !== FRESH_DEPLOYER.toLowerCase())
         throw new Error(`当前连接的是 ${connected.address}。此独立部署台仅接受已确认的部署钱包 ${FRESH_DEPLOYER}；请在钱包扩展中切换账户。`);
+      if (IS_FULL_TEST && (!fullTestConfig || connected.address.toLowerCase() !== fullTestConfig.roles.deployer.toLowerCase()))
+        throw new Error(`请连接本次测试部署钱包 ${fullTestConfig?.roles.deployer || '（测试配置尚未加载）'}。`);
       const serverJournal = await authenticateJournal(option.provider, connected.address);
       let browserStorage: Storage | null = null;
       try { browserStorage = localStorage; } catch { /* Browser storage is optional for new server-backed sessions. */ }
-      if (import.meta.env.MODE !== 'fresh' && browserStorage)
+      if (!IS_ISOLATED && browserStorage)
         await migrateLegacyDeployment(serverJournal, browserStorage);
       const state = await serverJournal.loadDeployment();
       setSelected(option); setWallet(connected); setJournal(serverJournal);
@@ -298,14 +309,18 @@ export default function App() {
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setTab('deploy'); }}><span className="brand-symbol"><i/><i/><i/></span><span>拼矿<span className="brand-english">PINKUANG</span></span></a>
       <div className="workspace-label">项目工作台<span>V 0.1</span></div>
       <nav aria-label="主导航">
-        {([{ id: 'deploy', icon: Rocket, title: '合约部署' }, ...(!IS_FRESH ? [{ id: 'market' as const, icon: Blocks, title: '份额市场' }, { id: 'pricing' as const, icon: Network, title: '矿机报价' }] : []), { id: 'records', icon: FileClock, title: '部署记录' }, { id: 'governance', icon: ShieldCheck, title: '升级与权限' }] as const).map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'active' : ''}`} onClick={() => { setTab(item.id); setMenuOpen(false); }}><item.icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15}/>}</button>)}
+        {([{ id: 'deploy', icon: Rocket, title: '合约部署' }, ...(!IS_ISOLATED ? [{ id: 'market' as const, icon: Blocks, title: '份额市场' }, { id: 'pricing' as const, icon: Network, title: '矿机报价' }] : []), { id: 'records', icon: FileClock, title: '部署记录' }, { id: 'governance', icon: ShieldCheck, title: '升级与权限' }] as const).map(item => <button key={item.id} className={`nav-item ${tab === item.id ? 'active' : ''}`} onClick={() => { setTab(item.id); setMenuOpen(false); }}><item.icon size={19}/>{item.title}{tab === item.id && <ChevronRight size={15}/>}</button>)}
       </nav>
       <div className="sidebar-bottom"><div className="network-mini"><span className="green-dot"/> BNB Smart Chain <span>56</span></div><a href="https://github.com/jianfengliao774-sketch/pinkuang" target="_blank" rel="noreferrer"><GitBranch size={15}/> 项目源码 <ArrowUpRight size={15}/></a><p>合约与资产，由你掌控。</p></div>
     </aside>
     <div className="main-shell">
       <header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setMenuOpen(!menuOpen)}><Menu size={20}/></button><span>拼矿协议</span><ChevronRight size={14}/><strong>{tab === 'deploy' ? '合约部署' : tab === 'market' ? '份额市场' : tab === 'pricing' ? '矿机报价' : tab === 'funding' ? '筹款与购机' : tab === 'records' ? '部署记录' : '升级与权限'}</strong></div><div className="topbar-actions"><span className="chain-tag"><span className="bnb-icon">◆</span>BSC 主网</span><button className={`wallet-button ${wallet ? 'connected' : ''}`} onClick={requestConnection} disabled={!!busy}><Wallet size={17}/>{wallet ? short(wallet.address) : '连接钱包'}{wallet && <span className="green-dot"/>}</button></div></header>
       <main>
-        <div className="page-heading"><div><div className="eyebrow">{tab === 'deploy' ? 'DEPLOYMENT CONSOLE' : tab === 'market' ? 'SHARE MARKET' : tab === 'pricing' ? 'FIRSTO MINER QUOTES' : tab === 'funding' ? 'FUNDING & PURCHASE' : tab === 'records' ? 'ON-CHAIN RECORDS' : 'UPGRADE GOVERNANCE'}</div><h1>{tab === 'deploy' ? '部署你的拼矿合约' : tab === 'market' ? '让每一份算力，自由流转' : tab === 'pricing' ? '以真实矿机报价，为筹款定价' : tab === 'funding' ? '一起筹款，按约定买矿机' : tab === 'records' ? '每一笔部署，都有记录' : '可升级，也有等待期'}</h1><p>{tab === 'deploy' ? '连接钱包，核对配置，将可升级合约部署到 BSC 主网。' : tab === 'market' ? '查看真实挂单，交易整数份额，领取成交卖款。' : tab === 'pricing' ? '参考 Firsto 产能价，保留报价时间与资金预算。' : tab === 'funding' ? '锁定矿机条件与购机预算，余款按份额计入可领取余额。' : tab === 'records' ? '读取服务器保存的记录，核对链上交易和合约地址。' : 'Factory、交易市场和资金池通过同一时间锁管理升级。'}</p></div><span className="test-label"><span/>{IS_FRESH ? 'v4 独立部署' : '主网小额测试'}</span></div>
+        {IS_FULL_TEST && <div className="alert alert-warning" data-test-profile="full-test"><ShieldCheck size={20}/><div style={{ minWidth: 0, overflowWrap: 'anywhere' }}><strong>完整测试部署 · 独立合约</strong>
+          <p>BNB 主网真实资产；完整 16 笔部署与 7 笔权限激活由部署钱包确认。测试版取消强制出售和升级等待。</p>
+          {fullTestConfig && <p>部署及管理员一：{fullTestConfig.roles.deployer}　管理员二：{fullTestConfig.roles.administratorTwo}　独立 Gas 钱包：{fullTestConfig.roles.gasWallet}</p>}
+          <a href="../">返回完整测试站</a></div></div>}
+        <div className="page-heading"><div><div className="eyebrow">{tab === 'deploy' ? 'DEPLOYMENT CONSOLE' : tab === 'market' ? 'SHARE MARKET' : tab === 'pricing' ? 'FIRSTO MINER QUOTES' : tab === 'funding' ? 'FUNDING & PURCHASE' : tab === 'records' ? 'ON-CHAIN RECORDS' : 'UPGRADE GOVERNANCE'}</div><h1>{tab === 'deploy' ? '部署你的拼矿合约' : tab === 'market' ? '让每一份算力，自由流转' : tab === 'pricing' ? '以真实矿机报价，为筹款定价' : tab === 'funding' ? '一起筹款，按约定买矿机' : tab === 'records' ? '每一笔部署，都有记录' : IS_FULL_TEST ? '完整测试权限，无强制等待' : '可升级，也有等待期'}</h1><p>{tab === 'deploy' ? '连接钱包，核对配置，将可升级合约部署到 BSC 主网。' : tab === 'market' ? '查看真实挂单，交易整数份额，领取成交卖款。' : tab === 'pricing' ? '参考 Firsto 产能价，保留报价时间与资金预算。' : tab === 'funding' ? '锁定矿机条件与购机预算，余款按份额计入可领取余额。' : tab === 'records' ? '读取服务器保存的记录，核对链上交易和合约地址。' : 'Factory、交易市场和资金池通过同一时间锁管理升级。'}</p></div><span className="test-label"><span/>{IS_FULL_TEST ? '完整测试 · 无强制等待' : IS_FRESH ? 'v4 独立部署' : '主网小额测试'}</span></div>
         {(error || loadError || snapshot?.error) && <div className="alert alert-error" role="alert"><OctagonAlert size={20}/><div><strong>操作未完成</strong><p>{error || loadError || snapshot?.error}</p></div>{error && <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}><X size={16}/></button>}</div>}
         {info && <div className="alert alert-success" role="status"><CheckCheck size={20}/><div><strong>服务器记录已同步</strong><p>{info}</p></div><button className="icon-button" aria-label="关闭提示" onClick={() => setInfo('')}><X size={16}/></button></div>}
         {wallet && !onBsc && <div className="alert alert-warning"><Network size={20}/><div><strong>钱包当前连接的不是 BSC 主网</strong><p>当前 Chain ID：{wallet.chainId}。切换到 56 后才能继续。</p></div><button className="small-button" onClick={changeNetwork} disabled={!!busy}>切换网络<ArrowRight size={15}/></button></div>}
@@ -345,16 +360,17 @@ export default function App() {
             </section>
           </div><aside className="right-column">
             <section className="architecture-card"><div className="architecture-top"><span className="gold-icon"><GitBranch size={19}/></span><span>为后续升级做好准备</span></div><h2>代码可升级。<br/><span>权限有边界。</span></h2><div className="governance-flow"><div><Wallet size={17}/><span>{IS_FRESH ? '指定硬件钱包' : '你的管理钱包'}</span><small>发起提案</small></div><i/><div><LockKeyhole size={17}/><span>时间锁</span><strong>48h</strong></div><i/><div className="flow-contracts"><span>Factory<small>UUPS</small></span><span>Market<small>UUPS</small></span><span>Vault<small>Beacon</small></span></div></div><p>单机与多机使用各自的 Beacon，<br/>升级只影响对应类型的关联池。</p><button onClick={() => setTab('governance')}>查看升级与权限<ArrowUpRight size={16}/></button></section>
-            <section className="card deployment-summary"><h2>本次部署</h2><dl><div><dt>目标网络</dt><dd>BSC 主网</dd></div><div><dt>治理方式</dt><dd>{IS_FRESH ? '硬件钱包 + Authority + 48 小时时间锁' : '单钱包 + 时间锁'}</dd></div><div><dt>钱包确认</dt><dd>{total} 笔交易</dd></div><div><dt>业务资金转入</dt><dd>0.00000 BNB</dd></div><div><dt>Gas 总预算</dt><dd>{displayDecimal(snapshot?.input.maxGasBudgetBnb || budget || '')} BNB</dd></div>{snapshot && <div><dt>实际已花费</dt><dd>{displayUnits(snapshot.spentWei || '0')} BNB</dd></div>}</dl>
+            <section className="card deployment-summary"><h2>本次部署</h2><dl><div><dt>目标网络</dt><dd>BSC 主网</dd></div><div><dt>治理方式</dt><dd>{IS_FULL_TEST ? '部署钱包 + Authority + 无等待测试时间锁' : IS_FRESH ? '硬件钱包 + Authority + 48 小时时间锁' : '单钱包 + 时间锁'}</dd></div><div><dt>钱包确认</dt><dd>{total} 笔交易</dd></div><div><dt>业务资金转入</dt><dd>0.00000 BNB</dd></div><div><dt>Gas 总预算</dt><dd>{displayDecimal(snapshot?.input.maxGasBudgetBnb || budget || '')} BNB</dd></div>{snapshot && <div><dt>实际已花费</dt><dd>{displayUnits(snapshot.spentWei || '0')} BNB</dd></div>}</dl>
               {report && !snapshot && <div className="preflight-passed"><ShieldCheck size={17}/><span>链上配置检查通过</span></div>}
               {!wallet ? <button className="primary-button" onClick={requestConnection} disabled={!!busy}><Wallet size={18}/>连接钱包开始<ArrowRight size={18}/></button> : !onBsc ? <button className="primary-button" onClick={changeNetwork} disabled={!!busy}>切换至 BSC 主网<ArrowRight size={18}/></button> : snapshot ? aborted ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void archiveCurrent()}><FileClock size={18}/>保存旧记录并新建部署</button><button className="text-button" disabled={!!busy} onClick={exportRecord}><ArrowDownToLine size={14}/>导出旧记录 JSON</button></> : complete ? <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void exportManifest()}>{busy ? <LoaderCircle className="spin" size={18}/> : <ArrowDownToLine size={18}/>} {busy || '核验并导出合约清单'}</button><button className="text-button" disabled={!!busy} onClick={exportRecord}><ArrowDownToLine size={14}/>导出完整部署记录 JSON</button></> : <><button className="primary-button" disabled={!!busy || !bundle} onClick={() => void resume(needsReceiptCheck)}>{busy ? <LoaderCircle className="spin" size={18}/> : needsReceiptCheck ? <RefreshCw size={17}/> : <Play size={17}/>} {busy || (needsReceiptCheck ? '先核对链上回执' : '核对并继续部署')}</button>{!needsReceiptCheck && <button className="text-button" onClick={() => void resume(true)} disabled={!!busy}><RefreshCw size={14}/>只核对链上回执</button>}</> : <button className="primary-button" disabled={!canStart} onClick={() => report ? setConfirmation(true) : void checkConfig()}>{busy ? <LoaderCircle className="spin" size={18}/> : report ? <Rocket size={18}/> : <ShieldCheck size={18}/>} {busy || (report ? '开始一键部署' : '检查部署配置')}<ArrowRight size={18}/></button>}
-              <ArchiveCompletedAction snapshot={snapshot} busy={!!busy} journalReady={!!journal}
-                onBsc={onBsc} onArchive={() => void archiveCurrent()}/>
+              {!IS_FULL_TEST && <ArchiveCompletedAction snapshot={snapshot} busy={!!busy} journalReady={!!journal}
+                onBsc={onBsc} onArchive={() => void archiveCurrent()}/>}
               <p className="signer-note"><LockKeyhole size={12}/>签名始终在你的钱包中完成</p></section>
             <div className="risk-note"><OctagonAlert size={17}/><p>{IS_FRESH ? '这是主网操作，会消耗真实 BNB。第一阶段角色由指定硬件钱包临时持有；完成第二阶段权限激活前，不开放新站建池。' : '这是主网操作，会消耗真实 BNB。单钱包私钥持有人拥有升级权，请先用小额资产验证完整业务流程。'}</p></div>
           </aside></div>
-          <FreshActivationPanel wallet={selected?.provider || null} account={wallet?.address || null}
-            chainId={wallet?.chainId || null} bundle={bundle} journal={journal} genesis={complete ? snapshot : null}/>
+          {(!IS_FULL_TEST || fullTestConfig) && <FreshActivationPanel wallet={selected?.provider || null} account={wallet?.address || null}
+            chainId={wallet?.chainId || null} bundle={bundle} journal={journal} genesis={complete ? snapshot : null}
+            profile={IS_FULL_TEST && fullTestConfig ? fullTestActivationProfile(fullTestConfig) : undefined}/>}
         </>}
 
         {tab === 'pricing' && PricingPanel && <Suspense fallback={<section className="card records-card">正在加载矿机报价…</section>}><PricingPanel onSavePlan={journal ? record => journal.saveQuote(record) : undefined}/></Suspense>}
@@ -374,14 +390,14 @@ export default function App() {
           <UpgradeConsole wallet={selected?.provider || null} account={wallet?.address || null}
             chainId={wallet?.chainId || null} currentBundle={bundle} currentRecord={latestCompleted}
             onConnect={() => void requestConnection()}/></Suspense>
-          : <section className="card records-card"><div className="records-body"><h2>新合约治理</h2>
-            <p>第一阶段部署后，在部署页逐笔完成平台权限激活。两套 Factory 的所有权随后交给 48 小时时间锁；硬件钱包保留提案和取消权限。新版本不提供旧版合约升级签名入口。</p>
+          : <section className="card records-card"><div className="records-body"><h2>{IS_FULL_TEST ? '完整测试合约权限' : '新合约治理'}</h2>
+            <p>{IS_FULL_TEST ? '完成 16 笔完整部署后，继续 7 笔平台权限激活，再启用测试站。所有页面和业务使用独立测试合约；测试版取消强制出售及升级等待，投票和挂牌有效期仍与正式版一致。' : '第一阶段部署后，在部署页逐笔完成平台权限激活。两套 Factory 的所有权随后交给 48 小时时间锁；硬件钱包保留提案和取消权限。新版本不提供旧版合约升级签名入口。'}</p>
             <button className="small-button" onClick={() => setTab('deploy')}>查看新部署与权限激活<ArrowRight size={14}/></button>
           </div></section>)}
         <footer className="page-footer"><span><span className="tiny-brand">◆</span>拼矿协议<span className="footer-divider">/</span>部署工作台</span>{bundle && <a href={`https://github.com/jianfengliao774-sketch/pinkuang/blob/${bundle.sourceCommit}/deploy/README.md`} target="_blank" rel="noreferrer">构建时部署说明<ExternalLink size={13}/></a>}</footer>
       </main>
     </div>
     {walletDialog && <div className="modal-backdrop" onClick={() => setWalletDialog(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="wallet-title" onClick={event => event.stopPropagation()}><button autoFocus className="icon-button modal-close" aria-label="关闭钱包选择" onClick={() => setWalletDialog(false)}><X size={20}/></button><span className="modal-emblem"><Wallet size={25}/></span><h2 id="wallet-title">连接你的钱包</h2>{wallets.length ? <div className="wallet-options">{wallets.map(option => <button key={option.id} disabled={qrPending} onClick={() => void connect(option)}><Wallet size={21}/>{option.name}<ArrowRight size={18}/></button>)}</div> : <><p>{IS_FRESH ? '当前浏览器未检测到钱包。请在已安装 MetaMask 等钱包扩展的 Chrome、Edge，或钱包内置浏览器中打开此页面。' : '当前浏览器未检测到钱包。请在已安装 OneKey 扩展的 Chrome、Edge，或钱包内置浏览器中打开此页面。'}</p><p className="muted">{IS_FRESH ? '在 Codex 内预览时，可以先查看页面，再复制页面地址到安装了 MetaMask 等钱包扩展的浏览器。' : '在 Codex 内预览时，可以先查看页面，再复制页面地址到安装了 OneKey 的浏览器。'}</p></>}<button className="small-button" type="button" onClick={() => setWalletScan(value => value + 1)}><RefreshCw size={15}/>重新检测扩展钱包</button><WalletQrChoice onConnect={connect} onPending={setQrPending}/><p className="modal-note">连接后会要求一次无 Gas 签名，用于读取你在服务器保存的操作记录；不收集私钥或助记词。</p></section></div>}
-    {confirmation && <div className="modal-backdrop"><section className="modal confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><button autoFocus className="icon-button modal-close" aria-label="返回检查配置" onClick={() => setConfirmation(false)}><X size={20}/></button><span className="modal-emblem"><Rocket size={25}/></span><h2 id="confirm-title">准备部署到 BSC 主网</h2><p>将依次请求 {INTEGRATED_TRANSACTION_COUNT} 笔交易签名，仅支付 Gas。请保持页面打开，并逐笔核对钱包中的网络和交易内容。</p><div className="confirm-summary"><div><span>{IS_FRESH ? '第一阶段硬件钱包' : '管理钱包'}</span><b>{short(activeInput.ownerMultisig)}</b></div><div><span>Gas 总预算</span><b>{budget} BNB</b></div><div><span>升级等待</span><b>至少 48 小时</b></div></div><label className="acknowledgment"><input type="checkbox" checked={governanceReviewed} onChange={e => setGovernanceReviewed(e.target.checked)}/><span>{IS_FRESH ? '我已核对第一阶段硬件钱包的临时角色，以及第二阶段 Authority、时间锁、管理员和 Gas 钱包的地址安排。' : '我已核对管理、运营和金库地址，理解单钱包拥有升级权及私钥保管责任。'}</span></label><label className="acknowledgment"><input type="checkbox" checked={protocolReviewed} onChange={e => setProtocolReviewed(e.target.checked)}/><span>我已核对协议地址与代码，理解这是消耗真实 BNB 的{IS_FRESH ? '主网部署' : '主网测试'}，部署检查不等同于安全审计。</span></label><button className="primary-button" disabled={!governanceReviewed || !protocolReviewed || !!busy} onClick={() => void deploy()}>开始部署，在钱包中确认<ArrowRight size={18}/></button><button className="text-button" onClick={() => setConfirmation(false)}>返回检查配置</button></section></div>}
+    {confirmation && <div className="modal-backdrop"><section className="modal confirmation-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><button autoFocus className="icon-button modal-close" aria-label="返回检查配置" onClick={() => setConfirmation(false)}><X size={20}/></button><span className="modal-emblem"><Rocket size={25}/></span><h2 id="confirm-title">准备部署到 BSC 主网</h2><p>将依次请求 {INTEGRATED_TRANSACTION_COUNT} 笔交易签名，仅支付 Gas。请保持页面打开，并逐笔核对钱包中的网络和交易内容。</p><div className="confirm-summary"><div><span>{IS_FRESH ? '第一阶段硬件钱包' : '管理钱包'}</span><b>{short(activeInput.ownerMultisig)}</b></div><div><span>Gas 总预算</span><b>{budget} BNB</b></div><div><span>升级等待</span><b>{IS_FULL_TEST ? '无需等待（仅测试）' : '至少 48 小时'}</b></div></div><label className="acknowledgment"><input type="checkbox" checked={governanceReviewed} onChange={e => setGovernanceReviewed(e.target.checked)}/><span>{IS_FRESH ? '我已核对第一阶段硬件钱包的临时角色，以及第二阶段 Authority、时间锁、管理员和 Gas 钱包的地址安排。' : '我已核对管理、运营和金库地址，理解单钱包拥有升级权及私钥保管责任。'}</span></label><label className="acknowledgment"><input type="checkbox" checked={protocolReviewed} onChange={e => setProtocolReviewed(e.target.checked)}/><span>我已核对协议地址与代码，理解这是消耗真实 BNB 的{IS_FRESH ? '主网部署' : '主网测试'}，部署检查不等同于安全审计。</span></label><button className="primary-button" disabled={!governanceReviewed || !protocolReviewed || !!busy} onClick={() => void deploy()}>开始部署，在钱包中确认<ArrowRight size={18}/></button><button className="text-button" onClick={() => setConfirmation(false)}>返回检查配置</button></section></div>}
   </div>;
 }

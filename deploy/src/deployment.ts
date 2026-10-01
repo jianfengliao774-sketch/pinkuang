@@ -8,6 +8,20 @@ import { verifyInitializationExecution } from '../shared/initialization-proof.mj
 // Vite injects this literal after independently compiling and checking the local Solidity sources.
 // There is deliberately no digest fetched from the artifact server or accepted from the bundle.
 declare const __DEPLOYMENT_ARTIFACT_DIGEST__: string;
+declare const __FULL_TEST_GAS_PLAN__: FullTestGasPlan | undefined;
+export interface FullTestGasPlan { schemaVersion: 1; kind: 'bemine-full-test-gas-plan';
+  artifactDigest: string; gasLimits: Record<string, string>; }
+const fullTestGasPlan = typeof __FULL_TEST_GAS_PLAN__ === 'undefined' ? null : __FULL_TEST_GAS_PLAN__;
+export const deploymentUpgradeDelay = () => fullTestGasPlan ? 0 : UPGRADE_DELAY_SECONDS;
+
+export function fullTestStepGasLimit(plan: FullTestGasPlan, digest: string, step: string): bigint {
+  if (plan?.schemaVersion !== 1 || plan.kind !== 'bemine-full-test-gas-plan'
+    || plan.artifactDigest?.toLowerCase() !== digest.toLowerCase()
+    || !/^[1-9]\d*$/.test(plan.gasLimits?.[step] ?? '')) throw new Error('完整测试部署 Gas 方案与本次合约构建不一致。');
+  const limit = BigInt(plan.gasLimits[step]);
+  if (limit < 21000n || limit > 30000000n) throw new Error('完整测试部署 Gas 上限无效。');
+  return limit;
+}
 
 export type { Eip1193Provider } from 'ethers';
 export const BSC_CHAIN_ID = 56;
@@ -166,6 +180,7 @@ const FRESH_STEP_GAS_LIMITS: Readonly<Record<string, bigint>> = Object.freeze({
   initialize: 6224554n,
 });
 function freshGasLimit(snapshot: DeploymentSnapshot, step: StepRecord): bigint {
+  if (fullTestGasPlan) return fullTestStepGasLimit(fullTestGasPlan, snapshot.artifactDigest, step.id);
   assert(snapshot.artifactDigest === FRESH_GAS_PLAN_ARTIFACT_DIGEST,
     '正式版构建产物与已核对的 Gas 计划不同；请重新测量并审核后再签名。');
   const limit = FRESH_STEP_GAS_LIMITS[step.id];
@@ -1092,8 +1107,8 @@ export class DeploymentEngine {
     check('Market.feeBps', marketBindings[2], 100);
     check('Market.buyerFeeBps', marketBindings[3], 100);
     check('Market.ORDER_DURATION', marketBindings[4], 7 * 86400);
-    check('升级最小延迟', delays[0], UPGRADE_DELAY_SECONDS);
-    check('延迟硬下限', delays[1], UPGRADE_DELAY_SECONDS);
+    check('升级最小延迟', delays[0], deploymentUpgradeDelay());
+    check('延迟硬下限', delays[1], deploymentUpgradeDelay());
     const roleLabels = ['管理地址提案权', '管理地址取消权', '到期公开执行', 'Timelock 自管理', '部署者没有 Timelock admin', '协调器没有 Timelock admin'];
     roleChecks.forEach((actual, index) => check(roleLabels[index], actual, index < 4));
     const slotAddress = (slot: string) => getAddress(`0x${slot.slice(-40)}`);

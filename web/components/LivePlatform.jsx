@@ -113,12 +113,13 @@ import {
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const fullTestBuild = process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'full-test';
 const minimumSharePriceWei = 10000000000000n;
 const recordsPageSize = 5;
 const displayStorage = () => { try { return window.localStorage; } catch { return null; } };
 const sessionDisplayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
 const readPageSnapshot = (storage, manifest, page) => readDisplaySnapshot(storage, manifest, page,
-  process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4' ? { maxAgeMs: 30 * 60_000 } : {});
+  ['fresh-v4', 'full-test'].includes(process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY) ? { maxAgeMs: 30 * 60_000 } : {});
 const deploymentConsoleUrl = resolveDeployConsoleUrl(
   process.env.NEXT_PUBLIC_DEPLOY_CONSOLE_URL,
 );
@@ -417,7 +418,7 @@ export default function LivePlatform() {
       && operator.isAuthorityAdmin === true && same(operator.portfolioOperator, config.authority))
     && !connectingId && !connectionLock.current;
   const hasOperatorAccess = isOperator || isPortfolioOperator;
-  const hasDeploymentAccess = (config?.displayOnly === true ? same(account, '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7') : freshIdentityReadable(config)
+  const hasDeploymentAccess = (config?.displayOnly === true ? same(account, config.testProfile ? config.deployer : '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7') : freshIdentityReadable(config)
     && same(deploymentIdentity?.deployer, account)) && !!wallet && !!account
     && connectedWallet.current === wallet
     && !connectingId && !connectionLock.current;
@@ -530,7 +531,7 @@ export default function LivePlatform() {
     } catch {}
   }, [appearance]);
   useEffect(() => {
-    if (client || boot.status !== 'loading') return;
+    if (fullTestBuild || client || boot.status !== 'loading') return;
     // The build-pinned genesis allows a display-only cache to paint while the
     // product graph and manifest are still loading. Route identity must match
     // the URL so a deep link never flashes the home page's previous data.
@@ -562,7 +563,7 @@ export default function LivePlatform() {
     } catch { /* A corrupt browser cache cannot block the live read. */ }
   }, [client, boot.status, account, route.route, route.pool, marketTab]);
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4') {
+    if (['fresh-v4', 'full-test'].includes(process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY)) {
       let cancelled = false;
       setError('');
       void loadProductDisplayConfig({ basePath }).then(result => {
@@ -2514,7 +2515,7 @@ export default function LivePlatform() {
             {L("平台规则", "Platform rules")}
             <ArrowUpRight size={14} />
           </button>
-          {hasDeploymentAccess && deploymentConsoleUrl && (
+          {(hasDeploymentAccess || fullTestBuild) && deploymentConsoleUrl && (
             <a
               className="rules-link deployment-console-link"
               href={deploymentConsoleUrl}
@@ -2522,7 +2523,7 @@ export default function LivePlatform() {
               rel="noopener noreferrer"
             >
               <ShieldCheck size={17} />
-              {L("管理员 · 合约部署", "Admin · Contract deployment")}
+              {fullTestBuild ? L("测试合约部署", "Test contract deployment") : L("管理员 · 合约部署", "Admin · Contract deployment")}
               <ArrowUpRight size={14} />
             </a>
           )}
@@ -2604,6 +2605,9 @@ export default function LivePlatform() {
           </div>
         </header>
         <main aria-busy={loading} data-ready-route={loadedRoute}>
+          {fullTestBuild && <div className="live-notice" role="status" data-test-profile="full-test">
+            <span>{L('完整测试站 · BNB 主网 · 使用独立合约和真实资产；出售无强制等待。', 'Full test site · BNB mainnet · Independent contracts and real assets; no mandatory sale waiting.')}</span>
+          </div>}
           <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
             account={account} wallet={wallet} config={config} locale={locale} route={route.route}
             positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
@@ -2612,7 +2616,7 @@ export default function LivePlatform() {
           {boot.status !== "ready" && boot.status !== "loading" && (
             <div className="live-notice" role="status">
               <span>{boot.status === "unconfigured"
-                ? L("项目尚未开放", "Project not yet open")
+                ? fullTestBuild ? L("测试合约尚未完成部署及权限激活；可先浏览各页面。", "Test contracts await deployment and activation; all pages are available to browse.") : L("项目尚未开放", "Project not yet open")
                 : L("数据暂不可用，请稍后重试。", "Data is unavailable. Please try again later.")}</span>
               <Button secondary disabled={busy || !!modal || !!pending} onClick={() => setBootAttempt(v => v + 1)}>
                 <RefreshCw size={16}/>{L("重新加载", "Retry loading")}

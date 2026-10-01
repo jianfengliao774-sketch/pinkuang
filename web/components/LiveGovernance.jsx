@@ -6,6 +6,7 @@ import { getAddress, parseEther, ZeroAddress } from 'ethers';
 import { ArrowRight, CircleAlert, RefreshCw } from 'lucide-react';
 import { proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
+import { saleTimings } from '../lib/sale-timings.mjs';
 import '../app/live-governance.css';
 
 const short = value => value ? `${value.slice(0, 8)}…${value.slice(-6)}` : '—';
@@ -96,7 +97,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
       if (!provider) throw new Error('链上读取服务暂不可用。');
       const pool = getAddress(poolValue.trim());
       const next = await readGovernanceSnapshot(provider, { factory: config.factory, pool,
-        account: account || ZeroAddress, stage: config.stage, displayOnly: config.displayOnly === true,
+        account: account || ZeroAddress, stage: config.stage, testProfile: config.testProfile === true, displayOnly: config.displayOnly === true,
         shareMarket: config.shareMarket, cacheMs: config.displayOnly ? 120000 : 0, refreshToken, force });
       if (requests.current.current(ticket)) setSnapshot(next);
     } catch (problem) { if (requests.current.current(ticket)) { setSnapshot(null); report(problem); } }
@@ -111,7 +112,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
       if (!wallet) throw new Error('钱包不可用。');
       const pool = getAddress(poolValue.trim());
       const prepared = await prepareGovernanceAction(config.displayOnly ? readProvider || wallet : wallet,
-        { factory: config.factory, pool, account, action, stage: config.stage,
+        { factory: config.factory, pool, account, action, stage: config.stage, testProfile: config.testProfile === true,
           displayOnly: config.displayOnly === true, shareMarket: config.shareMarket, snapshot });
       if (!requests.current.current(ticket)) return;
       setSnapshot(prepared.snapshot);
@@ -138,7 +139,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   }
 
   const frozen = busy || disabled || !account || !wallet || !snapshot;
-  const proposalOpensAt = snapshot ? snapshot.activatedAt + 7n * 86400n : null;
+  const proposalOpensAt = snapshot ? snapshot.activatedAt + saleTimings(config).holdSeconds : null;
   const proposalWaiting = snapshot?.state === 2n && snapshot.timestamp < proposalOpensAt;
   const opener = snapshot?.candidates.find(item => item.id === snapshot.activeProposalId);
   const roundOpen = snapshot?.state === 2n && opener && !opener.executed && snapshot.timestamp < opener.endsAt;

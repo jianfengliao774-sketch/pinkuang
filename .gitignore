@@ -26,3 +26,9 @@ deploy/.local/
 # Independent on-chain sale rehearsal output (source is committed separately).
 web-sandbox/dist/
 web-sandbox/public/sale-sandbox-artifacts.json
+
+# Generated independent full-test builds; source profiles stay reviewable.
+full-test/public/
+full-test/site-*/
+deploy/dist-full-test/
+__pycache__/

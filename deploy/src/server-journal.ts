@@ -6,7 +6,7 @@ import type { WalletProvider } from './wallet';
 
 // Keep the deployment console's journal under its own mount point when it
 // shares a host with another application. Node tests use the root fallback.
-const base = `${import.meta.env?.BASE_URL ?? '/'}api/journal`;
+const base = `${import.meta.env?.MODE === 'full-test' ? '../' : import.meta.env?.BASE_URL ?? '/'}api/journal`;
 const MARKET_KEY = 'pinkuang.market.pending.v1';
 
 class JournalHttpError extends Error {

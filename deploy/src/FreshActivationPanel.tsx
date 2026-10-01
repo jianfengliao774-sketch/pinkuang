@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownToLine, Check, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { Eip1193Provider, ArtifactBundle, DeploymentSnapshot } from './deployment';
 import { activationEvidence, FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET,
-  FreshActivationEngine, type FreshActivationRecord } from './fresh-activation';
+  FreshActivationEngine, type FreshActivationRecord, type FreshActivationProfile } from './fresh-activation';
 import type { ServerJournal } from './server-journal';
 
 const explorer = 'https://bscscan.com';
@@ -24,14 +24,16 @@ export const activationStepStatusText = (status: string) => status === 'confirme
   : status === 'uncertain' ? '结果不明，只能核对交易哈希'
   : '计划已终止';
 
-export default function FreshActivationPanel({ wallet, account, chainId, bundle, journal, genesis }: {
+export default function FreshActivationPanel({ wallet, account, chainId, bundle, journal, genesis, profile }: {
   wallet: Eip1193Provider | null; account: string | null; chainId: number | null;
   bundle: ArtifactBundle | null; journal: ServerJournal | null; genesis: DeploymentSnapshot | null;
+  profile?: FreshActivationProfile;
 }) {
   const [record, setRecord] = useState<FreshActivationRecord | null>(null);
   const [budget, setBudget] = useState('0.05');
   const [gasCap, setGasCap] = useState('3');
-  const [gasWallet, setGasWallet] = useState(FRESH_GAS_WALLET);
+  const [gasWallet, setGasWallet] = useState(profile?.gasWallet || FRESH_GAS_WALLET);
+  useEffect(() => { if (profile?.fullTest) setGasWallet(profile.gasWallet); }, [profile?.fullTest, profile?.gasWallet]);
   const [recoveryHash, setRecoveryHash] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState('');
@@ -57,8 +59,21 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
 
   const engine = () => {
     if (!wallet || !bundle || !journal || !genesis) throw new Error('必须连接原始部署硬件钱包并读取已完成的新部署。');
-    return new FreshActivationEngine(wallet, bundle, journal, genesis, setRecord);
+    return new FreshActivationEngine(wallet, bundle, journal, genesis, setRecord, profile);
   };
+  async function enableTestSite() {
+    if (!profile?.fullTest || record?.status !== 'complete' || !account || busy) return;
+    setBusy('启用完整测试站'); setError('');
+    try {
+      const response = await fetch('../api/full-test/activate', { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-Pinkuang-Account': account }, body: JSON.stringify({ account }),
+        signal: AbortSignal.timeout(120000) });
+      const result = await response.json();
+      if (!response.ok || result.status !== 'ready') throw new Error(result.error || '完整测试后台尚未就绪，请稍后重试。');
+      location.href = '../';
+    } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)); }
+    finally { setBusy(''); }
+  }
   async function act(label: string, action: () => Promise<FreshActivationRecord>) {
     if (busy) return;
     setBusy(label); setError(''); setInfo('');
@@ -81,22 +96,22 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
   const unresolved = next && ['signing','submitted','uncertain'].includes(next.status);
   return <section className="card progress-card" aria-label="新合约平台权限激活" style={{ marginTop: 24 }}>
     <div className="card-heading"><div><ShieldCheck size={20}/><h2>新合约权限激活</h2></div>
-      <span className="subtle-tag">第二阶段 · 硬件钱包 7 笔</span></div>
+      <span className="subtle-tag">第二阶段 · 部署钱包 7 笔</span></div>
     <div style={{ padding: '16px 24px 24px' }}>
-      <p>第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。</p>
-      <p><b>硬件钱包：</b>{genesis.account}<br/><b>管理员一：</b>{FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{FRESH_ADMIN_TWO}<br/><b>Gas 钱包（与 v2 共用）：</b>{record?.gasWallet || gasWallet}</p>
+      <p>{profile?.fullTest ? '第二阶段保留完整平台权限：两位管理员签名审核和领取费用，独立测试 Gas 钱包代付必要后端调用。测试时间锁取消强制等待；全部交易使用 BNB 主网。' : '第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。'}</p>
+      <p><b>部署钱包：</b>{genesis.account}<br/><b>管理员一：</b>{profile?.administratorOne || FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{profile?.administratorTwo || FRESH_ADMIN_TWO}<br/><b>{profile?.fullTest ? '独立测试 Gas 钱包：' : 'Gas 钱包（与 v2 共用）：'}</b>{record?.gasWallet || gasWallet}</p>
       <p className={credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
-          ? `v4 签名服务已证明共用 Gas 钱包公钥：${credential.gasWallet}`
-          : `控制台只保存与 v2 共用的 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明 v4 签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
+          ? `${profile?.fullTest ? '独立测试' : 'v4'}签名服务已证明 Gas 钱包公钥：${credential.gasWallet}`
+          : `控制台只保存 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥。签名服务未就绪时不能发起新的权限交易。`}</p>
       <p className="field-help">只使用这些公开地址。网页不接收私钥。新合约和新站独立运行；旧池、份额和订单仍留在旧站，不会导入新图。</p>
       {stage2Held && <p className="alert alert-warning" role="status">第二阶段权限交易已冻结，链上回执核验也暂不可用，因为核验结果需要写回服务器。可刷新并查看已保存的记录；服务端解除冻结后才能继续核验或签名。</p>}
       <p className="alert alert-warning">新版 Factory 只维护自己的矿机登记，不读取旧合约。独立系统无法保证新旧站之间的矿机编号不会重复，运营方仍须核对矿机实际所有权。Authority 接线后，管理员签名和 Gas 代发流程须先通过完整测试再开放建池。</p>
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
-          placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy}/>
-        <p className="field-help">已填入你指定的与 v2 共用的 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。</p>
+          placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy || profile?.fullTest}/>
+        <p className="field-help">{profile?.fullTest ? '此地址仅属于完整测试站，与正式 Gas 钱包分离。请核对上方公开角色后继续。' : '已填入你指定的与 v2 共用的 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。'}</p>
         <div className="budget-row"><div><label htmlFor="activation-budget">第二阶段 Gas 预算（BNB）</label>
         <input id="activation-budget" className="text-input" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy}/></div>
         <div><label htmlFor="activation-gas-cap">Gas 单价上限（Gwei）</label>
@@ -120,6 +135,8 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
         <input id="activation-recovery" className="text-input mono" value={recoveryHash} onChange={e => setRecoveryHash(e.target.value)} placeholder="0x…" autoComplete="off" spellCheck={false}/>
         <p>结果不明时不会重发。已有哈希可直接核验；钱包加速后在此填入新的哈希。无哈希的签名意图须先关闭旧钱包确认弹窗，再由服务器及钱包核对 nonce；解除后仍须人工确认原交易。</p></div>}
       <div className="record-actions" style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {profile?.fullTest && record?.status === 'complete' && <button className="primary-button" disabled={!!busy || loading || !enabled}
+          onClick={() => void enableTestSite()}>{busy || '启用完整测试站'}<ExternalLink size={16}/></button>}
         {!record && <button className="primary-button" disabled={stage2Held || !enabled || !!busy || loading || !credential?.credentialVerified
           || credential.gasWallet?.toLowerCase() !== gasWallet.trim().toLowerCase()
           || !/^0x[0-9a-fA-F]{40}$/.test(gasWallet.trim())} onClick={() => void act('初始链上核验', () => engine().prepare(budget, gasCap, gasWallet))}>

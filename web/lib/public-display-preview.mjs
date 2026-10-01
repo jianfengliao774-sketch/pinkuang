@@ -158,14 +158,15 @@ export function parsePublicDisplaySection(reply, manifest, section, { now = Date
 }
 
 /** Fetches only the active page's section. Pool deep links use exact server lookup. */
-export async function readPublicDisplaySection({ origin, manifest, section, address,
+export async function readPublicDisplaySection({ origin, manifest, section, address, basePath = '/bemine-v4',
   fetcher = globalThis.fetch, now = () => Date.now() } = {}) {
   insist(typeof origin === 'string' && new URL(origin).origin === origin && SECTIONS.has(section),
     'invalid_config', '网站来源或公共展示分区无效。');
+  insist(['/bemine-v4', '/bemine-full-test'].includes(basePath), 'invalid_config', '公共展示路径无效。');
   const target = address ? liveAddress(address).toLowerCase() : null;
   insist(!target || section === 'pools' || section === 'portfolios', 'invalid_config', '该分区不支持地址查找。');
   if (target && section === 'pools') {
-    const url = new URL(`${origin}/bemine-v4/api/chain-index/v1/snapshot/pools/${target}`);
+    const url = new URL(`${origin}${basePath}/api/chain-index/v1/snapshot/pools/${target}`);
     try {
       const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(url.href,
         { fetcher, now, maxBytes: 1_000_000 });
@@ -183,7 +184,7 @@ export async function readPublicDisplaySection({ origin, manifest, section, addr
   let cursor = 0, firstSource = null, lastPreview = null;
   const seen = new Set();
   for (let page = 0; page < (target ? 2 : 1); page++) {
-    const url = new URL(`${origin}/bemine-v4/api/chain-index/v1/snapshot/${section}`);
+    const url = new URL(`${origin}${basePath}/api/chain-index/v1/snapshot/${section}`);
     if (section !== 'stats') url.searchParams.set('limit', '50');
     if (section === 'orders') url.searchParams.set('active', 'true');
     if (cursor) url.searchParams.set('cursor', String(cursor));

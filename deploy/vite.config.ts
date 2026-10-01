@@ -1,9 +1,9 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type UserConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 // @ts-expect-error Shared Node digest reader has no generated declaration.
 import { servedArtifactDigest } from './server/artifact-digest.mjs';
 // @ts-expect-error Shared Node middleware has no generated declaration.
@@ -23,10 +23,19 @@ const deployDir = fileURLToPath(new URL('./', import.meta.url));
 const buildInputs = new Set([configPath, builderPath, foundryPath]);
 const fileHash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }): Promise<UserConfig> => {
   const standaloneUpgrade = mode === 'upgrade';
   const freshDeployment = mode === 'fresh';
-  const digest = verifiedBuildDigest();
+  const fullTest = mode === 'full-test';
+  // Compile/check the separate test variants; the production compiler and public files stay untouched.
+  // A computed file URL keeps solc's Node dependencies outside Vite's config bundler.
+  const testBuilder = fullTest ? await import(pathToFileURL(resolve(deployDir, '../scripts/full-test/build-artifacts.mjs')).href) : null;
+  const digest = fullTest ? testBuilder.verifiedFullTestBuildDigest() : verifiedBuildDigest();
+  const testArtifact = fullTest ? readFileSync(resolve(deployDir, '../full-test/public/deployment-artifacts.json'), 'utf8') : null;
+  const testPlanText = fullTest ? readFileSync(resolve(deployDir, '../full-test/public/gas-plan.json'), 'utf8') : null;
+  const testPlan = testPlanText ? JSON.parse(testPlanText) : null;
+  if (fullTest && (testPlan?.schemaVersion !== 1 || testPlan.kind !== 'bemine-full-test-gas-plan'
+    || testPlan.artifactDigest !== digest)) throw new Error('Test gas plan is not bound to this test build.');
   const builderHash = fileHash(builderPath);
   const configHash = fileHash(configPath);
   const assertSigningInputsCurrent = () => {
@@ -78,16 +87,24 @@ export default defineConfig(({ mode }) => {
     server.httpServer?.once('close', () => { void service.close(); });
   },
 }];
-  return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest) },
+  return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest),
+    ...(fullTest ? { __FULL_TEST_GAS_PLAN__: JSON.stringify(testPlan) } : {}) },
     // Fresh releases copy only their reviewed public files after bundling.
     // Vite's normal publicDir also contains retired upgrade genesis records.
-    publicDir: freshDeployment ? false : undefined,
-    plugins: [react(), ...(standaloneUpgrade ? [] : runtimePlugins)], base: './', build: {
+    publicDir: freshDeployment || fullTest ? false : undefined,
+    plugins: [react(), ...(standaloneUpgrade || fullTest ? [] : runtimePlugins), ...(fullTest ? [{ name: 'local-full-test-fonts', enforce: 'pre' as const,
+      transform(code: string, id: string) { return id.endsWith('/src/styles.css') || id.endsWith('\\src\\styles.css')
+        ? code.replace(/^@import url\('https:\/\/fonts\.googleapis\.com\/[^\n]+\);\r?\n/, '') : null; }
+    }, { name: 'copy-full-test-artifacts',
+      closeBundle() {
+        writeFileSync(resolve(deployDir, 'dist-full-test/deployment-artifacts.json'), testArtifact!);
+        writeFileSync(resolve(deployDir, 'dist-full-test/gas-plan.json'), testPlanText!);
+      } }] : [])], base: './', build: {
     chunkSizeWarningLimit: 800,
-    outDir: standaloneUpgrade ? 'dist-upgrade' : 'dist',
+    outDir: fullTest ? 'dist-full-test' : standaloneUpgrade ? 'dist-upgrade' : 'dist',
     rollupOptions: { input: standaloneUpgrade
       ? resolve(deployDir, 'upgrade.html')
-      : freshDeployment ? resolve(deployDir, 'index.html')
+      : freshDeployment || fullTest ? resolve(deployDir, 'index.html')
         : { main: resolve(deployDir, 'index.html'), upgrade: resolve(deployDir, 'upgrade.html') } },
   } };
 });

@@ -16,11 +16,15 @@ import { isFreshActivationWrapper, verifyWrappedFreshActivation } from '../share
 export { FRESH_ADMIN_ONE, FRESH_ADMIN_TWO, FRESH_GAS_WALLET } from '../shared/fresh-roles.mjs';
 // The v4 sender remains disabled until the active v2 sender has drained or
 // both share one nonce coordinator.
-export function validatedFreshGasWallet(raw: string, hardwareWallet: string): string {
+export interface FreshActivationProfile { fullTest?: boolean; administratorOne: string;
+  administratorTwo: string; gasWallet: string; minTimelockDelaySeconds: number; }
+const formalProfile: FreshActivationProfile = { administratorOne: FRESH_ADMIN_ONE,
+  administratorTwo: FRESH_ADMIN_TWO, gasWallet: FRESH_GAS_WALLET, minTimelockDelaySeconds: 172800 };
+export function validatedFreshGasWallet(raw: string, hardwareWallet: string, profile = formalProfile): string {
   if (!/^0x[\da-fA-F]{40}$/.test(raw.trim())) throw new Error('请填写 Gas 钱包完整的 42 字符公开地址；不要输入私钥。');
   const address = getAddress(raw.trim());
   requireThat(address !== ZeroAddress && !same(address, hardwareWallet)
-    && !same(address, FRESH_ADMIN_ONE) && !same(address, FRESH_ADMIN_TWO),
+    && !same(address, profile.administratorOne) && !same(address, profile.administratorTwo),
     'Gas 钱包须与硬件钱包和两位管理员不同。');
   return address;
 }
@@ -211,7 +215,8 @@ export class FreshActivationEngine {
   private busy = false;
   constructor(private readonly wallet: Eip1193Provider, private readonly bundle: ArtifactBundle,
     private readonly journal: ServerJournal, private readonly genesis: DeploymentSnapshot,
-    private readonly onUpdate?: (record: FreshActivationRecord) => void) {
+    private readonly onUpdate?: (record: FreshActivationRecord) => void,
+    private readonly profile: FreshActivationProfile = formalProfile) {
     validateArtifacts(bundle);
     this.provider = new BrowserProvider(freshActivationReadWallet(wallet), 'any', { cacheTimeout: -1, pollingInterval: 1500 });
   }
@@ -394,10 +399,10 @@ export class FreshActivationEngine {
         `${label} 权限或市场绑定与已确认步骤不一致。`);
       if (completed < 7) requireThat(actual[5] === 0n, '激活尚未结束，新 Factory 已产生池子；停止继续签名。');
     }
-    requireThat(delay >= 48n * 60n * 60n
+    requireThat((this.profile.fullTest ? delay === 0n : delay >= BigInt(this.profile.minTimelockDelaySeconds))
       && await time.hasRole(proposer, record.account, at)
       && await time.hasRole(canceller, record.account, at),
-      '硬件钱包没有 48 小时时间锁提案/取消权限。');
+      '部署钱包没有本次时间锁提案/取消权限。');
     if (completed >= 1) {
       requireThat(authority, '权限合约地址尚未保存。');
       const code = await this.provider.getCode(authority, block.number);
@@ -446,7 +451,8 @@ export class FreshActivationEngine {
     return this.exclusive(async () => {
       requireThat(await this.journal.loadFreshActivation() === null, '已有激活记录，请恢复该记录。');
       const account = await this.account();
-      const gasWallet = validatedFreshGasWallet(gasWalletInput, account);
+      const gasWallet = validatedFreshGasWallet(gasWalletInput, account, this.profile);
+      requireThat(!this.profile.fullTest || same(gasWallet, this.profile.gasWallet), '测试 Gas 钱包与独立测试配置不一致。');
       const credential = await this.journal.freshActivationCredentialStatus();
       requireThat(credential.credentialVerified && credential.gasWallet
         && same(credential.gasWallet, gasWallet),
@@ -475,10 +481,11 @@ export class FreshActivationEngine {
         genesis: { factory: manifest.factory, portfolioFactory: manifest.portfolioFactory,
           timelock: manifest.timelock, shareMarket: manifest.shareMarket,
           portfolioMarket: manifest.portfolioMarket, codehash: manifest.codehash },
-        administratorOne: FRESH_ADMIN_ONE, administratorTwo: FRESH_ADMIN_TWO,
+        administratorOne: this.profile.administratorOne, administratorTwo: this.profile.administratorTwo,
         gasWallet, createdAt: now, updatedAt: now,
         maxGasBudgetBnb, gasPriceCapGwei, spentWei: '0', status: 'ready',
-        steps: FRESH_ACTIVATION_STEPS.map((id, index) => ({ id, label: LABELS[index], status: 'waiting' })),
+        steps: FRESH_ACTIVATION_STEPS.map((id, index) => ({ id,
+          label: this.profile.fullTest ? LABELS[index].replace('48 小时', '无等待测试') : LABELS[index], status: 'waiting' })),
       };
       await this.verifyPinnedState(record, 0);
       await this.save(record);
@@ -497,8 +504,8 @@ export class FreshActivationEngine {
         && same(this.genesis.input.ownerMultisig, record.account)
         && same(this.genesis.input.operator, record.account)
         && same(this.genesis.input.treasury, record.account)
-        && same(record.administratorOne, FRESH_ADMIN_ONE)
-        && same(record.administratorTwo, FRESH_ADMIN_TWO),
+        && same(record.administratorOne, this.profile.administratorOne)
+        && same(record.administratorTwo, this.profile.administratorTwo),
       '恢复的部署角色或管理员地址与已确认的新部署方案不一致；停止签名。');
       const index = record.steps.findIndex(step => step.status !== 'confirmed');
       requireThat(index >= 0, '所有交易已发送；请执行最终核验。');
@@ -616,8 +623,8 @@ export class FreshActivationEngine {
         && same(this.genesis.input.ownerMultisig, record.account)
         && same(this.genesis.input.operator, record.account)
         && same(this.genesis.input.treasury, record.account)
-        && same(record.administratorOne, FRESH_ADMIN_ONE)
-        && same(record.administratorTwo, FRESH_ADMIN_TWO),
+        && same(record.administratorOne, this.profile.administratorOne)
+        && same(record.administratorTwo, this.profile.administratorTwo),
       '恢复的部署角色或管理员地址与已确认的新部署方案不一致；停止恢复。');
       const planned = await activationTransaction(record, this.bundle, step.id as FreshActivationStepId);
       requireThat(step.dataHash === keccak256(planned.data)

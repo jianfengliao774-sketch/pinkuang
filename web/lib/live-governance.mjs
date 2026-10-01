@@ -4,9 +4,9 @@ import { readControlledFirstoSale } from './firsto-sale.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { settleReadRound } from './read-retry.mjs';
+import { saleTimings } from './sale-timings.mjs';
 
 const DAY = 86400n;
-const WEEK = 7n * DAY;
 const MAX_CANDIDATES = 100n;
 const directViews = new Interface([
   'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
@@ -29,7 +29,7 @@ export async function readGovernanceSnapshot(provider, options) {
   if (!displayOnly || cacheMs <= 0) return readGovernanceSnapshotUncached(provider, options);
   requireGovernance(typeof provider?.request === 'function', 'An EIP-1193 provider is required.');
   const key = [options.factory, options.pool, options.account || ZeroAddress, options.shareMarket || '', options.stage]
-    .map(value => String(value).toLowerCase()).join(':');
+    .map(value => String(value).toLowerCase()).join(':') + `:${options.testProfile === true}`;
   let cache = directSnapshots.get(provider);
   if (!cache) { cache = new Map(); directSnapshots.set(provider, cache); }
   const old = cache.get(key), current = now();
@@ -46,7 +46,7 @@ export async function readGovernanceSnapshot(provider, options) {
 
 /** Direct display reads only business getters; strict legacy mode retains its block proof. */
 async function readGovernanceSnapshotUncached(provider, { factory: configuredFactory, pool: configuredPool,
-  account = ZeroAddress, blockNumber, stage, displayOnly = false, shareMarket: configuredMarket, now = Date.now }) {
+  account = ZeroAddress, blockNumber, stage, displayOnly = false, shareMarket: configuredMarket, testProfile = false, now = Date.now }) {
   requireGovernance(typeof provider?.request === 'function', 'An EIP-1193 provider is required.');
   requireGovernance(['genesis','fresh-active','code-upgraded','role-migrating','role-wired'].includes(stage),
     'Product stage is required for sale governance.');
@@ -190,7 +190,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     requireGovernance(again?.hash === block.hash && BigInt(await request('eth_chainId')) === CHAIN_ID,
       'Chain changed during governance read; refresh.');
   }
-  return Object.freeze({ chainId: CHAIN_ID, stage, factory, shareMarket: market, pool, account: owner, blockNumber: number,
+  return Object.freeze({ chainId: CHAIN_ID, stage, testProfile, factory, shareMarket: market, pool, account: owner, blockNumber: number,
     blockHash: block?.hash ?? null, displayOnly, timestampOrigin: displayOnly ? 'local' : 'chain',
     timestamp, state, purchaseCost, activatedAt, activeProposalId,
     nextProposalId, roundAnchor: opener && Object.freeze({ endsAt: opener.endsAt,
@@ -216,26 +216,27 @@ export function governanceAction(snapshot, from, action) {
     'Governance snapshot belongs to another wallet or chain.');
   if (action?.expectedAccount !== undefined) requireGovernance(same(account, action.expectedAccount), 'Wallet changed; review again.');
   if (action?.expectedPool !== undefined) requireGovernance(same(snapshot.pool, action.expectedPool), 'Pool changed; review again.');
-  const open = snapshot.state === 2n && snapshot.timestamp >= snapshot.activatedAt + WEEK;
+  const timing = saleTimings(snapshot);
+  const open = snapshot.state === 2n && snapshot.timestamp >= snapshot.activatedAt + timing.holdSeconds;
   const candidate = id => snapshot.candidates.find(item => item.id === uint(id));
   let method, args = [], value = 0n, chosen = null;
   if (action?.kind === 'propose') {
     const price = uint(action.priceWei), reference = uint(action.refPriceWei), refAt = uint(action.refAt, 64);
     requireGovernance(snapshot.state === 2n, '矿池目前不在挖矿运行状态，不能发起整机出售提案。');
-    requireGovernance(snapshot.timestamp >= snapshot.activatedAt + WEEK,
-      `矿机激活满 7 天后才能发起整机出售提案；开放时间：${new Date(Number(snapshot.activatedAt + WEEK) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。`);
+    requireGovernance(snapshot.timestamp >= snapshot.activatedAt + timing.holdSeconds,
+      `${snapshot.testProfile ? '矿机尚未开放整机出售提案' : '矿机激活满 7 天后才能发起整机出售提案'}；开放时间：${new Date(Number(snapshot.activatedAt + timing.holdSeconds) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。`);
     requireGovernance(snapshot.shares > 0n, '当前钱包没有该矿池份额，不能发起出售提案。');
     requireGovernance(price > 0n && reference > 0n, '出售价格和参考价都必须大于 0 BNB。');
     requireGovernance(refAt <= snapshot.timestamp, snapshot.displayOnly
       ? '参考价观察时间晚于当前时间，请重新输入。' : '参考价观察时间晚于链上快照，请重新预览。');
-    requireGovernance(snapshot.lastProposed === 0n || snapshot.timestamp >= snapshot.lastProposed + WEEK,
+    requireGovernance(snapshot.lastProposed === 0n || snapshot.timestamp >= snapshot.lastProposed + timing.proposalCooldownSeconds,
       'This wallet must wait seven days before proposing again.');
     const opener = snapshot.roundAnchor;
     if (opener && !opener.executed && snapshot.timestamp < opener.endsAt) {
       requireGovernance(opener.currentFormat, 'An older sale proposal must expire before a new round.');
       requireGovernance(snapshot.candidates.length < Number(MAX_CANDIDATES), 'This round is full.');
     } else if (opener) {
-      requireGovernance(snapshot.timestamp >= opener.endsAt + WEEK - DAY, 'Next sale round is not open yet.');
+      requireGovernance(snapshot.timestamp >= opener.endsAt + timing.nextRoundSeconds, 'Next sale round is not open yet.');
     } else {
       requireGovernance(snapshot.activeProposalId === 0n, 'Unsupported older governance round.');
     }
@@ -289,11 +290,11 @@ export function governanceAction(snapshot, from, action) {
 
 /** Reuse direct display data for an unsigned preview; the contract applies execution rules. */
 export async function prepareGovernanceAction(provider, { factory, pool, account, action, stage,
-  displayOnly = false, shareMarket, snapshot: currentSnapshot, now = Date.now }) {
+  displayOnly = false, shareMarket, testProfile = false, snapshot: currentSnapshot, now = Date.now }) {
   const snapshot = displayOnly && currentSnapshot?.displayOnly
-    ? currentSnapshot : await readGovernanceSnapshot(provider, { factory, pool, account, stage, displayOnly, shareMarket, now });
+    ? currentSnapshot : await readGovernanceSnapshot(provider, { factory, pool, account, stage, displayOnly, shareMarket, testProfile, now });
   requireGovernance(same(snapshot.factory, factory) && same(snapshot.pool, pool), 'Governance data belongs to another pool.');
-  requireGovernance(snapshot.stage === stage && (!shareMarket || same(snapshot.shareMarket, shareMarket)),
+  requireGovernance(snapshot.stage === stage && (snapshot.testProfile === true) === testProfile && (!shareMarket || same(snapshot.shareMarket, shareMarket)),
     'Governance data belongs to another product configuration.');
   return Object.freeze({ snapshot, ...governanceAction(snapshot, account, action) });
 }

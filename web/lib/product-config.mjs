@@ -1,8 +1,10 @@
 import { loadLiveConfig, validateProductGraph } from './live-config.mjs';
 import { loadFreshDisplayConfig, loadFreshLiveConfig, validateFreshProductGraph } from './fresh-product-config.mjs';
+import { loadFullTestProductConfig } from './full-test-product-config.mjs';
 
 export function loadProductConfig(options = {}) {
   const family = options.productFamily ?? process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY;
+  if (family === 'full-test') return loadFullTestProductConfig(options);
   if (family === 'fresh-v4') return loadFreshLiveConfig(options);
   if (family === undefined || family === '' || family === 'legacy') return loadLiveConfig(options);
   throw new Error('Unknown product build family.');
@@ -11,6 +13,7 @@ export function loadProductConfig(options = {}) {
 /** Fresh public browsing uses static identities; actions keep loadProductConfig. */
 export function loadProductDisplayConfig(options = {}) {
   const family = options.productFamily ?? process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY;
+  if (family === 'full-test') return loadFullTestProductConfig(options);
   if (family === 'fresh-v4') return loadFreshDisplayConfig(options);
   if (family === undefined || family === '' || family === 'legacy') return loadLiveConfig(options);
   throw new Error('Unknown product build family.');

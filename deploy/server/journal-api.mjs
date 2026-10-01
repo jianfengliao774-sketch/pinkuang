@@ -877,8 +877,8 @@ export async function verifyCompletedDeployment(provider, record, { trustedArtif
   if (record.spentWei !== actualSpent.toString()) fail(409, 'Completed deployment total Gas fee differs from finalized receipts.');
 }
 
-function sessionCookie(token, secure) {
-  return `${TOKEN_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/api/journal; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`;
+function sessionCookie(token, secure, name = TOKEN_COOKIE, path = '/api/journal') {
+  return `${name}=${token}; HttpOnly; SameSite=Strict; Path=${path}; Max-Age=${SESSION_MS / 1000}${secure ? '; Secure' : ''}`;
 }
 
 /** Isolated, bounded public reads. */
@@ -957,10 +957,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
-  freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
+  freshStage2Hold = true, freshProduct = null, freshProductReadinessReader,
+  sessionCookieName = TOKEN_COOKIE, sessionCookiePath = '/api/journal', deploymentAccountAllowlist = null } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
   if (typeof currentArtifactDigest !== 'function') throw new Error('Current deployment artifact digest provider is required.');
   if (typeof assertSigningInputsCurrent !== 'function') throw new Error('Deployment signing input verifier must be a function.');
+  if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(sessionCookieName)
+    || !/^\/[A-Za-z0-9/_-]*$/.test(sessionCookiePath)) throw new Error('Invalid journal cookie scope.');
+  if (deploymentAccountAllowlist !== null && (!Array.isArray(deploymentAccountAllowlist)
+    || !deploymentAccountAllowlist.length || deploymentAccountAllowlist.length > 32))
+    throw new Error('Invalid deployment wallet allowlist.');
+  const deploymentAccounts = deploymentAccountAllowlist === null ? null
+    : new Set(deploymentAccountAllowlist.map(identity));
   if (!Number.isInteger(officialScanTimeoutMs) || officialScanTimeoutMs < 1 || officialScanTimeoutMs > OFFICIAL_SCAN_MS)
     throw new Error('Official scan timeout must be within the reviewed limit.');
   if (!Number.isSafeInteger(productGraphRefreshMs) || productGraphRefreshMs < 100
@@ -973,6 +981,16 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const cookieSecure = secureCookies || parsedOrigin.protocol === 'https:';
   legacyFactory = legacyFactoryConfiguration(legacyFactory);
   const store = new JournalStore(dbPath);
+  function authenticatedAccount(req) {
+    const cookies = String(req.headers.cookie ?? '').split(';').map(item => item.trim());
+    const token = cookies.find(item => item.startsWith(`${sessionCookieName}=`))?.slice(sessionCookieName.length + 1);
+    const account = token && /^[A-Za-z0-9_-]{43}$/.test(token) ? store.session(hashed(token)) : null;
+    if (!account) fail(401, 'Wallet session is required.');
+    const selected = req.headers['x-pinkuang-account'];
+    if (selected !== undefined && identity(selected) !== account)
+      fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
+    return account;
+  }
   const allowChallenge = createRequestLimiter({ perClient: 120 });
   const allowPublicGraph = createRequestLimiter({ windowMs: 10_000, perClient: 4 });
   const allowQuote = createRequestLimiter({ windowMs: 60 * 60_000, perClient: 40 });
@@ -1679,18 +1697,18 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const token = randomBytes(32).toString('base64url');
         if (!store.consumeChallenge(account, body.nonce, hashed(token), Date.now() + SESSION_MS))
           fail(401, 'Wallet challenge has already been used.');
-        res.setHeader('Set-Cookie', sessionCookie(token, cookieSecure));
+        res.setHeader('Set-Cookie', sessionCookie(token, cookieSecure, sessionCookieName, sessionCookiePath));
         return send(200, { account });
       }
-      const cookies = String(req.headers.cookie ?? '').split(';').map(item => item.trim());
-      const token = cookies.find(item => item.startsWith(`${TOKEN_COOKIE}=`))?.slice(TOKEN_COOKIE.length + 1);
-      const account = token && /^[A-Za-z0-9_-]{43}$/.test(token) ? store.session(hashed(token)) : null;
-      if (!account) fail(401, 'Wallet session is required.');
+      const account = authenticatedAccount(req);
       const expectedAccount = req.headers['x-pinkuang-account'];
       if (expectedAccount !== undefined && identity(expectedAccount) !== account)
         fail(409, 'Wallet session has switched accounts. Reconnect the selected wallet.');
       if (freshConsolePreGenesis && method !== 'GET' && account !== FRESH_DEPLOYMENT_ACCOUNT)
         fail(403, 'Only the designated v4 deployment wallet may modify the pre-genesis journal.');
+      if (deploymentAccounts && method !== 'GET'
+        && /^\/api\/journal\/(deployment|fresh-activation)(?:\/|$)/.test(path)
+        && !deploymentAccounts.has(account)) fail(403, 'This wallet is not allowed to deploy this test profile.');
       // The pre-genesis deployment console may record only deployment and
       // Authority progress. It must not become a second product market or
       // accept old deployment archives before the independent v4 cutover.
@@ -1979,6 +1997,15 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   return {
+    // Internal handoff only: consumers receive records from the authenticated
+    // server journal, never a browser-supplied deployment or manifest.
+    readAuthenticatedDeployment(req) {
+      if (closed) fail(503, 'Journal is unavailable.');
+      if (req.headers.origin !== origin) fail(403, 'Request origin is not allowed.');
+      const account = authenticatedAccount(req);
+      if (deploymentAccounts && !deploymentAccounts.has(account)) fail(403, 'Deployment wallet is not allowed.');
+      return { account, deployment: store.deployment(account), activation: store.freshActivation(account) };
+    },
     async verifyFreshOperationalReadiness() {
       if (closed || !freshProductVerifier || !officialProvider) fail(503, 'Fresh product operations are not enabled.');
       const block = await officialProvider.getBlock('latest');
