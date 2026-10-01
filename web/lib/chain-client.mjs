@@ -4,6 +4,8 @@ import { settleReadRound } from './read-retry.mjs';
 
 export const CHAIN_ID = 56n;
 export const ARTIFACT_DIGEST = contracts.artifactDigest;
+export const SINGLE_TEST_ADMINISTRATOR = contracts.metadata?.profile === 'full-test'
+  && contracts.metadata?.administratorMode === 'single';
 export const abi = Object.freeze(Object.fromEntries(Object.entries(contracts.abis).map(([name, value]) => [name, new Interface(value)])));
 const MAX_UINT256 = (1n << 256n) - 1n;
 const rowBits = Object.freeze({ params: 1, state: 2, unitPriceWei: 3, totalRaised: 4, totalSupply: 5,

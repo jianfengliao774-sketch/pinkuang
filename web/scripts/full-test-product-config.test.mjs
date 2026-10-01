@@ -4,9 +4,10 @@ import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import { loadFullTestProductConfig, FULL_TEST_TIMINGS } from '../lib/full-test-product-config.mjs';
 import { governanceAction } from '../lib/live-governance.mjs';
 import { saleTimings } from '../lib/sale-timings.mjs';
+import { validateManifest } from '../lib/live-config.mjs';
 const address = n => `0x${n.toString(16).padStart(40, '0')}`;
 const hash = n => `0x${n.toString(16).padStart(64, '0')}`;
-const roles = { deployer: address(101), administratorOne: address(101), administratorTwo: address(102), gasWallet: address(103) };
+const roles = { deployer: address(101), administratorOne: address(101), administratorTwo: address(101), gasWallet: address(103) };
 const root = { schemaVersion: 1, profile: 'full-test', chainId: 56, artifactDigest: ARTIFACT_DIGEST,
   roles, timings: FULL_TEST_TIMINGS, status: 'unconfigured' };
 const keys = ['factory','shareMarket','lens','beacon','timelock','portfolioFactory','portfolioMarket',
@@ -36,6 +37,12 @@ test('a fully activated test graph binds its roles and API namespace', async () 
   assert.equal(config.journalBase, '/bemine-full-test/api/journal');
   await assert.rejects(load({ ...root, status: 'ready', manifest: { ...manifest, gasWallet: address(104),
     freshAuthority: { ...manifest.freshAuthority, gasWallet: address(104) } } }), /本次测试角色/);
+});
+test('single-admin test normalization preserves the formal two-admin validation', async()=>{
+  assert.throws(()=>validateManifest(manifest,ARTIFACT_DIGEST,{singleAdministrator:false}),/重复/);
+  assert.equal(validateManifest(manifest,ARTIFACT_DIGEST,{singleAdministrator:true}).freshAuthority.administratorOne,roles.deployer);
+  await assert.rejects(load({...root,roles:{...roles,administratorTwo:address(102)}}),/唯一管理员/);
+  await assert.rejects(load({...root,roles:{...roles,gasWallet:roles.deployer}}),/Gas 钱包须独立/);
 });
 test('a mismatched build or unactivated graph cannot become ready', async () => {
   await assert.rejects(load({ ...root, artifactDigest: hash(200) }), /本次测试合约构建/);

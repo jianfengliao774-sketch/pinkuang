@@ -1,5 +1,5 @@
 import { getAddress, ZeroAddress, id } from 'ethers';
-import { ARTIFACT_DIGEST } from './chain-client.mjs';
+import { ARTIFACT_DIGEST, SINGLE_TEST_ADMINISTRATOR } from './chain-client.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 
 export const GENESIS_ARTIFACT_DIGEST = pinnedGenesis.artifactDigest;
@@ -19,7 +19,7 @@ export const PORTFOLIO_MANIFEST_KEYS = Object.freeze(['portfolioFactory', 'portf
 export const MANIFEST_KEYS = Object.freeze(['factory', 'shareMarket', 'lens', 'beacon', 'timelock']);
 
 /** No permissive parsing or demo fallback. The same-origin file is an operator-reviewed public trust root. */
-export function validateManifest(input, expectedDigest = ARTIFACT_DIGEST) {
+export function validateManifest(input, expectedDigest = ARTIFACT_DIGEST, {singleAdministrator = SINGLE_TEST_ADMINISTRATOR} = {}) {
   insist(input && input.schemaVersion === 1 && input.chainId === 56, 'manifest_schema', '不支持的部署清单或网络。');
   insist(hash(expectedDigest) && hash(input.artifactDigest) && input.artifactDigest.toLowerCase() === expectedDigest.toLowerCase(), 'artifact_mismatch', '部署清单与当前页面合约版本不一致。');
   insist(typeof input.sourceCommit === 'string' && /^[\da-f]{40}$/i.test(input.sourceCommit), 'manifest_schema', '部署清单缺少源码版本。');
@@ -48,7 +48,8 @@ export function validateManifest(input, expectedDigest = ARTIFACT_DIGEST) {
     const authority=liveAddress(input.authority), gasWallet=liveAddress(input.gasWallet);
     const first=liveAddress(proof.administratorOne), second=liveAddress(proof.administratorTwo);
     insist(sameAddress(proof.address,authority) && sameAddress(proof.gasWallet,gasWallet)
-      && new Set([authority,gasWallet,first,second].map(value=>value.toLowerCase())).size===4,
+      && (!singleAdministrator || sameAddress(first,second))
+      && new Set([authority,gasWallet,first,second].map(value=>value.toLowerCase())).size===(singleAdministrator ? 3 : 4),
     'manifest_schema', '新部署管理员和 Gas 钱包地址不一致或重复。');
     freshAuthority=Object.freeze({address:authority,codehash:proof.codehash.toLowerCase(),
       deploymentTxHash:proof.deploymentTxHash.toLowerCase(),administratorOne:first,

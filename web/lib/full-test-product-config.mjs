@@ -22,9 +22,10 @@ export async function loadFullTestProductConfig({ basePath = FULL_TEST_BASE,
   'full_test_config', '测试站等待时间配置无效。');
   const roles = Object.freeze(Object.fromEntries(['deployer', 'administratorOne', 'administratorTwo', 'gasWallet']
     .map(name => [name, liveAddress(input.roles?.[name])])));
-  insist(new Set([roles.administratorOne, roles.administratorTwo, roles.gasWallet]
-    .map(value => value.toLowerCase())).size === 3 && roles.deployer.toLowerCase() !== roles.gasWallet.toLowerCase(),
-    'full_test_config', '两位测试管理员和 Gas 钱包须分别独立。');
+  insist(roles.administratorOne.toLowerCase() === roles.administratorTwo.toLowerCase()
+    && roles.deployer.toLowerCase() === roles.administratorOne.toLowerCase()
+    && roles.administratorOne.toLowerCase() !== roles.gasWallet.toLowerCase(),
+    'full_test_config', '测试站使用部署钱包作为唯一管理员；Gas 钱包须独立。');
   const common = { testProfile: true, productFamily: 'fresh-v4', displayOnly: true,
     readMode: 'display', origin, basePath: FULL_TEST_BASE, roles, timings: FULL_TEST_TIMINGS,
     deployer: roles.deployer, deployConsoleUrl: `${origin}${FULL_TEST_BASE}/deploy/`,
@@ -36,7 +37,7 @@ export async function loadFullTestProductConfig({ basePath = FULL_TEST_BASE,
     phase: input.phase, reason: '测试合约尚未完成部署及权限激活。页面已可浏览，部署完成后显示测试项目。',
     transactionReady: false, operationalReady: false, userExitReady: false });
   insist(input.status === 'ready', 'full_test_config', '完整测试站尚未就绪。');
-  const manifest = validateManifest(input.manifest, ARTIFACT_DIGEST);
+  const manifest = validateManifest(input.manifest, ARTIFACT_DIGEST, {singleAdministrator:true});
   insist(manifest.kind === 'integrated-v2' && manifest.freshAuthority
     && manifest.freshAuthority.administratorOne.toLowerCase() === roles.administratorOne.toLowerCase()
     && manifest.freshAuthority.administratorTwo.toLowerCase() === roles.administratorTwo.toLowerCase()
