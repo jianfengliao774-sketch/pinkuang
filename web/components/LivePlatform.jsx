@@ -3668,11 +3668,11 @@ export default function LivePlatform() {
               modal.type === "action" && (
                 <>
                   <h2 id="live-dialog-title">{actionLabel(modal.kind)}</h2>
-                  <p>
+                  {modal.kind !== 'fill' && <p>
                     {modal.pool?.name
                       ? `${modal.pool.name} #${modal.pool.tokenId}`
                       : shortAddress(modal.pool?.pool ?? config?.shareMarket)}
-                  </p>
+                  </p>}
                   {!account ? (
                     <Button disabled={busy} onClick={connect}>
                       {L("连接钱包", "Connect wallet")}
@@ -3740,10 +3740,7 @@ export default function LivePlatform() {
                               <div><span>{L('全部成交基价', 'Total asking price')}</span><strong>{amount(prepared.listingGrossWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'fill' && prepared.marketTrade && <>
-                              <div><span>{L('成交基价', 'Base price')}</span><strong>{amount(prepared.marketTrade.grossWei)} BNB</strong></div>
                               <div><span>{L('买方 1% 手续费', 'Buyer fee · 1%')}</span><strong>{amount(prepared.marketTrade.buyerFeeWei)} BNB</strong></div>
-                              <div><span>{L('卖方 1% 手续费', 'Seller fee · 1%')}</span><strong>{amount(prepared.marketTrade.sellerFeeWei)} BNB</strong></div>
-                              <div><span>{L('卖方实收', 'Seller proceeds')}</span><strong>{amount(prepared.marketTrade.sellerNetWei)} BNB</strong></div>
                             </>}
                             {modal.kind === 'completeFirstoSale' && prepared.quote && <>
                               <div><span>{L('整机挂牌价', 'Approved miner price')}</span><strong>{amount(prepared.quote.priceWei)} BNB</strong></div>
@@ -3753,13 +3750,13 @@ export default function LivePlatform() {
                               <p>{L('同笔完成收益结清与 Firsto 成交；暂不向 Firsto 外部页面发布挂单。', 'Rewards settle in the same Firsto trade. External Firsto website listings are not enabled.')}</p>
                             </>}
                             <div>
-                              <span>{modal.kind === 'list' ? L("本次钱包支付（另付 Gas）", "Wallet payment (plus Gas)") : L("支付金额", "Payment")}</span>
+                              <span>{modal.kind === 'fill' ? L('总支付（含手续费）', 'Total payment (including fee)') : modal.kind === 'list' ? L("本次钱包支付（另付 Gas）", "Wallet payment (plus Gas)") : L("支付金额", "Payment")}</span>
                               <strong>
                                 {amount(BigInt(prepared.transaction.value))}{" "}
                                 BNB
                               </strong>
                             </div>
-                            <div>
+                            {modal.kind !== 'fill' && <><div>
                               <span>{L("接收合约", "Target contract")}</span>
                               <a
                                 href={explorerAddress(prepared.transaction.to)}
@@ -3772,14 +3769,14 @@ export default function LivePlatform() {
                             <div>
                               <span>{L("支付钱包", "Your wallet")}</span>
                               <strong>{shortAddress(account)}</strong>
-                            </div>
+                            </div></>}
                           </div>
-                          <p className="inline-note">
+                          {modal.kind === 'fill' ? <p className="subtle-note">{L('网络 Gas 另计，以钱包显示为准。', 'Network Gas is additional. Review it in your wallet.')}</p> : <p className="inline-note">
                             {L(
                               "金额显示至五位小数；不足 0.00001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
                               "Amounts are displayed to five decimals; positive amounts below 0.00001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
                             )}
-                          </p>
+                          </p>}
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">
                             {L(...(transactionLabels[transactionStage] || transactionLabels.rechecking))}
                           </p>}
@@ -3808,12 +3805,12 @@ export default function LivePlatform() {
                             : L("核对交易金额", "Review transaction")}
                         </Button>
                       )}
-                      <p className="subtle-note">
+                      {modal.kind !== 'fill' && <p className="subtle-note">
                         {L(
                           "首次操作会请你签署钱包登录消息，用于保存和恢复本人的交易记录。",
                           "Your first action asks you to sign a wallet login message to save and recover your transaction records.",
                         )}
-                      </p>
+                      </p>}
                     </>
                   )}
                 </>
