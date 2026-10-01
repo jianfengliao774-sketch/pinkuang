@@ -39,6 +39,10 @@ const exact={
  'server/chain-index/server.mjs':[
   ["!/^\\/srv\\/pinkuang-deploy-v4\\/releases\\/v4-[a-z0-9][a-z0-9-]{1,70}\\/public\\/fresh-product-manifest\\.json$/.test(manifestPath)","manifestPath!=='/etc/bemine-full-test/index-manifest.json'"],
  ],
+ 'server/chain-index/fresh-manifest.mjs':[
+  ['check(administratorOne !== administratorTwo && administratorOne !== authority',
+   'check(administratorOne === administratorTwo && administratorOne !== authority'],
+ ],
  'server/fresh-machine-readiness.mjs':[
   ["need(/^pinkuang-[a-z0-9-]+\\.service$/.test(name),'Unreviewed readiness unit name.');","need(/^bemine-full-test-[a-z0-9-]+\\.service$/.test(name),'Unreviewed readiness unit name.');"],
   ['verifyFreshLegacyDrain(provider,identity,{unitState,...drainOptions})','verifyFreshLegacyDrain(provider,identity,{unitState,requireFunding:true,...drainOptions})'],
@@ -49,6 +53,17 @@ const exact={
  ],
 };
 function once(content,old,next,label){assert.equal(content.split(old).length-1,1,'Runtime source fragment changed: '+label);return content.replace(old,next);}
+
+export function transformFullTestModule(original,name){
+ let content=original;
+ for(const [old,next] of replacements)content=content.split(old).join(next);
+ for(const [old,next] of exact[name]??[])content=once(content,old,next,name);
+ if(name==='server/fresh-machine-readiness.mjs'){
+  content=once(content,'export async function verifyFreshLegacyDrain(','async function unusedFormalLegacyDrain(',name);
+  content="import { verifyFullTestSenderIsolation as verifyFreshLegacyDrain } from './full-test-sender-isolation.mjs';\nexport { verifyFreshLegacyDrain };\n"+content;
+ }
+ return content;
+}
 
 export function buildFullTestRuntime({outDir,profilePath}={}) {
  const out=resolve(outDir);assert(!existsSync(out),'Use a new runtime build directory.');mkdirSync(out,{recursive:true});
@@ -64,13 +79,7 @@ export function buildFullTestRuntime({outDir,profilePath}={}) {
  const modules=[...PRODUCT_BACKEND_MODULES];
  const inventory={};
  for(const name of modules){
-  const original=readFileSync(join(root,'deploy',name),'utf8');let content=original;
-  for(const [old,next] of replacements)content=content.split(old).join(next);
-  for(const [old,next] of exact[name]??[])content=once(content,old,next,name);
-  if(name==='server/fresh-machine-readiness.mjs'){
-   content=once(content,'export async function verifyFreshLegacyDrain(','async function unusedFormalLegacyDrain(',name);
-   content="import { verifyFullTestSenderIsolation as verifyFreshLegacyDrain } from './full-test-sender-isolation.mjs';\nexport { verifyFreshLegacyDrain };\n"+content;
-  }
+  const original=readFileSync(join(root,'deploy',name),'utf8');const content=transformFullTestModule(original,name);
   const path=join(out,'runtime/deploy',name);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,content);
   inventory['runtime/deploy/'+name]={originalSha256:sha(original),installedSha256:sha(content)};
  }
