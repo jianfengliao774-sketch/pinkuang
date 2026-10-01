@@ -113,6 +113,7 @@ export const PRODUCT_BACKEND_MODULES = Object.freeze([
   "server/product-graph.mjs",
   "server/request-limiter.mjs",
   "shared/authority-typed.mjs",
+  "shared/activity-summary.mjs",
   "shared/budget-queue.mjs",
   "shared/firsto-upgrade-proof.mjs",
   "shared/fresh-activation-chain-proof.mjs",

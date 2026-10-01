@@ -125,7 +125,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     <div className="section-head"><div><h2><ShieldCheck size={21}/>运营工作台</h2><p>{direct ? '每笔操作先预览，再由你的钱包确认；合约执行时检查权限和条件。' : '读取链上运营权限；每笔操作先预览，再由你的钱包确认。'}</p></div><button className="btn secondary" disabled={frozen} onClick={onRefresh}><RefreshCw size={16}/>刷新权限</button></div>
     {error && <div className="live-notice error" role="alert">{error}</div>}
     {!operator?.isOperator ? <p className="subtle-note">{direct ? '当前钱包不在本次部署的管理员配置中。' : '当前钱包不是 Factory 登记的运营地址。'}</p> : <>
-      <div className="operator-identity"><span>当前运营钱包</span><strong>{account}</strong><span>Factory</span><strong>{config.factory}</strong></div>
+      <div className="operator-identity"><span>当前运营钱包</span><strong>{account}</strong><span>单矿机工厂合约</span><strong>{config.factory}</strong></div>
       {!direct && !operator.machineRegistry?.supported && <p className="live-notice">当前工厂尚未支持矿机唯一性登记。请等待合约升级后创建新项目；已有项目的读取、退款与提现不受影响。</p>}
       {!direct && operator.machineRegistry?.supported && !operator.machineRegistry.ready && <p className="live-notice error">矿机唯一性登记尚未完成，暂不能创建新项目或从 Firsto 采购。</p>}
       <div className="operator-tabs"><button className={`btn${mode === 'createPool' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createPool')}>指定单台矿机</button><button className={`btn${mode === 'createFlexiblePoolChecked' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createFlexiblePoolChecked')}>单台矿机灵活替代</button><button className="btn secondary" disabled={frozen} onClick={() => document.getElementById('multi-miner-projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>多矿机同一项目（100 份）↓</button></div>

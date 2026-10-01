@@ -147,8 +147,10 @@ function cursorFor(manifest, anchor, nextBlock, before = null) {
 async function directHistory({ manifest, parsedCursor, key, cached, queue, request, logsRequest, limit, signal, now, startedAt }) {
   try {
     if (cached) return Object.freeze({ ...cached, cached: true });
+    // A just-produced head can reach the normal RPC before the logs node.
+    // Start at the settled head so the same range is available on both nodes.
     const anchor = parsedCursor ? { number: parsedCursor.anchor, hash: parsedCursor.anchorHash }
-      : header(await request('eth_getBlockByNumber', ['latest', false]));
+      : header(await request('eth_getBlockByNumber', ['finalized', false]));
     const firstBlock = BigInt(manifest.deployment.blockNumber), authority = manifest.authority;
     const upper = parsedCursor?.upper ?? anchor.number;
     need(upper >= firstBlock, '领取记录分页早于当前部署。');
