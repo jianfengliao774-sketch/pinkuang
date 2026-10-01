@@ -9,7 +9,7 @@ const saleViews = new Interface([
   'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
 ]);
 import { abi } from '../lib/chain-client.mjs';
-import { governanceAction, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
+import { governanceAction, proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 
 const factory = '0x1000000000000000000000000000000000000001';
 const pool = '0x2000000000000000000000000000000000000002';
@@ -17,6 +17,17 @@ const account = '0x3000000000000000000000000000000000000003';
 const market = '0x4000000000000000000000000000000000000004';
 const blockHash = `0x${'ab'.repeat(32)}`;
 const digest = `0x${'cd'.repeat(32)}`;
+
+test('proposal disclosure uses an existing chain price and its own timestamp without manual input', () => {
+  const snapshot = { stage: 'fresh-active', purchaseCost: 100n, activatedAt: 120n,
+    saleReference: { available: true, priceWei: 150n, observedAt: 200n } };
+  assert.deepEqual(proposalReferenceRecord(snapshot), { refPriceWei: '150', refAt: '200' });
+  assert.deepEqual(proposalReferenceRecord({ ...snapshot, saleReference: { ...snapshot.saleReference, available: false } }),
+    { refPriceWei: '100', refAt: '120' });
+  assert.deepEqual(proposalReferenceRecord({ ...snapshot, stage: 'genesis' }),
+    { refPriceWei: '100', refAt: '120' });
+});
+
 const proposal = (overrides = {}) => ({ proposer: account, snapshotTs: 1700000000n,
   endsAt: 1700086400n, refAt: 1699990000n, price: 20n, refPrice: 20n,
   snapshotMemberCount: 3n, snapshotTotalShares: 100n, yesCount: 0n,

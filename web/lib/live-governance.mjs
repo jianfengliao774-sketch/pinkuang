@@ -200,6 +200,15 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     salePrice, firstoSale, saleReference, candidates: Object.freeze(candidates) });
 }
 
+/** ABI disclosure only: reuse a known chain price without another request or user input. */
+export function proposalReferenceRecord(snapshot) {
+  const market = snapshot.stage !== 'genesis' && snapshot.saleReference?.available;
+  return {
+    refPriceWei: uint(market ? snapshot.saleReference.priceWei : snapshot.purchaseCost).toString(),
+    refAt: uint(market ? snapshot.saleReference.observedAt : snapshot.activatedAt, 64).toString(),
+  };
+}
+
 /** Build exact unsigned calldata from an internally consistent chain snapshot. */
 export function governanceAction(snapshot, from, action) {
   const account = nonzero(from);

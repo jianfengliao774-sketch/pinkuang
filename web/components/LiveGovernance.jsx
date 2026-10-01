@@ -4,7 +4,7 @@ import { displayAmount } from '../lib/amount-display.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { getAddress, parseEther, ZeroAddress } from 'ethers';
 import { ArrowRight, CircleAlert, RefreshCw } from 'lucide-react';
-import { prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
+import { proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
 import '../app/live-governance.css';
 
@@ -21,7 +21,6 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   const [poolInput, setPoolInput] = useState(selectedPool || '');
   const [snapshotData, setSnapshot] = useState(null);
   const [salePrice, setSalePrice] = useState('');
-  const [referencePrice, setReferencePrice] = useState('');
   const [capacityPrice, setCapacityPrice] = useState('');
   const [editedField, setEditedField] = useState('sale');
   const [quoteNow, setQuoteNow] = useState(() => Date.now());
@@ -44,7 +43,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   }
 
   useEffect(() => {
-    setSalePrice(''); setReferencePrice(''); setCapacityPrice(''); setEditedField('sale');
+    setSalePrice(''); setCapacityPrice(''); setEditedField('sale');
     setSnapshot(null); setPreview(null); setError(''); setBusy(false);
   }, [account, wallet, config?.factory, config?.shareMarket, config?.stage, config?.displayOnly, poolValue]);
   useEffect(() => () => requests.current.invalidate(), []);
@@ -158,7 +157,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
         <div className="live-gov-grid">{snapshot.candidates.map(item => <article key={item.id.toString()}>
           <div className="live-gov-candidate-head"><strong>提案 #{item.id.toString()}</strong><span>{item.executed ? '已执行' : item.passed ? item.canExecute ? '可执行挂牌' : '投票已达门槛' : '投票中'}</span></div>
           <p className="live-gov-price">{displayAmount(item.priceWei)} <small>BNB</small></p>
-          <p className="live-gov-muted">提案人 {short(item.proposer)} · 提案记录参考价 {displayAmount(item.refPriceWei)} BNB</p>
+          <p className="live-gov-muted">提案人 {short(item.proposer)}</p>
           <div className="live-gov-votes"><div><span>赞成份额</span><strong>{item.yesShares.toString()} / {item.requiredYesShares.toString()}</strong></div><div><span>赞成人数</span><strong>{item.yesCount.toString()} / {item.requiredYesCount.toString()}</strong></div></div>
           <p className="live-gov-muted">{snapshot.stage === 'genesis'
             ? `创世矿池需地址过半；${item.discounted ? '低于购机成本，至少 60 份赞成。' : '不低于购机成本，份额过半。'}`
@@ -167,17 +166,15 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
         </article>)}</div>
       </div>}
       {snapshot.state === 2n && <div className="live-gov-propose"><h3>{roundOpen ? '提出同轮竞价' : '发起新一轮出售提案'}</h3><p>{snapshot.stage === 'genesis'
-        ? '整机价与日产能价按当前 24H 日产换算。创世矿池按链上实际购机成本判断折价；提案记录参考价仅作披露。'
-        : '整机价与日产能价按当前 24H 日产换算。提案记录参考价只作披露；执行挂牌时以运营方届时上链的新鲜 Firsto 市场参考价判断是否需要平台审核。'}</p>{proposalWaiting && <p role="status">矿机激活满 7 天后才能发起提案；链上开放时间：{when(proposalOpensAt)}。当前持仓和价格输入已读取，暂不能送交钱包。</p>}<div><label>拟出售整机价（BNB）<input inputMode="decimal" aria-label="拟出售整机价（BNB）" disabled={busy || disabled} value={salePrice} onChange={event => editPrice('sale', event.target.value)} onBlur={event => editPrice('sale', event.target.value, true)} placeholder="0.00000"/></label><label>日产能价<input inputMode="decimal" aria-label="日产能价" value={dailyAtomic ? capacityPrice : ''} disabled={!dailyAtomic || busy || disabled} onChange={event => editPrice('capacity', event.target.value)} onBlur={event => editPrice('capacity', event.target.value, true)} placeholder={dailyAtomic ? '0.00000' : '日产暂不可用'}/></label><label>提案记录参考价（BNB）<input inputMode="decimal" aria-label="提案记录参考价（BNB）" value={referencePrice} disabled={busy || disabled} onChange={event => { requests.current.invalidate(); setPreview(null); setReferencePrice(event.target.value); }} placeholder="请核对参考来源"/></label><button disabled={frozen || proposalWaiting || snapshot.shares === 0n} onClick={() => {
+        ? '整机价与日产能价按当前 24H 日产换算。创世矿池按链上实际购机成本判断折价。'
+        : '整机价与日产能价按当前 24H 日产换算。执行挂牌时以运营方届时上链的新鲜 Firsto 市场参考价判断是否需要平台审核。'}</p>{proposalWaiting && <p role="status">矿机激活满 7 天后才能发起提案；链上开放时间：{when(proposalOpensAt)}。当前持仓和价格输入已读取，暂不能送交钱包。</p>}<div><label>拟出售整机价（BNB）<input inputMode="decimal" aria-label="拟出售整机价（BNB）" disabled={busy || disabled} value={salePrice} onChange={event => editPrice('sale', event.target.value)} onBlur={event => editPrice('sale', event.target.value, true)} placeholder="0.00000"/></label><label>日产能价<input inputMode="decimal" aria-label="日产能价" value={dailyAtomic ? capacityPrice : ''} disabled={!dailyAtomic || busy || disabled} onChange={event => editPrice('capacity', event.target.value)} onBlur={event => editPrice('capacity', event.target.value, true)} placeholder={dailyAtomic ? '0.00000' : '日产暂不可用'}/></label><button disabled={frozen || proposalWaiting || snapshot.shares === 0n} onClick={() => {
         try {
           const normalized = fixedPrice(inputPriceWei(salePrice));
           const price = priceWei(normalized);
           if (BigInt(price) <= 0n) throw new Error('拟出售整机价需大于 0.00000 BNB。');
-          const refPriceWei = priceWei(referencePrice);
-          if (BigInt(refPriceWei) <= 0n) throw new Error('提案记录参考价需大于 0 BNB。');
           setSalePrice(normalized);
           if (dailyAtomic) setCapacityPrice(linkedPrice(normalized, 'sale', dailyAtomic));
-          void showPreview({ kind: 'propose', priceWei: price, refPriceWei, refAt: snapshot.timestamp.toString() });
+          void showPreview({ kind: 'propose', priceWei: price, ...proposalReferenceRecord(snapshot) });
         } catch (problem) { report(problem); }
       }}>预览提案<ArrowRight size={15}/></button></div>{!dailyAtomic && <p role="status">当前24H日产暂不可用，可直接填写整机价格。</p>}</div>}
       {listed && <div className="live-gov-listing"><h3>链上整机挂牌</h3><p>提案 #{snapshot.listedProposalId.toString()} · 价格 {displayAmount(snapshot.salePrice)} BNB · 到期 {when(snapshot.expiresAt)}。本站通过 Firsto 合约成交，买方另付 Firsto 手续费，矿池收取挂牌价后扣除平台 1%。成交时同笔结清挖矿收益，失败则整笔回退；暂不向 Firsto 外部页面发布挂单。</p>{!snapshot.firstoSale?.available && <p role="status">{config?.displayOnly ? 'Firsto 当前暂停成交或费率暂不可用。' : '当前成交路由尚未核验，请刷新或等待合约升级。'}</p>}<div><button disabled={frozen || snapshot.timestamp >= snapshot.expiresAt || !snapshot.firstoSale?.available} onClick={() => void showPreview({ kind: 'completeFirstoSale' })}>通过 Firsto 购买整机</button></div></div>}
@@ -189,7 +186,6 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
         {preview.action.kind === 'executeSale' && (snapshot.stage === 'genesis'
           ? <><div><dt>链上实际购机价</dt><dd>{displayAmount(snapshot.purchaseCost)} BNB</dd></div><div><dt>份额门槛</dt><dd>{preview.quote.priceWei < snapshot.purchaseCost ? '至少 60 份赞成' : '份额过半'}</dd></div></>
           : <><div><dt>Firsto 市场参考价</dt><dd>{displayAmount(preview.quote.marketReferenceWei)} BNB</dd></div><div><dt>参考价时间</dt><dd>{when(preview.quote.marketReferenceObservedAt)}</dd></div><div><dt>平台审核</dt><dd>{preview.quote.priceWei < preview.quote.marketReferenceWei ? preview.quote.saleReviewStatus === 1n && preview.quote.saleReviewPriceWei === preview.quote.priceWei ? '已批准此价格' : '尚未批准' : '无需额外审核'}</dd></div></>)}
-        {preview.action.kind === 'propose' && <div><dt>提案记录参考价</dt><dd>{displayAmount(preview.action.refPriceWei)} BNB</dd></div>}
         <div><dt>本次钱包支付</dt><dd>{displayAmount(preview.quote.paymentWei)} BNB + Gas</dd></div>
         {preview.action.kind === 'completeFirstoSale' && <><div><dt>Firsto 买方手续费</dt><dd>{displayAmount(preview.quote.sourceFeeWei)} BNB</dd></div><div><dt>平台费 1%</dt><dd>{displayAmount(preview.quote.feeWei)} BNB</dd></div><div><dt>持有人分配</dt><dd>{displayAmount(preview.quote.holderNetWei)} BNB</dd></div></>}
         {preview.action.kind === 'vote' && <div><dt>投票选择</dt><dd>{preview.action.support ? '赞成' : '反对'}</dd></div>}</dl>

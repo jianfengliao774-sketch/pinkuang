@@ -54,9 +54,10 @@ try {
   const section = page.locator('.live-governance');
   const sale = section.getByLabel('拟出售整机价（BNB）', { exact: true });
   const capacity = section.getByLabel('日产能价', { exact: true });
+  assert.equal(await section.getByLabel('提案记录参考价（BNB）', { exact: true }).count(), 0);
   await page.waitForFunction(() => document.querySelector('[aria-label="日产能价"]')?.disabled === false);
   assert.deepEqual(await section.locator('.live-gov-metrics > div > span').allTextContents(),
-    ['我当前的份额', '投票快照份额', '购买价格', '当前24H日产', '交易状态']);
+    ['我当前的份额', '投票快照份额', '历史实际购机价', 'Firsto 市场参考价', '当前24H日产', '交易状态']);
   assert.match(await section.locator('.live-gov-metrics').innerText(), /0\.95000000 BEM/);
   await sale.fill('1.9'); await sale.blur();
   assert.equal(await sale.inputValue(), '1.90000'); assert.equal(await capacity.inputValue(), '2.00000');
@@ -80,7 +81,7 @@ try {
   });
   assert.equal(previewAction?.priceWei, '1900000000000000000');
   assert.equal(previewAction?.refPriceWei, '8000000000000000000');
-  checks.push('two-way 0.95 BEM/day calculation, five-decimal padding and purchase-cost reference');
+  checks.push('two-way 0.95 BEM/day calculation, five-decimal padding and automatic chain reference with no manual field');
   const measurements = await section.evaluate(element => ({
     sizes: [...element.querySelectorAll('.live-gov-propose label,.live-gov-propose input,.live-gov-metrics span,.live-gov-selector span')].map(node => parseFloat(getComputedStyle(node).fontSize)),
     overflow: document.documentElement.scrollWidth > innerWidth,
