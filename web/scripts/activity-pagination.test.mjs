@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityPage, activityPaginationEnabled, loadActivityPage } from '../lib/activity-pagination.mjs';
+import { activityPage, activityPaginationEnabled, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 
 const address = value => `0x${String(value).padStart(40, '0')}`;
 const subscription = index => {
@@ -117,4 +117,63 @@ test('an absent total remains unknown while a legacy cursor still supports the n
     readPage: async () => ({ items: all.slice(5), nextCursor: null }) });
   assert.equal(result.pageIndex, 1);
   assert.equal(activityPage(result.items, { route: 'records', page: 1, ...result }).visibleRows.length, 5);
+});
+
+test('five newer head records cannot add an empty last page to the original 100-record history', async () => {
+  const all = Array.from({ length: 50 }, (_, index) => subscription(index)).flat();
+  const firstSource = { indexedThrough: 100, indexedBlockHash: '0xabc' };
+  const initial = { items: all.slice(0, 50), nextCursor: '50', totalCount: 100, overviewTotalCount: 50, source: firstSource };
+  let requests = 0;
+  const readPage = async ({ source }) => {
+    requests++; assert.strictEqual(source, firstSource);
+    return { items: all.slice(50), nextCursor: null, totalCount: 105, overviewTotalCount: 55,
+      source: { indexedThrough: 101, indexedBlockHash: '0xdef' } };
+  };
+  const result = await loadActivityPage(initial, { route: 'records', page: 20, readPage });
+  const view = activityPage(result.items, { route: 'records', page: result.pageIndex, ...result });
+  assert.equal(view.totalCount, 100); assert.equal(view.totalPages, 20); assert.equal(view.pageIndex, 19);
+  assert.deepEqual(view.visibleRows, all.slice(-5)); assert.equal(result.overviewTotalCount, 50);
+  assert.strictEqual(result.source, firstSource); assert.deepEqual(result.items, all);
+  assert.deepEqual(initial.items, all.slice(0, 50));
+  const cached = await loadActivityPage(result, { route: 'records', page: 7, readPage });
+  assert.equal(cached.pageIndex, 7); assert.equal(requests, 1);
+});
+
+test('manual cursor append and overview paging preserve the same first-page counts and raw logs', () => {
+  const all = Array.from({ length: 10 }, (_, index) => subscription(index)).flat();
+  const source = { indexedThrough: 100, indexedBlockHash: '0xabc' };
+  const snapshot = { items: all.slice(0, 10), nextCursor: '10', totalCount: 20, overviewTotalCount: 10, source };
+  const appended = appendActivityPage(snapshot, { items: all.slice(10), nextCursor: null, totalCount: 30,
+    overviewTotalCount: 15, source: { indexedThrough: 101, indexedBlockHash: '0xdef' } });
+  assert.equal(appended.totalCount, 20); assert.equal(appended.overviewTotalCount, 10);
+  assert.strictEqual(appended.source, source); assert.deepEqual(appended.items, all);
+  const view = activityPage(appended.items, { route: 'overview', page: 1, ...appended });
+  assert.equal(view.totalPages, 2); assert.equal(view.visibleRows.length, 5);
+  assert.equal(appended.items.length, 20, 'Summary paging cannot remove mint logs from exported raw history');
+});
+
+test('legacy unknown counts may be filled once and remain fixed on later appends', () => {
+  const snapshot = { items: [], totalCount: null, overviewTotalCount: null };
+  const source = { indexedThrough: 100, indexedBlockHash: '0xabc' };
+  const first = appendActivityPage(snapshot, { items: subscription(0), totalCount: 20, overviewTotalCount: 10, source });
+  const next = appendActivityPage(first, { items: subscription(1), totalCount: 25, overviewTotalCount: 15,
+    source: { indexedThrough: 101, indexedBlockHash: '0xdef' } });
+  assert.equal(next.totalCount, 20); assert.equal(next.overviewTotalCount, 10); assert.strictEqual(next.source, source);
+  assert.deepEqual(next.items, [...subscription(0), ...subscription(1)]);
+});
+
+test('shrinking totals, source rollback and a changed hash at the anchor height require a fresh first page', async () => {
+  const initial = { items: subscription(0), nextCursor: '2', totalCount: 20, overviewTotalCount: 10,
+    source: { indexedThrough: 100, indexedBlockHash: '0xabc' } };
+  const stable = { items: subscription(1), nextCursor: null, totalCount: 20, overviewTotalCount: 10,
+    source: { indexedThrough: 100, indexedBlockHash: '0xABC' } };
+  assert.equal(appendActivityPage(initial, stable).items.length, 4, 'Hash letter case is not a source change');
+  for (const changes of [{ totalCount: 19 }, { overviewTotalCount: 9 },
+    { source: { indexedThrough: 99, indexedBlockHash: '0xolder' } },
+    { source: { indexedThrough: 100, indexedBlockHash: '0xdifferent' } }]) {
+    const part = { ...stable, ...changes };
+    assert.throws(() => appendActivityPage(initial, part), { code: 'source_reorg' });
+    await assert.rejects(loadActivityPage(initial, { route: 'records', page: 3, readPage: async () => part }), { code: 'source_reorg' });
+  }
+  assert.equal(initial.items.length, 2, 'A rejected cursor read cannot alter already displayed history');
 });

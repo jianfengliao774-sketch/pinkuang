@@ -31,6 +31,29 @@ export function activityPage(rows, { route, page = 0, pageSize = 5, totalCount, 
   };
 }
 
+const knownCount = value => Number.isSafeInteger(value) && value >= 0;
+const changedHistory = () => Object.assign(new Error('记录来源已变化，请刷新并从第一页重新读取。'), { code: 'source_reorg' });
+
+/** A descending cursor only adds rows below the first page. Newer head events
+ * are absent from that list, so their totals cannot replace its first-page
+ * metadata. Keep every raw log for detail views and CSV exports. */
+export function appendActivityPage(snapshot, part) {
+  for (const key of ['totalCount', 'overviewTotalCount']) {
+    if (knownCount(snapshot[key]) && knownCount(part[key]) && part[key] < snapshot[key]) throw changedHistory();
+  }
+  const anchor = snapshot.source, later = part.source;
+  if (knownCount(anchor?.indexedThrough) && knownCount(later?.indexedThrough)) {
+    if (later.indexedThrough < anchor.indexedThrough || later.indexedThrough === anchor.indexedThrough
+      && typeof anchor.indexedBlockHash === 'string' && typeof later.indexedBlockHash === 'string'
+      && later.indexedBlockHash.toLowerCase() !== anchor.indexedBlockHash.toLowerCase()) throw changedHistory();
+  }
+  return { ...snapshot, ...part, source: anchor ?? later,
+    items: [...snapshot.items, ...part.items],
+    totalCount: knownCount(snapshot.totalCount) ? snapshot.totalCount : part.totalCount ?? null,
+    overviewTotalCount: knownCount(snapshot.overviewTotalCount) ? snapshot.overviewTotalCount : part.overviewTotalCount ?? null,
+  };
+}
+
 /** Fetch only the cursor chunks needed by an explicit page jump. */
 export async function loadActivityPage(snapshot, { route, page, pageSize = 5, readPage, isCurrent = () => true } = {}) {
   let next = { ...snapshot, items: [...snapshot.items] };
@@ -43,7 +66,7 @@ export async function loadActivityPage(snapshot, { route, page, pageSize = 5, re
     visited.add(next.nextCursor);
     const part = await readPage({ cursor: next.nextCursor, limit: 50, source: next.source });
     if (!isCurrent()) return null;
-    next = { ...part, items: [...next.items, ...part.items] };
+    next = appendActivityPage(next, part);
   }
   return null;
 }

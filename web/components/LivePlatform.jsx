@@ -1,7 +1,7 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
-import { activityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
+import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
@@ -1985,17 +1985,21 @@ export default function LivePlatform() {
             : route.route === 'detail' ? source : activityReadSource,
         });
         if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return false;
-        setActivity((old) => [...old, ...result.items]);
-        setActivityCursor(result.nextCursor);
-        setActivityTotals({ totalCount: result.totalCount, overviewTotalCount: result.overviewTotalCount });
+        const appended = appendActivityPage({ items: activity, nextCursor: activityCursor,
+          source: route.route === 'detail' ? source : activityReadSource, ...activityTotals }, result);
+        setActivity(appended.items);
+        setActivityCursor(appended.nextCursor);
+        setActivityTotals({ totalCount: appended.totalCount, overviewTotalCount: appended.overviewTotalCount });
         if (route.route === 'records') {
-          setActivityReadSource(result.source);
-          setSource(result.source);
+          setActivityReadSource(appended.source);
+          setSource(appended.source);
         }
       }
       return true;
     } catch (e) {
-      if (revision === epoch.current && (kind !== 'activity' || activityRevision === activityReadEpoch.current)) setError(textError(e));
+      if (revision === epoch.current && (kind !== 'activity' || activityRevision === activityReadEpoch.current)) {
+        invalidateDisplayOnReorg(client, e); setError(textError(e));
+      }
       return false;
     } finally {
       setBusy(false);
