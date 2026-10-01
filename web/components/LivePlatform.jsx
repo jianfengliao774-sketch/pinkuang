@@ -6,6 +6,7 @@ import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, p
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
 import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
+import { directMemberTransaction, readMemberReceipt, readMemberTransactions, saveMemberTransactions, sendMemberWalletTransaction } from '../lib/member-wallet-transactions.mjs';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
@@ -293,6 +294,7 @@ export default function LivePlatform() {
   const [statsReadError, setStatsReadError] = useState("");
   const [statsSource, setStatsSource] = useState(null);
   const [notificationClaim, setNotificationClaim] = useState(null);
+  const [memberTransactions, setMemberTransactions] = useState([]);
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
   const [cachedPage, setCachedPage] = useState(false);
   const [loading, setLoading] = useState(false),
@@ -650,6 +652,39 @@ export default function LivePlatform() {
       },
     });
   }, [wallet, account]);
+  useEffect(() => {
+    setMemberTransactions(account && config?.displayOnly ? readMemberTransactions(config, account) : []);
+  }, [account, config?.factory, config?.portfolioFactory, config?.displayOnly]);
+  useEffect(() => {
+    if (!account || !config?.displayOnly || !client?.provider || !memberTransactions.some(r => r.status === 'pending')) return;
+    const context = walletEpoch.current, provider = client.provider;
+    let cancelled = false, reading = false;
+    const check = async () => {
+      if (reading || document.visibilityState !== 'visible') return;
+      reading = true;
+      try {
+        const updates = await Promise.all(memberTransactions.filter(r => r.status === 'pending').map(async record => {
+          try { return { ...record, ...await readMemberReceipt(provider, record) }; }
+          catch { return record; }
+        }));
+        if (cancelled || context !== walletEpoch.current) return;
+        const settled = updates.filter(r => r.status !== 'pending');
+        if (!settled.length) return;
+        setMemberTransactions(previous => {
+          const next = previous.map(r => updates.find(update => update.hash === r.hash) ?? r);
+          saveMemberTransactions(config, account, next);
+          return next;
+        });
+        setRefresh(v => v + 1);
+        setMessage(settled.some(r => r.status === 'failed')
+          ? L('交易在链上执行失败，请查看钱包交易记录。', 'Transaction failed on chain. See wallet history.')
+          : L('交易已在链上确认。', 'Transaction confirmed on chain.'));
+      } finally { reading = false; }
+    };
+    void check();
+    const timer = setInterval(check, 5_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [account, config, client, memberTransactions]);
   useEffect(() => {
     if (!pending?.awaitingFinality || !pending.hash || !account || !config || busy) return;
     const context = walletEpoch.current;
@@ -1414,6 +1449,16 @@ export default function LivePlatform() {
   }
   async function handleResult(result, context = walletEpoch.current) {
     if (context !== walletEpoch.current) return;
+    if (result.walletOnly) {
+      setMemberTransactions(previous => {
+        const next = [...previous.filter(r => r.hash !== result.hash), result.record].slice(-20);
+        saveMemberTransactions(config, account, next);
+        return next;
+      });
+      setPrepared(null); setModal(null); setRefresh(v => v + 1);
+      setMessage(L('交易已提交，后台更新链上结果。', 'Transaction submitted. Its on-chain result updates in the background.'));
+      return;
+    }
     if (result.status === "idle") {
       setPending(null);
       setMessage(L("没有待核对的交易。", "No pending transaction."));
@@ -1598,7 +1643,8 @@ export default function LivePlatform() {
     submissionLock.current = ticket; setBusy(true); setError('');
     const current = () => revision === walletEpoch.current && page === routeIdentity.current;
     try {
-      await connectJournal({ inspect: false, onState: showTransactionProgress });
+      const member = directMemberTransaction(config, confirmed.transaction, confirmed.action);
+      if (!member) await connectJournal({ inspect: false, onState: showTransactionProgress });
       if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
       const checked = config.displayOnly ? confirmed
         : await preparePortfolioAction({ ...input, config, provider: wallet, account });
@@ -1609,7 +1655,7 @@ export default function LivePlatform() {
         const command = approvedPortfolioPurchase(config, checked);
         return await submitFreshAuthority(command.kind, command.args, current);
       }
-      const result = await sendProductTransaction({ provider: wallet, config, transaction: checked.transaction,
+      const result = await (member ? sendMemberWalletTransaction : sendProductTransaction)({ provider: wallet, config, transaction: checked.transaction,
         action: checked.action, onState: state => { if (current()) showTransactionProgress(state); } });
       if (revision === walletEpoch.current) await handleResult(result, revision);
       return result;
@@ -1674,13 +1720,17 @@ export default function LivePlatform() {
       owner = account, target = modal, revision = epoch.current, confirmed = prepared;
     const current = () => requestEpoch === walletEpoch.current && revision === epoch.current && activeModal.current === target;
     const progress = state => { if (current()) showTransactionProgress(state); };
+    let member = false;
     try {
-      progress('authenticating');
-      await connectJournal({ inspect: false, onState: progress });
+      member = directMemberTransaction(config, confirmed.transaction, { kind: confirmed.kind });
+      if (!member) {
+        progress('authenticating');
+        await connectJournal({ inspect: false, onState: progress });
+      }
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
-      // The journal verifies the exact previewed calldata, target, value and live
-      // contract bindings. Repeating the entire preview delays wallet opening.
-      const result = await sendProductTransaction({
+      // Member calls hand the exact preview to the wallet immediately; the
+      // journal remains only for operations that actually require that service.
+      const result = await (member ? sendMemberWalletTransaction : sendProductTransaction)({
         provider: wallet,
         config,
         transaction: confirmed.transaction,
@@ -1691,7 +1741,7 @@ export default function LivePlatform() {
         await handleResult(result, requestEpoch);
     } catch (e) {
       if (requestEpoch === walletEpoch.current) setError(textError(e));
-      try {
+      if (!member) try {
         const state = await readPending({ account: owner, config });
         if (requestEpoch === walletEpoch.current) setPending(state.record ? { ...state.record,
           canAbandon: state.canAbandon === true, canRequestLegacyEnvelope: state.canRequestLegacyEnvelope === true } : null);
@@ -1711,15 +1761,18 @@ export default function LivePlatform() {
     submissionLock.current = ticket;
     setBusy(true); setError("");
     try {
-      showTransactionProgress('authenticating');
-      await connectJournal({ inspect: false, onState: state => { if (requestEpoch === walletEpoch.current) showTransactionProgress(state); } });
+      if (!config.displayOnly) {
+        showTransactionProgress('authenticating');
+        await connectJournal({ inspect: false, onState: state => { if (requestEpoch === walletEpoch.current) showTransactionProgress(state); } });
+      }
       if (requestEpoch !== walletEpoch.current || revision !== epoch.current)
         throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
       showTransactionProgress('rechecking');
       const checked = await prepareProductAction({ provider: wallet, config, account, pool, ...action });
       if (requestEpoch !== walletEpoch.current || revision !== epoch.current)
         throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
-      const result = await sendProductTransaction({ provider: wallet, config,
+      const member = directMemberTransaction(config, checked.transaction, { kind: checked.kind });
+      const result = await (member ? sendMemberWalletTransaction : sendProductTransaction)({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
         onState: state => { if (requestEpoch === walletEpoch.current) showTransactionProgress(state); } });
       await handleResult(result, requestEpoch);
@@ -3782,7 +3835,7 @@ export default function LivePlatform() {
                           </p>}
                           <div className="live-actions">
                             <Button
-                              disabled={busy || !!pending}
+                              disabled={busy || (!!pending && !config.displayOnly)}
                               onClick={submit}
                             >
                               {busy
@@ -3799,13 +3852,13 @@ export default function LivePlatform() {
                           </div>
                         </>
                       ) : (
-                        <Button disabled={busy || !!pending} onClick={prepare}>
+                        <Button disabled={busy || (!!pending && !config.displayOnly)} onClick={prepare}>
                           {busy
                             ? L("正在核对…", "Checking…")
                             : L("核对交易金额", "Review transaction")}
                         </Button>
                       )}
-                      {modal.kind !== 'fill' && <p className="subtle-note">
+                      {modal.kind !== 'fill' && !config.displayOnly && <p className="subtle-note">
                         {L(
                           "首次操作会请你签署钱包登录消息，用于保存和恢复本人的交易记录。",
                           "Your first action asks you to sign a wallet login message to save and recover your transaction records.",
