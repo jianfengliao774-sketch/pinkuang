@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync } from 'node:fs';
 
-const gas='0xad95dff16fe0e09c47bade687ab549929ac66c80';
+const gas='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c';
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase();
 const need=(ok,message)=>{if(!ok)throw new Error(message);};
 /** A newly generated test sender has no legacy nonce domain to migrate. */

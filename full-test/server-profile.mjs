@@ -43,7 +43,7 @@ export function validateFullTestProfile(profile, bundle, artifactDigest) {
   need(lower(roles.deployer)==='0x6f4d78fb59ec938cbaf65b9fc822ad04d00c155e'
     && lower(roles.administratorOne)===lower(roles.deployer)
     && lower(roles.administratorTwo)==='0x7674fa446d42b1f7f150dc5e678cc525d275ea53'
-    && lower(roles.gasWallet)==='0xad95dff16fe0e09c47bade687ab549929ac66c80',
+    && lower(roles.gasWallet)==='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c',
     'Full-test roles differ from the declared wallets.');
   need(![roles.deployer,roles.administratorOne,roles.administratorTwo,FORBIDDEN_GAS]
     .some(address=>lower(address)===lower(roles.gasWallet)), 'Full-test Gas wallet is not isolated.');

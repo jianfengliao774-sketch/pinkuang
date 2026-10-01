@@ -11,6 +11,15 @@ const rpcBlock = (number: number) => ({number:`0x${number.toString(16)}`,hash:ha
 const respond = (id: number, result: unknown) => new Response(JSON.stringify({jsonrpc:'2.0',id,result}),
   {status:200,headers:{'content-type':'application/json'}});
 
+test('nested full-test console uses the isolated root API for block reads',async()=>{
+  const wallet:Eip1193Provider={request:async()=>{throw new Error('must not use wallet for headers');}};
+  const reader=freshActivationReadWallet(wallet,{pageUrl:'https://tapeout.cc.cd/bemine-full-test/deploy/?x=1',fetcher:async(input,init)=>{
+    assert.equal(String(input),'https://tapeout.cc.cd/bemine-full-test/api/rpc');
+    const payload=JSON.parse(String(init?.body));return respond(payload.id,rpcBlock(100));
+  }});
+  assert.deepEqual(await reader.request({method:'eth_getBlockByNumber',params:['finalized',false]}),rpcBlock(100));
+});
+
 test('real BrowserProvider reads only block headers through the same-origin proxy and retains wallet chain identity',async()=>{
   const walletCalls: string[]=[];const readCalls:string[]=[];
   const wallet:Eip1193Provider={request:async({method})=>{walletCalls.push(method);if(method==='eth_chainId')return '0x38';throw new Error('wallet header reader unavailable');}};

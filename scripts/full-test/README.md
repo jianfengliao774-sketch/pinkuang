@@ -42,7 +42,7 @@ The complete interface and wallet deployment console are mounted at
 https://tapeout.cc.cd/bemine-full-test/ and /bemine-full-test/deploy/.
 Use the selected deployer 0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E.
 The test administrators are that wallet and 0x7674fa446D42b1f7f150DC5e678cc525d275Ea53.
-The separately generated test Gas sender is 0xaD95dFf16FE0e09C47bADe687aB549929AC66c80;
+The user-provided temporary test Gas sender is 0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C;
 its private key remains only in the test server's systemd credential. Automation
 requires funding that sender with at least 0.003 BNB. These are real mainnet funds.
 
@@ -55,3 +55,13 @@ are proven. The explicit “启用测试站” action derives manifests from the
 A separate systemd path triggers full-test/ops/activate.py, which independently proves
 the graph before starting only the test index, signer and workers. Readiness requires
 the correct live workers, a complete test index and the funded new Gas sender.
+
+The nested console reads block headers through `/bemine-full-test/api/rpc`.
+Install `full-test/ops/deploy-reader-rpc.conf` for browsers with an older console
+bundle still requesting `/bemine-full-test/deploy/api/rpc`.
+`replace-test-gas-wallet.py reviewed-source-dir commit` applies the selected sender
+only before any Authority activation record exists. It preserves the compiled
+bootstrap artifact, its source identity and all 16 confirmed transactions, and
+records the separate runtime patch commit. It verifies the pending credential's
+public address and zero nonce domain, backs up the old test configuration,
+updates only test services, and never sends a chain transaction.

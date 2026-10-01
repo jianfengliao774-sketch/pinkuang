@@ -55,7 +55,7 @@ export function buildFullTestRuntime({outDir,profilePath}={}) {
  const sourceHead=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
  assert.equal(bundle.sourceCommit,sourceHead,'Rebuild the test bundle after committing.');
  const roles={deployer:'0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',administratorOne:'0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',
-  administratorTwo:'0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',gasWallet:'0xaD95dFf16FE0e09C47bADe687aB549929AC66c80'};
+  administratorTwo:'0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',gasWallet:'0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C'};
  const deny=JSON.parse(readFileSync(profilePath,'utf8'));
  assert(Array.isArray(deny.forbiddenContracts)&&deny.forbiddenContracts.length>=20,'Explicit formal graph denylist is required.');
  const profile={schemaVersion:1,profile:'full-test',chainId:56,sourceHead,artifactDigest:artifactContentDigest(bundle),

@@ -12,7 +12,8 @@ export function freshActivationReadWallet(wallet: Eip1193Provider, options: {
   const page = new URL(pageUrl);
   if (page.protocol !== 'https:' && !(page.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(page.hostname)))
     throw new Error('部署台只读连接必须使用 HTTPS。');
-  const endpoint = new URL('api/rpc', page);
+  const endpoint = new URL(page.pathname.startsWith('/bemine-full-test/deploy/')
+    ? '/bemine-full-test/api/rpc' : 'api/rpc', page);
   const fetcher = options.fetcher ?? fetch;
   let sequence = 0;
   return { request: async request => {
