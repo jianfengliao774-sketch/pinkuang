@@ -1,5 +1,7 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
+import { createHash } from 'node:crypto';
+import { MiningOverviewStats } from './overview-stats.mjs';
 
 const artifacts = JSON.parse(readFileSync(new URL('../../public/deployment-artifacts.json', import.meta.url)));
 const lensAbi = new Interface(artifacts.artifacts.PoolLens.abi);
@@ -12,6 +14,7 @@ export const cacheDecode = (_key, value) => value && typeof value === 'object' &
   && /^(0|[1-9]\d*)$/.test(value.$bemineBigInt ?? '') ? BigInt(value.$bemineBigInt) : value;
 const same = (a,b) => a?.toLowerCase() === b?.toLowerCase();
 const need = (ok, message) => { if (!ok) throw new Error(message); };
+const revisionStats = stats => stats ? {...stats,miningOverview:{...stats.miningOverview,observedAt:null}} : null;
 function decodeRow(raw) {
   const s = raw.status, good = bit => (s.validMask & (1n << BigInt(bit))) !== 0n && (s.errorMask & (1n << BigInt(bit))) === 0n;
   const trusted = s.trustError === 0n && good(0);
@@ -24,12 +27,14 @@ function decodeRow(raw) {
 
 /** Full on-chain display state is produced in the background, never on an HTTP request. */
 export class PoolDisplayCache {
-  constructor(index, provider, { lens, path, now = Date.now } = {}) {
+  constructor(index, provider, { lens, path, now = Date.now, quoteLoader = null, onUpdate = null } = {}) {
     this.index=index; this.provider=provider; this.lens=getAddress(lens); this.path=path; this.now=now;
     this.value=null; this.running=null; this.stopped=false;
+    this.miningOverview=new MiningOverviewStats({quoteLoader,now});
+    this.quoteRunning=null; this.onUpdate=onUpdate;
     try { const saved=JSON.parse(readFileSync(path,'utf8'),cacheDecode);
       if (saved.schemaVersion===1 && same(saved.source.factory,index.factory) && same(saved.source.market,index.market)
-        && same(saved.lens,this.lens)) this.value=saved;
+        && same(saved.lens,this.lens)) {this.value=saved;this.miningOverview.restore(saved.miningQuotes);}
     } catch { /* The first background pass seeds a missing or corrupt cache. */ }
   }
   async call(to, iface, name, args, block) {
@@ -77,6 +82,7 @@ export class PoolDisplayCache {
     };
     const publicRows=await readRows(ZeroAddress);
     publicRows.forEach(row=>{ personal.forEach(name=>{row[name]=null;});rows[row.pool.toLowerCase()]=row; });
+    const miningStats=this.miningOverview.snapshot(publicRows);
     let next=0;
     const marketAbi=new Interface(artifacts.artifacts.ShareMarket.abi);
     await Promise.all(Array.from({length:Math.min(3,accountList.length)},async()=>{
@@ -104,17 +110,50 @@ export class PoolDisplayCache {
     if(this.stopped) return;
     const value={schemaVersion:1,lens:this.lens,source:{...source,checkedAt:new Date(this.now()).toISOString()},
       savedAt:this.now(),directory:directory.pools.map(row=>row.address),rows,accountRows,marketOwed,
-      accountsComplete:accounts.size<=200,orders:directory.orders===null?null:orders,stats:directory.stats};
+      accountsComplete:accounts.size<=200,orders:directory.orders===null?null:orders,
+      stats:directory.stats ? {...directory.stats,...miningStats} : null};
+    this.save(value);
+    // Quote HTTP work cannot hold up pool, wallet balance or order materialization.
+    this.refreshMining(publicRows);
+  }
+  save(value) {
+    value.miningQuotes=this.miningOverview.persistedQuotes();
+    value.displayRevision=createHash('sha256').update(JSON.stringify([value.rows,value.accountRows,value.marketOwed,value.orders,revisionStats(value.stats)],cacheEncode)).digest('hex');
     if(this.path) {const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(value,cacheEncode),{mode:0o600});renameSync(temporary,this.path);}
     this.value=value;
+  }
+  refreshMining(rows) {
+    if(this.quoteRunning || this.stopped) return;
+    this.quoteRunning=this.miningOverview.capture(rows).then(stats=>{
+      if(this.stopped || !this.value?.stats || !stats.miningOverview.minerIdentityDigest
+        || stats.miningOverview.minerIdentityDigest!==this.value.stats.miningOverview?.minerIdentityDigest) return;
+      const revision=this.value.displayRevision;
+      this.save({...this.value,stats:{...this.value.stats,...stats}});
+      if(this.value.displayRevision!==revision) this.onUpdate?.();
+    }).catch(()=>{/* Existing quotes and business display data remain available. */})
+      .finally(()=>{this.quoteRunning=null;});
   }
   snapshot() {
     const v=this.value;
     if(!v || !this.index.snapshotTrusted || !this.index.verifiedDisplaySnapshot()
       || this.now()-v.savedAt>30*60_000 || v.savedAt>this.now()
       || !same(this.index._header(v.source.indexedThrough)?.hash,v.source.indexedBlockHash)) return null;
-    return {...v,source:{...v.source,readMode:'verified_snapshot',stale:true,transactionReady:false,
+    // Quote lifetimes are independent of the longer business display lifetime.
+    // Derive them for reads too, including after restart or a failed RPC refresh.
+    const stats=v.stats ? {...v.stats,...this.miningOverview.snapshot(Object.values(v.rows))} : null;
+    // Reuse the stored business generation; hashing every account row per HTTP
+    // request would turn a small overview refresh into fleet-wide CPU work.
+    const displayRevision=createHash('sha256').update(JSON.stringify([v.displayRevision,revisionStats(stats)],cacheEncode)).digest('hex');
+    return {...v,stats,displayRevision,source:{...v.source,readMode:'verified_snapshot',stale:true,transactionReady:false,
       refreshing:Boolean(this.running),cacheOrigin:'server',cacheAgeMs:this.now()-v.savedAt}};
   }
-  async close() {this.stopped=true;try {await this.running;} catch {} }
+  revision() {
+    const cached=this.snapshot();
+    if(!cached?.displayRevision) return null;
+    const tip=this.index.db.prepare('SELECT block_number FROM logs ORDER BY block_number DESC,tx_index DESC,log_index DESC LIMIT 1').get();
+    // A new event must not announce a display generation which still predates it.
+    if(tip && tip.block_number>cached.source.indexedThrough) return null;
+    return cached.displayRevision;
+  }
+  async close() {this.stopped=true;this.miningOverview.close();await Promise.allSettled([this.running,this.quoteRunning]);}
 }

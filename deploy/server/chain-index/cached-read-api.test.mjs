@@ -202,6 +202,20 @@ test('SSE bounds connections and drops backpressure without accumulating private
   } finally { hub.close(); }
 });
 
+test('SSE publishes changed display output without new logs and waits for materialization after a newer event', () => {
+  const f = fixture(); let display = 'daily-output-432000';
+  const hub = new DisplayEvents(f.index, { now: f.now, throttleMs: 0, displayRevision: () => display });
+  const client = fakeClient();
+  try {
+    hub.publish(); hub.subscribe(client.req, client.res); const initial = hub.revision;
+    f.advance(100); hub.publish(); assert.equal(hub.revision, initial); assert.equal(client.res.frames.length, 1);
+    display = 'daily-output-864000'; hub.publish(); assert.notEqual(hub.revision, initial); assert.equal(client.res.frames.length, 2);
+    const outputRevision = hub.revision; f.nextLog(); display = null; hub.publish(); assert.equal(hub.revision, outputRevision);
+    display = 'new-event-materialized'; hub.publish(); assert.notEqual(hub.revision, outputRevision); assert.equal(client.res.frames.length, 3);
+    assert.equal(f.calls, 0, 'display revisions never read RPC');
+  } finally { hub.close(); }
+});
+
 test('real SSE HTTP connections are all ended before HTTP server shutdown without a wallet or RPC read', async () => {
   const f = fixture(), hub = new DisplayEvents(f.index), server = createChainIndexServer(f.index, { displayEvents: hub });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

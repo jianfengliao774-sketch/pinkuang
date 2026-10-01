@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { PoolDisplayCache } from './pool-display-cache.mjs';
+import { overviewQuoteLoader } from './overview-stats.mjs';
 import { DisplayEvents, PortfolioDisplayReads } from './cached-read-api.mjs';
 import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { ChainIndex } from './indexer.mjs';
@@ -173,11 +174,12 @@ export async function startChainIndex(config) {
   let displayTimer;
   try {
     index = new ChainIndex(provider, config);
-    if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,path:join(dirname(config.dbPath),'pool-display-cache.json')});
+    if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,path:join(dirname(config.dbPath),'pool-display-cache.json'),
+      quoteLoader:config.overviewQuoteLoader ?? overviewQuoteLoader(),onUpdate:()=>displayEvents?.publish()});
     if (config.portfolioFactory && config.portfolioMarket) portfolioReads = new PortfolioDisplayReads(index, primary, {
       path: config.dbPath === ':memory:' ? undefined : join(dirname(config.dbPath), 'portfolio-display-cache.json'),
     });
-    displayEvents = new DisplayEvents(index);
+    displayEvents = new DisplayEvents(index,{displayRevision:displayCache?()=>displayCache.revision():null});
     server = createChainIndexServer(index,{displayCache,portfolioReads,displayEvents});
     await new Promise((resolve, reject) => {
       const onError = error => { server.off('listening', onListening); reject(error); };

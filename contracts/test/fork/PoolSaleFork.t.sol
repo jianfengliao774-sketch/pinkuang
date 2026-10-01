@@ -13,6 +13,8 @@ import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
+import {PlatformAuthority} from "../../src/PlatformAuthority.sol";
+import {SaleGovernance} from "../../src/libraries/SaleGovernance.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "../../src/interfaces/ITapeoutMining.sol";
 import {Addresses} from "../../script/Addresses.sol";
@@ -49,6 +51,10 @@ contract PoolSaleForkTest is Test {
     address private constant CAROL = address(0xCA201);
     address private constant BUYER = address(0xB01234);
     address private constant WRONG_OWNER = address(0xBAD01234);
+    // Public fixture keys only; they never authorize a transaction on the real chain.
+    uint256 private constant ADMIN_KEY = 0xA11CE;
+    uint256 private constant OTHER_ADMIN_KEY = 0xB0B;
+    uint256 private constant RELAYER_KEY = 0x600D;
     IERC721 private constant NFT = IERC721(Addresses.TAPEOUT_CIRCUITS);
     IERC20 private constant BEM = IERC20(Addresses.BEM);
     ITapeoutMining private constant MINING = ITapeoutMining(Addresses.MINING);
@@ -141,6 +147,77 @@ contract PoolSaleForkTest is Test {
 
     function test_Fork_ProductionSaleSettlesThenTransfersAndPaysOriginalMembers() public {
         uint256 proposalId = _list();
+        _completeAndAssertOriginalRights(proposalId);
+    }
+
+    function test_Fork_SevenDayGateSignedDiscountReviewVoteAndRealFirstoSettlement() public {
+        PlatformAuthority authority = _installAuthority();
+        uint256 firstAllowed = uint256(vault.activatedAt()) + 7 days;
+        vm.warp(firstAllowed - 1);
+        vm.prank(ALICE);
+        vm.expectRevert(IPoolVault.DeadlineNotReached.selector);
+        vault.propose(SALE_PRICE, 0, 0);
+        assertEq(vault.nextProposalId(), 1, "early attempt consumes no proposal ID");
+
+        vm.warp(firstAllowed);
+        vm.prank(ALICE);
+        uint256 proposalId = vault.propose(SALE_PRICE, 0, 0);
+        PoolSaleState.Proposal memory p = vault.getProposal(proposalId);
+        assertEq(p.snapshotMemberCount, 3);
+        assertEq(p.snapshotTotalShares, 100);
+        assertEq(p.endsAt, block.timestamp + 1 days);
+        _signedReference(authority, SALE_PRICE * 2);
+        vm.prank(ALICE);
+        vault.vote(proposalId, true);
+        assertFalse(vault.proposalPassed(proposalId), "one of three members and 49 shares do not pass");
+        vm.expectRevert(IPoolVault.ProposalNotPassed.selector);
+        vault.executeSale(proposalId);
+        vm.prank(BOB);
+        vault.vote(proposalId, true);
+        assertTrue(vault.proposalPassed(proposalId), "two of three members with 98 shares pass");
+        vm.expectRevert(SaleGovernance.SaleNotApproved.selector);
+        vault.executeSale(proposalId);
+
+        // The gas wallet cannot approve by signing with its own fixture key.
+        _signedReview(authority, RELAYER_KEY, proposalId, true, PlatformAuthority.InvalidSignature.selector);
+        _signedReview(authority, ADMIN_KEY, proposalId, true, bytes4(0));
+        (uint8 status, uint128 approvedPrice) = shareMarket.saleReview(address(vault), proposalId);
+        assertEq(status, 1);
+        assertEq(approvedPrice, SALE_PRICE);
+        _signedReview(authority, ADMIN_KEY, proposalId, true, PlatformAuthority.InvalidAction.selector);
+        vault.executeSale(proposalId);
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Listed));
+        assertEq(vault.listedAt(), firstAllowed, "double majority can execute during the voting window");
+        assertEq(vault.expiresAt(), firstAllowed + 7 days);
+        _completeAndAssertOriginalRights(proposalId);
+    }
+
+    function test_Fork_SignedRejectionIsFinalAndPreservesRealMinerOwnership() public {
+        PlatformAuthority authority = _installAuthority();
+        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        vm.prank(ALICE);
+        uint256 proposalId = vault.propose(SALE_PRICE, 0, 0);
+        _signedReference(authority, SALE_PRICE * 2);
+        vm.prank(ALICE);
+        vault.vote(proposalId, true);
+        vm.prank(BOB);
+        vault.vote(proposalId, true);
+        assertTrue(vault.proposalPassed(proposalId));
+        _signedReview(authority, ADMIN_KEY, proposalId, false, bytes4(0));
+        (uint8 status,) = shareMarket.saleReview(address(vault), proposalId);
+        assertEq(status, 2);
+        // A different administrator cannot override this proposal's final rejection.
+        _signedReview(authority, OTHER_ADMIN_KEY, proposalId, true, ShareMarket.InvalidSaleReference.selector);
+        assertEq(authority.nonces(vm.addr(OTHER_ADMIN_KEY)), 0, "failed review does not consume admin nonce");
+        vm.expectRevert(SaleGovernance.SaleNotApproved.selector);
+        vault.executeSale(proposalId);
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
+        assertEq(NFT.ownerOf(TOKEN_ID), address(vault));
+        assertEq(MINING.getMiner(key).status, 1);
+        assertEq(vault.saleProceeds(), 0);
+    }
+
+    function _completeAndAssertOriginalRights(uint256 proposalId) private {
         vault.harvest();
         assertGt(vault.bemAccounted(), 0, "Listed continues mining before the final handover");
         _advanceOneHour();
@@ -182,6 +259,96 @@ contract PoolSaleForkTest is Test {
         emit log_named_uint("real final handover member net BEM (atoms)", finalNet);
         emit log_named_uint("sale member BNB (wei)", SALE_PRICE - (SALE_PRICE / 100));
         emit log_named_uint("disabled burn budget (wei)", vault.burnBudget());
+    }
+
+    function _installAuthority() private returns (PlatformAuthority authority) {
+        PoolFactory factory = PoolFactory(vault.factory());
+        // This test has no budget-project operations; the existing core factory
+        // supplies the unused budget registration interface as well.
+        authority = new PlatformAuthority(
+            address(factory), address(factory), vm.addr(ADMIN_KEY), vm.addr(OTHER_ADMIN_KEY), vm.addr(RELAYER_KEY)
+        );
+        vm.prank(OWNER);
+        factory.setOperator(address(authority));
+    }
+
+    function _signedReference(PlatformAuthority authority, uint256 referencePrice) private {
+        uint256 nonce = authority.nonces(vm.addr(ADMIN_KEY));
+        uint256 deadline = block.timestamp + 1 hours;
+        uint64 observedAt = uint64(block.timestamp);
+        bytes32 digest = keccak256("isolated-fork-firsto-reference");
+        bytes32 structHash = keccak256(
+            abi.encode(
+                authority.SALE_REFERENCE_TYPEHASH(),
+                address(shareMarket),
+                address(vault),
+                uint128(referencePrice),
+                observedAt,
+                digest,
+                nonce,
+                deadline
+            )
+        );
+        bytes memory signature = _adminSignature(authority, ADMIN_KEY, structHash);
+        vm.prank(vm.addr(RELAYER_KEY));
+        authority.setSaleReference(
+            address(shareMarket),
+            address(vault),
+            uint128(referencePrice),
+            observedAt,
+            digest,
+            nonce,
+            deadline,
+            signature
+        );
+    }
+
+    function _signedReview(
+        PlatformAuthority authority,
+        uint256 signerKey,
+        uint256 proposalId,
+        bool approved,
+        bytes4 expectedError
+    ) private {
+        uint256 nonce = authority.nonces(vm.addr(signerKey));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 structHash = keccak256(
+            abi.encode(
+                authority.REVIEW_SALE_TYPEHASH(),
+                address(shareMarket),
+                address(vault),
+                proposalId,
+                uint128(SALE_PRICE),
+                approved,
+                nonce,
+                deadline
+            )
+        );
+        bytes memory signature = _adminSignature(authority, signerKey, structHash);
+        vm.prank(vm.addr(RELAYER_KEY));
+        if (expectedError != bytes4(0)) vm.expectRevert(expectedError);
+        authority.reviewSale(
+            address(shareMarket), address(vault), proposalId, uint128(SALE_PRICE), approved, nonce, deadline, signature
+        );
+    }
+
+    function _adminSignature(PlatformAuthority authority, uint256 signerKey, bytes32 structHash)
+        private
+        view
+        returns (bytes memory)
+    {
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("BEMine Platform Authority"),
+                keccak256("1"),
+                block.chainid,
+                address(authority)
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(signerKey, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
+        return abi.encodePacked(r, s, v);
     }
 
     function test_Fork_NoApprovalLetsBuyerOrCircuitMarketBypassControlledSale() public {

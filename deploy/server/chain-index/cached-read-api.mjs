@@ -296,15 +296,19 @@ export class PortfolioDisplayReads {
 
 /** One shared stream hub. Connections subscribe to local index invalidations, never to RPC requests. */
 export class DisplayEvents {
-  constructor(index, { now = Date.now, heartbeatMs = 20_000, throttleMs = 15_000, maxClients = 128 } = {}) {
+  constructor(index, { now = Date.now, heartbeatMs = 20_000, throttleMs = 15_000, maxClients = 128, displayRevision = null } = {}) {
     this.index = index; this.now = now; this.throttleMs = throttleMs; this.maxClients = maxClients;
+    this.displayRevision = displayRevision;
     this.clients = new Set(); this.closed = false; this.revision = 'initial'; this.lastSentAt = -Infinity; this.pending = null; this.timer = null;
     this.heartbeat = setInterval(() => { for (const client of [...this.clients]) this.write(client, ': heartbeat\n\n'); }, heartbeatMs);
     this.heartbeat.unref?.();
   }
   revisionFromIndex() {
     const source = this.index.status(); if (!source.complete || this.index.syncing) return null;
-    return indexedBusinessRevision(this.index);
+    const business = indexedBusinessRevision(this.index);
+    if (!this.displayRevision) return business;
+    const display = this.displayRevision();
+    return display ? createHash('sha256').update(JSON.stringify([business,display])).digest('hex') : null;
   }
   publish() {
     if (this.closed) return;
