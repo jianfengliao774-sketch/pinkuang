@@ -44,6 +44,7 @@ import { projectDirectory } from '../lib/project-directory.mjs';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
+import {readCachedFullTestProductConfig} from '../lib/full-test-product-config.mjs';
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
@@ -564,10 +565,8 @@ export default function LivePlatform() {
   }, [client, boot.status, account, route.route, route.pool, marketTab]);
   useEffect(() => {
     if (['fresh-v4', 'full-test'].includes(process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY)) {
-      let cancelled = false;
-      setError('');
-      void loadProductDisplayConfig({ basePath }).then(result => {
-        if (cancelled) return;
+      let cancelled = false, pending = false, retryTimer;
+      const show = result => {
         if (result.status === 'ready') {
           const key = freshReadClientIdentity(result);
           if (readClientIdentity.current !== key) {
@@ -576,10 +575,27 @@ export default function LivePlatform() {
           }
         } else setClient(null);
         setBoot(result);
-      }).catch(problem => {
-        if (!cancelled) { setBoot({ status: 'error' }); setError(textError(problem)); }
-      });
-      return () => { cancelled = true; };
+      };
+      const cached = fullTestBuild ? readCachedFullTestProductConfig() : null;
+      if (cached) show(cached);
+      setError('');
+      const load = async () => {
+        if (cancelled || pending) return;
+        pending = true;
+        try {
+          const result = await loadProductDisplayConfig({basePath});
+          if (!cancelled) { show(result); setError(''); }
+        } catch (problem) {
+          if (!cancelled) {
+            if (!cached && !readClientIdentity.current) { setBoot({status:'error'}); setError(textError(problem)); }
+            retryTimer = setTimeout(() => void load(), 5000);
+          }
+        } finally { pending = false; }
+      };
+      const visible = () => { if (!document.hidden) void load(); };
+      void load();
+      document.addEventListener('visibilitychange', visible);
+      return () => { cancelled = true; clearTimeout(retryTimer); document.removeEventListener('visibilitychange', visible); };
     }
     let cancelled = false;
     let retryTimer;

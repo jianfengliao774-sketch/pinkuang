@@ -20,6 +20,7 @@ const replacements=[
  ['pinkuang-v4-signer.service','bemine-full-test-signer.service'],
  ['pinkuang-v4-authority-recovery.service','bemine-full-test-authority-recovery.service'],
  ['http://127.0.0.1:4184','http://127.0.0.1:4204'],
+ ['http://127.0.0.1:4187/firsto-api','http://127.0.0.1:4207/firsto-api'],
  ["env.PORT==='4187'","env.PORT==='4207'"],
  ['pinkuang_journal','bemine_full_test_journal'],
 ];

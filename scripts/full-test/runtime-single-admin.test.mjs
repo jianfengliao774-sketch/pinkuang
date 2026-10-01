@@ -29,3 +29,10 @@ test('single administrator can pass the complete test index manifest normalizati
    assert.throws(()=>createFreshIndexManifest({...source,freshAuthority:{...source.freshAuthority,administratorTwo}}),/administrators/);
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
+
+test('standalone test index reads miner quotes through its own product cache',()=>{
+ const original=readFileSync(new URL('../../deploy/server/chain-index/overview-stats.mjs',import.meta.url),'utf8');
+ const installed=transformFullTestModule(original,'server/chain-index/overview-stats.mjs');
+ assert.match(installed,/http:\/\/127\.0\.0\.1:4207\/firsto-api/);
+ assert.doesNotMatch(installed,/http:\/\/127\.0\.0\.1:4187/);
+});

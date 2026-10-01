@@ -61,8 +61,8 @@ export function buildFullTestSite({ output, allowDirty = false } = {}) {
     const retiredRoot = join(exported, 'data/frontend-manifest.json'); if (existsSync(retiredRoot)) rmSync(retiredRoot);
     cpSync(exported, destination, { recursive: true, errorOnExist: true, force: false });
     cpSync(join(repository, 'deploy/dist-full-test'), join(destination, 'deploy'), { recursive: true, errorOnExist: true, force: false });
-    // The isolated release has no production quote worker. Serve an honest
-    // unavailable cache instead of a missing URL or a fabricated live price.
+    // Offline exports have an unavailable placeholder. The live deployment
+    // maps this exact URL to the independent public PancakeSwap price cache.
     writeFileSync(join(destination, 'data/bem-price.json'), `${JSON.stringify({ status: 'unavailable',
       priceUsdt: null, quoteCurrency: 'USDT', updatedAt: null, checkedAt: null,
       lastSuccessAt: null, refreshSeconds: 15 })}\n`, { flag: 'wx' });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayAmount, displayDecimal, displayGasFee, displayPreciseAmount } from '../lib/amount-display.mjs';
+import { displayAmount, displayDecimal, displayGasFee, displayPreciseAmount, displayBnb, displayBnbDecimal, displayUsdt } from '../lib/amount-display.mjs';
 import { shareListingView } from '../lib/share-listing-view.mjs';
 test('monetary and capacity display rounds exact atoms, including carry and sub-half-unit values',()=>{
   assert.equal(displayAmount(4999999999999n),'<0.00001');
@@ -41,4 +41,31 @@ test('listing uses an ordinary holder position and subtracts existing locks; unk
   const pool={pool:'0x0000000000000000000000000000000000000001',status:'Active',shareTradingAllowed:true,shares:35n,lockedShares:5n,availableShares:30n};
   assert.deepEqual(shareListingView(pool),{allowed:true,shares:35n,locked:5n,available:30n,defaultQuantity:'30'});
   for(const changes of [{status:'Funding'},{shareTradingAllowed:false},{availableShares:35n},{shares:null},{shares:0n,lockedShares:0n,availableShares:0n}])assert.equal(shareListingView({...pool,...changes}).allowed,false);
+});
+
+test('BNB presentation is fixed to five places without losing wei precision or tiny positive amounts',()=>{
+  const original=999994999999999999n;
+  assert.equal(displayBnb(original),'0.99999');
+  assert.equal(original,999994999999999999n);
+  assert.equal(displayBnb(original+1n),'1.00000');
+  assert.equal(displayBnb(0n),'0.00000');
+  assert.equal(displayBnb(1n),'<0.00001');
+  assert.equal(displayBnb(900719925474099312345999999999999999n),'900,719,925,474,099,312.34600');
+  assert.equal(displayBnb(null),'—');
+  assert.equal(displayBnbDecimal('0.040000000000000001'),'0.04000');
+  assert.equal(displayBnbDecimal('0.000001'),'<0.00001');
+  assert.equal(displayBnbDecimal('1.25e3'),'1,250.00000');
+  assert.equal(displayBnbDecimal(undefined),'—');
+  assert.equal(displayBnbDecimal('Infinity'),'—');
+  assert.equal(displayBnbDecimal('-1'),'—');
+});
+test('USDT prices stay at two decimal places independently of BNB',()=>{
+  assert.equal(displayUsdt('45.43002'),'45.43');
+  assert.equal(displayUsdt('53.0068'),'53.01');
+  assert.equal(displayUsdt('0'),'0.00');
+  assert.equal(displayUsdt('999.9995'),'1,000.00');
+  assert.equal(displayUsdt('NaN'),'—');
+  assert.equal(displayUsdt(null),'—');
+  assert.equal(displayUsdt('-1'),'—');
+  assert.equal(displayBnbDecimal('45.43002'),'45.43002');
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
-import { loadFullTestProductConfig, FULL_TEST_TIMINGS } from '../lib/full-test-product-config.mjs';
+import { loadFullTestProductConfig, readCachedFullTestProductConfig, FULL_TEST_TIMINGS } from '../lib/full-test-product-config.mjs';
 import { governanceAction } from '../lib/live-governance.mjs';
 import { saleTimings } from '../lib/sale-timings.mjs';
 import { validateManifest } from '../lib/live-config.mjs';
@@ -62,4 +62,29 @@ test('test proposals have no hold or cooldown while formal waits and reward days
   assert.equal(saleTimings({}).holdSeconds, 604800n);
   const previousRound = { ...snapshot, roundAnchor: { endsAt: 100n, executed: false, currentFormat: true } };
   assert.doesNotThrow(() => governanceAction(previousRound, roles.deployer, action));
+});
+
+
+test('public test config restores display during an outage without granting transaction or automation readiness',async()=>{
+  const entries = new Map();
+  const storage = {getItem:key=>entries.get(key)??null,setItem:(key,value)=>entries.set(key,value),removeItem:key=>entries.delete(key)};
+  const options={origin:'https://example.test',storage,now:1000000};
+  await loadFullTestProductConfig({...options,fetcher:async()=>new Response(JSON.stringify({...root,status:'ready',manifest,
+    operationalReady:true,transactionReady:true}),{headers:{'Content-Type':'application/json'}})});
+  const cached=readCachedFullTestProductConfig({...options,now:1000001});
+  assert.equal(cached.manifest.factory,manifest.factory);
+  assert.equal(cached.configurationCached,true);
+  assert.equal(cached.operationalReady,false);
+  assert.equal(cached.transactionReady,false);
+  assert.equal(readCachedFullTestProductConfig({...options,now:2800001}),null);
+  assert.equal(readCachedFullTestProductConfig({...options,origin:'https://another.test'}),null);
+  const key=[...entries.keys()][0],bad=JSON.parse(entries.get(key));bad.input.artifactDigest=hash(200);
+  entries.set(key,JSON.stringify(bad));assert.equal(readCachedFullTestProductConfig(options),null);
+});
+test('live unconfigured response retires a previous display config',async()=>{
+  const entries=new Map();const storage={getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
+  const options={origin:'https://example.test',storage,now:1000000};
+  for(const input of [{...root,status:'ready',manifest},root])
+    await loadFullTestProductConfig({...options,fetcher:async()=>new Response(JSON.stringify(input),{headers:{'Content-Type':'application/json'}})});
+  assert.equal(readCachedFullTestProductConfig(options),null);
 });
