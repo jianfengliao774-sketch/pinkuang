@@ -2282,9 +2282,6 @@ export default function LivePlatform() {
   }
 
   const pageSource = route.route === 'market' && marketTab !== 'whole' ? marketOrderSource : source;
-  const displaySources = route.route === 'home' ? [pageSource, statsSource]
-    : route.route === 'market' ? [pageSource, positionsReadSource] : [pageSource];
-  const historicalSource = displaySources.find(value => value?.readMode === 'verified_snapshot' && value.stale === true);
   const detailActionReadyFor = action => currentDetailActionReady({ client, config, source, action,
     cachedPage, loading, busy, loadedRoute, routePool: route.pool, detailPool: detail?.pool,
     loadedAccount, account });
@@ -2439,7 +2436,7 @@ export default function LivePlatform() {
           {boot.status !== "ready" && boot.status !== "loading" && (
             <div className="live-notice" role="status">
               <span>{boot.status === "unconfigured"
-                ? L("项目尚未开放，等待部署核验", "Project not yet open — awaiting deployment verification")
+                ? L("项目尚未开放", "Project not yet open")
                 : L("数据暂不可用，请稍后重试。", "Data is unavailable. Please try again later.")}</span>
               <Button secondary disabled={busy || !!modal || !!pending} onClick={() => setBootAttempt(v => v + 1)}>
                 <RefreshCw size={16}/>{L("重新加载", "Retry loading")}
@@ -2455,10 +2452,6 @@ export default function LivePlatform() {
                 <Button secondary disabled={busy || !!modal || !!pending || !!connectionLock.current}
                   onClick={() => setBootAttempt(value => value + 1)}>{L('重新核对服务', 'Recheck services')}</Button></>}
             </p>}
-          {historicalSource && !config?.displayOnly && operatorServiceReady && !(loading || revalidating) &&
-            <p className="subtle-note" role="status">{historicalSource.cacheOrigin === 'server'
-              ? L('已读取服务器缓存，后台持续同步链上数据。', 'Loaded server cache; on-chain data continues syncing in the background.')
-              : L('资料待更新，相关操作暂不可用。', 'Data needs updating; related actions are temporarily unavailable.')}</p>}
           {error && (
             <div className="live-notice error" role="alert">
               <AlertCircle size={18} />
@@ -2620,13 +2613,6 @@ export default function LivePlatform() {
                     </h1>
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
-                  {(source?.stale || cachedPage) && <span className="subtle-note">
-                    {source?.cacheOrigin === 'server'
-                      ? L('服务器缓存 · 后台同步', 'Server cache · background sync')
-                      : revalidating || loading
-                      ? L('已缓存资料 · 后台更新中', 'Cached details · updating in the background')
-                      : L('上次更新的资料', 'Details from the last update')}
-                  </span>}
                   <StateBadge state={detail.status} L={L} />
                   {refreshButton}
                   <button
