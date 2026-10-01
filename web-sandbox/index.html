@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>BEMine · 整机出售测试</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <header class="topbar"><a class="brand" href="/">BEMine <span>整机出售测试</span></a><div class="wallet-area"><span id="network" class="badge">BNB 主网 · 模拟矿机</span><button id="connect" type="button">连接钱包</button></div></header>
+    <main>
+      <div class="intro"><div><p class="eyebrow">SALE SANDBOX</p><h1>测试整机出售的完整流程</h1><p>独立测试合约和模拟矿机 NFT。支付与领取使用真实 BNB，Gas 由当前钱包支付。</p></div><a class="text-link" href="/">返回首页 ↗</a></div>
+      <div class="scope">本页测试：提案、低价审核、持有人双多数投票、挂牌、模拟成交与 BNB 领取。<strong>未覆盖真实 Firsto 撮合和正式矿机挖矿。</strong></div>
+      <p id="notice" class="notice" role="status" hidden></p>
+      <div id="app"><section class="card"><p>正在加载测试工具…</p></section></div>
+    </main>
+    <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form method="dialog" class="dialog-shell"><header class="dialog-header"><h2 id="confirm-title"></h2><button aria-label="关闭" class="icon-button" value="cancel">×</button></header><div id="confirm-body" class="dialog-body"></div><footer class="dialog-footer"><button value="cancel" class="secondary">取消</button><button id="confirm-submit" type="button">在钱包确认</button></footer></form></dialog>
+    <dialog id="result-dialog" aria-labelledby="result-title"><form method="dialog" class="dialog-shell"><header class="dialog-header"><h2 id="result-title"></h2><button aria-label="关闭" class="icon-button" value="close">×</button></header><div id="result-body" class="dialog-body"></div><footer class="dialog-footer"><button value="close">知道了</button></footer></form></dialog>
+  </body>
+</html>

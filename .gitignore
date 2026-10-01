@@ -22,3 +22,7 @@ deploy/*.tsbuildinfo
 deploy/keeper-state/
 deploy/keeper-journal/
 deploy/.local/
+
+# Independent on-chain sale rehearsal output (source is committed separately).
+web-sandbox/dist/
+web-sandbox/public/sale-sandbox-artifacts.json
