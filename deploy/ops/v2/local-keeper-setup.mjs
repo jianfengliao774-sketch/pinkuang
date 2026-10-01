@@ -8,6 +8,13 @@ import { Wallet } from 'ethers';
 const HOST = '127.0.0.1';
 const TTL_MS = 15 * 60_000;
 const KEY = /^0x[0-9a-fA-F]{64}$/;
+
+export function normalizePrivateKey(value) {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  const key = `0x${trimmed.replace(/^0x/i, '')}`;
+  if (!KEY.test(key)) throw new Error('请输入 64 位十六进制私钥，可带或不带 0x 前缀。');
+  return key;
+}
 const REMOTE = `import os,re,stat,sys
 directory='/etc/pinkuang'
 os.makedirs(directory,mode=0o700,exist_ok=True)
@@ -30,14 +37,15 @@ finally: os.close(fd)
 print('saved')`;
 
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
-const safeError = value => String(value ?? '').replace(/0x[0-9a-f]{64,}/ig, '[redacted]').slice(0, 200);
+const safeError = value => String(value ?? '').replace(/(?:0x)?[0-9a-f]{64,}/ig, '[redacted]').slice(0, 200);
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
 export function saveCredentialViaSsh(key, {
   sshKey = resolve(process.env.HOME ?? '', '.ssh/chouj-digitalocean-ed25519'),
   host = '144.126.242.139', spawnImpl = spawn,
 } = {}) {
-  if (!KEY.test(key)) return Promise.reject(new Error('私钥格式不正确。'));
+  try { key = normalizePrivateKey(key); }
+  catch (error) { return Promise.reject(error); }
   return new Promise((resolveSave, rejectSave) => {
     const command = `python3 -c ${quote(REMOTE)}`;
     const child = spawnImpl('ssh', ['-T', '-i', sshKey, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
@@ -76,7 +84,7 @@ export async function createSetupServer({ saveCredential = saveCredentialViaSsh,
     const send = (code, html) => { res.writeHead(code, { ...headers, 'Content-Type': 'text/html; charset=utf-8' }); res.end(page(html, nonce)); };
     if (req.headers.host !== origin.slice(7).toLowerCase() || req.url !== path) return send(404, '<h1>页面不可用</h1>');
     if (used || attempts >= 5) return send(410, '<h1>录入页已关闭</h1>');
-    if (req.method === 'GET') return send(200, `<h1>录入专用 Gas 钱包</h1><p>这是仅在本机打开的一次性页面。私钥通过 SSH 写入服务器的受限文件；本页面不设置浏览器存储，也不向公开网站发送。</p><div class="note">请使用<strong>专用 Gas 钱包</strong>，不要输入合约部署／升级硬件钱包的私钥。保存不会立即购机；我们会先核对公开地址与余额。</div><form method="post" action="${path}" autocomplete="off"><input type="hidden" name="formToken" value="${formToken}"><label for="key">Gas 钱包私钥</label><input id="key" name="key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="66" minlength="66" pattern="0x[0-9a-fA-F]{64}" required><button type="submit">安全保存到服务器</button></form><p><small>页面 15 分钟后失效；提交后不会回显私钥。</small></p>`);
+    if (req.method === 'GET') return send(200, `<h1>录入专用 Gas 钱包</h1><p>这是仅在本机打开的一次性页面。私钥通过 SSH 写入服务器的受限文件；本页面不设置浏览器存储，也不向公开网站发送。</p><div class="note">请使用<strong>专用 Gas 钱包</strong>，不要输入合约部署／升级硬件钱包的私钥。保存不会立即购机；我们会先核对公开地址与余额。</div><form method="post" action="${path}" autocomplete="off"><input type="hidden" name="formToken" value="${formToken}"><label for="key">Gas 钱包私钥</label><input id="key" name="key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="96" required><small>支持带或不带 0x 前缀；首尾空格会自动清除。</small><button type="submit">安全保存到服务器</button></form><p><small>页面 15 分钟后失效；提交后不会回显私钥。</small></p>`);
     if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded' || busy) return send(403, '<h1>请求未通过验证</h1>');
     if (Number(req.headers['content-length'] ?? 0) > 256) return send(413, '<h1>输入过长</h1>');
     busy = true;
@@ -87,10 +95,11 @@ export async function createSetupServer({ saveCredential = saveCredentialViaSsh,
         body = Buffer.concat([body, chunk]);
       }
       const fields = new URLSearchParams(body.toString('utf8'));
-      const key = fields.get('key');
       attempts += 1;
       if (fields.size !== 2 || fields.get('formToken') !== formToken) return send(403, '<h1>请求未通过验证</h1>');
-      if (!KEY.test(key ?? '')) return send(400, '<h1>私钥格式不正确</h1><p>请返回后重试。</p>');
+      let key;
+      try { key = normalizePrivateKey(fields.get('key')); }
+      catch { return send(400, '<h1>私钥格式不正确</h1><p>请输入 64 位十六进制私钥，可带或不带 0x 前缀。</p>'); }
       const address = new Wallet(key).address;
       await saveCredential(key);
       used = true;

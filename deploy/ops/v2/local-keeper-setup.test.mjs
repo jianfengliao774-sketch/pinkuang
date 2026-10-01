@@ -15,6 +15,8 @@ test('local setup page requires its form token and writes a valid key once', asy
     assert.equal(form.status, 200);
     const html = await form.text();
     assert.match(html, /录入专用 Gas 钱包/);
+    assert.ok(!html.includes('minlength="66"'));
+    assert.ok(!html.includes('pattern="0x'));
     const token = html.match(/name="formToken" value="([0-9a-f]{64})"/)?.[1];
     assert.ok(token);
 
@@ -32,11 +34,12 @@ test('local setup page requires its form token and writes a valid key once', asy
 
     const accepted = await fetch(setup.url, { method: 'POST', headers: {
       origin: 'null', 'content-type': 'application/x-www-form-urlencoded',
-    }, body: new URLSearchParams({ formToken: token, key: SAMPLE_KEY }) });
+    }, body: new URLSearchParams({ formToken: token, key: ` \n${SAMPLE_KEY.slice(2)}\t ` }) });
     assert.equal(accepted.status, 200);
     const response = await accepted.text();
     assert.match(response, new RegExp(new Wallet(SAMPLE_KEY).address, 'i'));
     assert.ok(!response.includes(SAMPLE_KEY));
+    assert.ok(!response.includes(SAMPLE_KEY.slice(2)));
     assert.deepEqual(saved, [SAMPLE_KEY]);
 
     const second = await fetch(setup.url);
@@ -57,7 +60,7 @@ test('SSH command transmits the key only on stdin', async () => {
     child.stdin.on('end', () => { child.stdout.write('saved\n'); child.emit('close', 0); });
     return child;
   };
-  await saveCredentialViaSsh(SAMPLE_KEY, { spawnImpl, sshKey: '/tmp/test-key' });
+  await saveCredentialViaSsh(` \t${SAMPLE_KEY.replace('0x', '0X')}\n`, { spawnImpl, sshKey: '/tmp/test-key' });
   assert.equal(stdin, `${SAMPLE_KEY}\n`);
   assert.equal(argv[0], 'ssh');
   assert.ok(!argv.join(' ').includes(SAMPLE_KEY));
