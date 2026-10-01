@@ -724,7 +724,7 @@ export default function LivePlatform() {
     const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
     lastPageRefresh.current.set(page, Date.now());
     const check = () => {
-      if (route.route === 'records' && recordsPage > 0) return;
+      if (['records', 'rewards'].includes(route.route) && recordsPage > 0) return;
       const state = refreshState.current;
       const now = Date.now();
       if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
@@ -743,7 +743,7 @@ export default function LivePlatform() {
 
   useEffect(() => {
     if (!client) return;
-    if (route.route === 'records' && recordsPage > 0) return;
+    if (['records', 'rewards'].includes(route.route) && recordsPage > 0) return;
     const pageSource = route.route === 'home'
       ? [source, statsSource].find(item => item?.readMode === 'verified_snapshot') ?? statsSource ?? source
       : route.route === 'market' && marketTab === 'shares' ? marketOrderSource : source;
@@ -2117,7 +2117,7 @@ export default function LivePlatform() {
     else if (activityCursor && await more('activity')) setRecordsPage(recordsPageIndex + 1);
   }
   const visibleActivity = route.route === "overview" ? summarizeOverviewActivity(activity)
-    : route.route === 'records' ? activity.slice(recordsPageIndex * recordsPageSize, (recordsPageIndex + 1) * recordsPageSize)
+    : ['records', 'rewards'].includes(route.route) ? activity.slice(recordsPageIndex * recordsPageSize, (recordsPageIndex + 1) * recordsPageSize)
       : activity;
   const activityTable = () => (
     <>
@@ -2181,7 +2181,7 @@ export default function LivePlatform() {
             : L("暂无已确认记录", "No confirmed records")} />}
       </div>
       {activityReadError && route.route !== 'detail' && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
-      {route.route === 'records' ? <nav className="live-actions" aria-label={L('记录分页', 'Records pagination')}>
+      {['records', 'rewards'].includes(route.route) ? <nav className="live-actions" aria-label={L('记录分页', 'Records pagination')}>
         <Button secondary disabled={recordsPageIndex === 0 || busy || activityReadLoading}
           onClick={() => setRecordsPage(recordsPageIndex - 1)}>{L('上一页', 'Previous')}</Button>
         <span aria-live="polite">{L(`第 ${recordsPageIndex + 1} 页 · 每页 ${recordsPageSize} 条`,
