@@ -4,7 +4,9 @@ The user selected `0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E` as the deployer a
 
 ## Published artifacts and preserved deployment
 
-- Contract and frontend build: `ecb663758a4b3fc6481757dae8038c175a0f1bc6`.
+- Contract build: `ecb663758a4b3fc6481757dae8038c175a0f1bc6`.
+- Final static frontend: `fee92d34c454856839db287d30509f59364ef25f`.
+- Installed backend repair source: `51e6ed91abd9d6757bbdfd9371919c098395c0f7`.
 - Artifact digest: `0x3d386ce28a1898546697d1ee715b5276104894f781e68b785306eac9cde5338b`.
 - Previous digest: `0x3185cc2ec2ce4e21ba80e71b1942a115a52b1673e474dcb8420cdd02aca02ddb`.
 - The reuse proof compared all 21 artifact ABIs, all 20 unchanged artifacts and immutable byte offsets. Compiler AST identifiers may change without changing those offsets. Only the not-yet-deployed PlatformAuthority bytecode changed.
@@ -34,3 +36,17 @@ The deployment reader now uses `/bemine-full-test/api/rpc`; Nginx also serves th
 The activation provisioner accepts the narrowly named test repair releases in addition to original test releases. The independently built test index manifest validator accepts the single administrator configuration while retaining the Authority/Gas address separation. A regression test normalizes and serializes that complete manifest, rejects different test administrators and address aliases, and confirms the formal validator remains unchanged.
 
 All changes are scoped to the independent full-test deployment. Private keys, RPC credentials, sessions and journal backups are excluded from this report and the repository.
+
+## Completed service activation and frontend verification
+
+The activation ready marker and installed-service marker are present. The API, signer, index, purchase and mining services are running. A live operational proof returned `ready:true` for both workers and the isolated sender. The public configuration subsequently returned `status:ready`, `operationalReady:true`, `dataServicesReady:true` and `automationReady:true`.
+
+The frontend no longer requires two distinct test administrators. It binds the sole administrator to the deployer and keeps the Gas wallet separate. Compiled full-test artifact metadata selects the single-administrator manifest validator; the formal validator retains its existing two-administrator behavior. Chrome connected 155E, exposed the operator workspace, and showed zero projects with an updated index block instead of the prior administrator error.
+
+The official public node rejected batched `eth_call` requests and could not serve historical nonce state. Test worker and index providers now send unbatched requests. The sender's initial zero nonces were independently verified before its root-owned birth proof was saved; ongoing readiness checks validate that proof, its canonical block header, current nonce and funding without repeatedly requesting historical nonce state.
+
+Putting all reads on the existing paid NodeReal endpoint triggered its CUPS limit. The final routing uses the official public BSC endpoint for recent API/worker/header reads, NodeReal for indexed logs, and the verified `public.1rpc.io/bnb` log fallback with a 50-block scan range. The existing index checks the fallback's chain ID and canonical range-end header. These are server-private configuration values; credentials are not embedded in the frontend or committed.
+
+Readiness display refreshes in the background after 15 seconds and retains a successful live result for at most 30 seconds. A failed refresh or expiry clears that result. Privileged submissions retain their separate live readiness check. This avoids a five-second display expiry making every slower UI poll incorrectly report unavailable services.
+
+Validation covered the frontend single-admin configuration and live-data tests, isolated server activation/restart tests, bounded readiness polling, and sender nonce/funding/canonical-header checks. No new business transaction was sent during these fixes. End-to-end project purchase and mining still require the user's test project; the empty deployment is not evidence of those business flows completing.
