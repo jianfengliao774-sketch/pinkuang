@@ -107,20 +107,23 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
   const authority = manifest.authority;
   for (const key of ['authority', 'factory', 'shareMarket', 'portfolioFactory', 'portfolioMarket', 'gasWallet'])
     check(same(config[key], manifest[key]), '手续费配置与当前正式部署不一致。');
-  check(config.stale !== true, '请先读取当前正式部署状态。');
+  const direct = config.displayOnly === true;
+  if (!direct) check(config.stale !== true, '请先读取当前正式部署状态。');
   const queue = readQueue(provider, signal);
   const request = (method, params = []) => queue.request({ method, params });
   const balanceRequest = (method, params = []) => queue.request({ method, params }, balanceProvider);
   try {
-    const [chain, block] = await Promise.all([
+    const [chain, block] = direct ? [null, null] : await Promise.all([
       request('eth_chainId'), request('eth_getBlockByNumber', ['latest', false]),
     ]);
-    check(BigInt(chain) === 56n, '请切换至 BSC 主网。');
-    check(block?.number && block?.timestamp && hash(block.hash), '当前手续费区块暂不可用。');
-    const blockNumber = BigInt(block.number), tag = toQuantity(blockNumber);
-    check(blockNumber >= BigInt(manifest.verifiedBlockNumber), 'RPC 尚未同步到当前正式部署。');
+    if (!direct) {
+      check(BigInt(chain) === 56n, '请切换至 BSC 主网。');
+      check(block?.number && block?.timestamp && hash(block.hash), '当前手续费区块暂不可用。');
+    }
+    const blockNumber = direct ? null : BigInt(block.number), tag = direct ? 'latest' : toQuantity(blockNumber);
+    if (!direct) check(blockNumber >= BigInt(manifest.verifiedBlockNumber), 'RPC 尚未同步到当前正式部署。');
     async function verifyBalanceProvider() {
-      if (balanceProvider === provider) return;
+      if (direct || balanceProvider === provider) return;
       const [balanceChain, balanceBlock] = await Promise.all([
         balanceRequest('eth_chainId'), balanceRequest('eth_getBlockByNumber', [tag, false]),
       ]);
@@ -135,6 +138,7 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
     await verifyBalanceProvider();
     const read = async (to, name, args = []) => bindings.decodeFunctionResult(name,
       await request('eth_call', [{ to, data: bindings.encodeFunctionData(name, args) }, tag]))[0];
+    if (!direct) {
     const roots = ['factory', 'shareMarket', 'portfolioFactory', 'portfolioMarket'];
     const values = await Promise.all([
       read(authority, 'coreFactory'), read(authority, 'budgetFactory'), read(authority, 'gasWallet'), read(authority, 'BEM'),
@@ -151,6 +155,7 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
     const expectedCodes = [manifest.freshAuthority.codehash, ...roots.map(key => manifest.codehash[key])];
     check(values.slice(9).every((code, index) => code && code !== '0x'
       && keccak256(code).toLowerCase() === expectedCodes[index]), '手续费合约代码与正式部署不一致。');
+    }
 
     const [coreCount, budgetCount, directBnb, directBem, marketBnb, portfolioMarketBnb] = await Promise.all([
       read(manifest.factory, 'poolCount'), read(manifest.portfolioFactory, 'portfolioCount'),
@@ -180,6 +185,7 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
     const poolOwed = new Map();
     await scanCount(BigInt(directory.length), async index => {
       const entry = directory[Number(index)], registeredFactories = [...entry.factories];
+      if (!direct) {
       const [binding, treasury, ...registered] = await Promise.all([
         read(entry.address, 'OFFICIAL_FACTORY'), read(entry.address, 'treasury'),
         ...registeredFactories.map(factory => read(factory, 'isPool', [entry.address])),
@@ -193,20 +199,25 @@ export async function readFeeCollection({ config, provider, balanceProvider = pr
       check(same(token, BEM), '手续费池的 BEM 资产绑定不一致。');
       const exact = uint(amount);
       if (exact > 0n) poolOwed.set(entry.address, exact);
+      } else {
+        const exact = uint(await read(entry.address, 'bnbOwed', [authority]));
+        if (exact > 0n) poolOwed.set(entry.address, exact);
+      }
     }, signal);
     // Preserve registry order even when RPC requests complete in another order.
     const pools = directory.map(entry => entry.address).filter(address => poolOwed.has(address));
     const totalBnbWei = directBnbWei + [...owed.values(), ...poolOwed.values()].reduce((sum, value) => sum + value, 0n);
-    const [again, finalChain] = await Promise.all([
+    const [again, finalChain] = direct ? [null, null] : await Promise.all([
       request('eth_getBlockByNumber', [tag, false]), request('eth_chainId'),
     ]);
     abortCheck(signal);
-    check(BigInt(finalChain) === 56n && again?.number && BigInt(again.number) === blockNumber
+    if (!direct) check(BigInt(finalChain) === 56n && again?.number && BigInt(again.number) === blockNumber
       && again?.hash?.toLowerCase() === block.hash.toLowerCase(), '读取期间手续费区块发生变化，请刷新。');
     await verifyBalanceProvider();
     abortCheck(signal);
     return { markets, pools, directBnbWei, directBemWei, totalBnbWei, totalBemWei: directBemWei,
-      sourceCount: markets.length + pools.length, blockNumber, blockHash: block.hash.toLowerCase(),
+      sourceCount: markets.length + pools.length, blockNumber, blockHash: direct ? null : block.hash.toLowerCase(),
+      ...(direct ? { displayOnly: true } : {}),
       batches: collectionBatches(markets, pools, directBnbWei, directBemWei) };
   } finally { await queue.close(); }
 }

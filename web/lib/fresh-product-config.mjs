@@ -1,5 +1,6 @@
 import { sha256, toUtf8Bytes } from 'ethers';
 import { ARTIFACT_DIGEST } from './chain-client.mjs';
+import compiledManifest from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { fetchLiveJson, hash, insist, liveAddress, validateManifest, validateProductGraph } from './live-config.mjs';
 
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
@@ -33,6 +34,54 @@ export function validateFreshProductGraph(input, pinnedManifest) {
     && (!graph.stale || graph.snapshotAgeMs < 30 * 60 * 1000),
   'fresh_product_graph', '正式版新合约或只读快照尚未通过核验。');
   return graph;
+}
+
+/**
+ * Public browsing only needs this build's reviewed addresses. No RPC, current
+ * product graph, polling, or current authorization proof is part of this boot.
+ * Production builds replace compiledManifest with the reviewed v4 trust root.
+ */
+export async function loadFreshDisplayConfig({ fetcher = globalThis.fetch,
+  basePath = '', origin = globalThis.location?.origin,
+  manifestSha256 = process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256,
+  pinnedManifest: suppliedManifest, rpcUrl, allowedRpcOrigins = [] } = {}) {
+  insist(typeof origin === 'string' && /^https?:\/\//.test(origin) && new URL(origin).origin === origin,
+    'invalid_config', '缺少可信网站来源。');
+  insist(basePath === '/bemine-v4' || basePath === '/bemine-v4/',
+    'invalid_config', '正式版只能使用独立的 /bemine-v4/ 路径。');
+  insist(hash(manifestSha256), 'fresh_manifest_mismatch', '正式版构建缺少固定的清单摘要。');
+  const base = '/bemine-v4';
+  const manifestUrl = `${origin}${base}/data/frontend-manifest.v4.json`;
+  const rpc = new URL(rpcUrl ?? `${base}/api/rpc`, origin);
+  insist(!rpc.username && !rpc.password && !rpc.hash, 'invalid_config', '只读 RPC 配置无效。');
+  insist(rpc.origin === origin || rpc.protocol === 'https:' && allowedRpcOrigins.includes(rpc.origin),
+    'rpc_not_allowed', 'RPC 来源未获配置授权。');
+
+  let pinnedManifest, manifestSource = 'build';
+  if (suppliedManifest !== undefined) {
+    // An explicitly supplied build root must not silently fall back elsewhere.
+    pinnedManifest = validateFreshManifest(suppliedManifest, manifestSha256);
+  } else {
+    try { pinnedManifest = validateFreshManifest(compiledManifest, manifestSha256); }
+    catch {
+      // Local development can still compile the earlier manifest. The only
+      // fallback is this origin's v4 file, bound to the same build digest.
+      const input = await fetchLiveJson(manifestUrl, { fetcher, allow404: true, maxBytes: 65536 });
+      if (input === null) return Object.freeze({ status: 'unconfigured', displayOnly: true,
+        transactionReady: false, operationalReady: false, userExitReady: false,
+        reason: '正式版新合约尚未完成部署核验。', manifestUrl });
+      pinnedManifest = validateFreshManifest(input, manifestSha256);
+      manifestSource = 'same-origin';
+    }
+  }
+  return Object.freeze({ status: 'ready', productFamily: 'fresh-v4', stage: 'fresh-active',
+    pinnedManifest, manifest: pinnedManifest, artifactDigest: pinnedManifest.artifactDigest,
+    displayOnly: true, readMode: 'display', manifestSource,
+    transactionReady: false, operationalReady: false, userExitReady: false,
+    freshFactoryVerified: false, freshAuthority: pinnedManifest.freshAuthority,
+    origin, basePath: base, manifestUrl,
+    productGraphUrl: `${origin}${base}/api/journal/product-graph`,
+    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }
 
 /** /bemine-v4/ uses a separate static manifest and the v4-only API namespace. */

@@ -1,7 +1,7 @@
 import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
 import { validateManifest, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
-import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
+import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource, displayIndexSource } from './live-data.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
@@ -15,8 +15,10 @@ const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const a = getAddress(value); requireValue(a !== ZeroAddress, '地址不能为零。'); return a; };
-/** A saved directory or local page can supply identities, never action eligibility. */
+/** These gates open a preview; contract execution decides on-chain eligibility. */
 export function portfolioConfigActionReady(config,action,targetType='portfolio') {
+  if (config?.displayOnly === true) return config.status === 'ready' && config.kind === 'integrated-v2'
+    && ['genesis','fresh-active','code-upgraded','role-migrating','role-wired'].includes(config.stage);
   const v4Ready = config?.productFamily !== 'fresh-v4'
     || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
     || freshUserExitReady(config,targetType,action) || freshWalletActionReady(config,targetType,action);
@@ -31,15 +33,15 @@ export function portfolioCreateActionReady({ config, operatorVerified, operator,
 }
 export function portfolioPageActionReady({ config, freshRead, listingSource, initialPool }) {
   return portfolioConfigActionReady(config) && freshRead === true
-    && (!!initialPool || !!listingSource && listingSource.stale !== true
-      && listingSource.readMode !== 'verified_snapshot');
+    && (!!initialPool || !!listingSource && (listingSource.displayOnly === true || listingSource.stale !== true
+      && listingSource.readMode !== 'verified_snapshot'));
 }
 export function portfolioSelectedActionReady({ config, selectedProofCurrent, action, targetType }) {
   return portfolioConfigActionReady(config,action,targetType) && selectedProofCurrent === true;
 }
 export function portfolioOrderActionReady({ config, selectedProofCurrent, source, orderPool, selectedPool, action }) {
   return portfolioSelectedActionReady({ config, selectedProofCurrent, action, targetType:'portfolioMarket' })
-    && !!source && source.stale !== true && source.readMode !== 'verified_snapshot'
+    && !!source && (source.displayOnly === true || source.stale !== true && source.readMode !== 'verified_snapshot')
     && typeof orderPool === 'string' && typeof selectedPool === 'string'
     && same(orderPool, selectedPool);
 }
@@ -156,26 +158,157 @@ export async function readPortfolioContext(config, provider, blockNumber) {
   return { manifest, stage: config.stage, provider, block, tag, timestamp, read, canonical, operator: address(operator[0]) };
 }
 
-// A fixed historical block has immutable code and bindings once its hash is
-// canonical. Share that expensive proof between display pages only; transaction
-// preparation still calls readPortfolioContext directly against the latest head.
+// All ordinary portfolio fields share a provider's 12-request budget, including
+// directory and detail reads started by different mounted page sections.
+const displayReadBudgets = new WeakMap();
 const displayContexts = new WeakMap();
-function readPortfolioDisplayContext(config, provider, blockNumber) {
+export function readPortfolioDisplayContext(config, provider, blockNumber, source) {
   if (config?.productFamily !== 'fresh-v4') return readPortfolioContext(config, provider, blockNumber);
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
+  requireValue(manifest.kind === 'integrated-v2' && provider?.request && source,
+    '预算项目缺少展示来源。');
+  requireValue(same(source.portfolioFactory, manifest.portfolioFactory)
+    && same(source.portfolioMarket, manifest.portfolioMarket)
+    && BigInt(source.indexedThrough) === uint(blockNumber), '预算项目展示来源不一致。');
   let entries = displayContexts.get(provider);
   if (!entries) { entries = new Map(); displayContexts.set(provider, entries); }
-  const key = JSON.stringify([config.stage, config.manifest, String(blockNumber)]);
+  const key = JSON.stringify([config.stage, config.manifest, String(blockNumber), source.indexedBlockHash]);
   if (entries.has(key)) return entries.get(key);
-  const pending = readPortfolioContext(config, provider, blockNumber);
-  entries.set(key, pending);
+  let budget = displayReadBudgets.get(provider);
+  if (!budget) {
+    budget = boundedPortfolioReads(input => provider.request(input));
+    displayReadBudgets.set(provider, budget);
+  }
+  const tag = toQuantity(uint(blockNumber)), timestamp = BigInt(source.indexedTimestamp);
+  const read = async (to, contract, method, args = []) => contract.decodeFunctionResult(method,
+    await budget.read({ method: 'eth_call', params: [{ to, data: contract.encodeFunctionData(method, args) }, tag] }));
+  // There is deliberately no canonical() or authorization proof on this context.
+  const context = { manifest, stage: config.stage, provider, tag, timestamp, read,
+    block: { number: tag, hash: source.indexedBlockHash, timestamp: toQuantity(timestamp) },
+    operator: null, source: displayIndexSource(source), displayOnly: true };
+  entries.set(key, context);
   if (entries.size > 4) entries.delete(entries.keys().next().value);
-  void pending.catch(() => { if (entries.get(key) === pending) entries.delete(key); });
-  return pending;
+  return context;
+}
+
+/** Read only values needed to encode or describe an explicit transaction. */
+export function readPortfolioBusinessContext(config, provider, { now = Date.now } = {}) {
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
+  requireValue(manifest.kind === 'integrated-v2' && provider?.request, '预算项目配置或读取服务不可用。');
+  let budget = displayReadBudgets.get(provider);
+  if (!budget) {
+    budget = boundedPortfolioReads(input => provider.request(input));
+    displayReadBudgets.set(provider, budget);
+  }
+  const read = async (to, contract, method, args = []) => contract.decodeFunctionResult(method,
+    await budget.read({ method: 'eth_call', params: [{ to: address(to), data: contract.encodeFunctionData(method, args) }, 'latest'] }));
+  return { manifest, stage: config.stage, provider, tag: 'latest', read,
+    timestamp: BigInt(Math.floor(now() / 1000)), block: { number: null, hash: null },
+    operator: null, displayOnly: true };
+}
+
+/** Complete business model for a shared server cache, without browser proof reads. */
+export async function readPortfolioCurrent(config, provider, pool, account = ZeroAddress, { includeChildren = true } = {}) {
+  const context = readPortfolioBusinessContext(config, provider), group = boundedPortfolioReads(context.read);
+  try { return await readPortfolio({ ...context, read: group.read }, pool, account, { includeChildren }); }
+  finally { await group.drain(); }
+}
+
+const displayIntegers = ['state', 'budgetWei', 'absoluteCapWei', 'unitCapWei', 'spentWei', 'totalSupply', 'memberCount',
+  'childCount', 'activeChildCount', 'fundingDeadline', 'purchaseDeadline', 'refundPerShareWei', 'salePerShareWei',
+  'activeProposalId', 'nextProposalId', 'nextRoundAt', 'balanceOf', 'claimableBem', 'bnbOwed', 'saleDebt', 'lockedShares',
+  'shares', 'unitPriceWei', 'availableShares', 'timestamp', 'withdrawableBnb'];
+function decodeDisplayItem(item, config, source, account) {
+  requireValue(item?.kind === 'portfolio' && same(item.account, account) && same(item.OFFICIAL_FACTORY, config.manifest.portfolioFactory)
+    && same(item.legacyFactory, config.manifest.factory) && Array.isArray(item.children) && Array.isArray(item.proposals)
+    && displayIntegers.every(name => typeof item[name] === 'bigint' && item[name] >= 0n)
+    && ['fundingFailed', 'refundSettled', 'shareTradingAllowed'].every(name => typeof item[name] === 'boolean')
+    && (item.blockNumber === null || typeof item.blockNumber === 'bigint' && item.blockNumber >= 0n)
+    && item.state <= 5n && item.shares <= 100n && item.totalSupply <= 100n && item.availableShares <= item.shares
+    && item.budgetWei > 0n && item.budgetWei % 100n === 0n, '服务器预算项目展示数据无效或账户不一致。');
+  return { ...item, pool: address(item.pool), displayOnly: true, displaySource: source };
+}
+async function serverPortfolioDisplay(config, path, query, { fetcher = globalThis.fetch, now = Date.now } = {}) {
+  if (config?.displayOnly !== true) return null;
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
+  const base = new URL(config.indexBaseUrl);
+  requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
+  const url = new URL(`${base.href.replace(/\/$/, '')}/v1/display/portfolios${path}`);
+  for (const [key, value] of Object.entries(query)) if (value !== undefined) url.searchParams.set(key, String(value));
+  let response;
+  try { response = await fetchLiveJsonWithClock(url.href, { fetcher, now, timeoutMs: 2500 }); }
+  catch (error) {
+    if (isRetryableReadError(error) || error?.code === 'network_unavailable' || [404,503].includes(error?.details?.status)) return null;
+    throw error;
+  }
+  const { body, serverNow, localReceivedAt } = response, input = body?.source;
+  requireValue(input?.cacheOrigin === 'server' && input.displayOnly === true && input.transactionReady === false
+    && ['display','verified_snapshot','current'].includes(input.readMode), '服务器预算项目快照来源无效。');
+  const parsed = validateIndexSource({ ...input, ...(input.readMode === 'display'
+    ? { cacheReadMode: 'display', readMode: input.stale === true ? 'verified_snapshot' : 'current' } : {}) }, manifest,
+    { now: now(), ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  requireValue(same(parsed.portfolioFactory, manifest.portfolioFactory) && same(parsed.portfolioMarket, manifest.portfolioMarket),
+    '服务器预算项目快照合约来源不一致。');
+  const source = displayIndexSource(parsed);
+  const data = JSON.parse(JSON.stringify(body.data), (_key, value) => value && typeof value === 'object'
+    && Object.keys(value).length === 1 && typeof value.$bemineBigInt === 'string'
+    && /^(0|[1-9]\d*)$/.test(value.$bemineBigInt) ? uint(value.$bemineBigInt) : value);
+  return { source, data };
+}
+
+async function portfolioDisplaySource(config, { fetcher = globalThis.fetch, now = Date.now } = {}) {
+  const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
+  const base = new URL(config.indexBaseUrl);
+  requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
+  const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(`${base.href.replace(/\/$/, '')}/health`, { fetcher, now });
+  const source = validateIndexSource(reply?.source?.complete === true ? reply.source : reply?.displaySource, manifest, { now: now(),
+    ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  requireValue(same(source.portfolioFactory, manifest.portfolioFactory)
+    && same(source.portfolioMarket, manifest.portfolioMarket), '预算项目索引身份不一致。');
+  return displayIndexSource(source);
+}
+
+/** Current business fields only; the result can open, never authorize, a preview. */
+export async function readPortfolioDisplayRow(config, provider, pool, account = ZeroAddress, options = {}) {
+  const cached = await serverPortfolioDisplay(config, `/${address(pool)}`,
+    { account: getAddress(account), children: options.includeChildren !== false }, options);
+  if (cached) {
+    const item = decodeDisplayItem(cached.data?.item, config, cached.source, getAddress(account));
+    requireValue(same(item.pool, pool), '服务器预算项目与请求不一致。');
+    return { item, source: cached.source, operator: null };
+  }
+  if (config?.productFamily !== 'fresh-v4') {
+    const context = await readPortfolioContext(config, provider);
+    const item = await readPortfolio(context, pool, account); await context.canonical();
+    return { item, operator: context.operator };
+  }
+  const source = await portfolioDisplaySource(config, options);
+  const context = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough), source);
+  const group = boundedPortfolioReads(context.read);
+  try {
+    const item = await readPortfolio({ ...context, read: group.read }, pool, account, { includeChildren: options.includeChildren !== false });
+    return { item, source, operator: null };
+  } finally { await group.drain(); }
+}
+
+export async function readPortfolioDisplayChildren(config, provider, row, offset = 0n) {
+  if (config?.productFamily !== 'fresh-v4') {
+    const context = await readPortfolioContext(config, provider, row.blockNumber);
+    insist(context.block.hash.toLowerCase() === row.blockHash.toLowerCase(), 'source_reorg', '项目区块已变化，请重新展开项目。');
+    const children = await readPortfolioChildren(context, row.pool, row.childCount, offset); await context.canonical();
+    return children;
+  }
+  requireValue(row.displayOnly === true && row.displaySource, '项目缺少展示来源。');
+  const context = row.blockNumber === null ? readPortfolioBusinessContext(config, provider)
+    : await readPortfolioDisplayContext(config, provider, row.blockNumber, row.displaySource);
+  const group = boundedPortfolioReads(context.read);
+  try { return await readPortfolioChildren({ ...context, read: group.read }, row.pool, row.childCount, offset); }
+  finally { await group.drain(); }
 }
 
 export async function readPortfolio(context, pool, account = ZeroAddress, { includeChildren = true } = {}) {
   const { manifest, read, timestamp } = context, target = address(pool), owner = getAddress(account), contract = abi.BudgetPortfolioVault;
-  requireValue((await read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'isPool', [target]))[0] === true,
+  if (!context.displayOnly) requireValue((await read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'isPool', [target]))[0] === true,
     '此预算项目未在工厂登记。');
   const names = ['OFFICIAL_FACTORY', 'legacyFactory', 'state', 'budgetWei', 'absoluteCapWei', 'unitCapWei', 'spentWei',
     'totalSupply', 'memberCount', 'childCount', 'activeChildCount', 'fundingDeadline', 'purchaseDeadline', 'fundingFailed',
@@ -184,12 +317,13 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
   const values = await Promise.all([...names.map(name => read(target, contract, name)),
     ...memberNames.map(name => read(target, contract, name, [owner]))]);
   const row = Object.fromEntries([...names, ...memberNames].map((key, i) => [key, values[i][0]]));
+  if (context.displayOnly) Object.assign(row, { displayOnly: true, displaySource: context.source });
   requireValue(same(row.OFFICIAL_FACTORY, manifest.portfolioFactory) && same(row.legacyFactory, manifest.factory)
     && row.state <= 5n && row.totalSupply <= 100n && row.balanceOf <= 100n && row.budgetWei > 0n
     && row.budgetWei % 100n === 0n && row.lockedShares <= row.balanceOf, '预算项目状态不一致。');
   Object.assign(row, { kind: 'portfolio', pool: target, account: owner, shares: row.balanceOf,
     unitPriceWei: row.budgetWei / 100n, availableShares: row.balanceOf - row.lockedShares, timestamp,
-    blockNumber: BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null, proposals: [] });
+    blockNumber: context.block.number === null ? null : BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null, proposals: [] });
   row.withdrawableBnb = portfolioBnbEntitlement(row);
   if (row.activeProposalId > 0n) {
     requireValue(row.nextProposalId > row.activeProposalId && row.nextProposalId - row.activeProposalId <= 16n,
@@ -239,10 +373,11 @@ export async function readPortfolioChildren(context, portfolio, count, offset = 
       const pool = address((await context.read(portfolio, abi.BudgetPortfolioVault, 'childAt', [i]))[0]);
       const info = await context.read(portfolio, abi.BudgetPortfolioVault, 'childInfo', [pool]);
       const [registered, factory, state, expired, activatedAt] = await Promise.all([
-        context.read(context.manifest.factory, abi.PoolFactory, 'isPool', [pool]), context.read(pool, abi.PoolVault, 'factory'),
+        context.displayOnly ? true : context.read(context.manifest.factory, abi.PoolFactory, 'isPool', [pool]).then(value => value[0]),
+        context.displayOnly ? context.manifest.factory : context.read(pool, abi.PoolVault, 'factory').then(value => value[0]),
         context.read(pool, abi.PoolVault, 'state'), context.read(pool, abi.PoolVault, 'expiresAt'), context.read(pool, abi.PoolVault, 'activatedAt'),
       ]);
-      requireValue(registered[0] === true && same(factory[0], context.manifest.factory), '子矿池未在已核验工厂登记。');
+      requireValue(registered === true && same(factory, context.manifest.factory), '子矿池未在已核验工厂登记。');
       return { pool, collection: address(info.collection), tokenId: info.tokenId, costWei: info.purchaseCost,
         official: info.official, sold: info.sold, state: state[0], expiresAt: expired[0], activatedAt: activatedAt[0] };
     })());
@@ -254,6 +389,16 @@ export async function readPortfolioChildren(context, portfolio, count, offset = 
 export async function readPortfolioPage(config, provider, { account, cursor = 0, mine = false,
   fetcher = globalThis.fetch, now = Date.now } = {}) {
   requireValue(Number.isSafeInteger(cursor) && cursor >= 0, '项目分页游标无效。');
+  const owner = getAddress(account || ZeroAddress);
+  const cached = await serverPortfolioDisplay(config, '', { account: owner, cursor, limit: 20, ...(mine ? { mine: true } : {}) }, { fetcher, now });
+  if (cached) {
+    requireValue(Array.isArray(cached.data?.items) && cached.data.items.length <= 20
+      && (cached.data.nextCursor === null || Number.isSafeInteger(cached.data.nextCursor) && cached.data.nextCursor > cursor),
+    '服务器预算项目分页无效。');
+    const items = cached.data.items.map(item => decodeDisplayItem(item, config, cached.source, owner));
+    requireValue(new Set(items.map(item => item.pool)).size === items.length, '服务器预算项目分页重复。');
+    return { items, nextCursor: cached.data.nextCursor, source: cached.source, operator: null };
+  }
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined), base = new URL(config.indexBaseUrl);
   requireValue(base.origin === config.origin && !base.search && !base.hash, '索引服务来源不一致。');
   const path = mine ? `/v1/accounts/${address(account)}/portfolios` : '/v1/portfolios';
@@ -265,18 +410,19 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
     requireValue(result.body?.source?.readMode === 'verified_snapshot', '预算项目快照来源无效。');
   }
   const { body: reply, serverNow, localReceivedAt } = result;
-  const source = validateIndexSource(reply.source, manifest, { now: now(),
+  const parsedSource = validateIndexSource(reply.source, manifest, { now: now(),
     ...(reply.source?.readMode === 'verified_snapshot' ? { maxAgeMs: 30 * 60 * 1000 } : {}),
     ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  const source = config.productFamily === 'fresh-v4' ? displayIndexSource(parsedSource) : parsedSource;
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算项目索引身份或分页无效。');
   const nextCursor = reply.data.nextCursor;
   requireValue(nextCursor === null || Number.isSafeInteger(nextCursor) && nextCursor > cursor, '索引返回重复游标。');
-  await requireRecentSnapshotState(provider, source);
-  const context = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
+  if (config.productFamily !== 'fresh-v4') await requireRecentSnapshotState(provider, source);
+  const context = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough), source);
   insist(context.block.hash.toLowerCase() === source.indexedBlockHash
     && context.timestamp === BigInt(source.indexedTimestamp), 'source_reorg', '预算项目索引区块已变化。');
-  if (source.readMode === 'verified_snapshot') {
+  if (!context.displayOnly && source.readMode === 'verified_snapshot') {
     const count = (await context.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
     requireValue(typeof source.portfolioCount === 'string' && count === BigInt(source.portfolioCount), '预算项目快照数量与链上不一致。');
   }
@@ -297,7 +443,7 @@ export async function readPortfolioPage(config, provider, { account, cursor = 0,
       items.push(...batch.map(result => result.value));
     }
   } finally { await limited.drain(); }
-  await context.canonical();
+  if (!context.displayOnly) await context.canonical();
   return { items, nextCursor, source, operator: context.operator };
 }
 
@@ -309,13 +455,14 @@ export async function readPortfolioOrders(config, provider, pool, { cursor,
   if (cursor !== undefined && cursor !== null) query.set('cursor', uint(String(cursor)).toString());
   const { body: reply, serverNow, localReceivedAt } = await fetchLiveJsonWithClock(
     `${base.href.replace(/\/$/, '')}/v1/portfolio-orders?${query}`, { fetcher, now });
-  const source = validateIndexSource(reply.source, manifest, { now: now(),
+  const parsedSource = validateIndexSource(reply.source, manifest, { now: now(),
     ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
+  const source = config.productFamily === 'fresh-v4' ? displayIndexSource(parsedSource) : parsedSource;
   requireValue(same(source.portfolioFactory, manifest.portfolioFactory) && same(source.portfolioMarket, manifest.portfolioMarket)
     && Array.isArray(reply.data?.items) && reply.data.items.length <= 20, '预算订单索引身份无效。');
-  const ctx = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough));
+  const ctx = await readPortfolioDisplayContext(config, provider, BigInt(source.indexedThrough), source);
   insist(ctx.block.hash.toLowerCase() === source.indexedBlockHash, 'source_reorg', '预算订单索引区块已变化。');
-  await readPortfolio(ctx, target, ZeroAddress, { includeChildren: false });
+  if (!ctx.displayOnly) await readPortfolio(ctx, target, ZeroAddress, { includeChildren: false });
   const items = []; let last = cursor ? uint(String(cursor)) : null;
   for (const entry of reply.data.items) {
     const id = uint(entry.orderId);
@@ -329,10 +476,11 @@ export async function readPortfolioOrders(config, provider, pool, { cursor,
       pricePerUnitWei: order.pricePerUnit, active: order.active, expiresAt: expiry[0], expired: expiry[0] <= ctx.timestamp });
   }
   requireValue(reply.data.nextCursor === null || items.length > 0 && String(reply.data.nextCursor) === last.toString(), '订单分页游标无效。');
-  await ctx.canonical(); return { items, nextCursor: reply.data.nextCursor, source };
+  if (!ctx.displayOnly) await ctx.canonical(); return { items, nextCursor: reply.data.nextCursor, source };
 }
 
 export async function preparePortfolioAction({ config, provider, account, pool, action }) {
+  if (config?.displayOnly === true) return preparePortfolioDirectAction({ config, provider, account, pool, action });
   const context = await readPortfolioContext(config, provider), owner = address(account), { manifest, read } = context;
   const operatorAllowed = async () => {
     if (same(owner, context.operator)) return true;
@@ -465,4 +613,89 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
     blockNumber: BigInt(context.block.number), args, procurement, marketTrade,
     payoutWei: targetType === 'portfolio' && method === 'withdrawBnb' ? row.withdrawableBnb
       : targetType === 'portfolio' && method === 'claimBem' ? row.claimableBem : null };
+}
+
+/** Exact calldata, without browser deployment, role or canonical-block rechecks. */
+async function preparePortfolioDirectAction({ config, provider, account, pool, action }) {
+  const context = readPortfolioBusinessContext(config, provider), { manifest, read } = context, owner = address(account);
+  requireValue(action && typeof action.kind === 'string', '预算项目操作无效。');
+  let method = action.kind, target = pool && address(pool), contract = abi.BudgetPortfolioVault;
+  let targetType = 'portfolio', args = [], value = 0n, row = target ? { pool: target, account: owner, displayOnly: true } : null;
+  let procurement = null, marketTrade = null, payoutWei = null;
+  if (method === 'createPortfolio') {
+    targetType = 'portfolioFactory'; target = manifest.portfolioFactory; contract = abi.BudgetPortfolioFactory;
+    const budget = exactPrice(action.budget), absoluteCap = exactPrice(action.absoluteCap), unitCap = exactPrice(action.unitCap);
+    const funding = uint(action.fundingDeadline, 64), purchase = uint(action.purchaseDeadline, 64);
+    requireValue(budget % 100n === 0n && absoluteCap <= budget && funding > context.timestamp && purchase > funding,
+      '请核对预算、价格上限和募集/购机截止时间。');
+    args = [budget, absoluteCap, unitCap, funding, purchase];
+  } else if (['marketList', 'marketFill', 'marketCancel', 'marketExpire', 'marketWithdraw'].includes(method)) {
+    method = { marketList: 'list', marketFill: 'fill', marketCancel: 'cancel', marketExpire: 'expire', marketWithdraw: 'withdrawBnb' }[method];
+    targetType = 'portfolioMarket'; target = manifest.portfolioMarket; contract = abi.ShareMarket;
+    if (method === 'list') {
+      const shares = shareQuantity(action.quantity), price = exactPrice(action.price), base = uint(price * shares);
+      args = [address(pool), shares, price]; marketTrade = { baseWei: base, buyerFeeWei: base / 100n, sellerFeeWei: base / 100n };
+    } else if (method !== 'withdrawBnb') {
+      const id = uint(action.orderId); requireValue(id > 0n, '订单编号无效。'); args = [id];
+      if (method === 'fill') {
+        const shares = shareQuantity(action.quantity);
+        const [orders, buyerFee, sellerFee] = await Promise.all([
+          read(target, contract, 'orders', [id]), read(target, contract, 'buyerFeeBps'), read(target, contract, 'feeBps'),
+        ]);
+        const order = orders[0], unitPrice = uint(order.pricePerUnit);
+        requireValue(same(order.pool, pool), '订单不属于当前预算项目。');
+        if (action.expectedSeller !== undefined) requireValue(same(order.seller, action.expectedSeller), '卖方已改变。');
+        if (action.expectedPricePerUnitWei !== undefined) requireValue(unitPrice === uint(action.expectedPricePerUnitWei), '每份价格已改变。');
+        requireValue(unitPrice > 0n && uint(buyerFee[0], 16) <= 10000n && uint(sellerFee[0], 16) <= 10000n,
+          '挂单金额或手续费无效。');
+        const base = uint(unitPrice * shares), fee = uint(base * buyerFee[0] / 10000n);
+        value = uint(base + fee); args = [id, shares];
+        marketTrade = { baseWei: base, buyerFeeWei: fee, sellerFeeWei: base * sellerFee[0] / 10000n,
+          seller: address(order.seller), pricePerUnitWei: order.pricePerUnit };
+      }
+    }
+  } else {
+    requireValue(method === 'autoPurchase' || PORTFOLIO_ACTIONS.has(method), '不支持的预算项目操作。');
+    requireValue(target, '预算项目地址无效。');
+    if (method === 'deposit') {
+      const shares = shareQuantity(action.quantity), budget = (await read(target, contract, 'budgetWei'))[0];
+      requireValue(budget > 0n && budget % 100n === 0n, '预算金额无法换算为等额份额。');
+      args = [shares]; value = uint(budget / 100n * shares);
+    } else if (method === 'transfer') args = [address(action.recipient), shareQuantity(action.quantity)];
+    else if (method === 'collectChildBem') args = [address(action.child)];
+    else if (method === 'proposeChildSale') args = [address(action.child), exactPrice(action.price), exactPrice(action.reference), uint(action.referenceAt, 64)];
+    else if (method === 'voteChildSale' || method === 'executeChildSale') {
+      const id = uint(action.proposalId); requireValue(id > 0n, '提案编号无效。');
+      if (method === 'voteChildSale') requireValue(typeof action.support === 'boolean', '投票选项无效。');
+      args = method === 'voteChildSale' ? [id, action.support] : [id];
+    } else if (method === 'buyOfficial') args = [address(action.child), uint(action.listingId)];
+    else if (method === 'buyFirsto') args = [address(action.child), action.encodedOrder];
+    else if (method === 'claimBem') payoutWei = (await read(target, contract, 'claimableBem', [owner]))[0];
+    else if (method === 'withdrawBnb') {
+      const names = ['state', 'refundPerShareWei', 'salePerShareWei'];
+      const members = ['balanceOf', 'bnbOwed', 'refundSettled', 'saleDebt'];
+      const result = await Promise.all([...names.map(name => read(target, contract, name)), ...members.map(name => read(target, contract, name, [owner]))]);
+      Object.assign(row, Object.fromEntries([...names, ...members].map((name, index) => [name, result[index][0]])));
+      row.shares = row.balanceOf; payoutWei = portfolioBnbEntitlement(row);
+    } else if (method === 'autoPurchase') {
+      const child = address(action.child), params = (await read(child, abi.PoolVault, 'params'))[0];
+      const checked = await loadOperatorQuote({ collection: params.circuits, tokenId: params.circuitId.toString(), config,
+        provider, mode: 'createPool', officialPriceCapWei: params.priceCap.toString() });
+      if (checked.chain.official && uint(checked.chain.official.priceWei) <= params.priceCap) {
+        method = 'buyOfficial'; args = [child, uint(checked.chain.official.id)];
+        procurement = { route: 'official', child, priceWei: uint(checked.chain.official.priceWei), capWei: params.priceCap };
+      } else {
+        const order = action.frozenOrder ? decodeFirstoOrder(action.frozenOrder) : checked.chain.firsto;
+        requireValue(order && same(order.ask.collection, params.circuits) && uint(order.ask.tokenId) === params.circuitId,
+          'Firsto 报价不属于目标矿机。');
+        const price = uint(order.grossWei ?? checked.chain.firsto?.grossWei);
+        requireValue(price <= params.priceCap, 'Firsto 报价超过购机上限。');
+        method = 'buyFirsto'; args = [child, order.encodedOrder ?? action.frozenOrder];
+        procurement = { route: 'firsto', child, priceWei: price, capWei: params.priceCap, frozenOrder: args[1] };
+      }
+    }
+  }
+  const transaction = { chainId: '0x38', from: owner, to: target, data: contract.encodeFunctionData(method, args), value: toQuantity(value) };
+  return { transaction, action: { kind: method, targetType }, row, blockNumber: null, args,
+    procurement, marketTrade, payoutWei, displayOnly: true };
 }

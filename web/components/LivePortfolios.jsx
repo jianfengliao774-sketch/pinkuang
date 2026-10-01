@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatEther, ZeroAddress } from 'ethers';
 import { Layers3, RefreshCw, ArrowRight, ChevronDown } from 'lucide-react';
-import { genesisPortfolioProposalGate, portfolioCreateActionReady, portfolioPageActionReady, portfolioSelectedActionReady, portfolioOrderActionReady, readPortfolioPage, readPortfolioContext, readPortfolio, readPortfolioChildren, readPortfolioOrders, preparePortfolioAction } from '../lib/live-portfolios.mjs';
+import { genesisPortfolioProposalGate, portfolioCreateActionReady, portfolioPageActionReady, portfolioSelectedActionReady, portfolioOrderActionReady, readPortfolioPage, readPortfolioDisplayRow, readPortfolioDisplayChildren, readPortfolioOrders, preparePortfolioAction } from '../lib/live-portfolios.mjs';
 import { amount, shortAddress, explorerAddress, explorerTransaction, exportActivityCsv } from '../lib/live-view.mjs';
 import { displayDecimal } from '../lib/amount-display.mjs';
 import { READ_CANCELLED, retryReadRound } from '../lib/read-retry.mjs';
@@ -11,8 +11,6 @@ import { rememberPortfolioDisplay, readPortfolioDisplay, clearPortfolioDisplays 
 import { fundingAmount } from '../lib/funding-amount.mjs';
 import LiveYieldChart from './LiveYieldChart';
 import ActivityOperation from './ActivityOperation';
-import { sameUnsignedIntent } from '../lib/ui-context.mjs';
-import { insist } from '../lib/live-config.mjs';
 import './LivePortfolios.css';
 import { portfolioText } from '../lib/portfolio-copy.mjs';
 import { portfolioCreateForm } from '../lib/portfolio-create-form.mjs';
@@ -113,11 +111,14 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);setRows(cached?.items || []);
     setListingSource(cached?.source || null);
     const cachedDetail=initialPool?readPortfolioDisplay(config,initialPool,account):null;
+    const reusable=config?.displayOnly===true && (!!cachedDetail || !!saved && Date.now()-saved.savedAt<120_000 && !!cached);
+    const restoredDetail=initialPool ? cachedDetail || cached?.items[0] || null : null;
     if(cachedDetail)setLoadedIdentity(identity);
     setSelected(initialPool?cachedDetail || cached?.items[0] || null:null);setChild(initialPool?(cachedDetail || cached?.items[0])?.children.find(item=>!item.sold)?.pool || '':'');
-    setPreview(null);setError('');setReadRetry(null);setReadFailed(false);setFreshRead(false);setSelectedProof(null);
+    setPreview(null);setError('');setReadRetry(null);setReadFailed(false);setFreshRead(reusable);setSelectedProof(reusable&&restoredDetail
+      ?{identity,provider,wallet,pool:restoredDetail.pool}:null);
     setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);
-    if(enabled && (!mine || account))void load();},[identity,provider,wallet]);
+    if(enabled && (!mine || account) && !reusable)void load();},[identity,provider,wallet]);
   useEffect(()=>()=>{sequence.current++;},[]);
   useEffect(()=>{
     if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:refreshKey};return;}
@@ -149,11 +150,11 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     setLoading(true);setError('');
     try{
       const result=await retryRead(async()=>{
-        if(initialPool){const ctx=await readPortfolioContext(config,provider);const row=await readPortfolio(ctx,initialPool,account || ZeroAddress);await ctx.canonical();return {items:[row],nextCursor:null,operator:ctx.operator};}
+        if(initialPool){const result=await readPortfolioDisplayRow(config,provider,initialPool,account || ZeroAddress);
+          return {items:[result.item],nextCursor:null,operator:result.operator,source:result.source};}
         const [page,detail]=await Promise.all([
           readPortfolioPage(config,provider,{account:account || undefined,mine,cursor:nextCursor}),
-          selectedPool?(async()=>{const ctx=await readPortfolioContext(config,provider);
-            const row=await readPortfolio(ctx,selectedPool,account || ZeroAddress);await ctx.canonical();return row;})():Promise.resolve(null),
+          selectedPool?readPortfolioDisplayRow(config,provider,selectedPool,account || ZeroAddress).then(result=>result.item):Promise.resolve(null),
         ]);
         return {...page,selectedDetail:detail};
       },ticket);
@@ -161,7 +162,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       const {selectedDetail,...page}=result;
       if(initialPool&&page.items[0])rememberPortfolioDisplay(config,page.items[0],account);
       if(selectedDetail)rememberPortfolioDisplay(config,selectedDetail,account);
-      setFreshRead(initialPool ? !!page.items[0] : !!page.source && page.source.stale !== true);
+      setFreshRead(initialPool ? !!page.items[0] : !!page.source && (page.source.displayOnly === true || page.source.stale !== true));
       if(!nextCursor && (initialPool ? page.items[0] : selectedDetail))
         setSelectedProof({identity,provider,wallet,pool:(initialPool ? page.items[0] : selectedDetail).pool});
       if(!nextCursor){recentPages.delete(cacheKey);recentPages.set(cacheKey,{savedAt:Date.now(),result:page});
@@ -180,17 +181,17 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     if(!readPortfolioDisplay(config,row.pool,account))rememberPortfolioDisplay(config,row,account);
     const cached=readPortfolioDisplay(config,row.pool,account);
     if(cached){setSelected(cached);setChild(cached.children.find(c=>!c.sold)?.pool || '');}
-    try{const details=await retryRead(async()=>{const ctx=await readPortfolioContext(config,provider);const result=await readPortfolio(ctx,row.pool,account || ZeroAddress);await ctx.canonical();return result;},ticket);
+    if(config?.displayOnly===true && cached && BigInt(cached.children.length)>=cached.childCount){
+      setSelectedProof({identity,provider,wallet,pool:cached.pool});setFreshRead(true);setLoading(false);return;
+    }
+    try{const details=await retryRead(()=>readPortfolioDisplayRow(config,provider,row.pool,account || ZeroAddress).then(result=>result.item),ticket);
       if(details!==READ_CANCELLED&&current(ticket)){rememberPortfolioDisplay(config,details,account);setSelected(details);setSelectedProof({identity,provider,wallet,pool:details.pool});setChild(details.children.find(c=>!c.sold)?.pool || '');}
     }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);if(problem?.code==='source_reorg')setSelected(null);setError(brief(problem));setReadFailed(true);}}
     finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function moreChildren(){
     if(!selectedCurrent)return;const ticket=++sequence.current;setLoading(true);setError('');
-    try{const more=await retryRead(async()=>{const ctx=await readPortfolioContext(config,provider,selectedCurrent.blockNumber);
-      insist(ctx.block.hash.toLowerCase()===selectedCurrent.blockHash.toLowerCase(),
-        'source_reorg', '项目区块已变化，请重新展开项目。');
-      const result=await readPortfolioChildren(ctx,selectedCurrent.pool,selectedCurrent.childCount,BigInt(selectedCurrent.children.length));await ctx.canonical();return result;},ticket);
+    try{const more=await retryRead(()=>readPortfolioDisplayChildren(config,provider,selectedCurrent,BigInt(selectedCurrent.children.length)),ticket);
       if(more!==READ_CANCELLED&&current(ticket))setSelected({...selectedCurrent,children:[...selectedCurrent.children,...more]});
     }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setError(brief(problem));setReadFailed(true);}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
@@ -216,9 +217,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     if(!preview || preview.identity!==identity || !current(preview.ticket)
       || actionFrozen(preview.input.action.kind))return;
     const ticket=preview.ticket;setBusy(true);setError('');
-    try{const checked=await preparePortfolioAction(preview.input);
-      if(!current(ticket)||!sameUnsignedIntent(checked.transaction,preview.result.transaction))throw new Error('确认内容已变化，请重新预览。');
-      const result=await onSend(checked,preview.input);
+    try{const result=await onSend(preview.result,preview.input);
       if(!current(ticket))return;setPreview(null);if(result?.status==='confirmed')await load();
     }catch(problem){if(current(ticket))setError(brief(problem));}finally{if(current(ticket))setBusy(false);}
   }
@@ -303,7 +302,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       </div>}
 
     </>}
-    {preview&&preview.identity===identity&&current(preview.ticket)&&<div className="portfolio-confirm" role="dialog" aria-modal="true" aria-label={T('确认预算项目操作')}><div><h3>{T(names[preview.input.action.kind] || preview.input.action.kind)}</h3><p>{T("目标")} {shortAddress(preview.result.transaction.to)} {T("· 区块 #")}{preview.result.blockNumber.toString()}</p><p>{config.stage==='fresh-active'&&['createPortfolio','buyOfficial','buyFirsto'].includes(preview.input.action.kind)?(locale==='en'?'This wallet signs only; the Gas wallet pays network fees.':'本钱包仅签名，网络手续费由 Gas 钱包支付。'):<>{T("本次支付")} {amount(BigInt(preview.result.transaction.value))} BNB + Gas</>}</p><PortfolioConfirmationDetails preview={preview} locale={locale}/>{preview.input.action.kind==='marketList'&&<p>{T("挂单即使只有 1 份，也会暂停此钱包在本预算项目的全部 BEM 领取，直到挂单成交、撤销或到期解锁。")}</p>}{preview.input.action.kind==='marketFill'&&preview.result.marketTrade&&<p>{T("成交基价")} {amount(preview.result.marketTrade.baseWei)} {T("BNB；买方另付")} {amount(preview.result.marketTrade.buyerFeeWei)} {T("BNB；卖方扣除")} {amount(preview.result.marketTrade.sellerFeeWei)} BNB。</p>}{preview.result.procurement&&<p>{T("来源")} {T(preview.result.procurement.route==='official'?'官网':'Firsto')} {T("· 本次含来源费报价")} {amount(preview.result.procurement.priceWei)} {T("BNB · 合约价格上限")} {amount(preview.result.procurement.capWei)} {config.stage==='fresh-active'?(locale==='en'?' BNB. The project funds the purchase; the Gas wallet pays network fees.':' BNB。款项来自项目预算，网络手续费由 Gas 钱包支付。'):T("BNB。款项来自项目预算，本钱包只付 Gas。")}</p>}{preview.result.procurement?.route==='official'&&<p title={`${formatEther(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB`}>{T("合约价格上限仅约束矿机价格，官网服务费另外在购机期结算时从余款扣除；按本次报价计算，项目含费支出最多")} {amount(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB。</p>}{preview.result.payoutWei!==null&&<p>{T("当前链上可领取")} {preview.input.action.kind==='claimBem'?amount(preview.result.payoutWei,8):amount(preview.result.payoutWei)} {preview.input.action.kind==='claimBem'?'BEM':'BNB'}</p>}{preview.input.action.kind==='transfer'&&<p>{T("向")} {preview.input.action.recipient} {T("转移")} {preview.input.action.quantity} {T("份，无对价。")}</p>}<p>{T("金额按精确链上整数发送；发送前重新核对内容，并先保存交易意图。")}</p><div className="portfolio-actions"><button className="btn secondary" disabled={busy} onClick={()=>setPreview(null)}>{T("返回")}</button><button className="btn" disabled={actionFrozen(preview.input.action.kind)} onClick={()=>void submit()}>{T("发送到钱包确认")}</button></div></div></div>}
+    {preview&&preview.identity===identity&&current(preview.ticket)&&<div className="portfolio-confirm" role="dialog" aria-modal="true" aria-label={T('确认预算项目操作')}><div><h3>{T(names[preview.input.action.kind] || preview.input.action.kind)}</h3><p>{T("目标")} {shortAddress(preview.result.transaction.to)} {typeof preview.result.blockNumber === 'bigint' && <>{T("· 区块 #")}{preview.result.blockNumber.toString()}</>}</p><p>{config.stage==='fresh-active'&&['createPortfolio','buyOfficial','buyFirsto'].includes(preview.input.action.kind)?(locale==='en'?'This wallet signs only; the Gas wallet pays network fees.':'本钱包仅签名，网络手续费由 Gas 钱包支付。'):<>{T("本次支付")} {amount(BigInt(preview.result.transaction.value))} BNB + Gas</>}</p><PortfolioConfirmationDetails preview={preview} locale={locale}/>{preview.input.action.kind==='marketList'&&<p>{T("挂单即使只有 1 份，也会暂停此钱包在本预算项目的全部 BEM 领取，直到挂单成交、撤销或到期解锁。")}</p>}{preview.input.action.kind==='marketFill'&&preview.result.marketTrade&&<p>{T("成交基价")} {amount(preview.result.marketTrade.baseWei)} {T("BNB；买方另付")} {amount(preview.result.marketTrade.buyerFeeWei)} {T("BNB；卖方扣除")} {amount(preview.result.marketTrade.sellerFeeWei)} BNB。</p>}{preview.result.procurement&&<p>{T("来源")} {T(preview.result.procurement.route==='official'?'官网':'Firsto')} {T("· 本次含来源费报价")} {amount(preview.result.procurement.priceWei)} {T("BNB · 合约价格上限")} {amount(preview.result.procurement.capWei)} {config.stage==='fresh-active'?(locale==='en'?' BNB. The project funds the purchase; the Gas wallet pays network fees.':' BNB。款项来自项目预算，网络手续费由 Gas 钱包支付。'):T("BNB。款项来自项目预算，本钱包只付 Gas。")}</p>}{preview.result.procurement?.route==='official'&&<p title={`${formatEther(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB`}>{T("合约价格上限仅约束矿机价格，官网服务费另外在购机期结算时从余款扣除；按本次报价计算，项目含费支出最多")} {amount(officialPriceWithFeeCeiling(preview.result.procurement.priceWei))} BNB。</p>}{preview.result.payoutWei!==null&&<p>{T("当前链上可领取")} {preview.input.action.kind==='claimBem'?amount(preview.result.payoutWei,8):amount(preview.result.payoutWei)} {preview.input.action.kind==='claimBem'?'BEM':'BNB'}</p>}{preview.input.action.kind==='transfer'&&<p>{T("向")} {preview.input.action.recipient} {T("转移")} {preview.input.action.quantity} {T("份，无对价。")}</p>}<p>{T("金额按精确整数发送；请在钱包中确认本次交易。")}</p><div className="portfolio-actions"><button className="btn secondary" disabled={busy} onClick={()=>setPreview(null)}>{T("返回")}</button><button className="btn" disabled={actionFrozen(preview.input.action.kind)} onClick={()=>void submit()}>{T("发送到钱包确认")}</button></div></div></div>}
   </section>;
 }
 

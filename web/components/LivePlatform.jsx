@@ -4,6 +4,7 @@ import { summarizeOverviewActivity, activityAmounts } from '../lib/activity-summ
 import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
+import { startDisplayUpdates } from '../lib/display-updates.mjs';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
@@ -46,7 +47,7 @@ import LiveOperator from "./LiveOperator";
 import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
 import LivePortfolios, { clearRecentPortfolioDisplays } from "./LivePortfolios";
-import { preparePortfolioAction, readPortfolioContext, readPortfolio } from "../lib/live-portfolios.mjs";
+import { preparePortfolioAction, readPortfolioDisplayRow } from "../lib/live-portfolios.mjs";
 import { prepareBudgetQueueStep, beginBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
 import { recoverAuthorityQueueStep } from "../lib/authority-queue-recovery.mjs";
 import PortfolioProjectShare from "./PortfolioProjectShare";
@@ -62,9 +63,9 @@ import ProjectShare from "./ProjectShare";
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
 import { createReadOnlyHttpProvider, fetchLiveJson, validatePinnedGenesis } from "../lib/live-config.mjs";
-import { loadProductConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
+import { loadProductConfig, loadProductDisplayConfig, validateCurrentProductGraph } from "../lib/product-config.mjs";
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
-import { freshIdentityReadable, freshOperationsReady, freshRecheckDisplay, freshReadClientIdentity, startFreshBootRecovery } from '../lib/fresh-boot-recovery.mjs';
+import { freshIdentityReadable, freshOperationsReady, freshReadClientIdentity } from '../lib/fresh-boot-recovery.mjs';
 import { assetOverview } from '../lib/asset-overview.mjs';
 import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio-display-cache.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
@@ -257,6 +258,8 @@ export default function LivePlatform() {
     [activity, setActivity] = useState([]),
     [source, setSource] = useState(null);
   const [recordsPage, setRecordsPage] = useState(0);
+  const recordsPageRef = useRef(recordsPage);
+  recordsPageRef.current = recordsPage;
   const [detailPreview, setDetailPreview] = useState(null);
   const [poolCursor, setPoolCursor] = useState(null),
     [positionCursor, setPositionCursor] = useState(null),
@@ -378,25 +381,29 @@ export default function LivePlatform() {
     && operator.walletRevision === walletRevision && operator.refresh === operatorRefresh
     && operator.deployment === boot && same(operator.account, account)
     && same(operator.factory, config.factory);
-  const isOperator = operatorContextCurrent && operator.status === 'verified'
+  const directAdministrator = config?.displayOnly === true && config.walletSessionReady !== false
+    && !!wallet && !!account && connectedWallet.current === wallet
+    && [config.freshAuthority?.administratorOne, config.freshAuthority?.administratorTwo].some(value => same(value, account))
+    && !connectingId && !connectionLock.current;
+  const isOperator = directAdministrator || operatorContextCurrent && operator.status === 'verified'
     && operator.configured === true && operator.isOperator === true
     && (same(operator.operator, account) || config.stage === 'fresh-active'
       && operator.isAuthorityAdmin === true && same(operator.operator, config.authority))
     && !connectingId && !connectionLock.current;
-  const isPortfolioOperator = operatorContextCurrent && operator.status === 'verified' && operator.isPortfolioOperator === true
+  const isPortfolioOperator = directAdministrator || operatorContextCurrent && operator.status === 'verified' && operator.isPortfolioOperator === true
     && (same(operator.portfolioOperator, account) || config.stage === 'fresh-active'
       && operator.isAuthorityAdmin === true && same(operator.portfolioOperator, config.authority))
     && !connectingId && !connectionLock.current;
   const hasOperatorAccess = isOperator || isPortfolioOperator;
-  const hasDeploymentAccess = freshIdentityReadable(config) && !!wallet && !!account
-    && connectedWallet.current === wallet && deploymentIdentity?.wallet === wallet
-    && deploymentIdentity.revision === walletRevision && deploymentIdentity.boot === boot
-    && same(deploymentIdentity.account, account) && same(deploymentIdentity.deployer, account)
+  const hasDeploymentAccess = (config?.displayOnly === true ? same(account, '0x042B23288E2316DFb6503488292FD0Ad2F811Ae7') : freshIdentityReadable(config)
+    && same(deploymentIdentity?.deployer, account)) && !!wallet && !!account
+    && connectedWallet.current === wallet
     && !connectingId && !connectionLock.current;
-  const operatorServiceReady = config?.productFamily !== 'fresh-v4' || freshOperationsReady(config);
+  const operatorServiceReady = config?.displayOnly === true && config.walletSessionReady !== false
+    || config?.productFamily !== 'fresh-v4' || freshOperationsReady(config);
   const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
-    : config.productFamily === 'fresh-v4' && !freshIdentityReadable(config) ? 'unavailable'
-    : hasOperatorAccess ? 'verified' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
+    : config.productFamily === 'fresh-v4' && !config.displayOnly && !freshIdentityReadable(config) ? 'unavailable'
+    : hasOperatorAccess ? (config.displayOnly ? 'configured' : 'verified') : config.displayOnly ? 'denied' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
       : operator.status === 'error' ? 'unavailable' : 'denied';
 
   useEffect(() => {
@@ -404,9 +411,21 @@ export default function LivePlatform() {
   }, [route.route, operatorAccess]);
 
   useEffect(() => {
+    if (!client || !boot.displayOnly) return;
+    return startDisplayUpdates(boot, {
+      isPaused: () => {
+        const state = refreshState.current;
+        return state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy
+          || ['records', 'rewards'].includes(routeIdentity.current.route) && recordsPageRef.current > 0;
+      },
+      onUpdate: () => setRefresh(value => value + 1),
+    });
+  }, [client, boot]);
+
+  useEffect(() => {
     let active=true;
     setDeploymentIdentity(null);
-    if(wallet&&account&&freshIdentityReadable(config)&&client?.provider){
+    if(wallet&&account&&!config?.displayOnly&&freshIdentityReadable(config)&&client?.provider){
       const key=JSON.stringify([config.rpcUrl,config.chainId,config.artifactDigest,config.factory,config.portfolioFactory,
         config.authority,config.manifest.deployment]);
       if(deploymentProof.current?.key!==key){
@@ -433,6 +452,14 @@ export default function LivePlatform() {
     let active = true;
     let retryTimer;
     setOperator(null);
+    if (config?.displayOnly === true) {
+      setOperator({ provider: wallet, account, factory: config.factory, deployment: boot,
+        walletRevision, refresh: operatorRefresh, status: 'configured', configured: true,
+        isOperator: directAdministrator, isPortfolioOperator: directAdministrator,
+        isAuthorityAdmin: directAdministrator, operator: config.authority,
+        portfolioOperator: config.authority, direct: true });
+      return () => { active = false; };
+    }
     if (wallet && account && config
       && (config.productFamily !== 'fresh-v4' || freshIdentityReadable(config) && client?.provider)) {
       const binding = { provider: wallet, account, factory: config.factory,
@@ -514,29 +541,22 @@ export default function LivePlatform() {
   }, [client, boot.status, account, route.route, route.pool, marketTab]);
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'fresh-v4') {
-      const retained = freshRecheckDisplay(verifiedBoot.current);
-      if (retained) setBoot(retained);
-      else { verifiedBoot.current = null; readClientIdentity.current = null;
-        setBoot({ status: 'loading' }); setClient(null); }
+      let cancelled = false;
       setError('');
-      return startFreshBootRecovery({ load: () => loadProductConfig({ basePath }),
-        initialConfig: retained,
-        getContext: () => ({ wallet: connectedWallet.current, revision: walletEpoch.current, route: routeIdentity.current }),
-        isBusy: () => !!(refreshState.current?.busy || refreshState.current?.modal || refreshState.current?.pending
-          || submissionLock.current || connectionLock.current || document.querySelector('[role="dialog"][aria-modal="true"]')
-          || document.activeElement?.matches('input, textarea, select')),
-        isVisible: () => document.visibilityState === 'visible',
-        onConfig: result => { if (result.status !== 'ready') {
-            verifiedBoot.current = null; readClientIdentity.current = null; setClient(null);
-          } else {
-            const key = freshReadClientIdentity(result);
-            if (readClientIdentity.current !== key) { readClientIdentity.current = key; setClient(createLiveDataClient(result)); }
+      void loadProductDisplayConfig({ basePath }).then(result => {
+        if (cancelled) return;
+        if (result.status === 'ready') {
+          const key = freshReadClientIdentity(result);
+          if (readClientIdentity.current !== key) {
+            readClientIdentity.current = key;
+            setClient(createLiveDataClient(result));
           }
-          setBoot(result); },
-        onError: (problem, shown) => { if (!shown) { setBoot({ status: 'error' }); setError(textError(problem)); } },
-        onExhausted: setBootRecoveryExhausted,
-        onExpired: () => { verifiedBoot.current = null; readClientIdentity.current = null; setBoot({ status: 'error' }); setClient(null); clearWalletDisplay(); setStats(null); setStatsSource(null); },
+        } else setClient(null);
+        setBoot(result);
+      }).catch(problem => {
+        if (!cancelled) { setBoot({ status: 'error' }); setError(textError(problem)); }
       });
+      return () => { cancelled = true; };
     }
     let cancelled = false;
     let retryTimer;
@@ -742,7 +762,7 @@ export default function LivePlatform() {
   }, [client, route.route, route.pool, account, recordsPage]);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client || config?.displayOnly) return;
     if (['records', 'rewards'].includes(route.route) && recordsPage > 0) return;
     const pageSource = route.route === 'home'
       ? [source, statsSource].find(item => item?.readMode === 'verified_snapshot') ?? statsSource ?? source
@@ -807,6 +827,13 @@ export default function LivePlatform() {
         setGovernanceProof({ pool: route.pool, account: account || ZeroAddress, source: result.governance.source }); }
       setLoadedAccount(account);
     };
+    if (config?.displayOnly && recent(saved) && cached && saved.refresh === refresh) {
+      showResult(cached);
+      setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
+      setCachedPage(false); setLoading(false); setRevalidating(false);
+      setError(''); setReadRetry(null); setReadFailed(false);
+      return () => { cancelled = true; epoch.current++; };
+    }
     const clearRound = progress => {
       setReadRetry(progress.attempt > 1 ? progress : null);
       setReadFailed(false);
@@ -839,7 +866,7 @@ export default function LivePlatform() {
           let entries = pageCache.current.get(client);
           if (!entries) { entries = new Map(); pageCache.current.set(client, entries); }
           entries.delete(pageKey);
-          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, result });
+          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, refresh, result });
           if (entries.size > 8) entries.delete(entries.keys().next().value);
           writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
           writePoolDisplaySnapshots(displayStorage(), client.manifest, result, account);
@@ -900,6 +927,10 @@ export default function LivePlatform() {
     } else {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
+    if (config?.displayOnly && cached && memory?.refresh === refresh && Date.now() - memory.savedAt < 120_000) {
+      setPositionsReadLoading(false);
+      return () => { cancelled = true; ++positionsReadEpoch.current; };
+    }
     setPositionsReadLoading(true);
     retryReadRound(() => (client.readDisplayPositions ?? client.readPositions)({ account }), { isCurrent: () => !cancelled })
       .then(result => {
@@ -913,7 +944,7 @@ export default function LivePlatform() {
         if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setPositionsReadError(textError(error)); } })
@@ -944,6 +975,11 @@ export default function LivePlatform() {
     } else {
       setOrders([]); setOrderCursor(null);
     }
+    if (config?.displayOnly && cached && memory?.refresh === refresh && Date.now() - memory.savedAt < 120_000) {
+      setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
+      setMarketOrdersLoading(false);
+      return () => { cancelled = true; ++marketOrdersEpoch.current; };
+    }
     setMarketOrdersLoading(true);
     retryReadRound(() => (client.readDisplayOrders ?? client.readOrders)(marketTab === 'mine' ? { seller: account } : { active: true }),
       { isCurrent: () => !cancelled })
@@ -955,7 +991,7 @@ export default function LivePlatform() {
         setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setMarketOrdersError(textError(error)); } })
@@ -988,6 +1024,10 @@ export default function LivePlatform() {
     } else {
       setActivity([]); setActivityCursor(null);
     }
+    if (config?.displayOnly && cached && memory?.refresh === refresh && Date.now() - memory.savedAt < 120_000) {
+      setActivityReadLoading(false);
+      return () => { cancelled = true; ++activityReadEpoch.current; };
+    }
     setActivityReadLoading(true);
     retryReadRound(() => client.readActivity({ account: owner }), { isCurrent: () => !cancelled })
       .then(result => {
@@ -998,7 +1038,7 @@ export default function LivePlatform() {
         if (route.route === 'records') setSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
@@ -1016,6 +1056,8 @@ export default function LivePlatform() {
       : readPageSnapshot(displayStorage(), client.manifest, 'stats');
     setStats(cached?.data ?? null);
     setStatsSource(cached?.source ?? null);
+    if (config?.displayOnly && cached && memory?.refresh === refresh && Date.now() - memory.savedAt < 120_000)
+      return () => { cancelled = true; };
     retryReadRound(() => (client.readDisplayStats ?? client.readStats)(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1023,7 +1065,7 @@ export default function LivePlatform() {
         setStatsSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set('stats', { savedAt: Date.now(), result });
+        entries.set('stats', { savedAt: Date.now(), refresh, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } });
@@ -1098,6 +1140,7 @@ export default function LivePlatform() {
         setPoolCapacity(previous => ({ ...previous, [key]: { ...previous[key], loading: true } }));
         const quote = await readShareDailyCapacityPrice(provider, {
           factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
+          displayOnly: config.displayOnly, params: row.params,
           allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
         });
         if (!cancelled) {
@@ -1131,6 +1174,7 @@ export default function LivePlatform() {
       setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
       const result = await readShareDailyCapacityPrice(provider, {
         factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
+        displayOnly: config.displayOnly,
       });
       if (capacityEpoch.current !== revision) return;
       setCapacityNow(Date.now());
@@ -1148,6 +1192,7 @@ export default function LivePlatform() {
     setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
     const result = await readShareDailyCapacityPrice(createReadOnlyHttpProvider(config), {
       factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
+      displayOnly: config.displayOnly,
     });
     if (capacityEpoch.current !== revision) return;
     setCapacityNow(Date.now());
@@ -1373,9 +1418,7 @@ export default function LivePlatform() {
       && result.targetType === 'portfolio' && same(result.factory, config.portfolioFactory)
       && result.poolAddress && result.transactionHash && lastConfirmed.current !== result.transactionHash) {
       try {
-        const ctx = await readPortfolioContext(config, client.provider);
-        const project = await readPortfolio(ctx, result.poolAddress, account, { includeChildren: false });
-        await ctx.canonical();
+        const { item: project } = await readPortfolioDisplayRow(config, client.provider, result.poolAddress, account);
         if (context === walletEpoch.current) {
           lastConfirmed.current = result.transactionHash;
           setModal({ type: 'portfolio-share', pool: project, confirmation: result });
@@ -1399,7 +1442,9 @@ export default function LivePlatform() {
         ? { ...viewPool(known), status: "Unknown", remaining: null }
         : null;
       try {
-        const snapshot = await readPoolSnapshot(wallet, {
+        const snapshot = config.displayOnly
+          ? { pools: [(await client.readPool({ pool: deposit.poolAddress, account })).item] }
+          : await readPoolSnapshot(wallet, {
           factory: config.factory,
           lens: config.lens,
           account,
@@ -1502,7 +1547,8 @@ export default function LivePlatform() {
     try {
       await connectJournal({ inspect: false, onState: showTransactionProgress });
       if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
-      const checked = await preparePortfolioAction({ ...input, config, provider: wallet, account });
+      const checked = config.displayOnly ? confirmed
+        : await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
       if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
         return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
@@ -1529,7 +1575,8 @@ export default function LivePlatform() {
     try {
       await connectJournal({ inspect: false, onState: state => { if (current()) showTransactionProgress(state); } });
       if (!current()) throw new Error(L('页面或钱包已改变，请重新预览。', 'Page or wallet changed. Preview again.'));
-      const checked = await prepareBudgetQueueStep({ ...input, config, provider: wallet, account });
+      const checked = config.displayOnly ? confirmed
+        : await prepareBudgetQueueStep({ ...input, config, provider: wallet, account });
       if (!current() || !budgetQueuePreviewMatches(confirmed, checked)) throw new Error(L('采购内容已改变，请重新预览。', 'Purchase details changed. Preview again.'));
       enteredSender = true;
       if (config.stage === 'fresh-active') {
@@ -1638,7 +1685,7 @@ export default function LivePlatform() {
       await connectJournal({ inspect: false, onState: state => { if (current()) showTransactionProgress(state); } });
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
       showTransactionProgress('rechecking');
-      const checked = await boundedReadPreview(({ provider }) => prepareAdminAction({ provider, config, account, ...preview.input }),
+      const checked = config.displayOnly ? preview : await boundedReadPreview(({ provider }) => prepareAdminAction({ provider, config, account, ...preview.input }),
         { provider: config?.productFamily === 'fresh-v4' ? client?.provider : wallet, isCurrent: current });
       if (!current() || !sameUnsignedIntent(preview.transaction, checked.transaction)
         || !sameAdminPurchasePreview(preview, checked))
@@ -1808,7 +1855,7 @@ export default function LivePlatform() {
     setMembersRead({ status: "loading" });
     try {
       const result = await readCurrentPoolMembers(client.provider, {
-        factory: config.factory, pool: detail.pool,
+        factory: config.factory, pool: detail.pool, displayOnly: config.displayOnly,
       });
       if (revision === epoch.current) {
         setMembers(result.members);
@@ -1846,6 +1893,7 @@ export default function LivePlatform() {
         const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
         lastPageRefresh.current.set(page, Date.now());
         setRefresh(v => v + 1);
+        if (boot.displayOnly) return;
         // Refresh page data immediately; only rebootstrap the page if the
         // independently verified contract stage actually changed.
         const refreshIdentity = { wallet: connectedWallet.current, revision: walletEpoch.current, route: routeIdentity.current };
@@ -2367,7 +2415,7 @@ export default function LivePlatform() {
               </Button>
             </div>
           )}
-          {config?.stage === "fresh-active" && !operatorServiceReady &&
+          {config?.stage === "fresh-active" && !config.displayOnly && !operatorServiceReady &&
             <p className="subtle-note" role="status" data-service-readiness="waiting">
               {config.stale === true
                 ? L('资料更新中，操作暂不可用。', 'Updating data; actions are temporarily unavailable.')
@@ -2376,7 +2424,7 @@ export default function LivePlatform() {
                 <Button secondary disabled={busy || !!modal || !!pending || !!connectionLock.current}
                   onClick={() => setBootAttempt(value => value + 1)}>{L('重新核对服务', 'Recheck services')}</Button></>}
             </p>}
-          {historicalSource && operatorServiceReady && !(loading || revalidating) &&
+          {historicalSource && !config?.displayOnly && operatorServiceReady && !(loading || revalidating) &&
             <p className="subtle-note" role="status">{historicalSource.cacheOrigin === 'server'
               ? L('已读取服务器缓存，后台持续同步链上数据。', 'Loaded server cache; on-chain data continues syncing in the background.')
               : L('资料待更新，相关操作暂不可用。', 'Data needs updating; related actions are temporarily unavailable.')}</p>}
@@ -2780,7 +2828,7 @@ export default function LivePlatform() {
                             )}
                           />
                         ) : null}
-                        {membersRead.status === "ready" && <p className="subtle-note">
+                          {membersRead.status === "ready" && membersRead.blockNumber !== null && <p className="subtle-note">
                           {L(`最新链上区块 #${membersRead.blockNumber}`, `Current on-chain block #${membersRead.blockNumber}`)}
                         </p>}
                       </section>
@@ -3343,7 +3391,7 @@ export default function LivePlatform() {
             <div className="live-actions">
               <Button secondary onClick={() => go('home')}>{L('返回拼矿首页', 'Back to home')}</Button>
               {wallet && account && operatorAccess !== 'checking' && <Button secondary disabled={busy}
-              onClick={() => config.productFamily === 'fresh-v4' && !freshIdentityReadable(config)
+              onClick={() => config.productFamily === 'fresh-v4' && !config.displayOnly && !freshIdentityReadable(config)
                 ? setBootAttempt(value => value + 1) : setOperatorRefresh(value => value + 1)}>{L('重新核对权限', 'Check access again')}</Button>}
             </div>
           </section>)}

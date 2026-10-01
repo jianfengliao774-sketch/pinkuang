@@ -1,7 +1,7 @@
 import { getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
 import { hash, insist, liveAddress, validateManifest } from './live-config.mjs';
-import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
+import { displayIndexSource, fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
 import { saleReferenceState } from './sale-governance-gate.mjs';
 
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -41,13 +41,30 @@ async function indexRead(base, path, manifest, options) {
   const { body, serverNow, localReceivedAt } = result;
   const source = validateIndexSource(body.source, manifest, { now: options.now(),
     ...(serverNow === null ? {} : { timeProof: { serverNow, localReceivedAt } }) });
-  return { source, data: body.data };
+  return { source: options.displayOnly === true ? displayIndexSource(source) : source, data: body.data };
 }
 
 async function context(config, provider, source) {
   const { manifest, base } = settings(config, provider), queue = readQueue(provider);
   const request = (method, params = []) => queue.request({ method, params });
   try {
+    if (config.displayOnly === true) {
+      const blockNumber = source ? BigInt(source.indexedThrough) : null;
+      const timestamp = source ? BigInt(source.indexedTimestamp) : BigInt(Math.floor(Date.now() / 1000));
+      const tag = source ? toQuantity(blockNumber) : 'latest';
+      const read = async (to, contract, name, args = []) => contract.decodeFunctionResult(name,
+        await request('eth_call', [{ to, data: contract.encodeFunctionData(name, args) }, tag]));
+      const references = new Map(), reference = pool => {
+        const key = pool.toLowerCase();
+        if (!references.has(key)) references.set(key, read(manifest.shareMarket, abi.ShareMarket, 'saleReference', [pool])
+          .then(value => saleReferenceState(value, timestamp))
+          .catch(error => ({ available: false, priceWei: null, observedAt: null, reason: message(error) })));
+        return references.get(key);
+      };
+      return { config, manifest, base, queue, request, read, reference, source,
+        current: !source || source.stale !== true, displayOnly: true,
+        block: source ? { hash: source.indexedBlockHash } : null, blockNumber, timestamp, async canonical() {} };
+    }
     if (source) await requireRecentSnapshotState({ request: queue.request }, source);
     const [chain, block] = await Promise.all([
       request('eth_chainId'), request('eth_getBlockByNumber', [source ? toQuantity(source.indexedThrough) : 'latest', false]),
@@ -121,9 +138,10 @@ function row(context, kind, project, pool, id, p, opener, state, reference, revi
     yesShares: p.yesShares, yesCount, requiredYesShares: 51n, requiredYesCount: members / 2n + 1n,
     passed: p.yesShares > 50n && yesCount * 2n > members, reviewStatus: review?.status ?? null,
     reviewPriceWei: review?.priceWei ?? null, ...gate,
-    canReview: gate.canReview && context.current && context.config.stale !== true
-      && context.config.operationalReady !== false,
-    current: context.current, blockNumber, blockHash: context.block.hash, timestamp };
+    canReview: gate.canReview && (context.displayOnly === true || context.current && context.config.stale !== true
+      && context.config.operationalReady !== false),
+    current: context.current, blockNumber, blockHash: context.block?.hash ?? null, timestamp,
+    ...(context.displayOnly === true ? { displayOnly: true } : {}) };
 }
 
 async function projectRequests(ctx, kind, project, options, selectedId) {
@@ -133,11 +151,13 @@ async function projectRequests(ctx, kind, project, options, selectedId) {
   const contract = isPool ? abi.PoolVault : abi.BudgetPortfolioVault;
   const factoryAbi = isPool ? abi.PoolFactory : abi.BudgetPortfolioFactory;
   const [registered, binding, stateResult, active, next, code] = await Promise.all([
+    ...(ctx.displayOnly ? [null, null] : [
     read(factory, factoryAbi, 'isPool', [project]), read(project, contract, 'OFFICIAL_FACTORY'),
+    ]),
     read(project, contract, 'state'), read(project, contract, 'activeProposalId'), read(project, contract, 'nextProposalId'),
-    request('eth_getCode', [project, toQuantity(ctx.blockNumber)]),
+    ctx.displayOnly ? null : request('eth_getCode', [project, toQuantity(ctx.blockNumber)]),
   ]);
-  check(registered[0] === true && same(binding[0], factory) && code && code !== '0x', '申请项目未在当前正式工厂登记。');
+  if (!ctx.displayOnly) check(registered[0] === true && same(binding[0], factory) && code && code !== '0x', '申请项目未在当前正式工厂登记。');
   const state = stateResult[0], activeId = active[0], nextId = next[0];
   check(state <= 5n && nextId >= 1n && (activeId === 0n || activeId < nextId)
     && nextId - (activeId || nextId) <= candidateLimit(kind), '当前轮申请数量或状态无效。');
@@ -146,12 +166,12 @@ async function projectRequests(ctx, kind, project, options, selectedId) {
   let identity;
   if (isPool) {
     const [params, boundFactory, subscriber] = await Promise.all([
-      read(project, contract, 'params'), read(project, contract, 'factory'),
-      read(factory, factoryAbi, 'designatedSubscriber', [project]),
+      read(project, contract, 'params'), ctx.displayOnly ? null : read(project, contract, 'factory'),
+      ctx.displayOnly ? null : read(factory, factoryAbi, 'designatedSubscriber', [project]),
     ]);
-    check(same(boundFactory[0], factory) && subscriber[0] === ZeroAddress, '预算子矿机须从预算项目审核。');
+    if (!ctx.displayOnly) check(same(boundFactory[0], factory) && subscriber[0] === ZeroAddress, '预算子矿机须从预算项目审核。');
     identity = { collection: liveAddress(params[0].circuits), tokenId: params[0].circuitId };
-  } else {
+  } else if (!ctx.displayOnly) {
     const [legacy, factoryLegacy] = await Promise.all([
       read(project, contract, 'legacyFactory'), read(factory, factoryAbi, 'legacyFactory'),
     ]);
@@ -210,9 +230,18 @@ async function identifyPortfolioProposers(ctx, project, candidates, options) {
           && uint(event.fields.endsAt) === item.endsAt, '预算申请事件身份无效。');
         const [tx, block, receipt] = await Promise.all([
           ctx.request('eth_getTransactionByHash', [event.transactionHash]),
-          ctx.request('eth_getBlockByNumber', [toQuantity(event.blockNumber), false]),
-          ctx.request('eth_getTransactionReceipt', [event.transactionHash]),
+          ctx.displayOnly ? null : ctx.request('eth_getBlockByNumber', [toQuantity(event.blockNumber), false]),
+          ctx.displayOnly ? null : ctx.request('eth_getTransactionReceipt', [event.transactionHash]),
         ]);
+        if (ctx.displayOnly) {
+          if (!tx?.to || !same(tx.to, project)) continue;
+          const parsed = abi.BudgetPortfolioVault.parseTransaction({ data: tx.input ?? tx.data });
+          if (parsed?.name !== 'proposeChildSale' || !same(parsed.args[0], item.pool)
+            || parsed.args[1] !== item.priceWei || parsed.args[2] !== item.recordedReferencePriceWei
+            || parsed.args[3] !== item.recordedReferenceAt) continue;
+          item.proposer = liveAddress(tx.from); item.proposerUnavailable = null;
+          item.transactionHash = event.transactionHash; wanted.delete(item.proposalId.toString()); continue;
+        }
         if (!tx || !tx.to || !same(tx.to, project) || tx.hash?.toLowerCase() !== event.transactionHash.toLowerCase()
           || tx.blockHash?.toLowerCase() !== event.blockHash.toLowerCase()
           || block?.hash?.toLowerCase() !== event.blockHash.toLowerCase()
@@ -249,7 +278,7 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
   check(scope === 'pool' || scope === 'portfolio', '申请类型无效。');
   check(Number.isSafeInteger(cursor) && cursor >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 20,
     '申请分页无效。');
-  const { manifest, base } = settings(config, provider), options = { fetcher, now };
+  const { manifest, base } = settings(config, provider), options = { fetcher, now, displayOnly: config.displayOnly === true };
   const { source, data } = await indexRead(base, `/v1/${scope === 'pool' ? 'pools' : 'portfolios'}?cursor=${cursor}&limit=${limit}`,
     manifest, options);
   if (scope === 'portfolio') check(manifest.portfolioFactory && same(source.portfolioFactory, manifest.portfolioFactory)
@@ -266,17 +295,18 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
   try {
     let total;
     if (scope === 'portfolio') {
-      total = (await ctx.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
+      total = ctx.displayOnly ? source.portfolioCount === undefined ? null : uint(source.portfolioCount)
+        : (await ctx.read(manifest.portfolioFactory, abi.BudgetPortfolioFactory, 'portfolioCount'))[0];
       if (source.portfolioCount !== undefined) check(total === uint(source.portfolioCount), '预算申请目录数量不一致。');
     } else {
       const registered = uint(data.registeredPoolCount), children = uint(data.childPoolCount);
       const reserved = uint(data.reservedChildPoolCount);
       total = uint(data.standalonePoolCount);
-      const count = (await ctx.read(manifest.factory, abi.PoolFactory, 'poolCount'))[0];
+      const count = ctx.displayOnly ? registered : (await ctx.read(manifest.factory, abi.PoolFactory, 'poolCount'))[0];
       check(count === registered && total + children + reserved === registered, '申请目录与链上矿池数量不一致。');
     }
     const offset = BigInt(cursor), count = BigInt(projects.length), size = BigInt(limit);
-    check(offset <= total && count === (total - offset < size ? total - offset : size)
+    if (total !== null) check(offset <= total && count === (total - offset < size ? total - offset : size)
       && (data.nextCursor === null ? offset + count === total : BigInt(data.nextCursor) < total),
     '申请目录未覆盖当前页全部项目，请刷新。');
     for (let offset = 0; offset < projects.length; offset += 4) {
@@ -298,6 +328,12 @@ export async function readSaleReviewRequests({ config, provider, scope = 'pool',
 export async function refreshSaleReviewRequest({ config, provider, item, fetcher = globalThis.fetch, now = Date.now }) {
   check(item && ['pool', 'portfolio'].includes(item.kind), '请先选择一条出售申请。');
   const project = liveAddress(item.project), id = uint(item.proposalId);
+  if (config?.displayOnly === true) {
+    settings(config, provider);
+    check(id > 0n && uint(item.priceWei) > 0n && item.key === `${item.kind}:${project.toLowerCase()}:${id}`, '申请编号或金额无效。');
+    liveAddress(item.pool);
+    return Object.freeze({ ...item, displayOnly: true });
+  }
   const ctx = await context(config, provider);
   try {
     const items = await projectRequests(ctx, item.kind, project, { fetcher, now }, id);

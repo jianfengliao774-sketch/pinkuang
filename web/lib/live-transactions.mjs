@@ -104,7 +104,8 @@ export async function connectWallet(provider) {
 }
 /** Authentication may prompt personal_sign. Call only from the user's connect/login action. */
 export async function authenticate({ provider, account, config = {}, fetcher = globalThis.fetch, onState }) {
-  const owner = await requireWallet(provider, address(account));
+  const direct = config.displayOnly === true;
+  const owner = direct ? address(account) : await requireWallet(provider, address(account));
   try {
     const current = await request(config, 'session', 'GET', undefined, undefined, fetcher);
     if (same(current.account, owner)) return { account: owner };
@@ -121,7 +122,7 @@ export async function authenticate({ provider, account, config = {}, fetcher = g
   await requireWallet(provider, owner);
   emit(onState, { status: 'awaiting-login-signature' });
   const signature = await provider.request({ method: 'personal_sign', params: [hexlify(toUtf8Bytes(challenge.message)), owner] });
-  await requireWallet(provider, owner);
+  if (!direct) await requireWallet(provider, owner);
   const session = await request(config, 'session', 'POST', { account: owner, nonce: challenge.nonce, signature }, undefined, fetcher);
   requireValue(same(session.account, owner), '服务器会话的钱包地址不匹配。');
   return { account: owner };
@@ -141,10 +142,29 @@ export async function abandonPrepared({ account, config = {}, fetcher = globalTh
   requireValue(ack.record === null && ack.revision === view.revision + 1, '清除结果待核对，请刷新记录。');
   return { status: 'idle' };
 }
+function fixedDisplayConfig(config) {
+  requireValue(config?.status === 'ready' && config.productFamily === 'fresh-v4'
+    && config.stage === 'fresh-active' && config.manifest && config.pinnedManifest
+    && Number(config.manifest.chainId) === 56
+    && same(config.manifest.artifactDigest, ARTIFACT_DIGEST)
+    && same(config.pinnedManifest.artifactDigest, ARTIFACT_DIGEST)
+    && same(config.artifactDigest, ARTIFACT_DIGEST), '固定部署清单与当前页面不一致。');
+  for (const key of ['factory', 'shareMarket', 'lens', 'beacon', 'timelock',
+    'portfolioFactory', 'portfolioMarket', 'portfolioBeacon', 'portfolioImplementation',
+    'portfolioFactoryImplementation', 'authority', 'gasWallet']) {
+    requireValue(same(config.manifest[key], config.pinnedManifest[key])
+      && (config[key] === undefined || same(config[key], config.manifest[key])),
+    '固定部署清单的合约地址不一致。');
+    address(config.manifest[key]);
+  }
+  return { ...config.manifest, ...config };
+}
 function normalize(config, transaction, action) {
+  const direct = config?.displayOnly === true;
+  if (direct) config = fixedDisplayConfig(config);
   requireValue(config?.status === 'ready' && Number(config.chainId) === 56, '当前尚未配置已验证的 BSC 部署。');
   if (config.manifest) {
-    requireValue((config.readMode === undefined || config.readMode === 'current') && config.stale !== true,
+    requireValue(direct || (config.readMode === undefined || config.readMode === 'current') && config.stale !== true,
       '历史产品资料仅供展示，请等待最新链上核对。');
     const expected = config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : ARTIFACT_DIGEST;
     requireValue(PRODUCT_STAGES.includes(config.stage) && same(config.manifest.artifactDigest, expected)
@@ -170,10 +190,10 @@ function normalize(config, transaction, action) {
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
   const userExit = config.stage === 'fresh-active' && config.userExitReady === true && isFreshUserExit(targetType, decoded.name, value);
   const walletAction = freshWalletActionReady(config, targetType, decoded.name) && isFreshWalletAction(targetType, decoded.name, value);
-  requireValue(!config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit || walletAction,
+  requireValue(direct || !config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit || walletAction,
     config.stage === 'fresh-active' ? '新增交易服务尚未启用；仅已核验的领取、退款和撤单可由用户钱包自付 Gas。'
       : '历史产品资料仅供展示，请等待最新链上核对。');
-  if (config.manifest && config.stage !== 'genesis') {
+  if (!direct && config.manifest && config.stage !== 'genesis') {
     const oldContract = targetType === 'portfolioFactory' ? genesisAbi.BudgetPortfolioFactory
       : targetType === 'portfolio' ? genesisAbi.BudgetPortfolioVault : targetType === 'factory' ? genesisAbi.PoolFactory
         : targetType === 'pool' ? genesisAbi.PoolVault : genesisAbi.ShareMarket;
@@ -193,6 +213,9 @@ export function validateProductTransactionStage(config, transaction, action) {
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function requireCurrentProductStage(config, fetcher, { wait = pause, now = Date.now, transaction, action } = {}) {
+  // Direct mode has a locally build-bound address list, not a current chain
+  // attestation. Contracts enforce their own roles and state on execution.
+  if (config?.displayOnly === true) { fixedDisplayConfig(config); return; }
   if (!config.manifest) return; // Legacy isolated test fixtures never reach production boot.
   requireValue(typeof config.productGraphUrl === 'string' && typeof config.origin === 'string',
     '缺少已核验的产品阶段，请刷新页面。');
@@ -263,7 +286,7 @@ function validateResult(result, account, record, hash) {
 /** Read-only recovery through the fixed server RPC. No wallet permission, signing, send or retry. */
 export async function recoverPending({ provider, config = {}, account, hash, onState, fetcher = globalThis.fetch }) {
   const owner = address(account);
-  if (provider) await requireWallet(provider, owner);
+  if (provider && config.displayOnly !== true) await requireWallet(provider, owner);
   const view = await readPending({ account: owner, config, fetcher });
   if (!view.record) {
     if (!hash) return { status: 'idle' };
@@ -297,11 +320,12 @@ export async function recoverPending({ provider, config = {}, account, hash, onS
 /** Explicit user click only. Cancels this wallet's journal nonce, never an arbitrary transaction. */
 export async function cancelPendingNonce({ provider, config = {}, account, onState, fetcher = globalThis.fetch }) {
   const owner = address(account), lane = owner.toLowerCase();
+  const direct = config.displayOnly === true;
   requireValue(!active.has(lane), '这个钱包正在提交另一笔交易。');
   active.add(lane);
   let record, hash;
   try {
-    await requireWallet(provider, owner);
+    if (!direct) await requireWallet(provider, owner);
     const session = await request(config, 'session', 'GET', undefined, owner, fetcher);
     requireValue(same(session.account, owner), '请先点击连接钱包并完成本站登录。');
     const view = await readPending({ account: owner, config, fetcher });
@@ -335,18 +359,20 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
       && ack.record.cancellationRequests.length === (record.cancellationRequests?.length ?? 0) + 1,
     '服务器没有保存取消签名意图，已停止发送。');
     record = ack.record;
-    const [latest, pending, code, balance, current] = await Promise.all([
-      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
-      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
-      provider.request({ method: 'eth_getCode', params: [owner, 'latest'] }),
-      provider.request({ method: 'eth_getBalance', params: [owner, 'latest'] }),
-      readPending({ account: owner, config, fetcher }),
-    ]);
+    const { latest, pending, code, balance, current } = await settleReadRound({
+      latest: () => provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
+      pending: () => provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
+      balance: () => provider.request({ method: 'eth_getBalance', params: [owner, 'latest'] }),
+      ...(!direct ? {
+        code: () => provider.request({ method: 'eth_getCode', params: [owner, 'latest'] }),
+        current: () => readPending({ account: owner, config, fetcher }),
+      } : {}),
+    });
     requireValue(rpcQuantity(latest, '钱包最新 nonce') === nonce && rpcQuantity(pending, '钱包待处理 nonce') >= nonce && rpcQuantity(pending, '钱包待处理 nonce') <= nonce + 1n,
       '原 nonce 已变化或钱包还有其他待处理交易，请先核对钱包交易哈希。');
-    requireValue(code === '0x', '此钱包不支持页面内取消，请使用钱包自身的恢复功能。');
+    requireValue(direct || code === '0x', '此钱包不支持页面内取消，请使用钱包自身的恢复功能。');
     requireValue(rpcQuantity(balance, '钱包 BNB 余额') >= gas * gasPrice, 'BNB 余额不足以支付取消交易的 Gas。');
-    requireValue(current.revision === ack.revision && current.record?.nonce === record.nonce
+    requireValue(direct || current.revision === ack.revision && current.record?.nonce === record.nonce
       && same(current.record.account, owner), '待处理记录已变化，请重新核对后再取消。');
     await requireWallet(provider, owner);
     emit(onState, { status:'awaiting-signature', operation:'cancel-pending', record, gasLimit:gas.toString(),
@@ -373,11 +399,12 @@ export async function cancelPendingNonce({ provider, config = {}, account, onSta
 /** Explicit second click after a wallet rejected the type-2 envelope before broadcast. */
 export async function retryLegacyEnvelope({ provider, config = {}, account, onState, fetcher = globalThis.fetch }) {
   const owner = address(account), lane = owner.toLowerCase();
+  const direct = config.displayOnly === true;
   requireValue(!active.has(lane), '这个钱包正在提交另一笔交易。');
   active.add(lane);
   let record, hash, revision;
   try {
-    await requireWallet(provider, owner);
+    if (!direct) await requireWallet(provider, owner);
     const session = await request(config, 'session', 'GET', undefined, owner, fetcher);
     requireValue(same(session.account, owner), '请先点击连接钱包并完成本站登录。');
     const view = await readPending({ account: owner, config, fetcher });
@@ -388,7 +415,7 @@ export async function retryLegacyEnvelope({ provider, config = {}, account, onSt
     const transaction = { from: owner, to: original.target, chainId: '0x38', data: original.data, value: original.value };
     const action = { ...original.action, targetType: original.targetType };
     const graph = await requireCurrentProductStage(config, fetcher, { transaction, action });
-    const currentConfig = { ...config, readMode: 'current', stale: false,
+    const currentConfig = direct ? config : { ...config, readMode: 'current', stale: false,
       transactionReady: graph?.transactionReady ?? config.transactionReady,
       userExitReady: graph?.userExitReady ?? config.userExitReady,
       operationalReady: graph?.operationalReady ?? config.operationalReady };
@@ -424,16 +451,18 @@ export async function retryLegacyEnvelope({ provider, config = {}, account, onSt
     requireValue(ack.transaction && Object.keys(ack.transaction).sort().join(',') === Object.keys(expected).sort().join(',')
       && Object.entries(expected).every(([key, item]) => same(ack.transaction[key], item)),
     '兼容交易信封与原意图不一致，已停止发送。');
-    const [finalWallet, finalLatest, finalPending, current] = await Promise.all([
-      requireWallet(provider, owner),
-      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
-      provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
-      readPending({ account: owner, config, fetcher }),
-    ]);
-    requireValue(same(finalWallet, owner) && rpcQuantity(finalLatest, '签名前最新 nonce') === nonce
+    const { finalWallet, finalLatest, finalPending, current } = await settleReadRound({
+      finalWallet: () => requireWallet(provider, owner),
+      ...(!direct ? {
+        finalLatest: () => provider.request({ method: 'eth_getTransactionCount', params: [owner, 'latest'] }),
+        finalPending: () => provider.request({ method: 'eth_getTransactionCount', params: [owner, 'pending'] }),
+        current: () => readPending({ account: owner, config, fetcher }),
+      } : {}),
+    });
+    requireValue(same(finalWallet, owner) && (direct || rpcQuantity(finalLatest, '签名前最新 nonce') === nonce
       && rpcQuantity(finalPending, '签名前待处理 nonce') === nonce && current.revision === revision
       && current.legacyEnvelopeIssued === true
-      && current.record?.nonce === original.nonce && same(current.record.account, owner),
+      && current.record?.nonce === original.nonce && same(current.record.account, owner)),
     '签名前钱包或意图已变化，请核对记录。');
     emit(onState, { status: 'awaiting-signature', operation: 'legacy-envelope', record,
       gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
@@ -474,9 +503,11 @@ export async function sendProductTransaction({ provider, config, transaction, ac
       transactionReady: graph.transactionReady, operationalReady: graph.operationalReady, userExitReady: graph.userExitReady } : config;
     const normalized = normalize(currentConfig, transaction, action);
     const { account, factory, target, targetType, value, data } = normalized;
+    const direct = currentConfig.displayOnly === true;
+    requireValue(provider?.request, '请先连接钱包。');
     // Independent reads overlap, but every started read settles before an intent can be saved.
-    const { session, view, latest, pending, price, balance } = await settleReadRound({
-      wallet: () => requireWallet(provider, account),
+    const initial = await settleReadRound({
+      ...(!direct ? { wallet: () => requireWallet(provider, account) } : {}),
       session: () => request(config, 'session', 'GET', undefined, account, fetcher),
       view: () => readPending({ account, config, fetcher }),
       latest: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
@@ -484,12 +515,14 @@ export async function sendProductTransaction({ provider, config, transaction, ac
       price: () => provider.request({ method: 'eth_gasPrice' }),
       balance: () => provider.request({ method: 'eth_getBalance', params: [account, 'latest'] }),
     });
+    const { session, view } = initial;
     requireValue(same(session.account, account), '请先点击连接钱包并完成本站登录。');
     requireValue(!view.record, '这个钱包有待核对交易，请先核对回执；不要重复发送。');
     revision = view.revision;
     const unsigned = { from: account, to: target, data, value: toQuantity(value) };
     // The wallet confirmation displays a bounded gas limit. Do not run a
     // transaction simulation or dynamic gas estimate during submission.
+    const { latest, pending, price, balance } = initial;
     const nonce = rpcQuantity(latest, '钱包最新 nonce'), gas = productGasLimit(normalized.action.kind, targetType), gasPrice = rpcQuantity(price, '钱包 Gas 单价');
     requireValue(nonce === rpcQuantity(pending, '钱包待处理 nonce') && nonce <= BigInt(Number.MAX_SAFE_INTEGER), '钱包存在其他待确认交易，请先在钱包中处理。');
     requireValue(gas > 0n && gas <= exact(config.maxGasLimit ?? '5000000') && gasPrice > 0n
@@ -528,11 +561,13 @@ export async function sendProductTransaction({ provider, config, transaction, ac
     if (fastAuthorized) emit(onState, { status: 'authorizing' });
     const { wallet: finalWallet, lastNonce, pendingNonce } = await settleReadRound({
       wallet: () => requireWallet(provider, account),
-      lastNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
-      pendingNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
+      ...(!direct ? {
+        lastNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'latest'] }),
+        pendingNonce: () => provider.request({ method: 'eth_getTransactionCount', params: [account, 'pending'] }),
+      } : {}),
     });
     requireValue(same(finalWallet, account), '签名前钱包账户已变化，请重新连接后确认。');
-    requireValue(rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
+    requireValue(direct || rpcQuantity(lastNonce, '签名前最新 nonce') === nonce && rpcQuantity(pendingNonce, '签名前待处理 nonce') === nonce, '签名前钱包 nonce 已变化，原意图已保留，请核对。');
     emit(onState, { status: 'awaiting-signature', record, gasLimit: gas.toString(), gasPriceWei: gasPrice.toString(), maxGasWei: (gas * gasPrice).toString() });
     hash = await provider.request({ method: 'eth_sendTransaction', params: [expectedTx] });
     requireValue(typeof hash === 'string' && HASH.test(hash), '钱包未返回有效哈希，发送结果待核对。');

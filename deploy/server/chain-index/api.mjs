@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { cacheEncode } from './pool-display-cache.mjs';
+import { DisplayReadError } from './cached-read-api.mjs';
 import { communityPage } from './community.mjs';
 import { chainIndexInterfaces } from './indexer.mjs';
 
@@ -20,7 +21,7 @@ const displaySnapshots = Object.freeze({
 });
 
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
-export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache } = {}) {
+export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache, portfolioReads, displayEvents } = {}) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -37,6 +38,30 @@ export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache 
     try { url = new URL(req.url, 'http://localhost'); }
     catch { return send(400, { error: 'Invalid URL.' }); }
     try {
+    if (url.pathname === '/v1/display/events') {
+      if ([...url.searchParams].length) return send(400, { error: 'Display stream takes no query parameters.' });
+      if (!displayEvents) return send(404, { error: 'Display stream is unavailable.' });
+      return displayEvents.subscribe(req, res);
+    }
+    const portfolioMatch = /^\/v1\/display\/portfolios\/(0x[\da-f]{40})$/i.exec(url.pathname);
+    if (url.pathname === '/v1/display/portfolios' || portfolioMatch) {
+      if (!portfolioReads) return send(404, { error: 'Portfolio display API is unavailable.' });
+      const seen = new Set(), allowed = portfolioMatch ? ['account', 'children'] : ['account', 'cursor', 'limit', 'mine'];
+      for (const [name, value] of url.searchParams) {
+        if (!allowed.includes(name) || seen.has(name)) return send(400, { error: 'Invalid display query.' });
+        seen.add(name);
+        if (name === 'account' && !/^0x[\da-f]{40}$/i.test(value)) return send(400, { error: 'Invalid account.' });
+        if (['children', 'mine'].includes(name) && !['true', 'false'].includes(value)) return send(400, { error: 'Invalid display flag.' });
+      }
+      const account = url.searchParams.get('account') ?? undefined;
+      if (portfolioMatch) return send(200, await portfolioReads.detail(portfolioMatch[1], {
+        account, includeChildren: url.searchParams.get('children') !== 'false',
+      }));
+      const cursor = pageInt(url.searchParams.get('cursor'), 'cursor', 0, Number.MAX_SAFE_INTEGER);
+      const limit = pageInt(url.searchParams.get('limit'), 'limit', 20, 20);
+      if (limit < 1 || url.searchParams.get('mine') === 'true' && !account) return send(400, { error: 'Invalid display pagination.' });
+      return send(200, await portfolioReads.page({ account, cursor, limit, mine: url.searchParams.get('mine') === 'true' }));
+    }
     // No sync wait and no RPC calls on the materialized display path.
     if (url.pathname.startsWith('/v1/display/')) {
       const cached=displayCache?.snapshot();
@@ -258,6 +283,10 @@ export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache 
         { source, error: privateSnapshot ? 'Private snapshot unavailable or changed.'
           : invalid ? 'Invalid query.' : 'Index read unavailable.' });
     } finally { if (readView) index.releaseVerifiedReadView(readView); }
-    } catch { return send(503, { source: null, error: 'Index unavailable.' }); }
+    } catch (error) {
+      if (error instanceof DisplayReadError) return send(error.status, { source: null, error: error.message });
+      if (error instanceof InvalidQueryError) return send(400, { error: 'Invalid query.' });
+      return send(503, { source: null, error: 'Index unavailable.' });
+    }
   });
 }

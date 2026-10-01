@@ -2,7 +2,7 @@ import { ZeroAddress, getAddress } from 'ethers';
 import { BUDGET_QUEUE_VERSION, budgetApprovalDigest, validateBudgetQueue } from '../../deploy/shared/budget-queue.mjs';
 export { BUDGET_QUEUE_VERSION, validateBudgetQueue } from '../../deploy/shared/budget-queue.mjs';
 import { abi, uint } from './chain-client.mjs';
-import { readPortfolioContext, readPortfolio, preparePortfolioAction } from './live-portfolios.mjs';
+import { readPortfolioContext, readPortfolio, readPortfolioDisplayContext, readPortfolioDisplayRow, preparePortfolioAction } from './live-portfolios.mjs';
 import { prepareAdminAction } from './live-admin.mjs';
 import { readOfficialMinerOnchain, checkMinerOnchain, listOperatorQuotes } from './operator-quotes.mjs';
 import { readPending, recoverPending, requireWallet } from './live-transactions.mjs';
@@ -25,8 +25,9 @@ export const BUDGET_FIRSTO_PAGE_LIMIT=5;
 // designatedSubscriber. Fresh deployments use two separately signed Authority
 // actions and may advance only after the previous step's finalized receipt.
 export function budgetPurchaseQueueSupported(config){
-  return config?.kind==='integrated-v2' && config.operationalReady===true
-    && config.transactionReady!==false
+  const enabled=config?.displayOnly===true ? config.status==='ready'
+    : config?.operationalReady===true && config.transactionReady!==false;
+  return config?.kind==='integrated-v2' && enabled
     && (['code-upgraded','role-migrating','role-wired'].includes(config.stage)
       || config.stage==='fresh-active' && !!config.authority && !!config.gasWallet);
 }
@@ -57,6 +58,13 @@ async function officialSnapshot(config,context,parent,fetcher){
 }
 
 async function freshParent(input){
+  if(input.config?.displayOnly===true){
+    const {item:row,source}=await readPortfolioDisplayRow(input.config,input.provider,input.parent,input.account,
+      {fetcher:input.fetcher,includeChildren:false});
+    const context=await readPortfolioDisplayContext(input.config,input.provider,BigInt(source.indexedThrough),source);
+    need(row.state===1n&&row.timestamp<row.purchaseDeadline&&row.spentWei<row.budgetWei,'项目不在购机期 / Acquisition window is closed');
+    return {context,row};
+  }
   const context=await readPortfolioContext(input.config,input.provider),row=await readPortfolio(context,input.parent,input.account,{includeChildren:false});
   const coreOperator=(await context.read(context.manifest.factory,abi.PoolFactory,'operator'))[0];
   if(input.config.stage==='fresh-active'){
@@ -77,7 +85,7 @@ export async function discoverBudgetPurchasePlan({config,provider,account,parent
   readParent=freshParent,readOfficial=officialSnapshot,quotePage=listOperatorQuotes,checkQuote=checkMinerOnchain}={}){
   need(budgetPurchaseQueueSupported(config),'当前合约阶段不支持连续采购队列 / The current contract stage does not support this purchase queue');
   account=addr(account);parent=addr(parent);
-  const {context,row}=await readParent({config,provider,account,parent}),remaining=row.budgetWei-row.spentWei;
+  const {context,row}=await readParent({config,provider,account,parent,fetcher}),remaining=row.budgetWei-row.spentWei;
   const limit=limitWei===undefined?remaining:exact(limitWei);need(limit>0n&&limit<=remaining,'Approved amount exceeds remaining budget');
   onProgress?.('official');const official=await readOfficial(config,context,parent,fetcher);
   need(official.snapshot?.complete===true&&official.snapshot.blockNumber===Number(BigInt(context.block.number))
@@ -105,8 +113,10 @@ export async function discoverBudgetPurchasePlan({config,provider,account,parent
         const weight=exact(quote.verifiedWeight),cap=row.unitCapWei*weight<row.absoluteCapWei?row.unitCapWei*weight:row.absoluteCapWei;
         if(weight===0n||exact(quote.ask.buyerCostWei)>cap||exact(quote.ask.buyerCostWei)>limit)return null;
         const checked=await checkQuote(provider,quote,{config,blockTag:context.tag,officialPriceCapWei:cap.toString()});
-        need(same(checked.blockHash,context.block.hash),'Firsto verification block changed');
-        if(!checked.registry?.ready||!same(checked.registry.pool,ZeroAddress))return null;
+        if(config.displayOnly!==true){
+          need(same(checked.blockHash,context.block.hash),'Firsto verification block changed');
+          if(!checked.registry?.ready||!same(checked.registry.pool,ZeroAddress))return null;
+        }
         // A current official listing discovered here means our full official view cannot authorize fallback.
         need(!checked.official || exact(checked.official.priceWei)>cap || roundShares(checked.official.priceWei)>remaining
           ||exact(checked.official.priceWei)>limit,'官网出现可采购挂单，请重新读取 / An official listing became available');
@@ -118,7 +128,8 @@ export async function discoverBudgetPurchasePlan({config,provider,account,parent
     selected=selectBudgetCandidates(candidates,{remainingWei:remaining,limitWei:limit,maxMachines});firstoView={viewId,totalPages,sourceBlock,
       pagesRead:page-1,rowsRead:rows.length,excluded,total,truncated:page-1<totalPages};
   }
-  await context.canonical();need(selected.length,'当前没有符合预算且可核验的矿机 / No verified miner fits this budget');
+  if(config.displayOnly!==true)await context.canonical();
+  need(selected.length,'当前没有符合预算的矿机 / No miner fits this budget');
   const plan={version:BUDGET_QUEUE_VERSION,chainId:56,id:globalThis.crypto.randomUUID(),revision:0,approved:false,account,parent,
     factory:addr(context.manifest.factory),portfolioFactory:addr(context.manifest.portfolioFactory),artifactDigest:context.manifest.artifactDigest,
     budgetWei:row.budgetWei.toString(),startSpentWei:row.spentWei.toString(),limitWei:limit.toString(),absoluteCapWei:row.absoluteCapWei.toString(),
@@ -131,7 +142,7 @@ export async function discoverBudgetPurchasePlan({config,provider,account,parent
 
 export function nextBudgetQueueItem(plan){validateBudgetQueue(plan);return plan.items.findIndex(item=>!['completed','failed','skipped'].includes(item.status));}
 
-/** Fresh parent/NFT/unique registration verification precedes every explicit wallet step. */
+/** Prepare one explicit step; display mode relies on contract execution for permissions. */
 export async function prepareBudgetQueueStep({config,provider,account,parent,plan,index,readParent=freshParent,
   readMiner=readOfficialMinerOnchain,prepareCreate=prepareAdminAction,preparePurchase=preparePortfolioAction,readOfficial=officialSnapshot,
   verifyOrder=verifyFirstoSignedAsk,fetcher=globalThis.fetch}={}){
@@ -139,6 +150,7 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
   validateBudgetQueue(plan,{config,account,parent});need(plan.approved===true,'Preview and approve the purchase limits first');
   need(index===nextBudgetQueueItem(plan),'Only the next reviewed queue item may run');const item=plan.items[index];
   need(['ready','created'].includes(item.status),'未知交易必须先核对 / Reconcile the unresolved transaction first');
+  if(config.displayOnly===true)return prepareBudgetQueueDirectStep({config,provider,account,parent,plan,index,item,readMiner});
   const {context,row}=await readParent({config,provider,account,parent});
   need(row.budgetWei===exact(plan.budgetWei)&&row.absoluteCapWei===exact(plan.absoluteCapWei)&&row.unitCapWei===exact(plan.unitCapWei)
     &&row.purchaseDeadline===exact(plan.purchaseDeadline),'Parent budget settings changed');
@@ -182,6 +194,44 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
     need(official?prepared.procurement.route==='official':prepared.procurement.route==='firsto','Purchase source changed');
   }
   await context.canonical();
+  const authority=config.stage==='fresh-active'?(phase==='create'
+    ?{kind:'executeApprovedOperation',args:approvedOperatorCall(config,prepared.transaction)}
+    :approvedPortfolioPurchase(config,prepared)):undefined;
+  return {...prepared,...(authority?{authority}:{}),queue:{id:plan.id,approvalDigest:plan.approvalDigest,parent,account,index,phase},
+    input:{plan:clone(plan),index,parent,account},phase};
+}
+
+async function prepareBudgetQueueDirectStep({config,provider,account,parent,plan,index,item,readMiner}){
+  account=addr(account);parent=addr(parent);
+  let prepared,phase;
+  if(item.status==='ready'){
+    const deadline=exact(plan.purchaseDeadline);
+    need(deadline>1n,'Purchase deadline is invalid');
+    const params={circuits:addr(item.collection),circuitId:exact(item.tokenId),targetRaise:exact(item.targetRaiseWei),
+      priceCap:exact(item.maxCostWei),directSeller:ZeroAddress,directPrice:0n,fundingDeadline:deadline-1n,purchaseDeadline:deadline};
+    prepared={transaction:{chainId:'0x38',from:account,to:addr(plan.factory),value:'0x0',
+      data:abi.PoolFactory.encodeFunctionData('createBudgetChildPool',[params,parent])},
+      action:{kind:'createBudgetChildPool',targetType:'factory'},blockNumber:null,displayOnly:true};
+    phase='create';
+  }else{
+    const child=addr(item.child);let method,args,procurement;
+    if(item.venue==='official'){
+      const miner=await readMiner(provider,item.collection,item.tokenId,{config,blockTag:'latest'}),official=miner.official;
+      need(official&&exact(official.id)===exact(item.listingId),'官网挂单已变化，请重新预览 / Official listing changed');
+      const priceWei=exact(official.priceWei);need(priceWei>0n&&priceWei<=exact(item.maxCostWei),'Purchase exceeds approved machine price');
+      method='buyOfficial';args=[child,exact(official.id)];
+      procurement={route:'official',child,priceWei,capWei:exact(item.maxCostWei)};
+    }else{
+      const order=decodeFirstoOrder(item.encodedOrder);
+      need(same(order.ask.collection,item.collection)&&exact(order.ask.tokenId)===exact(item.tokenId)
+        &&exact(order.grossWei)<=exact(item.maxCostWei),'Firsto order differs from approved machine or amount');
+      method='buyFirsto';args=[child,order.encodedOrder];
+      procurement={route:'firsto',child,priceWei:exact(order.grossWei),capWei:exact(item.maxCostWei),frozenOrder:order.encodedOrder};
+    }
+    prepared={transaction:{chainId:'0x38',from:account,to:parent,value:'0x0',data:abi.BudgetPortfolioVault.encodeFunctionData(method,args)},
+      action:{kind:method,targetType:'portfolio'},row:{pool:parent,account,displayOnly:true},args,procurement,blockNumber:null,displayOnly:true};
+    phase='purchase';
+  }
   const authority=config.stage==='fresh-active'?(phase==='create'
     ?{kind:'executeApprovedOperation',args:approvedOperatorCall(config,prepared.transaction)}
     :approvedPortfolioPurchase(config,prepared)):undefined;

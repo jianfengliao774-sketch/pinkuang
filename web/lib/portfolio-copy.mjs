@@ -1,4 +1,5 @@
 const en = {
+  '金额按精确整数发送；请在钱包中确认本次交易。':'Exact integer amounts are sent. Confirm this transaction in your wallet.',
   '表决达到门槛后，挂牌仍需通过当前市场参考价与平台审核核验。':'A passed vote still needs a current market reference and the applicable platform review before listing.',
   'Firsto 市场参考价：':'Firsto market reference: ',
   '暂不可用':'unavailable', '。':'. ',

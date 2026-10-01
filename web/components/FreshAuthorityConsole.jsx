@@ -76,10 +76,11 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     </div>
     <button className="btn secondary" disabled={frozen} onClick={() => void (async () => { try {
       if (!referenceSource.trim()) throw new Error('必须填写可核对的 Firsto 报价来源。');
-      const block = await wallet.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
-      if (!block?.timestamp) throw new Error('链上区块暂不可用。');
+      const block = config.displayOnly === true ? null : await wallet.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
+      if (config.displayOnly !== true && !block?.timestamp) throw new Error('链上区块暂不可用。');
       await submit('setSaleReference', { market: getAddress(config.shareMarket), pool: getAddress(pool),
-        priceWei: parseEther(referencePrice).toString(), observedAt: BigInt(block.timestamp).toString(),
+        priceWei: parseEther(referencePrice).toString(), observedAt: (config.displayOnly === true
+          ? BigInt(Math.floor(Date.now() / 1000)) : BigInt(block.timestamp)).toString(),
         digest: keccak256(toUtf8Bytes(`${referenceSource.trim()}|${referencePrice.trim()}`)) });
     } catch (problem) { setError(errorText(problem)); } })()}>签名更新参考价</button>
     </details>

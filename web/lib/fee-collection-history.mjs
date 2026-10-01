@@ -143,6 +143,66 @@ function cursorFor(manifest, anchor, nextBlock, before = null) {
     }) });
 }
 
+/** Display logs directly; receipts and deployment proofs are not needed to render this history. */
+async function directHistory({ manifest, parsedCursor, key, cached, queue, request, logsRequest, limit, signal, now, startedAt }) {
+  try {
+    if (cached) return Object.freeze({ ...cached, cached: true });
+    const anchor = parsedCursor ? { number: parsedCursor.anchor, hash: parsedCursor.anchorHash }
+      : header(await request('eth_getBlockByNumber', ['latest', false]));
+    const firstBlock = BigInt(manifest.deployment.blockNumber), authority = manifest.authority;
+    const upper = parsedCursor?.upper ?? anchor.number;
+    need(upper >= firstBlock, '领取记录分页早于当前部署。');
+    const events = new Map();
+    let nextBlock = upper, width = WINDOW, windows = 0, fromBlock = upper, exhausted = false;
+    while (windows < MAX_WINDOWS && !exhausted && events.size <= limit) {
+      abortCheck(signal);
+      const lower = nextBlock - width + 1n > firstBlock ? nextBlock - width + 1n : firstBlock;
+      let logs;
+      try {
+        logs = await logsRequest('eth_getLogs', [{ address: authority, topics: [EVENT.topicHash],
+          fromBlock: toQuantity(lower), toBlock: toQuantity(nextBlock) }]);
+      } catch (error) {
+        if (!signal?.aborted && width > MIN_WINDOW && rangeRejected(error)) {
+          width = width / 2n > MIN_WINDOW ? width / 2n : MIN_WINDOW; continue;
+        }
+        throw error;
+      }
+      need(Array.isArray(logs), '领取记录日志响应不完整。');
+      for (const log of logs) {
+        const event = parseEvent(log, authority, lower, nextBlock);
+        if (parsedCursor?.before && compare(event, parsedCursor.before) <= 0) continue;
+        const eventKey = `${event.transactionHash}:${event.logIndex}`, previous = events.get(eventKey);
+        need(!previous || sameLog(previous.log, log), '重复领取事件内容不一致。');
+        if (!previous) events.set(eventKey, event);
+      }
+      windows++; fromBlock = lower; exhausted = lower === firstBlock; nextBlock = lower - 1n;
+    }
+    const sorted = [...events.values()].sort(compare), selected = sorted.slice(0, limit), timestamps = new Map();
+    const timestampFor = number => {
+      const blockKey = number.toString();
+      if (!timestamps.has(blockKey)) timestamps.set(blockKey,
+        request('eth_getBlockByNumber', [toQuantity(number), false]).then(block => block?.timestamp
+          ? quantity(block.timestamp, '记录时间') : null));
+      return timestamps.get(blockKey);
+    };
+    const rows = await Promise.all(selected.map(async ({ log, ...event }) => Object.freeze({ ...event,
+      timestamp: await timestampFor(event.blockNumber) })));
+    abortCheck(signal);
+    const extra = sorted.length > limit, last = rows.at(-1), complete = exhausted && !extra;
+    const nextCursor = complete ? null : extra ? cursorFor(manifest, anchor, last.blockNumber, last)
+      : cursorFor(manifest, anchor, nextBlock);
+    const checkedAt = now();
+    need(Number.isSafeInteger(checkedAt) && checkedAt >= startedAt, '领取记录读取时间无效。');
+    const result = Object.freeze({ rows: Object.freeze(rows), nextCursor, complete, fromBlock, toBlock: upper,
+      safeBlockNumber: anchor.number, safeBlockHash: anchor.hash, checkedAt, cached: false,
+      displayOnly: true, transactionReady: false });
+    cache.delete(key); cache.set(key, result);
+    while (cache.size > MAX_CACHE_PAGES) cache.delete(cache.keys().next().value);
+    return result;
+  } catch (error) { cache.delete(key); throw error; }
+  finally { await queue.close(); }
+}
+
 /** Read finalized FeesClaimed events for the current formal Authority only.
  * The same-origin provider reads scoped Authority logs, deployment bindings,
  * canonical headers and receipts. An independent read provider can be injected.
@@ -161,7 +221,7 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
     need(same(config[key], manifest[key]), '领取记录配置与当前正式部署不一致。');
   // A verified product-graph snapshot does not gate this independent read:
   // the finalized node, exact Authority identity and every receipt are proved below.
-  const parsedCursor = validateCursor(cursor, manifest), key = scopeKey(manifest, provider, logsProvider, parsedCursor, limit);
+  const parsedCursor = validateCursor(cursor, manifest), key = `${scopeKey(manifest, provider, logsProvider, parsedCursor, limit)}:${config.displayOnly === true ? 'display' : 'checked'}`;
   const startedAt = now();
   need(Number.isSafeInteger(startedAt) && startedAt >= 0, '领取记录核验时间无效。');
   const candidate = refresh ? null : cache.get(key);
@@ -169,6 +229,8 @@ export async function readFeeCollectionHistory({ config, provider, logsProvider 
   const queue = readQueue(provider, signal);
   const request = (method, params = []) => queue.request({ method, params });
   const logsRequest = (method, params = []) => queue.request({ method, params }, logsProvider);
+  if (config.displayOnly === true) return directHistory({ manifest, parsedCursor, key, cached, queue,
+    request, logsRequest, limit, signal, now, startedAt });
   try {
     const [chain, finalizedRaw] = await Promise.all([
       request('eth_chainId'), request('eth_getBlockByNumber', ['finalized', false]),

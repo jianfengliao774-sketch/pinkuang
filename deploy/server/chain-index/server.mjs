@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { PoolDisplayCache } from './pool-display-cache.mjs';
+import { DisplayEvents, PortfolioDisplayReads } from './cached-read-api.mjs';
 import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { ChainIndex } from './indexer.mjs';
 import { createChainIndexServer } from './api.mjs';
@@ -159,11 +160,17 @@ export async function startChainIndex(config) {
   let index;
   let server;
   let displayCache;
+  let portfolioReads;
+  let displayEvents;
   let displayTimer;
   try {
     index = new ChainIndex(provider, config);
     if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,path:join(dirname(config.dbPath),'pool-display-cache.json')});
-    server = createChainIndexServer(index,{displayCache});
+    if (config.portfolioFactory && config.portfolioMarket) portfolioReads = new PortfolioDisplayReads(index, primary, {
+      path: config.dbPath === ':memory:' ? undefined : join(dirname(config.dbPath), 'portfolio-display-cache.json'),
+    });
+    displayEvents = new DisplayEvents(index);
+    server = createChainIndexServer(index,{displayCache,portfolioReads,displayEvents});
     await new Promise((resolve, reject) => {
       const onError = error => { server.off('listening', onListening); reject(error); };
       const onListening = () => { server.off('error', onError); resolve(); };
@@ -173,6 +180,8 @@ export async function startChainIndex(config) {
       catch (error) { server.off('error', onError); server.off('listening', onListening); reject(error); }
     });
   } catch (error) {
+    displayEvents?.close();
+    await portfolioReads?.close();
     index?.close();
     for (const source of providers) source.destroy();
     throw error;
@@ -184,7 +193,7 @@ export async function startChainIndex(config) {
   let consecutiveFailures = 0;
   async function tick() {
     if (stopped) return;
-    try { await index.sync(); consecutiveFailures = 0; }
+    try { await index.sync(); consecutiveFailures = 0; if (!displayCache && !portfolioReads) displayEvents.publish(); }
     catch (error) {
       consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
       console.error(chainIndexFailureMessage(index, error));
@@ -194,10 +203,12 @@ export async function startChainIndex(config) {
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);
   }
   const refreshDisplay=async()=>{
-    try { await displayCache?.refresh(); } catch { console.error('Display cache refresh failed; retaining previous verified data.'); }
-    if(!stopped && displayCache) displayTimer=setTimeout(()=>void refreshDisplay(),15_000);
+    const completed = await Promise.allSettled([displayCache?.refresh(), portfolioReads?.refresh()]);
+    if (completed.some(item => item.status === 'rejected')) console.error('Display cache refresh failed; retaining previous display data.');
+    else if (!stopped) displayEvents.publish();
+    if(!stopped && (displayCache || portfolioReads)) displayTimer=setTimeout(()=>void refreshDisplay(),15_000);
   };
-  if(displayCache) void refreshDisplay();
+  if(displayCache || portfolioReads) void refreshDisplay();
   running = tick();
   return { index, server, close() {
     if (closing) return closing;
@@ -205,11 +216,13 @@ export async function startChainIndex(config) {
       stopped = true;
       if (timer) clearTimeout(timer);
       if(displayTimer) clearTimeout(displayTimer);
+      displayEvents.close();
       // Cancel queued reads now. Active primary requests stay bounded by 12s;
       // logs requests by at most 30s, within the deployment's 45s stop allowance.
       for (const source of providers) source.destroy();
       await running;
       await displayCache?.close();
+      await portfolioReads?.close();
       await new Promise(resolve => server.close(resolve));
       index.close();
     })();

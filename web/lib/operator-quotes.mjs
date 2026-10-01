@@ -78,6 +78,23 @@ export async function readOfficialMinerOnchain(provider, collectionValue, tokenV
   const collection = getAddress(collectionValue), tokenId = uint(tokenValue);
   requireValue(Object.values(OFFICIAL_COLLECTIONS).some(value => same(value, collection)), '仅接受已核验的官方矿机合约。');
   const request = (method, params = []) => provider.request({ method, params });
+  if (config?.displayOnly === true) {
+    const call = async (to, contract, name, args) => contract.decodeFunctionResult(name,
+      await request('eth_call', [{ to, data: contract.encodeFunctionData(name, args) }, blockTag]));
+    const [owner, listing, key] = await Promise.all([
+      call(collection, nftAbi, 'ownerOf', [tokenId]), call(MARKET, marketAbi, 'listingFor', [collection, tokenId]),
+      call(MINING, miningAbi, 'minerKey', [collection, tokenId]),
+    ]);
+    const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
+    requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
+    const eligibilityIssue = minerEligibilityIssue(miner), eligible = eligibilityIssue === null;
+    requireValue(allowIneligible || eligible, eligibilityIssue);
+    const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
+      ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
+    return Object.freeze({ collection, tokenId: tokenId.toString(), owner: getAddress(owner[0]), taskId: miner.taskId.toString(),
+      verifiedWeight: miner.verifWeight.toString(), eligible, official, firsto: null, firstoError: null,
+      registry: null, blockNumber: null, blockHash: null, checkedAt: Date.now(), displayOnly: true });
+  }
   const { chain, block } = await settleReadRound({ chain: () => request('eth_chainId'), block: () => request('eth_getBlockByNumber', [blockTag, false]) });
   requireValue(BigInt(chain) === 56n && /^0x[\da-f]{64}$/i.test(block?.hash ?? '')
     && /^0x[\da-f]+$/i.test(block?.number ?? '') && /^0x[\da-f]+$/i.test(block?.timestamp ?? ''), '无法核对 BSC 矿机区块。');
@@ -130,7 +147,11 @@ export async function checkMinerOnchain(provider, quote, { config, blockTag = 'l
   const officialWithinCap = chain.official && (officialPriceCapWei === undefined
     || BigInt(chain.official.priceWei) <= uint(officialPriceCapWei));
   if (!officialWithinCap && quote.ask?.venue === 'firsto') {
-    if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
+    if (config?.displayOnly === true) {
+      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      catch (error) { firstoError = operatorQuoteError(error); }
+    }
+    else if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
     else if (!chain.registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
     else {
       try {
@@ -157,8 +178,15 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
   const quote = results[0].value;
   requireValue(!quoteIssue(quote), quoteIssue(quote));
   matchQuoteToMiner(quote, officialChain);
-  const chain = officialWithinCap ? officialChain : await checkMinerOnchain(reader, quote,
-    { config, blockTag, officialPriceCapWei });
+  let chain = officialChain;
+  if (!officialWithinCap && config?.displayOnly === true) {
+    let firsto = null, firstoError = null;
+    if (quote.ask?.venue === 'firsto') {
+      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      catch (error) { firstoError = operatorQuoteError(error); }
+    }
+    chain = Object.freeze({ ...officialChain, firsto, firstoError });
+  } else if (!officialWithinCap) chain = await checkMinerOnchain(reader, quote, { config, blockTag, officialPriceCapWei });
   return Object.freeze({ quote, chain, reference: results[1].status === 'fulfilled' ? results[1].value : null,
     referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });
 }
@@ -189,9 +217,11 @@ export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 10
   requireValue(chain && Number.isFinite(chain.checkedAt) && chain.checkedAt <= now + 30000 && now - chain.checkedAt <= 300000, '链上矿机核对已过期，请重新获取。');
   requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间。');
   requireValue(uint(fundingHours, 32) > 0n && uint(purchaseHours, 32) > 0n, '请填写有效的募集和购机时长。');
-  requireValue(chain.registry?.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
-  requireValue(chain.registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
-  requireValue(chain.registry.pool && same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
+  if (chain.displayOnly !== true) {
+    requireValue(chain.registry?.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
+    requireValue(chain.registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
+    requireValue(chain.registry.pool && same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
+  }
   const params = { circuits: getAddress(chain.collection ?? quote.collection), circuitId: chain.tokenId ?? quote.tokenId, fundingHours, purchaseHours };
   if (mode === 'createPool') {
     requireValue(chain.firsto || chain.official, `这台矿机当前没有本项目可购买的官网挂单或已核验 Firsto 订单。${chain.firstoError || ''}`);

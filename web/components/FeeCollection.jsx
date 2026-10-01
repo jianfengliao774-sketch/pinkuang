@@ -64,8 +64,9 @@ export default function FeeCollection({ config, provider, account, wallet, disab
       && latest.current.account === account && latest.current.wallet === wallet
       && latest.current.provider === provider && latest.current.identity === identity;
     try {
-      const fresh = await readFeeCollection({ config: latest.current.config, provider,
-        balanceProvider: wallet, signal: ticket.signal });
+      const fresh = latest.current.config.displayOnly === true && plan ? plan
+        : await readFeeCollection({ config: latest.current.config, provider,
+          balanceProvider: wallet, signal: ticket.signal });
       if (!current()) return;
       if (latest.current.disabled) throw new Error('管理员权限或交易状态已变化，请刷新后再归集。');
       setPlan(fresh);
@@ -96,7 +97,7 @@ export default function FeeCollection({ config, provider, account, wallet, disab
     </div>
     <p className="subtle-note">接收钱包：{account || '请连接管理员钱包'}</p>
     {reading && <p className="subtle-note" role="status">正在更新手续费余额…</p>}
-    {plan && <p className="subtle-note">已读取区块 #{String(plan.blockNumber)} · {plan.sourceCount} 个有余额来源
+    {plan && <p className="subtle-note">{plan.blockNumber == null ? '已读取手续费余额' : `已读取区块 #${String(plan.blockNumber)}`} · {plan.sourceCount} 个有余额来源
       {plan.batches.length > 1 && ` · 自动分 ${plan.batches.length} 批，每批在钱包签名`}</p>}
     {progress && <p className="live-notice" role="status">已完成 {progress.completed.length} / {progress.total} 批
       {progress.phase === 'signing' ? ' · 请在钱包签名' : progress.phase === 'confirming' ? ' · 等待链上确认' : ''}

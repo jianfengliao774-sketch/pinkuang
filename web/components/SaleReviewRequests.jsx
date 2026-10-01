@@ -28,6 +28,7 @@ export default function SaleReviewRequests(props) {
 }
 
 function RequestsPage({ config, provider, account, disabled, onReview, onSelect, refreshKey, scope, identity }) {
+  const direct = config?.displayOnly === true;
   const cacheKey = `sale-review-requests:${identity}`;
   const manifest = config.manifest || config;
   const [result, setResult] = useState(() => readDisplaySnapshot(storage(), manifest, cacheKey, { maxAgeMs: 120_000 }));
@@ -72,12 +73,12 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
   }, [provider, refreshKey]);
 
   async function review(approved) {
-    if (!selected || disabled || actionLock.current || loading || cached) return;
+    if (!selected || disabled || actionLock.current || !direct && (loading || cached)) return;
     const original = selected, ticket = sequence.current, action = {};
     let submitted = false;
     actionLock.current = action; setActing(true); setError('');
     try {
-      const fresh = await refreshSaleReviewRequest({ config: current.current.config, provider: current.current.provider, item: original });
+      const fresh = direct ? original : await refreshSaleReviewRequest({ config: current.current.config, provider: current.current.provider, item: original });
       if (ticket !== sequence.current) return;
       const latest = { ...fresh, proposer: fresh.proposer || original.proposer,
         proposerUnavailable: fresh.proposer || original.proposer ? null : fresh.proposerUnavailable };
@@ -103,7 +104,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
 
   const items = result?.items || [];
   const visible = filter === 'all' ? items : items.filter(item => ['pending', 'reference-missing', 'review-unavailable'].includes(item.status));
-  const frozen = disabled || acting || loading || cached;
+  const frozen = disabled || acting || !direct && (loading || cached);
   return <>
     <div className="sale-review-toolbar">
       <label>申请状态<select value={filter} onChange={event => setFilter(event.target.value)}>
@@ -112,7 +113,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
       <button className="btn secondary" disabled={loading || acting || disabled || !provider} onClick={() => void load()}>刷新申请</button>
     </div>
     <p className="subtle-note">显示用户已上链的本轮出售申请。低于当前市场参考价需审核，投票仍须双过半；不低于参考价无需审核。</p>
-    {cached && result && <p className="live-notice" role="status">正在显示上次读取的申请，更新后可审核。</p>}
+    {!direct && cached && result && <p className="live-notice" role="status">正在显示上次读取的申请，更新后可审核。</p>}
     {error && <p className="live-notice error" role="alert">申请读取或处理失败：{error}。已有记录已保留，请重试。</p>}
     {!!result?.errors?.length && <div className="live-notice error" role="alert">部分项目尚未读取成功，列表可能不完整。
       {result.errors.map(item => <div key={item.project}>{link(item.project)}：{item.message}</div>)}

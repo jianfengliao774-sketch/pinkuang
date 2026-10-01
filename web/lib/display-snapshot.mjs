@@ -41,11 +41,15 @@ export function invalidateDisplaySnapshots(storage, manifest) {
 
 function verifiedSource(result, manifest) {
   const source = result?.detail?.source ?? result?.catalog?.source ?? result?.source;
+  if (source?.displayOnly === true) return source.chainId === 56
+    && source.factory?.toLowerCase() === manifest.factory.toLowerCase()
+    && source.market?.toLowerCase() === manifest.shareMarket.toLowerCase()
+    && Number.isSafeInteger(source.indexedThrough) && Number.isSafeInteger(source.indexedTimestamp);
   return source?.complete === true && source.unknownReason === null && source.chainId === 56
     && (source.readMode === 'verified_snapshot'
       ? source.stale === true && source.transactionReady === false && typeof source.refreshing === 'boolean'
         && Number.isFinite(Date.parse(source.checkedAt))
-      : source.stale !== true && source.transactionReady !== false)
+      : source.stale !== true && (source.transactionReady !== false || source.displayOnly === true))
     && source.factory?.toLowerCase() === manifest.factory.toLowerCase()
     && source.market?.toLowerCase() === manifest.shareMarket.toLowerCase()
     && HASH.test(source.indexedBlockHash)

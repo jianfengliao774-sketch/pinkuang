@@ -18,10 +18,11 @@ export function rememberPortfolioDisplay(config,row,account,now=Date.now()) {
   if(config?.kind!=='integrated-v2'||row?.kind!=='portfolio'
     || !same(row.OFFICIAL_FACTORY,config.portfolioFactory) || !same(row.legacyFactory,config.factory)
     || !same(row.account,account||zero) || !address(row.pool)
-    || integers.some(field=>typeof row[field]!=='bigint'||row[field]<0n)
+    || integers.some(field=>field==='blockNumber' && row.displayOnly && row[field]===null
+      ? false : typeof row[field]!=='bigint'||row[field]<0n)
     || row.state>5n || row.shares>100n || row.totalSupply>100n || row.availableShares>row.shares
     || row.budgetWei===0n || row.budgetWei%100n!==0n
-    || !/^0x[\da-f]{64}$/i.test(row.blockHash||'') || !Array.isArray(row.children)
+    || !row.displayOnly && !/^0x[\da-f]{64}$/i.test(row.blockHash||'') || !Array.isArray(row.children)
     || !Array.isArray(row.proposals))return false;
   const id=key(config,row.pool,account); entries.delete(id);
   entries.set(id,{row,savedAt:now});
