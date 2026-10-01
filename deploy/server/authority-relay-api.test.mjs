@@ -17,11 +17,12 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
   return wallet.signTypedData(typed.domain,typed.types,typed.message);
 };
 
-function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
   const code = '0x6000', codehash = keccak256(code);
+  const second = singleAdmin ? admin.address : address(36);
   const config = {origin:'https://example.test',rpcUrl:'https://example.test/rpc',journal:join(directory,'authority.json'),
     expectedGasWallet:gas.address,maxGasWei:10n**18n,maxGasPrice:3n*10n**9n};
   const creationAbi = ['function createPool((address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline) params)',
@@ -34,11 +35,11 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
         'function gasWallet() view returns(address)']},
       BudgetPortfolioFactory:{abi:['function createPortfolio(uint256 budget,uint256 absoluteCap,uint256 unitCap,uint64 fundingEnd,uint64 purchaseEnd)']}}},
     freshAuthority:{authority:{address:authority,codehash,administratorOne:admin.address,
-      administratorTwo:address(36),gasWallet:gas.address}}};
+      administratorTwo:second,gasWallet:gas.address}}};
   const graph = {freshAuthority:{address:authority,codehash},freshFactoryVerified:true,
     addresses:trusted.record.addresses};
   const calls = [], errors = [];
-  const roleState={first:admin.address,second:address(36),core:factory,budget,gasWallet:gas.address,code};
+  const roleState={first:admin.address,second,core:factory,budget,gasWallet:gas.address,code};
   const provider = {send:async()=> '0x38',getBlock:async()=>({number:1,hash:hash(1),
     timestamp:Math.floor(Date.now()/1000)}),destroy(){}};
   const store = {session:()=>admin.address.toLowerCase(),close(){}};
@@ -277,4 +278,15 @@ test('signed pool operation accepts only canonical reclaim for a current fresh m
     assert.equal(result.status,409);
     assert.equal(unregistered.calls.length,0);
   } finally {await unregistered.close();}
+});
+
+test('reviewed single administrator can read status and submit a signed action',async()=>{
+  const f=fixture({singleAdmin:true});
+  try {
+    assert.equal((await f.request('/api/journal/authority-relay/status','GET')).status,200);
+    const result=await f.request('/api/journal/authority-relay','POST',{command:await signedReview(f)});
+    assert.equal(result.status,200,f.errors[0]?.message);
+    assert.equal(f.calls.length,1);
+    assert.equal(f.calls[0].signer,f.gas.address);
+  } finally {await f.close();}
 });

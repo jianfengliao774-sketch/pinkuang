@@ -266,6 +266,17 @@ test('role prefilter shares pinned role reads, refreshes rotation, and caches RP
   await prefilter(rotated);
   await assert.rejects(prefilter(FRESH_ADMIN_ONE),error=>error.status===403);
   assert.equal(calls,12,'rotation is visible after the bounded TTL');
+  roles.administratorOne=FRESH_ADMIN_ONE;roles.administratorTwo=FRESH_ADMIN_ONE;clock+=15_001;
+  await assert.rejects(prefilter(FRESH_ADMIN_ONE),error=>error.status===409,
+    'a dual-admin deployment cannot silently become single-admin');
+  const singlePrefilter=createAuthorityRolePrefilter(provider,{freshAuthority:{authority:{address:authority,
+    administratorOne:FRESH_ADMIN_ONE,administratorTwo:FRESH_ADMIN_ONE}}},{now:()=>clock});
+  await singlePrefilter(FRESH_ADMIN_ONE);
+  await assert.rejects(singlePrefilter(FRESH_ADMIN_TWO),error=>error.status===403,
+    'the removed second administrator does not gain access');
+  roles.administratorTwo='0x0000000000000000000000000000000000000000';clock+=15_001;
+  await assert.rejects(singlePrefilter(FRESH_ADMIN_ONE),error=>error.status===409);
+  roles.administratorOne=rotated;roles.administratorTwo=FRESH_ADMIN_TWO;
   reorg=true;clock+=15_001;
   await assert.rejects(prefilter(rotated),error=>error.status===503);
   const afterFailure=calls;
@@ -308,6 +319,16 @@ test('on-chain role proof is pinned, rejects retired admins and refuses identity
   await assert.rejects(verifyCurrentAuthorityAdministrator(provider,trusted,admin),
     error=>error.status===403);
   await verifyCurrentAuthorityAdministrator(provider,trusted,rotated);
+  state.first=admin;state.second=admin;
+  await assert.rejects(verifyCurrentAuthorityAdministrator(provider,trusted,admin),error=>error.status===409);
+  trusted.freshAuthority.authority.administratorOne=admin;
+  trusted.freshAuthority.authority.administratorTwo=admin;
+  await verifyCurrentAuthorityAdministrator(provider,trusted,admin);
+  await assert.rejects(verifyCurrentAuthorityAdministrator(provider,trusted,second),error=>error.status===403);
+  state.first=gasWallet;state.second=gasWallet;
+  await assert.rejects(verifyCurrentAuthorityAdministrator(provider,trusted,gasWallet),error=>error.status===409,
+    'the Gas wallet cannot occupy an administrator role');
+  state.first=rotated;state.second=second;
   state.core=Wallet.createRandom().address;
   await assert.rejects(verifyCurrentAuthorityAdministrator(provider,trusted,rotated),
     error=>error.status===409);
