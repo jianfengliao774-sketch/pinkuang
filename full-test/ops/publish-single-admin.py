@@ -95,6 +95,11 @@ def main():
             data = originals[path].replace(str(old_roots[0]).encode(), str(runtime).encode())
             data = data.replace(before['artifactDigest'].encode(), after['artifactDigest'].encode())
             data = data.replace(before['sourceCommit'].encode(), after['sourceCommit'].encode())
+            if path in [CONFIG / 'public.env', CONFIG / 'attest.env']:
+                lines = data.decode().splitlines()
+                lines = [('BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH=' + str(runtime / 'public/deployment-artifacts.json'))
+                    if line.startswith('BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH=') else line for line in lines]
+                data = ('\n'.join(lines) + '\n').encode()
             write(path, data)
         link(ROOTS[0], runtime)
         link(ROOTS[1], site)
