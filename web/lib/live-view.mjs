@@ -7,8 +7,10 @@ export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', '
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 /** Formatting never feeds back into transaction amounts. */
 export const amount = displayAmount;
-/** Shared UI provenance gate; transaction preparation still rechecks the chain. */
+/** Open a preview from the loaded page; the contract applies its own rules. */
 export function currentActionSourceReady({ client, config, source, action, targetType='pool' }) {
+  if (config?.displayOnly === true) return !!client && config.status === 'ready'
+    && config.walletSessionReady !== false && !!source;
   if (client && freshWalletActionReady(config, targetType, action)) return true;
   const v4Ready = config?.productFamily !== 'fresh-v4'
     || config.operationalReady === true && config.stale !== true && config.transactionReady !== false
@@ -24,7 +26,7 @@ export function currentDetailActionReady({ cachedPage, loading, busy,
     && loadedRoute === `detail/${routePool}` && routePool.toLowerCase() === detailPool.toLowerCase()
     && (directWallet || (loadedAccount?.toLowerCase() || '') === (account?.toLowerCase() || ''));
   return currentActionSourceReady(context) && currentIdentity && !busy
-    && (directWallet || !cachedPage && !loading);
+    && (directWallet || (context.config?.displayOnly === true || !cachedPage) && !loading);
 }
 export function currentPositionsActionReady({ positionsAccount, account, wallet, positionsLoaded,
   loading, error, ...context }) {
@@ -43,7 +45,7 @@ export function currentMarketOrderActionReady({ route, marketTab, readIdentity, 
 /** Subscription also needs current pool eligibility; action preparation rechecks the chain. */
 export function canOpenFundingAction({ detail, ...context }) {
   return currentDetailActionReady({ ...context, action: 'deposit' })
-    && detail?.trusted === true && detail.depositPaused === false
+    && (context.config?.displayOnly === true || detail?.trusted === true) && detail.depositPaused === false
     && typeof detail.remaining === 'number' && Number.isFinite(detail.remaining)
     && detail.remaining > 0;
 }

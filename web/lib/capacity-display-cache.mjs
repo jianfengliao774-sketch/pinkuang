@@ -22,8 +22,8 @@ function usable(quote, pool, priceWei, now) {
       && quote.minerAskPriceWei > 0n)
     && (quote.marketReferencePriceWei === null || typeof quote.marketReferencePriceWei === 'bigint'
       && quote.marketReferencePriceWei > 0n)
-    && typeof quote.sourceBlock === 'bigint' && typeof quote.miningSourceBlock === 'bigint'
-    && quote.sourceBlock >= quote.miningSourceBlock
+    && (quote.displayOnly === true || typeof quote.sourceBlock === 'bigint' && typeof quote.miningSourceBlock === 'bigint'
+      && quote.sourceBlock >= quote.miningSourceBlock)
     && Number.isSafeInteger(quote.observedAt) && quote.observedAt <= now + 30_000
     && Number.isSafeInteger(quote.validUntil) && quote.validUntil > now
     && quote.validUntil - quote.observedAt === 300_000;

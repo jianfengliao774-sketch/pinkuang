@@ -76,6 +76,25 @@ export async function signAuthorityAction({ provider, config, account, kind, arg
   need(authority !== ZeroAddress && Number.isInteger(validitySeconds) && validitySeconds > 0 && validitySeconds <= 900,
     '管理员签名有效期无效。');
   const rpc = (method, params = []) => provider.request({ method, params });
+  if (config.displayOnly === true) {
+    const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
+    need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
+    const nonce = authorityAbi.decodeFunctionResult('nonces', await rpc('eth_call', [{ to: authority,
+      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest']))[0];
+    const deadline = (BigInt(Math.floor(Date.now() / 1000)) + BigInt(validitySeconds)).toString();
+    const signed = authorityAction(authority, kind, args, nonce, deadline);
+    const payload = { types: { EIP712Domain: [
+      { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+      { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+    ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message };
+    const signature = await rpc('eth_signTypedData_v4', [signer, JSON.stringify(payload)]);
+    need(same(verifyTypedData(signed.domain, signed.types, signed.message, signature), signer),
+      '钱包签名与当前管理员地址不一致。');
+    // The relay retains its execution checks. This hash identifies the build;
+    // it is not evidence that the browser re-read the live runtime.
+    return { authority, expectedCodehash: pinned.codehash.toLowerCase(), kind, args,
+      nonce: nonce.toString(), deadline, signature };
+  }
   need(BigInt(await rpc('eth_chainId')) === 56n, '请切换到 BSC 主网。');
   const block = await rpc('eth_getBlockByNumber', ['latest', false]);
   need(/^0x[0-9a-f]{64}$/i.test(block?.hash ?? ''), '当前链上区块不可用。');

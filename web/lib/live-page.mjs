@@ -6,6 +6,12 @@ const address = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(va
 const blockHash = value => typeof value === 'string' && /^0x[\da-f]{64}$/i.test(value);
 function checkedSource(result) {
   const source = result?.source;
+  if (source?.displayOnly === true) {
+    if (source.chainId !== 56 || !address(source.factory) || !address(source.market)
+      || !Number.isSafeInteger(source.indexedThrough) || !Number.isSafeInteger(source.indexedTimestamp))
+      throw new LiveDataError('invalid_data', '页面数据格式无效。');
+    return source;
+  }
   if (!source || source.complete !== true || source.unknownReason !== null)
     throw new LiveDataError('index_incomplete', '索引尚未完整核验，请稍后刷新。');
   if (source.chainId !== 56 || !address(source.factory) || !address(source.market) || !blockHash(source.indexedBlockHash)
@@ -14,7 +20,7 @@ function checkedSource(result) {
     throw new LiveDataError('invalid_data', '页面读取缺少有效的同块来源。');
   if (source.readMode === 'verified_snapshot'
     ? source.stale !== true || source.transactionReady !== false || typeof source.refreshing !== 'boolean'
-    : source.stale === true || source.transactionReady === false)
+    : source.stale === true || source.transactionReady === false && source.displayOnly !== true)
     throw new LiveDataError('index_stale', '历史展示快照缺少明确的过期或交易限制标记。');
   return source;
 }

@@ -1,7 +1,8 @@
-import { getAddress, parseEther, toQuantity, ZeroAddress } from 'ethers';
+import { Interface, getAddress, parseEther, toQuantity, ZeroAddress } from 'ethers';
 import { abi, uint, poolKey, readPoolSnapshot, personalPoolAction } from './chain-client.mjs';
 import { readGovernanceSnapshot, governanceAction } from './live-governance.mjs';
 import { settleReadRound } from './read-retry.mjs';
+import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -11,6 +12,80 @@ const ACTIONS = new Set(['deposit', 'claim', 'harvest', 'withdrawBnb', 'withdraw
 const MARKET_ACTIONS = new Set(['list', 'fill', 'cancel', 'expire', 'marketWithdraw']);
 const MIN_SHARE_PRICE_WEI = 10000000000000n;
 const HASH = /^0x[0-9a-f]{64}$/i;
+const firstoFees = new Interface(['function defaultTakerFeeBps() view returns(uint16)', 'function feeEpoch() view returns(uint256)']);
+
+/** Direct mode builds exact calldata. Contract execution determines availability and permission. */
+async function prepareDirectAction(input, { from, market }) {
+  const { provider, pool, kind, quantity, price, proposalId, support, orderId } = input;
+  const call = async (to, contract, name, args = []) => contract.decodeFunctionResult(name,
+    await provider.request({ method: 'eth_call', params: [{ to, data: contract.encodeFunctionData(name, args) }, 'latest'] }))[0];
+  const tx = (to, contract, name, args = [], value = 0n) => Object.freeze({ chainId: '0x38', from,
+    to: address(to), data: contract.encodeFunctionData(name, args), value: toQuantity(uint(value)) });
+  const finish = (transaction, details = {}) => Object.freeze({ transaction,
+    kind: kind === 'marketWithdraw' ? 'withdrawBnb' : kind, requestKind: kind,
+    pool: null, ...details, direct: true, displayOnly: true, checkedBlock: null });
+  if (kind === 'marketWithdraw') return finish(tx(market, abi.ShareMarket, 'withdrawBnb'));
+  if (['fill', 'cancel', 'expire'].includes(kind)) {
+    const number = id(orderId);
+    if (kind !== 'fill') return finish(tx(market, abi.ShareMarket, kind, [number]), { pool: pool ? address(pool) : null, orderId: number });
+    const qty = shareQuantity(quantity);
+    const [order, buyerFeeBps, sellerFeeBps] = await Promise.all([
+      call(market, abi.ShareMarket, 'orders', [number]), call(market, abi.ShareMarket, 'buyerFeeBps'),
+      call(market, abi.ShareMarket, 'feeBps'),
+    ]);
+    const target = address(order.pool), seller = address(order.seller), unitPrice = uint(order.pricePerUnit);
+    if (pool) assert(same(target, pool), '订单对应矿池已变化 / Order pool mismatch.');
+    if (input.expectedSeller !== undefined) assert(same(seller, input.expectedSeller), '卖方已变化，请重新确认 / Seller changed.');
+    if (input.expectedPricePerUnitWei !== undefined) assert(unitPrice === uint(input.expectedPricePerUnitWei), '挂单价格已变化，请重新确认 / Order price changed.');
+    assert(unitPrice > 0n && uint(buyerFeeBps, 16) <= 10000n && uint(sellerFeeBps, 16) <= 10000n, '挂单金额或手续费无效 / Invalid order amount or fee.');
+    const grossWei = uint(unitPrice * qty), buyerFeeWei = grossWei * buyerFeeBps / 10000n;
+    const sellerFeeWei = grossWei * sellerFeeBps / 10000n;
+    const buyerPaymentWei = uint(grossWei + buyerFeeWei);
+    return finish(tx(market, abi.ShareMarket, 'fill', [number, qty], buyerPaymentWei), { pool: target, quantity: qty, orderId: number,
+      order: Object.freeze({ seller, pricePerUnitWei: unitPrice, remaining: order.remaining }),
+      marketTrade: Object.freeze({ grossWei, buyerFeeWei, sellerFeeWei, buyerPaymentWei, sellerNetWei: grossWei - sellerFeeWei }) });
+  }
+  const target = address(pool), details = { pool: target };
+  if (kind === 'deposit') {
+    const qty = shareQuantity(quantity), unitPriceWei = uint(await call(target, abi.PoolVault, 'unitPriceWei'));
+    assert(unitPriceWei > 0n, '认购金额不可用 / Subscription amount unavailable.');
+    return finish(tx(target, abi.PoolVault, kind, [qty], uint(unitPriceWei * qty)), { ...details, quantity: qty, unitPriceWei });
+  }
+  if (kind === 'list') {
+    const qty = shareQuantity(quantity), listingPrice = exactPrice(price), listingGrossWei = uint(listingPrice * qty);
+    assert(listingPrice >= MIN_SHARE_PRICE_WEI, '每份挂单价不得低于 0.00001 BNB / Minimum listing price is 0.00001 BNB per share.');
+    uint(listingGrossWei + listingGrossWei / 100n);
+    return finish(tx(market, abi.ShareMarket, kind, [target, qty, listingPrice]), { ...details, quantity: qty, listingGrossWei });
+  }
+  if (['claim', 'harvest', 'withdrawBnb', 'withdrawDeposit', 'finalizeFailure', 'cancelExpired'].includes(kind))
+    return finish(tx(target, abi.PoolVault, kind), details);
+  if (kind === 'propose') {
+    const sellingPrice = input.priceWei === undefined ? exactPrice(price) : uint(input.priceWei);
+    const reference = uint(input.refPriceWei), at = uint(input.refAt, 64);
+    assert(sellingPrice > 0n && reference > 0n, '出售价格和参考价必须大于零 / Prices must be positive.');
+    if (input.expectedPriceWei !== undefined) assert(sellingPrice === uint(input.expectedPriceWei), '价格已变化 / Price changed.');
+    return finish(tx(target, abi.PoolVault, kind, [sellingPrice, reference, at]), details);
+  }
+  if (['vote', 'executeSale'].includes(kind)) {
+    const number = id(proposalId);
+    if (input.expectedProposalId !== undefined) assert(number === uint(input.expectedProposalId), '提案已变化 / Proposal changed.');
+    if (kind === 'vote') assert(typeof support === 'boolean', '投票选项无效 / Invalid vote.');
+    return finish(tx(target, abi.PoolVault, kind, kind === 'vote' ? [number, support] : [number]), details);
+  }
+  const [number, salePrice, feeBps, feeEpoch] = await Promise.all([
+    call(target, abi.PoolVault, 'listedProposalId'), call(target, abi.PoolVault, 'salePrice'),
+    call(FIRSTO_SIGNED_EXCHANGE, firstoFees, 'defaultTakerFeeBps'), call(FIRSTO_SIGNED_EXCHANGE, firstoFees, 'feeEpoch'),
+  ]);
+  id(number); uint(salePrice); uint(feeBps, 16); uint(feeEpoch);
+  assert(salePrice > 0n && feeBps <= 10000n, '成交金额或手续费无效 / Invalid sale amount or fee.');
+  for (const [key, actual] of [['expectedProposalId', number], ['expectedPriceWei', salePrice], ['expectedFeeBps', feeBps], ['expectedFeeEpoch', feeEpoch]])
+    if (input[key] !== undefined) assert(uint(input[key]) === actual, '成交报价已变化，请重新确认 / Sale quote changed.');
+  const sourceFeeWei = salePrice * feeBps / 10000n, paymentWei = uint(salePrice + sourceFeeWei);
+  return finish(tx(target, abi.PoolVault, kind, [number, salePrice, feeBps, feeEpoch], paymentWei), { ...details,
+    quote: Object.freeze({ action: kind, proposalId: number, pool: target, priceWei: salePrice, paymentWei,
+      feeWei: salePrice / 100n, holderNetWei: salePrice - salePrice / 100n, sourceFeeWei, feeBps, feeEpoch,
+      blockNumber: null, blockHash: null }) });
+}
 
 
 export function shareQuantity(value) {
@@ -56,6 +131,9 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   if (expectedPool !== undefined) assert(pool && same(pool, expectedPool), '矿池已变化，请重新确认 / Pool changed.');
   const market = MARKET_ACTIONS.has(kind) ? configured('shareMarket') : null;
   assert(!same(factory, lens) && (!market || !same(market, factory) && !same(market, lens)), '部署地址重复 / Duplicate deployment addresses.');
+  if (config.displayOnly === true) return prepareDirectAction({ provider, config, account, pool, kind, quantity, price,
+    proposalId, support, orderId, priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId,
+    expectedPriceWei, expectedFeeBps, expectedFeeEpoch, expectedSeller, expectedPricePerUnitWei }, { from, factory, market });
   const request = (method, params = []) => provider.request({ method, params });
   const { chain, block } = await settleReadRound({
     chain: () => request('eth_chainId'),

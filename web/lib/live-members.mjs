@@ -5,9 +5,15 @@ import { settleReadRound } from './read-retry.mjs';
 const BLOCK_HASH = /^0x[0-9a-f]{64}$/i;
 
 /** Read holder addresses from one current canonical block, independent of index history. */
-export async function readCurrentPoolMembers(provider, { factory, pool }) {
+export async function readCurrentPoolMembers(provider, { factory, pool, displayOnly = false }) {
   const expectedFactory = getAddress(factory), target = getAddress(pool);
   const request = (method, params = []) => provider.request({ method, params });
+  if (displayOnly) {
+    const result = await request('eth_call', [{ to: target,
+      data: abi.PoolVault.encodeFunctionData('activeMembers') }, 'latest']);
+    const members = [...abi.PoolVault.decodeFunctionResult('activeMembers', result)[0]].map(getAddress);
+    return Object.freeze({ members: Object.freeze(members), blockNumber: null, displayOnly: true });
+  }
   const { chain, block } = await settleReadRound({
     chain: () => request('eth_chainId'),
     block: () => request('eth_getBlockByNumber', ['latest', false]),

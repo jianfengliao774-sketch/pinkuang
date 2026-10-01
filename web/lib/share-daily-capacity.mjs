@@ -96,6 +96,7 @@ export function poolDailyCapacityPriceWei(pool, quote) {
 export async function readShareDailyCapacityPrice(provider, {
   factory: factoryInput, pool: poolInput, pricePerUnitWei,
   allowUnownedTarget = false,
+  displayOnly = false, params: displayParams,
   blockNumber, now = Date.now(), quoteLoader = (collection, tokenId) =>
     fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE, displayOnly: true }),
 } = {}) {
@@ -107,6 +108,26 @@ export async function readShareDailyCapacityPrice(provider, {
     if (factory === ZeroAddress || pool === ZeroAddress) return unavailable('invalid_input');
     const price = uint(pricePerUnitWei);
     const request = (method, params = []) => provider.request({ method, params });
+    if (displayOnly) {
+      // Only identity data and the external daily-output value are needed to render this quote.
+      const params = displayParams ?? abi.PoolVault.decodeFunctionResult('params',
+        await request('eth_call', [{ to: pool, data: abi.PoolVault.encodeFunctionData('params') }, 'latest']))[0];
+      const collection = getAddress(params.circuits), tokenId = uint(params.circuitId).toString();
+      const detail = await quoteLoader(collection, tokenId), mining = detail?.asset?.mining;
+      const dailyAtomic = exactDecimal(mining?.estimated24hAtomic);
+      const metadata = parseMinerDisplayMetadata(mining);
+      const context = { pool, collection, tokenId, sourceBlock: null,
+        miningSourceBlock: exactDecimal(mining?.sourceBlock), observedAt: now,
+        validUntil: now + MAX_QUOTE_AGE_MS, displayOnly: true, ...metadata };
+      if (mining?.status !== 'verified' || dailyAtomic === null || dailyAtomic === 0n)
+        return Object.freeze({ ...unavailable('missing_output'), ...context, metadataAvailable: true });
+      return Object.freeze({ available: true, ...context, metadataAvailable: true,
+        estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
+        priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
+        minerAskPriceWei: minerAskPriceWei(detail, now),
+        marketReferencePriceWei: exactDecimal(detail.asset?.listingReference?.dailyCapacityPriceWei),
+        sourceUrl: FIRSTO_SOURCE, basis: 'gross_estimated_output' });
+    }
     const requestedTag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
     const [initialChainId, initialBlock] = await Promise.all([
       request('eth_chainId'), request('eth_getBlockByNumber', [requestedTag, false]),

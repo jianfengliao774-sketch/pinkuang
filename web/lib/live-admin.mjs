@@ -114,6 +114,19 @@ async function context(provider, config, account) {
   need(config?.status === 'ready' && Number(config.chainId ?? config.manifest?.chainId) === 56, '请先加载已验证部署。');
   const from = addr(account), factory = configured(config, 'factory');
   const request = (method, params = []) => provider.request({ method, params });
+  if (config.displayOnly === true) {
+    const administrators = config.freshAuthority ?? config.manifest?.freshAuthority;
+    const isAuthorityAdmin = !!administrators && [administrators.administratorOne, administrators.administratorTwo]
+      .some(candidate => candidate && same(candidate, from));
+    const operator = config.stage === 'fresh-active' ? configured(config, 'authority') : null;
+    const call = async (to, contract, name, args = []) => contract.decodeFunctionResult(name,
+      await request('eth_call', [{ to, data: contract.encodeFunctionData(name, args) }, 'latest']))[0];
+    return { from, factory, request, call, tag: 'latest', verify: async () => {},
+      status: Object.freeze({ configured: true, status: 'configured', displayOnly: true,
+        isOperator: isAuthorityAdmin, isAuthorityAdmin, operator, account: from,
+        creationPaused: null, factory, blockNumber: null, blockHash: null,
+        timestamp: BigInt(Math.floor(Date.now() / 1000)) }) };
+  }
   need(BigInt(await request('eth_chainId')) === 56n, '请切换到 BSC 主网。');
   const block = await request('eth_getBlockByNumber', ['latest', false]);
   need(/^0x[0-9a-f]{64}$/i.test(block?.hash ?? ''), '区块不可用。');
@@ -149,6 +162,9 @@ async function context(provider, config, account) {
 }
 export async function readOperatorStatus({ provider, config, account }) {
   const ctx = await context(provider, config, account);
+  if (config?.displayOnly === true) return Object.freeze({ ...ctx.status,
+    machineRegistry: Object.freeze({ supported: null, ready: null, pool: null }),
+    portfolioOperator: ctx.status.operator, isPortfolioOperator: ctx.status.isAuthorityAdmin });
   const machineRegistry = await readMachineRegistry(provider, { factory: ctx.factory, blockTag: ctx.tag });
   let portfolioOperator = null;
   if (config?.kind === 'integrated-v2') {
@@ -172,14 +188,59 @@ export async function prepareAdminAction(input) {
   let selectedListingId = listingId;
   const tx = (to, contract, name, args) => Object.freeze({ chainId: '0x38', from, to,
     data: contract.encodeFunctionData(name, args), value: '0x0' });
+  if (config.displayOnly === true && !['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(kind)) {
+    const target = addr(pool);
+    let directKind = kind, data, firsto, official;
+    if (kind === 'buyFromMarket' || kind === 'buyAlternativeFromMarket') {
+      selectedListingId = uint(listingId); need(selectedListingId > 0n, '挂单编号须大于零。');
+      data = abi.PoolVault.encodeFunctionData(kind, [selectedListingId]);
+    } else if (kind === 'mine') {
+      const targetParams = abi.PoolVault.decodeFunctionResult('params', await request('eth_call',
+        [{ to: target, data: abi.PoolVault.encodeFunctionData('params') }, 'latest']))[0];
+      const circuits = addr(targetParams.circuits), circuitId = uint(targetParams.circuitId);
+      let inner;
+      if (miningAction === 'arm') inner = mining.encodeFunctionData('arm', [circuits, circuitId]);
+      else if (miningAction === 'reclaim') inner = mining.encodeFunctionData('reclaim',
+        [await call(MINING, mining, 'minerKey', [circuits, circuitId])]);
+      else throw new Error('启动挖矿需要有效计算证明，当前入口只支持预备和回收。');
+      data = abi.PoolVault.encodeFunctionData('mine', [inner]);
+    } else if (kind === 'autoPurchase' || kind === 'buyFromFirsto') {
+      if (firstoOrder !== undefined) firsto = decodeFirstoOrder(firstoOrder);
+      else {
+        const targetParams = abi.PoolVault.decodeFunctionResult('params', await request('eth_call',
+          [{ to: target, data: abi.PoolVault.encodeFunctionData('params') }, 'latest']))[0];
+        const checked = await loadOperatorQuote({ collection: targetParams.circuits,
+          tokenId: targetParams.circuitId.toString(), config, provider, mode: 'createPool',
+          officialPriceCapWei: targetParams.priceCap.toString() });
+        if (kind === 'autoPurchase' && checked.chain.official
+          && uint(checked.chain.official.priceWei) <= targetParams.priceCap) official = checked.chain.official;
+        else firsto = checked.chain.firsto;
+        need(official || firsto, checked.chain.firstoError || '原目标暂无可用挂单。');
+      }
+      if (official) {
+        directKind = 'buyFromMarket'; selectedListingId = uint(official.id);
+        data = abi.PoolVault.encodeFunctionData(directKind, [selectedListingId]);
+      } else {
+        directKind = 'buyFromFirsto'; frozenFirstoOrder = firsto.encodedOrder;
+        data = abi.PoolVault.encodeFunctionData(directKind, [0, frozenFirstoOrder]);
+      }
+    } else throw new Error('不支持的运营操作。');
+    transaction = Object.freeze({ chainId: '0x38', from, to: target, data, value: '0x0' });
+    return Object.freeze({ transaction, kind: directKind, requestKind: directKind, pool: target,
+      miningAction, ...(firsto ? { firsto } : {}), ...(official ? { official } : {}),
+      request: Object.freeze({ kind: directKind, pool: target, listingId: selectedListingId,
+        miningAction, firstoOrder: frozenFirstoOrder }), direct: true, displayOnly: true, checkedBlock: null });
+  }
   if (kind === 'createPool' || kind === 'createFlexiblePoolChecked' || kind === 'createBudgetChildPool') {
     need(!status.creationPaused, '当前已暂停创建矿池。');
     const circuits = addr(params.circuits);
     need(OFFICIAL_COLLECTIONS.some(a => same(a, circuits)), '请选择官方矿机合约。');
-    const registry = await readMachineRegistry(provider, { factory, collection: circuits, tokenId: params.circuitId, blockTag: tag });
-    need(registry.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
-    need(registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
-    need(same(registry.pool, ZeroAddress), `此矿机已有拼矿项目：${registry.pool}，不能重复创建。`);
+    if (config.displayOnly !== true) {
+      const registry = await readMachineRegistry(provider, { factory, collection: circuits, tokenId: params.circuitId, blockTag: tag });
+      need(registry.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
+      need(registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
+      need(same(registry.pool, ZeroAddress), `此矿机已有拼矿项目：${registry.pool}，不能重复创建。`);
+    }
     const targetRaise = uint(params.targetRaiseWei ?? params.targetRaise), priceCap = uint(params.priceCapWei ?? params.priceCap);
     need(targetRaise > 0n && targetRaise % 100n === 0n && priceCap > 0n && priceCap <= targetRaise, '募集金额须能整分为 100 份，购机上限不得超过募集额。');
     const fundingDeadline = params.fundingDeadline !== undefined ? uint(params.fundingDeadline, 64)
@@ -279,5 +340,6 @@ export async function prepareAdminAction(input) {
   return Object.freeze({ transaction, kind: resolvedKind, requestKind: resolvedKind, ...details,
     request: Object.freeze({ kind, params: normalizedParams, flexible, expectedTaskId, expectedReferenceWeight, pool,
       listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder }),
-    checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) });
+    ...(config.displayOnly === true ? { direct: true, displayOnly: true, checkedBlock: null }
+      : { checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) }) });
 }

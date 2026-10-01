@@ -82,6 +82,7 @@ export const PRODUCT_BACKEND_MODULES = Object.freeze([
   "server/authority-signer.mjs",
   "server/budget-candidates.mjs",
   "server/chain-index/api.mjs",
+  "server/chain-index/cached-read-api.mjs",
   "server/chain-index/community.mjs",
   "server/chain-index/fresh-manifest.mjs",
   "server/chain-index/indexer.mjs",

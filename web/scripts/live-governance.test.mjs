@@ -9,7 +9,7 @@ const saleViews = new Interface([
   'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
 ]);
 import { abi } from '../lib/chain-client.mjs';
-import { governanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
+import { governanceAction, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 
 const factory = '0x1000000000000000000000000000000000000001';
 const pool = '0x2000000000000000000000000000000000000002';
@@ -28,7 +28,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   factoryBinding = factory, alreadyVoted = false, oldSale = false, firsto = {},
   referencePrice = 8n, referenceAt = timestamp - 100n, referenceDigest = digest,
   reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false,
-  genesis = false } = {}) {
+  genesis = false, displayOnly = false } = {}) {
   const external = firstoProvider({ account }, firsto).provider;
   return { request: async ({ method, params = [] }) => {
     if (method === 'eth_getStorageAt' || method === 'eth_getCode' && [FIRSTO_SIGNED_EXCHANGE, runtime.implementation].some(a => a.toLowerCase() === params[0].toLowerCase()) || method === 'eth_call' && params[0].to.toLowerCase() === FIRSTO_SIGNED_EXCHANGE.toLowerCase()) return external.request({ method, params });
@@ -53,7 +53,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
     if (method === 'eth_getBlockByNumber') return { number: '0x1234', hash: blockHash, timestamp: `0x${timestamp.toString(16)}` };
     if (method === 'eth_getCode') return '0x1234';
     if (method !== 'eth_call') throw new Error(`Unexpected ${method}`);
-    assert.equal(params[1], '0x1234');
+    assert.equal(params[1], displayOnly ? 'latest' : '0x1234');
     const tx = params[0];
     const iface = tx.to.toLowerCase() === factory.toLowerCase() ? abi.PoolFactory : abi.PoolVault;
     const parsed = iface.parseTransaction({ data: tx.data });
@@ -89,6 +89,130 @@ test('genesis discounted sale uses 60 shares and does not ask legacy market for 
   assert.equal(passed.candidates[0].passed, true);
   assert.equal(passed.candidates[0].canExecute, true);
   assert.equal(governanceAction(passed, account, { kind: 'executeSale', proposalId: '1' }).quote.marketReferenceWei, null);
+});
+
+function directRpc(options = {}) {
+  const calls = [], base = rpc({ ...options, displayOnly: true });
+  const provider = { request: async input => {
+    calls.push(input);
+    assert.equal(input.method, 'eth_call', 'Direct governance must not read chain, headers, code or storage');
+    assert.equal(input.params[1], 'latest');
+    for (const data of [abi.PoolFactory.encodeFunctionData('isPool', [pool]),
+      abi.PoolVault.encodeFunctionData('factory'), abi.PoolVault.encodeFunctionData('OFFICIAL_FACTORY'),
+      capability.encodeFunctionData('controlledFirstoSaleVersion')]) assert.notEqual(input.params[0].data, data);
+    return base.request(input);
+  } };
+  return { provider, calls };
+}
+const directOptions = { factory, pool, account, shareMarket: market, stage: 'fresh-active',
+  displayOnly: true, now: () => 1700000100000 };
+
+test('direct governance uses business getters only and preserves review and vote rules', async () => {
+  const { provider, calls } = directRpc({ factoryBinding: pool, chain: '0x1', referencePrice: 10n,
+    reviewStatus: 1n, reviewPrice: 9n });
+  const snapshot = await readGovernanceSnapshot(provider, directOptions);
+  assert.equal(snapshot.displayOnly, true);
+  assert.equal(snapshot.timestampOrigin, 'local');
+  assert.equal(snapshot.timestamp, 1700000100n);
+  assert.equal(snapshot.blockNumber, null); assert.equal(snapshot.blockHash, null);
+  assert.equal(snapshot.candidates[1].canExecute, true);
+  const before = calls.length;
+  const prepared = await prepareGovernanceAction(provider, { ...directOptions, snapshot,
+    action: { kind: 'executeSale', proposalId: '2' } });
+  assert.equal(calls.length, before, 'An unsigned preview reuses the displayed business data');
+  assert.equal(prepared.quote.blockNumber, null);
+  assert.deepEqual(Array.from(abi.PoolVault.parseTransaction(prepared.transaction).args), [2n]);
+  await assert.rejects(prepareGovernanceAction(provider, { ...directOptions, snapshot,
+    account: pool, action: { kind: 'vote', proposalId: '2', support: true } }), /another wallet/);
+  await assert.rejects(prepareGovernanceAction(provider, { ...directOptions, snapshot,
+    pool: market, action: { kind: 'executeSale', proposalId: '2' } }), /another pool/);
+  await assert.rejects(prepareGovernanceAction(provider, { ...directOptions, snapshot,
+    stage: 'code-upgraded', action: { kind: 'executeSale', proposalId: '2' } }), /another product/);
+  const unavailable = await readGovernanceSnapshot(directRpc({ referencePrice: 10n,
+    reviewStatus: 1n, reviewPrice: 8n }).provider, directOptions);
+  assert.equal(unavailable.candidates[1].canExecute, false, 'Business approval remains tied to the actual price');
+});
+
+test('direct listing reads the current Firsto fee without proxy or capability proofs', async () => {
+  const { provider, calls } = directRpc({ state: 3n, proposals: [proposal({ price: 1000n, executed: true })],
+    listedId: 1n, salePrice: 1000n, expiresAt: 1700000200n, oldSale: true,
+    firsto: { implementationCode: '0x6001', values: { defaultTakerFeeBps: 200n, feeEpoch: 3n } } });
+  const snapshot = await readGovernanceSnapshot(provider, directOptions);
+  const before = calls.length;
+  const prepared = await prepareGovernanceAction(provider, { ...directOptions, snapshot,
+    action: { kind: 'completeFirstoSale', expectedPriceWei: '1000', expectedFeeBps: '200', expectedFeeEpoch: '3' } });
+  assert.equal(calls.length, before);
+  assert.deepEqual(Array.from(abi.PoolVault.parseTransaction(prepared.transaction).args), [1n, 1000n, 200n, 3n]);
+  assert.equal(prepared.transaction.value, '0x3fc'); assert.equal(prepared.quote.sourceFeeWei, 20n);
+  assert.throws(() => governanceAction(snapshot, account, { kind: 'completeFirstoSale', expectedFeeBps: '100' }), /changed/);
+  const paused = await readGovernanceSnapshot(directRpc({ state: 3n,
+    proposals: [proposal({ price: 1000n, executed: true })], listedId: 1n, salePrice: 1000n,
+    expiresAt: 1700000200n, firsto: { values: { paused: true } } }).provider, directOptions);
+  assert.equal(paused.firstoSale.available, false);
+  assert.throws(() => governanceAction(paused, account, { kind: 'completeFirstoSale' }), /费率暂不可用/);
+});
+
+test('direct cache isolates pool, wallet, provider and stage; pushed and manual refreshes read again', async () => {
+  const { provider, calls } = directRpc({ activeId: 0n, proposals: [] });
+  const options = { ...directOptions, cacheMs: 120000, refreshToken: 1 };
+  const first = await readGovernanceSnapshot(provider, options), before = calls.length;
+  assert.equal(await readGovernanceSnapshot(provider, options), first);
+  assert.equal(calls.length, before, 'Returning to governance within the cache window does not read again');
+  await readGovernanceSnapshot(provider, { ...options, account: market });
+  assert(calls.length > before); let count = calls.length;
+  await readGovernanceSnapshot(provider, { ...options, pool: account });
+  assert(calls.length > count); count = calls.length;
+  await readGovernanceSnapshot(provider, { ...options, stage: 'code-upgraded' });
+  assert(calls.length > count); count = calls.length;
+  const other = directRpc({ activeId: 0n, proposals: [] });
+  await readGovernanceSnapshot(other.provider, options); assert(other.calls.length > 0);
+  await readGovernanceSnapshot(provider, { ...options, refreshToken: 2 });
+  assert(calls.length > count); count = calls.length;
+  await readGovernanceSnapshot(provider, { ...options, refreshToken: 2, force: true });
+  assert(calls.length > count); count = calls.length;
+  await readGovernanceSnapshot(provider, { ...options, refreshToken: 2, now: () => 1700000220001 });
+  assert(calls.length > count, 'Expired data reads again');
+});
+
+test('direct sale candidates use four bounded workers and retain strict round ordering and exact prices', async () => {
+  const proposals = Array.from({ length: 12 }, (_, i) => proposal({ price: BigInt(i + 1) * 100n,
+    yesCount: 2n, yesShares: 51n, ...(i === 6 ? { snapshotTs: 1700000001n } : {}) }));
+  const base = directRpc({ proposals }); let active = 0, peak = 0;
+  const provider = { async request(input) {
+    const parsed = input.params[0].to.toLowerCase() === pool.toLowerCase()
+      ? abi.PoolVault.parseTransaction(input.params[0]) : null;
+    const candidateRead = ['getProposal', 'proposalPassed', 'hasVoted'].includes(parsed?.name);
+    if (!candidateRead) return base.provider.request(input);
+    active++; peak = Math.max(peak, active);
+    try { await new Promise(resolve => setTimeout(resolve, Number(parsed.args[0] % 3n) + 2)); return await base.provider.request(input); }
+    finally { active--; }
+  } };
+  const direct = await readGovernanceSnapshot(provider, directOptions);
+  const strict = await readGovernanceSnapshot(rpc({ proposals }), { factory, pool, account, stage: 'fresh-active' });
+  assert(peak > 2 && peak <= 8, `Four workers can each read at most two vote getters concurrently, peak=${peak}`);
+  assert.equal(active, 0); assert.deepEqual(direct.candidates, strict.candidates);
+  assert.deepEqual(direct.candidates.map(row => row.id), [1n, 2n, 3n, 4n, 5n, 6n, 8n, 9n, 10n, 11n, 12n]);
+});
+
+test('a failed concurrent governance candidate drains all started reads and returns no partial snapshot', async () => {
+  const base = directRpc({ proposals: Array.from({ length: 12 }, (_, i) => proposal({ price: BigInt(i + 1) * 100n,
+    yesCount: 2n, yesShares: 51n })) }), failure = new Error('proposal getter unavailable');
+  let active = 0, siblingFinished = false, published = false;
+  const provider = { async request(input) {
+    const parsed = input.params[0].to.toLowerCase() === pool.toLowerCase()
+      ? abi.PoolVault.parseTransaction(input.params[0]) : null;
+    active++;
+    try {
+      if (parsed?.name === 'proposalPassed' && parsed.args[0] === 2n) throw failure;
+      if (parsed?.name === 'hasVoted' && parsed.args[0] === 2n) {
+        await new Promise(resolve => setTimeout(resolve, 20)); siblingFinished = true;
+      } else await new Promise(resolve => setTimeout(resolve, 1));
+      return await base.provider.request(input);
+    } finally { active--; }
+  } };
+  const read = readGovernanceSnapshot(provider, directOptions).then(value => { published = true; return value; });
+  await assert.rejects(read, error => error === failure);
+  assert.equal(siblingFinished, true); assert.equal(active, 0); assert.equal(published, false);
 });
 
 test('enumerates competing prices in one frozen round and permits voting for either', async () => {

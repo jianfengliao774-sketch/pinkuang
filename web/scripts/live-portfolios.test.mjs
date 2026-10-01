@@ -58,14 +58,14 @@ test('portfolio discovery uses parent registration and does not multiply 100 sha
     const broken=portfolioFixture(option);await assert.rejects(readPortfolioPage(broken.config,broken.provider,{fetcher:broken.fetcher}));
   }
 });
-test('fresh v4 display pages reuse a canonical fixed-block graph proof but action reads do not',async()=>{
+test('fresh v4 display pages omit deployment proof while the independently configured action path still checks it',async()=>{
   const f=portfolioFixture(),config={...f.config,productFamily:'fresh-v4'};
   await readPortfolioPage(config,f.provider,{account:f.account,fetcher:f.fetcher});
   const codeReads=()=>f.calls.filter(call=>call.method==='eth_getCode').length;
   const first=codeReads();
-  assert(first>0);
+  assert.equal(first,0);
   await readPortfolioOrders(config,f.provider,PORTFOLIOS[0],{fetcher:f.fetcher});
-  assert.equal(codeReads(),first,'same pinned block should reuse the verified display graph');
+  assert.equal(codeReads(),0,'display order reads must not inspect runtime code');
   await readPortfolioContext(config,f.provider);
   assert(codeReads()>first,'the action path must verify the graph independently');
 });

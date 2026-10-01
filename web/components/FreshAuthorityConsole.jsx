@@ -8,7 +8,7 @@ import FeeCollection from './FeeCollection';
 const errorText = value => value instanceof Error ? value.message : String(value);
 
 /** Administrator approvals are exact EIP-712 messages; the service Gas wallet sends them. */
-export default function FreshAuthorityConsole({ config, account, wallet, provider, disabled, onAction, mode = 'review' }) {
+export default function FreshAuthorityConsole({ config, account, wallet, provider, disabled, onAction, mode = 'review', refreshKey = 0 }) {
   const [pool, setPool] = useState('');
   const [referencePrice, setReferencePrice] = useState('');
   const [referenceSource, setReferenceSource] = useState('');
@@ -65,7 +65,7 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     {error && <p className="live-notice error" role="alert">{error}</p>}
     {mode === 'review' && <>
     <SaleReviewRequests config={config} provider={provider} account={account} disabled={frozen}
-      refreshKey={reviewRefresh} onSelect={item => setPool(item.pool)} onReview={submit}/>
+      refreshKey={`${refreshKey}:${reviewRefresh}`} onSelect={item => setPool(item.pool)} onReview={submit}/>
     <details className="operator-reference-tools"><summary>更新 Firsto 市场参考价</summary>
     <div className="operator-grid"><label>矿池或子矿机地址<input value={pool} onChange={event => setPool(event.target.value)} placeholder="选择申请自动填入，也可填写 0x…"/></label></div>
     <h3>Firsto 市场参考价</h3>
@@ -76,15 +76,16 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     </div>
     <button className="btn secondary" disabled={frozen} onClick={() => void (async () => { try {
       if (!referenceSource.trim()) throw new Error('必须填写可核对的 Firsto 报价来源。');
-      const block = await wallet.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
-      if (!block?.timestamp) throw new Error('链上区块暂不可用。');
+      const block = config.displayOnly === true ? null : await wallet.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
+      if (config.displayOnly !== true && !block?.timestamp) throw new Error('链上区块暂不可用。');
       await submit('setSaleReference', { market: getAddress(config.shareMarket), pool: getAddress(pool),
-        priceWei: parseEther(referencePrice).toString(), observedAt: BigInt(block.timestamp).toString(),
+        priceWei: parseEther(referencePrice).toString(), observedAt: (config.displayOnly === true
+          ? BigInt(Math.floor(Date.now() / 1000)) : BigInt(block.timestamp)).toString(),
         digest: keccak256(toUtf8Bytes(`${referenceSource.trim()}|${referencePrice.trim()}`)) });
     } catch (problem) { setError(errorText(problem)); } })()}>签名更新参考价</button>
     </details>
     </>}
     {mode === 'fees' && <FeeCollection config={config} provider={provider} account={account} wallet={wallet}
-      disabled={disabled} status={status} refreshKey={reviewRefresh} onAction={onAction} onStatus={setStatus}/>}
+      disabled={disabled} status={status} refreshKey={`${refreshKey}:${reviewRefresh}`} onAction={onAction} onStatus={setStatus}/>}
   </section>;
 }
