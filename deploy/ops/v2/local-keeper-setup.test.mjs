@@ -43,8 +43,46 @@ test('local setup page requires its form token and writes a valid key once', asy
     assert.deepEqual(saved, [SAMPLE_KEY]);
 
     const second = await fetch(setup.url);
-    assert.equal(second.status, 410);
+    assert.equal(second.status, 200);
+    assert.equal(await second.text(), response);
+    const repeated = await fetch(setup.url, { method: 'POST', body: 'ignored' });
+    assert.equal(repeated.status, 200);
+    assert.equal(await repeated.text(), response);
+    assert.deepEqual(saved, [SAMPLE_KEY]);
   } finally { setup.close(); }
+});
+
+test('duplicate requests during saving show progress and then the public receipt', async () => {
+  let finishSave, signalStarted;
+  const started = new Promise(resolve => { signalStarted = resolve; });
+  const pending = new Promise(resolve => { finishSave = resolve; });
+  const saved = [];
+  const setup = await createSetupServer({ saveCredential: async key => {
+    saved.push(key);
+    signalStarted();
+    await pending;
+  } });
+  try {
+    const html = await (await fetch(setup.url)).text();
+    const token = html.match(/name="formToken" value="([0-9a-f]{64})"/)[1];
+    const first = fetch(setup.url, { method: 'POST',
+      body: new URLSearchParams({ formToken: token, key: SAMPLE_KEY }) });
+    await started;
+    for (const options of [{}, { method: 'POST', body: 'ignored' }]) {
+      const duplicate = await fetch(setup.url, options);
+      assert.equal(duplicate.status, 202);
+      const progress = await duplicate.text();
+      assert.match(progress, /正在保存/);
+      assert.match(progress, /http-equiv="refresh"/);
+      assert.ok(!progress.includes(SAMPLE_KEY.slice(2)));
+    }
+    finishSave();
+    assert.equal((await first).status, 200);
+    const receipt = await fetch(setup.url);
+    assert.equal(receipt.status, 200);
+    assert.match(await receipt.text(), /已安全保存/);
+    assert.deepEqual(saved, [SAMPLE_KEY]);
+  } finally { finishSave(); setup.close(); }
 });
 
 test('SSH command transmits the key only on stdin', async () => {

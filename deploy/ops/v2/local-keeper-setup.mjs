@@ -76,16 +76,21 @@ export async function createSetupServer({ saveCredential = saveCredentialViaSsh,
   const token = randomBytes(32).toString('hex'), formToken = randomBytes(32).toString('hex');
   const nonce = randomBytes(16).toString('base64');
   const path = `/setup/${token}`;
-  let used = false, busy = false, attempts = 0, origin;
+  let used = false, busy = false, attempts = 0, origin, receipt;
   const server = createServer(async (req, res) => {
     const headers = { 'Cache-Control': 'no-store, max-age=0', 'Pragma': 'no-cache', 'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Cross-Origin-Opener-Policy': 'same-origin',
       'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` };
     const send = (code, html) => { res.writeHead(code, { ...headers, 'Content-Type': 'text/html; charset=utf-8' }); res.end(page(html, nonce)); };
     if (req.headers.host !== origin.slice(7).toLowerCase() || req.url !== path) return send(404, '<h1>页面不可用</h1>');
-    if (used || attempts >= 5) return send(410, '<h1>录入页已关闭</h1>');
+    if (used) { req.resume(); return send(200, receipt); }
+    if (busy) {
+      req.resume();
+      return send(202, '<meta http-equiv="refresh" content="1"><h1>正在保存</h1><p>请稍候，无需重复提交。保存完成后会自动显示公开地址。</p>');
+    }
+    if (attempts >= 5) return send(410, '<h1>录入页已关闭</h1>');
     if (req.method === 'GET') return send(200, `<h1>录入专用 Gas 钱包</h1><p>这是仅在本机打开的一次性页面。私钥通过 SSH 写入服务器的受限文件；本页面不设置浏览器存储，也不向公开网站发送。</p><div class="note">请使用<strong>专用 Gas 钱包</strong>，不要输入合约部署／升级硬件钱包的私钥。保存不会立即购机；我们会先核对公开地址与余额。</div><form method="post" action="${path}" autocomplete="off"><input type="hidden" name="formToken" value="${formToken}"><label for="key">Gas 钱包私钥</label><input id="key" name="key" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="96" required><small>支持带或不带 0x 前缀；首尾空格会自动清除。</small><button type="submit">安全保存到服务器</button></form><p><small>页面 15 分钟后失效；提交后不会回显私钥。</small></p>`);
-    if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded' || busy) return send(403, '<h1>请求未通过验证</h1>');
+    if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') return send(403, '<h1>请求未通过验证</h1>');
     if (Number(req.headers['content-length'] ?? 0) > 256) return send(413, '<h1>输入过长</h1>');
     busy = true;
     let body = Buffer.alloc(0);
@@ -103,9 +108,9 @@ export async function createSetupServer({ saveCredential = saveCredentialViaSsh,
       const address = new Wallet(key).address;
       await saveCredential(key);
       used = true;
-      send(200, `<h1>已安全保存</h1><p>Gas 钱包公开地址：</p><p class="address">${escapeHtml(address)}</p><div class="note">请核对这是否为你的专用 Gas 钱包。网页不会显示私钥；自动购机服务目前仍未启用。</div><p>请只告诉我“已保存”和这个<strong>公开地址</strong>，不要发送私钥。</p>`);
+      receipt = `<h1>已安全保存</h1><p>Gas 钱包公开地址：</p><p class="address">${escapeHtml(address)}</p><div class="note">请核对这是否为你的专用 Gas 钱包。网页不会显示私钥；自动购机服务目前仍未启用。</div><p>请只告诉我“已保存”和这个<strong>公开地址</strong>，不要发送私钥。</p>`;
+      send(200, receipt);
       onSaved(address);
-      setTimeout(() => server.close(), 250).unref();
     } catch (error) {
       send(503, `<h1>未保存</h1><p>${escapeHtml(safeError(error.message))}</p><p>请返回后重试，不要把私钥发到聊天中。</p>`);
     } finally { body.fill(0); busy = false; }
