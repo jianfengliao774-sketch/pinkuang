@@ -6,7 +6,7 @@ import { startWalletSession } from '../lib/wallet-session.mjs';
 const account = '0x7674fa446D42b1f7f150DC5e678cc525d275Ea53';
 const other = '0x0000000000000000000000000000000000000002';
 const drain = async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); };
-function fixture({ request, isCurrent = () => true } = {}) {
+function fixture({ request, isCurrent = () => true, followAccountChanges = false } = {}) {
   let now = 0, serial = 0;
   const provider = new EventEmitter(), calls = [], events = [], timers = new Map();
   provider.request = args => {
@@ -14,7 +14,7 @@ function fixture({ request, isCurrent = () => true } = {}) {
     assert(['eth_accounts', 'eth_chainId'].includes(args.method), `Unexpected permission, switch or signing request: ${args.method}`);
     return request ? request(args) : args.method === 'eth_accounts' ? [account] : '0x38';
   };
-  const stop = startWalletSession({ provider, account, isCurrent,
+  const stop = startWalletSession({ provider, account, isCurrent, followAccountChanges,
     onInvalidate: value => events.push({ type: 'invalidate', ...value }),
     onChecking: () => events.push({ type: 'checking' }),
     onRecovered: value => events.push({ type: 'recovered', ...value }),
@@ -136,4 +136,33 @@ test('a subsequent interruption starts its own bounded check after a successful 
   f.provider.emit('disconnect'); await drain();
   assert.deepEqual(f.events.map(x => x.type), ['invalidate', 'checking', 'recovered', 'invalidate', 'checking', 'recovered']);
   assert.equal(f.calls.length, 4); f.stop();
+});
+
+test('authorized account switching retires drafts and adopts the selected BSC account without permission or signing calls', async () => {
+  const f = fixture({ followAccountChanges: true,
+    request: ({ method }) => method === 'eth_accounts' ? [other] : '0x38' });
+  f.provider.emit('accountsChanged', [other]);
+  assert.deepEqual(f.events, [{ type: 'invalidate', reason: 'account' }, { type: 'checking' }]);
+  await drain();
+  assert.deepEqual(f.events.at(-1), { type: 'recovered', account: other, chainId: 56 });
+  assert.equal(f.calls.length, 2); assert.equal(f.timers.size, 0); f.stop();
+});
+
+test('account-following cannot enable a wrong-network identity', async () => {
+  const f = fixture({ followAccountChanges: true,
+    request: ({ method }) => method === 'eth_accounts' ? [other] : '0x1' });
+  f.provider.emit('accountsChanged', [other]); await drain();
+  assert.equal(f.events.at(-1).reason, 'network');
+  assert(!f.events.some(event => event.type === 'recovered')); f.stop();
+});
+
+test('rapid account changes ignore a late probe for the previous selection', async () => {
+  let reads = 0, finish;
+  const f = fixture({ followAccountChanges: true, request: ({ method }) => method === 'eth_chainId' ? '0x38'
+    : ++reads === 1 ? new Promise(resolve => { finish = resolve; }) : [account] });
+  f.provider.emit('accountsChanged', [other]); await drain();
+  f.provider.emit('accountsChanged', [account]); await drain();
+  finish([other]); await drain();
+  assert.deepEqual(f.events.filter(event => event.type === 'recovered'), [{ type: 'recovered', account, chainId: 56 }]);
+  assert.equal(f.timers.size, 0); f.stop();
 });

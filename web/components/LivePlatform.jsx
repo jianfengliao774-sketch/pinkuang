@@ -632,11 +632,15 @@ export default function LivePlatform() {
       setPrepared(null);
       setModal(null);
     };
-    return startWalletSession({ provider: wallet, account, chainId: 56,
+    return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true,
       isCurrent: () => connectedWallet.current === wallet,
       onInvalidate: invalidate,
       onChecking: () => setWalletChecking(true),
-      onRecovered: () => { setWalletChecking(false); setOperatorRefresh(v => v + 1); setRefresh(v => v + 1); },
+      onRecovered: ({ account: selected }) => {
+        if (!same(selected, account)) { clearWalletDisplay(); setAccount(getAddress(selected)); }
+        setWalletChecking(false); setMessage('');
+        setOperatorRefresh(v => v + 1); setRefresh(v => v + 1);
+      },
       onDisconnected: () => {
         setWalletChecking(false); setAccount(null); setWallet(null); setWalletInfo(null);
         connectedWallet.current = null; clearWalletDisplay();
@@ -2294,6 +2298,8 @@ export default function LivePlatform() {
   const marketOrderActionReady = (order, action='fill') => currentMarketOrderActionReady({ client, config, action, targetType:'market',
     source: marketOrderSource, route: route.route, marketTab, readIdentity: marketOrderIdentity,
     account, wallet, loading: marketOrdersLoading, error: marketOrdersError, order });
+  const marketOrderNeedsConnection = !wallet || !account;
+  const marketOrderConnectReady = marketTab === 'shares' && !!client && config?.status === 'ready';
 
   return (
     <div
@@ -3219,12 +3225,15 @@ export default function LivePlatform() {
                             <td>
                               <Button
                                 secondary
-                                disabled={!marketOrderActionReady(o, same(o.seller, account) ? 'cancel' : 'fill') ||
+                                disabled={(!(marketOrderNeedsConnection
+                                  ? marketOrderConnectReady
+                                  : marketOrderActionReady(o, same(o.seller, account) ? 'cancel' : 'fill')) ||
                                   busy ||
                                   o.active !== true ||
                                   (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
-                                }
-                                onClick={() =>
+                                )}
+                                onClick={() => {
+                                  if (marketOrderNeedsConnection) { connect(); return; }
                                   openAction(
                                     same(o.seller, account)
                                       ? o.expiresAt <=
@@ -3234,8 +3243,8 @@ export default function LivePlatform() {
                                       : "fill",
                                     { pool: o.pool },
                                     { orderId: (o.id ?? o.orderId).toString() },
-                                  )
-                                }
+                                  );
+                                }}
                               >
                                 {!config?.displayOnly && (marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
                                   ? L('挂单待核验', 'Order awaiting verification')

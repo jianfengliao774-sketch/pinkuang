@@ -16,8 +16,10 @@ const normalizeChain = value => {
  * read-only probes establish that the same account and chain are still active. */
 export function startWalletSession({ provider, account, chainId = 56,
   onInvalidate, onChecking, onRecovered, onDisconnected,
+  followAccountChanges = false,
   isCurrent = () => true, schedule = setTimeout, unschedule = clearTimeout }) {
-  const expectedAccount = normalizeAccount(account), expectedChain = normalizeChain(chainId);
+  let expectedAccount = normalizeAccount(account), selectedAccount = account, revision = 0;
+  const expectedChain = normalizeChain(chainId);
   if (!expectedAccount || !expectedChain || typeof provider?.request !== 'function'
     || typeof provider?.on !== 'function') throw new TypeError('A connected wallet account and chain are required.');
   let state = 'connected', attempts = 0, retryTimer, cancelProbe;
@@ -48,9 +50,10 @@ export function startWalletSession({ provider, account, chainId = 56,
   });
   const probe = async () => {
     if (!current() || state !== 'checking') return;
+    const version = revision;
     attempts++;
     const result = await readIdentity();
-    if (!current() || state !== 'checking') return;
+    if (!current() || state !== 'checking' || version !== revision) return;
     if (result) {
       if (Array.isArray(result.accounts) && result.accounts.length === 0) { disconnect('account'); return; }
       const selected = Array.isArray(result.accounts) ? normalizeAccount(result.accounts[0]) : null;
@@ -59,17 +62,17 @@ export function startWalletSession({ provider, account, chainId = 56,
       if (chain && chain !== expectedChain) { disconnect('network'); return; }
       if (selected === expectedAccount && chain === expectedChain) {
         state = 'connected'; attempts = 0;
-        onRecovered({ account, chainId: Number(expectedChain) });
+        onRecovered({ account: selectedAccount, chainId: Number(expectedChain) });
         return;
       }
     }
     if (attempts >= WALLET_SESSION_RETRY_DELAYS.length) { disconnect('transport'); return; }
     retryTimer = schedule(() => { retryTimer = undefined; void probe(); }, WALLET_SESSION_RETRY_DELAYS[attempts]);
   };
-  const recheck = () => {
+  const recheck = (reason = 'transport') => {
     if (!current() || state === 'checking') return;
     state = 'checking'; attempts = 0;
-    onInvalidate({ reason: 'transport' });
+    onInvalidate({ reason });
     onChecking();
     if (current() && state === 'checking') void probe();
   };
@@ -79,7 +82,14 @@ export function startWalletSession({ provider, account, chainId = 56,
     if (!accounts.length) { disconnect('account'); return; }
     const selected = normalizeAccount(accounts[0]);
     if (!selected) recheck();
-    else if (selected !== expectedAccount) disconnect('account');
+    else if (selected !== expectedAccount) {
+      if (!followAccountChanges) { disconnect('account'); return; }
+      // Switch only to accounts already exposed by this concrete provider.
+      // Retire old drafts immediately; a read-only chain/account probe must
+      // finish before controls for the new account become available.
+      revision++; clear(); expectedAccount = selected; selectedAccount = accounts[0];
+      state = 'connected'; recheck('account');
+    }
     // Providers may re-announce the same selected account on focus/unlock.
   };
   const chainChanged = value => {
@@ -89,7 +99,7 @@ export function startWalletSession({ provider, account, chainId = 56,
     else if (chain !== expectedChain) disconnect('network');
   };
   const connected = value => chainChanged(value?.chainId);
-  const listeners = { accountsChanged, chainChanged, disconnect: recheck, connect: connected };
+  const listeners = { accountsChanged, chainChanged, disconnect: () => recheck(), connect: connected };
   for (const [event, listener] of Object.entries(listeners)) provider.on(event, listener);
   return () => {
     state = 'stopped'; clear();
