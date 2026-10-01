@@ -1,5 +1,7 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
+import { createHash } from 'node:crypto';
+import { MiningOverviewStats } from './overview-stats.mjs';
 
 const artifacts = JSON.parse(readFileSync(new URL('../../public/deployment-artifacts.json', import.meta.url)));
 const lensAbi = new Interface(artifacts.artifacts.PoolLens.abi);
@@ -24,12 +26,14 @@ function decodeRow(raw) {
 
 /** Full on-chain display state is produced in the background, never on an HTTP request. */
 export class PoolDisplayCache {
-  constructor(index, provider, { lens, path, now = Date.now } = {}) {
+  constructor(index, provider, { lens, path, now = Date.now, quoteLoader = null, onUpdate = null } = {}) {
     this.index=index; this.provider=provider; this.lens=getAddress(lens); this.path=path; this.now=now;
     this.value=null; this.running=null; this.stopped=false;
+    this.miningOverview=new MiningOverviewStats({quoteLoader,now});
+    this.quoteRunning=null; this.onUpdate=onUpdate;
     try { const saved=JSON.parse(readFileSync(path,'utf8'),cacheDecode);
       if (saved.schemaVersion===1 && same(saved.source.factory,index.factory) && same(saved.source.market,index.market)
-        && same(saved.lens,this.lens)) this.value=saved;
+        && same(saved.lens,this.lens)) {this.value=saved;this.miningOverview.restore(saved.miningQuotes);}
     } catch { /* The first background pass seeds a missing or corrupt cache. */ }
   }
   async call(to, iface, name, args, block) {
@@ -77,6 +81,7 @@ export class PoolDisplayCache {
     };
     const publicRows=await readRows(ZeroAddress);
     publicRows.forEach(row=>{ personal.forEach(name=>{row[name]=null;});rows[row.pool.toLowerCase()]=row; });
+    const miningStats=this.miningOverview.snapshot(publicRows);
     let next=0;
     const marketAbi=new Interface(artifacts.artifacts.ShareMarket.abi);
     await Promise.all(Array.from({length:Math.min(3,accountList.length)},async()=>{
@@ -104,9 +109,29 @@ export class PoolDisplayCache {
     if(this.stopped) return;
     const value={schemaVersion:1,lens:this.lens,source:{...source,checkedAt:new Date(this.now()).toISOString()},
       savedAt:this.now(),directory:directory.pools.map(row=>row.address),rows,accountRows,marketOwed,
-      accountsComplete:accounts.size<=200,orders:directory.orders===null?null:orders,stats:directory.stats};
+      accountsComplete:accounts.size<=200,orders:directory.orders===null?null:orders,
+      stats:directory.stats ? {...directory.stats,...miningStats} : null};
+    this.save(value);
+    // Quote HTTP work cannot hold up pool, wallet balance or order materialization.
+    this.refreshMining(publicRows);
+  }
+  save(value) {
+    value.miningQuotes=this.miningOverview.persistedQuotes();
+    const revisionStats=value.stats ? {...value.stats,miningOverview:{...value.stats.miningOverview,observedAt:null}} : null;
+    value.displayRevision=createHash('sha256').update(JSON.stringify([value.rows,value.accountRows,value.marketOwed,value.orders,revisionStats],cacheEncode)).digest('hex');
     if(this.path) {const temporary=this.path+'.tmp';writeFileSync(temporary,JSON.stringify(value,cacheEncode),{mode:0o600});renameSync(temporary,this.path);}
     this.value=value;
+  }
+  refreshMining(rows) {
+    if(this.quoteRunning || this.stopped) return;
+    this.quoteRunning=this.miningOverview.capture(rows).then(stats=>{
+      if(this.stopped || !this.value?.stats || !stats.miningOverview.minerIdentityDigest
+        || stats.miningOverview.minerIdentityDigest!==this.value.stats.miningOverview?.minerIdentityDigest) return;
+      const revision=this.value.displayRevision;
+      this.save({...this.value,stats:{...this.value.stats,...stats}});
+      if(this.value.displayRevision!==revision) this.onUpdate?.();
+    }).catch(()=>{/* Existing quotes and business display data remain available. */})
+      .finally(()=>{this.quoteRunning=null;});
   }
   snapshot() {
     const v=this.value;
@@ -116,5 +141,13 @@ export class PoolDisplayCache {
     return {...v,source:{...v.source,readMode:'verified_snapshot',stale:true,transactionReady:false,
       refreshing:Boolean(this.running),cacheOrigin:'server',cacheAgeMs:this.now()-v.savedAt}};
   }
-  async close() {this.stopped=true;try {await this.running;} catch {} }
+  revision() {
+    const cached=this.snapshot();
+    if(!cached?.displayRevision) return null;
+    const tip=this.index.db.prepare('SELECT block_number FROM logs ORDER BY block_number DESC,tx_index DESC,log_index DESC LIMIT 1').get();
+    // A new event must not announce a display generation which still predates it.
+    if(tip && tip.block_number>cached.source.indexedThrough) return null;
+    return cached.displayRevision;
+  }
+  async close() {this.stopped=true;this.miningOverview.close();await Promise.allSettled([this.running,this.quoteRunning]);}
 }

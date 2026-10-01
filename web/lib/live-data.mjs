@@ -3,6 +3,7 @@ import { abi, uint, readPoolSnapshot, decodePoolRow, hasPosition, assetKey } fro
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
+import { readMiningOverviewStats } from './mining-overview.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -357,7 +358,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   const readDisplayStats=(options={})=>cachedDisplay(async()=>{
     const {source,data}=await serverDisplayRead('/stats');
     insist(data?.scope==='confirmed_indexed_history','invalid_data','服务器统计口径无效。');
-    const values={...data};
+    const values={...data,...readMiningOverviewStats(data)};
     for(const field of ['registeredPoolCount','everParticipantAddressCount','purchasedCostWei','shareMarketFilledGrossWei',
       'harvestedToMembersBemAtomic','topLevelProjectCount','standalonePoolCount','portfolioCount','childPoolCount','reservedChildPoolCount'])
       if(values[field]!==undefined) values[field]=exact(values[field],field);
@@ -638,7 +639,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     }
     const { source, data } = indexed;
     insist(data?.scope === 'confirmed_indexed_history', 'invalid_data', '平台统计口径无效。');
-    const values = { scope: data.scope, estimatedDailyBemAtomic: null, currentlyActivePoolCount: null };
+    const values = { scope: data.scope, ...readMiningOverviewStats(data) };
     for (const field of ['registeredPoolCount', 'everParticipantAddressCount', 'purchasedCostWei', 'shareMarketFilledGrossWei', 'harvestedToMembersBemAtomic']) values[field] = exact(data[field], field);
     for (const field of ['topLevelProjectCount', 'standalonePoolCount', 'portfolioCount', 'childPoolCount', 'reservedChildPoolCount'])
       if (data[field] !== undefined) values[field] = exact(data[field], field);

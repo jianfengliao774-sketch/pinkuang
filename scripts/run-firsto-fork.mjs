@@ -37,12 +37,12 @@ const startedAt=new Date().toISOString(),result=spawnSync(executable,args,{cwd:b
 const output=((result.stdout??'')+(result.stderr??'')+(result.error?.message??''))
   .replaceAll(process.env.BSC_RPC_URL,'[BSC_RPC_URL]');
 // A skipped or accidentally empty suite must not become evidence that a real order executed.
-const passed=result.status===0 && /(?<!\d)12 tests passed, 0 failed, 0 skipped/.test(output)
+const passed=result.status===0 && /(?<!\d)14 tests passed, 0 failed, 0 skipped/.test(output)
   && !/\[SKIP/.test(output);
 writeFileSync(join(evidence,'firsto-fork.log'),output);
 writeFileSync(join(evidence,'summary.json'),JSON.stringify({startedAt,finishedAt:new Date().toISOString(),
   status:passed?'passed':'failed',exitCode:result.status??1,chainId:56,forkBlock:Number(block),
   tests:['FirstoPoolForkTest','PoolSaleForkTest','PoolBurnForkTest','AuditMiningSettlementForkTest','BudgetPortfolioForkTest'],
-  expected:{passed:12,failed:0,skipped:0},source:'real public SignedAsk purchase and contract-maker strict settlement sales; local project deployment only'},null,2)+'\n');
+  expected:{passed:14,failed:0,skipped:0},source:'real public SignedAsk purchase and contract-maker strict settlement sales, including signed administrator review; local project deployment only'},null,2)+'\n');
 console.log(output);
 if(!passed)process.exitCode=1;
