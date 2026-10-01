@@ -91,8 +91,8 @@ try {
   await dialog.getByText('本次支付 0.00010 BNB + Gas',{exact:true}).waitFor();
   await page.screenshot({path:join(output,'desktop-budget-confirm.png'),fullPage:true});
   await dialog.getByRole('button',{name:'发送到钱包确认',exact:true}).click();
-  await page.getByText('交易已在链上确认。',{exact:true}).waitFor();
   const share=page.getByRole('dialog',{name:'分享多矿机项目',exact:true});await share.waitFor();
+  assert.equal(await page.getByText('交易已在链上确认。',{exact:true}).count(),0);
   await share.getByText('预算认购已确认',{exact:true}).waitFor();
   const poster=share.getByRole('img');await poster.waitFor();
   await page.waitForFunction(()=>[...document.querySelectorAll('[role="dialog"] img')].some(img=>img.complete&&img.naturalWidth===1200));
