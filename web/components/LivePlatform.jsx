@@ -5,6 +5,7 @@ import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
+import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
@@ -649,6 +650,22 @@ export default function LivePlatform() {
       },
     });
   }, [wallet, account]);
+  useEffect(() => {
+    if (!pending?.awaitingFinality || !pending.hash || !account || !config || busy) return;
+    const context = walletEpoch.current;
+    let cancelled = false, reading = false;
+    const check = async () => {
+      if (reading || document.visibilityState !== 'visible' || activeModal.current || refreshState.current.busy) return;
+      reading = true;
+      try {
+        const result = await recoverPending({ config, account, hash: pending.hash });
+        if (!cancelled && context === walletEpoch.current) await handleResult(result, context);
+      } catch { /* Preserve the pending transaction during temporary read failures. */ }
+      finally { reading = false; }
+    };
+    const timer = setInterval(check, 5_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [pending?.awaitingFinality, pending?.hash, account, config, busy]);
   useEffect(() => {
     if (!modal) return;
     restoreFocus.current = document.activeElement;
@@ -1411,7 +1428,8 @@ export default function LivePlatform() {
           legacyEnvelopeRejected: result.legacyEnvelopeRejected === true } : saved;
       } catch {}
       if (context !== walletEpoch.current) return;
-      setPending(saved);
+      const awaitingFinality = awaitingTransactionFinality(result);
+      setPending(awaitingFinality ? { ...saved, hash: result.hash, awaitingFinality: true } : saved);
       setRecoveryHash(
         result.hash || saved?.recoveryHashes?.at(-1) || saved?.hash || "",
       );
@@ -1427,7 +1445,7 @@ export default function LivePlatform() {
             "发送结果待核对。请检查钱包记录，不要重复发送。",
             "The submission outcome needs checking. Review your wallet history; do not send again.",
           );
-      setMessage(locale === "zh" && result.message ? result.message : fallback);
+      setMessage(awaitingFinality ? '' : locale === "zh" && result.message ? result.message : fallback);
       setModal(null);
       return;
     }

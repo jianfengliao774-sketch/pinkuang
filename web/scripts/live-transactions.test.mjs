@@ -205,7 +205,7 @@ function fixture(options={}){
       return response(200,{revision:state.revision});
     }
     if(path==='market'&&method==='DELETE'){
-      if(!state.final)return response(409,{error:'Not finalized'});
+      if(!state.final)return response(409,{error:state.finalityMessage??'Not finalized'});
       const r=state.record;
       const result={action:r.action.kind,status:state.resolution,account,nonce:r.nonce,factory:r.factory,target:r.target??r.market,
         finalized:true,transactionHash:body.hash,receipt:{status:state.resolution==='reverted'?0:1,transactionHash:body.hash,
@@ -439,6 +439,26 @@ test('recovery reads saved finalized result after lost DELETE ACK, never signing
   const recovered=await recoverPending({provider:f.provider,account,config,hash:hash(7),fetcher:f.fetcher});
   assert.equal(recovered.status,'confirmed');assert.equal(recovered.shares,'2');
   assert(!f.calls.slice(before).some(x=>['eth_sendTransaction','personal_sign','eth_requestAccounts'].includes(x.method)));
+});
+
+test('background finality recovery retains pending intent then confirms without wallet calls',async()=>{
+  const message='Transaction is not finalized on the canonical chain.';
+  const f=fixture({final:false,finalityMessage:message});
+  const submitted=await f.send();
+  assert.equal(submitted.status,'pending');
+  assert.equal(submitted.message,message);
+  const before=f.calls.length;
+  const waiting=await recoverPending({account,config,hash:submitted.hash,fetcher:f.fetcher});
+  assert.equal(waiting.status,'pending');
+  assert.equal(waiting.hash,submitted.hash);
+  assert(f.state.record);
+  f.state.final=true;
+  const confirmed=await recoverPending({account,config,hash:submitted.hash,fetcher:f.fetcher});
+  assert.equal(confirmed.status,'confirmed');
+  assert.equal(confirmed.finalized,true);
+  assert.equal(f.state.record,null);
+  assert(!f.calls.slice(before).some(x=>x.method.startsWith('eth_')||x.method==='personal_sign'));
+  assert.equal(f.calls.filter(x=>x.method==='eth_sendTransaction').length,1);
 });
 
 test('all product actions and market actions use the same intent slot; arbitrary approvals are rejected',async()=>{
