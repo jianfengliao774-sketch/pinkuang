@@ -108,9 +108,10 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       ?displayOnlySnapshot(saved.result,config?.manifest || config,saved.savedAt)
       :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,
         config?.productFamily==='fresh-v4'?{maxAgeMs:30*60_000}:{});
-    setLoadedIdentity(cached?identity:'');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);setRows(cached?.items || []);
-    setListingSource(cached?.source || null);
     const cachedDetail=initialPool?readPortfolioDisplay(config,initialPool,account):null;
+    setLoadedIdentity(cached || cachedDetail ? identity : '');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);
+    setRows(initialPool && cachedDetail ? [cachedDetail] : cached?.items || []);
+    setListingSource(initialPool && cachedDetail ? cachedDetail.displaySource || cached?.source || null : cached?.source || null);
     const reusable=config?.displayOnly===true && (!!cachedDetail || !!saved && Date.now()-saved.savedAt<120_000 && !!cached);
     const restoredDetail=initialPool ? cachedDetail || cached?.items[0] || null : null;
     if(cachedDetail)setLoadedIdentity(identity);
