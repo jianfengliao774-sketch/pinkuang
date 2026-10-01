@@ -302,6 +302,58 @@
 .live-modal .live-actions {
   margin-top: 18px;
 }
+/* Keep sale confirmation outside the scrolling content, including short screens. */
+.modal-overlay .live-modal.live-sale-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  padding: 0;
+  overflow: hidden;
+}
+.share-sale-header {
+  flex-shrink: 0;
+  padding: 24px 58px 14px 26px;
+}
+.share-sale-header h2 { margin: 0; }
+.share-sale-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+.share-sale-body {
+  min-height: 0;
+  padding: 0 26px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.share-sale-available { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; margin: 4px 0 16px; }
+.share-sale-available strong { margin-left: auto; }
+.share-sale-available small { width: 100%; color: var(--muted); }
+.share-sale-body .field-label { margin: 16px 0 0; }
+.share-sale-max { margin-top: 8px; }
+.live-modal .share-sale-summary { margin: 0; }
+.live-modal .share-sale-summary > div { padding: 10px 0; }
+.share-sale-summary .share-sale-total strong { color: var(--ink); font-size: 19px; }
+.share-sale-fees { margin: 14px 0; }
+.share-sale-details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.share-sale-details dl { margin: 12px 0; }
+.share-sale-details dl > div { display: flex; gap: 12px; justify-content: space-between; margin: 8px 0; font-size: 13px; }
+.share-sale-details dd { margin: 0; text-align: right; max-width: 70%; overflow-wrap: anywhere; }
+.share-sale-details p { font-size: 13px; color: var(--muted); }
+.share-sale-footer { flex-shrink: 0; padding: 16px 26px; border-top: 1px solid var(--border); background: var(--surface); }
+.live-modal .share-sale-footer .live-actions { margin: 0; display: flex; gap: 10px; flex-wrap: nowrap; }
+.share-sale-footer .btn:first-child { flex: 1; }
+.share-sale-footer .wallet-connect-status { margin: 0 0 10px; }
+.transaction-result-overlay { z-index: 120; }
+.transaction-result-dialog { width: min(420px, 100%); text-align: center; }
+.transaction-result-icon { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: var(--surface-alt, #edf2eb); color: var(--brand-green, #203e35); }
+.transaction-result-failed .transaction-result-icon { color: #ad3b30; background: #faeae6; }
+.transaction-result-message { line-height: 1.7; overflow-wrap: anywhere; }
+.transaction-result-link { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.transaction-result-actions { margin-top: 24px; }
+.transaction-result-actions .btn { width: 100%; }
+@media (max-width: 520px) {
+  .share-sale-header { padding-left: 18px; }
+  .share-sale-body { padding-inline: 18px; }
+  .share-sale-footer { padding: 12px 18px; }
+  .share-sale-footer .btn { padding-inline: 12px; }
+}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -966,3 +1018,7 @@ body:has(.preview-banner) .page-footer {
     order: -1;
   }
 }
+.live-record-pagination { flex-wrap: wrap; align-items: center; gap: 10px; }
+.live-record-page-jump { display: flex; align-items: center; gap: 8px; margin: 0; }
+.live-record-page-jump label { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
+.live-record-page-jump input { width: 76px; min-width: 0; margin: 0; padding: 10px; }

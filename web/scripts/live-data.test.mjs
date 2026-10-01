@@ -1079,6 +1079,10 @@ test('activity pagination validates tuple order and keeps event amounts as exact
   const result = await client({ '/v1/activity': { items: [event], nextCursor: '10:1:2' } }).readActivity({ pool });
   assert.equal(result.items[0].fields.amount, event.fields.amount);
   await assert.rejects(client({ '/v1/activity': { items: [event, event], nextCursor: null } }).readActivity(), { code: 'invalid_activity' });
+  const counted = await client({ '/v1/activity': { items: [event], nextCursor: '10:1:2', totalCount: 28, overviewTotalCount: 14 } }).readActivity({ limit: 50 });
+  assert.equal(counted.totalCount, 28); assert.equal(counted.overviewTotalCount, 14);
+  await assert.rejects(client({ '/v1/activity': { items: [event], nextCursor: null, totalCount: 0, overviewTotalCount: 1 } }).readActivity(), { code: 'invalid_activity' });
+  await assert.rejects(client({ '/v1/activity': { items: [event], nextCursor: null, totalCount: 1.2 } }).readActivity(), { code: 'invalid_data' });
 });
 
 test('yield exposes harvested/claimed amounts without inventing daily unpaid accrual', async () => {

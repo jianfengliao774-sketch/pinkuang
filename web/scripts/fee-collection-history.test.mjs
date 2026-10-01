@@ -56,7 +56,8 @@ function fixture(options = {}) {
       if (method === 'eth_chainId') return kind === 'logs' ? state.logChain : state.chain;
       if (method === 'eth_getBlockByNumber') {
         assert.equal(params[1], false);
-        const number = params[0] === 'finalized' ? state.finalized : BigInt(params[0]);
+        const number = params[0] === 'finalized' ? state.finalized
+          : params[0] === 'latest' ? state.latest ?? state.finalized : BigInt(params[0]);
         const value = { number: toQuantity(number), hash: blockHash(number), timestamp: toQuantity(timestamp(number)) };
         return state.changeBlock ? state.changeBlock(value, input, kind, byMethod.get(countKey)) : value;
       }
@@ -504,6 +505,47 @@ async function httpHistoryFixture(t, options = {}) {
   const provider = createReadOnlyHttpProvider({ ...f.config, rpcUrl: `http://127.0.0.1:${server.address().port}/api/rpc` });
   return { ...f, httpProvider: provider, upstream, readUrl, logsUrl };
 }
+
+test('display history uses a settled range when the logs node has not seen the newest head', async t => {
+  const f = await httpHistoryFixture(t, { finalized: 300n, latest: 302n,
+    events: [{ block: 280n, recipient: second, bnb: 12345600000000000n, bem: 123456789n }] });
+  f.config.displayOnly = true;
+  f.state.changeBlock = (block, _input, kind) => kind === 'logs'
+    && BigInt(block.number) > f.state.finalized ? null : block;
+  // Reproduce the old latest-head request through the real split RPC proxy.
+  await assert.rejects(f.httpProvider.request({ method: 'eth_getLogs', params: [{
+    address: authority, topics: [event.topicHash], fromBlock: '0xc8', toBlock: '0x12e',
+  }] }), /HTTP 502/);
+  const value = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert.equal(value.displayOnly, true);
+  assert.equal(value.transactionReady, false);
+  assert.equal(value.safeBlockNumber, 300n);
+  assert.equal(value.complete, true);
+  assert.equal(value.rows.length, 1);
+  assert.equal(value.rows[0].administrator, second);
+  assert.equal(value.rows[0].bnbAmountWei, 12345600000000000n);
+  assert.equal(value.rows[0].bemAmountWei, 123456789n);
+  assert(f.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === 'finalized'));
+  assert(!f.calls.some(call => call.method === 'eth_getBlockByNumber' && call.params[0] === 'latest'));
+  assert(!f.calls.some(call => ['eth_getTransactionReceipt', 'eth_getCode', 'eth_call'].includes(call.method)),
+    'display history must not reintroduce transaction or deployment proof rounds');
+  const before = f.calls.length;
+  const cached = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert.equal(cached.cached, true);
+  assert.equal(f.calls.length, before, 'settled display pages keep the existing thirty-second cache');
+});
+
+test('display history still reports a real logs failure and never caches it as empty history', async t => {
+  const f = await httpHistoryFixture(t, { finalized: 300n, events: [], logsFailure: new Error('temporary fee logs failure') });
+  f.config.displayOnly = true;
+  await assert.rejects(readFeeCollectionHistory({ config: f.config, provider: f.httpProvider }), /HTTP 502/);
+  f.state.logsFailure = null;
+  const value = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
+  assert.deepEqual(value.rows, []);
+  assert.equal(value.complete, true);
+  assert.equal(value.cached, false);
+  assert.equal(logCalls(f).length, 2);
+});
 
 test('real HTTP proxy uses the existing index logs RPC when the product RPC rejects even single-block logs', async t => {
   const f = await httpHistoryFixture(t, { events: [

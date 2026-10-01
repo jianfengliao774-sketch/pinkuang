@@ -67,7 +67,7 @@ async function assertSummaryWithFrozenActions(label) {
   assert.match(await details.innerText(), /每份 0\.00005 BNB/);
   assert.match(await details.innerText(), /我的可转份额 10/);
   assert.equal(await deposit.isDisabled(), true);
-  assert.equal(await details.getByRole('button', { name: '撤回全部认购', exact: true }).isDisabled(), true);
+  assert.equal(await details.getByRole('button', { name: '撤回我的认购', exact: true }).isDisabled(), true);
   for (const button of await details.getByRole('button', { name: /^领取 .* (BNB|BEM)$/ }).all())
     assert.equal(await button.isDisabled(), true, 'cached entitlement must not enable a claim');
   await page.screenshot({ path: join(out, label + '.png'), fullPage: true });

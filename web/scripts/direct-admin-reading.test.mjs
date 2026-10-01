@@ -60,7 +60,8 @@ test('direct fee history keeps pagination and administrator amounts with no rece
     blockHash: hash('c'), transactionHash: hash('e') };
   const provider = { request: async input => {
     seen.push(input);
-    if (input.method === 'eth_getBlockByNumber') return { number: input.params[0] === 'latest' ? toQuantity(blockNumber) : input.params[0],
+    if (input.method === 'eth_getBlockByNumber') return { number: input.params[0] === 'finalized' ? toQuantity(blockNumber)
+      : input.params[0] === 'latest' ? toQuantity(blockNumber + 2n) : input.params[0],
       hash: hash('c'), timestamp: '0x6b49d200' };
     assert.equal(input.method, 'eth_getLogs'); assert.equal(input.params[0].address, config.authority);
     assert.deepEqual(input.params[0].topics, [topic.topicHash]); return [event];
@@ -69,7 +70,11 @@ test('direct fee history keeps pagination and administrator amounts with no rece
   assert.equal(result.rows.length, 1); assert.equal(result.rows[0].administrator, config.freshAuthority.administratorOne);
   assert.equal(result.rows[0].bnbAmountWei, 123456789012345n); assert.equal(result.rows[0].bemAmountWei, 456n);
   assert.equal(result.rows[0].timestamp, 1800000000n); assert.equal(result.complete, true); assert.equal(result.displayOnly, true);
+  assert.deepEqual(seen[0], { method: 'eth_getBlockByNumber', params: ['finalized', false] });
+  assert.equal(seen[1].params[0].toBlock, toQuantity(blockNumber), 'history starts at the settled head, not the newer latest block');
   assert.deepEqual(seen.map(input => input.method), ['eth_getBlockByNumber', 'eth_getLogs', 'eth_getBlockByNumber']);
+  assert.equal(seen.some(input => ['eth_getTransactionReceipt', 'eth_getCode', 'eth_call', 'eth_chainId'].includes(input.method)), false,
+    'direct history does not add receipt or deployment proof requests');
   const cached = await readFeeCollectionHistory({ config, provider });
   assert.equal(cached.cached, true); assert.equal(seen.length, 3, 'cached history must not issue another proof round');
 });

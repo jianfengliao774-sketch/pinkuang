@@ -801,7 +801,8 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });
   }
   async function readActivity({ pool, account, cursor, limit = 20, source: expected } = {}) {
-    pageLimit(limit); if (pool) pool = liveAddress(pool); if (account) account = liveAddress(account);
+    safeInt(limit, 'limit'); insist(limit >= 1 && limit <= 50, 'page_limit', '每次读取 1–50 条记录。');
+    if (pool) pool = liveAddress(pool); if (account) account = liveAddress(account);
     if (cursor !== undefined) insist(/^\d+:\d+:\d+$/.test(cursor) && cursor.split(':').every(n => Number.isSafeInteger(Number(n))), 'invalid_cursor', '流水游标无效。');
     const { source, data } = await indexRead('/v1/activity', { pool, account, cursor, limit }, expected); page(data, limit);
     let previous = cursor?.split(':').map(Number); const seen = new Set();
@@ -818,7 +819,11 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       return Object.freeze({ ...row });
     });
     insist(data.nextCursor === null || (items.length > 0 && data.nextCursor === previous.join(':')), 'invalid_cursor', '流水下一页游标无效。');
-    return Object.freeze({ source, items, nextCursor: data.nextCursor });
+    const totalCount = data.totalCount == null ? null : safeInt(data.totalCount, 'totalCount');
+    const overviewTotalCount = data.overviewTotalCount == null ? null : safeInt(data.overviewTotalCount, 'overviewTotalCount');
+    insist((totalCount === null || totalCount >= items.length) && (overviewTotalCount === null
+      || totalCount !== null && overviewTotalCount <= totalCount), 'invalid_activity', '记录总数无效。');
+    return Object.freeze({ source, items, nextCursor: data.nextCursor, totalCount, overviewTotalCount });
   }
   async function readYield({ pool, account, days = 30, scope = 'pool', source: expected } = {}) {
     pool = liveAddress(pool); if (account) account = liveAddress(account); safeInt(days, 'days'); insist(days >= 1 && days <= 90, 'invalid_query', '收益窗口为1–90天。');

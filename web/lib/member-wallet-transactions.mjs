@@ -33,7 +33,7 @@ export async function sendMemberWalletTransaction({ provider, config, transactio
     if (!HASH.test(hash ?? '')) throw new Error('钱包未返回交易哈希，请查看钱包交易记录。');
     const record = {
       hash, account: intent.account, target: intent.target, action: intent.action.kind,
-      value: intent.value.toString(), submittedAt: new Date().toISOString(), status: 'pending',
+      value: intent.value.toString(), data: intent.data, submittedAt: new Date().toISOString(), status: 'pending',
     };
     // Save before returning even if the user switched accounts while the wallet was open.
     const saved = readMemberTransactions(config, intent.account);

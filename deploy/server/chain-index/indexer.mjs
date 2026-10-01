@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { Interface, ZeroAddress, getAddress, keccak256 } from 'ethers';
 import { notificationPage } from './notifications.mjs';
+import { summarizeOverviewActivity } from '../../shared/activity-summary.mjs';
 
 const artifactPath = fileURLToPath(new URL('../../public/deployment-artifacts.json', import.meta.url));
 const artifacts = JSON.parse(await readFile(artifactPath, 'utf8'));
@@ -1062,18 +1063,24 @@ export class ChainIndex {
       if (targetAccount && ![a.user, a.member, a.proposer, a.voter, a.seller, a.buyer, a.treasury, a.from, a.to,
         a.operator, orderSellers.get(orderKey)]
         .some(value => value && lower(value) === targetAccount)) continue;
-      if (cursorParts && (event.blockNumber > cursorParts[0]
-        || event.blockNumber === cursorParts[0] && (event.txIndex > cursorParts[1]
-          || event.txIndex === cursorParts[1] && event.logIndex >= cursorParts[2]))) continue;
-      const header = this._header(event.blockNumber);
-      items.push({ blockNumber: event.blockNumber, blockHash: header.hash, timestamp: header.timestamp,
+      items.push({ blockNumber: event.blockNumber,
         transactionHash: event.txHash, transactionIndex: event.txIndex, logIndex: event.logIndex,
         contract: event.address, pool: eventPool, source: event.kind, event: event.name, fields: a });
     }
     items.reverse();
-    const page = items.slice(0, limit);
+    // Counts belong to the entire filtered SQLite read view, not the remaining
+    // cursor slice. The overview uses the same subscription merge as the UI.
+    const totalCount = items.length, overviewTotalCount = summarizeOverviewActivity(items).length;
+    const remaining = cursorParts ? items.filter(event => event.blockNumber < cursorParts[0]
+      || event.blockNumber === cursorParts[0] && (event.transactionIndex < cursorParts[1]
+        || event.transactionIndex === cursorParts[1] && event.logIndex < cursorParts[2])) : items;
+    const page = remaining.slice(0, limit).map(event => {
+      const header = this._header(event.blockNumber);
+      return { ...event, blockHash: header.hash, timestamp: header.timestamp };
+    });
     const last = page.at(-1);
-    return { items: page, nextCursor: items.length > limit ? `${last.blockNumber}:${last.transactionIndex}:${last.logIndex}` : null };
+    return { items: page, totalCount, overviewTotalCount,
+      nextCursor: remaining.length > limit ? `${last.blockNumber}:${last.transactionIndex}:${last.logIndex}` : null };
   }
 
   /** Pool receipts and actual wallet claims are separate series; unclaimed individual accrual is unknown. */
