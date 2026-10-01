@@ -22,8 +22,13 @@ Owner, operator and treasury initially equal the deployment wallet. The normal 7
 `PlatformAuthority(coreFactory, budgetFactory, administratorOne, administratorTwo, gasWallet)`,
 set both factories' operator/treasury to Authority, and transfer both owners to their common timelock.
 Authority activation is required before calling the full deployment active.
+The selected test administrator is the deployer alone. The test variant removes
+only the duplicate-address rejection from PlatformAuthority; both storage slots
+point to the same wallet. Gas cannot be an administrator, and zero addresses,
+retired signatures, nonces and action authorization remain enforced.
 
-Only 10 exact fragments in 8 sources change in memory:
+The test build changes 10 timing fragments in 8 sources, plus one exact
+PlatformAuthority administrator fragment permitting the same wallet in both slots:
 single-miner initial holding/proposal cooldown, three multi-miner holding/round/member cooldown fragments,
 and six matching timelock minimum-delay/binding fragments become zero.
 The vote window stays 24 hours, listing/order expiry stays 7 days, and purchase/accounting periods remain formal.
@@ -41,7 +46,8 @@ No formal source, formal artifact or production service is changed by these scri
 The complete interface and wallet deployment console are mounted at
 https://tapeout.cc.cd/bemine-full-test/ and /bemine-full-test/deploy/.
 Use the selected deployer 0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E.
-The test administrators are that wallet and 0x7674fa446D42b1f7f150DC5e678cc525d275Ea53.
+The sole test administrator is that deployment wallet. Both ABI-compatible
+administrator storage slots identify that same wallet; there is no second signer.
 The user-provided temporary test Gas sender is 0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C;
 its private key remains only in the test server's systemd credential. Automation
 requires funding that sender with at least 0.003 BNB. These are real mainnet funds.
@@ -65,3 +71,11 @@ bootstrap artifact, its source identity and all 16 confirmed transactions, and
 records the separate runtime patch commit. It verifies the pending credential's
 public address and zero nonce domain, backs up the old test configuration,
 updates only test services, and never sends a chain transaction.
+
+For the single-admin update, `prove-bootstrap-reuse.mjs` independently compares
+all 20 other artifacts, including ABI, deployment/runtime bytes, links and
+immutable byte offsets. Only compiler-internal AST IDs may vary. The existing
+16-step journal can be rebound only after this comparison and canonical receipt
+verification pass; the previous record remains in the restricted backup. The
+old gas measurements are identified as old evidence; the new Authority uses an
+explicit 6,000,000 gas cap rather than a claimed new simulation measurement.

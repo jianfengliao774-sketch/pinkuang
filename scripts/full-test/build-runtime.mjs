@@ -25,12 +25,13 @@ const replacements=[
 ];
 const exact={
  'server/product-graph.mjs':[
-  ["const FRESH_ADMINS = ['0x7674fa446D42b1f7f150DC5e678cc525d275Ea53','0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb'];", "const FRESH_ADMINS = ['0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E','0x7674fa446D42b1f7f150DC5e678cc525d275Ea53'];"],
+  ["const FRESH_ADMINS = ['0x7674fa446D42b1f7f150DC5e678cc525d275Ea53','0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb'];", "const FRESH_ADMINS = ['0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E','0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E'];"],
+  ['&& !same(adminOne,adminTwo) && !same(adminOne,gasWallet)', '&& same(adminOne,adminTwo) && !same(adminOne,gasWallet)'],
   ["['timelock','getMinDelay',172800n],['timelock','MINIMUM_DELAY',172800n]", "['timelock','getMinDelay',0n],['timelock','MINIMUM_DELAY',0n]"],
  ],
  'server/fresh-activation-journal.mjs':[
   ["export const FRESH_ADMIN_ONE = getAddress('0x7674fa446D42b1f7f150DC5e678cc525d275Ea53');", "export const FRESH_ADMIN_ONE = getAddress('0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E');"],
-  ["export const FRESH_ADMIN_TWO = getAddress('0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb');", "export const FRESH_ADMIN_TWO = getAddress('0x7674fa446D42b1f7f150DC5e678cc525d275Ea53');"],
+  ["export const FRESH_ADMIN_TWO = getAddress('0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb');", "export const FRESH_ADMIN_TWO = getAddress('0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E');"],
   ["'getMinDelay')<48n*60n*60n", "'getMinDelay')!==0n"],
  ],
  'shared/integrated-upgrade-plan.mjs':[['const MIN_DELAY = 172800;', 'const MIN_DELAY = 0;']],
@@ -55,7 +56,7 @@ export function buildFullTestRuntime({outDir,profilePath}={}) {
  const sourceHead=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
  assert.equal(bundle.sourceCommit,sourceHead,'Rebuild the test bundle after committing.');
  const roles={deployer:'0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',administratorOne:'0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',
-  administratorTwo:'0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',gasWallet:'0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C'};
+  administratorTwo:'0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',gasWallet:'0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C'};
  const deny=JSON.parse(readFileSync(profilePath,'utf8'));
  assert(Array.isArray(deny.forbiddenContracts)&&deny.forbiddenContracts.length>=20,'Explicit formal graph denylist is required.');
  const profile={schemaVersion:1,profile:'full-test',chainId:56,sourceHead,artifactDigest:artifactContentDigest(bundle),

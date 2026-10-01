@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { artifactContentDigest, libraryNames, linkedDeploymentOrder, repositoryRoot, requiredContracts, validateArtifacts } from '../../deploy/scripts/build-artifacts.mjs';
 import { outputDirectory, outputPath } from './build-artifacts.mjs';
-import { FULL_TEST_TIMINGS, TIMING_TRANSFORMS, sha256 } from './profile.mjs';
+import { FULL_TEST_TIMINGS, TIMING_TRANSFORMS, ADMINISTRATOR_TRANSFORMS, sha256 } from './profile.mjs';
 
 test('independent profile binds the same 21 ABIs and only approved input changes', () => {
   const saved = JSON.parse(readFileSync(outputPath, 'utf8'));
@@ -14,7 +14,7 @@ test('independent profile binds the same 21 ABIs and only approved input changes
   assert.deepEqual(saved.metadata.timings, FULL_TEST_TIMINGS);
   assert.equal(saved.metadata.formalArtifactDigest, artifactContentDigest(formal));
   assert.deepEqual(saved.originalSourceHashes, formal.sourceHashes);
-  const modifiedNames = new Set(TIMING_TRANSFORMS.map(item => item.sourceName));
+  const modifiedNames = new Set([...TIMING_TRANSFORMS, ...ADMINISTRATOR_TRANSFORMS].map(item => item.sourceName));
   for (const [name, originalHash] of Object.entries(saved.originalSourceHashes)) {
     assert.equal(name.startsWith('src/') ? sha256(readFileSync(join(repositoryRoot, 'contracts', name)))
       : sha256(readFileSync(join(repositoryRoot, 'node_modules', name))), originalHash);
@@ -30,13 +30,23 @@ test('independent profile binds the same 21 ABIs and only approved input changes
 test('measured full 16+7 gas plan has exact steps, correct digest, and sufficient headroom', () => {
   const bundle = JSON.parse(readFileSync(outputPath, 'utf8'));
   const gas = JSON.parse(readFileSync(join(outputDirectory, 'gas-plan.json'), 'utf8'));
-  const evidence = JSON.parse(readFileSync(join(outputDirectory, 'local-graph-evidence.json'), 'utf8'));
   assert.equal(gas.artifactDigest, artifactContentDigest(bundle));
   assert.equal(gas.kind, 'bemine-full-test-gas-plan');
   const expected = [...linkedDeploymentOrder(bundle.artifacts).filter(name => libraryNames.includes(name)),
     'AtomicDeployment', 'PoolVault', 'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'initialize'];
   assert.deepEqual(Object.keys(gas.gasLimits), expected);
   assert.deepEqual(Object.keys(gas.activationGasLimits), ['deployAuthority', 'coreOperator', 'coreTreasury', 'budgetOperator', 'budgetTreasury', 'coreOwner', 'budgetOwner']);
+  if (gas.measurementArtifactDigest) {
+    const reuse = JSON.parse(readFileSync(join(outputDirectory, 'bootstrap-reuse-proof.json'), 'utf8'));
+    assert.equal(reuse.previousArtifactDigest, gas.measurementArtifactDigest);
+    assert.equal(reuse.artifactDigest, gas.artifactDigest);
+    assert.equal(reuse.changedRuntime, 'PlatformAuthority');
+    assert.equal(reuse.preservedRuntimeCount, 20);
+    assert.equal(gas.activationGasLimits.deployAuthority, '6000000');
+    assert.match(gas.limitPolicy, /explicit 6,000,000 gas cap/);
+    return;
+  }
+  const evidence = JSON.parse(readFileSync(join(outputDirectory, 'local-graph-evidence.json'), 'utf8'));
   assert.equal(evidence.steps.length, 23);
   assert.equal(evidence.artifactDigest, gas.artifactDigest);
   assert.equal(evidence.productionTransactions, 0);

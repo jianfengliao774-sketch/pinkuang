@@ -16,7 +16,8 @@ export function validateFullTestConsoleConfig(value: FullTestConsoleConfig, dige
   const roles = Object.fromEntries(['deployer', 'administratorOne', 'administratorTwo', 'gasWallet']
     .map(name => [name, getAddress(value.roles?.[name as keyof typeof value.roles] ?? '')])) as FullTestConsoleConfig['roles'];
   if (Object.values(roles).some(address => address === ZeroAddress)
-    || new Set([roles.administratorOne, roles.administratorTwo, roles.gasWallet]).size !== 3
+    || roles.administratorOne !== roles.administratorTwo
+    || roles.administratorOne === roles.gasWallet
     || roles.deployer === roles.gasWallet)
     throw new Error('测试部署、管理员与 Gas 钱包公开地址无效。');
   return { ...value, roles };

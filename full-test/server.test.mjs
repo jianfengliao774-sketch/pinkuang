@@ -11,7 +11,7 @@ import { createJournalService } from '../deploy/server/journal-api.mjs';
 const {Wallet}=createRequire(new URL('../deploy/package.json',import.meta.url))('ethers');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0'), address=n=>'0x'+n.toString(16).padStart(40,'0');
 const origin='http://127.0.0.1:4207',deployer='0x6f4d78fb59ec938cbaf65b9fc822ad04d00c155e';
-const admins=[deployer,'0x7674fa446d42b1f7f150dc5e678cc525d275ea53'],gas='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c';
+const admins=[deployer,deployer],gas='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c';
 const artifactDigest=hash(1),sourceHead='a'.repeat(40);
 function inputs() {
   const profile={schemaVersion:1,profile:'full-test',chainId:56,artifactDigest,sourceHead,

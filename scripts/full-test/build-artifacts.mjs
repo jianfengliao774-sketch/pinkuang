@@ -8,7 +8,7 @@ import {
   artifactContentDigest, compilerSettings, libraryNames, repositoryRoot, requiredContracts,
   validateArtifacts, verifyBuildConfiguration,
 } from '../../deploy/scripts/build-artifacts.mjs';
-import { FULL_TEST_TIMINGS, TIMING_TRANSFORMS, sha256, sortedObject, transformFullTestSources } from './profile.mjs';
+import { FULL_TEST_TIMINGS, TIMING_TRANSFORMS, ADMINISTRATOR_TRANSFORMS, sha256, sortedObject, transformFullTestSources } from './profile.mjs';
 
 export const outputDirectory = join(repositoryRoot, 'full-test/public');
 export const outputPath = join(outputDirectory, 'deployment-artifacts.json');
@@ -71,7 +71,7 @@ export function compileFullTestArtifacts({ root = repositoryRoot } = {}) {
       timings: FULL_TEST_TIMINGS, deploymentKind: 'integrated-v2', bootstrapTransactionCount: 16,
       authorityActivationTransactionCount: 7, assets: 'official-protocols',
       formalArtifactDigest: artifactContentDigest(formal),
-      timingTransforms: TIMING_TRANSFORMS,
+      timingTransforms: TIMING_TRANSFORMS, administratorMode: 'single', administratorTransforms: ADMINISTRATOR_TRANSFORMS,
       warning: 'Independent test contracts. Mandatory holding/cooldown/upgrade waits are disabled; voting, reviews, authorization and expiry remain unchanged.' },
     originalSourceHashes: sortedObject(originalSourceHashes), sourceHashes: sortedObject(sourceHashes), artifacts: sortedObject(artifacts) };
 }

@@ -98,8 +98,8 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
     <div className="card-heading"><div><ShieldCheck size={20}/><h2>新合约权限激活</h2></div>
       <span className="subtle-tag">第二阶段 · 部署钱包 7 笔</span></div>
     <div style={{ padding: '16px 24px 24px' }}>
-      <p>{profile?.fullTest ? '第二阶段保留完整平台权限：两位管理员签名审核和领取费用，独立测试 Gas 钱包代付必要后端调用。测试时间锁取消强制等待；全部交易使用 BNB 主网。' : '第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。'}</p>
-      <p><b>部署钱包：</b>{genesis.account}<br/><b>管理员一：</b>{profile?.administratorOne || FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{profile?.administratorTwo || FRESH_ADMIN_TWO}<br/><b>{profile?.fullTest ? '独立测试 Gas 钱包：' : 'Gas 钱包（与 v2 共用）：'}</b>{record?.gasWallet || gasWallet}</p>
+      <p>{profile?.fullTest ? '管理员签名审核和领取费用，独立测试 Gas 钱包代付必要后端调用。测试时间锁取消强制等待；全部交易使用 BNB 主网。' : '第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。'}</p>
+      <p><b>部署钱包：</b>{genesis.account}<br/><b>{profile?.fullTest ? '管理员：' : '管理员一：'}</b>{profile?.administratorOne || FRESH_ADMIN_ONE}{!profile?.fullTest && <><br/><b>管理员二：</b>{FRESH_ADMIN_TWO}</>}<br/><b>{profile?.fullTest ? '独立测试 Gas 钱包：' : 'Gas 钱包（与 v2 共用）：'}</b>{record?.gasWallet || gasWallet}</p>
       <p className={credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()

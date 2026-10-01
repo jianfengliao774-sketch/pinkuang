@@ -6,7 +6,7 @@ import { repositoryRoot } from '../../deploy/scripts/build-artifacts.mjs';
 import { originalContractSources } from './build-artifacts.mjs';
 import { assertSourceEquivalence, FULL_TEST_TIMINGS, TIMING_TRANSFORMS, transformFullTestSources } from './profile.mjs';
 
-test('full test changes exactly ten reviewed waits, restoring every formal byte', () => {
+test('full test changes ten reviewed waits and the single-admin fragment, restoring every formal byte', () => {
   const originals = originalContractSources();
   const transformed = transformFullTestSources(originals);
   assert.equal(TIMING_TRANSFORMS.length, 10);
@@ -19,6 +19,8 @@ test('full test changes exactly ten reviewed waits, restoring every formal byte'
   assert.match(transformed['src/BudgetPortfolioVault.sol'].content, /MAX_PURCHASE_DURATION = 7 days;/);
   assert.match(transformed['src/BudgetPortfolioVault.sol'].content, /endsAt = uint64\(block.timestamp \+ 1 days\);/);
   assert.match(transformed['src/ShareMarket.sol'].content, /ORDER_DURATION = 7 days;/);
+  assert.ok(!transformed['src/PlatformAuthority.sol'].content.includes('first == second ||'));
+  assert.match(transformed['src/PlatformAuthority.sol'].content, /first == gasWallet \|\| second == gasWallet/);
 });
 
 test('unknown edits, missing/duplicated fragments and extra sources fail closed', () => {

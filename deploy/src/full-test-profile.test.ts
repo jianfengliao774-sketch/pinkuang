@@ -7,10 +7,10 @@ import { validatedFreshGasWallet } from './fresh-activation';
 const digest = `0x${'1'.repeat(64)}`;
 const deployer = getAddress('0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E');
 const value = { schemaVersion: 1 as const, profile: 'full-test' as const, chainId: 56 as const, artifactDigest: digest,
-  roles: { deployer, administratorOne: deployer, administratorTwo: getAddress('0x7674fa446D42b1f7f150DC5e678cc525d275Ea53'),
-    gasWallet: getAddress('0xaD95dFf16FE0e09C47bADe687aB549929AC66c80') },
+  roles: { deployer, administratorOne: deployer, administratorTwo: deployer,
+    gasWallet: getAddress('0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C') },
   timings: { holdSeconds: 0, proposalCooldownSeconds: 0, voteSeconds: 86400, listingSeconds: 604800, upgradeDelaySeconds: 0 } };
-test('test deployer may also be admin one, and the separate gas role is bound', () => {
+test('test deployer is the sole administrator, and the separate gas role is bound', () => {
   const config = validateFullTestConsoleConfig(value, digest);
   const profile = fullTestActivationProfile(config);
   assert.equal(profile.minTimelockDelaySeconds, 0);

@@ -42,7 +42,7 @@ export function validateFullTestProfile(profile, bundle, artifactDigest) {
     .every(name=>ADDRESS.test(roles[name]) && BigInt(roles[name])!==0n), 'Full-test public roles are incomplete.');
   need(lower(roles.deployer)==='0x6f4d78fb59ec938cbaf65b9fc822ad04d00c155e'
     && lower(roles.administratorOne)===lower(roles.deployer)
-    && lower(roles.administratorTwo)==='0x7674fa446d42b1f7f150dc5e678cc525d275ea53'
+    && lower(roles.administratorTwo)===lower(roles.administratorOne)
     && lower(roles.gasWallet)==='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c',
     'Full-test roles differ from the declared wallets.');
   need(![roles.deployer,roles.administratorOne,roles.administratorTwo,FORBIDDEN_GAS]

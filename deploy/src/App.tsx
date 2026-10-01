@@ -326,7 +326,7 @@ export default function App() {
       <main>
         {IS_FULL_TEST && <div className="alert alert-warning" data-test-profile="full-test"><ShieldCheck size={20}/><div style={{ minWidth: 0, overflowWrap: 'anywhere' }}><strong>完整测试部署 · 独立合约</strong>
           <p>BNB 主网真实资产；完整 16 笔部署与 7 笔权限激活由部署钱包确认。测试版取消强制出售和升级等待。</p>
-          {fullTestConfig && <p>部署及管理员一：{fullTestConfig.roles.deployer}　管理员二：{fullTestConfig.roles.administratorTwo}　独立 Gas 钱包：{fullTestConfig.roles.gasWallet}</p>}
+          {fullTestConfig && <p>部署及管理员：{fullTestConfig.roles.deployer}　独立 Gas 钱包：{fullTestConfig.roles.gasWallet}</p>}
           <a href="../">返回完整测试站</a></div></div>}
         <div className="page-heading"><div><div className="eyebrow">{tab === 'deploy' ? 'DEPLOYMENT CONSOLE' : tab === 'market' ? 'SHARE MARKET' : tab === 'pricing' ? 'FIRSTO MINER QUOTES' : tab === 'funding' ? 'FUNDING & PURCHASE' : tab === 'records' ? 'ON-CHAIN RECORDS' : 'UPGRADE GOVERNANCE'}</div><h1>{tab === 'deploy' ? '部署你的拼矿合约' : tab === 'market' ? '让每一份算力，自由流转' : tab === 'pricing' ? '以真实矿机报价，为筹款定价' : tab === 'funding' ? '一起筹款，按约定买矿机' : tab === 'records' ? '每一笔部署，都有记录' : IS_FULL_TEST ? '完整测试权限，无强制等待' : '可升级，也有等待期'}</h1><p>{tab === 'deploy' ? '连接钱包，核对配置，将可升级合约部署到 BSC 主网。' : tab === 'market' ? '查看真实挂单，交易整数份额，领取成交卖款。' : tab === 'pricing' ? '参考 Firsto 产能价，保留报价时间与资金预算。' : tab === 'funding' ? '锁定矿机条件与购机预算，余款按份额计入可领取余额。' : tab === 'records' ? '读取服务器保存的记录，核对链上交易和合约地址。' : 'Factory、交易市场和资金池通过同一时间锁管理升级。'}</p></div><span className="test-label"><span/>{IS_FULL_TEST ? '完整测试 · 无强制等待' : IS_FRESH ? 'v4 独立部署' : '主网小额测试'}</span></div>
         {(error || loadError || snapshot?.error) && <div className="alert alert-error" role="alert"><OctagonAlert size={20}/><div><strong>操作未完成</strong><p>{error || loadError || snapshot?.error}</p></div>{error && <button className="icon-button" aria-label="关闭提示" onClick={() => setError('')}><X size={16}/></button>}</div>}
@@ -349,7 +349,7 @@ export default function App() {
                 <p><span className="mono">{IS_FULL_TEST ? fullTestConfig?.roles.deployer || '测试配置加载中' : FRESH_DEPLOYER}</span> 同时担任两套 Factory 的 owner、operator 和 treasury。</p>
                 <b>第二阶段 · 完成权限激活后</b>
                 <p>PlatformAuthority 接管运营和金库；{IS_FULL_TEST ? `${upgradeWait}的测试时间锁` : '48 小时 Timelock'}接管两套 Factory 的所有权。</p>
-                <p>管理员：<span className="mono">{IS_FULL_TEST ? fullTestConfig?.roles.administratorOne || '配置加载中' : FRESH_ADMIN_ONE}</span>、<span className="mono">{IS_FULL_TEST ? fullTestConfig?.roles.administratorTwo || '配置加载中' : FRESH_ADMIN_TWO}</span></p>
+                <p>管理员：<span className="mono">{IS_FULL_TEST ? fullTestConfig?.roles.administratorOne || '配置加载中' : FRESH_ADMIN_ONE}</span>{!IS_FULL_TEST && <>、<span className="mono">{FRESH_ADMIN_TWO}</span></>}</p>
                 <p>{IS_FULL_TEST ? '独立测试 Gas 钱包公开地址' : 'Gas 钱包公开地址（与 v2 共用）'}：<span className="mono">{IS_FULL_TEST ? fullTestConfig?.roles.gasWallet || '配置加载中' : FRESH_GAS_WALLET}</span></p>
               </div> : <>
                 <label className="toggle-row"><input type="checkbox" checked={!customRoles} disabled={!!snapshot || !!busy} onChange={event => { setCustomRoles(!event.target.checked); setOperator(wallet?.address || ''); setTreasury(wallet?.address || ''); }}/><span><b>运营和金库使用同一个钱包</b><small>适合当前单钱包小额测试。</small></span><span className="toggle-track"/></label>

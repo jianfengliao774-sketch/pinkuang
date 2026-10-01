@@ -10,7 +10,7 @@ assert.equal(metadata.profile, 'full-test');
 const base = '/bemine-full-test';
 const roles = { deployer: '0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',
   administratorOne: '0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',
-  administratorTwo: '0x7674fa446D42b1f7f150DC5e678cc525d275Ea53',
+  administratorTwo: '0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E',
   gasWallet: '0x0C14b1008cFFe78711d65b13C8Ce5ca9B944252C' };
 const config = { schemaVersion: 1, profile: 'full-test', chainId: 56, artifactDigest: metadata.artifactDigest,
   sourceHead: metadata.sourceHead, roles, status: 'unconfigured', phase: 'deployment-pending',
