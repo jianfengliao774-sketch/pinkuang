@@ -13,7 +13,9 @@ export function verifiedQuotePage(value) {
     throw new Error('Invalid quote page');
   const rows = value.rows.filter(row => row && typeof row === 'object'
     && typeof row.collection === 'string' && OFFICIAL.has(row.collection.toLowerCase())
-    && row.category === 'official_mining' && row.classification === 'official_mining'
+    // New official NFTs may await netlist enrichment while Mining has already
+    // verified their weight. That unknown classification is not a missing ask.
+    && row.category === 'official_mining' && ['official_mining', 'unknown'].includes(row.classification)
     && row.mining?.status === 'verified' && row.mining.optimal !== true
     && positiveWeight(row.mining.verifiedWeight) && row.mining.unverifiedWeight === '0'
     && row.mining.tokenSymbol === 'BEM' && row.mining.tokenDecimals === 8);

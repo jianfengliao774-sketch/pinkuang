@@ -81,6 +81,17 @@ test('quote filtering preserves exact sell price, daily units, reference price, 
   assert(BigInt(first.bestAsk.priceWei) * BigInt(second.mining.estimated24hAtomic)
     < BigInt(second.bestAsk.priceWei) * BigInt(first.mining.estimated24hAtomic));
 });
+
+test('new official verified miner with pending enrichment retains its ask; unknown mining and foreign NFTs do not', () => {
+  const fresh = { ...verifiedRow('16736'), classification: 'unknown' };
+  const raw = { rows: [fresh,
+    { ...fresh, mining: { ...fresh.mining, status: 'unknown' } },
+    { ...fresh, collection: '0x0000000000000000000000000000000000000001' },
+    { ...fresh, category: 'other' }], page: 1, total: 4, totalPages: 1 };
+  const result = verifiedQuotePage(raw);
+  assert.deepEqual(result.rows, [fresh]);
+  assert.equal(result.quoteFilter.excludedOnPage, 3);
+});
 test('quote proxy rejects POST before any network call', async()=>{
   const response={statusCode:0,setHeader(){},end(body){this.body=body;}};
   await proxyFirsto({url:'/firsto-api/v1/circuits',method:'POST'},response);
