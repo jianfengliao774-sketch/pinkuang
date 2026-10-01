@@ -47,6 +47,18 @@ test('same-name fake official collection, wrong classification and incorrect uni
   assert.equal(result.rows.length, 1); assert.equal(result.excluded, 4);
 });
 
+test('pending netlist enrichment does not hide an official verified miner or its matching detail order', () => {
+  const fresh = row(); fresh.classification = 'unknown';
+  const result = parseQuotePage(page([fresh]), now);
+  assert.equal(result.rows.length, 1); assert.equal(result.excluded, 0);
+  const current = detail(); current.asset.classification = 'unknown';
+  assert.equal(verifyQuoteDetail(result.rows[0], current).detailChecked, true);
+  current.asset.mining.status = 'unknown';
+  assert.throws(() => verifyQuoteDetail(result.rows[0], current), /状态或产能已变化/);
+  const unknownMining = row(); unknownMining.classification = 'unknown'; unknownMining.mining.status = 'unknown';
+  assert.equal(parseQuotePage(page([unknownMining]), now).rows.length, 0);
+});
+
 test('unverified, mixed-weight, optimal, not-started and unknown mining states stay off the quote list', () => {
   const invalid = ['unverified', 'not_started', 'optimal', 'checking', 'failed'].map(status => {
     const item = row(); item.mining.status = status; return item;

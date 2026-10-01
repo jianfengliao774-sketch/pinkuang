@@ -18,6 +18,8 @@ const address = (value: unknown, name: string) => getAddress(text(value, name)).
 const optionalUint = (value: unknown, name: string) => value == null ? null : uint(value, name);
 const time = (value: unknown, name: string): number => { const n = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN; requireValue(Number.isSafeInteger(n) && n > 0, `${name} 时间缺失或无效`); return n; };
 const optionalObj = (value: unknown, name: string) => value == null ? null : obj(value, name);
+// Netlist enrichment can lag behind an already verified official Mining NFT.
+const supportedClassification = (value: unknown) => value === 'official_mining' || value === 'unknown';
 const ageIssue = (at: number, now: number) => at > now + 30_000 ? '来源时间超前，无法确认' : now - at > MAX_QUOTE_AGE_MS ? '来源超过 5 分钟，需重新获取' : null;
 
 export interface MineAsk { id: string; seller: string; venue: string; kind: string; status: 'open'; execution: ObjectValue | null; priceWei: string; buyerCostWei: string; expiresAt: number | null; legacyListingId: string | null; sourceFeeBps: number | null; sourceSchemaVersion: string | null }
@@ -68,7 +70,7 @@ export function parseQuotePage(raw: unknown, receivedAt = Date.now()): MineQuote
     try {
       const row = obj(rawRow, '矿机'); const collection = address(row.collection, '矿机合约');
       const series = (Object.keys(OFFICIAL_COLLECTIONS) as (keyof typeof OFFICIAL_COLLECTIONS)[]).find(key => OFFICIAL_COLLECTIONS[key] === collection);
-      requireValue(series && row.category === 'official_mining' && row.classification === 'official_mining', '非官方矿机');
+      requireValue(series && row.category === 'official_mining' && supportedClassification(row.classification), '非官方矿机');
       const tokenId = uint(row.tokenId, '矿机编号'); const mining = obj(row.mining, '挖矿数据');
       requireValue(mining.tokenSymbol === 'BEM' && mining.tokenDecimals === 8, '产能币种或小数位不符合 BEM / 8');
       const status = text(mining.status, '挖矿状态');
@@ -118,7 +120,7 @@ export function parseCapacityReference(raw: unknown, receivedAt = Date.now()): C
 
 export function verifyQuoteDetail(quote: MineQuote, raw: unknown): MineQuote {
   const data = obj(raw, '矿机详情'); const asset = obj(data.asset, '矿机详情资产');
-  requireValue(address(asset.collection, '详情合约') === quote.collection && uint(asset.tokenId, '详情编号') === quote.tokenId && asset.category === 'official_mining' && asset.classification === 'official_mining', '详情与报价资产身份不一致');
+  requireValue(address(asset.collection, '详情合约') === quote.collection && uint(asset.tokenId, '详情编号') === quote.tokenId && asset.category === 'official_mining' && supportedClassification(asset.classification), '详情与报价资产身份不一致');
   requireValue(address(asset.owner, '详情持有人') === quote.owner, '持有人已变化，请刷新报价');
   const mining = obj(asset.mining, '详情挖矿数据');
   for (const [key, value] of Object.entries({ taskId: quote.taskId, status: quote.status, verifiedWeight: quote.verifiedWeight, unverifiedWeight: quote.unverifiedWeight, estimated24hAtomic: quote.estimated24hAtomic, tokenSymbol: 'BEM', tokenDecimals: 8 })) requireValue(mining[key] === value, '矿机型号、状态或产能已变化，请刷新报价');

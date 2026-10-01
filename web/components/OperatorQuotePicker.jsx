@@ -104,6 +104,11 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
   function search() {
     const exactId = query.trim();
     if (/^\d+$/.test(exactId) && !series) { setError('按矿机编号查询时，请先选择 TapeOut 或 Behemoth 系列。'); return; }
+    if (/^\d+$/.test(exactId)) {
+      setPage(null);
+      void choose({ collection: OFFICIAL_COLLECTIONS[series], tokenId: BigInt(exactId).toString(), series });
+      return;
+    }
     void load(1);
   }
   function apply() {

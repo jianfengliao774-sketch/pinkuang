@@ -101,3 +101,19 @@ test('public quote cache isolates filters, source, page and revision; expiry and
   for (let page = 2; page <= 66; page++) await cache.read({ ...input, page }, options);
   const before = reads; await cache.read(input, options); assert.equal(reads, before + 1, 'Oldest entries are evicted after 64 keys');
 });
+
+test('known miner ID selects exact official identity directly without relying on a directory match', async () => {
+  let listReads = 0;
+  const f = moduleFixture(async () => { listReads++; return { ...page(1), rows: [] }; });
+  const ui = f.host(props); await ui.settle();
+  const field = label => elements(ui.tree).find(item => item.props?.['aria-label'] === label).props;
+  field('搜索报价矿机编号').onChange({ target: { value: ' 016736 ' } }); ui.render();
+  field('报价矿机系列').onChange({ target: { value: 'TapeOut' } }); ui.render();
+  elements(ui.tree).find(item => item.type === 'form').props.onSubmit({ preventDefault() {} });
+  await ui.settle();
+  assert.equal(f.selectedReads(), 1); assert.equal(listReads, 1, 'Only the initial directory GET is needed');
+  assert.match(text(ui.tree), /TapeOut #16736/);
+  assert.doesNotMatch(text(ui.tree), /列表未找到/);
+  assert.equal(button(ui, '填入建池表单').disabled, false);
+  ui.unmount();
+});
