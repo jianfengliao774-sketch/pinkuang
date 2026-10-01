@@ -12,6 +12,7 @@ import {
 const fail=(status,message)=>{const error=new Error(message);error.status=status;throw error;};
 const same=(a,b)=>typeof a==='string' && typeof b==='string' && a.toLowerCase()===b.toLowerCase();
 const HASH=/^0x[0-9a-f]{64}$/i;
+const READINESS_REFRESH_MS=15_000, READINESS_DISPLAY_TTL_MS=30_000;
 const json=(res,status,value)=>{res.statusCode=status;res.setHeader('Content-Type','application/json; charset=utf-8');
   res.setHeader('Cache-Control','no-store');res.end(JSON.stringify(value));};
 async function readActivationBody(req) {
@@ -89,7 +90,7 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
   }
   const config=async()=>{
     const age=readiness.checkedAt===null?Infinity:now()-readiness.checkedAt;
-    if(productJournal && freshProductReadinessReader && !readinessPending && (age<0 || age>=5000)) {
+    if(productJournal && freshProductReadinessReader && !readinessPending && (age<0 || age>=READINESS_REFRESH_MS)) {
       // Bootstrap stays cheap while an independent proof runs. Until that
       // proof succeeds, automation is explicitly unavailable to the UI.
       const pending=Promise.resolve().then(()=>productJournal.verifyFreshOperationalReadiness())
@@ -98,7 +99,9 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
       readinessPending=pending;requests.add(pending);
       pending.finally(()=>{requests.delete(pending);if(readinessPending===pending)readinessPending=null;});
     }
-    const operationalReady=readiness.ready && age>=0 && age<5000;
+    // Retain the last live result while the next display refresh runs. Actual
+    // privileged submissions still invoke the journal's fresh readiness gate.
+    const operationalReady=readiness.ready && age>=0 && age<READINESS_DISPLAY_TTL_MS;
     return {schemaVersion:1,profile:'full-test',productFamily:'fresh-v4',testProfile:true,chainId:56,
       artifactDigest,sourceHead:trustedProfile.sourceHead,roles:trustedProfile.roles,timings:trustedProfile.timings,
       status:active?'ready':'unconfigured',stage:active?'fresh-active':'unconfigured',operationalReady,

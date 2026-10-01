@@ -36,7 +36,8 @@ function inputs() {
       administratorOne:admins[0],administratorTwo:admins[1],gasWallet:gas}};
   return {profile,bundle,record,activation,graph};
 }
-async function fixture({input=inputs(),directory,manageIndex=true}={}) {
+async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
+ verifyReadiness=async()=>{throw new Error('Workers are not ready.');}}={}) {
   const state=directory??await mkdtemp(join(tmpdir(),'bemine-full-test-'));
   let deploymentRevision=1,activationRevision=1,graphFailure=false,closedIndex=0,starts=0,proofs=0;
   const calls=[],journals=[];
@@ -45,7 +46,7 @@ async function fixture({input=inputs(),directory,manageIndex=true}={}) {
       readAuthenticatedDeployment(req){if(req.headers.cookie!=='test_session=valid'){const e=new Error('Wallet session is required.');e.status=401;throw e;}
         return {account:deployer,deployment:{record:input.record,revision:deploymentRevision},activation:{record:input.activation,revision:activationRevision}};},
       handle(req,res){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({journal:true}));},
-      verifyFreshOperationalReadiness:async()=>{throw new Error('Workers are not ready.');},close:async()=>{},
+      verifyFreshOperationalReadiness:verifyReadiness,close:async()=>{},
     };},
     validateFreshActivation(){calls.push('activation');},
     verifyCompletedDeployment:async(_provider,_record,{trustedArtifactBundle})=>{assert.equal(trustedArtifactBundle,input.bundle);calls.push('receipts');},
@@ -62,7 +63,7 @@ async function fixture({input=inputs(),directory,manageIndex=true}={}) {
   const provider={getBlock:async id=>({number:id==='latest'?150:id,hash:hash(id==='latest'?150:id)})};
   const service=await createFullTestService({runtime,profile:input.profile,bundle:input.bundle,artifactDigest,provider,
     rpcUrl:'https://test-read.example/',stateRoot:state,origin,allowTemporaryState:true,manageIndex,
-    freshProductReadinessReader:async()=>({ready:false})});
+    freshProductReadinessReader:async()=>({ready:false}),now});
   const server=createServer((req,res)=>void service.handle(req,res));
   await new Promise(accept=>server.listen(0,'127.0.0.1',accept));
   const request=async(path='/api/full-test/activate',{method='POST',body={account:deployer},cookie='test_session=valid',requestOrigin=origin}={})=>{
@@ -122,6 +123,23 @@ test('runtime proof failure cannot export a ready file or start an index',async(
   const f=await fixture();try{f.graphFailure();assert.equal((await f.request()).status,409);assert.equal(f.stats().starts,0);
     await assert.rejects(readFile(join(f.state,'activation-ready.json')),/ENOENT/);
   }finally{await f.close();}
+});
+test('display polling preserves proved readiness during a bounded background refresh',async()=>{
+ let timestamp=100000,checks=0,complete;
+ const f=await fixture({now:()=>timestamp,verifyReadiness:()=>{
+  checks++;return checks===1?Promise.resolve({ready:true}):new Promise(resolve=>{complete=resolve;});
+ }});
+ try{
+  await f.request();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal((await f.service.config()).operationalReady,true);
+  timestamp+=16000;
+  assert.equal((await f.service.config()).operationalReady,true);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(checks,2);
+  timestamp+=15000;
+  assert.equal((await f.service.config()).operationalReady,false);
+  complete({ready:false});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal((await f.service.config()).operationalReady,false);
+ }finally{complete?.({ready:false});await f.close();}
 });
 test('restart independently proves persisted graph and preserves the unique deployment',async()=>{
   const f=await fixture();const input=f.input;await f.request();const directory=f.state;await f.close(true);
