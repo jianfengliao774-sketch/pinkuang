@@ -147,7 +147,7 @@ const transactionLabels = {
   'awaiting-signature': ['请在钱包弹窗中确认交易', 'Confirm the transaction in your wallet'],
   pending: ['交易已提交，正在核对链上结果…', 'Transaction submitted. Checking the on-chain result…'],
   'needs-verification': ['发送结果待核对，请检查钱包记录', 'Submission needs verification. Check your wallet history'],
-  confirmed: ['交易已在链上确认', 'Transaction confirmed on chain'],
+  confirmed: ['', ''],
 };
 const actionNames = {
   deposit: ["认购份额", "Subscribe"],
@@ -678,7 +678,7 @@ export default function LivePlatform() {
         setRefresh(v => v + 1);
         setMessage(settled.some(r => r.status === 'failed')
           ? L('交易在链上执行失败，请查看钱包交易记录。', 'Transaction failed on chain. See wallet history.')
-          : L('交易已在链上确认。', 'Transaction confirmed on chain.'));
+          : '');
       } finally { reading = false; }
     };
     void check();
@@ -1504,7 +1504,7 @@ export default function LivePlatform() {
       setNotificationClaim(result);
     setMessage(
       result.status === "confirmed"
-        ? L("交易已在链上确认。", "Transaction confirmed on chain.")
+        ? ""
         : L(
             "交易未完成原操作，已核对最终结果。",
             "The original action did not complete. Its final outcome has been checked.",
