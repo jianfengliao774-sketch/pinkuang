@@ -221,6 +221,31 @@ test('public sale-reference status GET reads a snapshot during sync without any 
   } finally { disabledServer.closeAllConnections(); await new Promise(resolve => disabledServer.close(resolve)); }
 });
 
+test('native ask status reports only the isolated publication snapshot during sync with no chain or wallet work', async () => {
+  const f = fixture(); let statusReads = 0;
+  f.index.syncing = true; f.index.waitForSync = () => assert.fail('Publication status must not wait for sync.');
+  const payload = { schemaVersion: 1, chainId: 56, factory, enabled: true, stale: false,
+    item: { pool: child, status: 'published', askHash: hash } };
+  const server = createChainIndexServer(f.index, { firstoAskStatus: pool => {
+    statusReads++; assert.equal(pool, child); return payload;
+  } });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const route = `http://127.0.0.1:${server.address().port}/v1/display/firsto-ask/${child}`;
+  try {
+    const response = await fetch(route); assert.equal(response.status, 200); assert.deepEqual(await response.json(), payload);
+    assert.equal(statusReads, 1); assert.equal(f.calls, 0);
+    assert.equal((await fetch(route, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(route + '?refresh=true')).status, 400);
+    assert.equal((await fetch(route.replace(child, 'bad'))).status, 400); assert.equal(statusReads, 1);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+  const disabled = createChainIndexServer(f.index);
+  await new Promise(resolve => disabled.listen(0, '127.0.0.1', resolve));
+  try {
+    const reply = await (await fetch(`http://127.0.0.1:${disabled.address().port}/v1/display/firsto-ask/${child}`)).json();
+    assert.equal(reply.enabled, false); assert.equal(reply.item.status, 'upgrade-required'); assert.equal(f.calls, 0);
+  } finally { disabled.closeAllConnections(); await new Promise(resolve => disabled.close(resolve)); }
+});
+
 function fakeClient({ blocked = false } = {}) {
   const req = new EventEmitter(); req.method = 'GET';
   const res = new EventEmitter(); res.headers = {}; res.frames = []; res.destroyed = false; res.writableLength = 0;

@@ -6,7 +6,7 @@
  */
 export const FRESH_WALLET_ACTIONS = Object.freeze({
   pool: Object.freeze(['deposit', 'withdrawDeposit', 'finalizeFailure', 'harvest', 'claim', 'withdrawBnb',
-    'propose', 'vote', 'executeSale', 'cancelExpired', 'completeFirstoSale']),
+    'propose', 'vote', 'executeSale', 'cancelExpired', 'delist', 'completeFirstoSale']),
   portfolio: Object.freeze(['deposit', 'withdrawDeposit', 'finalizeFundingFailure', 'claimFailedFunding',
     'finalizeAcquisition', 'collectChildBem', 'claimBem', 'withdrawBnb', 'transfer',
     'proposeChildSale', 'voteChildSale', 'executeChildSale', 'settleChildSale', 'expireChildSale']),

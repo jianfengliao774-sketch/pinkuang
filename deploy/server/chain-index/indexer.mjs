@@ -14,7 +14,12 @@ const artifacts = JSON.parse(await readFile(artifactPath, 'utf8'));
 const interfaces = Object.freeze({
   factory: new Interface(artifacts.artifacts.PoolFactory.abi),
   market: new Interface(artifacts.artifacts.ShareMarket.abi),
-  pool: new Interface(artifacts.artifacts.PoolVault.abi),
+  // Additive current events live in source, without changing the sealed genesis artifact.
+  pool: new Interface([...artifacts.artifacts.PoolVault.abi,
+    'event SaleDelistingProposed(uint256 indexed cancellationId,uint256 indexed listedProposalId,address indexed proposer,uint48 snapshotTs,uint256 snapshotMemberCount)',
+    'event SaleDelistingVoted(uint256 indexed cancellationId,address indexed voter,bool support,uint256 weight)',
+    'event SaleDelisted(uint256 indexed proposalId,uint256 indexed cancellationId)',
+  ]),
   portfolioFactory: new Interface(['event PortfolioCreated(address indexed portfolio,uint256 budgetWei,uint256 absoluteCapWei,uint256 unitCapWei)']),
   portfolioMarket: new Interface(artifacts.artifacts.ShareMarket.abi),
   portfolio: new Interface(artifacts.artifacts.BudgetPortfolioVault?.abi ?? [
@@ -58,6 +63,7 @@ const indexedEvents = Object.freeze({
   pool: new Set(['Deposited', 'DepositWithdrawn', 'Funded', 'Failed', 'Purchased', 'FirstoPurchased', 'AlternativeMinerSelected',
     'PurchaseSurplusSettled', 'Harvested', 'BemClaimed', 'BnbWithdrawn', 'Transfer', 'SaleProposed', 'Voted',
     'SaleListed', 'SaleCompleted', 'FirstoSaleCompleted', 'SaleExpired', 'SaleSnapshotRecorded', 'SaleProceedsSettled', 'LockedSharesChanged',
+    'SaleDelistingProposed', 'SaleDelistingVoted', 'SaleDelisted',
     'FlexiblePurchaseConfigured', 'PurchaseModelLocked', 'PurchaseReferenceWeightLocked']),
 });
 const topicSets = Object.freeze(Object.fromEntries(Object.entries(interfaces).map(([kind, iface]) =>

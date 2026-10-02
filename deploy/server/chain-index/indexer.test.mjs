@@ -265,6 +265,27 @@ test('bounded confirmed indexing, exact balances, historical positions and reorg
   } finally { index?.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('native delisting events are indexed and refresh the confirmed display generation, with reorg rollback', async () => {
+  const chain = new MockChain(); fixture(chain);
+  chain.event('pool', 'SaleDelistingProposed', [2n, 7n, alice, 1_700_000_012, 2n], 4);
+  chain.event('pool', 'SaleDelistingVoted', [2n, alice, true, 49n], 5);
+  chain.event('pool', 'SaleDelisted', [7n, 2n], 6);
+  const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1,
+    confirmations: 2, scanRange: 2, maxBlocksPerSync: 20 });
+  try {
+    await index.sync();
+    const rows = index.activity({ pool }).items.filter(row => row.event.startsWith('SaleDelist'));
+    assert.deepEqual(rows.map(row => row.event), ['SaleDelisted', 'SaleDelistingVoted', 'SaleDelistingProposed']);
+    assert.equal(rows[0].fields.proposalId, '7'); assert.equal(rows[0].fields.cancellationId, '2');
+    const oldDisplay = index.verifiedDisplaySnapshot();
+    assert.equal(oldDisplay.source.indexedThrough, 6);
+    chain.reorg(); await index.sync();
+    assert.notStrictEqual(index.verifiedDisplaySnapshot(), oldDisplay);
+    assert.deepEqual(index.activity({ pool }).items.filter(row => row.event.startsWith('SaleDelist')).map(row => row.event),
+      ['SaleDelistingProposed']);
+  } finally { index.close(); }
+});
+
 test('verified display snapshot is an immutable in-process hit until rollback or a new proof', async () => {
   const chain = new MockChain(); fixture(chain);
   const index = new ChainIndex(chain, { dbPath: ':memory:', factory, market, startBlock: 1, confirmations: 2 });

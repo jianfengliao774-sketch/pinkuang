@@ -224,6 +224,18 @@ test('public sale reference status proxies only one valid pool without caller qu
   assert.equal(f.calls.length, 1, 'invalid requests never reach the read-only status source');
 });
 
+test('native ask publication status proxies a fixed read-only pool route without RPC or caller destinations', async t => {
+  const envelope = { schemaVersion: 1, chainId: 56, enabled: true, stale: false,
+    item: { pool: address, status: 'pending-approval', askHash: `0x${'aa'.repeat(32)}` } };
+  const f = await fixture(t, { upstream: () => json(envelope) });
+  const path = `/api/chain-index/v1/display/firsto-ask/${address}`, response = await f.get(path);
+  assert.equal(response.status, 200); assert.deepEqual(await response.json(), envelope);
+  assert.deepEqual(f.calls.map(call => [call.url, call.init.method]), [[`http://127.0.0.1:4180/v1/display/firsto-ask/${address}`, 'GET']]);
+  for (const suffix of [`?pool=${address}`, '?refresh=true', '?rpc=https://attacker.test', '/extra'])
+    assert.equal((await f.get(path + suffix)).status, suffix.startsWith('?') ? 400 : 404);
+  assert.equal(f.calls.length, 1);
+});
+
 test('only validated fresh Authority fee logs use the fixed index log RPC; other reads retain their destination', async t => {
   const logsRpcUrl = 'https://index-logs.test/key';
   const f = await fixture(t, { logsRpcUrl, feeHistoryLogScope, upstream: (url, init) => {

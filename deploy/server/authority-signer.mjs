@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { Wallet, getAddress } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
+import { trackFirstoListingExpiry } from './firsto-listing-expiry-keeper.mjs';
 import { AUTHORITY_SOCKET, createAuthoritySignerServer, listenAuthoritySigner,
   readAuthorityIpcKey } from './authority-ipc.mjs';
 
@@ -69,7 +70,10 @@ export async function startAuthoritySigner(env = process.env, dependencies = {})
   catch (error) { await relay?.close(); throw error; }
   const stopReceiptTracking=relay ? trackAuthorityReceipts(relay) : async()=>{};
   const stopReferenceTracking=relay && config.saleReferencePublisher ? trackSaleReferences(relay) : async()=>{};
+  const stopExpiryTracking=relay && config.firstoExpiryKeeper
+    ? trackFirstoListingExpiry({ tick: () => relay.expireNativeFirstoListings() }, { intervalMs: config.firstoExpiryKeeper.intervalMs }) : async()=>{};
   const close = async () => {
+    await stopExpiryTracking();
     await stopReferenceTracking();
     await stopReceiptTracking();
     await new Promise(resolve => server.close(resolve));

@@ -3,6 +3,8 @@ import { cacheEncode } from './pool-display-cache.mjs';
 import { DisplayReadError } from './cached-read-api.mjs';
 import { communityPage } from './community.mjs';
 import { chainIndexInterfaces } from './indexer.mjs';
+import { readFirstoAskPublisherStatus } from '../firsto-ask-publisher-store.mjs';
+import { FIRSTO_NATIVE_EXCHANGE } from '../../shared/firsto-native-ask.mjs';
 
 class InvalidQueryError extends Error {}
 const pageInt = (value, label, fallback, max = 50) => {
@@ -21,7 +23,7 @@ const displaySnapshots = Object.freeze({
 });
 
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
-export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache, portfolioReads, displayEvents, saleReferenceStatus } = {}) {
+export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache, portfolioReads, displayEvents, saleReferenceStatus, firstoAskStatus } = {}) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -47,6 +49,13 @@ export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache,
       return send(200, await saleReferenceStatus(referenceMatch[1]));
     }
     if (url.pathname.startsWith('/v1/display/sale-reference/')) return send(400, { error: 'Invalid pool.' });
+    const askMatch = /^\/v1\/display\/firsto-ask\/(0x[\da-f]{40})$/i.exec(url.pathname);
+    if (askMatch) {
+      if ([...url.searchParams].length) return send(400, { error: 'Native ask status takes no query parameters.' });
+      return send(200, firstoAskStatus ? await firstoAskStatus(askMatch[1]) : readFirstoAskPublisherStatus(null,
+        { factory: index.factory, exchange: FIRSTO_NATIVE_EXCHANGE, pool: askMatch[1] }));
+    }
+    if (url.pathname.startsWith('/v1/display/firsto-ask/')) return send(400, { error: 'Invalid pool.' });
     if (url.pathname === '/v1/display/events') {
       if ([...url.searchParams].length) return send(400, { error: 'Display stream takes no query parameters.' });
       if (!displayEvents) return send(404, { error: 'Display stream is unavailable.' });
