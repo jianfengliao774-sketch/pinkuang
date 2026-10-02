@@ -12,6 +12,9 @@ import {
 import './FirstoMarketBoard.css';
 
 const text = (locale, zh, en) => locale === 'en' ? en : zh;
+const venue = (value, locale) => locale === 'en'
+  ? ({ 'Firsto 挂单': 'Firsto listing', 'TapeOut 官网挂单': 'TapeOut listing' }[value] ?? value)
+  : value;
 const time = (stamp, locale) => Number.isFinite(stamp) && stamp > 0
   ? new Date(stamp).toLocaleString(locale === 'en' ? 'en-US' : 'zh-CN', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -72,11 +75,11 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
     <header className="firsto-board-head">
       <div><span className="firsto-board-eyebrow">FIRSTO · BSC MAINNET</span>
         <h2>{text(locale, '真实矿机市场 · 日产能价', 'Live miner market · price per daily output')}</h2>
-        <p>{text(locale, '来源于 Firsto 当前官方矿机市场。这里仅展示只读报价，不请求钱包签名。',
-          'Current official-miner quotes from Firsto. This panel is read-only and never requests a wallet signature.')}</p>
+        <p>{text(locale, '查看 Firsto 当前矿机报价与预计日产 BEM。',
+          'Compare current miner quotes and expected daily BEM from Firsto.')}</p>
       </div>
       <div className="firsto-board-head-actions">
-        <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, 'Firsto 官网', 'Firsto market')} <ExternalLink size={14}/></a>
+        <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, 'Firsto 网站', 'Firsto website')} <ExternalLink size={16}/></a>
         <button type="button" disabled={busy} onClick={() => void load()}><RefreshCw size={15}/>{text(locale, '刷新', 'Refresh')}</button>
       </div>
     </header>
@@ -94,30 +97,26 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
       <div className="firsto-board-table-wrap"><table><thead><tr>
         <th>{text(locale, '矿机 / 来源', 'Miner / venue')}</th>
         <th>{text(locale, '卖家挂单价', 'Seller ask')}<small>BNB</small></th>
-        <th>{text(locale, 'Firsto 买方总价', 'Firsto buyer total')}<small>BNB</small></th>
-        <th>{text(locale, '估计日产出', 'Estimated daily output')}<small>BEM / {text(locale, '天', 'day')}</small></th>
-        <th>{text(locale, '该矿机日产能价', 'This miner price per daily BEM')}<small>BNB / (BEM / {text(locale, '天', 'day')})</small></th>
+        <th>{text(locale, '预计日产BEM', 'Expected daily BEM')}<small>BEM / {text(locale, '天', 'day')}</small></th>
+        <th>{text(locale, '日产能价', 'Price per daily BEM')}<small>BNB / (BEM / {text(locale, '天', 'day')})</small></th>
         <th>{text(locale, '报价时间 / 来源', 'Quote time / source')}</th>
       </tr></thead><tbody>{data.rows.map(row => {
         const unavailable = row.unavailable || now >= row.validUntil && text(locale, '报价已过期，请刷新', 'Quote expired. Refresh.');
         return <tr key={row.key}>
-          <td><strong>{row.series} #{row.tokenId}</strong><small>T{row.taskId ?? '—'} · {row.venue}</small></td>
+          <td><strong>{row.series} #{row.tokenId}</strong><small>T{row.taskId ?? '—'} · {venue(row.venue, locale)}</small></td>
           <td>{unavailable ? '—' : formatMarketAmount(row.sellerPriceWei)}</td>
-          <td>{unavailable ? '—' : formatMarketAmount(row.buyerCostWei)}</td>
           <td>{unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8, 5)}</td>
-          <td className="firsto-board-unit">{unavailable ? text(locale, '暂不可用', 'Unavailable') : <>
-            <strong>{text(locale, '挂牌', 'Ask')} {formatMarketAmount(row.dailyCapacityPriceWei)}</strong>
-            <small>{text(locale, '买方总价口径', 'Buyer-total basis')} {formatMarketAmount(row.buyerDailyCapacityPriceWei)}</small>
-          </>}</td>
-          <td><time>{time(row.observedAt, locale)}</time><small>#{row.sourceBlock} · <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看官网', 'Open market')} ↗</a></small>
+          <td className="firsto-board-unit">{unavailable ? text(locale, '暂不可用', 'Unavailable') :
+            <strong>{formatMarketAmount(row.dailyCapacityPriceWei)}</strong>}</td>
+          <td><time>{time(row.observedAt, locale)}</time><small>#{row.sourceBlock} · <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看网站', 'Open website')} ↗</a></small>
             {unavailable && <em>{unavailable}</em>}</td>
         </tr>;
       })}</tbody></table></div>
       {!data.rows.length && <p className="firsto-board-status">{text(locale, '当前没有通过官方身份检查的矿机报价。', 'No official miner quote passed identity checks.')}</p>}
       <footer className="firsto-board-foot">
         <p>{text(locale,
-          '逐台展示挂牌价和买方总价各自除以估计日产出的日产能价；买方总价可能包含 Firsto 手续费。市场参考价来自 Firsto 统计。估计产出随全网状态变化，并非收益保证或可成交承诺。',
-          'Per-miner capacity prices use seller ask and buyer total separately, each divided by estimated daily output. Buyer total may include Firsto fees. The market reference comes from Firsto statistics; estimates are not a yield or execution guarantee.')}</p>
+          '日产能价按卖家挂单价除以预计日产 BEM 计算。市场参考价来自 Firsto 统计，预计日产随全网状态变化。',
+          'Price per daily BEM is the seller ask divided by expected daily BEM. The market reference comes from Firsto statistics; expected output varies with network conditions.')}</p>
         <div><button type="button" disabled={busy || data.page <= 1} onClick={() => void load(data.page - 1, data.viewId)}>{text(locale, '上一页', 'Previous')}</button>
           <span>{data.page} / {Math.max(1, data.totalPages)}</span>
           <button type="button" disabled={busy || data.page >= data.totalPages} onClick={() => void load(data.page + 1, data.viewId)}>{text(locale, '下一页', 'Next')}</button></div>

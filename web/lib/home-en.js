@@ -42,7 +42,7 @@ export const homeEn={
  '共同参与重要决策':'Have a say in key decisions',
  '整机出售需要参与地址数和持有份额双过半。':'A whole-miner sale requires a majority of both eligible wallets and shares.',
  '把记录摆在明处':'Keep records in plain sight',
- '共持BEM矿机，共享BEM人生':'Own BEM miners together. Share the BEM life.',
+ '持BEM矿机，享BEM人生':'Own BEM miners. Enjoy the BEM life.',
  'Tapeouters 围绕共同持有的矿机，一起建设生态':'Tapeouters building the ecosystem around a shared miner',
  '让参与更轻一点，让每一份选择更清楚一点。':'Easier participation. Better-informed choices.',
  '查看我的资产':'View my portfolio','查看公开记录':'View public records',

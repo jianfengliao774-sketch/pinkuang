@@ -41,10 +41,11 @@ import {
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
-import { projectDirectory } from '../lib/project-directory.mjs';
+import { projectDirectory, projectMatchesStatus } from '../lib/project-directory.mjs';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
+import BemPriceStat from "./BemPriceStat";
 import {readCachedFullTestProductConfig} from '../lib/full-test-product-config.mjs';
 import LiveYieldChart from "./LiveYieldChart";
 import LiveGovernance from "./LiveGovernance";
@@ -194,9 +195,14 @@ function Button({ children, secondary = false, ...props }) {
   );
 }
 function Chip({ pool }) {
+  const letter = /behemoth|巨兽/i.test(pool?.name ?? "") ? "B" : /tapeout/i.test(pool?.name ?? "") ? "T" : null;
   return (
     <span className={`chip ${pool?.color || "blue"}`}>
-      <Layers3 size={24} />
+      {pool?.kind === 'portfolio' || !letter ? <Layers3 size={24}/> : <svg aria-hidden="true" width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <rect x="7" y="7" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.8"/>
+        <path d="M11 3v4m5-4v4m5-4v4M11 25v4m5-4v4m5-4v4M3 11h4m-4 5h4m-4 5h4M25 11h4m-4 5h4m-4 5h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+        <text x="16" y="21" fill="currentColor" textAnchor="middle" fontSize="14" fontWeight="700">{letter}</text>
+      </svg>}
     </span>
   );
 }
@@ -225,7 +231,7 @@ function Metric({ title, value, unit, note, primary = false }) {
         {value}
         <small>{unit}</small>
       </div>
-      <div className="metric-note">{note}</div>
+      {note && <div className="metric-note">{note}</div>}
     </div>
   );
 }
@@ -403,8 +409,9 @@ export default function LivePlatform() {
     statsSource, positionsSource: same(positionsAccount, account) ? positionsReadSource : null,
     ordersSource: marketOrderSource, activitySource: activityReadSource,
   };
-  const orderFeedback = marketOrderFeedback(memberTransactions, config?.shareMarket ?? config?.manifest?.shareMarket, account);
-  const orders = applyMarketOrderFeedback(indexedOrders, orderFeedback);
+  const orderFeedback = useMemo(() => marketOrderFeedback(memberTransactions, config?.shareMarket ?? config?.manifest?.shareMarket, account, capacityNow || Date.now()),
+    [memberTransactions, config?.shareMarket, config?.manifest?.shareMarket, account, capacityNow]);
+  const orders = useMemo(() => applyMarketOrderFeedback(indexedOrders, orderFeedback), [indexedOrders, orderFeedback]);
   if (boot.status === 'ready') verifiedBoot.current = boot;
   const walletRevision = walletEpoch.current;
   // A permission result belongs to this exact provider, account and read revision.
@@ -2167,90 +2174,68 @@ export default function LivePlatform() {
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false, hideStatus = false, directory = null) => (
-    <div className="table-wrap">
+  const poolTable = (rows, holdings = false, hideStatus = false, directory = null, category = null) => {
+    const catalog = route.route === "pools" && !holdings;
+    const group = category ?? filter;
+    const columns = !catalog ? ["miner", ...(hideStatus ? [] : ["status"]), "shares", "unit", "daily", "capacity", "actions"]
+      : group === "Funding" ? ["miner", "shares", "unit", "hash", "daily", "capacity", "actions"]
+        : group === "Active" ? ["miner", "shares", "unit", "members", "daily", "capacity", "actions"]
+          : group === "Listed" ? ["miner", "status", "shares", "unit", "hash", "daily", "capacity", "actions"]
+            : ["miner", "status", "shares", "unit", "daily", "capacity", "actions"];
+    const titles = {
+      miner: L("矿机 / 项目", "Miner / pool"), status: L("状态", "Status"),
+      shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
+      unit: L("每份金额", "Price per share"), hash: L("算力 H", "Hash power H"),
+      members: L("参与人数", "Participants"),
+      daily: holdings ? L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
+      capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
+    };
+    return <div className={`table-wrap${catalog ? " live-catalog-table" : ""}`}>
       <table>
-        <thead>
-          <tr>
-            <th>{L("矿机 / 项目", "Miner / pool")}</th>
-            {!hideStatus && <th>{L("状态", "Status")}</th>}
-            <th>
-              {holdings ? L("我的份额", "My shares") : L("已募集", "Funded")}
-            </th>
-            <th>{L("每份金额", "Price per share")}</th>
-            {route.route === "pools" && !holdings && <>
-              <th>{L("Firsto 归类", "Firsto classification")}</th>
-              <th>{L("Firsto 算力 H", "Firsto hash power H")}</th>
-              {filter === "Active" && <>
-                <th>{L("参与人数", "Participants")}</th>
-                <th>{L("购机金额", "Purchase cost")}</th>
-              </>}
-            </>}
-            <th>{holdings ? L('可领取 BEM', 'Claimable BEM') : L("预计日产 BEM", "Estimated BEM / day")}</th>
-            <th>{holdings ? L('待领取 BNB', 'Claimable BNB') : L("日产能价", "Daily capacity price")}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => (
-            <tr key={p.pool} data-project-kind={p.kind === 'portfolio' ? 'portfolio' : 'single'} data-project-address={p.pool}>
-              <td>
-                <button className="asset-cell" onClick={() => openDetails(p)}>
-                  <Chip pool={p} />
-                  <span>
-                    <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
-                    <small>{shortAddress(p.pool)}{currentPoolMetadata(p)?.taskId != null
-                      ? ` · Task ${currentPoolMetadata(p).taskId}` : ""}</small>
-                    {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
-                  </span>
-                </button>
-              </td>
-              {!hideStatus && <td>
-                <StateBadge state={p.status} L={L} />
-              </td>}
-              <td>
-                {holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} /
-                100
-              </td>
-              <td className="num">{displayPreciseAmount(p.unitPriceWei)} BNB</td>
-              {route.route === "pools" && !holdings && <>
-                <td>{currentPoolMetadata(p)?.miningClassification === "verified" ? L("已验证", "Verified")
-                  : currentPoolMetadata(p)?.miningClassification === "unverified" ? L("未验证", "Unverified") : "—"}</td>
-                <td className="num">{currentPoolMetadata(p)?.hashPower ?? "—"}</td>
-                {filter === "Active" && <>
-                  <td>{p.members == null ? "—" : `${p.members} ${L("人", "people")}`}</td>
-                  <td className="num">{displayPreciseAmount(p.purchaseCost)} BNB</td>
-                </>}
-              </>}
-              {holdings ? <><td className="num">{amount(p.claimableBEM,8)} BEM</td><td className="num">{amount(p.bnbOwed)} BNB</td></> : <><td title={!config?.displayOnly && currentPoolQuote(p)?.cached
-                ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window') : undefined}>{currentPoolQuote(p)
-                ? `${displayPreciseAmount(currentPoolQuote(p).estimated24hAtomic, 8)} BEM`
-                : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p)}</td>
-              <td className="num" title={!config?.displayOnly && currentPoolQuote(p)?.cached
-                ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
-                : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')}>{currentPoolCapacityPrice(p) != null
-                ? displayPreciseAmount(currentPoolCapacityPrice(p))
-                : p.kind === 'portfolio' || currentPoolQuote(p) ? '—' : poolQuotePlaceholder(p)}</td></>}
-              <td>
-                {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
-                  onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
-                  {L('挂单出售', 'List shares')}
-                </button>}
-                {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
-                  {p.status === 'Funding' || p.status === 'Funded'
-                    ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
-                    : p.status === 'Active' && p.availableShares === 0n
-                      ? L('份额已锁定', 'Shares are locked')
-                      : L('当前状态不可挂牌', 'Listing unavailable in this state')}
-                </small>}
-                <button className="text-button" onClick={() => openDetails(p)}>
-                  {p.kind === 'portfolio' ? L('查看项目', 'View project') : L("查看矿机", "View miner")}
-                  <ArrowRight size={16} />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
+        <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
+        <tbody>{rows.map(p => {
+          const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+          const cells = {
+            miner: <button className="asset-cell" onClick={() => openDetails(p)}>
+              <Chip pool={p}/><span>
+                <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
+                {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
+                {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
+                {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
+              </span>
+            </button>,
+            status: <StateBadge state={p.status} L={L}/>,
+            shares: <>{holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} / 100</>,
+            unit: <>{displayPreciseAmount(p.unitPriceWei)} BNB</>,
+            hash: metadata?.hashPower ?? "—",
+            members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
+            daily: holdings ? <>{amount(p.claimableBEM,8)} BEM</> : quote
+              ? `${displayPreciseAmount(quote.estimated24hAtomic, 8)} BEM`
+              : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p),
+            capacity: holdings ? <>{amount(p.bnbOwed)} BNB</> : currentPoolCapacityPrice(p) != null
+              ? displayPreciseAmount(currentPoolCapacityPrice(p))
+              : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
+            actions: <div className="live-pool-row-actions">
+              {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
+                onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>{L('挂单出售', 'List shares')}</button>}
+              {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
+                {p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
+                  : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares are locked')
+                    : L('当前状态不可挂牌', 'Listing unavailable in this state')}
+              </small>}
+              <button className="text-button" onClick={() => openDetails(p)}>{p.kind === 'portfolio' ? L('查看项目', 'View project') : L("查看矿机", "View miner")}<ArrowRight size={16}/></button>
+            </div>,
+          };
+          return <tr key={p.pool} data-project-kind={p.kind === 'portfolio' ? 'portfolio' : 'single'} data-project-address={p.pool}>
+            {columns.map(column => <td key={column} className={["unit", "hash", "capacity"].includes(column) ? "num" : undefined}
+              title={!holdings && column === "daily" && !config?.displayOnly && quote?.cached
+                ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window')
+                : !holdings && column === "capacity" ? !config?.displayOnly && quote?.cached
+                  ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
+                  : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
+                  : undefined}>{cells[column]}</td>)}
+          </tr>;
+        })}</tbody>
       </table>
       {rows.length === 0 && directory && <Empty title={directory.loading
         ? L('正在读取项目…', 'Loading projects…')
@@ -2285,8 +2270,8 @@ export default function LivePlatform() {
           </>}
         </Empty>
       )}
-    </div>
-  );
+    </div>;
+  };
   const renderProjectDirectory = page => {
     const directory = projectDirectory(pools, page.rows, { filter, query, sort,
       capacityFor: row => currentPoolCapacityPrice(row) });
@@ -2304,7 +2289,7 @@ export default function LivePlatform() {
           <small>{L('已加载项目', 'loaded projects')}</small>
         </button>)}
       </div>
-      <section className="panel" data-project-directory="unified" aria-busy={!!updating}>
+      <section className="panel live-pool-directory" data-project-directory="unified" aria-busy={!!updating}>
         <div className="live-toolbar">
           <div className="tabs">{[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale'],['all','项目总览','Overview']].map(([id,zh,en])=>
             <button key={id} className={filter===id?'selected':''} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
@@ -2318,7 +2303,19 @@ export default function LivePlatform() {
         </div>}
         {updating && directory.all.length>0 && <p className="subtle-note" role="status">{L('正在更新项目…','Updating projects…')}</p>}
         {!config?.displayOnly && !updating && (source?.stale || page.source?.stale) && <p className="subtle-note">{L('项目资料待更新，参与前会重新核对。','Project information is being refreshed and is rechecked before participation.')}</p>}
-        {poolTable(directory.rows, false, filter === 'Funding', {loading:updating, failed, ready, total:directory.all.length})}
+        {filter === 'all' ? <div className="live-directory-groups">
+          {[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale']].map(([id,zh,en]) => {
+            const rows = directory.rows.filter(row => projectMatchesStatus(row,id));
+            return <section key={id} className="live-directory-group" data-project-category={id}>
+              <h2>{L(zh,en)} <small>{rows.length}</small></h2>
+              {poolTable(rows, false, false, {loading:updating, failed, ready, total:directory.all.length},id)}
+            </section>;
+          })}
+          {directory.rows.some(row => !['Funding','Funded','Active','Listed'].includes(row.status)) && <section className="live-directory-group" data-project-category="other">
+            <h2>{L('其他项目','Other projects')}</h2>
+            {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed'].includes(row.status)),false,false,null,'other')}
+          </section>}
+        </div> : poolTable(directory.rows, false, filter === 'Funding', {loading:updating, failed, ready, total:directory.all.length})}
         {canLoadMore && <div className="live-more"><Button secondary disabled={updating || failed || busy || !!pending}
           onClick={()=>void Promise.allSettled([poolCursor!=null?more('pools'):Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>
           {L('加载更多','Load more')}</Button></div>}
@@ -2339,13 +2336,13 @@ export default function LivePlatform() {
       {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton)}
       <div className="metrics" data-asset-summary="unified">
         <Metric primary title={historical?L('上次核验可领取','Previously verified BEM'):partial?L('已加载可领取','Loaded claimable BEM'):L('当前可领取','Claimable BEM')}
-          value={amount(totals.claimableBem,8)} unit="BEM" note={L('项目已入账收益，不重复计入子矿机','Booked project rewards; child rewards are not counted twice')}/>
+          value={amount(totals.claimableBem,8)} unit="BEM"/>
         <Metric title={historical?L('我的历史待领取 BNB','My previous claimable BNB'):partial?L('我的已加载待领取 BNB','My loaded claimable BNB'):L('我的待领取 BNB','My claimable BNB')}
-          value={amount(totals.bnbOwed)} unit="BNB" note={L('当前钱包的退款、余款与售款分配','Refunds, surplus and sale proceeds for this wallet')}/>
+          value={amount(totals.bnbOwed)} unit="BNB"/>
         <Metric title={partial?L('已加载持有项目','Loaded projects held'):L('持有项目','Projects held')}
-          value={totals.projectsHeld?.toString()??'—'} unit={L('个','projects')} note={L('一个多矿机项目计为一个项目','Each multi-miner parent counts as one project')}/>
+          value={totals.projectsHeld?.toString()??'—'} unit={L('个','projects')}/>
         <Metric title={partial?L('已加载持有份额','Loaded shares held'):L('持有份额','Shares held')}
-          value={totals.shares?.toString()??'—'} unit={L('份','shares')} note={L('清仓后的历史权益仍可领取','Former positions retain owed balances')}/>
+          value={totals.shares?.toString()??'—'} unit={L('份','shares')}/>
       </div>
       <section className="panel holdings" data-asset-directory="unified" aria-busy={updating}>
         <div className="section-head"><div><h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
@@ -2647,7 +2644,7 @@ export default function LivePlatform() {
             >
               {appearance === "dark" ? <Sun size={17} /> : <Moon size={17} />}
             </button>
-            <select
+            <div className="live-language-control"><select
               className="language-switch"
               aria-label="Language"
               value={locale}
@@ -2655,7 +2652,7 @@ export default function LivePlatform() {
             >
               <option value="zh">简体中文</option>
               <option value="en">English</option>
-            </select>
+            </select><ChevronDown size={14} aria-hidden="true"/></div>
             <Button
               disabled={!walletUiReady || (busy && !connectingId)}
               onClick={() =>
@@ -3097,11 +3094,6 @@ export default function LivePlatform() {
                       <small>BNB / {L("份", "share")}</small>
                     </div>
                     <p className="order-rule purchase-explanation">
-                      {L('该矿机日产能价', 'This miner daily capacity price')}：{currentPoolCapacityPrice(detail) != null
-                        ? `${displayPreciseAmount(currentPoolCapacityPrice(detail))} BNB / (BEM/${L('天', 'day')})`
-                        : '—'}
-                    </p>
-                    <p className="order-rule purchase-explanation">
                       {L(
                         "每份对应本池 1% 的份额。",
                         "Each share represents 1% of this pool.",
@@ -3275,6 +3267,7 @@ export default function LivePlatform() {
                     </button>
                   }
                 />
+                <BemPriceStat variant="metric"/>
               </div>
               <section className="panel">
                 <div className="section-head">
