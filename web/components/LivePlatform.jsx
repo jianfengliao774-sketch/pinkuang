@@ -333,10 +333,15 @@ export default function LivePlatform() {
     if (!result && options?.creationFailure) result = { kind: 'failed', reason: 'publication',
       title: L('项目发布失败', 'Project publication failed'), message: textError(input) };
     if (result && input?.poolAddress && input?.status === 'confirmed') result = { ...result,
-      projectAddress: input.poolAddress, projectKind: input.projectKind };
-    if (!result || result.key && shownTransactionResults.current.has(result.key)) return;
+      projectAddress: input.poolAddress, projectKind: input.projectKind, reason: 'publication',
+      title: L('项目发布成功', 'Project published'),
+      message: L('新项目已在链上创建，可查看项目或前往项目大厅。',
+        'Your new project is confirmed on chain. View it or open the project directory.') };
+    if (!result) return false;
+    if (result.key && shownTransactionResults.current.has(result.key)) return true;
     if (result.key) shownTransactionResults.current.add(result.key);
     setTransactionResults(previous => [...previous.filter(item => !(item.kind === 'pending' && item.reason === 'publication')), result].slice(-20));
+    return true;
   }
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
   const [cachedPage, setCachedPage] = useState(false);
@@ -1997,8 +2002,8 @@ export default function LivePlatform() {
       await handleResult(result, requestEpoch);
       return result;
     } catch (problem) {
-      if (current()) showTransactionResult(problem, { source: 'wallet', action: preview.kind,
-        creationFailure: preview.kind?.startsWith('create') && problem.beforeWalletSubmission === true });
+      if (current() && showTransactionResult(problem, { source: 'wallet', action: preview.kind,
+        creationFailure: preview.kind?.startsWith('create') && problem.beforeWalletSubmission === true })) problem.resultPresented = true;
       throw problem;
     } finally { if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); setTransactionStage(null); } }
   }

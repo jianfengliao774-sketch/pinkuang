@@ -11,6 +11,9 @@ import { viewPool } from '../lib/live-view.mjs';
 import { publishedProjectIntent, readPublishedProject, readPublishedPoolDisplay, mergePublishedProjects } from '../lib/published-project.mjs';
 import { createLiveBrowserFixture } from './live-browser-fixture.mjs';
 import * as transactionResult from '../lib/transaction-result.mjs';
+import * as dialogScroll from '../lib/dialog-scroll-lock.mjs';
+import { approvedOperatorCall } from '../lib/authority-client.mjs';
+import { sameUnsignedIntent } from '../lib/ui-context.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const hash = n => `0x${n.toString(16).padStart(64, '0')}`;
@@ -149,13 +152,90 @@ test('the real result dialog exposes address and directory actions only after co
     filename: 'TransactionResultDialog.jsx', jsc: { parser: { syntax: 'ecmascript', jsx: true }, target: 'es2022',
       transform: { react: { runtime: 'automatic' } } }, module: { type: 'commonjs' },
   })).code;
+  const targets = [];
   new Function('require', 'module', 'exports', code)(name => name === '../lib/transaction-result.mjs'
-    ? transactionResult : require(name), module, module.exports);
+    ? transactionResult : name === '../lib/dialog-scroll-lock.mjs' ? dialogScroll
+      : name === 'react-dom' ? { createPortal: (children, target) => { targets.push(target); return children; } }
+        : require(name), module, module.exports);
   const Component = module.exports.default;
+  assert.equal(renderToStaticMarkup(React.createElement(Component, { result: { kind: 'success' } })), '',
+    'A client portal must not access document during the static export.');
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document'), body = {};
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { body } });
+  try {
   const success = renderToStaticMarkup(React.createElement(Component, { result: { kind: 'success', action: 'createPool',
     projectAddress: address(40), projectKind: 'single', hash: hash(20) } }));
   assert(success.includes(address(40))); assert(success.includes('查看项目')); assert(success.includes('前往项目大厅'));
   const pending = renderToStaticMarkup(React.createElement(Component, { result: { kind: 'pending', reason: 'publication',
     title: '项目正在发布', message: '等待链上确认', projectAddress: address(40), hash: hash(20) } }));
   assert(pending.includes('等待链上确认')); assert(!pending.includes('查看项目')); assert(!pending.includes(address(40)));
+  assert.deepEqual(targets, [body, body], 'Results escape the operator panel stacking context through the body portal.');
+  } finally {
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+    else delete globalThis.document;
+  }
+});
+
+async function actualAdminCreation({ result = { status: 'pending', hash: hash(20) }, rejectSign, rejectRelay,
+  relayStatus = result, afterSign } = {}) {
+  const f = fixture(), source = (await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
+  const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
+  assert(relayStart > 0 && relayEnd > relayStart && sendStart > 0 && sendEnd > sendStart);
+  const calls = [], feedback = [], state = { job: null, busy: false }, walletEpoch = { current: 0 };
+  const context = { config: { ...f.config, stage: 'fresh-active', displayOnly: true }, isOperator: true,
+    operatorServiceReady: true, wallet: { request: () => assert.fail('Tests cannot request real wallet actions.') },
+    account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
+    epoch: { current: 0 }, submissionLock: { current: null }, L: zh => zh, textError: error => error.message,
+    requireCurrentProductStage: async () => { calls.push('stage'); },
+    authorityActionStatus: async () => { calls.push('status'); return calls.filter(value => value === 'status').length === 1
+      ? { status: 'idle' } : relayStatus; },
+    signAuthorityAction: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
+      assert.equal(input.args.target, f.config.factory); assert.equal(input.args.data, f.transaction.data);
+      if (rejectSign) throw rejectSign; afterSign?.(walletEpoch); return f.command; },
+    submitAuthorityAction: async (_config, _account, command) => { calls.push('relay'); assert.equal(command, f.command);
+      if (rejectRelay) throw rejectRelay; return result; },
+    publishedProjectIntent, setPublishingProject: job => { state.job = job; },
+    showTransactionResult: (input, options) => feedback.push({ input, options }),
+    setMessage: () => {}, setOperatorRefresh: () => {}, setRefresh: () => {},
+    setBusy: value => { state.busy = value; }, setError: () => {}, setTransactionStage: () => {},
+    showTransactionProgress: () => {}, connectJournal: async () => { calls.push('authenticate'); },
+    sameUnsignedIntent, sameAdminPurchasePreview: () => true, approvedOperatorCall,
+    boundedReadPreview: () => assert.fail('The display-only creation preview must not add another read round.'),
+    prepareAdminAction: () => assert.fail(), sendProductTransaction: () => assert.fail('Admin creation uses the approved relay.'),
+    handleResult: () => assert.fail('A relay hash cannot be normalized as a member transaction result.') };
+  const send = new Function(...Object.keys(context), source.slice(relayStart, relayEnd) + source.slice(sendStart, sendEnd)
+    + '\nreturn sendAdminAction;')(...Object.values(context));
+  return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, state, context };
+}
+
+test('actual admin creation registers exact creation intent and pending feedback, never success from a relay hash', async () => {
+  const f = await actualAdminCreation();
+  const result = await f.send();
+  assert.equal(result.status, 'pending'); assert.equal(f.state.job.hash, hash(20));
+  assert.deepEqual(f.state.job.intent.expected, f.intent.expected); assert.equal(f.state.job.intent.nonce, '7');
+  assert.equal(f.feedback.length, 1); assert.equal(f.feedback[0].options.creationPending, true);
+  assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input), null);
+  assert.deepEqual(f.calls, ['authenticate', 'stage', 'status', 'sign', 'relay']);
+  assert.equal(f.state.busy, false); assert.equal(f.context.submissionLock.current, null);
+});
+
+test('actual creation reconciles an ambiguous relay response without resubmitting and preserves final receipt lookup', async () => {
+  const f = await actualAdminCreation({ rejectRelay: Error('connection closed'), relayStatus: { status: 'confirmed', hash: hash(20) } });
+  await f.send();
+  assert.equal(f.calls.filter(value => value === 'relay').length, 1);
+  assert.equal(f.state.job.initialStatus.status, 'confirmed'); assert.equal(f.feedback.length, 0);
+  const result = await readPublishedProject({ provider: f.provider, intent: f.state.job.intent, status: f.state.job.initialStatus });
+  assert.equal(result.poolAddress, f.row.pool); assert.equal(transactionResult.normalizeTransactionResult(result).kind, 'success');
+});
+
+test('actual creation signature failure and wallet change cannot register a published project or resend', async () => {
+  const denied = await actualAdminCreation({ rejectSign: Object.assign(Error('user rejected'), { code: 4001 }) });
+  await assert.rejects(denied.send(), /user rejected/);
+  assert.equal(denied.state.job, null); assert.equal(denied.calls.includes('relay'), false);
+  assert.equal(denied.feedback[0].options.creationFailure, true);
+  const changed = await actualAdminCreation({ afterSign: walletEpoch => { walletEpoch.current++; } });
+  await assert.rejects(changed.send(), /签名期间/);
+  assert.equal(changed.state.job, null); assert.equal(changed.feedback.length, 0); assert.equal(changed.calls.includes('relay'), false);
+  assert.equal(changed.context.submissionLock.current, null);
 });

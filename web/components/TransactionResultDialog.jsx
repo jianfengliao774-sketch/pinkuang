@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle2, CircleMinus, Clock3, ExternalLink, Repeat2, X } from 'lucide-react';
 import { transactionExplorerUrl, transactionResultText } from '../lib/transaction-result.mjs';
+import { lockDialogScroll } from '../lib/dialog-scroll-lock.mjs';
 
 const icons = { success: CheckCircle2, failed: AlertCircle, cancelled: CircleMinus, replaced: Repeat2, pending: Clock3 };
 
@@ -14,8 +16,7 @@ export default function TransactionResultDialog({ result, locale = 'zh', onClose
   const visible = Object.hasOwn(icons, result?.kind ?? '');
   useEffect(() => {
     if (!visible) return;
-    const previous = document.activeElement, overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const previous = document.activeElement, unlock = lockDialogScroll(document);
     closeButton.current?.focus();
     const keydown = event => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close.current?.(); }
@@ -33,20 +34,22 @@ export default function TransactionResultDialog({ result, locale = 'zh', onClose
     document.addEventListener('keydown', keydown, true);
     return () => {
       document.removeEventListener('keydown', keydown, true);
-      document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
+      unlock();
+      const next = document.querySelector('.operator-confirm[role="dialog"]');
+      if (next) next.focus();
+      else if (previous?.isConnected) previous.focus();
     };
   }, [visible]);
-  if (!visible) return null;
+  if (!visible || typeof document === 'undefined') return null;
   const L = (zh, en) => locale === 'en' ? en : zh;
   const text = transactionResultText(result, locale), Icon = icons[result.kind];
   const { title, message } = result.reason === 'publication' ? result : text;
   const explorerUrl = transactionExplorerUrl(result.hash);
-  return <div className="modal-overlay transaction-result-overlay" onClick={event => {
+  return createPortal(<div className="modal-overlay transaction-result-overlay" onClick={event => {
     if (event.target === event.currentTarget) onClose?.();
   }}>
     <section className={`modal transaction-result-dialog transaction-result-${result.kind}`} role="dialog" aria-modal="true"
-      aria-labelledby={titleId} aria-describedby={messageId} ref={dialog}>
+      aria-labelledby={titleId} aria-describedby={messageId} ref={dialog} tabIndex={-1}>
       <button type="button" className="modal-close icon-button transaction-result-close" onClick={onClose}
         aria-label={L('关闭弹窗', 'Close dialog')}><X size={20}/></button>
       <span className="transaction-result-icon" aria-hidden="true"><Icon size={34}/></span>
@@ -69,5 +72,5 @@ export default function TransactionResultDialog({ result, locale = 'zh', onClose
         {L('知道了', 'Got it')}
       </button></div>
     </section>
-  </div>;
+  </div>, document.body);
 }
