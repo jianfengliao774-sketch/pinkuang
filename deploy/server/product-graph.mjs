@@ -4,6 +4,7 @@ import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers'
 import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof, evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
 import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared/fresh-sale-policy-proof.mjs';
 import { validateFreshNativeSaleCatalog, verifyFreshNativeSale } from '../shared/fresh-native-sale-proof.mjs';
+import { validateFreshFactoryReuseCatalog, verifyFreshFactoryReuse, factoryReuseRuntimeMatches } from '../shared/fresh-factory-reuse-proof.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
   integratedUpgradeDeploymentOrder, validateIntegratedPostCodeGraphAgainstChain,
@@ -194,6 +195,11 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
         'Sale policy requires both a reviewed local catalog and artifact bundle.');
       trusted.freshSalePolicy = validateFreshSalePolicyCatalog(salePolicyCatalog ?? load(salePolicyCatalogPath),
         salePolicyArtifact ?? load(salePolicyArtifactPath), trusted);
+      const reuse = trusted.freshSalePolicy.catalog.factoryReuse;
+      if (reuse != null) {
+        check(reuse.catalog && reuse.bundle, 'Factory reuse requires its reviewed nested catalog and artifact bundle.');
+        trusted.freshFactoryReuse = validateFreshFactoryReuseCatalog(reuse.catalog, reuse.bundle, trusted);
+      }
     }
     if (nativeSaleCatalog || nativeSaleCatalogPath || nativeSaleArtifact || nativeSaleArtifactPath) {
       check((nativeSaleCatalog || nativeSaleCatalogPath) && (nativeSaleArtifact || nativeSaleArtifactPath),
@@ -320,6 +326,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ? await verifyFreshAuthority(provider,record,bundle,trusted.freshAuthority,block) : null;
   const nativeSale=await verifyFreshNativeSale(provider,trusted,block);
   const salePolicy=await verifyFreshSalePolicy(provider,trusted,block,{nativeUpgrade:nativeSale});
+  const factoryReuse=await verifyFreshFactoryReuse(provider,trusted,block);
   if (salePolicy) a={...a,...salePolicy.replacements,portfolioVaultImplementation:salePolicy.replacements.BudgetPortfolioVault};
   if (nativeSale) {
     check(salePolicy && same(salePolicy.replacements.PoolVault,nativeSale.baselinePoolVault),
@@ -330,12 +337,14 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     }
     a={...a,...nativeSale.replacements};
   }
+  if (factoryReuse) a={...a,...factoryReuse.replacements};
   const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
   const upgradedNames=candidateActive ? integratedUpgradeDeploymentOrder
     : trusted.upgradeRecord ? upgradeNamesForKind(trusted.upgradeRecord.kind) : [];
   const policyNames=salePolicy ? ['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'] : [];
   const nativeNames=nativeSale ? ['SaleSettlement','FirstoSale','PoolVault'] : [];
-  const sourceFor=name=>nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
+  const reuseName=name=>factoryReuse && ['PoolFactory','FreshPoolFactory'].includes(name);
+  const sourceFor=name=>reuseName(name) ? trusted.freshFactoryReuse.bundle : nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
   const artifactFor=name=>name==='PoolFactory' && freshFactory ? 'FreshPoolFactory' : artifacts[name] ?? name;
   const runtimeLinksFor=name=>nativeNames.includes(name) ? nativeSale.runtimeLinks : salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
@@ -352,18 +361,21 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     const code=await provider.getCode(a[name],block.number);
     const policyUpgraded=policyNames.includes(name);
     const nativeUpgraded=nativeNames.includes(name);
+    const reuseUpgraded=reuseName(name);
     const upgraded=(candidateActive || trusted.upgradeRecord) && upgradedNames.includes(name);
     // The common proof checked replacement bytes at a finalized block. Compare
     // their complete hash again at the signing block, including immutables;
     // artifact shape matching alone masks constructor immutable values.
     const finalizedCode=candidateActive && upgraded
       ? await provider.getCode(a[name],finalizedProof.blockNumber) : null;
-    check(code!=='0x' && (nativeUpgraded ? same(keccak256(code),nativeSale.codehash[name]) : policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
+    check(code!=='0x' && (reuseUpgraded ? same(keccak256(code),factoryReuse.codehash[name]) : nativeUpgraded ? same(keccak256(code),nativeSale.codehash[name]) : policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
       : upgraded || same(keccak256(code),record.verification.code[name].codehash))
       && (!finalizedCode || same(keccak256(code),keccak256(finalizedCode)))
-      && runtimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,runtimeLinksFor(name),a[name]),`Reviewed runtime changed: ${name}.`);
+      && (reuseUpgraded ? factoryReuseRuntimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,a[name])
+        : runtimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,runtimeLinksFor(name),a[name])),`Reviewed runtime changed: ${name}.`);
     observedCodehash[name]=keccak256(code);
   }));
+  if (factoryReuse) observedCodehash.FreshPoolFactory=observedCodehash.PoolFactory;
   const currentRoles=roleState?.current ?? freshAuthority?.current;
   const assertions=[['AtomicDeployment','deployed',true],['AtomicDeployment','deployer',record.account],
     ['AtomicDeployment','predictedFactory',a.factory],['factory','owner',currentRoles?.coreOwner ?? record.input.ownerMultisig],
@@ -421,6 +433,9 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ...(nativeSale ? {nativeSaleUpgrade:{version:1,candidateArtifactDigest:nativeSale.candidateArtifactDigest,
       operationId:nativeSale.operationId,replacements:{...nativeSale.replacements},codehash:{...nativeSale.codehash},
       verifiedBlockNumber:nativeSale.blockNumber,verifiedBlockHash:nativeSale.blockHash}} : {}),
+    ...(factoryReuse ? {factoryReuseUpgrade:{version:1,candidateArtifactDigest:factoryReuse.candidateArtifactDigest,
+      operationId:factoryReuse.operationId,replacements:{...factoryReuse.replacements},codehash:{...factoryReuse.codehash},
+      verifiedBlockNumber:factoryReuse.blockNumber,verifiedBlockHash:factoryReuse.blockHash}} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,
       roleMigrationStarted:roleState?.applied?.some(Boolean)===true}} : {}),

@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { productGraphConfiguration, verifyProductGraph, verifyFreshAuthority } from './product-graph.mjs';
 import { createPinnedSigningGraphVerifier } from './journal-api.mjs';
+import { buildDigest, settleReads } from '../shared/firsto-upgrade-proof.mjs';
+import { FACTORY_IMPLEMENTATION_SLOT, factoryReuseSalt, freshFactoryReuseOperation,
+  validateFreshFactoryReuseCatalog, verifyFreshFactoryReuse, factoryReuseRuntimeMatches } from '../shared/fresh-factory-reuse-proof.mjs';
 const freshBundle=JSON.parse(readFileSync(new URL('../public/deployment-artifacts.json',import.meta.url),'utf8'));
 const bundle=structuredClone(freshBundle);
 delete bundle.artifacts.FreshPoolFactory;
@@ -218,4 +221,59 @@ test('signing graph never caches a verifier result with another block or artifac
   await verified(f.provider,f.addresses.factory,f.block);
   await verified(f.provider,f.addresses.factory,f.block);
   assert.equal(checks,3,'invalid graph results are never cached');
+});
+
+test('actual graph routing selects the new Factory artifact for both runtime and proxy ABI without changing other nodes', async()=>{
+  const f=fixture(),implementation=addr(190),proposer=f.record.input.ownerMultisig;
+  f.trusted.record.addresses.FreshPoolFactory=f.addresses.PoolFactory;
+  f.trusted.bundle.artifacts.FreshPoolFactory=freshBundle.artifacts.FreshPoolFactory;
+  f.trusted.freshAuthority={authority:{address:addr(191)}};
+  f.values.factory.owner=f.addresses.timelock;
+  f.trusted.freshSalePolicy={catalog:{profile:'formal',bindings:{proposer}}};
+  const extra=new Interface(['function soldMachineReuseVersion() view returns(uint8)',
+    'function proxiableUUID() view returns(bytes32)',
+    'function hashOperationBatch(address[],uint256[],bytes[],bytes32,bytes32) view returns(bytes32)',
+    'function isOperationDone(bytes32) view returns(bool)']);
+  const artifact={contractName:'FreshPoolFactory',abi:[...freshBundle.artifacts.FreshPoolFactory.abi,
+    ...extra.fragments.filter(fragment=>fragment.name==='soldMachineReuseVersion').map(fragment=>JSON.parse(fragment.format('json')))],
+    bytecode:'0x6000',deployedBytecode:'0x60'+'0'.repeat(64)+'6000',immutableReferences:{17:[{start:1,length:32}]},
+    linkReferences:{},deployedLinkReferences:{}};
+  const candidate={sourceCommit:'a'.repeat(40),artifacts:{FreshPoolFactory:artifact}};
+  const catalog={schemaVersion:1,kind:'fresh-sold-machine-reuse-upgrade-v1',chainId:56,profile:'formal',
+    genesisArtifactDigest:f.trusted.record.artifactDigest,candidateArtifactDigest:buildDigest(candidate),
+    bindings:{factory:f.addresses.factory,timelock:f.addresses.timelock,proposer},
+    expectedImplementations:{FreshPoolFactory:f.addresses.PoolFactory},artifacts:candidate.artifacts,minimumDelaySeconds:'172800'};
+  catalog.salt=factoryReuseSalt(f.addresses.factory,catalog.candidateArtifactDigest);
+  f.trusted.freshFactoryReuse=validateFreshFactoryReuseCatalog(catalog,candidate,f.trusted);
+  const operation=freshFactoryReuseOperation(catalog,implementation);
+  const runtime='0x60'+implementation.slice(2).padStart(64,'0')+'6000';
+  const original={...f.provider},abiReads=[];
+  f.provider.getCode=async(to,at)=>to===implementation?runtime:original.getCode(to,at);
+  f.provider.getStorage=async(to,slot,at)=>to===f.addresses.factory
+    ? '0x'+implementation.slice(2).padStart(64,'0'):original.getStorage(to,slot,at);
+  f.provider.send=async(method,params)=>{
+    const parsed=extra.parseTransaction(params[0]);
+    if(parsed){const values={soldMachineReuseVersion:1n,proxiableUUID:FACTORY_IMPLEMENTATION_SLOT,
+      hashOperationBatch:operation.operationId,isOperationDone:true};
+      return extra.encodeFunctionResult(parsed.name,[values[parsed.name]]);}
+    abiReads.push(params[0].to);return original.send(method,params);
+  };
+  // Other upgrade proofs have their own real regressions. Isolate this new source
+  // selection using the actual graph body and runtime helpers, with unchanged roles.
+  const source=readFileSync(new URL('./product-graph.mjs',import.meta.url),'utf8');
+  const prefix=source.slice(source.indexOf('const HASH ='),source.indexOf('/** Match the reviewed Authority'));
+  const verifier=source.slice(source.indexOf('export async function verifyProductGraph')).replace('export async function','async function');
+  const verify=new Function('Interface','getAddress','keccak256','toUtf8Bytes','AbiCoder','settleReads',
+    'verifyFreshAuthority','verifyFreshNativeSale','verifyFreshSalePolicy','verifyFreshFactoryReuse',
+    'factoryReuseRuntimeMatches','SHARE_FEE_UPGRADE_KIND',prefix+verifier+'\nreturn verifyProductGraph;')(
+      Interface,getAddress,keccak256,toUtf8Bytes,AbiCoder,settleReads,async()=>({current:{coreOwner:f.addresses.timelock}}),async()=>null,async()=>null,
+      verifyFreshFactoryReuse,factoryReuseRuntimeMatches,'unused');
+  const graph=await verify(f.provider,f.addresses.factory,f.trusted,f.block);
+  assert.equal(graph.addresses.PoolFactory,implementation);assert.equal(graph.addresses.FreshPoolFactory,implementation);
+  assert.equal(graph.codehash.PoolFactory,keccak256(runtime));assert.equal(graph.codehash.FreshPoolFactory,keccak256(runtime));
+  assert.equal(graph.factoryReuseUpgrade.version,1);assert.equal(graph.artifactDigest,f.record.artifactDigest);
+  assert.equal(graph.addresses.PoolVault,f.addresses.PoolVault);assert.equal(graph.addresses.shareMarket,f.addresses.shareMarket);
+  assert(abiReads.includes(f.addresses.factory),'Proxy getter ABI must also resolve through FreshPoolFactory candidate source.');
+  f.state.codeChanged='RewardAccounting';
+  await assert.rejects(verify(f.provider,f.addresses.factory,f.trusted,f.block),/Reviewed runtime changed/);
 });
