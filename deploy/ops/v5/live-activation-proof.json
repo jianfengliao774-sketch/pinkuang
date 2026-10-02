@@ -1,0 +1,167 @@
+{
+  "graph": {
+    "factory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c",
+    "productKind": "pool",
+    "legacyFactory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c",
+    "portfolioFactory": "0x2A02bA72B1c65beFaC1d4Aa912E21D0fa89dFD9A",
+    "operator": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+    "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+    "blockNumber": 125380223,
+    "addresses": {
+      "AtomicDeployment": "0x2eDD7d3AD55C653C03D034A8cc5CA324509F42fc",
+      "BudgetPortfolioFactory": "0x791796eb678EfD06451001ace81c4A8497Cf6E63",
+      "BudgetPortfolioVault": "0xD7a440194F658e7CFb77579Ce42B88fac09d5516",
+      "FirstoSale": "0x7E4eDea3eA310d1eE8FC33765B116c3b934E7268",
+      "FlexiblePurchase": "0xc1eD7017A2A09d5959AFd1286120dc39b6936389",
+      "FreshPoolFactory": "0xe59847612586E2cae283b1E8E355BAD40f1DC03e",
+      "MiningOperations": "0xF0ba6c0C1C9F8304110DA65330031c93B7a095E8",
+      "PoolFunds": "0x3e47502a080950F38E388f1e3b97F469234fC330",
+      "PoolVault": "0xE460d3a1d80995b8eE09C4C0c87a53D2BAc3a70F",
+      "PurchaseValidation": "0x5534f899284745Feb79AAfb3089eebB381395e1B",
+      "RewardAccounting": "0x56daC2116D123593d77Af99867B3Fbd6B941c7f9",
+      "SaleGovernance": "0x946102dC8a0D11d6bf8519b8B7BBc4e807857772",
+      "SaleSettlement": "0x907D3cCbb53164C425b8f4999784d2012Efbe324",
+      "ShareCheckpoints": "0xbfB58258Fddd454418DE0deB2CF968BFB6D4ed6E",
+      "ShareMarket": "0xa8f9be0B6DDee1f9EdC80645d54951F8c56cfaBE",
+      "beacon": "0x6CD94b733b6D214566ED09Ca5149364Cc196904e",
+      "factory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c",
+      "lens": "0x647535F12035DD4026157a832b0AED3D73F758B5",
+      "portfolioBeacon": "0xfC685281C7F70bCfc46073B28859b6015AF1929c",
+      "portfolioFactory": "0x2A02bA72B1c65beFaC1d4Aa912E21D0fa89dFD9A",
+      "portfolioFactoryImplementation": "0x791796eb678EfD06451001ace81c4A8497Cf6E63",
+      "portfolioShareMarket": "0xc06A1B28354C64c3E43adb272B984E21D32167EF",
+      "portfolioVaultImplementation": "0xD7a440194F658e7CFb77579Ce42B88fac09d5516",
+      "shareMarket": "0xaB42D8624920974c2a9348b0181AAC0BA3Aa567e",
+      "timelock": "0xA04584204C1F39F2f98Ac3413ceDcDcF0EB40108",
+      "PoolFactory": "0xe59847612586E2cae283b1E8E355BAD40f1DC03e"
+    },
+    "codehash": {
+      "FlexiblePurchase": "0x7b3ae8c624fb870658cd9c9d0cf18bbc9635c12b47dbc48ee5f5afe56f1034bc",
+      "MiningOperations": "0xad8c1451ee5360d1972e44bf5eeca34be3942fe3bdf770a30e02ffc5ba5de9d7",
+      "PoolFunds": "0x2f338396997d8ccae2defa2cf2c34939fa620cf54cb1219c1e96585396f8bd4c",
+      "PurchaseValidation": "0xd6427a11238dc706f8f6884535ac6eb171ba1d9e5454d3d6cd16b97547c40a9f",
+      "RewardAccounting": "0x19e79b1eb7b9c83205bca962bf6aebe2b7e166de73a6b971c79c83a75c939e22",
+      "SaleGovernance": "0xc9e6756bfa469253d09862e3ba5e6eb76bc3a300ec81bcf3a6a1b75cc6990556",
+      "SaleSettlement": "0x68e9fadb52758a8bf1d583a16e6ea111cb9f5c4add33c1b90f6960009343b12f",
+      "ShareCheckpoints": "0x805cc99daebe481732e0092052fefc5f458dc208503331d56d297f75a6d5417d",
+      "AtomicDeployment": "0x8cb46d1e9108e93cb1cae3a30b5f07e3c23e6c322af111fe9caec14832c9fb20",
+      "PoolVault": "0x19325c3e5a27d4890dd485f9ee80a0ef2858227148bd22d71905203d65dbe156",
+      "PoolFactory": "0x5d5fd26850365334bf2113181a0b06ddddcdd42425660dbdf91e43582b4ea9e6",
+      "ShareMarket": "0xe362e89d8b16a260f85712457869ce51b8f68fb2ac1e1c72bb2e1a393ec6afb1",
+      "factory": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+      "shareMarket": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+      "lens": "0xe8f1b48663a1bd63884a7759b9454a94f83fc3b2da97eb5bf4dce46f90dae701",
+      "beacon": "0xeac7e64dae671418cf4cca7568a6cbb11b01c6fb5614cd688852d4480fa1cc84",
+      "timelock": "0x49f6ff6240d0de44c0382ef477753ee69f8e8a7bb3e8db1133ba8d7db243d622",
+      "FirstoSale": "0x271b59113c3e28fdea15c817677c613ac359bc74bfd398a214441a0fc7d66e00",
+      "BudgetPortfolioFactory": "0x93036af7c89d1f9e7f0a273e0eec4c9a5269f3a1bafa67f73cf3204ec65bbaa5",
+      "BudgetPortfolioVault": "0x56d242336018b9458f4394add25c620af32073a8c72549d6067323809bd96f01",
+      "portfolioFactory": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+      "portfolioShareMarket": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+      "portfolioBeacon": "0x6dd73896c02cc2bba2f636784a76f4b2f8f8bf5dcb60884be787ae7c9f51f247"
+    },
+    "freshFactoryVerified": true,
+    "freshAuthority": {
+      "current": {
+        "coreOwner": "0xA04584204C1F39F2f98Ac3413ceDcDcF0EB40108",
+        "coreOperator": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+        "coreTreasury": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+        "budgetOwner": "0xA04584204C1F39F2f98Ac3413ceDcDcF0EB40108",
+        "budgetOperator": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+        "budgetTreasury": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3"
+      },
+      "address": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+      "codehash": "0x61ac584291bc4282f0a99b766f82d3e6cc49f01ebe5c51ad73eef56e93d52fb6",
+      "activationBlock": 125313051,
+      "activationHash": "0x7611957e6cc719e984d3c707249b51830cf7a0058293cfefbcd49d14db3eeae5",
+      "deploymentTxHash": "0x7e3f0ce57671ad0f065b24a019bdd31bf35477c961cba23880940495a93ab782",
+      "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+      "administratorTwo": "0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb",
+      "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619"
+    }
+  },
+  "drain": {
+    "schemaVersion": 1,
+    "kind": "bemine-v5-legacy-gas-drain",
+    "chainId": 56,
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+    "cutoverNonce": 8,
+    "latestNonce": 8,
+    "pendingNonce": 8,
+    "units": [
+      "pinkuang-purchase-v2.service",
+      "pinkuang-v4-purchase.service",
+      "pinkuang-v4-mining.service",
+      "pinkuang-v4-signer.service"
+    ],
+    "journals": [
+      {
+        "nonce": 0,
+        "txHash": "0xc70718057662076ce96be0419b3f5654f4d03f901598d3895fecbb1177f806cb",
+        "phase": "confirmed",
+        "blockNumber": 124529094,
+        "blockHash": "0x86ca3c789d531748b9557503f072d66869407d9d7f038fc9d91390cb35204e64",
+        "journalSha256": "c27169da9f7337a2b1ac515a35f4888cd93f2755d4f9ce1c152654cd23e36daa"
+      },
+      {
+        "nonce": 1,
+        "txHash": "0x4a5d758d6d345125ec61965005cd53fb936ebbdc15bd72e02986e49d4365262b",
+        "phase": "confirmed",
+        "blockNumber": 124829137,
+        "blockHash": "0x04622360d67afdf239163fb14717dcbf8afe0f882a836b140bafd5c4a71ceea9",
+        "journalSha256": "9f6a4ed99f7aed3ce2a263d1c3c169a5defb199fbf3c586e73fdf8a962af57ed"
+      },
+      {
+        "nonce": 2,
+        "txHash": "0x40981e8eb98f78c5f8a46b444785bea7336c555eccfa0b365c83d897d5229d98",
+        "phase": "confirmed",
+        "blockNumber": 124829227,
+        "blockHash": "0xf8a7b0847d4b2d65b9b298308ff082956ed85c9c500e4ee8d4a7547c93f267ad",
+        "journalSha256": "9f6a4ed99f7aed3ce2a263d1c3c169a5defb199fbf3c586e73fdf8a962af57ed"
+      },
+      {
+        "nonce": 3,
+        "txHash": "0xe0f2c3685657ca04fd18dc43166f56b2deb7d9dbf0567b905dc17c4f19ac397a",
+        "phase": "confirmed",
+        "blockNumber": 124829252,
+        "blockHash": "0x1b9beed304c4bebf49536c682b0f47890733640db5d55c8be2e8c7e02b4169c4",
+        "journalSha256": "9f6a4ed99f7aed3ce2a263d1c3c169a5defb199fbf3c586e73fdf8a962af57ed"
+      },
+      {
+        "nonce": 4,
+        "txHash": "0x7dae1003bf8242f4da916bdc669f11149868a90b0ed7e6939dd57bddf7768ca1",
+        "phase": "confirmed",
+        "blockNumber": 124863286,
+        "blockHash": "0xbe9cfc67ed7f9257168d1969f4dc772695e064c36da65941d4e4e34d3fe676d7",
+        "journalSha256": "2414b578a809afe02d1d4a484409723e5092c206ce59ff7f3b132a5faaf20318"
+      },
+      {
+        "nonce": 5,
+        "txHash": "0xf7e00e2dcece39eabac529b191a481c45365898a2e94f83c02b3a1b4c335a36d",
+        "phase": "confirmed",
+        "blockNumber": 124914271,
+        "blockHash": "0x8f9244874492880c9ff66d296629a8a0a9d1cf8cc92148ec1555faeb9aa03de6",
+        "journalSha256": "2414b578a809afe02d1d4a484409723e5092c206ce59ff7f3b132a5faaf20318"
+      },
+      {
+        "nonce": 6,
+        "txHash": "0x5a1d6a13b31b0a930b9aaacaa67c9abc9517569266fbdae36b162ffb39863a61",
+        "phase": "confirmed",
+        "blockNumber": 124993544,
+        "blockHash": "0x18ddd8a6a4fcee1a6b78ff0f2554cf36715fe49ff8b97bb224cdf423e3859808",
+        "journalSha256": "6085bc6c2286fe32f14707381970382b9f206b66b78c61797e4f8e6fe1e7bd57"
+      },
+      {
+        "nonce": 7,
+        "txHash": "0xa7c58706592d24c6f6a681dccdf36c19a8da393c40020adb1b94081f8bc050c7",
+        "phase": "confirmed",
+        "blockNumber": 125067425,
+        "blockHash": "0x7af9393a595aeeb329df3dd83f8807e61e215ea06c69f7bcb005880dc46d4ff0",
+        "journalSha256": "704bae2ad66dec867bc267fe50874410819b2fe5844862b52779e8ebde4fcd08"
+      }
+    ],
+    "checkedAt": "2026-10-02T23:27:16.404Z",
+    "finalizedBlockNumber": 125380223,
+    "finalizedBlockHash": "0x459cb81d1fd90ed4b6497e3c398c06ae7b6e6ec3aaf0d3a48af4446e213dfe36"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "status": "published",
+  "checkedAt": "2026-10-02T23:39:31.795860+00:00",
+  "websitePublished": true,
+  "servicesInstalled": true,
+  "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "runtimeSourceHead": "dea3a78b51352df45771ce6d54043b874e70383e",
+  "factory": "0x4A866e14816d8339A530c6c82300DBBb6544b37c",
+  "authority": "0x434b837ADeE65D81923E8dcB329a36b40Aa68fB3",
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "operationalReady": true,
+  "index": {
+    "chainId": 56,
+    "factory": "0x4a866e14816d8339a530c6c82300dbbb6544b37c",
+    "market": "0xab42d8624920974c2a9348b0181aac0ba3aa567e",
+    "startBlock": 125311948,
+    "portfolioFactory": "0x2a02ba72b1c65befac1d4aa912e21d0fa89dfd9a",
+    "portfolioMarket": "0xc06a1b28354c64c3e43adb272b984e21d32167ef",
+    "confirmations": 12,
+    "indexedThrough": 125381838,
+    "indexedBlockHash": "0x379ebd9aeddaa46936f5fa19954e0f1e444fd0bd667190122c0a3f5bf7d6d892",
+    "indexedTimestamp": 1790984350,
+    "observedSafeHead": 125381838,
+    "complete": true,
+    "checkedAt": "2026-10-02T23:39:18.220Z",
+    "unknownReason": null
+  },
+  "httpChecks": {
+    "bemine.cc.cd/bemine-v5/": 200,
+    "bemine.cc.cd/bemine-v5/fresh-product-release.json": 200,
+    "bemine.cc.cd/bemine-v5/api/chain-index/v1/display/stats": 200,
+    "bemine.cc.cd/bemine-v5/data/bem-price.json": 200,
+    "bemine.cc.cd/bemine-v4/": 503,
+    "tapeout.cc.cd/bemine-full-test/": 503,
+    "tapeout.cc.cd/pinkuang-deploy-v5/": 200
+  },
+  "units": [
+    "pinkuang-index-v5",
+    "pinkuang-product-v5",
+    "pinkuang-v5-purchase",
+    "pinkuang-v5-mining",
+    "pinkuang-v5-signer",
+    "pinkuang-v5-price"
+  ],
+  "nginxBeforeSha256": "86ac31d2acbe84368b40707c8fdea8a626bbd628d36fda899403c566467aa3f2",
+  "nginxAfterSha256": "ef270223cdaf37fa1efea4d310bc0d439e2e9837f279490031ed89830256affc"
+}

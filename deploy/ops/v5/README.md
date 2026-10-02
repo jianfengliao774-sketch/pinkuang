@@ -64,20 +64,38 @@ The old v4 and test sites remain paused under
 contracts are unchanged. Rollback stops only v5 services, restores the attestor
 and removes only the v5 nginx include; it does not reopen any old site.
 
-## Release status - 2026-10-02 23:52 CST
+## Release status — 2026-10-03 07:39 CST
 
-The complete static and runtime packages were built from `dea3a78` and verified.
-37 frontend/build tests, 131 runtime/readiness tests, 41 index/relay tests and
-6 packaging/layout tests passed (the last group overlaps the frontend run).
-All 26 initial HTML asset references resolve inside the v5 static package.
-The separate install and read-only nonce verification scripts are ready.
+**Published:** https://bemine.cc.cd/bemine-v5/ . The root URL redirects here.
+The website and backend use `dea3a78b51352df45771ce6d54043b874e70383e`;
+this activation adds operational scripts and evidence without replacing the
+reviewed business build or redeploying any contract.
 
-**Not yet published:** SSH and HTTPS connections to the existing server began
-failing before the upload. No v5 services, website symlink or nginx routing
-were changed. `release-status.json` records the artifact digests and the exact
-pending state. Resume by restoring connectivity, copying the prepared upload
-directory, installing it, verifying index/worker readiness, then publishing
-only the v5 nginx include and root redirect. Do not redeploy contracts.
+The 6 isolated runtime units are installed, enabled and active. The separate v5
+deployment console remains available. The live graph was checked at block
+125380223; all old Gas transactions at nonces 0–7 are canonical and finalized,
+with latest/pending nonce 8 at cutover. The old v4 signer was then disabled.
+The index caught up at block 125381838 before routing was enabled; the API
+reported `fresh-active` and `operationalReady: true`.
+
+`publication-receipt.json` records the switch, source/artifact identity and
+HTTP checks. `live-activation-proof.json` records the read-only graph and drain
+checks. Public website, statistics, pools, orders, price and initial assets
+were checked after publication; browser home and project-list data loaded.
+No financial wallet flow or end-to-end purchase/sale was performed on mainnet.
+Old v4 and full-test entry points still return 503, preserving their contracts,
+files and recovery records. The new graph has no projects yet.
+
+The setup scripts parse quoted environment values using Node's `parseEnv`;
+credentials are never printed. Publication allows a bounded graceful nginx
+worker transition and rolls back routing if its HTTP checks fail. The index's
+public-node header concurrency override is `runtime/20-read-throughput.conf`;
+event reads continue to use the existing dedicated endpoint. Install that file
+as `/etc/systemd/system/pinkuang-index-v5.service.d/20-read-throughput.conf`.
+
+37 frontend/build tests, 131 runtime/readiness tests and 41 index/relay tests
+passed during packaging; the 6 packaging/layout checks overlap the frontend
+run. Current activation evidence does not imply independent audit approval.
 
 ## Public security-review handoff - 2026-10-03
 
@@ -91,6 +109,8 @@ scope, permission model, build instructions, limitations and report template.
 GitHub Actions is disabled there; no runtime credentials or server state were
 copied. This is an independent review input, not an audit certification.
 
-SSH and HTTPS were still unavailable during the handoff. The review repository
-explicitly records that contracts are deployed but the new product website and
-backend activation are pending; its publication does not change that status.
+The initial review tag records the earlier pending deployment state and stays
+immutable. The review repository now also includes `audit/activation/` with
+the live publication evidence and additional installation scripts; reviewers
+should use its current branch for that supplement. The original 1813 source
+files remain byte-for-byte verifiable.

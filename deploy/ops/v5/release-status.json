@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "status": "built-awaiting-server-connection",
-  "checkedAt": "2026-10-02T15:52:11Z",
-  "websitePublished": false,
-  "servicesInstalled": false,
+  "status": "published",
+  "checkedAt": "2026-10-02T23:39:31.795860+00:00",
+  "websitePublished": true,
+  "servicesInstalled": true,
   "runtimeSourceHead": "dea3a78b51352df45771ce6d54043b874e70383e",
   "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
   "intendedPublicUrl": "https://bemine.cc.cd/bemine-v5/",
@@ -20,7 +20,16 @@
     "runtimeTests": 131,
     "indexAndRelayTests": 41,
     "packagingAndLayoutTests": 6,
-    "staticAssetsMissing": 0
+    "staticAssetsMissing": 0,
+    "liveGraphBlock": 125380223,
+    "indexCompleteAtBlock": 125381838,
+    "legacyGasNonce": 8,
+    "publicAssetsVerified": 23,
+    "workerReadiness": true,
+    "financialMainnetFlowsTested": false
   },
-  "blocker": "SSH connection to existing host stopped responding before release upload. Public HTTPS probes also timed out. No v5 runtime or nginx activation has been attempted."
+  "operationalReadyAtPublication": true,
+  "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "publicationReceipt": "publication-receipt.json",
+  "liveActivationProof": "live-activation-proof.json"
 }
