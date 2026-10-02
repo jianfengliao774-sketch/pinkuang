@@ -32,9 +32,15 @@ Build and package from committed source using `deploy/scripts/package-fresh-cons
 
 ## Remaining product activation requirements
 
+2026-10-02 update: the live v5 journal now records all 16 bootstrap and 7 Authority
+steps confirmed. Public receipts and addresses are in `mainnet-deployment.json`.
+The new website/index are not active yet. At the user's request, old/test sites
+(including v4) were temporarily paused; their assets and recovery records are
+preserved under [the retirement runbook](../retired-20261002/README.md).
+
 1. Obtain the actual latest website sources: live formal static release identifies `d90f5f09cd0a63c9321abcf080f60d5fc8ae9e75`, test identifies `1f3c3809ca442965dba98987478afe91260bc8c1`. Neither commit was present in either Git remote or available checkouts during preparation. This branch starts from formal `5785c04`; do not describe its website as the exact latest live source.
-2. Complete the new mainnet graph with the deployment wallet, save confirmed receipts and derive its pinned manifest.
-3. Prepare `/bemine-v5/`, its separate cache/index and backend from that manifest, using the recovered latest website source. Keep an accessible link to the old v4 assets.
+2. Export and independently verify the completed mainnet graph, then derive its pinned manifest from the confirmed deployment and activation records.
+3. Prepare `/bemine-v5/`, its separate cache/index and backend from that manifest, using the recovered latest website source. Old v4 remains temporarily closed until the user requests recovery; do not reopen it as part of v5 activation.
 4. Coordinate the shared Gas wallet through one nonce journal before enabling new background senders. Never run two independent nonce managers for this account. The pre-genesis console installed here does not send Gas-wallet transactions.
 
 No v5 mainnet receipts or final product manifest are asserted by the local evidence.
