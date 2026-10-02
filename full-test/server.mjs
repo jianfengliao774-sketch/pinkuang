@@ -27,6 +27,8 @@ const READINESS_FAILURES=new Map([
 ]);
 const READINESS_ERROR_CODES=new Set(['TIMEOUT','NETWORK_ERROR','SERVER_ERROR','UNKNOWN_ERROR',
   'CALL_EXCEPTION','ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','EAI_AGAIN']);
+const READINESS_INDEX_FACTS=['indexNotAheadOfGraph','indexFresh','indexComplete','indexSameGraph',
+  'indexAtSafeHead','indexInBlockWindow','indexHasCanonicalHash','indexAfterActivation'];
 
 /** Only fixed categories and numbers enter diagnostics; never upstream text or payloads. */
 export function classifyFullTestReadinessFailure(error,elapsedMs=0) {
@@ -43,6 +45,12 @@ export function classifyFullTestReadinessFailure(error,elapsedMs=0) {
   if(Number.isInteger(httpStatus)&&httpStatus>=100&&httpStatus<=599)result.httpStatus=httpStatus;
   const rpcCode=error?.info?.error?.code??error?.error?.code;
   if(Number.isInteger(rpcCode)&&rpcCode>=-32768&&rpcCode<=32767)result.rpcCode=rpcCode;
+  if(result.reason==='index_incomplete' && error?.indexFacts && typeof error.indexFacts==='object') {
+    const facts={};
+    for(const key of READINESS_INDEX_FACTS)
+      if(Object.hasOwn(error.indexFacts,key) && typeof error.indexFacts[key]==='boolean')facts[key]=error.indexFacts[key];
+    if(Object.keys(facts).length)result.indexFacts=facts;
+  }
   return result;
 }
 const json=(res,status,value)=>{res.statusCode=status;res.setHeader('Content-Type','application/json; charset=utf-8');

@@ -39,6 +39,16 @@ test('fresh graph+two worker processes+canonical fresh index admit only the exac
  const f=fixture();assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
 });
 
+test('index ahead of the pinned graph still rejects and exposes only fixed predicate facts',async()=>{
+ const f=fixture();f.source.indexedThrough=121;f.source.observedSafeHead=121;f.source.indexedBlockHash=h(121);
+ await assert.rejects(f.gate()(f.provider,f.graph,f.block),error=>{
+  assert.equal(error.message,'Fresh index is incomplete, stale or belongs to another graph.');
+  assert.deepEqual(error.indexFacts,{indexNotAheadOfGraph:false,indexFresh:true,indexComplete:true,
+   indexSameGraph:true,indexAtSafeHead:true,indexInBlockWindow:true,indexHasCanonicalHash:true,indexAfterActivation:true});
+  assert.equal(Object.values(error.indexFacts).every(value=>typeof value==='boolean'),true);return true;
+ });
+});
+
 async function localIndex(source,{bodyDelayMs=0}={}){
  const timers=new Set(),server=createServer((_req,res)=>{
   res.writeHead(200,{'content-type':'application/json'});res.flushHeaders();

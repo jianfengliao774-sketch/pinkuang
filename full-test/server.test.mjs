@@ -43,6 +43,18 @@ test('readiness diagnostics classify exact gates and exclude upstream secrets an
   assert.deepEqual(classifyFullTestReadinessFailure(new DOMException(secret,'AbortError'),5000),
     {reason:'read_aborted',code:'ABORTED',elapsedMs:5000});
 });
+
+test('readiness diagnostics admit only own whitelisted boolean index facts',()=>{
+ const secret='https://rpc.example/private-token calldata=0xabcdef';
+ const facts=Object.assign(Object.create({indexSameGraph:true}),{indexNotAheadOfGraph:false,indexFresh:true,
+  indexComplete:secret,indexAtSafeHead:1,source:secret,unknown:secret});
+ const error=Object.assign(new Error('Fresh index is incomplete, stale or belongs to another graph.'),{indexFacts:facts});
+ assert.deepEqual(classifyFullTestReadinessFailure(error,18_254),{reason:'index_incomplete',code:'UNCLASSIFIED',
+  elapsedMs:18_254,indexFacts:{indexNotAheadOfGraph:false,indexFresh:true}});
+ assert.equal(JSON.stringify(classifyFullTestReadinessFailure(error)).includes(secret),false);
+ error.message=secret;
+ assert.equal(Object.hasOwn(classifyFullTestReadinessFailure(error),'indexFacts'),false);
+});
 function inputs() {
   const profile={schemaVersion:1,profile:'full-test',chainId:56,artifactDigest,sourceHead,
     timings:{...FULL_TEST_TIMINGS},roles:{deployer,administratorOne:admins[0],administratorTwo:admins[1],gasWallet:gas},

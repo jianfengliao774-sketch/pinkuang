@@ -61,7 +61,7 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
       return JSON.parse(bytes).source;
     };
     const [source,machine]=await Promise.all([readIndex(),machineReader()]);
-    need(source?.chainId===56 && source.complete===true && !source.unknownReason
+    try {need(source?.chainId===56 && source.complete===true && !source.unknownReason
       && same(source.factory,m.factory) && same(source.market,m.shareMarket)
       && same(source.portfolioFactory,m.portfolioFactory) && same(source.portfolioMarket,m.portfolioMarket)
       && source.startBlock===m.deployment.blockNumber
@@ -70,6 +70,23 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
       && block.number-source.indexedThrough<=120 && HASH.test(source.indexedBlockHash)
       && Number.isSafeInteger(source.indexedTimestamp) && now()/1000-source.indexedTimestamp>=0
       && now()/1000-source.indexedTimestamp<=90,'Fresh index is incomplete, stale or belongs to another graph.');
+    } catch(error) {
+      // Diagnostics expose only fixed predicates, never index payloads or RPC details.
+      const indexed=source?.indexedThrough,integer=Number.isSafeInteger(indexed),age=now()/1000-source?.indexedTimestamp;
+      error.indexFacts={
+        indexNotAheadOfGraph:integer && indexed<=block.number,
+        indexFresh:Number.isSafeInteger(source?.indexedTimestamp) && age>=0 && age<=90,
+        indexComplete:source?.complete===true && !source.unknownReason,
+        indexSameGraph:source?.chainId===56 && same(source.factory,m.factory) && same(source.market,m.shareMarket)
+          && same(source.portfolioFactory,m.portfolioFactory) && same(source.portfolioMarket,m.portfolioMarket)
+          && source.startBlock===m.deployment.blockNumber,
+        indexAtSafeHead:integer && indexed===source?.observedSafeHead,
+        indexInBlockWindow:integer && block.number-indexed<=120,
+        indexHasCanonicalHash:HASH.test(source?.indexedBlockHash),
+        indexAfterActivation:integer && indexed>=m.verifiedBlockNumber,
+      };
+      throw error;
+    }
     need(machine?.schemaVersion===1 && machine.ready===true && machine.relayEnabled===true
       && machine.attestOnly===false && machine.sourceHead===machineSourceHead
       && Number.isSafeInteger(machine.checkedAt) && now()-machine.checkedAt>=0
