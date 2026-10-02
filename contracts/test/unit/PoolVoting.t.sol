@@ -9,6 +9,7 @@ import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
 import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {FirstoSignedAskMock} from "../utils/FirstoMocks.sol";
 
 /// @dev Voting only. Acquisition and share-market registration use the real entry points.
 /// No sale execution, sale proceeds or synthetic voting/checkpoint storage is used.
@@ -28,6 +29,10 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function setUp() public override {
         super.setUp();
+        vm.chainId(56);
+        address firsto = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
+        vm.etch(firsto, address(new FirstoSignedAskMock()).code);
+        FirstoSignedAskMock(firsto).configure(0x68224F668083c29e9800Be2a646d42d18cedF7e2, 0, 1);
         voting = PoolVault(payable(address(pool)));
         _transfer(BOB, CAROL, 23); // 49 / 26 / 25 beneficial owners.
     }

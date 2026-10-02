@@ -6,6 +6,7 @@ import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceStat
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { saleTimings } from './sale-timings.mjs';
+import { fetchLiveJson } from './live-config.mjs';
 
 const DAY = 86400n;
 const MAX_CANDIDATES = 100n;
@@ -15,14 +16,54 @@ const directViews = new Interface([
   'function paused() view returns(bool)', 'function defaultTakerFeeBps() view returns(uint16)',
   'function feeEpoch() view returns(uint256)',
 ]);
+export const nativeGovernanceViews = new Interface([
+  'function nativeFirstoSaleVersion() view returns(uint8)',
+  'function nativeFirstoAsk() view returns(tuple(address maker,address collection,uint256 tokenId,uint256 nonce,uint128 price,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion) ask,bytes32 orderHash,bool active)',
+  'function delist(uint8 action,uint256 cancellationId,uint256 expectedListedProposalId,bool support) returns(uint256 id)',
+  'function delistingProposal(uint256 id) view returns(uint256 cancellationId,address proposer,uint256 listedProposalId,uint48 snapshotTs,uint64 expiresAt,uint256 snapshotMemberCount,uint256 yesCount,uint256 yesShares,uint256 noCount,uint256 noShares,bool executed,bool voted)',
+]);
 const directSnapshots = new WeakMap();
 const same = (left, right) => getAddress(left) === getAddress(right);
+const sameHash = (left, right) => typeof left === 'string' && typeof right === 'string'
+  && /^0x[\da-f]{64}$/i.test(left) && left.toLowerCase() === right.toLowerCase();
 const requireGovernance = (condition, message) => { if (!condition) throw new Error(message); };
 const nonzero = value => {
   const address = getAddress(value);
   requireGovernance(address !== ZeroAddress, 'A zero address cannot identify a pool or wallet.');
   return address;
 };
+
+/** One fixed public GET; publication observations cannot change ownership or voting data. */
+export async function fetchNativeFirstoPublication(config, poolInput, expectedAskHash,
+  { signal, fetcher = globalThis.fetch, now = Date.now } = {}) {
+  const pool = nonzero(poolInput), base = new URL(config.indexBaseUrl);
+  requireGovernance(base.origin === config.origin && !base.search && !base.hash
+    && !base.username && !base.password && /^0x[\da-f]{64}$/i.test(expectedAskHash),
+  'Firsto 发布状态来源与当前网站不一致。');
+  const reply = await fetchLiveJson(`${base.href.replace(/\/$/, '')}/v1/display/firsto-ask/${pool}`,
+    { maxBytes: 16_384, timeoutMs: 10_000,
+      fetcher: (url, options) => fetcher(url, { ...options,
+        signal: signal ? AbortSignal.any([signal, options.signal]) : options.signal }) });
+  const profile = config.testProfile === true ? 'full-test' : 'formal';
+  requireGovernance(reply?.schemaVersion === 1 && reply.chainId === 56
+    && same(reply.factory, config.factory ?? config.manifest?.factory)
+    && same(reply.exchange, FIRSTO_SIGNED_EXCHANGE) && typeof reply.enabled === 'boolean'
+    && typeof reply.stale === 'boolean' && same(reply.item?.pool, pool)
+    && (reply.profile == null || reply.profile === profile), 'Firsto 发布状态与当前矿池不一致。');
+  const statuses = ['upgrade-required', 'inactive', 'expired', 'buyer-pending', 'publishing', 'publication-accepted',
+    'published', 'pending-approval', 'publication-unknown', 'publication-rejected', 'order-conflict',
+    'authorization-changed', 'external-awaiting-chain', 'read-unavailable', 'source-unavailable'];
+  requireGovernance(statuses.includes(reply.item.status), 'Firsto 发布状态无效。');
+  if (reply.item.askHash != null) requireGovernance(sameHash(reply.item.askHash, expectedAskHash), 'Firsto 发布状态属于另一张卖单。');
+  if (reply.item.status === 'published') requireGovernance(reply.item.verifiedInOfficialBook === true
+    && sameHash(reply.item.askHash, expectedAskHash), 'Firsto 尚未在公开订单中确认本卖单。');
+  if (reply.item.priceWei != null) uint(reply.item.priceWei);
+  const observed = reply.updatedAt == null ? null : Date.parse(reply.updatedAt);
+  requireGovernance(observed === null || Number.isSafeInteger(observed) && observed <= now() + 30_000,
+    'Firsto 发布状态时间无效。');
+  return Object.freeze({ ...reply, profile,
+    stale: reply.stale || observed === null || now() - observed > 90_000 });
+}
 
 /** Cache business data by provider, pool and wallet; manual or pushed updates invalidate it. */
 export async function readGovernanceSnapshot(provider, options) {
@@ -61,9 +102,9 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     number = BigInt(block.number); timestamp = BigInt(block.timestamp); tag = toQuantity(number);
     requireGovernance(blockNumber === undefined || number === uint(blockNumber), 'RPC returned another governance block.');
   }
-  async function result(to, contract, method, args = []) {
+  async function result(to, contract, method, args = [], from) {
     const data = contract.encodeFunctionData(method, args);
-    return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data }, tag]));
+    return contract.decodeFunctionResult(method, await request('eth_call', [{ to, data, ...(from ? { from } : {}) }, tag]));
   }
   async function call(to, contract, method, args = []) {
     return (await result(to, contract, method, args))[0];
@@ -174,7 +215,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
       : await call(pool, abi.PoolVault, 'getPastShares', [owner, opener.snapshotTs]);
     requireGovernance(snapshotShares <= 100n, 'Invalid snapshot share balance.');
   }
-  let firstoSale = null;
+  let firstoSale = null, nativeFirstoSale = null, delisting = null;
   if (state === 3n) {
     try {
       if (displayOnly) {
@@ -188,6 +229,51 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
       } else firstoSale = await readControlledFirstoSale(provider, pool, tag);
     }
     catch (error) { firstoSale = Object.freeze({ available: false, reason: error?.shortMessage || error?.message || 'Firsto 成交状态暂不可用。' }); }
+    try {
+      const version = await call(pool, nativeGovernanceViews, 'nativeFirstoSaleVersion');
+      nativeFirstoSale = Object.freeze({ available: true, version, enabled: version === 1n, active: false });
+      if (version === 1n) {
+        const [nativeResult, delistingResult] = await Promise.allSettled([
+          result(pool, nativeGovernanceViews, 'nativeFirstoAsk'),
+          result(pool, nativeGovernanceViews, 'delistingProposal', [0n], owner),
+        ]);
+        if (nativeResult.status === 'fulfilled') {
+          const [ask, orderHash, active] = nativeResult.value;
+          requireGovernance(typeof active === 'boolean', '原生挂牌状态不可用。');
+          if (active) requireGovernance(same(ask.maker, pool) && same(ask.payoutRecipient, pool)
+            && ask.nonce === listedProposalId && ask.price === salePrice && ask.expiry === expiresAt
+            && /^0x[\da-f]{64}$/i.test(orderHash), '原生挂牌条款与当前挂牌不一致。');
+          nativeFirstoSale = Object.freeze({ ...nativeFirstoSale, active, orderHash: active ? orderHash : null });
+        } else nativeFirstoSale = Object.freeze({ ...nativeFirstoSale, active: null,
+          reason: '原生挂牌授权暂不可读取，请刷新。' });
+        if (delistingResult.status === 'fulfilled') {
+          const p = delistingResult.value;
+          const [cancellationId, proposer, boundProposalId, snapshotTs, cancellationExpiresAt, snapshotMemberCount,
+            yesCount, yesShares, noCount, noShares, executed, voted] = p;
+          const empty = cancellationId === 0n;
+          if (!empty) requireGovernance(boundProposalId === listedProposalId && cancellationExpiresAt === expiresAt
+            && snapshotTs <= timestamp && snapshotMemberCount >= 1n && snapshotMemberCount <= 100n
+            && yesCount + noCount <= snapshotMemberCount && yesShares + noShares <= 100n
+            && getAddress(proposer) !== ZeroAddress, '下架投票状态与当前挂牌不一致。');
+          const delistingShares = empty || owner === ZeroAddress ? 0n : snapshotTs === timestamp ? shares
+            : await call(pool, abi.PoolVault, 'getPastShares', [owner, snapshotTs]);
+          requireGovernance(delistingShares <= 100n, '下架投票快照份额无效。');
+          const passed = !empty && yesCount * 2n > snapshotMemberCount && yesShares > 50n;
+          const expired = timestamp >= expiresAt;
+          delisting = Object.freeze({ available: true, id: cancellationId, proposer: getAddress(proposer),
+            listedProposalId: boundProposalId, snapshotTs, expiresAt: cancellationExpiresAt,
+            snapshotMemberCount, yesCount, yesShares, noCount, noShares, executed, hasVoted: voted,
+            snapshotShares: delistingShares, requiredYesCount: snapshotMemberCount / 2n + 1n,
+            requiredYesShares: 51n, passed, expired, canPropose: !expired && shares > 0n && empty,
+            canVote: !empty && !expired && !executed && !voted && delistingShares > 0n,
+            canExecute: !empty && !expired && !executed && passed });
+        } else delisting = Object.freeze({ available: false, reason: '下架投票暂不可读取，请刷新。' });
+      }
+    } catch (error) {
+      nativeFirstoSale = Object.freeze({ available: false, enabled: false, active: false,
+        reason: error?.shortMessage || error?.message || '原生挂牌能力暂不可读取。' });
+      delisting = Object.freeze({ available: false, reason: '完成原生出售合约升级后可提前投票下架。' });
+    }
   }
   if (!displayOnly) {
     const again = await request('eth_getBlockByNumber', [tag, false]);
@@ -201,7 +287,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
       snapshotTs: opener.snapshotTs, executed: opener.executed,
       currentFormat: opener.snapshotTs + DAY === opener.endsAt }),
     lastProposed, shares, snapshotShares, listedProposalId, expiresAt,
-    salePrice, firstoSale, saleReference, saleReviewThresholdBps, candidates: Object.freeze(candidates) });
+    salePrice, firstoSale, nativeFirstoSale, delisting, saleReference, saleReviewThresholdBps, candidates: Object.freeze(candidates) });
 }
 
 /** ABI disclosure only: reuse a known chain price without another request or user input. */
@@ -262,6 +348,23 @@ export function governanceAction(snapshot, from, action) {
     requireGovernance(snapshot.state === 3n && snapshot.listedProposalId > 0n
       && snapshot.timestamp >= snapshot.expiresAt, 'The whole-miner listing has not expired.');
     method = 'cancelExpired';
+  } else if (action?.kind === 'delist') {
+    const operation = uint(action.delistAction, 8), cancellationId = uint(action.cancellationId);
+    requireGovernance(snapshot.nativeFirstoSale?.enabled === true && snapshot.delisting?.available === true
+      && snapshot.state === 3n && snapshot.listedProposalId > 0n && snapshot.timestamp < snapshot.expiresAt,
+    '当前挂牌已成交、到期或尚未启用提前下架。');
+    requireGovernance(uint(action.expectedListedProposalId) === snapshot.listedProposalId,
+      '挂牌提案已变化，请重新预览下架操作。');
+    requireGovernance(typeof action.support === 'boolean' && operation <= 2n, '下架投票操作无效。');
+    const p = snapshot.delisting;
+    if (operation === 0n) requireGovernance(cancellationId === 0n && p.canPropose, '当前不能发起下架投票。');
+    else {
+      requireGovernance(cancellationId === p.id && p.listedProposalId === snapshot.listedProposalId
+        && !p.executed && !p.expired, '下架投票已结束或挂牌已变化。');
+      if (operation === 1n) requireGovernance(p.canVote, '当前钱包已投票或没有下架投票快照份额。');
+      else requireGovernance(p.canExecute && p.passed, '下架投票尚未达到人数与份额均严格过半。');
+    }
+    method = 'delist'; args = [operation, cancellationId, snapshot.listedProposalId, action.support];
   } else if (action?.kind === 'completeFirstoSale') {
     chosen = candidate(snapshot.listedProposalId);
     requireGovernance(snapshot.state === 3n && chosen?.executed && snapshot.timestamp < snapshot.expiresAt
@@ -278,7 +381,7 @@ export function governanceAction(snapshot, from, action) {
   if (action.expectedProposalId !== undefined) requireGovernance(chosen?.id === uint(action.expectedProposalId), 'Proposal changed; review again.');
   if (action.expectedPriceWei !== undefined) requireGovernance((chosen?.priceWei ?? (method === 'propose' ? uint(action.priceWei) : snapshot.salePrice)) === uint(action.expectedPriceWei), 'Price changed; review again.');
   return Object.freeze({ transaction: Object.freeze({ chainId: '0x38', from: account, to: snapshot.pool,
-    data: abi.PoolVault.encodeFunctionData(method, args), value: toQuantity(value) }),
+    data: (method === 'delist' ? nativeGovernanceViews : abi.PoolVault).encodeFunctionData(method, args), value: toQuantity(value) }),
   quote: Object.freeze({ action: method, proposalId: chosen?.id ?? null, pool: snapshot.pool,
     priceWei: chosen?.priceWei ?? (method === 'propose' ? uint(action.priceWei) : snapshot.salePrice),
     paymentWei: value, feeWei: value === 0n ? 0n : snapshot.salePrice / 100n,
@@ -291,6 +394,9 @@ export function governanceAction(snapshot, from, action) {
     saleReviewStatus: chosen?.saleReview?.status ?? null,
     saleReviewPriceWei: chosen?.saleReview?.priceWei ?? null,
     feeBps: snapshot.firstoSale?.feeBps ?? null, feeEpoch: snapshot.firstoSale?.feeEpoch ?? null,
+    cancellationId: method === 'delist' ? uint(action.cancellationId) : null,
+    delistAction: method === 'delist' ? uint(action.delistAction, 8) : null,
+    listedProposalId: snapshot.listedProposalId,
     blockNumber: snapshot.blockNumber, blockHash: snapshot.blockHash }) });
 }
 

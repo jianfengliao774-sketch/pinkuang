@@ -1,6 +1,6 @@
 import { Interface, getAddress, parseEther, toQuantity, ZeroAddress } from 'ethers';
 import { abi, uint, poolKey, readPoolSnapshot, personalPoolAction } from './chain-client.mjs';
-import { readGovernanceSnapshot, governanceAction } from './live-governance.mjs';
+import { readGovernanceSnapshot, governanceAction, nativeGovernanceViews } from './live-governance.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 
@@ -8,7 +8,7 @@ const assert = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
 const address = value => { const result = getAddress(value); assert(result !== ZeroAddress, '地址不能为零 / Zero address.'); return result; };
 const ACTIONS = new Set(['deposit', 'claim', 'harvest', 'withdrawBnb', 'withdrawDeposit', 'finalizeFailure',
-  'list', 'fill', 'cancel', 'expire', 'marketWithdraw', 'propose', 'vote', 'executeSale', 'cancelExpired', 'completeFirstoSale']);
+  'list', 'fill', 'cancel', 'expire', 'marketWithdraw', 'propose', 'vote', 'executeSale', 'cancelExpired', 'completeFirstoSale', 'delist']);
 const MARKET_ACTIONS = new Set(['list', 'fill', 'cancel', 'expire', 'marketWithdraw']);
 const MIN_SHARE_PRICE_WEI = 10000000000000n;
 const HASH = /^0x[0-9a-f]{64}$/i;
@@ -72,6 +72,19 @@ async function prepareDirectAction(input, { from, market }) {
     if (kind === 'vote') assert(typeof support === 'boolean', '投票选项无效 / Invalid vote.');
     return finish(tx(target, abi.PoolVault, kind, kind === 'vote' ? [number, support] : [number]), details);
   }
+  if (kind === 'delist') {
+    const operation = uint(input.delistAction, 8), cancellationId = uint(input.cancellationId);
+    const expectedListedProposalId = id(input.expectedListedProposalId);
+    assert(operation <= 2n && typeof support === 'boolean'
+      && (operation === 0n ? cancellationId === 0n : cancellationId > 0n), '下架投票参数无效 / Invalid delisting vote.');
+    const [state, listedProposalId] = await Promise.all([
+      call(target, abi.PoolVault, 'state'), call(target, abi.PoolVault, 'listedProposalId'),
+    ]);
+    assert(state === 3n && listedProposalId === expectedListedProposalId,
+      '挂牌已成交或提案已变化，请刷新 / Listing completed or changed. Refresh.');
+    return finish(tx(target, nativeGovernanceViews, 'delist', [operation, cancellationId, expectedListedProposalId, support]),
+      { ...details, quote: { action: 'delist', cancellationId, delistAction: operation, listedProposalId } });
+  }
   const [number, salePrice, feeBps, feeEpoch] = await Promise.all([
     call(target, abi.PoolVault, 'listedProposalId'), call(target, abi.PoolVault, 'salePrice'),
     call(FIRSTO_SIGNED_EXCHANGE, firstoFees, 'defaultTakerFeeBps'), call(FIRSTO_SIGNED_EXCHANGE, firstoFees, 'feeEpoch'),
@@ -116,7 +129,7 @@ function id(value) {
  */
 export async function prepareProductAction({ provider, config, account, pool, kind, quantity, price, proposalId, support, orderId,
   priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch,
-  expectedSeller, expectedPricePerUnitWei }) {
+  expectedSeller, expectedPricePerUnitWei, delistAction, cancellationId, expectedListedProposalId }) {
   assert(ACTIONS.has(kind), '不支持的操作 / Unsupported action.');
   assert(config?.status === 'ready' && [56, 56n, '56', '0x38'].includes(config.chainId ?? config.manifest?.chainId), '尚未配置正式 BSC 部署 / Verified BSC deployment required.');
   assert(config.manifest?.chainId === undefined || config.manifest.chainId === 56, '部署清单网络不一致 / Manifest chain mismatch.');
@@ -133,7 +146,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   assert(!same(factory, lens) && (!market || !same(market, factory) && !same(market, lens)), '部署地址重复 / Duplicate deployment addresses.');
   if (config.displayOnly === true) return prepareDirectAction({ provider, config, account, pool, kind, quantity, price,
     proposalId, support, orderId, priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId,
-    expectedPriceWei, expectedFeeBps, expectedFeeEpoch, expectedSeller, expectedPricePerUnitWei }, { from, factory, market });
+    expectedPriceWei, expectedFeeBps, expectedFeeEpoch, expectedSeller, expectedPricePerUnitWei,
+    delistAction, cancellationId, expectedListedProposalId }, { from, factory, market });
   const request = (method, params = []) => provider.request({ method, params });
   const { chain, block } = await settleReadRound({
     chain: () => request('eth_chainId'),
@@ -265,7 +279,8 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   assert(governance.blockHash.toLowerCase() === block.hash.toLowerCase() && governance.state === row.state,
     '治理区块与矿池快照不一致 / Governance snapshot mismatch.');
   const action = { kind, proposalId, support, priceWei: priceWei ?? (price === undefined ? undefined : exactPrice(price)),
-    refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch };
+    refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch,
+    delistAction, cancellationId, expectedListedProposalId };
   const prepared = governanceAction(governance, from, action);
   return finish(prepared.transaction, { ...details, governance, quote: prepared.quote });
 }

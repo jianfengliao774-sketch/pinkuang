@@ -10,7 +10,7 @@ const saleViews = new Interface([
   'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
 ]);
 import { abi } from '../lib/chain-client.mjs';
-import { governanceAction, proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
+import { fetchNativeFirstoPublication, governanceAction, nativeGovernanceViews, proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 
 const factory = '0x1000000000000000000000000000000000000001';
 const pool = '0x2000000000000000000000000000000000000002';
@@ -40,9 +40,23 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   factoryBinding = factory, alreadyVoted = false, oldSale = false, firsto = {},
   referencePrice = 8n, referenceAt = timestamp - 100n, referenceDigest = digest,
   reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false,
-  genesis = false, displayOnly = false, saleReviewThresholdBps } = {}) {
+  genesis = false, displayOnly = false, saleReviewThresholdBps, nativeSale = false, cancellation } = {}) {
   const external = firstoProvider({ account }, firsto).provider;
   return { request: async ({ method, params = [] }) => {
+    if (method === 'eth_call') {
+      const nativeCall = nativeGovernanceViews.parseTransaction({ data: params[0].data });
+      if (nativeCall) {
+        if (!nativeSale) throw new Error('Old contract lacks native sale capability');
+        if (nativeCall.name === 'nativeFirstoSaleVersion') return nativeGovernanceViews.encodeFunctionResult(nativeCall.name, [1]);
+        if (nativeCall.name === 'nativeFirstoAsk') return nativeGovernanceViews.encodeFunctionResult(nativeCall.name,
+          [[pool, account, 16736n, listedId, salePrice, expiresAt, pool, 100n, 1n, 2n], digest, true]);
+        if (nativeCall.name === 'delistingProposal') {
+          assert.equal(params[0].from, account);
+          return nativeGovernanceViews.encodeFunctionResult(nativeCall.name,
+            cancellation ?? [0n, '0x'+'00'.repeat(20), 0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, false, false]);
+        }
+      }
+    }
     if (method === 'eth_call' && params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')) {
       if (saleReviewThresholdBps === undefined) throw Error('old implementation');
       return thresholdView.encodeFunctionResult('saleReviewThresholdBps', [saleReviewThresholdBps]);
@@ -105,6 +119,76 @@ test('genesis discounted sale uses 60 shares and does not ask legacy market for 
   assert.equal(passed.candidates[0].passed, true);
   assert.equal(passed.candidates[0].canExecute, true);
   assert.equal(governanceAction(passed, account, { kind: 'executeSale', proposalId: '1' }).quote.marketReferenceWei, null);
+});
+
+test('native listing reads exact authorization and a wallet-bound downlisting snapshot without extra proofs', async () => {
+  const expiresAt = 1700000200n;
+  const { provider, calls } = directRpc({ state: 3n, proposals: [proposal({ price: 1000n, executed: true })],
+    listedId: 1n, salePrice: 1000n, expiresAt, nativeSale: true, saleReviewThresholdBps: 8000n,
+    cancellation: [5n, account, 1n, 1700000000n, expiresAt, 3n, 2n, 51n, 1n, 10n, false, false] });
+  const snapshot = await readGovernanceSnapshot(provider, directOptions);
+  assert.equal(snapshot.nativeFirstoSale.enabled, true); assert.equal(snapshot.nativeFirstoSale.active, true);
+  assert.equal(snapshot.nativeFirstoSale.orderHash, digest); assert.equal(snapshot.saleReviewThresholdBps, 8000n);
+  assert.equal(snapshot.delisting.id, 5n); assert.equal(snapshot.delisting.canExecute, true);
+  assert.equal(snapshot.delisting.requiredYesCount, 2n); assert.equal(snapshot.delisting.requiredYesShares, 51n);
+  assert.equal(snapshot.delisting.noCount, 1n); assert.equal(snapshot.delisting.noShares, 10n);
+  const getter = calls.find(input => input.params[0].data === nativeGovernanceViews.encodeFunctionData('delistingProposal', [0n]));
+  assert.equal(getter.params[0].from, account); assert(calls.every(input => input.method === 'eth_call'));
+  const prepared = governanceAction(snapshot, account, { kind: 'delist', delistAction: '2', cancellationId: '5',
+    expectedListedProposalId: '1', support: false });
+  assert.equal(prepared.transaction.value, '0x0'); assert.deepEqual([...nativeGovernanceViews.parseTransaction(prepared.transaction).args], [2n, 5n, 1n, false]);
+});
+
+test('downlisting requires both strict majorities and rejects duplicate votes, changed listings and completed sales', async () => {
+  const read = (votes, more = {}) => readGovernanceSnapshot(directRpc({ state: 3n,
+    proposals: [proposal({ price: 1000n, executed: true })], listedId: 1n, salePrice: 1000n,
+    expiresAt: 1700000200n, nativeSale: true,
+    cancellation: [5n, account, 1n, 1700000000n, 1700000200n, 4n, ...votes, false, false], ...more }).provider, directOptions);
+  const action = { kind: 'delist', delistAction: '2', cancellationId: '5', expectedListedProposalId: '1', support: false };
+  const halfCount = await read([2n, 51n, 1n, 10n]); assert.equal(halfCount.delisting.passed, false);
+  assert.throws(() => governanceAction(halfCount, account, action), /严格过半/);
+  const halfShares = await read([3n, 50n, 0n, 0n]); assert.equal(halfShares.delisting.passed, false);
+  assert.throws(() => governanceAction(halfShares, account, action), /严格过半/);
+  const passed = await read([3n, 51n, 0n, 0n]);
+  assert.throws(() => governanceAction(passed, account, { ...action, expectedListedProposalId: '2' }), /挂牌提案已变化/);
+  assert.throws(() => governanceAction(passed, account, { ...action, cancellationId: '4' }), /挂牌已变化/);
+  assert.throws(() => governanceAction({ ...passed, state: 4n }, account, action), /已成交/);
+  assert.throws(() => governanceAction({ ...passed, timestamp: passed.expiresAt }, account, action), /到期/);
+  assert.throws(() => governanceAction({ ...passed, delisting: { ...passed.delisting, canVote: false, hasVoted: true } },
+    account, { ...action, delistAction: '1', support: true }), /已投票/);
+});
+
+test('an empty downlisting round only permits held members to propose zero-id and can expire normally', async () => {
+  const snapshot = await readGovernanceSnapshot(directRpc({ state: 3n, nativeSale: true,
+    proposals: [proposal({ price: 1000n, executed: true })], listedId: 1n, salePrice: 1000n,
+    expiresAt: 1700000200n }).provider, directOptions);
+  assert.equal(snapshot.delisting.canPropose, true);
+  const action = { kind: 'delist', delistAction: '0', cancellationId: '0', expectedListedProposalId: '1', support: false };
+  assert.deepEqual([...nativeGovernanceViews.parseTransaction(governanceAction(snapshot, account, action).transaction).args], [0n, 0n, 1n, false]);
+  assert.throws(() => governanceAction(snapshot, account, { ...action, cancellationId: '1' }), /不能发起/);
+  assert.throws(() => governanceAction({ ...snapshot, delisting: { ...snapshot.delisting, canPropose: false } }, account, action), /不能发起/);
+  const expired = { ...snapshot, timestamp: snapshot.expiresAt };
+  assert.equal(governanceAction(expired, account, { kind: 'cancelExpired' }).quote.action, 'cancelExpired');
+});
+
+test('native publication uses only a same-site fixed GET and exact deployment, order and fresh official-book evidence', async () => {
+  const now=1700000100000, config={origin:'https://test.example',indexBaseUrl:'https://test.example/api/chain-index',factory,testProfile:true};
+  const reply={schemaVersion:1,chainId:56,profile:'full-test',factory,exchange:FIRSTO_SIGNED_EXCHANGE,
+    enabled:true,stale:false,updatedAt:new Date(now).toISOString(),
+    item:{pool,status:'published',askHash:digest,verifiedInOfficialBook:true,priceWei:'40000000000000000'}};
+  const requests=[];
+  const read=value=>fetchNativeFirstoPublication(config,pool,digest,{now:()=>now,
+    fetcher:async(url,options)=>{requests.push({url,options});return new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});}});
+  assert.equal((await read(reply)).item.status,'published');assert.equal(requests.length,1);
+  assert.equal(requests[0].options.method,'GET');assert.equal(requests[0].options.body,undefined);
+  assert.equal(new URL(requests[0].url).pathname,`/api/chain-index/v1/display/firsto-ask/${pool}`);
+  for(const change of [{factory:account},{chainId:97},{profile:'formal'},{exchange:market},
+    {item:{...reply.item,pool:account}},{item:{...reply.item,askHash:blockHash}},
+    {item:{...reply.item,verifiedInOfficialBook:false}}])await assert.rejects(read({...reply,...change}));
+  assert.equal((await read({...reply,updatedAt:new Date(now-90001).toISOString()})).stale,true);
+  assert.equal((await read({...reply,item:{...reply.item,status:'publication-accepted',verifiedInOfficialBook:false}})).item.status,'publication-accepted');
+  await assert.rejects(fetchNativeFirstoPublication({...config,indexBaseUrl:'https://other.example/api/chain-index'},pool,digest,
+    {fetcher:()=>assert.fail('Foreign origins must fail before GET')}));
 });
 
 function directRpc(options = {}) {

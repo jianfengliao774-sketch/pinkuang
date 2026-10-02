@@ -11,6 +11,7 @@ import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 import {PoolRewardState} from "./PoolRewardState.sol";
 import {PoolSaleState} from "./PoolSaleState.sol";
 import {FirstoSaleState} from "./FirstoSaleState.sol";
+import {IFirstoSignedAskExchange} from "./interfaces/IFirstoExchange.sol";
 import {RewardAccounting} from "./libraries/RewardAccounting.sol";
 import {FirstoSale} from "./libraries/FirstoSale.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
@@ -22,10 +23,6 @@ import {SaleSettlement} from "./libraries/SaleSettlement.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
 import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
-
-interface IPoolTreasuryTimelock {
-    function timelock() external view returns (address);
-}
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
@@ -181,15 +178,7 @@ contract PoolVault is
     }
 
     function onERC721Received(address operator, address from, uint256 id, bytes calldata) external returns (bytes4) {
-        VaultStorage storage s = _vaultStorage();
-        if (
-            s.state != State.Funded || s.expectedNftOperator == address(0) || s.nftReceived
-                || msg.sender != s.params.circuits || id != s.params.circuitId || from != s.expectedNftSeller
-                || operator != s.expectedNftOperator
-        ) revert UnexpectedNft();
-        s.nftReceived = true;
-        s.expectedNftOperator = address(0); // Consume the single permitted callback.
-        return IERC721Receiver.onERC721Received.selector;
+        return FirstoSale.nftReceipt(_vaultStorage(), operator, from, id);
     }
 
     function _pendingPurchaseSurplus(VaultStorage storage s, address member) private view returns (uint256) {
@@ -234,9 +223,7 @@ contract PoolVault is
 
     /// @dev Also used by the later controlled sale, with strict settlement required.
     function _harvest(bool finalHandover) internal returns (uint256 gross, uint256 fee, uint256 burned, uint256 net) {
-        VaultStorage storage s = _vaultStorage();
-        MiningOperations.claimReward(s.params.circuits, s.params.circuitId, finalHandover);
-        (gross, fee, burned, net) = RewardAccounting.account(_rewardStorage(), BEM, s.treasury);
+        return FirstoSale.harvest(_vaultStorage(), _rewardStorage(), finalHandover);
     }
 
     /// @notice Pays the caller's booked BEM directly to the caller, with no cooldown.
@@ -259,7 +246,9 @@ contract PoolVault is
         return SaleGovernance.propose(
             _saleStorage(),
             s.memberHistory,
-            SaleGovernance.ProposalInput(s.activatedAt, balanceOf(msg.sender), price, refPrice, refAt)
+            SaleGovernance.ProposalInput(
+                FirstoSale.prepareProposal(_saleStorage(), s.activatedAt), balanceOf(msg.sender), price, refPrice, refAt
+            )
         );
     }
 
@@ -283,13 +272,45 @@ contract PoolVault is
         if (s.state != State.Active) revert WrongState();
         SaleGovernance.execute(_saleStorage(), proposalId, s.purchaseCost, s.factory);
         s.state = State.Listed;
+        _harvest(true);
+        FirstoSale.open(s, _saleStorage());
     }
 
     function cancelExpired() external nonReentrant {
-        VaultStorage storage s = _vaultStorage();
-        if (s.state != State.Listed) revert WrongState();
-        SaleGovernance.cancel(_saleStorage());
-        s.state = State.Active;
+        FirstoSale.cancelExpired(_vaultStorage(), _saleStorage());
+    }
+
+    /// @notice 0 opens, 1 votes, 2 executes a dual-majority cancellation bound to this listing.
+    function delist(uint8 action, uint256 cancellationId, uint256 expectedListedProposalId, bool support)
+        external
+        nonReentrant
+        returns (uint256)
+    {
+        return FirstoSale.delist(
+            _vaultStorage(), _saleStorage(), action, cancellationId, expectedListedProposalId, support
+        );
+    }
+
+    function delistingProposal(uint256 id)
+        external
+        view
+        returns (
+            uint256 cancellationId,
+            address proposer,
+            uint256 listedProposalId_,
+            uint48 snapshotTs,
+            uint64 expiresAt_,
+            uint256 snapshotMemberCount,
+            uint256 yesCount,
+            uint256 yesShares,
+            uint256 noCount,
+            uint256 noShares,
+            bool executed,
+            bool voted
+        )
+    {
+        bytes memory encoded = FirstoSale.delistingEncoded(id);
+        assembly { return(add(encoded, 32), mload(encoded)) }
     }
 
     /// @notice Legacy direct venue is disabled; approved NFT sales now execute through Firsto atomically.
@@ -316,11 +337,37 @@ contract PoolVault is
 
     /// @notice Only the exact Firsto order in the current guarded transaction can pass.
     function isValidSignature(bytes32 orderHash, bytes calldata) external view returns (bytes4) {
-        return FirstoSale.isValidSignature(orderHash);
+        return FirstoSale.isValidSignature(_vaultStorage(), _saleStorage(), orderHash);
     }
 
     function controlledFirstoSaleVersion() external pure returns (uint8) {
         return 1;
+    }
+
+    function nativeFirstoSaleVersion() external pure returns (uint8) {
+        return 1;
+    }
+
+    function nativeFirstoAsk()
+        external
+        view
+        returns (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active)
+    {
+        // All tuple encoding lives in the linked library to keep this Vault
+        // below EIP-170. Its fixed return tuple is the public ABI declared here.
+        bytes memory encoded = FirstoSale.nativeAskEncoded(_vaultStorage(), _saleStorage());
+        assembly { return(add(encoded, 32), mload(encoded)) }
+    }
+
+    /// @notice Enables an already-approved historical listing without changing its sale terms.
+    function enableNativeFirstoSale(uint256 proposalId, uint256 price, uint16 feeBps, uint256 feeEpoch)
+        external
+        nonReentrant
+    {
+        _harvest(true);
+        FirstoSale.openExpected(
+            _vaultStorage(), _saleStorage(), FirstoSale.Confirmation(proposalId, price, feeBps, feeEpoch)
+        );
     }
 
     /// @notice Reserved for a future verified adapter. Controlled sales settle atomically above.
@@ -405,9 +452,8 @@ contract PoolVault is
     }
 
     function getProposal(uint256 proposalId) external view returns (Proposal memory) {
-        Proposal storage p = _saleStorage().proposals[proposalId];
-        if (p.proposer == address(0)) revert InvalidProposal();
-        return p;
+        bytes memory encoded = SaleSettlement.proposalEncoded(_saleStorage(), proposalId);
+        assembly { return(add(encoded, 32), mload(encoded)) }
     }
 
     function hasVoted(uint256 proposalId, address member) external view returns (bool) {
@@ -415,7 +461,7 @@ contract PoolVault is
     }
 
     function lastProposed(address member) external view returns (uint64) {
-        return _saleStorage().lastProposed[member];
+        return FirstoSale.lastProposed(_saleStorage(), member);
     }
 
     function activeProposalId() external view returns (uint256) {
@@ -549,28 +595,7 @@ contract PoolVault is
 
     function _update(address from, address to, uint256 amount) internal override {
         VaultStorage storage s = _vaultStorage();
-        // Neither contract can manage a member's shares, votes or pull-payment rights.
-        // Apply to minting too, so a future subscription entry point cannot bypass the guard.
-        if (to == address(this) || to == s.factory) revert InvalidShareRecipient();
-        if (from != address(0) && to != address(0)) {
-            if (s.state != State.Active) revert WrongState();
-            if (SaleGovernance.tradingFrozen(_saleStorage())) revert ProposalActive();
-            address market = IPoolFactoryRoles(s.factory).shareMarket();
-            // Register before enabling transfers, so the market can never become a voting member.
-            if (market == address(0)) revert WrongState();
-            if (to == market) revert MarketCannotHoldShares();
-            _requireShareQuantity(amount);
-            if (amount > balanceOf(from) - s.lockedShares[from]) revert InsufficientUnlockedShares();
-            // A failed ordinary harvest must not shift unclaimed old income to the new owner.
-            _harvest(true);
-            _settleRewards(from);
-            if (to != from) _settleRewards(to);
-        } else if (s.state != State.Funding) {
-            revert WrongState();
-        }
-        // Before changing balances, permanently assign acquisition-time BNB to the old holders.
-        if (from != address(0)) _materializePurchaseSurplus(s, from);
-        if (to != address(0)) _materializePurchaseSurplus(s, to);
+        FirstoSale.beforeShareUpdate(s, _saleStorage(), _rewardStorage(), from, to, amount);
         super._update(from, to, amount);
         if ((from != address(0) && balanceOf(from) > maxShares) || (to != address(0) && balanceOf(to) > maxShares)) {
             revert ShareOutOfRange();
@@ -630,7 +655,8 @@ contract PoolVault is
     }
 
     function params() external view returns (PoolParams memory) {
-        return _vaultStorage().params;
+        bytes memory encoded = FirstoSale.paramsEncoded(_vaultStorage());
+        assembly { return(add(encoded, 32), mload(encoded)) }
     }
 
     function factory() external view returns (address) {
@@ -645,18 +671,7 @@ contract PoolVault is
     /// treasury remain its claimable balance and are never reassigned.
     /// @dev Existing pools use the Factory's 48-hour Timelock, not its owner or operator.
     function migrateTreasury(address expectedOld, address next) external nonReentrant {
-        if (msg.sender != IPoolTreasuryTimelock(OFFICIAL_FACTORY).timelock()) revert Unauthorized();
-        VaultStorage storage s = _vaultStorage();
-        if (s.factory != OFFICIAL_FACTORY || next == address(0) || next == expectedOld || s.treasury != expectedOld) {
-            revert InvalidParameters();
-        }
-        if (s.state == State.Active || s.state == State.Listed) {
-            // Settle every pending mining reward before switching the recipient.
-            // A failed or incomplete protocol claim leaves the old treasury intact.
-            _harvest(true);
-        }
-        s.treasury = next;
-        emit TreasuryMigrated(expectedOld, next);
+        FirstoSale.migrateTreasury(_vaultStorage(), _rewardStorage(), OFFICIAL_FACTORY, expectedOld, next);
     }
 
     function unitPriceWei() external view returns (uint256) {
@@ -677,17 +692,7 @@ contract PoolVault is
     }
 
     function totalBnbOwed() external view returns (uint256) {
-        VaultStorage storage s = _vaultStorage();
-        uint256 pendingRemainder = 0;
-        // The exact purchase tail is claimable only by the original sole
-        // holder of all 100 shares. Split pools leave it unallocated.
-        if (s.surplusRemainder != 0 && s.activeMembers.length == 1) {
-            address member = s.activeMembers[0];
-            if (balanceOf(member) == TOTAL_SHARES && !s.surplusSettled[member]) {
-                pendingRemainder = s.surplusRemainder;
-            }
-        }
-        return s.totalBnbOwed + s.surplusOutstandingWei + pendingRemainder + SaleSettlement.outstanding(_saleStorage());
+        return SaleSettlement.totalOwed(_vaultStorage(), _saleStorage());
     }
 
     function refundsRecorded() external view returns (bool) {
@@ -739,6 +744,14 @@ contract PoolVault is
     }
 
     receive() external payable {
-        FirstoSale.receivePayment();
+        // The controlled path already holds this same guard. Its receive window
+        // is restricted to one exact exchange payment. Native payouts acquire
+        // the ordinary Vault guard before any accounting or outgoing token call.
+        if (_reentrancyGuardEntered()) FirstoSale.receivePayment();
+        else _receiveNativeSale();
+    }
+
+    function _receiveNativeSale() private nonReentrant {
+        FirstoSale.receiveNative(_vaultStorage(), _saleStorage(), _rewardStorage());
     }
 }

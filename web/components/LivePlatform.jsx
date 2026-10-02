@@ -3150,7 +3150,7 @@ export default function LivePlatform() {
                         >
                           {L("在本站购买整机", "Buy miner here")}
                         </Button>
-                        <small>{L("通过 Firsto 合约成交；Firsto 网站暂不展示此卖单。", "Settles through the Firsto contract; this listing is not shown on the Firsto website.")}</small>
+                        <small>{L("通过 Firsto 合约完成整机过户；同一挂单只能成交一次。", "The Firsto contract transfers the miner. Each listing can settle only once.")}</small>
                       </>
                     ) : (
                       <div className="ownership">
@@ -3958,7 +3958,7 @@ export default function LivePlatform() {
                               <div><span>{L('Firsto 买方手续费', 'Firsto buyer fee')}</span><strong>{amount(prepared.quote.sourceFeeWei)} BNB</strong></div>
                               <div><span>{L('平台费（挂牌价的 1%）', 'Platform fee (1% of sale price)')}</span><strong>{amount(prepared.quote.feeWei)} BNB</strong></div>
                               <div><span>{L('持有人可分配卖款', 'Holder sale proceeds')}</span><strong>{amount(prepared.quote.holderNetWei)} BNB</strong></div>
-                              <p>{L('同笔完成收益结清与 Firsto 成交；暂不向 Firsto 外部页面发布挂单。', 'Rewards settle in the same Firsto trade. External Firsto website listings are not enabled.')}</p>
+                              <p>{L('同笔完成收益结清与整机过户。如果该挂单已被其他买家成交，本次购买会整体回退。', 'Rewards and miner ownership settle together. If another buyer has already filled the listing, this purchase reverts in full.')}</p>
                             </>}
                             <div>
                               <span>{modal.kind === 'fill' ? L('总支付（含手续费）', 'Total payment (including fee)') : modal.kind === 'list' ? L("本次钱包支付（另付 Gas）", "Wallet payment (plus Gas)") : L("支付金额", "Payment")}</span>

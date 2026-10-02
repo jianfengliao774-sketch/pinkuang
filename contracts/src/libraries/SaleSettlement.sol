@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "../interfaces/IPoolVault.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
@@ -18,6 +19,16 @@ library SaleSettlement {
     );
     event SaleBudgetRecorded(uint256 indexed proposalId, uint256 amount);
     event SaleCompleted(uint256 gross, uint256 toPlatform, uint256 burnedBem, uint256 toMembers);
+
+    function proposalEncoded(PoolSaleState.SaleStorage storage s, uint256 proposalId)
+        external
+        view
+        returns (bytes memory)
+    {
+        PoolSaleState.Proposal storage p = s.proposals[proposalId];
+        if (p.proposer == address(0)) revert IPoolVault.InvalidProposal();
+        return abi.encode(p);
+    }
 
     function prepareFirsto(
         PoolVaultState.VaultStorage storage v,
@@ -46,6 +57,29 @@ library SaleSettlement {
         emit RewardSettledBeforeTransfer(
             v.params.circuits, v.params.circuitId, address(this), settledBem, s.saleTradeId
         );
+    }
+
+    /// @notice Native Firsto has already delivered the NFT before sending its exact payout.
+    /// @dev The caller validates the exchange, ask, consumed nonce and new NFT owner.
+    /// Shares remain frozen from Listed through Closed. This does not claim Mining
+    /// after transfer, and therefore cannot assign buyer-owned emissions to old holders.
+    function completeNative(
+        PoolVaultState.VaultStorage storage v,
+        PoolSaleState.SaleStorage storage s,
+        address recipient,
+        uint256 gross
+    ) external {
+        PoolSaleState.Proposal storage proposal = s.proposals[s.listedProposalId];
+        if (
+            !proposal.executed || proposal.price != gross || proposal.snapshotTotalShares != TOTAL_SHARES
+                || proposal.yesCount * 2 <= proposal.snapshotMemberCount
+                || proposal.yesShares * 2 <= proposal.snapshotTotalShares
+        ) revert IPoolVault.ProposalNotPassed();
+        address roundingRecipient = _roundingRecipient(v);
+        uint256 fee = _prepare(s, recipient, gross, v.params.circuits, v.params.circuitId, roundingRecipient);
+        v.state = IPoolVault.State.Closed;
+        v.bnbOwed[v.treasury] += fee;
+        v.totalBnbOwed += fee;
     }
 
     function _prepare(
@@ -138,6 +172,27 @@ library SaleSettlement {
     }
 
     function outstanding(PoolSaleState.SaleStorage storage s) external view returns (uint256) {
+        return _outstanding(s);
+    }
+
+    /// @dev Same permanent liabilities, kept with settlement to leave the Vault
+    /// enough runtime space for its new native sale ABI. The self-call is view-only.
+    function totalOwed(PoolVaultState.VaultStorage storage v, PoolSaleState.SaleStorage storage s)
+        external
+        view
+        returns (uint256)
+    {
+        uint256 pendingRemainder = 0;
+        if (v.surplusRemainder != 0 && v.activeMembers.length == 1) {
+            address member = v.activeMembers[0];
+            if (IERC20(address(this)).balanceOf(member) == TOTAL_SHARES && !v.surplusSettled[member]) {
+                pendingRemainder = v.surplusRemainder;
+            }
+        }
+        return v.totalBnbOwed + v.surplusOutstandingWei + pendingRemainder + _outstanding(s);
+    }
+
+    function _outstanding(PoolSaleState.SaleStorage storage s) private view returns (uint256) {
         uint256 legacy = s.legacyBurnBudgetReleased ? s.legacyBonusOutstandingWei : s.burnBudget + s.saleRemainder;
         return s.saleOutstandingWei + legacy;
     }

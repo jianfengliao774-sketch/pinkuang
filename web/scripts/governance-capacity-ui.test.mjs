@@ -13,7 +13,7 @@ const code = (await transform(await readFile(new URL('../components/LiveGovernan
 })).code;
 const turn = () => new Promise(resolve => setImmediate(resolve));
 
-function harness({prepareWait,actionWait,snapshotOverride={}}={}) {
+function harness({prepareWait,actionWait,snapshotOverride={},configOverride={},publicationReader}={}) {
   const slots = [], effects = [], snapshotReads=[], acceptedSnapshots=[]; let position = 0, tree, preparedAction, sends=0;
   let nextReadFails = false, nextActionProblem;
   const ReferenceAction=()=>null;
@@ -26,7 +26,7 @@ function harness({prepareWait,actionWait,snapshotOverride={}}={}) {
         effects.push(() => { previous?.cleanup?.(); slots[at] = { deps, cleanup: fn() }; }); },
   };
   const pool = '0x' + 'aa'.repeat(20), account = '0x' + 'bb'.repeat(20), factory = '0x' + 'cc'.repeat(20);
-  const config = {factory, stage:'fresh-active', displayOnly:true, testProfile:true};
+  const config = {factory, stage:'fresh-active', displayOnly:true, testProfile:true,...configOverride};
   const snapshot = {pool, account, factory, stage:config.stage, displayOnly:true, state:2n, timestamp:1700000000n,
     activatedAt:1600000000n, shares:100n, snapshotShares:0n, purchaseCost:40400000000000000n,
     candidates:[], activeProposalId:0n, listedProposalId:0n, saleReference:{available:false},...snapshotOverride};
@@ -36,12 +36,13 @@ function harness({prepareWait,actionWait,snapshotOverride={}}={}) {
     '../app/live-governance.css': {},
     './FirstoSaleReferenceAction': {__esModule:true,default:ReferenceAction},
     '../lib/live-governance.mjs': {
+      fetchNativeFirstoPublication:publicationReader,
       readGovernanceSnapshot:async (_provider,options) => {snapshotReads.push(options);
         if(nextReadFails){nextReadFails=false;throw new Error('HTTP 502');}return snapshot;},
       proposalReferenceRecord:() => ({refPriceWei:snapshot.purchaseCost.toString(),refAt:snapshot.activatedAt.toString()}),
       prepareGovernanceAction:async (_provider,{action}) => { preparedAction=action;
         if(prepareWait)await prepareWait;
-        return {snapshot,quote:{priceWei:BigInt(action.priceWei),paymentWei:0n}}; },
+        return {snapshot,quote:{priceWei:BigInt(action.priceWei ?? snapshot.salePrice ?? 0n),paymentWei:0n}}; },
     },
   };
   const exported={exports:{}};
@@ -68,6 +69,8 @@ function harness({prepareWait,actionWait,snapshotOverride={}}={}) {
   render();
   return {settle,edit,preview,input,render,updateCapacity(quote){props={...props,capacityQuote:quote};render();},
     allNodes(){return nodes(tree);},failNextRead(){nextReadFails=true;},failNextAction(problem){nextActionProblem=problem;},
+    async click(label){const button=nodes(tree).find(node=>node.type==='button'&&node.props.children===label);
+      assert(button&&!button.props.disabled);await button.props.onClick();await settle();return preparedAction;},
     hasPreview(){return nodes(tree).some(node=>node.props?.role==='dialog');},
     reference(){return nodes(tree).find(node=>node.type===ReferenceAction);},
     get props(){return props;},get snapshotReads(){return snapshotReads;},get acceptedSnapshots(){return acceptedSnapshots;},
@@ -230,4 +233,76 @@ test('only successful current business snapshots reach the parent and absent rev
     assert.equal(ui.acceptedSnapshots[1],ui.acceptedSnapshots[0],'The callback receives the actual prepared snapshot object.');
     assert.equal(ui.sends,0,'Parent display updates cannot submit a transaction.');
   }finally{ui.dispose();}
+});
+
+const nativeListing = overrides => ({ state:3n, listedProposalId:1n, salePrice:40000000000000000n,
+  expiresAt:1700001000n, firstoSale:{available:true}, saleReviewThresholdBps:8000n,
+  nativeFirstoSale:{enabled:true,active:true,orderHash:'0x'+'ab'.repeat(32)},
+  delisting:{available:true,id:0n,canPropose:true}, ...overrides });
+
+test('starting a downlisting vote uses the shared centered confirmation and does not send until accepted', async () => {
+  const ui=harness({snapshotOverride:nativeListing()});try {
+    await ui.settle();const action=await ui.click('发起下架投票');
+    assert.deepEqual(action,{kind:'delist',delistAction:'0',cancellationId:'0',expectedListedProposalId:'1',support:false});
+    assert.equal(ui.hasPreview(),true);assert.equal(ui.sends,0);
+    const dialog=ui.allNodes().find(node=>node.props?.role==='dialog');assert.equal(dialog.props['aria-modal'],'true');
+    await ui.submit();assert.equal(ui.sends,1);assert.equal(ui.hasPreview(),false);
+  }finally{ui.dispose();}
+});
+
+test('downlisting vote choices and execution stay exact while both strict thresholds are shown', async () => {
+  const cancellation={available:true,id:5n,listedProposalId:1n,expiresAt:1700001000n,
+    yesShares:51n,requiredYesShares:51n,yesCount:2n,requiredYesCount:2n,noShares:10n,noCount:1n,
+    canVote:true,canExecute:true,passed:true,executed:false,expired:false,hasVoted:false};
+  const ui=harness({snapshotOverride:nativeListing({delisting:cancellation})});try {
+    await ui.settle();const vote=await ui.click('反对下架');
+    assert.deepEqual(vote,{kind:'delist',delistAction:'1',cancellationId:'5',expectedListedProposalId:'1',support:false});
+    await ui.click('返回');assert.equal(ui.hasPreview(),false);
+    const execution=await ui.click('执行下架');
+    assert.deepEqual(execution,{kind:'delist',delistAction:'2',cancellationId:'5',expectedListedProposalId:'1',support:false});
+    assert.equal(ui.sends,0);
+    const labels=ui.allNodes().filter(node=>node.type==='span').map(node=>node.props.children);
+    assert(labels.includes('反对份额')&&labels.includes('反对人数'));
+  }finally{ui.dispose();}
+});
+
+test('only a fresh exact official acknowledgement can label the current native ask published', async () => {
+  const pool='0x'+'aa'.repeat(20),exact='0x'+'ab'.repeat(32);
+  for(const [askHash,stale,status,published] of [[exact,false,'published',true],
+    ['0x'+'cd'.repeat(32),false,'published',false],[exact,true,'published',false],[exact,false,'pending-approval',false]]) {
+    const ui=harness({snapshotOverride:nativeListing({nativePublication:{stale,item:{pool,askHash,status,verifiedInOfficialBook:true}}})});try {
+      await ui.settle();const nodes=ui.allNodes();
+      assert.equal(nodes.some(node=>node.type==='p'&&node.props.children==='Firsto 已确认本卖单上架。'),published);
+      assert(nodes.some(node=>node.type==='h3'&&node.props.children==='Firsto 同步整机挂牌'));
+    }finally{ui.dispose();}
+  }
+});
+
+test('a sold miner offers no downlisting action and an expired listing offers expiry cleanup', async () => {
+  const sold=harness({snapshotOverride:nativeListing({state:4n})});try {
+    await sold.settle();assert.equal(sold.allNodes().some(node=>node.type==='button'&&node.props.children==='发起下架投票'),false);
+  }finally{sold.dispose();}
+  const expired=harness({snapshotOverride:nativeListing({expiresAt:1699999999n,delisting:{available:true,id:0n,canPropose:false}})});try {
+    await expired.settle();const action=await expired.click('下架过期卖单');assert.equal(action.kind,'cancelExpired');assert.equal(expired.sends,0);
+  }finally{expired.dispose();}
+});
+
+test('background publication GET enriches the current snapshot without blocking holdings or requesting a wallet', async () => {
+  let reads=0;
+  const pool='0x'+'aa'.repeat(20),askHash='0x'+'ab'.repeat(32);
+  const reply={stale:false,item:{pool,askHash,status:'published',verifiedInOfficialBook:true}};
+  const ui=harness({snapshotOverride:nativeListing(),configOverride:{origin:'https://test.example',indexBaseUrl:'https://test.example/api/chain-index'},
+    publicationReader:async(_config,actualPool,actualHash)=>{reads++;assert.equal(actualPool,pool);assert.equal(actualHash,askHash);return reply;}});try {
+    await ui.settle();assert.equal(reads,1);assert.equal(ui.sends,0);
+    assert.equal(ui.acceptedSnapshots.at(-1).nativePublication,reply);
+    assert.equal(ui.acceptedSnapshots.at(-1).shares,100n);
+    assert(ui.allNodes().some(node=>node.type==='p'&&node.props.children==='Firsto 已确认本卖单上架。'));
+  }finally{ui.dispose();}
+  const failed=harness({snapshotOverride:nativeListing(),configOverride:{origin:'https://test.example',indexBaseUrl:'https://test.example/api/chain-index'},
+    publicationReader:async()=>{throw new Error('HTTP502');}});try {
+    await failed.settle();assert.equal(failed.sends,0);
+    const propose=failed.allNodes().find(node=>node.type==='button'&&node.props.children==='发起下架投票');
+    assert.equal(propose.props.disabled,false);
+    assert(failed.allNodes().some(node=>node.type==='p'&&node.props.children==='Firsto 发布状态暂不可用，可继续查看持仓和投票。'));
+  }finally{failed.dispose();}
 });

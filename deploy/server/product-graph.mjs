@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof, evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
 import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared/fresh-sale-policy-proof.mjs';
+import { validateFreshNativeSaleCatalog, verifyFreshNativeSale } from '../shared/fresh-native-sale-proof.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
   integratedUpgradeDeploymentOrder, validateIntegratedPostCodeGraphAgainstChain,
@@ -66,7 +67,8 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   productActivationPath, productActivation, expectedGasWallet,
-  salePolicyCatalogPath, salePolicyCatalog, salePolicyArtifactPath, salePolicyArtifact }={}) {
+  salePolicyCatalogPath, salePolicyCatalog, salePolicyArtifactPath, salePolicyArtifact,
+  nativeSaleCatalogPath, nativeSaleCatalog, nativeSaleArtifactPath, nativeSaleArtifact }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
   if (record?.schemaVersion === 2) {
@@ -193,11 +195,19 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
       trusted.freshSalePolicy = validateFreshSalePolicyCatalog(salePolicyCatalog ?? load(salePolicyCatalogPath),
         salePolicyArtifact ?? load(salePolicyArtifactPath), trusted);
     }
+    if (nativeSaleCatalog || nativeSaleCatalogPath || nativeSaleArtifact || nativeSaleArtifactPath) {
+      check((nativeSaleCatalog || nativeSaleCatalogPath) && (nativeSaleArtifact || nativeSaleArtifactPath),
+        'Native sale requires both a reviewed local catalog and artifact bundle.');
+      trusted.freshNativeSale=validateFreshNativeSaleCatalog(nativeSaleCatalog ?? load(nativeSaleCatalogPath),
+        nativeSaleArtifact ?? load(nativeSaleArtifactPath),trusted);
+    }
     return trusted;
   }
   // Defensive clone: consumers cannot modify the trusted evidence through a browser record.
   check(!salePolicyCatalog && !salePolicyCatalogPath && !salePolicyArtifact && !salePolicyArtifactPath,
     'Sale policy cannot bypass the original fresh activation evidence.');
+  check(!nativeSaleCatalog && !nativeSaleCatalogPath && !nativeSaleArtifact && !nativeSaleArtifactPath,
+    'Native sale cannot bypass the original fresh activation evidence.');
   return JSON.parse(JSON.stringify({record,bundle}));
 }
 
@@ -308,16 +318,27 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   check(same(factory,a.factory) || budget,'Factory differs from the trusted deployment.');
   const freshAuthority=trusted.freshAuthority
     ? await verifyFreshAuthority(provider,record,bundle,trusted.freshAuthority,block) : null;
-  const salePolicy=await verifyFreshSalePolicy(provider,trusted,block);
+  const nativeSale=await verifyFreshNativeSale(provider,trusted,block);
+  const salePolicy=await verifyFreshSalePolicy(provider,trusted,block,{nativeUpgrade:nativeSale});
   if (salePolicy) a={...a,...salePolicy.replacements,portfolioVaultImplementation:salePolicy.replacements.BudgetPortfolioVault};
+  if (nativeSale) {
+    check(salePolicy && same(salePolicy.replacements.PoolVault,nativeSale.baselinePoolVault),
+      'Native sale did not preserve the complete reviewed 80% graph.');
+    for (const [name,address] of Object.entries(nativeSale.runtimeLinks)) {
+      if (['SaleSettlement','FirstoSale','PoolVault'].includes(name)) continue;
+      check(same(address,salePolicy.runtimeLinks[name]),`Native sale reused an unreviewed library: ${name}.`);
+    }
+    a={...a,...nativeSale.replacements};
+  }
   const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
   const upgradedNames=candidateActive ? integratedUpgradeDeploymentOrder
     : trusted.upgradeRecord ? upgradeNamesForKind(trusted.upgradeRecord.kind) : [];
   const policyNames=salePolicy ? ['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'] : [];
-  const sourceFor=name=>policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
+  const nativeNames=nativeSale ? ['SaleSettlement','FirstoSale','PoolVault'] : [];
+  const sourceFor=name=>nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
   const artifactFor=name=>name==='PoolFactory' && freshFactory ? 'FreshPoolFactory' : artifacts[name] ?? name;
-  const runtimeLinksFor=name=>salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
+  const runtimeLinksFor=name=>nativeNames.includes(name) ? nativeSale.runtimeLinks : salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
     : candidateActive && !upgradedNames.includes(name) ? record.addresses
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisRecord.addresses : a;
   const read=async(name,method,args=[])=>{
@@ -330,13 +351,14 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   await settleReads((integrated ? INTEGRATED_NAMES : NAMES).map(async name=>{
     const code=await provider.getCode(a[name],block.number);
     const policyUpgraded=policyNames.includes(name);
+    const nativeUpgraded=nativeNames.includes(name);
     const upgraded=(candidateActive || trusted.upgradeRecord) && upgradedNames.includes(name);
     // The common proof checked replacement bytes at a finalized block. Compare
     // their complete hash again at the signing block, including immutables;
     // artifact shape matching alone masks constructor immutable values.
     const finalizedCode=candidateActive && upgraded
       ? await provider.getCode(a[name],finalizedProof.blockNumber) : null;
-    check(code!=='0x' && (policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
+    check(code!=='0x' && (nativeUpgraded ? same(keccak256(code),nativeSale.codehash[name]) : policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
       : upgraded || same(keccak256(code),record.verification.code[name].codehash))
       && (!finalizedCode || same(keccak256(code),keccak256(finalizedCode)))
       && runtimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,runtimeLinksFor(name),a[name]),`Reviewed runtime changed: ${name}.`);
@@ -396,6 +418,9 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
       automaticSaleReferenceVersion:salePolicy.automaticSaleReferenceVersion,
       replacements:{...salePolicy.replacements},codehash:{...salePolicy.codehash},
       verifiedBlockNumber:salePolicy.blockNumber,verifiedBlockHash:salePolicy.blockHash}} : {}),
+    ...(nativeSale ? {nativeSaleUpgrade:{version:1,candidateArtifactDigest:nativeSale.candidateArtifactDigest,
+      operationId:nativeSale.operationId,replacements:{...nativeSale.replacements},codehash:{...nativeSale.codehash},
+      verifiedBlockNumber:nativeSale.blockNumber,verifiedBlockHash:nativeSale.blockHash}} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,
       roleMigrationStarted:roleState?.applied?.some(Boolean)===true}} : {}),

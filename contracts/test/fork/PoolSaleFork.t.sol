@@ -15,6 +15,7 @@ import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
 import {PlatformAuthority} from "../../src/PlatformAuthority.sol";
 import {SaleGovernance} from "../../src/libraries/SaleGovernance.sol";
+import {IFirstoSignedAskExchange} from "../../src/interfaces/IFirstoExchange.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "../../src/interfaces/ITapeoutMining.sol";
 import {Addresses} from "../../script/Addresses.sol";
@@ -148,6 +149,89 @@ contract PoolSaleForkTest is Test {
     function test_Fork_ProductionSaleSettlesThenTransfersAndPaysOriginalMembers() public {
         uint256 proposalId = _list();
         _completeAndAssertOriginalRights(proposalId);
+    }
+
+    function test_Fork_NativeFirstoFillClosesOnceAndPostListingRewardsBelongToActualBuyer() public {
+        uint256 proposalId = _list();
+        assertGt(vault.bemAccounted(), 0, "listing first claims and retains original-holder BEM");
+        _advanceOneHour();
+        uint256 pending = MINING.pending(key);
+        assertGt(pending, 0);
+        (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash, bool active) = vault.nativeFirstoAsk();
+        assertTrue(active);
+        assertEq(ask.nonce, proposalId);
+        vm.prank(address(0xA91));
+        assertEq(vault.isValidSignature(orderHash, new bytes(65)), bytes4(0x1626ba7e));
+        Balances memory before = _balances(BUYER);
+        vm.recordLogs();
+        vm.prank(BUYER);
+        IFirstoSignedAskExchange(FIRSTO).fillSignedAsk{value: BUYER_PAYMENT}(ask, new bytes(65), BUYER);
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Closed));
+        assertEq(NFT.ownerOf(TOKEN_ID), BUYER);
+        assertEq(vault.saleBuyer(), BUYER);
+        assertEq(vault.saleProceeds(), SALE_PRICE);
+        assertEq(address(vault).balance - before.vaultBnb, SALE_PRICE);
+        assertEq(before.buyerBnb - BUYER.balance, BUYER_PAYMENT);
+        assertTrue(IFirstoSignedAskExchange(FIRSTO).isSignedAskNonceInvalidated(address(vault), proposalId));
+        assertEq(vault.isValidSignature(orderHash, new bytes(65)), bytes4(0xffffffff));
+        assertEq(BEM.totalSupply(), before.supply, "official fill/transfer performs no automatic Mining claim");
+        assertEq(vault.bemAccounted(), before.accounted);
+        assertEq(BEM.balanceOf(address(vault)), before.vaultBem);
+        assertEq(MINING.pending(key), pending, "post-listing emissions follow the new NFT owner");
+        uint256 transfers;
+        uint256 completions;
+        for (uint256 i; i < entries.length; ++i) {
+            if (entries[i].emitter == address(NFT) && entries[i].topics[0] == TRANSFER_TOPIC) ++transfers;
+            if (entries[i].emitter == address(vault) && entries[i].topics[0] == COMPLETED_TOPIC) ++completions;
+        }
+        assertEq(transfers, 1);
+        assertEq(completions, 1);
+        uint256 buyerBem = BEM.balanceOf(BUYER);
+        MINING.claim(key);
+        assertGe(BEM.balanceOf(BUYER) - buyerBem, pending);
+        assertEq(MINING.pending(key), 0);
+        _assertBnbLiabilities();
+        vm.deal(BUYER, BUYER_PAYMENT);
+        vm.prank(BUYER);
+        vm.expectRevert(IPoolVault.WrongState.selector);
+        vault.completeFirstoSale{value: BUYER_PAYMENT}(proposalId, SALE_PRICE, 100, 1);
+        _withdrawOriginalRights();
+        emit log_named_uint("real native residual BEM paid to buyer (atoms)", BEM.balanceOf(BUYER) - buyerBem);
+    }
+
+    function test_Fork_NativeExpiryRevokesActualFirstoNonceAndImmediatelyReopensSale() public {
+        uint256 oldProposal = _list();
+        (IFirstoSignedAskExchange.SignedAsk memory ask, bytes32 orderHash,) = vault.nativeFirstoAsk();
+        vm.warp(ask.expiry);
+        assertEq(vault.isValidSignature(orderHash, new bytes(65)), bytes4(0xffffffff));
+        vault.cancelExpired();
+        assertEq(NFT.getApproved(TOKEN_ID), address(0));
+        assertTrue(IFirstoSignedAskExchange(FIRSTO).isSignedAskNonceInvalidated(address(vault), oldProposal));
+        assertEq(vault.lastProposed(ALICE), 0);
+        vm.prank(ALICE);
+        uint256 newProposal = vault.propose(SALE_PRICE, 0, 0);
+        assertGt(newProposal, oldProposal);
+        assertEq(vault.activeProposalId(), newProposal);
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
+    }
+
+    function test_Fork_NativeDualMajorityDelistRevokesActualNonceWithoutAnyNewWaiting() public {
+        uint256 oldProposal = _list();
+        vm.prank(ALICE);
+        uint256 id = vault.delist(0, 0, oldProposal, false);
+        vm.prank(ALICE);
+        vault.delist(1, id, oldProposal, true);
+        vm.prank(CAROL);
+        vault.delist(1, id, oldProposal, true);
+        vault.delist(2, id, oldProposal, false);
+        assertEq(NFT.getApproved(TOKEN_ID), address(0));
+        assertTrue(IFirstoSignedAskExchange(FIRSTO).isSignedAskNonceInvalidated(address(vault), oldProposal));
+        assertEq(vault.lastProposed(ALICE), 0);
+        vm.prank(ALICE);
+        uint256 newProposal = vault.propose(SALE_PRICE, 0, 0);
+        assertGt(newProposal, oldProposal);
+        assertEq(vault.activeProposalId(), newProposal);
     }
 
     function test_Fork_SevenDayGateSignedDiscountReviewVoteAndRealFirstoSettlement() public {
@@ -351,9 +435,9 @@ contract PoolSaleForkTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function test_Fork_NoApprovalLetsBuyerOrCircuitMarketBypassControlledSale() public {
+    function test_Fork_OnlyExactFirstoApprovalAndHashPermitNativeSale() public {
         _list();
-        assertEq(NFT.getApproved(TOKEN_ID), address(0));
+        assertEq(NFT.getApproved(TOKEN_ID), FIRSTO);
         assertFalse(NFT.isApprovedForAll(address(vault), Addresses.CIRCUIT_MARKET));
         vm.prank(BUYER);
         vm.expectRevert();

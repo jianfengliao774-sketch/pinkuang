@@ -9,6 +9,15 @@ contract LegacySaleVaultFixture is PoolVault {
     constructor(address factory_) PoolVault(factory_) {}
 
     function fixtureLegacyListing(uint256 price, uint256 yesShares, uint256 yesCount) external {
+        // Rebuild a pre-native listing: the historical implementation had no
+        // persistent SignedAsk authorization. State corruption here must not
+        // be confused with permitted price changes to a modern live ask.
+        bytes32 location =
+            keccak256(abi.encode(uint256(keccak256("tapeout.storage.FirstoSale")) - 1)) & ~bytes32(uint256(0xff));
+        FirstoSaleStorage storage a;
+        assembly { a.slot := location }
+        a.nativeActive = false;
+        a.nativeOrderHash = bytes32(0);
         SaleStorage storage s = _saleStorage();
         require(_vaultStorage().state == State.Listed, "listed fixture");
         s.salePrice = price;
