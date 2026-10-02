@@ -35,6 +35,25 @@ test('configuration uses only fixed operator destinations and existing journal R
   assert.throws(() => liveDataProxyConfiguration({ BEMINE_INDEX_URL: 'http://127.0.0.1:4180?url=http://evil.test' }));
 });
 
+test('public sale reference status proxies only one valid pool without caller query options', async t => {
+  const envelope = { schemaVersion: 1, enabled: false, stale: false, item: { pool: address, status: 'disabled', proposalId: null } };
+  const f = await fixture(t, { upstream: () => json(envelope) });
+  const path = `/api/chain-index/v1/display/sale-reference/${address}`;
+  const response = await f.get(path);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), envelope);
+  assert.deepEqual(f.calls.map(call => [call.url, call.init.method]),
+    [[`http://127.0.0.1:4180/v1/display/sale-reference/${address}`, 'GET']]);
+  for (const invalid of [`${path}?pool=${address}`, `${path}?refresh=true`, `${path}?url=https://attacker.test`]) {
+    assert.equal((await f.get(invalid)).status, 400);
+  }
+  for (const invalid of ['/api/chain-index/v1/display/sale-reference/0x1234',
+    '/api/chain-index/v1/display/sale-reference/not-an-address', `${path}/extra`]) {
+    assert.equal((await f.get(invalid)).status, 404);
+  }
+  assert.equal(f.calls.length, 1, 'invalid requests never reach the read-only status source');
+});
+
 test('only validated fresh Authority fee logs use the fixed index log RPC; other reads retain their destination', async t => {
   const logsRpcUrl = 'https://index-logs.test/key';
   const f = await fixture(t, { logsRpcUrl, feeHistoryLogScope, upstream: (url, init) => {
