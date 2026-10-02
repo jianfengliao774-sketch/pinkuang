@@ -44,6 +44,18 @@ Authority runtime, nonce and Gas ledger. It recorded the 4,082,550,000,000 wei
 fee and archived the reviewed failure without broadcasting a transaction.
 The original private journal backup and cumulative Gas accounting were retained.
 
+After the reviewed worker restart, automatic procurement succeeded in block
+125203464, transaction
+`0xfb84e3c884b579bcb00199d86906eb568293cb6d5fb560fd115dbe61b0882397`.
+The purchase journal recorded BSC-finalized success and no unresolved wallet
+nonce remained. A subsequent read at block 125203699 confirmed pool state 2,
+100 holder shares, NFT ownership by the pool, cost 0.04040 BNB and holder BNB
+credit 0.00404. Official Mining reported an active miner, Task 4 and verified
+weight 1. The NFT was already mining before acquisition and remained active;
+the mining supervisor did not need to send an extra startup transaction.
+The public display API subsequently returned these new values with errorMask 0
+and indexedThrough 125203656, after the procurement block.
+
 The test receipt RPC intermittently returned HTTP 403. Only
 `DEPLOYMENT_JOURNAL_RPC_URL` in the test RPC environment was changed from
 `bsc-dataseed.bnbchain.org` to the successfully checked
