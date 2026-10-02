@@ -93,6 +93,10 @@ export function authorityIpcConfiguration(env = process.env) {
     rpcUrl: env.DEPLOYMENT_JOURNAL_RPC_URL, expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
+    salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
+    salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
+    nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
+    nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH, freshProductRequired: env.BEMINE_FRESH_PRODUCT_ENABLED === '1' };
 }
 
@@ -275,9 +279,11 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
   const key = keyBytes(config.key);
   const store = dependencies.store ?? new JournalStore(config.dbPath);
   const transport = dependencies.transport ?? httpRequest;
-  const trusted = dependencies.verifyAdministrator ? null : productGraphConfiguration({
+  const trusted = dependencies.verifyAdministrator ? null : (dependencies.configuration ?? productGraphConfiguration)({
     recordPath: config.recordPath, bundlePath: config.bundlePath,
     productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
+    salePolicyCatalogPath: config.salePolicyCatalogPath, salePolicyArtifactPath: config.salePolicyArtifactPath,
+    nativeSaleCatalogPath: config.nativeSaleCatalogPath, nativeSaleArtifactPath: config.nativeSaleArtifactPath,
   });
   if (!dependencies.verifyAdministrator && !trusted?.freshAuthority)
     throw new Error('Authority IPC requires reviewed fresh Authority evidence.');

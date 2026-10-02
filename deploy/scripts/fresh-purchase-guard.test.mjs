@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { KEEPER_STATE_ROOT } from './purchase-keeper.mjs';
 import { configureFreshPurchase, verifyFreshPurchaseGraph } from './fresh-purchase-guard.mjs';
 import { parseSupervisorArguments } from './purchase-supervisor.mjs';
+import { parseSupervisorArguments as parseMiningArguments } from './mining-supervisor.mjs';
 import { ORIGINAL_GAS_WALLET } from '../shared/original-gas-wallet.mjs';
 
 const factory = '0x1111111111111111111111111111111111111111';
@@ -28,6 +29,38 @@ const trusted = {
   freshAuthority: { authority: { address: authority, gasWallet } },
 };
 const dependencies = { readPublicAddress: () => gasWallet, configuration: () => trusted };
+
+test('fresh purchase and mining forward preserved policy and native-sale evidence into the graph guard', () => {
+  const paths = {
+    salePolicyCatalogPath: '/srv/reviewed/sale-policy-catalog.json',
+    salePolicyArtifactPath: '/srv/reviewed/sale-policy-artifacts.json',
+    nativeSaleCatalogPath: '/srv/reviewed/native-sale-catalog.json',
+    nativeSaleArtifactPath: '/srv/reviewed/native-sale-artifacts.json',
+  };
+  const configuredEnv = { ...env,
+    BEMINE_SALE_POLICY_CATALOG_PATH: paths.salePolicyCatalogPath,
+    BEMINE_SALE_POLICY_ARTIFACT_PATH: paths.salePolicyArtifactPath,
+    BEMINE_NATIVE_SALE_CATALOG_PATH: paths.nativeSaleCatalogPath,
+    BEMINE_NATIVE_SALE_ARTIFACT_PATH: paths.nativeSaleArtifactPath,
+  };
+  const mining = parseMiningArguments(['--factory', factory, '--authority', authority,
+    '--journal-dir', journal, '--fresh-graph', '--send']);
+  for (const workerOptions of [options(), mining]) {
+    let captured;
+    const nativeEvidence = { reviewed: true };
+    const guard = configureFreshPurchase(workerOptions, configuredEnv, {
+      ...dependencies, configuration(input) {
+        captured = input;
+        return { ...trusted, freshNativeSale: nativeEvidence };
+      },
+    });
+    assert.deepEqual(Object.fromEntries(Object.keys(paths).map(key => [key, captured[key]])), paths);
+    assert.equal(guard.trusted.freshNativeSale, nativeEvidence);
+    assert.throws(() => configureFreshPurchase(workerOptions, configuredEnv, {
+      ...dependencies, configuration() { throw new Error('Reviewed native-sale configuration rejected.'); },
+    }), /Reviewed native-sale configuration rejected/);
+  }
+});
 
 test('fresh auto purchase is opt-in, credential-bound and uses separate journals', () => {
   assert.equal(configureFreshPurchase(options(), env, dependencies).gasWallet, gasWallet);
