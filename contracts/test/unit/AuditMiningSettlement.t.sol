@@ -61,7 +61,9 @@ contract AuditMiningSettlementTest is SaleTestBase {
             vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
             pool.transfer(DAVE, 1);
         }
+        mining.setStatus(key, 1);
         _listSale(SALE_PRICE);
+        mining.setStatus(key, 255);
         vm.deal(NFT_BUYER, SALE_PRICE);
         vm.prank(NFT_BUYER);
         vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
@@ -76,7 +78,9 @@ contract AuditMiningSettlementTest is SaleTestBase {
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);
         pool.transfer(DAVE, 1);
+        mining.setClaimFault(0);
         _listSale(SALE_PRICE);
+        mining.setClaimFault(1);
         vm.deal(NFT_BUYER, SALE_PRICE);
         vm.prank(NFT_BUYER);
         vm.expectRevert(IPoolVault.FinalRewardSettlementFailed.selector);

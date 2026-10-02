@@ -41,6 +41,10 @@ contract FirstoSignedAskMock is IFirstoSignedAskExchange {
         isSignedAskNonceInvalidated[maker][nonce] = true;
     }
 
+    function cancelSignedAskNonce(uint256 nonce) external {
+        isSignedAskNonceInvalidated[msg.sender][nonce] = true;
+    }
+
     function setReentry(bytes calldata data) external {
         reentryData = data;
     }

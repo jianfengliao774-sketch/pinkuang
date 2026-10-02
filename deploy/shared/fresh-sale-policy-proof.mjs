@@ -1,5 +1,6 @@
 import { AbiCoder, Interface, ZeroAddress, ZeroHash, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { buildDigest, evidenceDigest, settleReads } from './firsto-upgrade-proof.mjs';
+import { nativeSalePolicyBaseline } from './fresh-native-sale-proof.mjs';
 
 export const FRESH_SALE_POLICY_KIND = 'fresh-sale-policy-upgrade-v1';
 const names = ['SaleGovernance', 'PoolVault', 'BudgetPortfolioVault', 'ShareMarket'];
@@ -87,7 +88,7 @@ function exactRuntime(artifact, observed, links, address) {
 }
 
 /** Detect the complete fixed batch once, then reuse its canonical proof; ordinary graph reads check current code hashes. */
-export async function verifyFreshSalePolicy(provider, trusted, block) {
+export async function verifyFreshSalePolicy(provider, trusted, block, { nativeUpgrade = null } = {}) {
   const policy = trusted.freshSalePolicy;
   if (!policy) return null;
   const { catalog, bundle } = policy, a = trusted.record.addresses, tag = '0x' + block.number.toString(16);
@@ -98,6 +99,7 @@ export async function verifyFreshSalePolicy(provider, trusted, block) {
       need(/^0x0{24}[\da-f]{40}$/i.test(slot), 'Sale policy market implementation slot is invalid.');
       return getAddress('0x' + slot.slice(-40));
     })]);
+  if (nativeUpgrade) current[0] = getAddress(nativeSalePolicyBaseline(nativeUpgrade));
   const old = ['PoolVault', 'BudgetPortfolioVault', 'ShareMarket'].map((name, i) => same(current[i], a[name]));
   if (old.every(Boolean)) return null;
   need(old.every(value => !value), 'Sale policy upgrade is incomplete; all three targets must change in one batch.');

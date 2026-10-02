@@ -11,6 +11,7 @@ const saleViews = new Interface([
 ]);
 import { abi } from '../lib/chain-client.mjs';
 import { shareQuantity, exactPrice, prepareProductAction } from '../lib/live-actions.mjs';
+import { nativeGovernanceViews } from '../lib/live-governance.mjs';
 
 const addr = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
 const factory = addr(1), lens = addr(2), market = addr(3), pool = addr(4), account = addr(5), seller = addr(6), collection = addr(7);
@@ -18,6 +19,37 @@ const now = 2_000_000n, day = 86400n, week = day * 7n, blockHash = `0x${'ab'.rep
 const config = { status: 'ready', chainId: 56, factory, lens, shareMarket: market,
   stage: 'fresh-active' };
 const allPool = (1n << 17n) - 1n, allGov = (1n << 14n) - 1n;
+
+test('direct downlisting actions bind the current listing and never send BNB or a wallet request', async () => {
+  for (const [operation, cancellationId, support] of [['0','0',false],['1','5',true],['1','5',false],['2','5',false]]) {
+    const calls=[];
+    const provider={async request(input){calls.push(input);assert.equal(input.method,'eth_call');assert.equal(input.params[1],'latest');
+      const decoded=abi.PoolVault.parseTransaction(input.params[0]);assert(['state','listedProposalId'].includes(decoded.name));
+      return abi.PoolVault.encodeFunctionResult(decoded.name,[decoded.name==='state'?3n:1n]);}};
+    const result=await prepareProductAction({provider,config:{...config,displayOnly:true},account,pool,kind:'delist',
+      delistAction:operation,cancellationId,expectedListedProposalId:'1',support});
+    assert.equal(result.kind,'delist');assert.equal(result.transaction.value,'0x0');assert.equal(calls.length,2);
+    assert.deepEqual([...nativeGovernanceViews.parseTransaction(result.transaction).args],[BigInt(operation),BigInt(cancellationId),1n,support]);
+  }
+});
+
+test('known external completion or a different listing blocks downlisting before a transaction is offered', async () => {
+  for(const [state,listed]of [[4n,1n],[3n,2n]]){
+    const provider={async request(input){const decoded=abi.PoolVault.parseTransaction(input.params[0]);
+      return abi.PoolVault.encodeFunctionResult(decoded.name,[decoded.name==='state'?state:listed]);}};
+    await assert.rejects(prepareProductAction({provider,config:{...config,displayOnly:true},account,pool,kind:'delist',
+      delistAction:'2',cancellationId:'5',expectedListedProposalId:'1',support:false}),/挂牌已成交或提案已变化/);
+  }
+});
+
+test('malformed cancellation parameters cannot fall through to the payable Firsto purchase branch', async () => {
+  const provider={request:()=>assert.fail('Malformed downlisting parameters must fail before reads')};
+  const good={provider,config:{...config,displayOnly:true},account,pool,kind:'delist',
+    delistAction:'0',cancellationId:'0',expectedListedProposalId:'1',support:false};
+  for(const changed of [{delistAction:'3'},{delistAction:'1'},{cancellationId:'1'},
+    {expectedListedProposalId:'0'},{support:'true'},{delistAction:2},{cancellationId:'1e4'}])
+    await assert.rejects(prepareProductAction({...good,...changed}));
+});
 const status = (validMask, errorMask = 0n) => ({ validMask, errorMask, trustError: 0n });
 const params = { circuits: collection, circuitId: 900719925474099312345n, targetRaise: 100000000000000000100n,
   priceCap: 100000000000000000000n, directSeller: ZeroAddress, directPrice: 0n,

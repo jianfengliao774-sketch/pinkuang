@@ -24,7 +24,7 @@ contract FirstoSaleTest is SaleTestBase {
     function _assertUnchanged(uint256 oldBalance) private view {
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
         assertEq(nft.ownerOf(rewardId), address(pool));
-        assertEq(nft.getApproved(rewardId), address(0));
+        assertEq(nft.getApproved(rewardId), FIRSTO);
         assertEq(address(pool).balance, oldBalance);
         assertEq(saleVault.saleProceeds(), 0);
         assertEq(saleVault.saleBuyer(), address(0));
@@ -71,7 +71,7 @@ contract FirstoSaleTest is SaleTestBase {
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Closed));
     }
 
-    function test_externalNativeFillAndLegacyDirectEntryCannotBypassSettlement() public {
+    function test_externalNativeFillUsesApprovedAskButLegacyDirectEntryRemainsDisabled() public {
         _listSale(SALE_PRICE);
         IFirstoSignedAskExchange.SignedAsk memory ask = IFirstoSignedAskExchange.SignedAsk({
             maker: address(pool),
@@ -87,15 +87,16 @@ contract FirstoSaleTest is SaleTestBase {
         });
         bytes32 orderHash = FirstoSignedAskMock(FIRSTO).hash(ask);
         vm.prank(FIRSTO);
-        assertEq(saleVault.isValidSignature(orderHash, new bytes(65)), bytes4(0xffffffff));
+        assertEq(saleVault.isValidSignature(orderHash, new bytes(65)), bytes4(0x1626ba7e));
         vm.deal(NFT_BUYER, PAYMENT);
-        vm.prank(NFT_BUYER);
-        vm.expectRevert("bad signature");
-        IFirstoSignedAskExchange(FIRSTO).fillSignedAsk{value: PAYMENT}(ask, new bytes(65), NFT_BUYER);
         vm.prank(NFT_BUYER);
         vm.expectRevert(IPoolVault.UnverifiedSaleRoute.selector);
         saleVault.completeSale{value: SALE_PRICE}();
-        assertEq(nft.ownerOf(rewardId), address(pool));
+        vm.deal(NFT_BUYER, PAYMENT);
+        vm.prank(NFT_BUYER);
+        IFirstoSignedAskExchange(FIRSTO).fillSignedAsk{value: PAYMENT}(ask, new bytes(65), NFT_BUYER);
+        assertEq(nft.ownerOf(rewardId), NFT_BUYER);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Closed));
     }
 
     function test_confirmationPriceProposalFeeAndEpochAreBinding() public {

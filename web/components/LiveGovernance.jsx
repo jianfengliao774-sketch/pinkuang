@@ -4,7 +4,7 @@ import { displayAmount } from '../lib/amount-display.mjs';
 import { useEffect, useRef, useState } from 'react';
 import { getAddress, ZeroAddress } from 'ethers';
 import { ArrowRight, CircleAlert, RefreshCw, X } from 'lucide-react';
-import { proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
+import { fetchNativeFirstoPublication, proposalReferenceRecord, prepareGovernanceAction, readGovernanceSnapshot } from '../lib/live-governance.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
 import FirstoSaleReferenceAction from './FirstoSaleReferenceAction';
 import '../app/live-governance.css';
@@ -26,6 +26,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [readFailed, setReadFailed] = useState(false);
+  const [publicationData, setPublicationData] = useState(null);
   const requests = useRef(createUiContext());
   const context = useRef(null);
   const proposalPriceContext = useRef(null);
@@ -34,6 +35,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   const confirmationControls = useRef(null);
   const submissionInFlight = useRef(false);
   const snapshotListener = useRef(onSnapshot);
+  const currentSnapshot = useRef(null);
   snapshotListener.current = onSnapshot;
   const poolValue = selectedPool || poolInput;
   const snapshot = snapshotData?.pool.toLowerCase() === poolValue.trim().toLowerCase()
@@ -42,6 +44,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
     && (!config?.shareMarket || snapshotData?.shareMarket?.toLowerCase() === config.shareMarket.toLowerCase())
     && snapshotData?.stage === config?.stage && snapshotData?.displayOnly === (config?.displayOnly === true)
     ? snapshotData : null;
+  currentSnapshot.current = snapshot;
   const identity = `${config?.factory || ''}:${config?.shareMarket || ''}:${config?.stage || ''}:${config?.displayOnly === true}:${poolValue}:${account || ''}`;
   proposalPriceContext.current = {editedField, salePrice, capacityPrice, capacityQuote, poolValue};
   if (context.current?.identity !== identity || context.current?.wallet !== wallet || context.current?.readProvider !== readProvider) {
@@ -51,7 +54,7 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
 
   useEffect(() => {
     setSalePrice(''); setCapacityPrice(''); setEditedField('sale'); setEditingPrice(null);
-    setSnapshot(null); setPreview(null); setError(''); setReadFailed(false); setBusy(false);
+    setSnapshot(null); setPublicationData(null); setPreview(null); setError(''); setReadFailed(false); setBusy(false);
   }, [account, wallet, config?.factory, config?.shareMarket, config?.stage, config?.displayOnly, poolValue]);
   useEffect(() => () => requests.current.invalidate(), []);
   useEffect(() => {
@@ -60,6 +63,33 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   useEffect(() => {
     if (selectedPool && config?.factory && (readProvider || wallet)) void refresh();
   }, [selectedPool, config?.factory, config?.shareMarket, config?.stage, config?.displayOnly, account, wallet, readProvider, refreshToken]);
+  const nativeOrderHash = snapshot?.state === 3n && snapshot?.nativeFirstoSale?.enabled === true
+    && snapshot.nativeFirstoSale.active === true ? snapshot.nativeFirstoSale.orderHash : null;
+  useEffect(() => {
+    if (!nativeOrderHash || !config?.indexBaseUrl || !config?.origin) return;
+    const controller = new AbortController(), activeContext = context.current;
+    let stopped = false, timer, loading = false;
+    const check = async () => {
+      if (stopped || loading) return;
+      clearTimeout(timer);
+      if (typeof document !== 'undefined' && document.hidden) { timer = setTimeout(check, 30_000); return; }
+      loading = true;
+      try {
+        const reply = await fetchNativeFirstoPublication(config, poolValue, nativeOrderHash, { signal: controller.signal });
+        const latest = currentSnapshot.current;
+        if (stopped || context.current !== activeContext || latest?.nativeFirstoSale?.orderHash !== nativeOrderHash) return;
+        setPublicationData({ identity, orderHash: nativeOrderHash, reply });
+        snapshotListener.current?.({ ...latest, nativePublication: reply });
+      } catch {
+        if (!stopped && context.current === activeContext) setPublicationData({ identity, orderHash: nativeOrderHash,
+          reply: { stale: true, item: { pool: poolValue, status: 'source-unavailable', message: 'Firsto 发布状态暂不可用。' } } });
+      } finally { loading = false; if (!stopped) timer = setTimeout(check, 30_000); }
+    };
+    const visible = () => { if (typeof document === 'undefined' || !document.hidden) void check(); };
+    void check(); if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visible);
+    return () => { stopped = true; clearTimeout(timer); controller.abort();
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visible); };
+  }, [identity, nativeOrderHash, config?.indexBaseUrl, config?.origin]);
 
   const currentCapacity = validCapacityQuote(capacityQuote, poolValue, quoteNow);
   const dailyAtomic = currentCapacity?.estimated24hAtomic;
@@ -206,6 +236,15 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
   const opener = snapshot?.candidates.find(item => item.id === snapshot.activeProposalId);
   const roundOpen = snapshot?.state === 2n && opener && !opener.executed && snapshot.timestamp < opener.endsAt;
   const listed = snapshot?.state === 3n && snapshot.listedProposalId > 0n;
+  const cancellation = listed && snapshot?.delisting?.available ? snapshot.delisting : null;
+  const nativeEnabled = snapshot?.nativeFirstoSale?.enabled === true;
+  const nativeActive = nativeEnabled && snapshot?.nativeFirstoSale?.active === true;
+  const publicationRecord = publicationData?.identity === identity && publicationData.orderHash === nativeOrderHash
+    ? publicationData.reply : snapshot?.nativePublication;
+  const publication = publicationRecord?.item;
+  const published = nativeActive && publicationRecord?.stale !== true && publication?.verifiedInOfficialBook === true
+    && publication?.status === 'published' && publication.pool?.toLowerCase() === snapshot.pool.toLowerCase()
+    && publication.askHash?.toLowerCase() === snapshot.nativeFirstoSale.orderHash?.toLowerCase();
   const reviewPricePercent = snapshot?.saleReviewThresholdBps == null ? null : Number(snapshot.saleReviewThresholdBps) / 100;
   return <section className="live-section live-governance" aria-label="真实整机出售治理">
     <div className="live-section-head"><div><h2>整机出售治理</h2><p>{config?.stage === 'genesis'
@@ -244,13 +283,47 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
           void showPreview({ kind: 'propose', priceWei: price, ...proposalReferenceRecord(snapshot) });
         } catch (problem) { report(problem); }
       }}>预览提案<ArrowRight size={15}/></button></div>{!dailyAtomic && <p role="status">当前24H日产暂不可用，可直接填写整机价格。</p>}</div>}
-      {listed && <div className="live-gov-listing"><h3>本站整机挂牌</h3><p>提案 #{snapshot.listedProposalId.toString()} · 价格 {displayAmount(snapshot.salePrice)} BNB · 到期 {when(snapshot.expiresAt)}。买方在本站购买，通过 Firsto 合约成交并另付 Firsto 手续费；矿池收到挂牌价后扣除平台 1%。成交时同笔结清挖矿收益，失败则整笔回退。此卖单暂不显示在 Firsto 网站。</p>{!snapshot.firstoSale?.available && <p role="status">{config?.displayOnly ? 'Firsto 当前暂停成交或费率暂不可用。' : '当前成交路由尚未核验，请刷新或等待合约升级。'}</p>}<div><button disabled={frozen || snapshot.timestamp >= snapshot.expiresAt || !snapshot.firstoSale?.available} onClick={() => void showPreview({ kind: 'completeFirstoSale' })}>在本站购买整机</button></div></div>}
+      {listed && <div className="live-gov-listing"><h3>{nativeActive ? 'Firsto 同步整机挂牌' : '本站整机挂牌'}</h3>
+        <p>提案 #{snapshot.listedProposalId.toString()} · 价格 {displayAmount(snapshot.salePrice)} BNB · 到期 {when(snapshot.expiresAt)}。买方另付 Firsto 手续费；矿池收到挂牌价后扣除平台 1%。</p>
+        <p>{nativeActive ? '已启用 Firsto 同步挂牌。本站与 Firsto 共用同一份链上订单，先成交的一方完成出售，另一笔购买回退；购买款退回，网络 Gas 不退。'
+          : nativeEnabled ? '原生出售能力已启用；本次旧挂牌的 Firsto 同步授权尚未启用。当前仍可在本站购买。'
+            : '买方在本站购买，通过 Firsto 合约成交。当前合约尚未启用 Firsto 网站同步挂牌。'}</p>
+        {nativeActive && <p role="status">{published ? 'Firsto 已确认本卖单上架。' : publication?.status === 'publication-rejected'
+          ? 'Firsto 未接受本卖单，后台保留拒绝状态；当前不能声称已在官网上架。'
+          : publication?.status === 'pending-approval' ? 'Firsto 已接收卖单，正在等待批准。'
+            : publication?.status === 'publication-accepted' ? 'Firsto 已接收卖单，等待公开订单列表同步。'
+              : publication?.status === 'source-unavailable' ? 'Firsto 发布状态暂不可用，可继续查看持仓和投票。'
+                : '后台正在同步卖单；Firsto 接受并在公开订单中返回对应卖单后才会显示已上架。'}</p>}
+        {!snapshot.firstoSale?.available && <p role="status">{config?.displayOnly ? 'Firsto 当前暂停成交或费率暂不可用。' : '当前成交路由尚未核验，请刷新或等待合约升级。'}</p>}
+        <div><button disabled={frozen || snapshot.timestamp >= snapshot.expiresAt || !snapshot.firstoSale?.available} onClick={() => void showPreview({ kind: 'completeFirstoSale' })}>在本站购买整机</button>
+          {snapshot.timestamp >= snapshot.expiresAt && <button disabled={frozen} onClick={() => void showPreview({ kind: 'cancelExpired' })}>下架过期卖单</button>}</div>
+        {nativeEnabled && <div className="live-gov-candidates"><h3>提前下架投票</h3>
+          <p>赞成人数与份额均须严格过半，达到门槛后可立即执行。投票期间仍可成交；成交后不能再下架。下架成功后可立即发起新一轮出售投票。</p>
+          {!cancellation && <p role="status">{snapshot.delisting?.reason || '下架投票正在读取，请稍后刷新。'}</p>}
+          {cancellation?.id === 0n && <button disabled={frozen || !cancellation.canPropose}
+            onClick={() => void showPreview({ kind: 'delist', delistAction: '0', cancellationId: '0', expectedListedProposalId: snapshot.listedProposalId.toString(), support: false })}>发起下架投票</button>}
+          {cancellation?.id > 0n && <article><div className="live-gov-candidate-head"><strong>下架投票 #{cancellation.id.toString()}</strong>
+            <span>{cancellation.executed ? '已执行下架' : cancellation.expired ? '已到期' : cancellation.passed ? '可执行下架' : '投票中'}</span></div>
+            <p className="live-gov-muted">对应挂牌提案 #{cancellation.listedProposalId.toString()} · 截止 {when(cancellation.expiresAt)}{cancellation.hasVoted ? ' · 你已投票' : ''}</p>
+            <div className="live-gov-votes"><div><span>赞成份额</span><strong>{cancellation.yesShares.toString()} / {cancellation.requiredYesShares.toString()}</strong></div><div><span>赞成人数</span><strong>{cancellation.yesCount.toString()} / {cancellation.requiredYesCount.toString()}</strong></div>
+              <div><span>反对份额</span><strong>{cancellation.noShares.toString()}</strong></div><div><span>反对人数</span><strong>{cancellation.noCount.toString()}</strong></div></div>
+            <div className="live-gov-actions"><button disabled={frozen || !cancellation.canVote}
+              onClick={() => void showPreview({ kind: 'delist', delistAction: '1', cancellationId: cancellation.id.toString(), expectedListedProposalId: snapshot.listedProposalId.toString(), support: true })}>赞成下架</button>
+              <button disabled={frozen || !cancellation.canVote}
+                onClick={() => void showPreview({ kind: 'delist', delistAction: '1', cancellationId: cancellation.id.toString(), expectedListedProposalId: snapshot.listedProposalId.toString(), support: false })}>反对下架</button>
+              <button disabled={frozen || !cancellation.canExecute}
+                onClick={() => void showPreview({ kind: 'delist', delistAction: '2', cancellationId: cancellation.id.toString(), expectedListedProposalId: snapshot.listedProposalId.toString(), support: false })}>执行下架</button></div>
+          </article>}
+        </div>}
+      </div>}
     </>}
     {previewVisible && <div className="live-gov-preview-overlay" onClick={event => {
       if (event.target === event.currentTarget) closeConfirmation();
     }}><section className="live-gov-preview" role="dialog" aria-modal="true" aria-label="确认整机出售操作"
       aria-busy={busy} tabIndex={-1} ref={confirmationDialog}>
-      <header className="live-gov-preview-header"><h3>确认 {({ propose: '提交报价', vote: '投票', executeSale: '执行挂牌', completeFirstoSale: '通过 Firsto 购买整机', cancelExpired: '撤销过期挂牌' })[preview.action.kind]}</h3>
+      <header className="live-gov-preview-header"><h3>确认 {preview.action.kind === 'delist'
+        ? ({ '0': '发起下架投票', '1': '下架投票', '2': '执行下架' })[preview.action.delistAction]
+        : ({ propose: '提交报价', vote: '投票', executeSale: '执行挂牌', completeFirstoSale: '通过 Firsto 购买整机', cancelExpired: '撤销过期挂牌' })[preview.action.kind]}</h3>
         <button type="button" className="live-gov-preview-close" aria-label="关闭确认弹窗" ref={confirmationClose}
           disabled={busy} onClick={closeConfirmation}><X size={20}/></button></header>
       <div className="live-gov-preview-body">
@@ -262,7 +335,10 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
           : <><div><dt>Firsto 市场参考价</dt><dd>{displayAmount(preview.quote.marketReferenceWei)} BNB</dd></div><div><dt>参考价时间</dt><dd>{when(preview.quote.marketReferenceObservedAt)}</dd></div><div><dt>平台审核</dt><dd>{preview.quote.reviewRequired ? preview.quote.saleReviewStatus === 1n && preview.quote.saleReviewPriceWei === preview.quote.priceWei ? '已批准此价格' : '尚未批准' : '无需额外审核'}</dd></div></>)}
         <div><dt>本次钱包支付</dt><dd>{displayAmount(preview.quote.paymentWei)} BNB + Gas</dd></div>
         {preview.action.kind === 'completeFirstoSale' && <><div><dt>Firsto 买方手续费</dt><dd>{displayAmount(preview.quote.sourceFeeWei)} BNB</dd></div><div><dt>平台费 1%</dt><dd>{displayAmount(preview.quote.feeWei)} BNB</dd></div><div><dt>持有人分配</dt><dd>{displayAmount(preview.quote.holderNetWei)} BNB</dd></div></>}
-        {preview.action.kind === 'vote' && <div><dt>投票选择</dt><dd>{preview.action.support ? '赞成' : '反对'}</dd></div>}</dl>
+        {(preview.action.kind === 'vote' || preview.action.kind === 'delist' && preview.action.delistAction === '1') && <div><dt>投票选择</dt><dd>{preview.action.support ? '赞成' : '反对'}</dd></div>}
+        {preview.action.kind === 'delist' && <><div><dt>对应挂牌提案</dt><dd>#{preview.action.expectedListedProposalId}</dd></div>
+          {preview.action.cancellationId !== '0' && <div><dt>下架投票编号</dt><dd>#{preview.action.cancellationId}</dd></div>}</>}</dl>
+      {preview.action.kind === 'delist' && <p>下架投票执行前，卖单仍可成交。成功下架后将同步使 Firsto 原订单失效，并立即开放新一轮出售投票；不会返还已经消耗的网络 Gas。</p>}
       </div>
       <footer className="live-gov-preview-footer"><button type="button" disabled={busy} onClick={closeConfirmation}>返回</button>
         <button type="button" className="live-gov-confirm-submit" disabled={busy || disabled || readFailed} onClick={() => void submit()}>

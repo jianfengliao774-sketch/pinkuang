@@ -36,7 +36,7 @@ contract PoolSaleTest is SaleTestBase {
         assertEq(sale.listedAt(), block.timestamp);
         assertEq(sale.expiresAt(), block.timestamp + 7 days);
         assertEq(sale.salePrice(), SALE_PRICE);
-        assertEq(nft.getApproved(rewardId), address(0));
+        assertEq(nft.getApproved(rewardId), FIRSTO);
         assertEq(nft.ownerOf(rewardId), address(pool));
         vm.expectRevert(IPoolVault.WrongState.selector);
         sale.executeSale(id);

@@ -7,6 +7,7 @@ import {PoolLens} from "../../src/PoolLens.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {PoolSaleState} from "../../src/PoolSaleState.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {FirstoSignedAskMock} from "../utils/FirstoMocks.sol";
 
 /// @dev The claimed getter deliberately attempts storage writes or burns its whole call budget.
 contract LensHostileGetter {
@@ -42,6 +43,10 @@ contract PoolLensTest is ShareTransferTestBase {
 
     function setUp() public override {
         super.setUp();
+        vm.chainId(56);
+        address firsto = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
+        vm.etch(firsto, address(new FirstoSignedAskMock()).code);
+        FirstoSignedAskMock(firsto).configure(0x68224F668083c29e9800Be2a646d42d18cedF7e2, 0, 1);
         lens = new PoolLens(address(poolFactory));
         vault = PoolVault(payable(address(pool)));
     }

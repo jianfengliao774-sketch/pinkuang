@@ -24,6 +24,7 @@ interface IFirstoSignedAskExchange {
     function feeBpsAtEpoch(uint256 epoch) external view returns (uint16);
     function SIGNED_ASK_SCHEMA_VERSION() external view returns (uint16);
     function isSignedAskNonceInvalidated(address maker, uint256 nonce) external view returns (bool);
+    function cancelSignedAskNonce(uint256 nonce) external;
     function fillSignedAsk(SignedAsk calldata ask, bytes calldata signature, address nftRecipient) external payable;
 }
 
