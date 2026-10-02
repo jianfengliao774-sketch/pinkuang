@@ -12,6 +12,7 @@ import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 import {IShareMarket} from "./interfaces/IShareMarket.sol";
 import {PoolLens} from "./PoolLens.sol";
 import {IPoolMachineRegistry} from "./interfaces/IPoolMachineRegistry.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 interface IRegisteredShareMarket {
     function factory() external view returns (address);
@@ -323,9 +324,22 @@ contract PoolFactory is
         return _factoryStorage().allPools.length;
     }
 
-    /// @notice Permanent uniqueness: neither refunds nor a completed sale release a machine reservation.
-    function machinePool(address circuits, uint256 circuitId) public view returns (address) {
-        return _machineRegistry().reservedPool[keccak256(abi.encode(circuits, circuitId))];
+    /// @notice Capability for creating another project after a completed machine sale.
+    function soldMachineReuseVersion() external pure returns (uint8) {
+        return 1;
+    }
+
+    /// @notice One live project per machine. Completed sales release custody without erasing the old pool.
+    /// @dev A closed pool that still owns the NFT remains reserved; refunds never release this reservation.
+    function machinePool(address circuits, uint256 circuitId) public view returns (address pool) {
+        pool = _machineRegistry().reservedPool[keccak256(abi.encode(circuits, circuitId))];
+        if (pool == address(0) || IRegisteredMachinePool(pool).state() != IPoolVault.State.Closed) return pool;
+        try IERC721(circuits).ownerOf(circuitId) returns (address owner) {
+            if (owner != address(0) && owner != pool) return address(0);
+        } catch {
+            // Missing or unreadable custody cannot establish a completed handover.
+        }
+        return pool;
     }
 
     function designatedSubscriber(address pool) external view returns (address) {
@@ -397,7 +411,9 @@ contract PoolFactory is
         MachineRegistryStorage storage s = _machineRegistry();
         address existing = s.reservedPool[key];
         if (existing == pool) return;
-        if (existing != address(0)) revert MachineAlreadyReserved(circuits, circuitId, existing);
+        if (existing != address(0) && machinePool(circuits, circuitId) != address(0)) {
+            revert MachineAlreadyReserved(circuits, circuitId, existing);
+        }
         s.reservedPool[key] = pool;
         emit MachineReserved(circuits, circuitId, pool);
     }
