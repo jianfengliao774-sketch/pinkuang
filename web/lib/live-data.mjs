@@ -4,6 +4,7 @@ import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadO
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
 import { readMiningOverviewStats } from './mining-overview.mjs';
+import { readTestDisplay, TEST_DISPLAY_TIMEOUT_MS } from './test-display-transport.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -306,7 +307,9 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function serverDisplayRead(path, query = {}) {
     const url=new URL(`${indexBase.href.replace(/\/$/,'')}/v1/display${path}`);
     for(const [name,value] of Object.entries(query)) if(name!=='source' && value!==undefined && value!==null) url.searchParams.set(name,String(value));
-    const {body,serverNow,localReceivedAt}=await fetchLiveJsonWithClock(url.href,{fetcher,now,timeoutMs:2500});
+    const read=()=>fetchLiveJsonWithClock(url.href,{fetcher,now,
+      timeoutMs:config.testProfile===true?TEST_DISPLAY_TIMEOUT_MS:2500});
+    const {body,serverNow,localReceivedAt}=await (config.testProfile===true?readTestDisplay(read):read());
     insist(body?.source?.cacheOrigin==='server' && body.source.readMode==='verified_snapshot',
       'index_identity','服务器展示快照身份无效。');
     const source=validateIndexSource(body.source,manifest,{now:now(),
@@ -320,6 +323,9 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   async function cachedDisplay(read, fallback) {
     if(config.productFamily!=='fresh-v4') return fallback();
     try {return await read();} catch(error) {
+      // A test-site cache outage must not fan out into per-row chain queries.
+      // The page retains its previous snapshot while this cache recovers.
+      if(config.testProfile===true) throw error;
       if(!isRetryableReadError(error) && !(error?.code==='http_unavailable' && [404,503].includes(error.details?.status))) throw error;
       return fallback();
     }

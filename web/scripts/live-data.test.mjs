@@ -1149,3 +1149,22 @@ test('server materialized display reads return exact page values without any bro
   assert.equal((await client.readDisplayStats()).data.registeredPoolCount,1n);
   assert.equal(requests.length,5);assert(requests.every(path=>path.includes('/v1/display/')));
 });
+
+test('test cache outage cannot escalate into chain RPC or legacy index fallback', async () => {
+  for (const failure of ['network', 'http']) {
+    const requests = []; let rpcCalls = 0;
+    const client = createLiveDataClient({ ...config, productFamily: 'fresh-v4', testProfile: true }, {
+      provider: { request: async () => { rpcCalls++; throw new Error('unexpected RPC'); } },
+      now: () => now,
+      fetcher: async url => {
+        requests.push(new URL(url).pathname);
+        if (failure === 'network') throw new Error('connection reset');
+        return new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } });
+      },
+    });
+    await assert.rejects(client.readDisplayPools(), { code: failure === 'network' ? 'network_unavailable' : 'http_unavailable' });
+    assert.equal(requests.length, failure === 'network' ? 2 : 1);
+    assert(requests.every(path => path.endsWith('/v1/display/pools')));
+    assert.equal(rpcCalls, 0);
+  }
+});

@@ -1,5 +1,6 @@
 import { ARTIFACT_DIGEST } from './chain-client.mjs';
 import { fetchLiveJson, insist, liveAddress, validateManifest } from './live-config.mjs';
+import { readTestDisplay, TEST_DISPLAY_TIMEOUT_MS } from './test-display-transport.mjs';
 
 export const FULL_TEST_BASE = '/bemine-full-test';
 export const FULL_TEST_TIMINGS = Object.freeze({ holdSeconds: 0, proposalCooldownSeconds: 0,
@@ -29,7 +30,8 @@ export async function loadFullTestProductConfig({ basePath = FULL_TEST_BASE,
   insist(basePath === FULL_TEST_BASE || basePath === `${FULL_TEST_BASE}/`, 'invalid_config', '完整测试站路径无效。');
   insist(typeof origin === 'string' && /^https?:\/\//.test(origin) && new URL(origin).origin === origin,
     'invalid_config', '完整测试站来源无效。');
-  const input = await fetchLiveJson(`${origin}${FULL_TEST_BASE}/api/full-test/config`, {fetcher, maxBytes:131072, timeoutMs:2500});
+  const input = await readTestDisplay(() => fetchLiveJson(`${origin}${FULL_TEST_BASE}/api/full-test/config`,
+    {fetcher, maxBytes:131072, timeoutMs:TEST_DISPLAY_TIMEOUT_MS}));
   const config = normalizeFullTestProductConfig(input, origin);
   try {
     if (config.status === 'ready') storage?.setItem(cacheKey(origin), JSON.stringify({origin, savedAt:now, input}));

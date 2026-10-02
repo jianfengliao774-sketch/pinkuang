@@ -2677,7 +2677,7 @@ export default function LivePlatform() {
           )}
           {positionsReadError && account && ['overview', 'rewards', 'governance', 'market'].includes(route.route) &&
             <div className="live-notice error" role="alert"><AlertCircle size={18}/><span>{positionsReadError}</span></div>}
-          {statsReadError && route.route === 'home' &&
+          {statsReadError && statsReadError !== error && route.route === 'home' &&
             <div className="live-notice error" role="alert"><AlertCircle size={18}/><span>{statsReadError}</span></div>}
           {pending && (
             <section className="panel live-pending">
