@@ -78,3 +78,19 @@ were changed. `release-status.json` records the artifact digests and the exact
 pending state. Resume by restoring connectivity, copying the prepared upload
 directory, installing it, verifying index/worker readiness, then publishing
 only the v5 nginx include and root redirect. Do not redeploy contracts.
+
+## Public security-review handoff - 2026-10-03
+
+The complete source snapshot and mainnet evidence are available in the dedicated
+[public review repository](https://github.com/jianfengliao774-sketch/bemine-v5-security-review/tree/a4d1767208356fb6330103eb06ac420cca649955),
+tag `v5-review-2026-10-03`. All 1813 tracked files from `05d4803` were exported and
+SHA-256 verified; only the original README was relocated to preserve a current
+review entry point. A fresh lockfile install and artifact recompilation matched
+the mainnet deployment artifact content and digest. The repository includes the
+scope, permission model, build instructions, limitations and report template.
+GitHub Actions is disabled there; no runtime credentials or server state were
+copied. This is an independent review input, not an audit certification.
+
+SSH and HTTPS were still unavailable during the handoff. The review repository
+explicitly records that contracts are deployed but the new product website and
+backend activation are pending; its publication does not change that status.
