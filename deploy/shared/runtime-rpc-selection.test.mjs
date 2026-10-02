@@ -16,7 +16,8 @@ async function pair(primaryReply, backupReply = () => ({ result: '0x38' })) {
       if (response.http) { res.writeHead(response.http, { 'Content-Type': 'text/html' }); res.end(response.body ?? 'unavailable'); return; }
       if (response.html) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html>temporarily unavailable</html>'); return; }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      const values = rows.map(row => ({ jsonrpc: '2.0', id: row.id, ...response }));
+      const values = rows.map((row, index) => ({ jsonrpc: '2.0', id: row.id,
+        ...(index === 0 ? response : reply(row, calls[name])) }));
       res.end(JSON.stringify(Array.isArray(payload) ? values : values[0]));
     });
     servers.push(server); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -29,7 +30,7 @@ async function pair(primaryReply, backupReply = () => ({ result: '0x38' })) {
 }
 const options = f => ({ env: f.env, network: 56, providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 } });
 
-test('worker defaults preserve HTTP batching while an explicit single-request option remains single', async () => {
+test('worker defaults retain batching in bounded four-read groups while an explicit single-request option remains single', async () => {
   for (const single of [false, true]) {
     const f = await pair(row => ({ result: row.method === 'eth_chainId' ? '0x38' : '0x1234' }));
     let provider;
@@ -43,10 +44,78 @@ test('worker defaults preserve HTTP batching while an explicit single-request op
         provider.send('eth_call', [{ to: '0x' + '1'.repeat(40), data: `0x${index.toString(16).padStart(2, '0')}` }, 'latest'])));
       assert.deepEqual(results, Array(8).fill('0x1234'));
       assert.equal(f.calls.primary.length, 8);
-      assert.deepEqual(f.batchSizes.primary, single ? Array(8).fill(1) : [8]);
+      assert.deepEqual(f.batchSizes.primary, single ? Array(8).fill(1) : [4, 4]);
       assert.equal(f.calls.backup.length, 0);
     } finally { provider?.destroy(); await f.close(); }
   }
+});
+
+const rpc = (id, method = 'eth_call') => ({ jsonrpc: '2.0', id, method,
+  params: method === 'eth_call' ? [{ to: '0x' + '1'.repeat(40), data: '0x' }, 'latest'] : ['0x00'] });
+const quota = { code: -32005, message: 'Your account has exceeded its Compute Units Per Second capacity.' };
+
+test('HTTP429 read recovery stays on the selected node and has at most three attempts', async () => {
+  for (const succeeds of [true, false]) {
+    const f = await pair((row, calls) => row.method === 'eth_chainId' ? { result: '0x38' }
+      : succeeds && calls.filter(value => value.method === 'eth_call').length === 3 ? { result: '0x1234' } : { http: 429 });
+    const delays = [], provider = await createRuntimeRpcProvider(f.request, { ...options(f), retryWait: async ms => { delays.push(ms); } });
+    try {
+      const result = provider._send(rpc(101));
+      if (succeeds) assert.equal((await result)[0].result, '0x1234');
+      else await assert.rejects(result);
+      assert.deepEqual(delays, [1100, 2200]);
+      assert.equal(f.calls.primary.filter(row => row.method === 'eth_call').length, 3);
+      assert.equal(f.calls.backup.length, 0);
+    } finally { provider.destroy(); await f.close(); }
+  }
+});
+
+test('partial JSON-RPC quota failures retry only affected IDs and retain successes and contract errors', async () => {
+  const f = await pair((row, calls) => {
+    if (row.method === 'eth_chainId') return { result: '0x38' };
+    if (row.id === 102 && calls.filter(value => value.id === 102).length < 2 || row.id === 104) return { error: quota };
+    if (row.id === 103) return { error: { code: -32000, message: 'execution reverted' } };
+    return { result: '0x1234' };
+  });
+  const delays = [], provider = await createRuntimeRpcProvider(f.request, { ...options(f), retryWait: async ms => { delays.push(ms); } });
+  try {
+    const rows = await provider._send([rpc(101), rpc(102), rpc(103), rpc(104), rpc(105)]);
+    assert.deepEqual(rows.map(row => row.id), [101, 102, 103, 104, 105]);
+    assert.equal(rows[0].result, '0x1234'); assert.equal(rows[1].result, '0x1234');
+    assert.equal(rows[2].error.message, 'execution reverted'); assert.deepEqual(rows[3].error, quota);
+    assert.equal(rows[4].result, '0x1234');
+    assert.deepEqual([101, 102, 103, 104, 105].map(id => f.calls.primary.filter(row => row.id === id).length), [1, 2, 1, 3, 1]);
+    assert.deepEqual(f.batchSizes.primary, [1, 4, 2, 1, 1]);
+    assert.deepEqual(delays, [1100, 2200]); assert.equal(f.calls.backup.length, 0);
+  } finally { provider.destroy(); await f.close(); }
+});
+
+test('other -32005 messages, mixed batches, sends, signing and unknown methods never retry', async () => {
+  const cases = [
+    { payload: rpc(101), response: { error: { code: -32005, message: 'Query exceeds the allowed block range.' } }, rejects: false },
+    { payload: [rpc(101), rpc(102, 'eth_sendRawTransaction')], response: { http: 429 }, rejects: true },
+    { payload: rpc(101, 'eth_sendRawTransaction'), response: { http: 429 }, rejects: true },
+    { payload: rpc(101, 'personal_sign'), response: { error: quota }, rejects: false },
+    { payload: rpc(101, 'debug_traceCall'), response: { http: 429 }, rejects: true },
+  ];
+  for (const value of cases) {
+    const f = await pair(row => row.method === 'eth_chainId' ? { result: '0x38' } : value.response);
+    const delays = [], provider = await createRuntimeRpcProvider(f.request, { ...options(f), retryWait: async ms => { delays.push(ms); } });
+    try {
+      const result = provider._send(value.payload);
+      if (value.rejects) await assert.rejects(result); else assert.ok((await result)[0].error);
+      assert.deepEqual(f.batchSizes.primary, [1, Array.isArray(value.payload) ? 2 : 1]);
+      assert.deepEqual(delays, []); assert.equal(f.calls.backup.length, 0);
+    } finally { provider.destroy(); await f.close(); }
+  }
+});
+
+test('mismatched quota response IDs cannot cause a retry', async () => {
+  const f = await pair(row => row.method === 'eth_chainId' ? { result: '0x38' } : { id: 999, error: quota });
+  const delays = [], provider = await createRuntimeRpcProvider(f.request, { ...options(f), retryWait: async ms => { delays.push(ms); } });
+  try { await assert.rejects(provider._send(rpc(101)), /does not match/);
+    assert.deepEqual(delays, []); assert.deepEqual(f.batchSizes.primary, [1, 1]); assert.equal(f.calls.backup.length, 0); }
+  finally { provider.destroy(); await f.close(); }
 });
 
 test('a healthy configured primary is selected once and a later send failure never activates backup', async () => {
