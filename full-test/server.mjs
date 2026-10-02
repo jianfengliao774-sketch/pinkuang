@@ -35,28 +35,50 @@ async function readActivationBody(req) {
 /** No formal module fallback: ops must install the independently scoped runtime. */
 export async function loadFullTestRuntime() {
   const root=new URL('./runtime/deploy/',import.meta.url);
-  const [journal,graph,proxy,firsto,index,overview,fresh,ipc,activation,digest]=await Promise.all([
+  const [journal,graph,proxy,firsto,index,overview,fresh,ipc,activation,digest,nativeAsks]=await Promise.all([
     import(new URL('server/journal-api.mjs',root)),import(new URL('server/product-graph.mjs',root)),
     import(new URL('server/live-data-proxy.mjs',root)),import(new URL('server/firsto-proxy.mjs',root)),
     import(new URL('server/chain-index/server.mjs',root)),import(new URL('server/chain-index/overview-stats.mjs',root)),
     import(new URL('server/chain-index/fresh-manifest.mjs',root)),import(new URL('server/authority-ipc.mjs',root)),
     import(new URL('server/fresh-activation-journal.mjs',root)),import(new URL('server/artifact-digest.mjs',root)),
+    import(new URL('server/firsto-ask-publisher.mjs',root)),
   ]);
-  return {...journal,...graph,...proxy,...firsto,...index,...overview,...fresh,...ipc,...activation,...digest};
+  return {...journal,...graph,...proxy,...firsto,...index,...overview,...fresh,...ipc,...activation,...digest,
+    firstoAskPublisherConfiguration:nativeAsks.firstoAskPublisherConfiguration};
+}
+
+function reviewedUpgradePaths(catalog,artifacts,label) {
+  if(Boolean(catalog)!==Boolean(artifacts) || catalog && (!isAbsolute(catalog)||!isAbsolute(artifacts)))
+    throw new Error(`Full-test ${label} requires both absolute reviewed local paths.`);
+}
+
+/** CLI configuration must explicitly enter this service; journal defaults do not read env. */
+export function fullTestSaleConfiguration(env,runtime,{stateRoot=FULL_TEST_STATE}={}) {
+  const salePolicyCatalogPath=env.BEMINE_SALE_POLICY_CATALOG_PATH,salePolicyArtifactPath=env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
+    nativeSaleCatalogPath=env.BEMINE_NATIVE_SALE_CATALOG_PATH,nativeSaleArtifactPath=env.BEMINE_NATIVE_SALE_ARTIFACT_PATH;
+  reviewedUpgradePaths(salePolicyCatalogPath,salePolicyArtifactPath,'sale policy');
+  reviewedUpgradePaths(nativeSaleCatalogPath,nativeSaleArtifactPath,'native sale');
+  const firstoAskPublisher=env.BEMINE_NATIVE_FIRSTO_ASKS_ENABLE==='1'
+    ? runtime.firstoAskPublisherConfiguration(env,{dbPath:join(stateRoot,'journal.sqlite')}) : null;
+  return {salePolicyCatalogPath,salePolicyArtifactPath,nativeSaleCatalogPath,nativeSaleArtifactPath,firstoAskPublisher};
 }
 
 /** Isolated public API. All trust enters through its private journal and the bound test build. */
 export async function createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,
   stateRoot=FULL_TEST_STATE,origin=FULL_TEST_ORIGIN,gasWalletProofReader,freshProductReadinessReader,
   authorityRelayFactory,assertInputsCurrent=()=>{},allowTemporaryState=false,manageIndex=false,now=Date.now,
-  salePolicyCatalogPath,salePolicyArtifactPath}={}) {
+  salePolicyCatalogPath,salePolicyArtifactPath,nativeSaleCatalogPath,nativeSaleArtifactPath,firstoAskPublisher=null}={}) {
   if(!runtime || !provider || typeof rpcUrl!=='string' || !/^https:\/\//.test(rpcUrl))
     throw new Error('Full-test requires its isolated runtime and HTTPS read provider.');
   if(origin!==FULL_TEST_ORIGIN && !(allowTemporaryState && /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)))
     throw new Error('Full-test origin differs.');
   if(!allowTemporaryState && resolve(stateRoot)!==FULL_TEST_STATE)throw new Error('Full-test state must use its dedicated directory.');
+  reviewedUpgradePaths(salePolicyCatalogPath,salePolicyArtifactPath,'sale policy');
+  reviewedUpgradePaths(nativeSaleCatalogPath,nativeSaleArtifactPath,'native sale');
   const trustedProfile=validateFullTestProfile(profile,bundle,artifactDigest),binding=profileDigest(trustedProfile);
   const state=privateDirectory(stateRoot),journalPath=join(state,'journal.sqlite'),activePath=join(state,'activation-state.json');
+  if(firstoAskPublisher && firstoAskPublisher.intentDbPath!==journalPath)
+    throw new Error('Full-test native asks must use the isolated API buyer journal.');
   const graphPaths={record:join(state,'genesis.json'),activation:join(state,'authority-activation.json'),
     manifest:join(state,'active-manifest.json'),index:join(state,'index-manifest.json'),
     ready:join(state,'activation-ready.json')};
@@ -106,11 +128,13 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     const cachedGraph=productJournal?.currentProductGraphSnapshot?.();
     const salePolicyUpgrade=cachedGraph?.salePolicyUpgrade && same(cachedGraph.artifactDigest,artifactDigest)
       && same(cachedGraph.factory,active?.manifest.factory) ? cachedGraph.salePolicyUpgrade : active?.salePolicyUpgrade;
+    const nativeSaleUpgrade=cachedGraph?.nativeSaleUpgrade && same(cachedGraph.artifactDigest,artifactDigest)
+      && same(cachedGraph.factory,active?.manifest.factory) ? cachedGraph.nativeSaleUpgrade : active?.nativeSaleUpgrade;
     return {schemaVersion:1,profile:'full-test',productFamily:'fresh-v4',testProfile:true,chainId:56,
       artifactDigest,sourceHead:trustedProfile.sourceHead,roles:trustedProfile.roles,timings:trustedProfile.timings,
       status:active?'ready':'unconfigured',stage:active?'fresh-active':'unconfigured',operationalReady,
       ...(active?{manifest:active.manifest,creator:active.record.account,activatedAt:active.activatedAt,
-        ...(salePolicyUpgrade?{salePolicyUpgrade}:{})}:{}),
+        ...(salePolicyUpgrade?{salePolicyUpgrade}:{}),...(nativeSaleUpgrade?{nativeSaleUpgrade}:{})}:{}),
       dataServicesReady:operationalReady,automationReady:operationalReady,
       operationalReadinessCheckedAt:readiness.checkedAt};
   };
@@ -120,7 +144,8 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     await runtime.verifyCompletedDeployment(provider,record,{trustedArtifactBundle:bundle});
     const evidence=activationEvidence(activation);
     const trusted=runtime.productGraphConfiguration({record,bundle,productActivation:evidence,
-      expectedGasWallet:trustedProfile.roles.gasWallet,salePolicyCatalogPath,salePolicyArtifactPath});
+      expectedGasWallet:trustedProfile.roles.gasWallet,salePolicyCatalogPath,salePolicyArtifactPath,
+      nativeSaleCatalogPath,nativeSaleArtifactPath});
     const block=await provider.getBlock('latest');
     if(!Number.isSafeInteger(block?.number) || !HASH.test(block.hash))fail(503,'Canonical test graph block is unavailable.');
     const graph=await runtime.verifyProductGraph(provider,record.addresses.factory,trusted,block);
@@ -133,6 +158,7 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     return {schemaVersion:1,profile:'full-test',profileDigest:binding,artifactDigest,
       record:structuredClone(record),activationRecord:structuredClone(activation),evidence,manifest,indexManifest,
       ...(graph.salePolicyUpgrade?{salePolicyUpgrade:graph.salePolicyUpgrade}:{}),
+      ...(graph.nativeSaleUpgrade?{nativeSaleUpgrade:graph.nativeSaleUpgrade}:{}),
       activatedAt:new Date(now()).toISOString()};
   }
   async function activateServices(candidate) {
@@ -157,7 +183,7 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
         assertSigningInputsCurrent:assertInputsCurrent,allowedProductFactories:[m.factory,m.portfolioFactory],
         productDeploymentRecord:candidate.record,productArtifactBundle:bundle,genesisBundle:bundle,
         freshActivationEvidencePath:graphPaths.activation,expectedGasWallet:trustedProfile.roles.gasWallet,
-        salePolicyCatalogPath,salePolicyArtifactPath,
+        salePolicyCatalogPath,salePolicyArtifactPath,nativeSaleCatalogPath,nativeSaleArtifactPath,firstoAskPublisher,
         freshProduct:freshProductReadinessReader?freshProduct:null,freshProductReadinessReader,
         freshConsolePreGenesis:false,freshStage2Hold:true});
       if(authorityRelayFactory)nextRelay=await authorityRelayFactory(nextJournal);
@@ -289,12 +315,9 @@ export async function startFullTestServer({env=process.env,runtime:providedRunti
   // The installed runtime validates an exact full-test socket and an HMAC
   // credential. A missing private test process leaves Stage 2 unverified.
   const ipc=runtime.authorityIpcConfiguration(env);
-  const salePolicyCatalogPath=env.BEMINE_SALE_POLICY_CATALOG_PATH,salePolicyArtifactPath=env.BEMINE_SALE_POLICY_ARTIFACT_PATH;
-  if(Boolean(salePolicyCatalogPath)!==Boolean(salePolicyArtifactPath)
-    || salePolicyCatalogPath && (!isAbsolute(salePolicyCatalogPath)||!isAbsolute(salePolicyArtifactPath)))
-    throw new Error('Full-test sale policy requires both absolute reviewed local paths.');
+  const saleConfiguration=fullTestSaleConfiguration(env,runtime);
   const service=await createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,assertInputsCurrent,
-    salePolicyCatalogPath,salePolicyArtifactPath,
+    ...saleConfiguration,
     gasWalletProofReader:ipc?runtime.createGasSignerProofReader(ipc):undefined,
     freshProductReadinessReader:ipc?runtime.createFreshProductReadinessReader(ipc):undefined,
     authorityRelayFactory:ipc && env.AUTHORITY_RELAY_PUBLIC_ENABLED==='1'

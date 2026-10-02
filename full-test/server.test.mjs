@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { createFullTestService } from './server.mjs';
+import { createFullTestService, fullTestSaleConfiguration } from './server.mjs';
 import { FULL_TEST_COOKIE, FULL_TEST_COOKIE_PATH, FULL_TEST_TIMINGS, validateFullTestProfile } from './server-profile.mjs';
 import { createJournalService } from '../deploy/server/journal-api.mjs';
 const {Wallet}=createRequire(new URL('../deploy/package.json',import.meta.url))('ethers');
@@ -38,10 +38,10 @@ function inputs() {
   return {profile,bundle,record,activation,graph};
 }
 async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
- verifyReadiness=async()=>{throw new Error('Workers are not ready.');}}={}) {
+ saleConfiguration={},verifyReadiness=async()=>{throw new Error('Workers are not ready.');}}={}) {
   const state=directory??await mkdtemp(join(tmpdir(),'bemine-full-test-'));
   let deploymentRevision=1,activationRevision=1,graphFailure=false,closedIndex=0,starts=0,proofs=0;
-  const calls=[],journals=[];
+  const calls=[],journals=[],graphConfigurations=[];
   let graphSnapshot=null;
   const runtime={
     createJournalService(options){journals.push(options);return {
@@ -53,7 +53,7 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
     };},
     validateFreshActivation(){calls.push('activation');},
     verifyCompletedDeployment:async(_provider,_record,{trustedArtifactBundle})=>{assert.equal(trustedArtifactBundle,input.bundle);calls.push('receipts');},
-    productGraphConfiguration(options){assert.equal(options.bundle,input.bundle);calls.push('trusted graph');return options;},
+    productGraphConfiguration(options){assert.equal(options.bundle,input.bundle);graphConfigurations.push(options);calls.push('trusted graph');return options;},
     verifyProductGraph:async()=>{proofs++;calls.push('runtime graph');if(graphFailure)throw new Error('Runtime mismatch.');return input.graph;},
     createFreshIndexManifest(manifest){return {...manifest,kind:'fresh-v4-index'};},
     overviewQuoteLoader(options){assert.equal(options.baseUrl,'http://127.0.0.1:4207/firsto-api');return ()=>{};},
@@ -66,6 +66,7 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
   const provider={getBlock:async id=>({number:id==='latest'?150:id,hash:hash(id==='latest'?150:id)})};
   const service=await createFullTestService({runtime,profile:input.profile,bundle:input.bundle,artifactDigest,provider,
     rpcUrl:'https://test-read.example/',stateRoot:state,origin,allowTemporaryState:true,manageIndex,
+    ...(typeof saleConfiguration==='function'?saleConfiguration(state):saleConfiguration),
     freshProductReadinessReader:async()=>({ready:false}),now});
   const server=createServer((req,res)=>void service.handle(req,res));
   await new Promise(accept=>server.listen(0,'127.0.0.1',accept));
@@ -73,7 +74,7 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
     const response=await fetch(`http://127.0.0.1:${server.address().port}${path}`,{method,
       headers:{Origin:requestOrigin,'Content-Type':'application/json',Cookie:cookie},...(method==='GET'?{}:{body:JSON.stringify(body)})});
     return {status:response.status,body:await response.json()};};
-  return {service,state,input,request,calls,journals,stats:()=>({starts,proofs,closedIndex}),
+  return {service,state,input,request,calls,journals,graphConfigurations,stats:()=>({starts,proofs,closedIndex}),
     setGraphSnapshot(value){graphSnapshot=value;},
     graphFailure(){graphFailure=true;},changeRevision(){activationRevision++;},
     async close(keep=false){const stopped=new Promise(accept=>server.close(accept));await service.close();server.closeAllConnections();await stopped;
@@ -91,6 +92,54 @@ test('unconfigured test site exposes no formal manifest, index, or product journ
     assert.equal(f.journals[0].sessionCookieName,FULL_TEST_COOKIE);assert.equal(f.journals[0].sessionCookiePath,FULL_TEST_COOKIE_PATH);
     assert.equal(f.journals[0].freshConsolePreGenesis,false);assert.equal(f.journals[0].gasWalletAddressReader,undefined);
   }finally{await f.close();}
+});
+
+test('native sale configuration rejects partial or relative catalog pairs and binds publication to the API database',()=>{
+  const env={BEMINE_NATIVE_SALE_CATALOG_PATH:'/etc/bemine-full-test/native-catalog.json',
+    BEMINE_NATIVE_SALE_ARTIFACT_PATH:'/etc/bemine-full-test/native-artifacts.json',BEMINE_NATIVE_FIRSTO_ASKS_ENABLE:'1'};
+  let reads=0;
+  const runtime={firstoAskPublisherConfiguration(value,{dbPath}){reads++;assert.equal(value,env);
+    assert.equal(dbPath,join('/isolated-api','journal.sqlite'));return {intentDbPath:dbPath};}};
+  const config=fullTestSaleConfiguration(env,runtime,{stateRoot:'/isolated-api'});
+  assert.equal(config.nativeSaleCatalogPath,env.BEMINE_NATIVE_SALE_CATALOG_PATH);
+  assert.equal(config.nativeSaleArtifactPath,env.BEMINE_NATIVE_SALE_ARTIFACT_PATH);assert.equal(reads,1);
+  assert.equal(config.firstoAskPublisher.intentDbPath,join('/isolated-api','journal.sqlite'));
+  for(const patch of [{BEMINE_NATIVE_SALE_ARTIFACT_PATH:undefined},{BEMINE_NATIVE_SALE_CATALOG_PATH:undefined},
+    {BEMINE_NATIVE_SALE_ARTIFACT_PATH:'relative.json'},{BEMINE_NATIVE_SALE_CATALOG_PATH:'relative.json'}])
+    assert.throws(()=>fullTestSaleConfiguration({...env,...patch},runtime),/both absolute/);
+  assert.equal(fullTestSaleConfiguration({},{}).firstoAskPublisher,null);
+});
+
+test('activated test service passes native trust paths and API publisher only to its product journal, preserving genesis on restart',async()=>{
+  const nativeSaleCatalogPath='/etc/bemine-full-test/native-catalog.json',nativeSaleArtifactPath='/etc/bemine-full-test/native-artifacts.json';
+  const saleConfiguration=state=>({nativeSaleCatalogPath,nativeSaleArtifactPath,
+    firstoAskPublisher:{intentDbPath:join(state,'journal.sqlite'),journal:join(state,'native-asks.json')}});
+  const f=await fixture({saleConfiguration}),input=f.input;
+  input.graph.nativeSaleUpgrade={version:1,candidateArtifactDigest:hash(881),operationId:hash(882)};
+  let directory;
+  try{
+    assert.equal(f.journals[0].firstoAskPublisher,undefined,'pre-activation deployment journal never publishes');
+    const result=await f.request();assert.equal(result.status,200);
+    assert.deepEqual(result.body.nativeSaleUpgrade,input.graph.nativeSaleUpgrade);
+    assert.equal(f.graphConfigurations[0].nativeSaleCatalogPath,nativeSaleCatalogPath);
+    assert.equal(f.graphConfigurations[0].nativeSaleArtifactPath,nativeSaleArtifactPath);
+    const product=f.journals[1];assert.equal(product.nativeSaleCatalogPath,nativeSaleCatalogPath);
+    assert.equal(product.nativeSaleArtifactPath,nativeSaleArtifactPath);
+    assert.equal(product.firstoAskPublisher.intentDbPath,join(f.state,'journal.sqlite'));
+    const proofs=f.stats().proofs,next={version:1,candidateArtifactDigest:hash(883),operationId:hash(884)};
+    f.setGraphSnapshot({factory:input.graph.addresses.factory,artifactDigest,nativeSaleUpgrade:next});
+    assert.deepEqual((await f.service.config()).nativeSaleUpgrade,next);assert.equal(f.stats().proofs,proofs);
+    f.setGraphSnapshot({factory:address(998),artifactDigest,nativeSaleUpgrade:next});
+    assert.deepEqual((await f.service.config()).nativeSaleUpgrade,input.graph.nativeSaleUpgrade,'another graph cannot relabel this deployment');
+    directory=f.state;
+  }finally{await f.close(Boolean(directory));}
+  const before=await readFile(join(directory,'active-manifest.json'),'utf8');
+  const restored=await fixture({input,directory,saleConfiguration});try{
+    assert.equal(restored.graphConfigurations[0].nativeSaleCatalogPath,nativeSaleCatalogPath);
+    assert.equal(restored.journals[1].firstoAskPublisher.intentDbPath,join(directory,'journal.sqlite'));
+    assert.deepEqual((await restored.service.config()).nativeSaleUpgrade,input.graph.nativeSaleUpgrade);
+    assert.equal(await readFile(join(directory,'active-manifest.json'),'utf8'),before);
+  }finally{await restored.close();}
 });
 test('activation requires authenticated journal, exact origin and account; rejects caller manifest',async()=>{
   const f=await fixture();try{

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -1066,6 +1066,39 @@ test('completed archive stays locked while the fixed BSC verifier is unavailable
       { id: proof.record.id, expectedRevision: 1 }, cookie)).status, 503);
     assert.equal((await f.request('/api/journal/deployment', 'GET', undefined, cookie)).body.record.id, proof.record.id);
   } finally { await f.close(); }
+});
+
+test('verified native upgrade reaches the public graph snapshot without changing the pinned deployment manifest', async () => {
+  const directory=await mkdtemp(join(tmpdir(),'journal-native-graph-'));
+  const record=JSON.parse(await readFile(new URL('../public/upgrade-genesis/genesis-record.json',import.meta.url),'utf8')),
+    bundle=JSON.parse(await readFile(new URL('../public/upgrade-genesis/genesis-artifacts.json',import.meta.url),'utf8'));
+  const initial=record.steps.find(step=>step.id==='initialize'),activationBlock=initial.receipt.blockNumber+10,
+    activationHash=hex(998),block={number:activationBlock+10,hash:hex(999),timestamp:1_700_000_100};
+  const nativeSaleUpgrade={version:1,candidateArtifactDigest:hex(880),operationId:hex(881),replacements:{PoolVault:factory}},
+    authority={address:market,gasWallet:wallet.address,administratorOne:account,administratorTwo:other.address,
+      codehash:hex(882),deploymentTxHash:hex(883),activationBlock,activationHash};
+  const provider={async send(method){assert.equal(method,'eth_chainId');return '0x38';},async getBlock(tag){
+    if(tag==='finalized'||tag===block.number)return block;
+    if(tag===activationBlock)return {number:tag,hash:activationHash,timestamp:block.timestamp-1};
+    throw new Error(`Unexpected block ${tag}`);
+  }};
+  let verifications=0;
+  const service=createJournalService({dbPath:join(directory,'private','journal.sqlite'),origin,provider,
+    currentArtifactDigest:()=>record.artifactDigest,productDeploymentRecord:record,productArtifactBundle:bundle,
+    allowedProductFactories:[record.addresses.factory,record.addresses.portfolioFactory],
+    productGraphVerifier:async()=>{verifications++;return {factory:record.addresses.factory,blockNumber:block.number,
+      artifactDigest:record.artifactDigest,addresses:record.addresses,
+      codehash:Object.fromEntries(Object.entries(record.verification.code).map(([name,value])=>[name,value.codehash])),
+      freshFactoryVerified:true,freshAuthority:authority,nativeSaleUpgrade};}});
+  const server=createServer((req,res)=>service.handle(req,res));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const response=await fetch(`http://127.0.0.1:${server.address().port}/api/journal/product-graph`);
+    assert.equal(response.status,200);const payload=await response.json();
+    assert.deepEqual(payload.nativeSaleUpgrade,nativeSaleUpgrade);
+    assert.deepEqual(service.currentProductGraphSnapshot().nativeSaleUpgrade,nativeSaleUpgrade);
+    assert.equal(payload.manifest.artifactDigest,record.artifactDigest);
+    assert.equal(payload.manifest.factory,record.addresses.factory);assert.equal(verifications,1);
+  }finally{await new Promise(resolve=>server.close(resolve));await service.close();await rm(directory,{recursive:true,force:true});}
 });
 
 test('production configuration requires explicit private store, exact HTTPS origin and HTTPS RPC', () => {

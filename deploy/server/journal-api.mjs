@@ -1560,6 +1560,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         reviewedBootstrapOperationId:trustedProduct.integratedUpgrade?.bootstrapPlan.operationId ?? null,
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
+        ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
         ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
           codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
           activationHash:graph.freshAuthority.activationHash,
