@@ -32,8 +32,9 @@ const READINESS_ERROR_CODES=new Set(['TIMEOUT','NETWORK_ERROR','SERVER_ERROR','U
 export function classifyFullTestReadinessFailure(error,elapsedMs=0) {
   const message=typeof error?.message==='string'?error.message:'';
   const identity=/^Readiness identity differs: (?:artifactDigest|factory|market|portfolioFactory|portfolioMarket|authority|authorityCodehash|gasWallet)\.$/.test(message);
-  const result={reason:READINESS_FAILURES.get(message)??(identity?'identity_mismatch':'unknown'),
-    code:READINESS_ERROR_CODES.has(error?.code)?error.code:'UNCLASSIFIED',
+  const interrupted=error?.name==='TimeoutError'?'read_timeout':error?.name==='AbortError'?'read_aborted':null;
+  const result={reason:READINESS_FAILURES.get(message)??(identity?'identity_mismatch':interrupted??'unknown'),
+    code:READINESS_ERROR_CODES.has(error?.code)?error.code:interrupted==='read_timeout'?'TIMEOUT':interrupted?'ABORTED':'UNCLASSIFIED',
     elapsedMs:Number.isFinite(elapsedMs)?Math.max(0,Math.floor(elapsedMs)):0};
   const status=error?.status??error?.response?.statusCode??error?.info?.response?.statusCode
     ?? error?.info?.responseStatus;

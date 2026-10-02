@@ -38,6 +38,10 @@ test('readiness diagnostics classify exact gates and exclude upstream secrets an
     {reason:'unknown',code:'UNCLASSIFIED',elapsedMs:7,httpStatus:429,rpcCode:-32005});
   assert.equal(JSON.stringify(classifyFullTestReadinessFailure(error,7)).includes(secret),false);
   assert.equal(classifyFullTestReadinessFailure(new Error('Readiness identity differs: '+secret+'.')).reason,'unknown');
+  assert.deepEqual(classifyFullTestReadinessFailure(new DOMException(secret,'TimeoutError'),5000),
+    {reason:'read_timeout',code:'TIMEOUT',elapsedMs:5000});
+  assert.deepEqual(classifyFullTestReadinessFailure(new DOMException(secret,'AbortError'),5000),
+    {reason:'read_aborted',code:'ABORTED',elapsedMs:5000});
 });
 function inputs() {
   const profile={schemaVersion:1,profile:'full-test',chainId:56,artifactDigest,sourceHead,
