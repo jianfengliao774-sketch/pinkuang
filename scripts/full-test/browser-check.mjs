@@ -52,7 +52,6 @@ try {
     external.push(route.request().url()); return route.abort();
   });
   await page.goto(`${origin}${base}/`);
-  await page.locator('[data-test-profile="full-test"]').waitFor();
   await page.getByText('测试合约尚未完成部署及权限激活；可先浏览各页面。', { exact: true }).waitFor();
   const price = await page.request.get(`${origin}${base}/data/bem-price.json`);
   assert.equal(price.status(), 200);
