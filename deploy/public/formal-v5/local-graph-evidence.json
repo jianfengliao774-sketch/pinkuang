@@ -1,0 +1,289 @@
+{
+  "schemaVersion": 1,
+  "kind": "bemine-formal-v5-local-graph-evidence",
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "chainId": 56,
+  "endpoint": "disposable localhost Anvil only",
+  "productionTransactions": 0,
+  "protocolEvidence": "Local fault-injection fixtures at fixed protocol addresses; not live protocol or mainnet/fork evidence.",
+  "steps": [
+    {
+      "id": "MiningOperations",
+      "hash": "0xe576ba84db0a10d7b435383032c7eeac200b5460b58ef4a830987503a0a328c4",
+      "blockNumber": 1,
+      "gasUsed": "1349265"
+    },
+    {
+      "id": "PoolFunds",
+      "hash": "0xcb30b941161220a0f3556c6f41c8b5d7e10b0eee11304b50872bebf5b8aaad32",
+      "blockNumber": 2,
+      "gasUsed": "884096"
+    },
+    {
+      "id": "RewardAccounting",
+      "hash": "0xaeeb1d9976ee3cef01e244f81cdfc8245805dbb915bb746b3082ef6a9d34a21f",
+      "blockNumber": 3,
+      "gasUsed": "1102391"
+    },
+    {
+      "id": "SaleGovernance",
+      "hash": "0xf3f7f28a996d6706a5d93590ae076095340f8a072f9ce6f2520254febec51b6c",
+      "blockNumber": 4,
+      "gasUsed": "1169867"
+    },
+    {
+      "id": "SaleSettlement",
+      "hash": "0xc18f20fe8b8808bd6cbc3b44d23a67e8b29683b3084e5734da5ba91000886efc",
+      "blockNumber": 5,
+      "gasUsed": "962756"
+    },
+    {
+      "id": "FirstoSale",
+      "hash": "0x2786df7ec612246364a76c431b454dad11ff305ba6c2da4cf6ce641c1b92d69a",
+      "blockNumber": 6,
+      "gasUsed": "3992562"
+    },
+    {
+      "id": "PurchaseValidation",
+      "hash": "0xbe7f64785904f33f421a77a8503e5c96d946cbde0638992bb50cb08c5e256334",
+      "blockNumber": 7,
+      "gasUsed": "1149551"
+    },
+    {
+      "id": "FlexiblePurchase",
+      "hash": "0x3abe7e74c79a68fa4f92cb84f70218b1e20ed313275c4f1b619d93ea6312947e",
+      "blockNumber": 8,
+      "gasUsed": "2870685"
+    },
+    {
+      "id": "ShareCheckpoints",
+      "hash": "0x92759d744ac3f46443e50a9f522ce3d203c2e5daca41ea4ed06f7e08bbfc80d7",
+      "blockNumber": 9,
+      "gasUsed": "370501"
+    },
+    {
+      "id": "AtomicDeployment",
+      "hash": "0x5f37ca2ce0bb9af35705d7773d632f594ee4c41cf5524760c752cb40485aa23c",
+      "blockNumber": 10,
+      "gasUsed": "4627784"
+    },
+    {
+      "id": "PoolVault",
+      "hash": "0xe3250c26e8d45227a1bdcaa604ce3d3ab1d7427c8869c430b75a12d8fee67c51",
+      "blockNumber": 11,
+      "gasUsed": "5371620"
+    },
+    {
+      "id": "FreshPoolFactory",
+      "hash": "0x8799dc0b1e61f6aab22ab7d283e9339462391306e68d327a46cd8b46d4439a80",
+      "blockNumber": 12,
+      "gasUsed": "5110221"
+    },
+    {
+      "id": "ShareMarket",
+      "hash": "0x14c4020d94af4d36dffa36d600b4691b342485b1052109fecb2afc3fcd4ed06e",
+      "blockNumber": 13,
+      "gasUsed": "2925931"
+    },
+    {
+      "id": "BudgetPortfolioFactory",
+      "hash": "0xd7cf70be25e9d265e53a4f0d7cd93a1fc953e501df66c4a111fa567c736f3d11",
+      "blockNumber": 14,
+      "gasUsed": "2161862"
+    },
+    {
+      "id": "BudgetPortfolioVault",
+      "hash": "0xcaf66c3da494f5350ddcc3074cfcbd9a0b79bae66f675b335cd4a2a918db56ef",
+      "blockNumber": 15,
+      "gasUsed": "5358883"
+    },
+    {
+      "id": "initialize",
+      "hash": "0x1c6bbb97fd7e1591ab1f04703a6e1f1ee7ecaf28388b095f326331fb25c19991",
+      "blockNumber": 16,
+      "gasUsed": "5238966"
+    },
+    {
+      "id": "deployAuthority",
+      "hash": "0xb202c318c210fdd33e9066eb02fd2ef66b4a0edb0da1bab761af4476b1e23935",
+      "blockNumber": 17,
+      "gasUsed": "4339275"
+    },
+    {
+      "id": "coreOperator",
+      "hash": "0x373daffe0eda5044ec04843761ebeb351d01dce8a51e1d9fa4d3bdf8cb5222a0",
+      "blockNumber": 18,
+      "gasUsed": "36227"
+    },
+    {
+      "id": "coreTreasury",
+      "hash": "0x7b2253f1101aef38e3ad724fa4d9ebd5b757190c7b455c015457ca43fcd9d912",
+      "blockNumber": 19,
+      "gasUsed": "36415"
+    },
+    {
+      "id": "budgetOperator",
+      "hash": "0x0a8c6c10e85b5c9cdab8804f93d54a079780eb3e205030233dc392902a15a6dd",
+      "blockNumber": 20,
+      "gasUsed": "35944"
+    },
+    {
+      "id": "budgetTreasury",
+      "hash": "0xb09c0b8fe727cb14a468dcb35eb9896a381a3de7223484a034175878dcf7218b",
+      "blockNumber": 21,
+      "gasUsed": "36077"
+    },
+    {
+      "id": "coreOwner",
+      "hash": "0xdfcf521594fdd0df7ea733fb42846eaf47f800a249695d820dec8d7b7073a32a",
+      "blockNumber": 22,
+      "gasUsed": "34330"
+    },
+    {
+      "id": "budgetOwner",
+      "hash": "0x472dd268d8248aeb75a68186d7adfb42b7764aa327ac301d93a14f5159f3f3bb",
+      "blockNumber": 23,
+      "gasUsed": "34044"
+    }
+  ],
+  "runtimeChecks": [
+    {
+      "name": "MiningOperations",
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "codehash": "0x3873ca42e09c4561a2602becfb7d13fd3ac2dcd1cfb5757ae311fa02fa2ed8c6"
+    },
+    {
+      "name": "PoolFunds",
+      "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+      "codehash": "0xd83bd02e511edd976a0b3bdc5d37751f540e8c655efa92ece60ba6e7b0a16091"
+    },
+    {
+      "name": "RewardAccounting",
+      "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "codehash": "0x361fda1ca5034b8fbeaa8aac19761b0e697a0bf7a64d67f60fba5b9a6978bd01"
+    },
+    {
+      "name": "SaleGovernance",
+      "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "codehash": "0x1c8bcd856757b3f160fb12fcd3101ce2f9e21af233dbf7af477c396a401f69d7"
+    },
+    {
+      "name": "SaleSettlement",
+      "address": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+      "codehash": "0xceeaccbf39e8d80ee9b9e016defd3cc3adb5e3c0cc70aac9d1be69447e96305f"
+    },
+    {
+      "name": "FirstoSale",
+      "address": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+      "codehash": "0x0b5bdd985ba7d903038e7fd80c6cd36b21ddef6d5e40f20cc73f0af01054a161"
+    },
+    {
+      "name": "PurchaseValidation",
+      "address": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+      "codehash": "0x1f4054d6ad0289aa5c345b2aecd87ec0b7430d58cc3d3e1082d14ae03f78a870"
+    },
+    {
+      "name": "FlexiblePurchase",
+      "address": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+      "codehash": "0xeeb2764e0d7c1e696487e516bb1c08e459715f4558fb03adc05628525d7f535e"
+    },
+    {
+      "name": "ShareCheckpoints",
+      "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+      "codehash": "0x97df9c204b1bcf5b41c9f753bf24d86228daf3cdb9782fc6f9c4fe57feb5c8c7"
+    },
+    {
+      "name": "AtomicDeployment",
+      "address": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "codehash": "0xb9c5fede7e2eca0e14ec0a101b59da2ca9ab4e37c4ea0bc32835a15ff885e9ba"
+    },
+    {
+      "name": "PoolVault",
+      "address": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "codehash": "0x54d281f9ed49b71c976de6d01f2bf1d9e17d63301f5eb5c3f73aa24f05adc3fb"
+    },
+    {
+      "name": "FreshPoolFactory",
+      "address": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
+      "codehash": "0x96fd92fbfda464daf39dbf738ccecbeeba771fd7b2e91d17e63ddf7db0c3ca3a"
+    },
+    {
+      "name": "ShareMarket",
+      "address": "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0",
+      "codehash": "0x9a0eeeee62168e12653fd570a981301bcece3b4118a0a61869160cbbdf27e353"
+    },
+    {
+      "name": "BudgetPortfolioFactory",
+      "address": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
+      "codehash": "0x41e45ce0b3a83453b2cea4ca3974864546d8e537926dbadfb6e60d7ec8046849"
+    },
+    {
+      "name": "BudgetPortfolioVault",
+      "address": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+      "codehash": "0xad9321c844e0b678ce1584729fe33eafe4c02519e62611cdc419c6ba767fcd0e"
+    },
+    {
+      "name": "PoolTimelock",
+      "address": "0x8aCd85898458400f7Db866d53FCFF6f0D49741FF",
+      "codehash": "0x49f6ff6240d0de44c0382ef477753ee69f8e8a7bb3e8db1133ba8d7db243d622"
+    },
+    {
+      "name": "PoolBeacon",
+      "address": "0xe082b26cEf079a095147F35c9647eC97c2401B83",
+      "codehash": "0x84cbb5c54a369787f1222ba3401c13ed9647856d98140bfb0e9228d07445b4ab"
+    },
+    {
+      "name": "PoolBeacon",
+      "address": "0x0Db1D0Cfcba97F7dc5AF76cfEC1a646c33cD9297",
+      "codehash": "0x37ebf74e04226ead11344b8d2edd0c73e3475efae8b49d61ef9c8c8eb77eca63"
+    },
+    {
+      "name": "ERC1967Proxy",
+      "address": "0x788F1E4a99fa704Edb43fAE71946cFFDDcC16ccB",
+      "codehash": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931"
+    },
+    {
+      "name": "ERC1967Proxy",
+      "address": "0x88577731Cc84560fE297792ab784b600A54728E2",
+      "codehash": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931"
+    },
+    {
+      "name": "ERC1967Proxy",
+      "address": "0x68fB26Da4B200406485D8eBE4809b498fB33a698",
+      "codehash": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931"
+    },
+    {
+      "name": "ERC1967Proxy",
+      "address": "0xd52999D54378A7D76bDF16E034F9a8eBbe95c07B",
+      "codehash": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931"
+    },
+    {
+      "name": "PoolLens",
+      "address": "0xc9EEB484F2666ba7cac9250425fcAf0494DC43e0",
+      "codehash": "0x2a96ae26d5bb5029c39b0ede700f808fc6be7206c7493a49ac15b84416771f89"
+    },
+    {
+      "name": "PlatformAuthority",
+      "address": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
+      "codehash": "0x67e5ccccb6c45c95f495354a518074d6f2d2b2584e53b20bac7539c334ca0e28"
+    }
+  ],
+  "graph": {
+    "factory": "0x788F1E4a99fa704Edb43fAE71946cFFDDcC16ccB",
+    "portfolioFactory": "0x88577731Cc84560fE297792ab784b600A54728E2",
+    "shareMarket": "0x68fB26Da4B200406485D8eBE4809b498fB33a698",
+    "portfolioMarket": "0xd52999D54378A7D76bDF16E034F9a8eBbe95c07B",
+    "timelock": "0x8aCd85898458400f7Db866d53FCFF6f0D49741FF",
+    "authority": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1"
+  },
+  "assertions": [
+    "16 bootstrap and 7 activation receipts",
+    "runtime/code/library links and immutable getter bindings",
+    "all final owner/operator/treasury roles",
+    "timelock authorization and 48h minimum delay retained",
+    "proposal fails before 3 days and succeeds at exact 3-day boundary; 24h vote and 7d listing expiry retained",
+    "signed low-price review required",
+    "Firsto route atomic settlement and NFT delivery",
+    "member BNB withdrawal and signed Authority fee withdrawal"
+  ]
+}

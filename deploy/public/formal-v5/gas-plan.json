@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "kind": "bemine-formal-v5-gas-plan",
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "chainId": 56,
+  "gasLimits": {
+    "MiningOperations": "1810000",
+    "PoolFunds": "1200000",
+    "RewardAccounting": "1490000",
+    "SaleGovernance": "1580000",
+    "SaleSettlement": "1310000",
+    "FirstoSale": "5250000",
+    "PurchaseValidation": "1550000",
+    "FlexiblePurchase": "3790000",
+    "ShareCheckpoints": "540000",
+    "AtomicDeployment": "6070000",
+    "PoolVault": "7040000",
+    "FreshPoolFactory": "6700000",
+    "ShareMarket": "3860000",
+    "BudgetPortfolioFactory": "2870000",
+    "BudgetPortfolioVault": "7020000",
+    "initialize": "6870000"
+  },
+  "activationGasLimits": {
+    "deployAuthority": "5700000",
+    "coreOperator": "100000",
+    "coreTreasury": "100000",
+    "budgetOperator": "100000",
+    "budgetTreasury": "100000",
+    "coreOwner": "100000",
+    "budgetOwner": "100000"
+  },
+  "methodology": "Exact independent artifact bytecode on disposable Anvil Shanghai chain 56; measured gasUsed + 30% + 50000 rounded up to 10000. Transactions transfer zero BNB.",
+  "bootstrapTransactionCount": 16,
+  "authorityActivationTransactionCount": 7
+}

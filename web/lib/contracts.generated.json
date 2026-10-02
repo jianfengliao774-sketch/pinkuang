@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0x6007118ac4568be4743a99b44b5259518fcf5a73e091469bfdc4d05a7dc4dd75",
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
   "abis": {
     "PoolFactory": [
       {
@@ -43,11 +43,6 @@
       },
       {
         "inputs": [],
-        "name": "FundingTargetNotDivisible",
-        "type": "error"
-      },
-      {
-        "inputs": [],
         "name": "InvalidAddress",
         "type": "error"
       },
@@ -64,11 +59,6 @@
       {
         "inputs": [],
         "name": "InvalidMigrationBatch",
-        "type": "error"
-      },
-      {
-        "inputs": [],
-        "name": "InvalidParameters",
         "type": "error"
       },
       {
@@ -105,11 +95,6 @@
       {
         "inputs": [],
         "name": "NotInitializing",
-        "type": "error"
-      },
-      {
-        "inputs": [],
-        "name": "OverPriceCap",
         "type": "error"
       },
       {
@@ -168,11 +153,6 @@
       {
         "inputs": [],
         "name": "Unauthorized",
-        "type": "error"
-      },
-      {
-        "inputs": [],
-        "name": "WrongCircuit",
         "type": "error"
       },
       {
@@ -1099,7 +1079,7 @@
         "outputs": [
           {
             "internalType": "address",
-            "name": "",
+            "name": "pool",
             "type": "address"
           }
         ],
@@ -1269,6 +1249,19 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "soldMachineReuseVersion",
+        "outputs": [
+          {
+            "internalType": "uint8",
+            "name": "",
+            "type": "uint8"
+          }
+        ],
+        "stateMutability": "pure",
         "type": "function"
       },
       {
@@ -4088,6 +4081,114 @@
         "inputs": [
           {
             "internalType": "uint8",
+            "name": "action",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "cancellationId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expectedListedProposalId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "support",
+            "type": "bool"
+          }
+        ],
+        "name": "delist",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "id",
+            "type": "uint256"
+          }
+        ],
+        "name": "delistingProposal",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "cancellationId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "proposer",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "listedProposalId_",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint48",
+            "name": "snapshotTs",
+            "type": "uint48"
+          },
+          {
+            "internalType": "uint64",
+            "name": "expiresAt_",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "snapshotMemberCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "yesCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "yesShares",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "noCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "noShares",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "executed",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "voted",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
             "name": "shares",
             "type": "uint8"
           }
@@ -4108,6 +4209,34 @@
           }
         ],
         "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "price",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint16",
+            "name": "feeBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "feeEpoch",
+            "type": "uint256"
+          }
+        ],
+        "name": "enableNativeFirstoSale",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
       },
       {
@@ -4799,6 +4928,94 @@
       },
       {
         "inputs": [],
+        "name": "nativeFirstoAsk",
+        "outputs": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "maker",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "collection",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint128",
+                "name": "price",
+                "type": "uint128"
+              },
+              {
+                "internalType": "uint64",
+                "name": "expiry",
+                "type": "uint64"
+              },
+              {
+                "internalType": "address",
+                "name": "payoutRecipient",
+                "type": "address"
+              },
+              {
+                "internalType": "uint16",
+                "name": "feeBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint256",
+                "name": "feeEpoch",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint16",
+                "name": "schemaVersion",
+                "type": "uint16"
+              }
+            ],
+            "internalType": "struct IFirstoSignedAskExchange.SignedAsk",
+            "name": "ask",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "orderHash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "nativeFirstoSaleVersion",
+        "outputs": [
+          {
+            "internalType": "uint8",
+            "name": "",
+            "type": "uint8"
+          }
+        ],
+        "stateMutability": "pure",
+        "type": "function"
+      },
+      {
+        "inputs": [],
         "name": "nextProposalId",
         "outputs": [
           {
@@ -5201,6 +5418,19 @@
             "internalType": "uint256",
             "name": "",
             "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "saleReviewThresholdBps",
+        "outputs": [
+          {
+            "internalType": "uint16",
+            "name": "",
+            "type": "uint16"
           }
         ],
         "stateMutability": "view",
@@ -6133,6 +6363,19 @@
         "type": "function"
       },
       {
+        "inputs": [],
+        "name": "automaticSaleReferenceVersion",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "pure",
+        "type": "function"
+      },
+      {
         "inputs": [
           {
             "internalType": "address",
@@ -6406,6 +6649,34 @@
             "type": "address"
           },
           {
+            "internalType": "uint128",
+            "name": "marketPriceWei",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint64",
+            "name": "observedAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "sourceDigest",
+            "type": "bytes32"
+          }
+        ],
+        "name": "publishSaleReference",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
             "internalType": "uint256",
             "name": "proposalId",
             "type": "uint256"
@@ -6450,6 +6721,19 @@
             "internalType": "bytes32",
             "name": "sourceDigest",
             "type": "bytes32"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "saleReferencePublisher",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
           }
         ],
         "stateMutability": "view",
@@ -8819,6 +9103,19 @@
             "internalType": "uint256",
             "name": "",
             "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "saleReviewThresholdBps",
+        "outputs": [
+          {
+            "internalType": "uint16",
+            "name": "",
+            "type": "uint16"
           }
         ],
         "stateMutability": "view",
