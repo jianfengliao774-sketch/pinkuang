@@ -2,6 +2,77 @@ import { FetchRequest, JsonRpcProvider } from 'ethers';
 import { isRpcTransportFailure, readOnlyRpcFallbackUrl } from './read-only-rpc-fallback.mjs';
 
 const check = (ok, message) => { if (!ok) throw new Error(message); };
+const READ_METHODS = new Set(['eth_chainId', 'net_version', 'eth_blockNumber',
+  'eth_getBlockByNumber', 'eth_getBlockByHash', 'eth_getCode', 'eth_getStorageAt',
+  'eth_call', 'eth_estimateGas', 'eth_getBalance', 'eth_getTransactionCount',
+  'eth_getTransactionByHash', 'eth_getTransactionReceipt', 'eth_getLogs',
+  'eth_feeHistory', 'eth_gasPrice', 'eth_maxPriorityFeePerGas']);
+const RETRY_DELAYS = [1100, 2200];
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const http429 = error => (error?.response?.statusCode ?? error?.info?.response?.statusCode
+  ?? Number(String(error?.info?.responseStatus ?? '').match(/^\d{3}/)?.[0])) === 429;
+const quotaLimited = row => row?.error?.code === -32005 && typeof row.error.message === 'string'
+  && /\bCUPS\b|\bCompute Units Per Second\b|\brate[\s_-]?limit(?:ed|ing)?\b/i.test(row.error.message);
+const idKey = id => `${typeof id}:${id}`;
+const pureRead = rows => rows.length > 0 && rows.every(row => row?.jsonrpc === '2.0'
+  && READ_METHODS.has(row.method) && Array.isArray(row.params)
+  && (typeof row.id === 'string' || Number.isSafeInteger(row.id)))
+  && new Set(rows.map(row => idKey(row.id))).size === rows.length;
+
+async function readWithBackoff(rows, send, retryWait, isBatch) {
+  const results = new Map();
+  let pending = rows;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let response;
+    try { response = await send(isBatch ? pending : pending[0]); }
+    catch (error) {
+      if (!http429(error) || attempt === 2) throw error;
+      await retryWait(RETRY_DELAYS[attempt]); continue;
+    }
+    // Never retry a malformed or mismatched reply, even if it includes a quota
+    // error. Exact IDs keep partial batches bound to their original requests.
+    check(Array.isArray(response) && response.length === pending.length
+      && response.every(row => row?.jsonrpc === '2.0' && pending.some(request => request.id === row.id)
+        && Object.hasOwn(row, 'result') !== Object.hasOwn(row, 'error')
+        && (!Object.hasOwn(row, 'error') || Number.isInteger(row.error?.code) && typeof row.error.message === 'string'))
+      && new Set(response.map(row => idKey(row.id))).size === pending.length,
+    'Runtime RPC response does not match the read batch.');
+    const retryIds = new Set();
+    for (const row of response) {
+      results.set(idKey(row.id), row);
+      if (attempt < 2 && quotaLimited(row)) retryIds.add(idKey(row.id));
+    }
+    if (!retryIds.size) return rows.map(row => results.get(idKey(row.id)));
+    pending = pending.filter(row => retryIds.has(idKey(row.id)));
+    await retryWait(RETRY_DELAYS[attempt]);
+  }
+}
+
+class ReadBackoffRpcProvider extends JsonRpcProvider {
+  #readQueue = Promise.resolve();
+  #retryWait;
+  constructor(request, network, providerOptions, retryWait) {
+    super(request, network, providerOptions); this.#retryWait = retryWait;
+  }
+  _send(payload) {
+    const rows = Array.isArray(payload) ? payload : [payload];
+    // Writes, signing methods, unknown methods and mixed batches preserve the
+    // original one-attempt transport. They never enter a read retry queue.
+    if (!pureRead(rows)) return super._send(payload);
+    const run = async () => {
+      const values = [];
+      for (let offset = 0; offset < rows.length; offset += 4) {
+        values.push(...await readWithBackoff(rows.slice(offset, offset + 4),
+          request => { check(!this.destroyed, 'Runtime RPC provider is closed.'); return super._send(request); },
+          this.#retryWait, Array.isArray(payload)));
+      }
+      return values;
+    };
+    const result = this.#readQueue.then(run);
+    this.#readQueue = result.catch(() => {});
+    return result;
+  }
+}
 
 function singleAttempt(request) {
   const value = request.clone();
@@ -47,16 +118,16 @@ export async function selectRuntimeRpcRequest(request, { env = process.env } = {
 
 /** Async worker startup: a single selected transport owns every nonce, receipt,
  * chain read and broadcast for the lifetime of this provider. */
-export async function createRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {} } = {}) {
+export async function createRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait } = {}) {
   const selected = await selectRuntimeRpcRequest(request, { env });
-  return new JsonRpcProvider(selected.request, network, providerOptions);
+  return new ReadBackoffRpcProvider(selected.request, network, providerOptions, retryWait);
 }
 
-class DeferredRuntimeRpcProvider extends JsonRpcProvider {
+class DeferredRuntimeRpcProvider extends ReadBackoffRpcProvider {
   #selection;
   #selected;
-  constructor(request, { env, network, providerOptions }) {
-    super(request, network, { batchMaxCount: 1, ...providerOptions });
+  constructor(request, { env, network, providerOptions, retryWait }) {
+    super(request, network, { batchMaxCount: 1, ...providerOptions }, retryWait);
     this.#selection = selectRuntimeRpcRequest(request, { env }).then(value => { this.#selected = value; return value; });
     // Sync service construction can finish before its first awaited readiness
     // check. Preserve the failure for that check without an unhandled rejection.
@@ -69,7 +140,7 @@ class DeferredRuntimeRpcProvider extends JsonRpcProvider {
 
 /** Sync service factory compatibility. Selection starts immediately, and all
  * provider I/O waits for it. A failed selection is sticky and fails closed. */
-export function createDeferredRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {} } = {}) {
+export function createDeferredRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait } = {}) {
   const primary = typeof request === 'string' ? new FetchRequest(request) : request;
-  return new DeferredRuntimeRpcProvider(primary, { env, network, providerOptions });
+  return new DeferredRuntimeRpcProvider(primary, { env, network, providerOptions, retryWait });
 }
