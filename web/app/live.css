@@ -1024,6 +1024,22 @@ body:has(.preview-banner) .page-footer {
 .live-record-page-jump input { width: 76px; min-width: 0; margin: 0; padding: 10px; }
 
 .live-platform .live-language-control { position: relative; flex: 0 0 auto; width: 118px; }
+.live-platform .live-community-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  flex: 0 0 auto; min-height: 44px; padding: 10px 14px;
+  border: 1px solid var(--brand-gold); border-radius: 8px;
+  background: #203e36; color: #e8d3aa; font-size: 14px; font-weight: 600;
+  line-height: 1.4; text-decoration: none; white-space: nowrap;
+  transition: background-color .16s, color .16s;
+}
+.live-platform .live-community-link:hover { background: #d9c194; color: #203e36; }
+.live-platform .live-community-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.live-platform .live-community-link > svg { flex-shrink: 0; }
+@media (max-width: 1200px) {
+  .live-platform .live-community-link { width: 44px; padding: 0; }
+  .live-platform .live-community-link > span,
+  .live-platform .live-community-link .live-community-external { display: none; }
+}
 .live-platform .top-actions .live-language-control .language-switch {
   appearance: none; -webkit-appearance: none; width: 100%; max-width: none;
   padding: 10px 28px 10px 12px;
@@ -1062,6 +1078,8 @@ body:has(.preview-banner) .page-footer {
   overflow-y: auto; overscroll-behavior: contain;
 }
 @media (max-width: 760px) {
+  .live-platform .topbar { align-items: flex-start; }
+  .live-platform .top-actions { flex-wrap: wrap; }
   .live-platform .live-language-control { width: 110px; }
   .live-platform .top-actions .live-language-control .language-switch { padding-left: 8px; padding-right: 25px; }
   .live-platform .live-catalog-table table { min-width: 760px; }

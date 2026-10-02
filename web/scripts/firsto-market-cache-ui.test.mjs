@@ -17,11 +17,11 @@ const { code } = await transform(await readFile(new URL('../components/FirstoMar
     transform: { react: { runtime: 'automatic' } } }, module: { type: 'commonjs' },
 });
 
-function runtime(read) {
+function runtime(read, locale = 'zh') {
   let current;
   const hooks = Object.fromEntries(['useState', 'useRef', 'useEffect'].map(name => [name, (...args) => current.hooks[name](...args)]));
   const exported = { exports: {} };
-  const modules = { react: hooks, '../lib/i18n': { useI18n: () => ({ locale: 'zh' }) },
+  const modules = { react: hooks, '../lib/i18n': { useI18n: () => ({ locale }) },
     '../../deploy/src/pricing.ts': { MAX_QUOTE_AGE_MS: 600_000 }, './FirstoMarketBoard.css': {},
     './firsto-market-board.mjs': { FIRSTO_MARKET_SOURCE: 'https://tapeout.firsto.ai',
       formatMarketAmount: value => String(value), readFirstoMarketBoard: read } };
@@ -69,4 +69,44 @@ test('manual market refresh bypasses reusable data', async () => {
   const ui = mount({ refreshKey: 0 }); await ui.settle();
   const refresh = elements(ui.tree).find(node => node.type === 'button' && text(node) === '刷新');
   refresh.props.onClick(); await ui.settle(); assert.equal(calls, 2); ui.unmount();
+});
+
+test('market rows show a single seller-basis daily capacity price in both languages', async () => {
+  for (const locale of ['zh', 'en']) {
+    for (const [sourceVenue, englishVenue] of [['Firsto 挂单', 'Firsto listing'], ['TapeOut 官网挂单', 'TapeOut listing']]) {
+      const data = board(); data.rows[0].venue = sourceVenue;
+      const ui = runtime(async () => data, locale)({ refreshKey: 0 });
+      await ui.settle();
+      const headers = elements(ui.tree).filter(node => node.type === 'th');
+      assert.equal(headers.length, 5, 'the buyer-total column is omitted');
+      assert(text(headers[2]).includes(locale === 'zh' ? '预计日产BEM' : 'Expected daily BEM'));
+      assert(text(headers[3]).startsWith(locale === 'zh' ? '日产能价' : 'Price per daily BEM'));
+      const cells = elements(ui.tree).filter(node => node.type === 'td');
+      assert.equal(cells.length, 5);
+      assert(text(cells[0]).includes(locale === 'zh' ? sourceVenue : englishVenue));
+      if (locale === 'en') assert.doesNotMatch(text(cells[0]), /挂单|官网/);
+      assert.equal(text(cells[1]), '100');
+      assert.equal(text(cells[2]), '200');
+      assert.equal(text(cells[3]), '300', 'only the existing seller-ask / daily-BEM value is rendered');
+      assert.equal(elements(cells[3]).filter(node => node.type === 'small').length, 0);
+      const unit = elements(ui.tree).find(node => node.props?.className === 'firsto-board-unit');
+      assert.equal(text(unit), '300');
+      assert(elements(ui.tree).some(node => node.type === 'a'
+        && text(node).trim() === (locale === 'zh' ? 'Firsto 网站' : 'Firsto website')));
+      assert.doesNotMatch(text(ui.tree), /买方总价|Buyer-total basis|Firsto buyer total|不请求钱包签名|never requests a wallet signature/);
+      ui.unmount();
+    }
+  }
+});
+
+test('simplified market rows still hide amounts after a quote expires', async () => {
+  const expired = board(); expired.rows[0].validUntil = Date.now() - 1;
+  const ui = runtime(async () => expired)({ refreshKey: 0 });
+  await ui.settle();
+  const cells = elements(ui.tree).filter(node => node.type === 'td');
+  assert.equal(text(cells[1]), '—');
+  assert.equal(text(cells[2]), '—');
+  assert.equal(text(cells[3]), '暂不可用');
+  assert.match(text(cells[4]), /报价已过期/);
+  ui.unmount();
 });

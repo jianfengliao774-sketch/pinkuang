@@ -37,6 +37,7 @@ import {
   Download,
   ExternalLink,
   Bell,
+  Send,
 } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
@@ -2634,6 +2635,14 @@ export default function LivePlatform() {
             </strong>
           </div>
           <div className="top-actions">
+            <a className="live-community-link" href="https://t.me/BEMineCommunity"
+              target="_blank" rel="noopener noreferrer"
+              aria-label={L("加入官方 Telegram 群（新窗口打开）", "Join official Telegram group (opens in a new window)")}
+              title={L("加入官方 Telegram 群", "Join official Telegram group")}>
+              <Send size={18} aria-hidden="true" />
+              <span>{L("加入官方 Telegram 群", "Join official Telegram group")}</span>
+              <ExternalLink className="live-community-external" size={14} aria-hidden="true" />
+            </a>
             <button className="appearance-toggle" aria-label={L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/></button>
             <button
               className="appearance-toggle"
