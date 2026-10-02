@@ -748,6 +748,40 @@
   gap: 20px;
   flex-wrap: wrap;
 }
+.app-shell .live-yield .section-head {
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.app-shell .live-yield .segmented {
+  flex-shrink: 0;
+}
+.app-shell .live-yield .segmented button.selected {
+  background: var(--blue);
+  color: var(--surface);
+  font-weight: 600;
+}
+.live-yield-status {
+  margin: 0 25px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.live-yield-status.error {
+  color: #a23b32;
+}
+.live-yield-plot {
+  position: relative;
+}
+.live-yield-zero {
+  position: absolute;
+  inset: 0 25px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+  pointer-events: none;
+}
 .live-yield .chart-summary > div {
   display: grid;
   gap: 10px;

@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {getAddress} from 'ethers';
 import {createWalletConnectConnector, standardWalletConnectProvider} from '../../deploy/shared/walletconnect.mjs';
 import {connectWallet, sendProductTransaction} from '../lib/live-transactions.mjs';
+import {startWalletSession} from '../lib/wallet-session.mjs';
 import {abi} from '../lib/chain-client.mjs';
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const account='0x0000000000000000000000000000000000000001';
@@ -26,15 +27,19 @@ test('SDK 2.25 numeric eth_chainId is normalized before strict product wallet gu
  assert.equal(await connectWallet(p),account);
  await c.disconnect();
 });
-function liveHandlers(c,checkWallet){
+function liveHandlers(c,checkWallet,options={}){
  const source=fs.readFileSync(root+'/web/components/LivePlatform.jsx','utf8');
  const functions=source.slice(source.indexOf('  function cancelWalletScan()'),source.indexOf('  function showTransactionProgress('));
  assert(functions.includes('async function selectWallet'),'Review harness must use actual current component functions');
- const state={wallet:null,account:null,busy:false,error:null},refs={connectionLock:{current:null},activeModal:{current:{type:'connect-wallet'}},walletEpoch:{current:0},connectedWallet:{current:null},qrConnector:{current:c}};
- const context={...refs,busy:false,wallet:null,account:null,locale:'en',walletConnectEnabled:true,discovery:{current:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message,
+ const target={type:'connect-wallet',...options.modal};
+ const state={wallet:options.wallet??null,account:options.account??null,busy:false,error:null,modal:target,prepared:{account:'old'},pending:{account:'old'}},refs={connectionLock:{current:null},activeModal:{current:target},epoch:{current:0},walletEpoch:{current:0},connectedWallet:{current:options.wallet??null},qrConnector:{current:c},walletLanguage:{current:'en'}};
+ const context={...refs,busy:false,wallet:state.wallet,account:state.account,locale:'en',walletConnectEnabled:true,discovery:{current:options.wallets?{getWallets:()=>options.wallets}:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message,
   clearWalletDisplay:()=>{}};
- for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','WalletChecking','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
- return{...new Function(...Object.keys(context),functions+'\nreturn {selectWallet,cancelWalletScan};')(...Object.values(context)),state,refs};
+ for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','WalletChecking','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh','OperatorRefresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
+ const watchStart=source.indexOf('    const invalidate = () => {'),watchEnd=source.indexOf('  }, [wallet, account]);',watchStart);
+ assert(watchStart>=0&&watchEnd>watchStart,'Watch harness must use actual current component wallet effect');
+ const watch=()=>new Function(...Object.keys(context),'startWalletSession','same',source.slice(watchStart,watchEnd))(...Object.values(context),startWalletSession,(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase());
+ return{...new Function(...Object.keys(context),functions+'\nreturn {selectWallet,cancelWalletScan};')(...Object.values(context)),state,refs,watch};
 }
 test('cancel after relay approval invalidates outer chain-check; late result cannot replace retry wallet',async()=>{
  const first=instance(),second=instance(),c=connector([first,second]),oldOwner=deferred();let reads=0;
@@ -86,4 +91,51 @@ test('changing wallet context during approval prevents late adoption',async()=>{
  ui.refs.walletEpoch.current++;owner.resolve(account);await result;
  assert.equal(ui.state.wallet,null);assert.equal(ui.state.account,null);assert.equal(ui.refs.connectionLock.current,null);
  assert(f.disconnects>=1);await c.disconnect();
+});
+
+function injectedPicker(){
+ const wallet=new EventEmitter(),approval=deferred(),calls=[];let selected=account;
+ wallet.request=async args=>{
+  calls.push(args);
+  if(args.method==='wallet_requestPermissions'){assert.deepEqual(args.params,[{eth_accounts:{}}]);return approval.promise;}
+  if(args.method==='eth_accounts')return[selected];
+  if(args.method==='eth_chainId')return'0x38';
+  assert.fail(`Account re-selection must not request another prompt, signature or transaction: ${args.method}`);
+ };
+ return{wallet,approval,calls,select(value){selected=value;wallet.emit('accountsChanged',[value]);}};
+}
+
+test('actual connected-wallet picker follows its account event while retiring old drafts and adopting the new owner',async()=>{
+ const f=injectedPicker(),other='0x0000000000000000000000000000000000000002',entry={id:'wallet-metamask',name:'MetaMask',provider:f.wallet};
+ const ui=liveHandlers(null,connectWallet,{wallet:f.wallet,account,wallets:[entry],modal:{reselectAccount:true}}),stop=ui.watch();
+ try{
+  const connecting=ui.selectWallet(entry);await tick();
+  assert.equal(f.calls[0].method,'wallet_requestPermissions');
+  const ticket=ui.refs.connectionLock.current,target=ui.refs.activeModal.current;
+  f.select(other);await tick();
+  assert(ui.refs.walletEpoch.current>0,'Old wallet context must be invalidated even during a picker request');
+  assert.equal(ticket.walletContext,ui.refs.walletEpoch.current,'Only the active same-provider picker follows the new context');
+  assert.equal(ui.refs.activeModal.current,target,'Account selection must not dismiss its own pending connection');
+  assert.equal(ui.state.prepared,null);assert.equal(ui.state.pending,null);
+  f.approval.resolve([{parentCapability:'eth_accounts',caveats:[]}]);await connecting;
+  assert.equal(ui.state.account,other);assert.equal(ui.state.wallet,f.wallet);
+  assert.equal(ui.state.modal,null);assert.equal(ui.refs.connectionLock.current,null);assert.equal(ui.state.busy,false);
+  assert.equal(f.calls.filter(row=>row.method==='wallet_requestPermissions').length,1);
+  assert(f.calls.every(row=>['wallet_requestPermissions','eth_accounts','eth_chainId'].includes(row.method)));
+ }finally{stop();}
+});
+
+test('an account event from the former provider cannot revive a different pending wallet selection',async()=>{
+ const previous=injectedPicker(),next=injectedPicker(),other='0x0000000000000000000000000000000000000002',entry={id:'wallet-okx',name:'OKX',provider:next.wallet};
+ const ui=liveHandlers(null,connectWallet,{wallet:previous.wallet,account,wallets:[entry],modal:{reselectAccount:true}}),stop=ui.watch();
+ try{
+  const connecting=ui.selectWallet(entry);await tick();const ticket=ui.refs.connectionLock.current;
+  previous.select(other);await tick();
+  assert.notEqual(ticket.walletContext,ui.refs.walletEpoch.current);
+  assert.equal(ui.refs.activeModal.current,null,'Former-provider identity change retires a different pending connection');
+  next.approval.resolve([{parentCapability:'eth_accounts',caveats:[]}]);await connecting;
+  assert.equal(ui.state.wallet,previous.wallet);assert.equal(ui.state.account,other);
+  assert.equal(ui.refs.connectedWallet.current,previous.wallet);
+  assert.equal(ui.refs.connectionLock.current,null);assert.equal(ui.state.busy,false);
+ }finally{stop();}
 });

@@ -2,6 +2,8 @@
 import { readPageRound } from '../lib/live-page.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
+import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
+import { claimDisplayState } from '../lib/claim-display.mjs';
 import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
@@ -285,6 +287,8 @@ export default function LivePlatform() {
     [activityCursor, setActivityCursor] = useState(null),
     [marketCredit, setMarketCredit] = useState(null);
   const [yieldData, setYieldData] = useState(null),
+    [yieldLoading, setYieldLoading] = useState(false),
+    [yieldError, setYieldError] = useState(''),
     [yieldDays, setYieldDays] = useState(30);
   const [loadedRoute, setLoadedRoute] = useState("");
   const [orderCapacity, setOrderCapacity] = useState({});
@@ -414,6 +418,12 @@ export default function LivePlatform() {
   const orderFeedback = useMemo(() => marketOrderFeedback(memberTransactions, config?.shareMarket ?? config?.manifest?.shareMarket, account, capacityNow || Date.now()),
     [memberTransactions, config?.shareMarket, config?.manifest?.shareMarket, account, capacityNow]);
   const orders = useMemo(() => applyMarketOrderFeedback(indexedOrders, orderFeedback), [indexedOrders, orderFeedback]);
+  const claimState = (row, currency, rowSource = source) => claimDisplayState({
+    pool: row?.pool, account, currency,
+    balance: account ? currency === 'BEM' ? row?.claimableBEM : row?.bnbOwed : null,
+    transactions: memberTransactions, activity, balanceBlock: rowSource?.indexedThrough,
+  });
+  const detailBemClaim = claimState(detail, 'BEM'), detailBnbClaim = claimState(detail, 'BNB');
   if (boot.status === 'ready') verifiedBoot.current = boot;
   const walletRevision = walletEpoch.current;
   // A permission result belongs to this exact provider, account and read revision.
@@ -688,7 +698,10 @@ export default function LivePlatform() {
       setOperator(null);
       setPending(null);
       setPrepared(null);
-      setModal(null);
+      const ticket = connectionLock.current;
+      if (ticket?.provider === wallet && ticket.target?.reselectAccount === true
+        && activeModal.current === ticket.target) ticket.walletContext = walletEpoch.current;
+      else setModal(null);
     };
     return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true,
       isCurrent: () => connectedWallet.current === wallet,
@@ -1212,9 +1225,9 @@ export default function LivePlatform() {
     let cache = readCache.current.get(client);
     if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
     const saved = cache.get(key);
-    if (saved?.refresh === refresh && Date.now() - saved.savedAt < 120_000)
+    if (saved?.refresh === displayRefreshKey && Date.now() - saved.savedAt < 120_000)
       return saved.promise ?? Promise.resolve(saved.result);
-    const entry = { savedAt: Date.now(), refresh };
+    const entry = { savedAt: Date.now(), refresh: displayRefreshKey };
     entry.promise = Promise.resolve().then(reader).then(result => {
       entry.result = result; delete entry.promise; return result;
     }, error => { if (cache.get(key) === entry) cache.delete(key); throw error; });
@@ -1226,6 +1239,7 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
     let cancelled = false;
+    ++activityReadEpoch.current;
     const pool = route.pool;
     const owner = account || ZeroAddress;
     const governanceKey = `pool-governance:${pool.toLowerCase()}:${owner.toLowerCase()}`;
@@ -1233,7 +1247,7 @@ export default function LivePlatform() {
     const entries = readCache.current.get(client);
     const reusable = key => {
       const saved = entries?.get(key);
-      return config?.displayOnly && saved?.refresh === refresh && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
+      return config?.displayOnly && saved?.refresh === displayRefreshKey && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
     };
     const currentGovernance = reusable(governanceKey);
     const currentActivity = reusable(activityKey);
@@ -1242,14 +1256,18 @@ export default function LivePlatform() {
     const remember = (key, result) => {
       let cache = readCache.current.get(client);
       if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
-      cache.set(key, { savedAt: Date.now(), refresh, result });
+      cache.set(key, { savedAt: Date.now(), refresh: displayRefreshKey, result });
       writeDisplaySnapshot(displayStorage(), client.manifest, key, result);
     };
     if (governanceCache) { setGovernance(governanceCache.data);
       setGovernanceProof({ pool, account: owner, source: governanceCache.source }); }
     else { setGovernance(null); setGovernanceProof(null); }
+    setActivityReadError(''); setActivityReadLoading(!currentActivity);
     if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor);
+      setActivityReadSource(activityCache.source);
       setActivityTotals({ totalCount: activityCache.totalCount, overviewTotalCount: activityCache.overviewTotalCount }); }
+    else { setActivity([]); setActivityCursor(null); setActivityReadSource(null);
+      setActivityTotals({ totalCount: null, overviewTotalCount: null }); }
     if (!currentGovernance && detailTab !== 'vote') void readCachedSection(governanceKey, () => client.readGovernance({ pool, account: owner }))
       .then(result => { if (!cancelled) { setGovernance(result.data);
         setGovernanceProof({ pool, account: owner, source: result.source });
@@ -1259,13 +1277,16 @@ export default function LivePlatform() {
     if (!currentActivity) void readCachedSection(activityKey, () => client.readActivity({ pool }))
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
+          setActivityReadSource(result.source);
           setActivityTotals({ totalCount: result.totalCount, overviewTotalCount: result.overviewTotalCount });
           remember(activityKey, result); }
       })
-      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error);
-        if (!activityCache) { setActivity([]); setActivityCursor(null); } } });
-    return () => { cancelled = true; };
-  }, [client, config?.displayOnly, account, route.route, route.pool, detail, detailTab, loading, refresh]);
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
+      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
+    return () => { cancelled = true; ++activityReadEpoch.current; };
+  }, [client, config?.displayOnly, account, route.route, route.pool, detail, detailTab, loading, displayRefreshKey]);
+
+  useEffect(() => { setRecordsPage(0); }, [client, route.route, route.pool, account]);
 
   useEffect(() => {
     if (!["market", "pools", "detail"].includes(route.route)) return;
@@ -1368,33 +1389,29 @@ export default function LivePlatform() {
   useEffect(() => {
     let cancelled = false;
     const yieldKey = `pool-yield:${route.pool?.toLowerCase() || ''}:${account?.toLowerCase() || 'public'}:${yieldDays}`;
-    const memory = client && readCache.current.get(client)?.get(yieldKey);
-    const currentYield = config?.displayOnly && memory?.result && memory.refresh === refresh
-      && Date.now() - memory.savedAt < 120_000 ? memory.result : null;
-    const cached = client && route.route === 'detail' && route.pool
-      ? currentYield ?? readPageSnapshot(displayStorage(), client.manifest, yieldKey) : null;
+    const query = { pool: route.pool, account: account || undefined, days: yieldDays };
+    const enabled = client && route.route === 'detail' && route.pool && detailTab === 'records';
+    const cached = enabled
+      ? cachedYieldWindow(client, query) ?? readPageSnapshot(displayStorage(), client.manifest, yieldKey) : null;
     setYieldData(cached?.data || null);
-    if (client && route.route === "detail" && route.pool && source && !currentYield)
-      readCachedSection(yieldKey, () => client.readYield({
-          pool: route.pool,
-          account: account || undefined,
-          days: yieldDays,
-          source,
-        }))
+    setYieldError(''); setYieldLoading(!!enabled);
+    if (enabled)
+      readYieldWindow(client, query, { revision: displayRefreshKey })
         .then((result) => {
           if (!cancelled) { setYieldData(result.data);
             writeDisplaySnapshot(displayStorage(), client.manifest, yieldKey, result); }
         })
-        .catch(error => { if (!cancelled) invalidateDisplayOnReorg(client, error); });
+        .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setYieldError(textError(error)); } })
+        .finally(() => { if (!cancelled) setYieldLoading(false); });
     return () => {
       cancelled = true;
     };
-  }, [client, config?.displayOnly, route.route, route.pool, account, source, yieldDays, refresh]);
+  }, [client, route.route, route.pool, detailTab, account, yieldDays, displayRefreshKey]);
   function connect() {
     if (busy && !connectionLock.current) return;
     setConnectionError("");
     discovery.current?.refresh();
-    setModal(connectionLock.current?.target || { type: "connect-wallet" });
+    setModal(connectionLock.current?.target || { type: "connect-wallet", reselectAccount: !!account });
   }
   function cancelWalletScan() {
     const ticket = connectionLock.current;
@@ -1409,7 +1426,7 @@ export default function LivePlatform() {
     // Keep the chosen concrete provider, never re-read a mutable window.ethereum here.
     if (!remote && !discovery.current?.getWallets().some(item => item.id === entry.id && item.provider === entry.provider)) return;
     if (remote && (!walletConnectEnabled || entry.id !== 'walletconnect')) return;
-    const target = activeModal.current, ticket = { target, remote }, context = walletEpoch.current;
+    const target = activeModal.current, ticket = { target, remote, walletContext: walletEpoch.current };
     connectionLock.current = ticket;
     setConnectingId(entry.id);
     setOperator(null);
@@ -1417,13 +1434,13 @@ export default function LivePlatform() {
     setWalletQr(null);
     setBusy(true);
     const current = () => connectionLock.current === ticket && activeModal.current === target
-      && context === walletEpoch.current;
+      && ticket.walletContext === walletEpoch.current;
     try {
       if (remote && !qrConnector.current) qrConnector.current = walletConnectForPage();
       const provider = remote ? await qrConnector.current.connect({ onQr: image => { if (current()) setWalletQr(image); } }) : entry.provider;
       ticket.provider = provider;
       if (!current()) { if (remote && provider !== connectedWallet.current) await provider.disconnect?.().catch(() => {}); return; }
-      const owner = await connectWallet(provider);
+      const owner = await connectWallet(provider, { reselectAccount: target.reselectAccount === true && !remote });
       if (!current()) { if (remote && provider !== connectedWallet.current) await provider.disconnect?.().catch(() => {}); return; }
       walletEpoch.current++;
       connectedWallet.current = provider;
@@ -2034,12 +2051,11 @@ export default function LivePlatform() {
           cursor: activityCursor,
           // Public history uses a descending block/transaction/log cursor.
           // A newer verified index does not invalidate that historical boundary.
-          source: route.route === 'records' ? undefined
-            : route.route === 'detail' ? source : activityReadSource,
+          source: route.route === 'records' ? undefined : activityReadSource,
         });
         if (revision !== epoch.current || activityRevision !== activityReadEpoch.current) return false;
         const appended = appendActivityPage({ items: activity, nextCursor: activityCursor,
-          source: route.route === 'detail' ? source : activityReadSource, ...activityTotals }, result);
+          source: activityReadSource, ...activityTotals }, result);
         setActivity(appended.items);
         setActivityCursor(appended.nextCursor);
         setActivityTotals({ totalCount: appended.totalCount, overviewTotalCount: appended.overviewTotalCount });
@@ -2374,27 +2390,28 @@ export default function LivePlatform() {
     if (target.loadedCount >= needed || !activityCursor) { setRecordsPage(targetPage); return; }
     if (!client || activityReadError) return;
     const ticket = {}, revision = epoch.current, readRevision = activityReadEpoch.current;
-    const pageRoute = route.route, owner = pageRoute === 'records' ? undefined : account;
+    const pageRoute = route.route, pool = pageRoute === 'detail' ? route.pool : undefined,
+      owner = ['overview', 'rewards'].includes(pageRoute) ? account : undefined;
     activityPageRequest.current = ticket; setActivityReadLoading(true); setActivityReadError('');
     const current = () => activityPageRequest.current === ticket && revision === epoch.current
       && readRevision === activityReadEpoch.current;
     try {
       const result = await loadActivityPage({ items: activity, nextCursor: activityCursor, source: activityReadSource, ...activityTotals },
         { route: pageRoute, page: targetPage, pageSize: recordsPageSize, isCurrent: current,
-          readPage: ({ cursor, limit, source: previous }) => client.readActivity({ account: owner, cursor, limit,
+          readPage: ({ cursor, limit, source: previous }) => client.readActivity({ pool, account: owner, cursor, limit,
             source: pageRoute === 'records' ? undefined : previous }) });
       if (!result || !current()) return;
       setActivity(result.items); setActivityCursor(result.nextCursor); setActivityReadSource(result.source);
       setActivityTotals({ totalCount: result.totalCount, overviewTotalCount: result.overviewTotalCount });
       setRecordsPage(result.pageIndex);
       if (pageRoute === 'records') setSource(result.source);
-      const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
+      const cacheKey = pool ? `pool-activity:${pool.toLowerCase()}` : `activity:${owner?.toLowerCase() || 'public'}`;
       let entries = readCache.current.get(client);
       if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-      entries.set(cacheKey, { savedAt: Date.now(), refresh, result });
+      entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
       writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
     } catch (problem) {
-      if (current()) { invalidateDisplayOnReorg(client, problem); setError(textError(problem)); }
+      if (current()) { invalidateDisplayOnReorg(client, problem); setActivityReadError(textError(problem)); }
     } finally {
       if (activityPageRequest.current === ticket) activityPageRequest.current = null;
       if (revision === epoch.current && readRevision === activityReadEpoch.current) setActivityReadLoading(false);
@@ -2456,13 +2473,13 @@ export default function LivePlatform() {
             })}
           </tbody>
         </table>
-        {!visibleActivity.length && <Empty title={activityReadLoading && route.route !== 'detail'
+        {!visibleActivity.length && <Empty title={activityReadLoading
           ? L('正在读取记录…', 'Loading records…')
-          : activityReadError && route.route !== 'detail'
+          : activityReadError
             ? L('记录读取失败，请刷新重试', 'Could not read records. Please refresh.')
             : L("暂无已确认记录", "No confirmed records")} />}
       </div>
-      {activityReadError && route.route !== 'detail' && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
+      {activityReadError && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
       {activityPageView.paginated ? <nav className="live-actions live-record-pagination" aria-label={L('记录分页', 'Records pagination')}>
         <Button secondary disabled={recordsPageIndex === 0 || busy || activityReadLoading}
           onClick={() => void jumpRecordsPage(recordsPageIndex - 1)}>{L('上一页', 'Previous')}</Button>
@@ -3040,6 +3057,8 @@ export default function LivePlatform() {
                           locale={locale}
                           days={yieldDays}
                           onDays={setYieldDays}
+                          loading={yieldLoading}
+                          error={yieldError}
                         />
                         <section className="panel live-section">
                           {activityTable()}
@@ -3182,22 +3201,32 @@ export default function LivePlatform() {
                     <div className="live-actions live-actions-stack">
                       <Button
                         secondary
-                        disabled={!detailActionReadyFor('claim') || !account || !detail.claimableBEM}
+                        disabled={!detailActionReadyFor('claim') || !detailBemClaim.canClaim}
                         onClick={() => openAction("claim", detail)}
                       >
                         {!config?.displayOnly && (source?.stale || cachedPage)
                           ? L("BEM 领取额待核验", "BEM claim awaiting verification")
-                          : <>{L("领取", "Claim")} {amount(account ? detail.claimableBEM : null, 8)} BEM</>}
+                          : detailBemClaim.canClaim ? <>{L("领取", "Claim")} {amount(detail.claimableBEM, 8)} BEM</>
+                            : L(detailBemClaim.labelZh, detailBemClaim.labelEn)}
                       </Button>
+                      {detailBemClaim.state === 'claimed' && detailBemClaim.evidence?.amount != null && <small>
+                        {L('上次已领取', 'Last claimed')} {amount(detailBemClaim.evidence.amount, 8)} BEM
+                      </small>}
+                      {detailBemClaim.updating && <small role="status">{L(detailBemClaim.hintZh, detailBemClaim.hintEn)}</small>}
                       <Button
                         secondary
-                        disabled={!detailActionReadyFor('withdrawBnb') || !account || !detail.bnbOwed}
+                        disabled={!detailActionReadyFor('withdrawBnb') || !detailBnbClaim.canClaim}
                         onClick={() => openAction("withdrawBnb", detail)}
                       >
                         {!config?.displayOnly && (source?.stale || cachedPage)
                           ? L("BNB 领取额待核验", "BNB claim awaiting verification")
-                          : <>{L("领取", "Claim")} {displayPreciseAmount(account ? detail.bnbOwed : null)} BNB</>}
+                          : detailBnbClaim.canClaim ? <>{L("领取", "Claim")} {displayPreciseAmount(detail.bnbOwed)} BNB</>
+                            : L(detailBnbClaim.labelZh, detailBnbClaim.labelEn)}
                       </Button>
+                      {detailBnbClaim.state === 'claimed' && detailBnbClaim.evidence?.amount != null && <small>
+                        {L('上次已领取', 'Last claimed')} {displayPreciseAmount(detailBnbClaim.evidence.amount)} BNB
+                      </small>}
+                      {detailBnbClaim.updating && <small role="status">{L(detailBnbClaim.hintZh, detailBnbClaim.hintEn)}</small>}
                       {detail.status === "Active" && (
                         <Button
                           secondary
@@ -3310,17 +3339,17 @@ export default function LivePlatform() {
                             <div className="live-actions">
                               <Button
                                 secondary
-                                disabled={!positionsActionReadyFor('claim') || busy || !p.claimableBEM}
+                                disabled={!positionsActionReadyFor('claim') || busy || !claimState(p, 'BEM', positionsReadSource).canClaim}
                                 onClick={() => openAction("claim", p)}
                               >
-                                {L("领 BEM", "Claim BEM")}
+                                {L(claimState(p, 'BEM', positionsReadSource).labelZh, claimState(p, 'BEM', positionsReadSource).labelEn)}
                               </Button>
                               <Button
                                 secondary
-                                disabled={!positionsActionReadyFor('withdrawBnb') || busy || !p.bnbOwed}
+                                disabled={!positionsActionReadyFor('withdrawBnb') || busy || !claimState(p, 'BNB', positionsReadSource).canClaim}
                                 onClick={() => openAction("withdrawBnb", p)}
                               >
-                                {L("领 BNB", "Claim BNB")}
+                                {L(claimState(p, 'BNB', positionsReadSource).labelZh, claimState(p, 'BNB', positionsReadSource).labelEn)}
                               </Button>
                               <Button
                                 secondary
@@ -3738,6 +3767,7 @@ export default function LivePlatform() {
             )}
             {modal.type === "connect-wallet" ? (
               <WalletConnectModal wallets={wallets} onSelect={selectWallet}
+                reselectAccount={modal.reselectAccount === true}
                 onRefresh={() => discovery.current?.refresh()} pendingId={connectingId}
                 error={connectionError} locale={locale}
                 qrEnabled={walletConnectEnabled} qrImage={walletQr}

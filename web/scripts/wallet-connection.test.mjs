@@ -9,11 +9,17 @@ function wallet(options = {}) {
   return { state, calls, provider: { async request(request) {
     calls.push(request);
     const { method, params } = request;
+    if (method === 'wallet_requestPermissions') {
+      assert.deepEqual(params, [{ eth_accounts: {} }]);
+      if (state.reselectError) throw state.reselectError;
+      if (state.reselectAccount) state.account = state.reselectAccount;
+      return [{ parentCapability: 'eth_accounts', caveats: [] }];
+    }
     if (method === 'eth_requestAccounts') {
       if (state.permissionError) throw state.permissionError;
       return state.empty ? [] : [state.account];
     }
-    if (method === 'eth_accounts') return [state.account];
+    if (method === 'eth_accounts') return state.empty ? [] : [state.account];
     if (method === 'eth_chainId') return state.chain;
     if (method === 'wallet_switchEthereumChain') {
       assert.deepEqual(params, [{ chainId: '0x38' }]);
@@ -91,4 +97,45 @@ test('missing providers and empty permissions leave the user disconnected', asyn
   const f = wallet({ empty: true });
   await assert.rejects(connectWallet(f.provider), /未提供账户/);
   assert.equal(f.calls.length, 1);
+});
+
+test('explicit injected-wallet account re-selection opens permissions once and adopts the approved account', async () => {
+  const f = wallet({ reselectAccount: other });
+  assert.equal(await connectWallet(f.provider, { reselectAccount: true }), other);
+  assert.deepEqual(f.calls.map(call => call.method), ['wallet_requestPermissions', 'eth_accounts',
+    'eth_chainId', 'eth_chainId', 'eth_accounts']);
+  assert.equal(f.calls.filter(call => call.method === 'eth_requestAccounts').length, 0);
+});
+
+test('rejected, unauthorized, disconnected or pending re-selection never falls back to another approval prompt', async () => {
+  for (const error of [{ code: 4001 }, { code: 4100 }, { code: -32002 }, { code: 4900 },
+    { code: -32603, data: { originalError: { code: 4001 } } },
+    { code: 4001, data: { originalError: { code: -32601 } } }]) {
+    const f = wallet({ reselectError: error });
+    await assert.rejects(connectWallet(f.provider, { reselectAccount: true }), value => value === error);
+    assert.deepEqual(f.calls.map(call => call.method), ['wallet_requestPermissions']);
+  }
+});
+
+test('wallets without permission-picker support fall back to one standard account request', async () => {
+  for (const reselectError of [{ code: 4200 }, { code: -32601 },
+    { code: -32603, data: { originalError: { code: -32601 } } }]) {
+    const f = wallet({ reselectError });
+    assert.equal(await connectWallet(f.provider, { reselectAccount: true }), account);
+    assert.deepEqual(f.calls.map(call => call.method), ['wallet_requestPermissions', 'eth_requestAccounts',
+      'eth_chainId', 'eth_chainId', 'eth_accounts']);
+  }
+});
+
+test('approved re-selection with no exposed accounts does not reuse the former identity', async () => {
+  const f = wallet({ empty: true });
+  await assert.rejects(connectWallet(f.provider, { reselectAccount: true }), /未提供账户/);
+  assert.deepEqual(f.calls.map(call => call.method), ['wallet_requestPermissions', 'eth_accounts']);
+});
+
+test('re-selected account still requires the expected BSC network and unchanged final wallet identity', async () => {
+  const f = wallet({ reselectAccount: other, chain: '0x1', ignoreSwitch: true });
+  await assert.rejects(connectWallet(f.provider, { reselectAccount: true }), /BSC/);
+  const g = wallet({ reselectAccount: account, chain: '0x1', changeAccount: true });
+  await assert.rejects(connectWallet(g.provider, { reselectAccount: true }), /账户已变化/);
 });

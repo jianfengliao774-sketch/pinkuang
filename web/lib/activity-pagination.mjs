@@ -1,7 +1,7 @@
 import { summarizeOverviewActivity } from './activity-summary.mjs';
 
 export function activityPaginationEnabled(route) {
-  return ['overview', 'records', 'rewards'].includes(route);
+  return ['overview', 'records', 'rewards', 'detail'].includes(route);
 }
 
 /** Merge overview subscription logs before paging so one operation is one row.

@@ -77,10 +77,28 @@ export async function requireWallet(provider, account) {
   requireValue(Array.isArray(accounts) && same(accounts[0], account), '钱包账户已变化，请重新连接后确认。');
   return address(accounts[0]);
 }
-/** Invoke only from an explicit user click. Never called by reads or recovery. */
-export async function connectWallet(provider) {
+const walletRequestErrorCode = error => Number(error?.code) === -32603
+  ? Number(error?.data?.originalError?.code ?? error?.code)
+  : Number(error?.code ?? error?.data?.originalError?.code);
+/** Invoke only from an explicit user click. Never called by reads or recovery.
+ * Re-selecting an injected wallet must request the account picker: requesting
+ * accounts alone can silently return the origin's previously granted account. */
+export async function connectWallet(provider, { reselectAccount = false } = {}) {
   requireValue(provider?.request, '未找到钱包，请使用支持钱包的浏览器。');
-  const accounts = await provider.request({ method: 'eth_requestAccounts' });
+  let reselected = false;
+  if (reselectAccount === true) {
+    try {
+      await provider.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+      reselected = true;
+    } catch (error) {
+      // Other injected wallets may not implement permissions. Fall back once
+      // only for an unsupported method, never after rejection or pending work.
+      if (![4200, -32601].includes(walletRequestErrorCode(error))) throw error;
+    }
+  }
+  // Permission approval already grants account access. Do not open a second
+  // permission prompt; use the account currently exposed by this provider.
+  const accounts = await provider.request({ method: reselected ? 'eth_accounts' : 'eth_requestAccounts' });
   requireValue(Array.isArray(accounts) && accounts.length, '钱包未提供账户。');
   const owner = address(accounts[0]);
   if (rpcQuantity(await provider.request({ method: 'eth_chainId' }), '钱包链号') !== 56n) {
@@ -88,9 +106,7 @@ export async function connectWallet(provider) {
       await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] });
     } catch (error) {
       // Only an unknown network may request installation. Rejection is never retried.
-      const code = Number(error?.code) === -32603
-        ? error?.data?.originalError?.code : error?.code ?? error?.data?.originalError?.code;
-      if (Number(code) !== 4902) throw error;
+      if (walletRequestErrorCode(error) !== 4902) throw error;
       await provider.request({ method: 'wallet_addEthereumChain', params: [{
         chainId: '0x38', chainName: 'BNB Smart Chain',
         nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
