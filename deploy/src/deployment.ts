@@ -146,24 +146,24 @@ export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
 // bundle in a disposable BSC-chain-id 56 deployment (16 receipts), each with
 // at least 10% headroom. A changed bundle needs a new reviewed plan before
 // any wallet request.
-const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0x6007118ac4568be4743a99b44b5259518fcf5a73e091469bfdc4d05a7dc4dd75';
+const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502';
 const FRESH_STEP_GAS_LIMITS: Readonly<Record<string, bigint>> = Object.freeze({
-  PoolFunds: 1060916n,
-  PurchaseValidation: 1081458n,
-  FlexiblePurchase: 3444822n,
-  MiningOperations: 1619118n,
-  RewardAccounting: 1322870n,
-  SaleGovernance: 1393937n,
-  SaleSettlement: 864965n,
-  ShareCheckpoints: 444602n,
-  FirstoSale: 1589058n,
-  AtomicDeployment: 5493507n,
-  PoolVault: 6446414n,
-  FreshPoolFactory: 6167382n,
-  ShareMarket: 3103917n,
-  BudgetPortfolioFactory: 2594235n,
-  BudgetPortfolioVault: 6413526n,
-  initialize: 6224554n,
+  MiningOperations: 1810000n,
+  PoolFunds: 1200000n,
+  RewardAccounting: 1490000n,
+  SaleGovernance: 1580000n,
+  SaleSettlement: 1310000n,
+  FirstoSale: 5250000n,
+  PurchaseValidation: 1550000n,
+  FlexiblePurchase: 3790000n,
+  ShareCheckpoints: 540000n,
+  AtomicDeployment: 6070000n,
+  PoolVault: 7040000n,
+  FreshPoolFactory: 6700000n,
+  ShareMarket: 3860000n,
+  BudgetPortfolioFactory: 2870000n,
+  BudgetPortfolioVault: 7020000n,
+  initialize: 6870000n,
 });
 function freshGasLimit(snapshot: DeploymentSnapshot, step: StepRecord): bigint {
   assert(snapshot.artifactDigest === FRESH_GAS_PLAN_ARTIFACT_DIGEST,

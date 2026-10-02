@@ -1,3 +1,4 @@
+import { SALE_COOLDOWN_SECONDS } from './sale-timings.mjs';
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 import { readControlledFirstoSale } from './firsto-sale.mjs';
@@ -8,7 +9,7 @@ import { settleReadRound } from './read-retry.mjs';
 import { fetchLiveJson } from './live-config.mjs';
 
 const DAY = 86400n;
-const WEEK = 7n * DAY;
+const SALE_COOLDOWN = SALE_COOLDOWN_SECONDS;
 const MAX_CANDIDATES = 100n;
 const directViews = new Interface([
   'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
@@ -306,26 +307,26 @@ export function governanceAction(snapshot, from, action) {
     'Governance snapshot belongs to another wallet or chain.');
   if (action?.expectedAccount !== undefined) requireGovernance(same(account, action.expectedAccount), 'Wallet changed; review again.');
   if (action?.expectedPool !== undefined) requireGovernance(same(snapshot.pool, action.expectedPool), 'Pool changed; review again.');
-  const open = snapshot.state === 2n && snapshot.timestamp >= snapshot.activatedAt + WEEK;
+  const open = snapshot.state === 2n && snapshot.timestamp >= snapshot.activatedAt + SALE_COOLDOWN;
   const candidate = id => snapshot.candidates.find(item => item.id === uint(id));
   let method, args = [], value = 0n, chosen = null;
   if (action?.kind === 'propose') {
     const price = uint(action.priceWei), reference = uint(action.refPriceWei), refAt = uint(action.refAt, 64);
     requireGovernance(snapshot.state === 2n, '矿池目前不在挖矿运行状态，不能发起整机出售提案。');
-    requireGovernance(snapshot.timestamp >= snapshot.activatedAt + WEEK,
-      `矿机激活满 7 天后才能发起整机出售提案；开放时间：${new Date(Number(snapshot.activatedAt + WEEK) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。`);
+    requireGovernance(snapshot.timestamp >= snapshot.activatedAt + SALE_COOLDOWN,
+      `矿机激活满 3 天后才能发起整机出售提案；开放时间：${new Date(Number(snapshot.activatedAt + SALE_COOLDOWN) * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）。`);
     requireGovernance(snapshot.shares > 0n, '当前钱包没有该矿池份额，不能发起出售提案。');
     requireGovernance(price > 0n && reference > 0n, '出售价格和参考价都必须大于 0 BNB。');
     requireGovernance(refAt <= snapshot.timestamp, snapshot.displayOnly
       ? '参考价观察时间晚于当前时间，请重新输入。' : '参考价观察时间晚于链上快照，请重新预览。');
-    requireGovernance(snapshot.lastProposed === 0n || snapshot.timestamp >= snapshot.lastProposed + WEEK,
-      'This wallet must wait seven days before proposing again.');
+    requireGovernance(snapshot.lastProposed === 0n || snapshot.timestamp >= snapshot.lastProposed + SALE_COOLDOWN,
+      'This wallet must wait three days before proposing again.');
     const opener = snapshot.roundAnchor;
     if (opener && !opener.executed && snapshot.timestamp < opener.endsAt) {
       requireGovernance(opener.currentFormat, 'An older sale proposal must expire before a new round.');
       requireGovernance(snapshot.candidates.length < Number(MAX_CANDIDATES), 'This round is full.');
     } else if (opener) {
-      requireGovernance(snapshot.timestamp >= opener.endsAt + WEEK - DAY, 'Next sale round is not open yet.');
+      requireGovernance(snapshot.timestamp >= opener.endsAt + SALE_COOLDOWN - DAY, 'Next sale round is not open yet.');
     } else {
       requireGovernance(snapshot.activeProposalId === 0n, 'Unsupported older governance round.');
     }

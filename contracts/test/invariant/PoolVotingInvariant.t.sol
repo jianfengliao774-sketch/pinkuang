@@ -64,12 +64,12 @@ contract PoolVotingHandler is Test {
         } else if (mode == 3) {
             delta = 1 days;
         } else if (mode == 4) {
-            delta = 7 days;
+            delta = 3 days;
         } else if (mode == 5 && roundOpenerId != 0) {
             uint256 deadline = proposals[roundOpenerId].proposedAt + 1 days;
             if (deadline > block.timestamp) delta = deadline - block.timestamp;
         } else if ((mode == 6 || mode == 7) && roundOpenerId != 0) {
-            uint256 nextProposalAt = proposals[roundOpenerId].proposedAt + 7 days;
+            uint256 nextProposalAt = proposals[roundOpenerId].proposedAt + 3 days;
             uint256 target = mode == 7 ? nextProposalAt - 1 : nextProposalAt;
             if (target > block.timestamp) delta = target - block.timestamp;
         }
@@ -135,10 +135,10 @@ contract PoolVotingHandler is Test {
         } else if (price == 0 || price > type(uint128).max) {
             expectedError = IPoolVault.InvalidSalePrice.selector;
         } else if (
-            !_tradingFrozen() && roundOpenerId != 0 && block.timestamp < proposals[roundOpenerId].proposedAt + 7 days
+            !_tradingFrozen() && roundOpenerId != 0 && block.timestamp < proposals[roundOpenerId].proposedAt + 3 days
         ) {
             expectedError = IPoolVault.ProposeCooldown.selector;
-        } else if (lastProposed[actor] != 0 && block.timestamp - lastProposed[actor] < 7 days) {
+        } else if (lastProposed[actor] != 0 && block.timestamp - lastProposed[actor] < 3 days) {
             expectedError = IPoolVault.ProposeCooldown.selector;
         }
         vm.prank(actors[actor]);
@@ -201,7 +201,7 @@ contract PoolVotingHandler is Test {
         for (uint256 id = 1; id <= proposalCount; ++id) {
             GhostProposal storage expected = proposals[id];
             if (id > 1 && expected.roundId != proposals[id - 1].roundId) {
-                assertGe(expected.proposedAt, proposals[proposals[id - 1].roundId].proposedAt + 7 days);
+                assertGe(expected.proposedAt, proposals[proposals[id - 1].roundId].proposedAt + 3 days);
             }
             PoolSaleState.Proposal memory actual = vault.getProposal(id);
             uint256 members;
@@ -263,7 +263,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
 
     function setUp() public override {
         super.setUp();
-        vm.warp(uint256(PoolVault(payable(address(pool))).activatedAt()) + 7 days);
+        vm.warp(uint256(PoolVault(payable(address(pool))).activatedAt()) + 3 days);
         address[6] memory actors = [ALICE, BOB, CAROL, DAVE, ERIN, FRANK];
         handler = new PoolVotingHandler(PoolVault(payable(address(pool))), shareMarket, actors, REWARD_PRICE);
 
@@ -294,7 +294,7 @@ contract PoolVotingInvariantTest is ShareTransferTestBase {
         shareMarket.cancel(priorOrder);
 
         // Voting expires after one day; ownership routes work during the
-        // remaining six-day pool-wide cooldown.
+        // remaining two-day pool-wide cooldown.
         handler.advanceTime(5);
         handler.moveShares(3, 0, 1, 0);
         handler.moveShares(1, 4, 10, 1);

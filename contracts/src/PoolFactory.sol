@@ -12,7 +12,7 @@ import {IPoolVault, IPoolFactoryRoles} from "./interfaces/IPoolVault.sol";
 import {IShareMarket} from "./interfaces/IShareMarket.sol";
 import {PoolLens} from "./PoolLens.sol";
 import {IPoolMachineRegistry} from "./interfaces/IPoolMachineRegistry.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {PurchaseValidation} from "./libraries/PurchaseValidation.sol";
 
 interface IRegisteredShareMarket {
     function factory() external view returns (address);
@@ -333,13 +333,7 @@ contract PoolFactory is
     /// @dev A closed pool that still owns the NFT remains reserved; refunds never release this reservation.
     function machinePool(address circuits, uint256 circuitId) public view returns (address pool) {
         pool = _machineRegistry().reservedPool[keccak256(abi.encode(circuits, circuitId))];
-        if (pool == address(0) || IRegisteredMachinePool(pool).state() != IPoolVault.State.Closed) return pool;
-        try IERC721(circuits).ownerOf(circuitId) returns (address owner) {
-            if (owner != address(0) && owner != pool) return address(0);
-        } catch {
-            // Missing or unreadable custody cannot establish a completed handover.
-        }
-        return pool;
+        return PurchaseValidation.liveMachineReservation(circuits, circuitId, pool);
     }
 
     function designatedSubscriber(address pool) external view returns (address) {
@@ -441,17 +435,7 @@ contract PoolFactory is
     }
 
     function _validateParams(IPoolVault.PoolParams calldata params) private view {
-        if (params.circuits != TAPEOUT_CIRCUITS && params.circuits != BEHEMOTH_CIRCUITS) {
-            revert IPoolVault.WrongCircuit();
-        }
-        if (params.targetRaise == 0) revert IPoolVault.InvalidParameters();
-        if (params.targetRaise % TOTAL_SHARES != 0) revert IPoolVault.FundingTargetNotDivisible();
-        if (params.priceCap == 0 || params.priceCap > params.targetRaise) revert IPoolVault.OverPriceCap();
-        if (params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline) {
-            revert IPoolVault.InvalidParameters();
-        }
-        if ((params.directSeller == address(0)) != (params.directPrice == 0)) revert IPoolVault.InvalidParameters();
-        if (params.directPrice > params.priceCap) revert IPoolVault.OverPriceCap();
+        PurchaseValidation.validatePoolParams(params, TAPEOUT_CIRCUITS, BEHEMOTH_CIRCUITS, TOTAL_SHARES);
     }
 
     function _factoryStorage() private pure returns (FactoryStorage storage $) {

@@ -45,14 +45,14 @@ test('server portfolio cache rejects a different account, wrong project or dupli
   assert.equal(f.calls, 0);
 });
 
-test('404 and unavailable portfolio cache fall back to business fields without any chain proof round', async () => {
+test('404 and unavailable portfolio cache never fan out into paid browser RPC calls', async () => {
   for (const status of [404,503]) {
     const f = await fixture(), calls = [];
     const provider = { async request(input) { calls.push(input); assert.equal(input.method, 'eth_call'); return f.request(input); } };
     const fetcher = async url => new URL(url).pathname.includes('/v1/display/')
       ? new Response('{}', { status })
       : new Response(json({ ...f.index(url), source: f.source }), { headers: { 'content-type': 'application/json' } });
-    const result = await readPortfolioDisplayRow(f.config, provider, PORTFOLIOS[0], f.account, { fetcher });
-    assert.equal(result.item.shares, 10n); assert.equal(calls.length, 26); assert.equal(result.source.transactionReady, false);
+    await assert.rejects(readPortfolioDisplayRow(f.config, provider, PORTFOLIOS[0], f.account, { fetcher }));
+    assert.equal(calls.length, 0);
   }
 });

@@ -280,8 +280,8 @@ test('budget sale display applies both deployed versions and caches one child ru
     assert.equal(row.proposal.saleReviewThresholdBps,parent===8000n&&childRule===8000n?8000n:10000n);
     assert.equal(row.proposal.discounted,true);assert.equal(row.proposal.reviewRequired,required);
     assert.equal(row.proposal.canExecute,!required);
-    assert.equal(f.calls.filter(c=>c.method==='eth_call'&&c.params[0].data.startsWith('0x')
-      && !abi.PoolVault.parseTransaction(c.params[0])&&!abi.BudgetPortfolioVault.parseTransaction(c.params[0])
+    assert.equal(f.calls.filter(c=>c.method==='eth_call'
+      && c.params[0].data===abi.PoolVault.encodeFunctionData('saleReviewThresholdBps')
       && c.params[0].to.toLowerCase()===candidate.child.toLowerCase()).length,1);
   }
 });

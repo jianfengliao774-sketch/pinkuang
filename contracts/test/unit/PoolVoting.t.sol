@@ -37,9 +37,9 @@ contract PoolVotingTest is ShareTransferTestBase {
         _transfer(BOB, CAROL, 23); // 49 / 26 / 25 beneficial owners.
     }
 
-    function test_acquisitionSevenDayBoundaryAndProposalSnapshot() public {
+    function test_acquisitionThreeDayBoundaryAndProposalSnapshot() public {
         uint64 acquired = voting.activatedAt();
-        vm.warp(uint256(acquired) + 7 days - 1);
+        vm.warp(uint256(acquired) + 3 days - 1);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.DeadlineNotReached.selector);
         voting.propose(5 ether, 6 ether, 1);
@@ -47,7 +47,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(voting.lastProposed(ALICE), 0);
         assertEq(voting.nextProposalId(), 1);
 
-        vm.warp(uint256(acquired) + 7 days);
+        vm.warp(uint256(acquired) + 3 days);
         vm.expectEmit(true, true, false, true, address(pool));
         emit SaleProposed(1, ALICE, 5 ether, 6 ether, 1, uint64(block.timestamp + 1 days));
         vm.expectEmit(true, false, false, true, address(pool));
@@ -208,7 +208,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.expectRevert(IPoolVault.ProposeCooldown.selector);
         voting.propose(5 ether, 6 ether, 1);
         assertTrue(voting.shareTradingAllowed());
-        vm.warp(uint256(ends) + 6 days);
+        vm.warp(uint256(ends) + 2 days);
         uint256 newId = _propose(BOB);
         assertEq(newId, oldId + 1);
         assertEq(voting.activeProposalId(), newId);
@@ -222,7 +222,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _assertTally(newId, 1, 49, false);
     }
 
-    function test_sameProposerSevenDayBoundarySurvivesExitAndReentry() public {
+    function test_sameProposerThreeDayBoundarySurvivesExitAndReentry() public {
         _ready();
         uint256 firstId = _propose(ALICE);
         uint64 proposedAt = voting.lastProposed(ALICE);
@@ -236,11 +236,11 @@ contract PoolVotingTest is ShareTransferTestBase {
         _transfer(DAVE, ALICE, 49);
         assertEq(voting.lastProposed(ALICE), proposedAt);
 
-        vm.warp(uint256(proposedAt) + 7 days - 1);
+        vm.warp(uint256(proposedAt) + 3 days - 1);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.ProposeCooldown.selector);
         voting.propose(1, 2, 3);
-        vm.warp(uint256(proposedAt) + 7 days);
+        vm.warp(uint256(proposedAt) + 3 days);
         uint256 nextId = _propose(ALICE);
         assertEq(nextId, firstId + 1);
         assertEq(voting.lastProposed(ALICE), block.timestamp);
@@ -298,7 +298,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _vote(BOB, oldId, false);
         vm.warp(voting.getProposal(oldId).endsAt);
         _transfer(ALICE, DAVE, 49);
-        vm.warp(uint256(voting.getProposal(oldId).endsAt) + 6 days);
+        vm.warp(uint256(voting.getProposal(oldId).endsAt) + 2 days);
         uint256 newId = _propose(BOB);
         assertGt(voting.getProposal(newId).snapshotTs, voting.getProposal(oldId).snapshotTs);
         assertEq(pool.balanceOf(ALICE), 0);
@@ -762,7 +762,7 @@ contract PoolVotingTest is ShareTransferTestBase {
     }
 
     function _ready() internal {
-        vm.warp(uint256(voting.activatedAt()) + 7 days);
+        vm.warp(uint256(voting.activatedAt()) + 3 days);
     }
 
     function _execute(uint256 proposalId) internal {

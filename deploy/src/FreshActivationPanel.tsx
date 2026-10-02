@@ -84,19 +84,19 @@ export default function FreshActivationPanel({ wallet, account, chainId, bundle,
       <span className="subtle-tag">第二阶段 · 硬件钱包 7 笔</span></div>
     <div style={{ padding: '16px 24px 24px' }}>
       <p>第一阶段只建立单机与多机合约。第二阶段部署平台权限合约，把两套 Factory 的运营和手续费地址交给它，再把 Factory 所有权移交 48 小时时间锁。两位管理员可签名审核及领取费用；Gas 钱包只代付，不能自行审核或领取。</p>
-      <p><b>硬件钱包：</b>{genesis.account}<br/><b>管理员一：</b>{FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{FRESH_ADMIN_TWO}<br/><b>Gas 钱包（与 v2 共用）：</b>{record?.gasWallet || gasWallet}</p>
+      <p><b>部署钱包：</b>{genesis.account}<br/><b>管理员一：</b>{FRESH_ADMIN_ONE}<br/><b>管理员二：</b>{FRESH_ADMIN_TWO}<br/><b>独立 Gas 钱包：</b>{record?.gasWallet || gasWallet}</p>
       <p className={credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
         ? 'alert alert-success' : 'alert alert-warning'}>
         {credential?.credentialVerified && credential.gasWallet?.toLowerCase() === (record?.gasWallet || gasWallet).toLowerCase()
-          ? `v4 签名服务已证明共用 Gas 钱包公钥：${credential.gasWallet}`
-          : `控制台只保存与 v2 共用的 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，不持有私钥，也不能证明 v4 签名服务已就绪；此状态下不能发起新的权限交易。`}</p>
+          ? `签名服务已证明 Gas 钱包公钥：${credential.gasWallet}`
+          : `控制台已保存 Gas 钱包公开地址${credential?.gasWallet ? `：${credential.gasWallet}` : ''}，正在等待签名服务证明。`}</p>
       <p className="field-help">只使用这些公开地址。网页不接收私钥。新合约和新站独立运行；旧池、份额和订单仍留在旧站，不会导入新图。</p>
       {stage2Held && <p className="alert alert-warning" role="status">第二阶段权限交易已冻结，链上回执核验也暂不可用，因为核验结果需要写回服务器。可刷新并查看已保存的记录；服务端解除冻结后才能继续核验或签名。</p>}
       <p className="alert alert-warning">新版 Factory 只维护自己的矿机登记，不读取旧合约。独立系统无法保证新旧站之间的矿机编号不会重复，运营方仍须核对矿机实际所有权。Authority 接线后，管理员签名和 Gas 代发流程须先通过完整测试再开放建池。</p>
       {!record && <><label htmlFor="activation-gas-wallet">Gas 钱包公开地址（42 字符）</label>
         <input id="activation-gas-wallet" className="text-input mono" value={gasWallet} onChange={e => setGasWallet(e.target.value)}
           placeholder="0x…" autoComplete="off" spellCheck={false} disabled={!!busy}/>
-        <p className="field-help">已填入你指定的与 v2 共用的 Gas 钱包公开地址，请在钱包核对。两版发送端不能同时使用独立交易日志代发；v4 代发仍关闭，待旧发送端排空后再切换。</p>
+        <p className="field-help">已自动填入正式配置中的 Gas 钱包公开地址。</p>
         <div className="budget-row"><div><label htmlFor="activation-budget">第二阶段 Gas 预算（BNB）</label>
         <input id="activation-budget" className="text-input" value={budget} inputMode="decimal" onChange={e => setBudget(e.target.value)} disabled={!!busy}/></div>
         <div><label htmlFor="activation-gas-cap">Gas 单价上限（Gwei）</label>

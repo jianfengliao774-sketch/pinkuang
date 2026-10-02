@@ -421,17 +421,17 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             if (block.timestamp < nextRoundAt()) revert ProposeCooldown();
             endsAt = uint64(block.timestamp + 1 days);
             voters = memberCount;
-            g.nextRoundAt = uint64(block.timestamp + 7 days);
+            g.nextRoundAt = uint64(block.timestamp + 3 days);
             if (opener != 0) emit ChildSaleExpired(opener);
         }
-        if (g.lastProposed[msg.sender] != 0 && block.timestamp < uint256(g.lastProposed[msg.sender]) + 7 days) {
+        if (g.lastProposed[msg.sender] != 0 && block.timestamp < uint256(g.lastProposed[msg.sender]) + 3 days) {
             revert ProposeCooldown();
         }
         if (
             balanceOf(msg.sender) < MIN_PROPOSAL_SHARES || childInfo[child].collection == address(0)
                 || childInfo[child].sold || price == 0 || price > type(uint128).max
                 || IBudgetChild(child).state() != IPoolVault.State.Active
-                || block.timestamp < uint256(IBudgetChild(child).activatedAt()) + 7 days
+                || block.timestamp < uint256(IBudgetChild(child).activatedAt()) + 3 days
         ) revert InvalidProposal();
         proposalId = nextProposalId++;
         proposals[proposalId] = SaleProposal(child, price, referencePrice, referenceAt, endsAt, voters, 0, 0, false);
@@ -569,12 +569,12 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         return state == IPoolVault.State.Active && !_saleFrozen();
     }
 
-    /// @notice New single-candidate rounds are globally separated by seven days.
+    /// @notice New sale rounds are globally separated by three days.
     function nextRoundAt() public view returns (uint64) {
         uint64 next = _budgetGovernanceStorage().nextRoundAt;
         // Preserve cooldown if an existing portfolio is upgraded with an old round.
         if (next == 0 && nextProposalId > 1) {
-            return uint64(uint256(proposals[nextProposalId - 1].endsAt) + 6 days);
+            return uint64(uint256(proposals[nextProposalId - 1].endsAt) + 2 days);
         }
         return next;
     }

@@ -45,6 +45,7 @@ function host(code, exportName, props, modules = {}) {
     '../lib/display-snapshot.mjs': { readDisplaySnapshot: () => null, writeDisplaySnapshot: () => true },
     '../lib/authority-client.mjs': { authorityActionStatus: async () => ({ status: 'idle' }) },
     './SaleReviewRequests': { __esModule: true, default: function RequestList() {} },
+    './FirstoSaleReferenceAction': { __esModule: true, default: function ReferenceAction() {} },
     './FeeCollectionHistory.jsx': { __esModule: true, default: function HistoryPane() {} },
     './FeeCollection': { __esModule: true, default: function FeePane() {} } };
   new Function('require', 'module', 'exports', 'window', 'document', 'setInterval', 'clearInterval', code)(
@@ -100,7 +101,13 @@ test('review and fee panels mount only their own forms and reads', async () => {
     assert.equal(hasInbox, mode === 'review');
     assert.equal(nodes.some(node => node.type?.name === 'FeePane'), mode === 'fees');
     assert.equal(nodes.some(node => node.type === 'textarea'), false);
-    assert.equal(text(ui.tree).includes('更新 Firsto 市场参考价'), mode === 'review');
+    assert.equal(text(ui.tree).includes('后台自动市场参考价'), mode === 'review');
+    assert.equal(nodes.some(node => node.type?.name === 'ReferenceAction'), false);
+    if (mode === 'review') {
+      nodes.find(node => node.type?.name === 'RequestList').props.onSelect({ pool: address(5) });
+      ui.render();
+      assert.equal(elements(ui.tree).some(node => node.type?.name === 'ReferenceAction'), true);
+    }
     assert.equal(text(ui.tree).includes('签名领取到当前管理员钱包'), false);
     ui.unmount();
   }

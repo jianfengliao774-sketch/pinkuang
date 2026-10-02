@@ -967,7 +967,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         vm.prank(address(attacker));
         uint256 first = project.proposeChildSale(address(pool), 1, 0, 0);
         assertFalse(project.shareTradingAllowed());
-        assertEq(project.nextRoundAt(), openedAt + 7 days);
+        assertEq(project.nextRoundAt(), openedAt + 3 days);
         vm.prank(address(attacker));
         project.voteChildSale(first, true);
         vm.warp(openedAt + 1 days);
@@ -984,11 +984,11 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.voteChildSale(first, true);
         vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
         project.executeChildSale(first);
-        vm.warp(openedAt + 7 days - 1);
+        vm.warp(openedAt + 3 days - 1);
         vm.prank(ALICE);
         vm.expectRevert(BudgetPortfolioVault.ProposeCooldown.selector);
         project.proposeChildSale(address(pool), 6 ether, 0, 0);
-        vm.warp(openedAt + 7 days);
+        vm.warp(openedAt + 3 days);
         vm.prank(ALICE);
         uint256 second = project.proposeChildSale(address(pool), 6 ether, 0, 0);
         assertEq(second, first + 1);

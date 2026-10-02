@@ -130,7 +130,7 @@ export function validateArtifacts(artifacts) {
     const initcodeBytes = (artifact.bytecode.length - 2) / 2;
     const runtimeBytes = (artifact.deployedBytecode.length - 2) / 2;
     assert(initcodeBytes <= 49_152, `${name} exceeds the EIP-3860 initcode limit.`);
-    assert(runtimeBytes <= 24_576, `${name} exceeds the EIP-170 runtime limit.`);
+    assert(runtimeBytes <= 24_576, `${name} exceeds the EIP-170 runtime limit (${runtimeBytes} > 24576 bytes).`);
     for (const slots of Object.values(artifact.immutableReferences)) {
       for (const { start, length } of slots) {
         assert(Number.isSafeInteger(start) && start >= 0 && Number.isSafeInteger(length) && length > 0

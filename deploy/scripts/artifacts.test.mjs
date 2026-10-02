@@ -111,7 +111,7 @@ test('malformed link locations and oversized runtime code cannot enter a deploym
   reference.start = 0;
   assert.throws(() => validateArtifacts(malformed), /Missing link placeholder/);
   const oversized = structuredClone(document.artifacts);
-  oversized.PoolFactory.deployedBytecode = `0x${'00'.repeat(24_577)}`;
+  oversized.PoolFactory.deployedBytecode = oversized.PoolFactory.deployedBytecode.padEnd(2 + 24_577 * 2, '0');
   assert.throws(() => validateArtifacts(oversized), /EIP-170/);
 });
 

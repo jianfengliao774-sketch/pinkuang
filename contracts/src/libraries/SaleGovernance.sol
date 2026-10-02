@@ -24,7 +24,7 @@ interface ISaleReferenceFactory {
 library SaleGovernance {
     using Checkpoints for Checkpoints.Trace208;
 
-    uint256 private constant PROPOSE_INTERVAL = 7 days;
+    uint256 private constant PROPOSE_INTERVAL = 3 days;
     uint256 private constant VOTE_DURATION = 1 days;
     uint256 private constant LISTING_DURATION = 7 days;
     uint256 private constant TOTAL_SHARES = 100;
@@ -92,7 +92,7 @@ library SaleGovernance {
                 endsAt = active.endsAt;
                 snapshotMemberCount = active.snapshotMemberCount;
             } else {
-                // Keep one seven-day round even if minority addresses rotate.
+                // Keep one three-day round even if minority addresses rotate.
                 if (block.timestamp < uint256(active.endsAt) + PROPOSE_INTERVAL - VOTE_DURATION) {
                     revert ProposeCooldown();
                 }

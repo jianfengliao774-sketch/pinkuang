@@ -4,6 +4,7 @@ import { ZeroAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { budgetApprovalDigest } from '../../deploy/shared/budget-queue.mjs';
 import { discoverBudgetPurchasePlan, prepareBudgetQueueStep } from '../lib/budget-purchase-plan.mjs';
+import { readPortfolioCurrent } from '../lib/live-portfolios.mjs';
 import { portfolioFixture, PORTFOLIOS, address } from './portfolio-fixture.mjs';
 import { parseFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { signedSource, now as sourceNow } from '../../deploy/scripts/fixtures/firsto-order.mjs';
@@ -68,14 +69,19 @@ test('display queue Firsto purchase locally decodes the approved order without a
   assert.equal(result.authority.kind, 'buyBudgetFirsto'); assert.equal(result.authority.args.encodedOrder, order.encodedOrder);
 });
 
-test('display queue discovery reads parent business data without chain, code, relationship or operator proofs', async () => {
+test('display queue discovery uses cached parent business data without browser RPC calls', async () => {
   const f = fixture(), requests = [];
+  const row = await readPortfolioCurrent(f.config, { request: input => f.request({ ...input,
+    params: [input.params[0], '0x64'] }) }, PORTFOLIOS[0], f.account, { includeChildren: false });
   const provider = { async request(input) {
     requests.push(input); assert.equal(input.method, 'eth_call'); return f.request(input);
   } };
   const fetcher = async url => {
     const u = new URL(url, f.config.origin);
-    if (u.pathname.includes('/v1/display/')) return new Response('{}', { status: 404 });
+    if (u.pathname.includes('/v1/display/')) return new Response(JSON.stringify({ source: { ...f.source(),
+      cacheOrigin: 'server', displayOnly: true, transactionReady: false, readMode: 'display' }, data: { item: row } },
+      (_key, value) => typeof value === 'bigint' ? { $bemineBigInt: value.toString() } : value),
+      { headers: { 'content-type': 'application/json' } });
     const body = u.pathname.endsWith('/budget-candidates') ? { complete: true, chainId: 56, parent: PORTFOLIOS[0],
       factory: f.manifest.portfolioFactory, legacyFactory: f.manifest.factory, artifactDigest: f.manifest.artifactDigest,
       budgetWei: '5000000000000000', spentWei: '0', absoluteCapWei: '3000000000000000', unitCapWei: '100000000000',
@@ -87,7 +93,7 @@ test('display queue discovery reads parent business data without chain, code, re
   };
   const result = await discoverBudgetPurchasePlan({ config: f.config, provider, account: f.account, parent: PORTFOLIOS[0],
     limitWei: 200n, fetcher, quotePage: never });
-  assert.equal(requests.length, 26); assert.equal(result.items[0].maxCostWei, '200');
+  assert.equal(requests.length, 0); assert.equal(result.items[0].maxCostWei, '200');
   assert.equal(result.items[0].targetRaiseWei, '200');
   assert(requests.every(input => input.params[1] === '0x64'));
   assert(!requests.some(input => abi.BudgetPortfolioFactory.parseTransaction(input.params[0])?.name === 'operator'));

@@ -76,9 +76,9 @@ test('display source remains exact and cannot disable local identity, expiry, or
   assert.equal(f.methods.length, 0);
 });
 
-test('portfolio detail reads 26 real business fields without deployment, registration or canonical RPC', async () => {
+test('portfolio detail reads 27 real business fields without deployment, registration or canonical RPC', async () => {
   const f = fixture(), result = await readPortfolioDisplayRow(f.config, f.provider, PORTFOLIOS[0], f.account, { fetcher: f.fetcher });
-  assert.equal(f.methods.length, 26);
+  assert.equal(f.methods.length, 27);
   assert.equal(result.item.shares, 10n);
   assert.equal(result.item.availableShares, 10n);
   assert.equal(result.item.claimableBem, 100n);
