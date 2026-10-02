@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { Interface, ZeroAddress, keccak256, toQuantity } from 'ethers';
-import { chainIndexFailureMessage, serverConfiguration, startChainIndex } from './server.mjs';
+import { chainIndexFailureMessage, refreshDisplayCaches, serverConfiguration, startChainIndex } from './server.mjs';
 import { createFreshIndexManifest, freshIndexManifestBytes, freshIndexManifestSha256 } from './fresh-manifest.mjs';
 import { ChainIndex } from './indexer.mjs';
 
@@ -18,6 +18,29 @@ async function listen(server) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 async function stop(server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+
+test('a failed budget cache does not block updated single-pool event publication', async()=>{
+  let rows=0, published=0, errors=0;
+  const results=await refreshDisplayCaches({
+    displayCache:{refresh:async()=>{rows=100;}},
+    portfolioReads:{refresh:async()=>{throw new Error('Budget provider temporarily unavailable');}},
+    displayEvents:{publish:()=>{assert.equal(rows,100);published++;}},onError:()=>errors++,
+  });
+  assert.equal(published,1);assert.equal(errors,1);
+  assert.deepEqual(results.map(item=>item.status),['fulfilled','rejected']);
+});
+
+test('failed or stopped materializers do not announce a fresh generation', async()=>{
+  let published=0,errors=0;
+  const fail={refresh:()=>{throw new Error('Unavailable');}};
+  const displayEvents={publish:()=>published++};
+  await refreshDisplayCaches({displayCache:fail,portfolioReads:fail,displayEvents,onError:()=>errors++});
+  await refreshDisplayCaches({portfolioReads:{refresh:async()=>{}},displayEvents,isStopped:()=>true});
+  await refreshDisplayCaches({displayEvents});
+  assert.equal(published,0);assert.equal(errors,1);
+  await refreshDisplayCaches({portfolioReads:{refresh:async()=>{}},displayEvents});
+  assert.equal(published,1);
+});
 
 test('production configuration keeps HTTPS and loopback requirements', () => {
   const env = { CHAIN_INDEX_RPC_URL: 'https://bsc-rpc.blockreq.com/v1/rpc/public',

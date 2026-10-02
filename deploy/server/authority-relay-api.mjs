@@ -340,6 +340,9 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   }
 
   return {
+    // Private signer background work uses the same queue and receipt-only
+    // reconciliation as status polling. It never submits an operation.
+    reconcile:()=>closed ? Promise.resolve(null) : status(),
     readiness: async () => {
       if (closed || !machineReadiness) fail(503, "Fresh machine readiness is unavailable.");
       return machineReadiness();
@@ -379,6 +382,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     async close() {
       closed = true;
       await Promise.allSettled([...inFlight]);
+      await journalQueue;
       store.close();
       if (!dependencies.provider) provider.destroy();
     },

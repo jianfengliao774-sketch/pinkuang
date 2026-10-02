@@ -54,7 +54,7 @@ function PortfolioSaleStatus({candidate,stage,locale}){
 }
 
 /** A parent project owns its miners. Its 100 shares are never counted once per child. */
-export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0, marketTransactions = [] }) {
+export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0, displayRefreshKey = refreshKey, marketTransactions = [] }) {
   const T=text=>portfolioText(locale,text);
   const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
   const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
@@ -72,7 +72,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const [dailyReference,setDailyReference]=useState(null),[dailyReferenceError,setDailyReferenceError]=useState(''),[capacitySample,setCapacitySample]=useState(null),[capacityBusy,setCapacityBusy]=useState(false);
   const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null);
   const identity=`${config?.artifactDigest || ''}:${config?.stage || ''}:${config?.portfolioFactory || ''}:${account || ''}:${mode}:${initialPool || ''}`;
-  const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.portfolioFactory,account?.toLowerCase() || '',['overview','rewards'].includes(mode)?'mine':mode,initialPool?.toLowerCase() || '',config?.displayOnly?refreshKey:null]);
+  const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.portfolioFactory,account?.toLowerCase() || '',['overview','rewards'].includes(mode)?'mine':mode,initialPool?.toLowerCase() || '',config?.displayOnly?displayRefreshKey:null]);
   const marketCreditKey=JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',config?.displayOnly?refreshKey:null]);
   const marketOrderKey=pool=>JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',pool?.toLowerCase(),config?.displayOnly?refreshKey:null]);
   if(context.current.identity!==identity || context.current.provider!==provider || context.current.wallet!==wallet){
@@ -113,9 +113,10 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       targetType:kind==='marketWithdraw'?'portfolioMarket':'portfolio'});
   };
   useEffect(() => {
-    onReadStateChange?.({ busy: busy || loading || !!preview, failed: readFailed, current: freshRead });
-    return () => onReadStateChange?.({ busy: false, failed: false, current: false });
-  }, [busy, loading, readFailed, preview, freshRead]);
+    onReadStateChange?.({ busy: busy || loading || !!preview, failed: readFailed, current: freshRead,
+      source: loadedIdentity === identity ? listingSource : null });
+    return () => onReadStateChange?.({ busy: false, failed: false, current: false, source: null });
+  }, [busy, loading, readFailed, preview, freshRead, loadedIdentity, identity, listingSource]);
   useEffect(()=>{setListingQuantity(selectedCurrent?.availableShares>0n?selectedCurrent.availableShares.toString():'1');setPrice('');},[selectedCurrent?.pool]);
   useEffect(()=>{
     setMarketCredit(null);setMarketCreditError('');setMarketCreditLoading(false);
@@ -140,11 +141,11 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     if(enabled && (!mine || account) && !reusable)void load();},[identity,provider,wallet]);
   useEffect(()=>()=>{sequence.current++;},[]);
   useEffect(()=>{
-    if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:refreshKey};return;}
-    if(refreshSeen.current.key===refreshKey||preview||busy||loading)return;
-    refreshSeen.current={identity,key:refreshKey};
+    if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:displayRefreshKey};return;}
+    if(refreshSeen.current.key===displayRefreshKey||preview||busy||loading)return;
+    refreshSeen.current={identity,key:displayRefreshKey};
     if(enabled&&(!mine||account))void load();
-  },[identity,refreshKey,preview,busy,loading]);
+  },[identity,displayRefreshKey,preview,busy,loading]);
   async function refreshCapacity(active=()=>true,force=false){
     setCapacityBusy(true);
     try{
