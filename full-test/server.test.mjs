@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { createFullTestService, fullTestReadProxyConfiguration, fullTestSaleConfiguration } from './server.mjs';
+import { classifyFullTestReadinessFailure, createFullTestService, fullTestReadProxyConfiguration, fullTestSaleConfiguration } from './server.mjs';
 import { createLiveDataProxy, liveDataProxyConfiguration } from '../deploy/server/live-data-proxy.mjs';
 import { FULL_TEST_COOKIE, FULL_TEST_COOKIE_PATH, FULL_TEST_TIMINGS, validateFullTestProfile } from './server-profile.mjs';
 import { createJournalService } from '../deploy/server/journal-api.mjs';
@@ -14,6 +14,31 @@ const hash=n=>'0x'+n.toString(16).padStart(64,'0'), address=n=>'0x'+n.toString(1
 const origin='http://127.0.0.1:4207',deployer='0x6f4d78fb59ec938cbaf65b9fc822ad04d00c155e';
 const admins=[deployer,deployer],gas='0x0c14b1008cffe78711d65b13c8ce5ca9b944252c';
 const artifactDigest=hash(1),sourceHead='a'.repeat(40);
+
+test('readiness diagnostics classify exact gates and exclude upstream secrets and arbitrary codes',()=>{
+  for(const [message,reason] of [
+    ['Fresh index is incomplete, stale or belongs to another graph.','index_incomplete'],
+    ['Fresh index health is unavailable.','index_unavailable'],
+    ['Fresh operational services have not proved readiness.','machine_unready'],
+    ['Fresh signing and operational services are not ready.','private_services_unready'],
+    ['Fresh purchase worker is unavailable.','purchase_unavailable'],
+    ['Fresh mining worker is unavailable.','mining_unavailable'],
+    ['Fresh readiness chain changed.','chain_changed'],
+    ['Machine readiness identity changed.','identity_mismatch'],
+    ['Readiness identity differs: authorityCodehash.','identity_mismatch'],
+  ])assert.deepEqual(classifyFullTestReadinessFailure(new Error(message),12.9),
+    {reason,code:'UNCLASSIFIED',elapsedMs:12});
+  const secret='https://rpc.example/private-key-token calldata=0xabcdef';
+  const error=Object.assign(new Error(secret),{code:secret,status:secret,body:secret,
+    info:{responseStatus:'429 '+secret,error:{code:-32005,message:secret}}});
+  const safe=classifyFullTestReadinessFailure(error,7);
+  assert.deepEqual(safe,{reason:'unknown',code:'UNCLASSIFIED',elapsedMs:7,rpcCode:-32005});
+  error.status=undefined;
+  assert.deepEqual(classifyFullTestReadinessFailure(error,7),
+    {reason:'unknown',code:'UNCLASSIFIED',elapsedMs:7,httpStatus:429,rpcCode:-32005});
+  assert.equal(JSON.stringify(classifyFullTestReadinessFailure(error,7)).includes(secret),false);
+  assert.equal(classifyFullTestReadinessFailure(new Error('Readiness identity differs: '+secret+'.')).reason,'unknown');
+});
 function inputs() {
   const profile={schemaVersion:1,profile:'full-test',chainId:56,artifactDigest,sourceHead,
     timings:{...FULL_TEST_TIMINGS},roles:{deployer,administratorOne:admins[0],administratorTwo:admins[1],gasWallet:gas},
@@ -84,6 +109,31 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
     async close(keep=false){const stopped=new Promise(accept=>server.close(accept));await service.close();server.closeAllConnections();await stopped;
       if(!keep)await rm(state,{recursive:true,force:true});}};
 }
+
+test('actual readiness rejection emits a safe category once while readiness success remains silent',async()=>{
+  const warnings=[],original=console.warn;
+  console.warn=(...values)=>warnings.push(values);
+  let f;
+  try {
+    f=await fixture({verifyReadiness:async()=>{throw Object.assign(
+      new Error('Fresh operational services have not proved readiness.'),
+      {code:'NETWORK_ERROR',body:'https://rpc.example/secret calldata=0xabcdef'});}});
+    assert.equal((await f.request()).status,200);await new Promise(resolve=>setImmediate(resolve));
+    assert.equal((await f.service.config()).operationalReady,false);
+    assert.equal(warnings.length,1);assert.equal(warnings[0].length,1);
+    const prefix='Full-test readiness unavailable: ';
+    assert.ok(warnings[0][0].startsWith(prefix));
+    const record=JSON.parse(warnings[0][0].slice(prefix.length));
+    assert.equal(record.reason,'machine_unready');assert.equal(record.code,'NETWORK_ERROR');
+    assert.ok(Number.isSafeInteger(record.elapsedMs)&&record.elapsedMs>=0);
+    assert.equal(warnings[0][0].includes('rpc.example'),false);
+    assert.equal(warnings[0][0].includes('0xabcdef'),false);
+    await f.close();f=null;
+    f=await fixture({verifyReadiness:async()=>({ready:true})});
+    assert.equal((await f.request()).status,200);await new Promise(resolve=>setImmediate(resolve));
+    assert.equal((await f.service.config()).operationalReady,true);assert.equal(warnings.length,1);
+  } finally {await f?.close();console.warn=original;}
+});
 
 test('unconfigured test site exposes no formal manifest, index, or product journal',async()=>{
   const f=await fixture();try{

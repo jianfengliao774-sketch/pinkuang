@@ -13,6 +13,37 @@ const fail=(status,message)=>{const error=new Error(message);error.status=status
 const same=(a,b)=>typeof a==='string' && typeof b==='string' && a.toLowerCase()===b.toLowerCase();
 const HASH=/^0x[0-9a-f]{64}$/i;
 const READINESS_REFRESH_MS=15_000, READINESS_DISPLAY_TTL_MS=30_000;
+const READINESS_FAILURES=new Map([
+  ['Fresh index is incomplete, stale or belongs to another graph.','index_incomplete'],
+  ['Fresh index health is unavailable.','index_unavailable'],
+  ['Fresh operational services have not proved readiness.','machine_unready'],
+  ['Fresh signing and operational services are not ready.','private_services_unready'],
+  ['Fresh purchase worker is unavailable.','purchase_unavailable'],
+  ['Fresh mining worker is unavailable.','mining_unavailable'],
+  ['Fresh readiness chain changed.','chain_changed'],
+  ['Machine readiness identity changed.','identity_mismatch'],
+  ['Machine readiness identity differs.','identity_mismatch'],
+  ['Readiness chain differs.','identity_mismatch'],
+]);
+const READINESS_ERROR_CODES=new Set(['TIMEOUT','NETWORK_ERROR','SERVER_ERROR','UNKNOWN_ERROR',
+  'CALL_EXCEPTION','ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','EAI_AGAIN']);
+
+/** Only fixed categories and numbers enter diagnostics; never upstream text or payloads. */
+export function classifyFullTestReadinessFailure(error,elapsedMs=0) {
+  const message=typeof error?.message==='string'?error.message:'';
+  const identity=/^Readiness identity differs: (?:artifactDigest|factory|market|portfolioFactory|portfolioMarket|authority|authorityCodehash|gasWallet)\.$/.test(message);
+  const result={reason:READINESS_FAILURES.get(message)??(identity?'identity_mismatch':'unknown'),
+    code:READINESS_ERROR_CODES.has(error?.code)?error.code:'UNCLASSIFIED',
+    elapsedMs:Number.isFinite(elapsedMs)?Math.max(0,Math.floor(elapsedMs)):0};
+  const status=error?.status??error?.response?.statusCode??error?.info?.response?.statusCode
+    ?? error?.info?.responseStatus;
+  const httpStatus=typeof status==='number'?status:typeof status==='string'
+    ?Number(status.match(/^([1-5]\d{2})(?:\s|$)/)?.[1]):NaN;
+  if(Number.isInteger(httpStatus)&&httpStatus>=100&&httpStatus<=599)result.httpStatus=httpStatus;
+  const rpcCode=error?.info?.error?.code??error?.error?.code;
+  if(Number.isInteger(rpcCode)&&rpcCode>=-32768&&rpcCode<=32767)result.rpcCode=rpcCode;
+  return result;
+}
 const json=(res,status,value)=>{res.statusCode=status;res.setHeader('Content-Type','application/json; charset=utf-8');
   res.setHeader('Cache-Control','no-store');res.end(JSON.stringify(value));};
 async function readActivationBody(req) {
@@ -131,9 +162,12 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     if(productJournal && freshProductReadinessReader && !readinessPending && (age<0 || age>=READINESS_REFRESH_MS)) {
       // Bootstrap stays cheap while an independent proof runs. Until that
       // proof succeeds, automation is explicitly unavailable to the UI.
+      const startedAt=Date.now();
       const pending=Promise.resolve().then(()=>productJournal.verifyFreshOperationalReadiness())
         .then(result=>{readiness={ready:result?.ready===true,checkedAt:now()};},
-          ()=>{readiness={ready:false,checkedAt:now()};});
+          error=>{readiness={ready:false,checkedAt:now()};
+            console.warn('Full-test readiness unavailable: '+JSON.stringify(
+              classifyFullTestReadinessFailure(error,Date.now()-startedAt)));});
       readinessPending=pending;requests.add(pending);
       pending.finally(()=>{requests.delete(pending);if(readinessPending===pending)readinessPending=null;});
     }
