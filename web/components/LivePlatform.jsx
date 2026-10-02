@@ -319,7 +319,7 @@ export default function LivePlatform() {
     [transactionStage, setTransactionStage] = useState(null),
     [transactionGasWei, setTransactionGasWei] = useState(null),
     [error, setError] = useState(""),
-    [message, setMessage] = useState(""),
+    [, setMessage] = useState(""),
     [refresh, setRefresh] = useState(0),
     [operatorRefresh, setOperatorRefresh] = useState(0);
   const [modal, setModal] = useState(null),
@@ -2638,18 +2638,6 @@ export default function LivePlatform() {
               <button
                 aria-label={L("关闭提示", "Dismiss")}
                 onClick={() => setError("")}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          {message && (
-            <div className="live-notice" role="status">
-              <CheckCircle2 size={18} />
-              <span>{message}</span>
-              <button
-                aria-label={L("关闭提示", "Dismiss")}
-                onClick={() => setMessage("")}
               >
                 <X size={16} />
               </button>
