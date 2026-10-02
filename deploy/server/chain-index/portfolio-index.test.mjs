@@ -126,7 +126,7 @@ test('review decisions are indexed and attributed to their pool, project and ope
   }finally{f.index.close();}
 });
 
-test('event-schema upgrade replays old blocks instead of silently missing review history',async()=>{
+test('an unidentifiable old event schema preserves history and requires an explicit migration',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'pinkuang-event-schema-'));
   const dbPath=join(directory,'index.sqlite');
   let first,second;
@@ -139,13 +139,15 @@ test('event-schema upgrade replays old blocks instead of silently missing review
     delete identity.eventSchema;
     first.index.db.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
     first.index.close();first=null;
-    second=fixture({dbPath});
-    second.event('market','SaleReviewed',[pool,1,123,true,alice],6);
-    assert.equal(second.index.indexedThrough,0);
-    assert.equal(second.index.verifiedDisplaySnapshot(),null);
-    await second.index.sync();
-    assert.equal(second.index.status().complete,true);
-    assert.equal(second.index.activity({pool,account:alice}).items.filter(row=>row.event==='SaleReviewed').length,1);
+    assert.throws(()=>fixture({dbPath}),/explicit migration; existing history was preserved/);
+    // Reopening cannot silently erase existing account/project history merely
+    // because the old version did not identify which event set it indexed.
+    const db=new DatabaseSync(dbPath,{readOnly:true});
+    try {
+      assert.equal(db.prepare("SELECT value FROM metadata WHERE key='indexedThrough'").get().value,'6');
+      assert(db.prepare('SELECT COUNT(*) AS n FROM logs').get().n>0);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM headers').get().n,6);
+    } finally {db.close();}
   }finally{
     first?.index.close();second?.index.close();
     await rm(directory,{recursive:true,force:true});

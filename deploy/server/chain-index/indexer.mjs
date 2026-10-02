@@ -69,12 +69,41 @@ const indexedEvents = Object.freeze({
 const topicSets = Object.freeze(Object.fromEntries(Object.entries(interfaces).map(([kind, iface]) =>
   [kind, iface.fragments.filter(fragment => fragment.type === 'event' && indexedEvents[kind].has(fragment.name))
     .map(fragment => fragment.topicHash)])));
-// The database cursor is only valid for the exact set of indexed event topics.
-// A newly indexed event must replay old blocks instead of silently losing its
-// history when an existing database is opened by a newer runtime.
-const eventSchema = createHash('sha256').update(JSON.stringify(Object.entries(topicSets)
+const topicSchema = topics => createHash('sha256').update(JSON.stringify(Object.entries(topics)
   .sort(([left],[right])=>left.localeCompare(right))
-  .map(([kind,topics])=>[kind,[...topics].sort()]))).digest('hex');
+  .map(([kind,values])=>[kind,[...values].sort()]))).digest('hex');
+const eventSchema = topicSchema(topicSets);
+const additivePoolNames = ['SaleDelistingProposed','SaleDelistingVoted','SaleDelisted'];
+const additivePoolTopics = additivePoolNames.map(name => interfaces.pool.getEvent(name).topicHash);
+// The exact previously deployed topic set is known even though older databases
+// stored only its digest. Later versions also persist the complete topic map.
+const previousTopicSets = {...topicSets,pool:topicSets.pool.filter(topic=>!additivePoolTopics.includes(topic))};
+const previousEventSchema = topicSchema(previousTopicSets);
+
+function additiveTopicMigration(previous,current) {
+  if (!previous || Object.keys(previous).length!==Object.keys(current).length) return null;
+  const additions={};
+  for (const [kind,topics] of Object.entries(current)) {
+    const old=previous[kind];
+    if(!Array.isArray(old)||new Set(old).size!==old.length||old.some(topic=>!topics.includes(topic)))return null;
+    const extra=topics.filter(topic=>!old.includes(topic));
+    // Registration/materialized-table changes require their own migration.
+    if(extra.length && (kind!=='pool'||extra.some(topic=>!additivePoolTopics.includes(topic))))return null;
+    if(extra.length)additions[kind]=extra;
+  }
+  return additions;
+}
+
+function checkedTopicBackfill(value,startBlock) {
+  const additions=additiveTopicMigration(value?.sourceTopics,topicSets);
+  if(value?.schemaVersion!==1||value.targetEventSchema!==eventSchema
+    ||topicSchema(value.sourceTopics??{})!==value.sourceEventSchema||!additions||!Object.keys(additions).length
+    ||JSON.stringify(additions)!==JSON.stringify(value.topics)||value.fromBlock!==startBlock
+    ||!Number.isSafeInteger(value.through)||value.through<startBlock
+    ||!Number.isSafeInteger(value.nextBlock)||value.nextBlock<startBlock||value.nextBlock>value.through+1)
+    throw new Error('Index additive event migration is malformed; existing history was preserved.');
+  return value;
+}
 
 const exactAddress = value => {
   const address = getAddress(value);
@@ -116,7 +145,7 @@ const parseDisplaySnapshot = row => freezeDisplay({
 /** Read-only, event-sourced index. All amounts stay decimal strings; no transaction method is used. */
 export class ChainIndex {
   constructor(provider, { dbPath, factory, market, portfolioFactory, portfolioMarket, reservationMode = 'legacy',
-    startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500, freshCodehashes = null }) {
+    startBlock, confirmations = 12, scanRange = 100, maxBlocksPerSync = 500, headerConcurrency = 8, freshCodehashes = null }) {
     if (!provider || typeof provider.getLogs !== 'function' || typeof provider.call !== 'function'
       || typeof provider.send !== 'function') throw new Error('Read-only provider required.');
     this.provider = provider;
@@ -149,7 +178,8 @@ export class ChainIndex {
     this.confirmations = integer(confirmations, 'confirmations', 2);
     this.scanRange = integer(scanRange, 'scanRange', 1);
     this.maxBlocksPerSync = integer(maxBlocksPerSync, 'maxBlocksPerSync', 1);
-    if (this.scanRange > 500 || this.maxBlocksPerSync > 2000) throw new Error('Scan bounds exceeded.');
+    this.headerConcurrency = integer(headerConcurrency, 'headerConcurrency', 1);
+    if (this.scanRange > 500 || this.maxBlocksPerSync > 2000 || this.headerConcurrency > 64) throw new Error('Scan bounds exceeded.');
     this.dbPath = dbPath;
     this.db = new DatabaseSync(dbPath, { enableForeignKeyConstraints: true });
     this.db.exec(`PRAGMA journal_mode = WAL;
@@ -186,12 +216,23 @@ export class ChainIndex {
         || this.reservationMode === 'legacy' && JSON.stringify(withoutSchema) === priorIdentity;
       if (!compatible) { this.db.close(); throw new Error('Index database belongs to a different deployment or reservation mode.'); }
       if (previous.eventSchema !== eventSchema) {
+        const savedTopics=this.db.prepare("SELECT value FROM metadata WHERE key='indexedEventTopics'").get();
+        let oldTopics;
+        try {oldTopics=savedTopics?JSON.parse(savedTopics.value):previous.eventSchema===previousEventSchema?previousTopicSets:null;}
+        catch { /* Invalid persisted topic maps must preserve the database and stop. */ }
+        let additions;
+        try {additions=oldTopics&&topicSchema(oldTopics)===previous.eventSchema?additiveTopicMigration(oldTopics,topicSets):null;}
+        catch { /* A malformed map cannot authorize a migration. */ }
+        if(!additions||!Object.keys(additions).length){this.db.close();throw new Error('Index event schema requires an explicit migration; existing history was preserved.');}
+        const through=Number(this.db.prepare("SELECT value FROM metadata WHERE key='indexedThrough'").get()?.value);
+        if(!Number.isSafeInteger(through)||through<this.startBlock-1){this.db.close();throw new Error('Index event migration checkpoint is invalid.');}
+        const migration=through>=this.startBlock?{schemaVersion:1,sourceEventSchema:previous.eventSchema,
+          sourceTopics:oldTopics,targetEventSchema:eventSchema,topics:additions,fromBlock:this.startBlock,
+          nextBlock:this.startBlock,through}:null;
         this.db.exec('BEGIN IMMEDIATE');
         try {
-          for (const table of ['logs','pools','portfolios','portfolio_children','headers','verified_display_snapshot'])
-            this.db.exec(`DELETE FROM ${table}`);
-          this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(this.startBlock - 1),'indexedThrough');
           this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
+          if(migration)this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?)').run('eventTopicBackfill',JSON.stringify(migration));
           this.db.exec('COMMIT');
         } catch (error) { this.db.exec('ROLLBACK'); this.db.close(); throw error; }
       } else this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(identity,'identity');
@@ -208,6 +249,11 @@ export class ChainIndex {
       this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?)').run('identity', identity);
       this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?)').run('indexedThrough', String(this.startBlock - 1));
     }
+    this.db.prepare('INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+      .run('indexedEventTopics',JSON.stringify(topicSets));
+    const pendingTopics=this.db.prepare("SELECT value FROM metadata WHERE key='eventTopicBackfill'").get();
+    try {this.eventTopicBackfill=pendingTopics?checkedTopicBackfill(JSON.parse(pendingTopics.value),this.startBlock):null;}
+    catch(error){this.db.close();throw error;}
     this.ready = false;
     this.lastError = null;
     this.observedSafeHead = null;
@@ -329,9 +375,9 @@ export class ChainIndex {
       ...(this.portfolioFactory ? {portfolioFactory:this.portfolioFactory,portfolioMarket:this.portfolioMarket} : {}),
       confirmations: this.confirmations, indexedThrough, indexedBlockHash: source?.hash ?? null,
       indexedTimestamp: source?.timestamp ?? null, observedSafeHead: this.observedSafeHead,
-      complete: !this.reservationMigrationPending && this.ready && this.lastError === null && indexedThrough === this.observedSafeHead,
+      complete: !this.eventTopicBackfill && !this.reservationMigrationPending && this.ready && this.lastError === null && indexedThrough === this.observedSafeHead,
       checkedAt: this.checkedAt, unknownReason: this.reservationMigrationPending ? 'reservation_unverified'
-        : this.lastError ?? (this.ready ? null : 'index_not_caught_up'),
+        : this.lastError ?? (this.eventTopicBackfill?'event_topic_backfill':this.ready?null:'index_not_caught_up'),
     };
   }
 
@@ -480,6 +526,11 @@ export class ChainIndex {
   }
 
   _rollback(number) {
+    let backfill = this.eventTopicBackfill;
+    if (backfill) backfill = number < this.startBlock ? null : {
+      ...backfill, through: Math.min(backfill.through, number),
+      nextBlock: Math.min(backfill.nextBlock, number + 1),
+    };
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('DELETE FROM logs WHERE block_number > ?').run(number);
@@ -488,11 +539,14 @@ export class ChainIndex {
       this.db.prepare('DELETE FROM portfolio_children WHERE purchased_block > ?').run(number);
       this.db.prepare('DELETE FROM headers WHERE number > ?').run(number);
       this._setIndexedThrough(number);
+      if (backfill) this.db.prepare("UPDATE metadata SET value=? WHERE key='eventTopicBackfill'").run(JSON.stringify(backfill));
+      else this.db.prepare("DELETE FROM metadata WHERE key='eventTopicBackfill'").run();
       // Every reorg requires a new display proof. Do not permit an old row to
       // reappear merely because the replacement scan reaches its old height.
       this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    this.eventTopicBackfill = backfill;
     // Reaching the former height again does not prove the replacement chain's
     // event counts or bindings. A successful sync must re-establish readiness.
     this.ready = false;
@@ -513,9 +567,11 @@ export class ChainIndex {
       for (const table of ['logs','pools','portfolios','portfolio_children','headers','verified_display_snapshot'])
         this.db.exec(`DELETE FROM ${table}`);
       this._setIndexedThrough(this.startBlock - 1);
+      this.db.prepare("DELETE FROM metadata WHERE key='eventTopicBackfill'").run();
       this.db.prepare("UPDATE metadata SET value='attempted' WHERE key='historyRepair'").run();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    this.eventTopicBackfill = null;
     this.ready = false;
     this.snapshotTrusted = false;
     this.verifiedDisplaySnapshotCache = null;
@@ -541,16 +597,17 @@ export class ChainIndex {
     if (current !== this.indexedThrough) this._rollback(current);
   }
 
-  async _logs(kind, addresses, fromBlock, toBlock) {
+  async _logs(kind, addresses, fromBlock, toBlock, requestedTopics = topicSets[kind]) {
     if (!addresses.length) return [];
     const all = [];
     for (let i = 0; i < addresses.length; i += 20) {
       const group = addresses.slice(i, i + 20);
       const found = await this.provider.getLogs({ address: group.length === 1 ? group[0] : group,
-        fromBlock, toBlock, topics: [topicSets[kind]] });
+        fromBlock, toBlock, topics: [requestedTopics] });
       if (!Array.isArray(found) || found.length > 10_000) throw new Error('RPC event page exceeds the bound.');
       for (const log of found) {
         if (!group.includes(lower(log.address))) throw new Error('RPC returned a log from another contract.');
+        if (!requestedTopics.includes(lower(log.topics?.[0]))) throw new Error('RPC returned an event outside the requested topic set.');
         const parsed = interfaces[kind].parseLog(log);
         if (!parsed || !indexedEvents[kind].has(parsed.name)) throw new Error('RPC returned an unrecognized event.');
         const logIndex = log.index ?? log.logIndex;
@@ -565,6 +622,50 @@ export class ChainIndex {
       }
     }
     return all;
+  }
+
+  async _backfillNewEventTopics() {
+    const migration = this.eventTopicBackfill;
+    if (!migration) return;
+    // The saved tip has already been reconciled. Its hash binds the complete
+    // stored parent chain, so only missing topics need a historical log read.
+    const until = Math.min(migration.through, migration.nextBlock + this.maxBlocksPerSync - 1);
+    for (let from = migration.nextBlock; from <= until; from += this.scanRange) {
+      const to = Math.min(until, from + this.scanRange - 1);
+      const pools = this.db.prepare('SELECT address,created_block FROM pools WHERE created_block<=?').all(to);
+      const creation = new Map(pools.map(row => [row.address,row.created_block]));
+      const logs = await this._logs('pool', pools.map(row=>row.address), from, to, migration.topics.pool);
+      const seen = new Set();
+      for (const log of logs) {
+        if (log.blockNumber < from || log.blockNumber > to || log.blockNumber < creation.get(log.address)
+          || this._header(log.blockNumber)?.hash !== log.blockHash)
+          throw new Error('RPC backfill logs do not match canonical indexed headers.');
+        const key = `${log.txHash}:${log.logIndex}`;
+        if (seen.has(key)) throw new Error('RPC returned duplicate log identity.');
+        seen.add(key);
+      }
+      const anchor = this._header(this.indexedThrough);
+      if (!anchor) throw new Error('Index header gap during additive event migration.');
+      const canonical = normalizeBlock(await this.provider.getBlock(anchor.number));
+      if (canonical.number !== anchor.number || canonical.hash !== anchor.hash)
+        throw new Error('Chain changed before additive event migration commit.');
+      const next = {...this.eventTopicBackfill,nextBlock:to+1};
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        const insert = this.db.prepare('INSERT INTO logs(block_number,tx_index,log_index,tx_hash,address,kind,name,args) VALUES(?,?,?,?,?,?,?,?)');
+        for (const log of logs) insert.run(log.blockNumber,log.txIndex,log.logIndex,log.txHash,log.address,log.kind,log.name,JSON.stringify(log.args));
+        if (next.nextBlock > next.through) this.db.prepare("DELETE FROM metadata WHERE key='eventTopicBackfill'").run();
+        else this.db.prepare("UPDATE metadata SET value=? WHERE key='eventTopicBackfill'").run(JSON.stringify(next));
+        this.db.exec('COMMIT');
+      } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+      this.eventTopicBackfill = next.nextBlock > next.through ? null : next;
+      if (logs.length) { this.statsGeneration++; this.cachedStats = null; }
+    }
+    // A reorg may have shortened the old prefix to an already scanned range.
+    if (this.eventTopicBackfill?.nextBlock > this.eventTopicBackfill?.through) {
+      this.db.prepare("DELETE FROM metadata WHERE key='eventTopicBackfill'").run();
+      this.eventTopicBackfill = null;
+    }
   }
 
   async _scanChunk(fromBlock, toBlock) {
@@ -584,8 +685,8 @@ export class ChainIndex {
     // allSettled drains every in-flight read before failure releases the sync lock.
     let headerFailure;
     try {
-      for (let first = fromBlock; first <= toBlock; first += 8) {
-        const numbers = Array.from({ length: Math.min(8, toBlock - first + 1) }, (_, offset) => first + offset);
+      for (let first = fromBlock; first <= toBlock; first += this.headerConcurrency) {
+        const numbers = Array.from({ length: Math.min(this.headerConcurrency, toBlock - first + 1) }, (_, offset) => first + offset);
         const batch = await Promise.allSettled(numbers.map(async number => {
           const header = normalizeBlock(await this.provider.getBlock(number));
           if (header.number !== number) throw new Error('RPC returned a different block number.');
@@ -733,6 +834,16 @@ export class ChainIndex {
       await this._reconcile();
       stage = 'reservation_backfill';
       await this._backfillPoolReservations();
+      stage = 'event_topic_backfill';
+      const backfillBefore = this.eventTopicBackfill;
+      await this._backfillNewEventTopics();
+      if (this.eventTopicBackfill) {
+        this.ready = false;
+        this.lastError = null;
+        this.checkedAt = new Date().toISOString();
+        this.lastFailureStage = null;
+        return this.status();
+      }
       const saved = this.db.prepare('SELECT source FROM verified_display_snapshot WHERE id = 1').get();
       if (saved && !this.snapshotTrusted) {
         const source = JSON.parse(saved.source);
@@ -744,7 +855,8 @@ export class ChainIndex {
           this.db.prepare('DELETE FROM verified_display_snapshot WHERE id = 1').run();
         }
       }
-      const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync);
+      const backfilled = backfillBefore ? (this.eventTopicBackfill?.nextBlock ?? backfillBefore.through+1)-backfillBefore.nextBlock : 0;
+      const until = Math.min(safeHead, this.indexedThrough + this.maxBlocksPerSync-backfilled);
       stage = 'scan';
       for (let from = this.indexedThrough + 1; from <= until; from += this.scanRange) {
         await this._scanChunk(from, Math.min(until, from + this.scanRange - 1));

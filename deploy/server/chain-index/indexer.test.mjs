@@ -3,6 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
+import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { ChainIndex, chainIndexInterfaces } from './indexer.mjs';
@@ -142,7 +144,7 @@ test('short index refresh returns a fresh page; unfinished refresh never makes i
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-function headerBatchFixture({ change = (_number, _count, header) => header, failAt } = {}) {
+function headerBatchFixture({ change = (_number, _count, header) => header, failAt, headerConcurrency = 8 } = {}) {
   let active = 0, peak = 0, calls = 0;
   const counts = new Map(), finished = [];
   const provider = {
@@ -158,7 +160,7 @@ function headerBatchFixture({ change = (_number, _count, header) => header, fail
       } finally { active--; finished.push(number); }
     },
   };
-  const index = new ChainIndex(provider, { dbPath: ':memory:', factory, market, startBlock: 1, scanRange: 100 });
+  const index = new ChainIndex(provider, { dbPath: ':memory:', factory, market, startBlock: 1, scanRange: 100, headerConcurrency });
   return { index, counts, finished, metrics: () => ({ active, peak, calls }) };
 }
 
@@ -176,6 +178,139 @@ test('header scan uses at most eight concurrent reads and commits all 100 ordere
       assert.equal(header.parent_hash, hex(offset));
     }
   } finally { f.index.close(); }
+});
+
+test('catch-up scans every header with bounded 64-read windows and drains a failed window without committing', async () => {
+  const f = headerBatchFixture({headerConcurrency:64});
+  try {
+    await f.index._scanChunk(1,193);
+    assert.deepEqual(f.metrics(),{active:0,peak:64,calls:194});
+    const headers=f.index.db.prepare('SELECT number,hash,parent_hash FROM headers ORDER BY number').all();
+    assert.equal(headers.length,193);
+    for(const [i,header] of headers.entries())assert.deepEqual({...header},
+      {number:i+1,hash:hex(i+1),parent_hash:hex(i)});
+    assert.equal(f.counts.get(193),2,'final tip is still checked before commit');
+  } finally {f.index.close();}
+  const failed=headerBatchFixture({headerConcurrency:64,failAt:31});
+  try {
+    await assert.rejects(failed.index._scanChunk(1,193),/Header unavailable/);
+    assert.deepEqual(failed.metrics(),{active:0,peak:64,calls:64});
+    assert.equal(failed.index.indexedThrough,0);
+    assert.equal(failed.index.db.prepare('SELECT COUNT(*) AS count FROM headers').get().count,0);
+  } finally {failed.index.close();}
+  assert.throws(()=>headerBatchFixture({headerConcurrency:65}),/Scan bounds/);
+});
+
+const newEventNames=['SaleDelistingProposed','SaleDelistingVoted','SaleDelisted'];
+function markPreviousEventSchema(index) {
+  const topics=JSON.parse(index.db.prepare("SELECT value FROM metadata WHERE key='indexedEventTopics'").get().value);
+  const additions=newEventNames.map(name=>chainIndexInterfaces.pool.getEvent(name).topicHash);
+  topics.pool=topics.pool.filter(topic=>!additions.includes(topic));
+  const eventSchema=createHash('sha256').update(JSON.stringify(Object.entries(topics)
+    .sort(([a],[b])=>a.localeCompare(b)).map(([kind,values])=>[kind,[...values].sort()]))).digest('hex');
+  const identity=JSON.parse(index.db.prepare("SELECT value FROM metadata WHERE key='identity'").get().value);
+  identity.eventSchema=eventSchema;
+  index.db.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
+  index.db.prepare("DELETE FROM metadata WHERE key='indexedEventTopics'").run();
+  index.db.prepare(`DELETE FROM logs WHERE name IN (${newEventNames.map(()=>'?').join(',')})`).run(...newEventNames);
+  return additions;
+}
+
+test('additive event migration preserves history and resumes bounded new-topic backfill after restart', async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'index-additive-events-'));
+  const chain=new MockChain();fixture(chain);
+  chain.event('pool','SaleDelistingProposed',[2n,7n,alice,1_700_000_012,2n],4);
+  chain.event('pool','SaleDelistingVoted',[2n,alice,true,49n],5);
+  chain.event('pool','SaleDelisted',[7n,2n],6);
+  const config={dbPath:join(directory,'index.sqlite'),factory,market,startBlock:1,confirmations:2,scanRange:2,maxBlocksPerSync:20};
+  let index;
+  try {
+    index=new ChainIndex(chain,config);await index.sync();
+    const additions=markPreviousEventSchema(index);
+    const oldLogs=index.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
+    index.close();index=new ChainIndex(chain,{...config,maxBlocksPerSync:2});
+    assert.equal(index.indexedThrough,6);
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n,oldLogs);
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS n FROM headers').get().n,6);
+    assert.equal(index.orders({active:true}).items[0].remaining,'3');
+    assert.equal(index.status().complete,false);assert.equal(index.status().unknownReason,'event_topic_backfill');
+    const reads=[],filters=[],getBlock=chain.getBlock.bind(chain),getLogs=chain.getLogs.bind(chain);
+    chain.getBlock=number=>{reads.push(number);return getBlock(number);};
+    chain.getLogs=filter=>{filters.push(filter);return getLogs(filter);};
+    await index.sync();
+    assert.equal(index.eventTopicBackfill.nextBlock,3);
+    assert.deepEqual(filters.map(row=>[row.fromBlock,row.toBlock]),[[1,2]]);
+    assert.deepEqual(filters[0].topics,[additions]);
+    assert(reads.every(number=>number==='latest'||number===6),'do not replay historical headers');
+    index.close();index=new ChainIndex(chain,{...config,maxBlocksPerSync:2});
+    assert.equal(index.eventTopicBackfill.nextBlock,3,'migration cursor survives restart');
+    await index.sync();assert.equal(index.status().complete,false);
+    assert.equal(index.eventTopicBackfill.nextBlock,5);
+    assert.equal((await index.sync()).complete,true);
+    assert.equal(index.eventTopicBackfill,null);
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n,oldLogs+3);
+    assert.equal(index.orders({active:true}).items[0].remaining,'3');
+    assert.deepEqual(index.accountPools(bob).items,[pool]);
+    assert.deepEqual(filters.map(row=>[row.fromBlock,row.toBlock]),[[1,2],[3,4],[5,6]]);
+    assert(filters.every(row=>JSON.stringify(row.topics)===JSON.stringify([additions])));
+    assert.equal(index.db.prepare('SELECT COUNT(*) AS n FROM headers').get().n,6);
+  } finally {index?.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('unknown or non-additive topic schemas fail without deleting existing history', async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'index-preserve-unknown-schema-'));
+  const dbPath=join(directory,'index.sqlite');
+  const chain=new MockChain();fixture(chain);
+  let index=new ChainIndex(chain,{dbPath,factory,market,startBlock:1,confirmations:2});
+  try {
+    await index.sync();
+    const count=index.db.prepare('SELECT COUNT(*) AS n FROM logs').get().n;
+    const identity=JSON.parse(index.db.prepare("SELECT value FROM metadata WHERE key='identity'").get().value);
+    identity.eventSchema='unknown';
+    index.db.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
+    index.close();index=null;
+    assert.throws(()=>new ChainIndex(chain,{dbPath,factory,market,startBlock:1,confirmations:2}),/explicit migration; existing history was preserved/);
+    const db=new DatabaseSync(dbPath);
+    try {
+      const topics=JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='indexedEventTopics'").get().value);
+      topics.market=topics.market.filter(topic=>topic!==chainIndexInterfaces.market.getEvent('SaleReviewed').topicHash);
+      identity.eventSchema=createHash('sha256').update(JSON.stringify(Object.entries(topics)
+        .sort(([a],[b])=>a.localeCompare(b)).map(([kind,values])=>[kind,[...values].sort()]))).digest('hex');
+      db.prepare("UPDATE metadata SET value=? WHERE key='identity'").run(JSON.stringify(identity));
+      db.prepare("UPDATE metadata SET value=? WHERE key='indexedEventTopics'").run(JSON.stringify(topics));
+      assert.throws(()=>new ChainIndex(chain,{dbPath,factory,market,startBlock:1,confirmations:2}),/explicit migration; existing history was preserved/);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM logs').get().n,count);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM headers').get().n,6);
+      assert.equal(db.prepare("SELECT value FROM metadata WHERE key='indexedThrough'").get().value,'6');
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pools').get().n,1);
+    } finally {db.close();}
+  } finally {index?.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('backfill rejects forked logs and changed saved tips without advancing its durable checkpoint', async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'index-backfill-fork-'));
+  const chain=new MockChain();fixture(chain);
+  chain.event('pool','SaleDelisted',[7n,2n],4);
+  const config={dbPath:join(directory,'index.sqlite'),factory,market,startBlock:1,confirmations:2,scanRange:2,maxBlocksPerSync:20};
+  let index;
+  try {
+    index=new ChainIndex(chain,config);await index.sync();markPreviousEventSchema(index);
+    index.close();index=new ChainIndex(chain,config);
+    const getLogs=chain.getLogs.bind(chain);
+    chain.getLogs=async filter=>(await getLogs(filter)).map(log=>({...log,blockHash:hex(9999)}));
+    await assert.rejects(index.sync(),/backfill logs do not match/);
+    assert.equal(index.indexedThrough,6);assert.equal(index.eventTopicBackfill.nextBlock,3);
+    assert.equal(index.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE name='SaleDelisted'").get().n,0);
+    chain.getLogs=getLogs;
+    const getBlock=chain.getBlock.bind(chain);let anchorReads=0;
+    chain.getBlock=async number=>{const header=await getBlock(number);return number===6 && ++anchorReads>1?{...header,hash:hex(9999)}:header;};
+    await assert.rejects(index.sync(),/Chain changed before additive event migration commit/);
+    assert.equal(index.eventTopicBackfill.nextBlock,3);
+    chain.getBlock=getBlock;chain.reorg();
+    assert.equal((await index.sync()).complete,true,'reorg reconciles both historical data and migration checkpoint');
+    assert.equal(index.db.prepare("SELECT COUNT(*) AS n FROM logs WHERE name='SaleDelisted'").get().n,1);
+    assert.equal(index.eventTopicBackfill,null);
+  } finally {index?.close();await rm(directory,{recursive:true,force:true});}
 });
 
 test('missing, wrong-number, disconnected and changed final headers never partially commit', async () => {
