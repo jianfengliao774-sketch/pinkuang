@@ -39,6 +39,111 @@ test('fresh graph+two worker processes+canonical fresh index admit only the exac
  const f=fixture();assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
 });
 
+test('index ahead of the pinned graph still rejects and exposes only fixed predicate facts',async()=>{
+ const f=fixture();f.source.indexedThrough=121;f.source.observedSafeHead=121;f.source.indexedBlockHash=h(121);
+ await assert.rejects(f.gate()(f.provider,f.graph,f.block),error=>{
+  assert.equal(error.message,'Fresh index is incomplete, stale or belongs to another graph.');
+  assert.deepEqual(error.indexFacts,{indexNotAheadOfGraph:false,indexFresh:true,indexComplete:true,
+   indexSameGraph:true,indexAtSafeHead:true,indexInBlockWindow:true,indexHasCanonicalHash:true,indexAfterActivation:true});
+  assert.equal(Object.values(error.indexFacts).every(value=>typeof value==='boolean'),true);return true;
+ });
+});
+
+test('prepared index remains before the pinned graph while the index advances and machine proof starts afterward',async()=>{
+ const f=fixture(),events=[];let clock=stamp,finishGraph;
+ const gate=createFreshProductGate(f.config,{trusted:f.trusted,factories:f.factories,now:()=>clock,
+  fetcher:async()=>({ok:true,text:async()=>{events.push('index-body');return JSON.stringify({source:f.source});}}),
+  machineReader:async()=>{events.push('machine');return {...f.machine,checkedAt:clock};}});
+ const validate=await gate.prepareIndex();
+ events.push('latest');const block={...f.block,number:123,hash:h(123)};
+ const graphProof=new Promise(resolve=>{finishGraph=()=>{events.push('graph-complete');resolve({...f.graph,blockNumber:123,blockHash:h(123)});};});
+ const result=graphProof.then(graph=>validate(f.provider,graph,block));
+ f.source.indexedThrough=125;f.source.observedSafeHead=125;f.source.indexedBlockHash=h(125);clock+=20_000;
+ assert.deepEqual(events,['index-body','latest']);finishGraph();
+ assert.deepEqual(await result,{ready:true,indexedThrough:120,checkedAt:clock});
+ assert.deepEqual(events,['index-body','latest','graph-complete','machine']);
+ await assert.rejects(validate(f.provider,f.graph,f.block),/already been used/);
+ assert.equal(events.filter(event=>event==='machine').length,1,'a used validator cannot start another machine proof');
+});
+
+for(const [name,mutate]of Object.entries({
+ wrongIdentity:f=>{f.graph={...f.graph,addresses:{...f.graph.addresses,factory:a(90)}};},
+ futureIndex:f=>{f.source.indexedThrough=121;f.source.observedSafeHead=121;},
+ failedMachine:f=>{f.machine.ready=false;},
+ reorg:f=>{f.provider.getBlock=async number=>({number,hash:h(999)});},
+}))test('prepared product readiness still rejects '+name,async()=>{
+ const f=fixture();mutate(f);let validate;
+ await assert.rejects(async()=>{validate=await f.gate().prepareIndex();await validate(f.provider,f.graph,f.block);});
+ if(validate)await assert.rejects(validate(f.provider,f.graph,f.block),/already been used/);
+});
+
+test('prepared index waits only for a valid refreshing snapshot and defers all graph and machine work',async()=>{
+ const f=fixture(),signals=[];let reads=0,machines=0;
+ const server=createServer((_req,res)=>{
+  reads++;res.setHeader('content-type','application/json');
+  const source=reads===1?{...f.source,complete:false,unknownReason:'index_refreshing',observedSafeHead:121}
+   :{...f.source,indexedThrough:121,observedSafeHead:121,indexedBlockHash:h(121)};
+  res.end(JSON.stringify({source,displaySource:{...f.source,complete:true}}));
+ });
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const gate=createFreshProductGate({...f.config,indexUrl:`http://127.0.0.1:${server.address().port}/health`},
+  {trusted:f.trusted,factories:f.factories,now:()=>stamp,
+   fetcher:(url,options)=>{signals.push(options.signal);return fetch(url,options);},
+   machineReader:async()=>{machines++;return f.machine;}});
+ try {
+  const validate=await gate.prepareIndex();assert.equal(reads,2);assert.equal(machines,0);
+  assert.equal(new Set(signals).size,1,'fetches share one timeout signal');
+  const block={...f.block,number:123,hash:h(123)};
+  assert.deepEqual(await validate(f.provider,f.graph,block),{ready:true,indexedThrough:121,checkedAt:stamp});
+  assert.equal(machines,1);
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});
+
+test('persistent index refresh expires one total five-second budget without starting machine proof',async()=>{
+ const f=fixture(),signals=[];let machines=0;
+ const source={...f.source,complete:false,unknownReason:'index_refreshing',observedSafeHead:121};
+ const server=await localIndex(source),started=Date.now();
+ const gate=createFreshProductGate({...f.config,indexUrl:server.url},{trusted:f.trusted,factories:f.factories,now:()=>stamp,
+  fetcher:(url,options)=>{signals.push(options.signal);return fetch(url,options);},
+  machineReader:async()=>{machines++;return f.machine;}});
+ try {
+  await assert.rejects(gate.prepareIndex(),error=>error.name==='TimeoutError');
+  assert.equal(signals.length>1,true);assert.equal(new Set(signals).size,1);assert.equal(machines,0);
+  assert.equal(Date.now()-started<6500,true,'repeated health GETs do not renew the budget');
+ }finally{await server.close();}
+});
+
+for(const [name,patch]of Object.entries({wrongChain:{chainId:1},wrongGraph:{factory:a(99)},
+ stale:{indexedTimestamp:stamp/1000-91},hardFailure:{complete:false,unknownReason:'sync_failed'},
+ malformedHeight:{indexedThrough:'120'},badHash:{indexedBlockHash:'0x'}}))
+test('index preparation rejects '+name+' immediately without retrying or reading machine status',async()=>{
+ const f=fixture();let reads=0,machines=0;
+ const gate=createFreshProductGate(f.config,{trusted:f.trusted,factories:f.factories,now:()=>stamp,
+  fetcher:async()=>{reads++;return {ok:true,text:async()=>JSON.stringify({source:{...f.source,complete:false,
+   unknownReason:'index_refreshing',observedSafeHead:121,...patch},displaySource:f.source})};},
+  machineReader:async()=>{machines++;return f.machine;}});
+ await assert.rejects(gate.prepareIndex());assert.equal(reads,1);assert.equal(machines,0);
+});
+
+test('a prepared index cannot outlive its strict ninety-second freshness window',async()=>{
+ const f=fixture();let clock=stamp;
+ const gate=createFreshProductGate(f.config,{trusted:f.trusted,factories:f.factories,now:()=>clock,
+  fetcher:async()=>({ok:true,text:async()=>JSON.stringify({source:f.source})}),
+  machineReader:async()=>({...f.machine,checkedAt:clock})});
+ const validate=await gate.prepareIndex();clock+=91_000;
+ await assert.rejects(validate(f.provider,f.graph,f.block),/index is incomplete/);
+});
+
+test('index preparation never retries HTTP errors, malformed JSON or a missing source',async()=>{
+ for(const response of [{ok:false,text:async()=>''},{ok:true,text:async()=>'{invalid'},
+  {ok:true,text:async()=>JSON.stringify({displaySource:fixture().source})}]) {
+  const f=fixture();let reads=0,machines=0;
+  const gate=createFreshProductGate(f.config,{trusted:f.trusted,factories:f.factories,now:()=>stamp,
+   fetcher:async()=>{reads++;return response;},machineReader:async()=>{machines++;return f.machine;}});
+  await assert.rejects(gate.prepareIndex());assert.equal(reads,1);assert.equal(machines,0);
+ }
+});
+
 async function localIndex(source,{bodyDelayMs=0}={}){
  const timers=new Set(),server=createServer((_req,res)=>{
   res.writeHead(200,{'content-type':'application/json'});res.flushHeaders();

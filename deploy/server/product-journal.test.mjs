@@ -988,22 +988,40 @@ test('budget creation archives only its own authenticated caps and parent addres
 });
 
 test('fresh direct user deposits, share trades and governance do not read operational worker readiness',async()=>{
- const p=proof(),allow=new Set([factory.toLowerCase()]);let checks=0;
+ const p=proof(),allow=new Set([factory.toLowerCase()]);let checks=0,prepares=0;
  const graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
  const options={freshProductVerifier:async()=>{checks++;throw Error('mining worker offline');}};
+ options.freshProductVerifier.prepareIndex=async()=>{prepares++;throw Error('index offline');};
  for(const [name,args,value,type]of [['deposit',[2],'20','pool'],['claim',[],'0','pool'],['withdrawBnb',[],'0','pool'],
    ['propose',[200,200,1],'0','pool'],['vote',[1,true],'0','pool'],['executeSale',[1],'0','pool'],
    ['list',[pool,2,5],'0','market'],['fill',[1,2],'10','market']]){
    await verifyWithGraph(p.provider,intent(name,args,value,type),allow,graph,options);
  }
  assert.equal(checks,0,'the user wallet path never calls index/purchase/mining readiness');
+ assert.equal(prepares,0,'member wallet actions never prefetch the index');
  assert.equal(p.state.simulations,0);assert.equal(p.state.estimates,0);
  await assert.rejects(verifyWithGraph(p.provider,intent(),allow,graph),/not enabled/);
+});
+test('fresh automated product intents prepare the index before the pinned graph and consume the prepared validator',async()=>{
+ const record=intent('buyFromMarket',[1],'0'),p=proof(record),events=[];let releaseIndex;
+ const send=p.provider.send;p.provider.send=async(method,args)=>{if(method==='eth_chainId')events.push('chain');return send(method,args);};
+ const getBlock=p.provider.getBlock;p.provider.getBlock=async(...args)=>{if(args[0]==='latest')events.push('latest');return getBlock(...args);};
+ const verifier=async()=>{throw Error('unprepared verifier must not run');};
+ verifier.prepareIndex=async()=>{events.push('index');await new Promise(resolve=>{releaseIndex=resolve;});
+  return async(_provider,_graph,block)=>{assert.equal(block.number,102);events.push('prepared-proof');throw Error('machine proof failed');};};
+ const graph=async()=>{events.push('graph');return {freshAuthority:{address:addr(90)},freshFactoryVerified:true};};
+ const attempt=verifyWithGraph(p.provider,record,new Set([factory.toLowerCase()]),graph,{freshProductVerifier:verifier});
+ await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(events,['chain','index']);releaseIndex();
+ await assert.rejects(attempt,error=>{
+   assert.equal(error.status,409);assert.equal(error.message,'Product identity, value or transaction checks could not be verified.');return true;
+  });
+ assert.deepEqual(events,['chain','index','latest','graph','prepared-proof']);
 });
 test('fresh operator actions remain on Authority and automated purchases retain service readiness',async()=>{
  const p=proof(),graph=async()=>({freshAuthority:{address:addr(90)},freshFactoryVerified:true});
  const allow=new Set([factory.toLowerCase()]);let readinessCalls=0;
  const options={freshProductVerifier:async()=>{readinessCalls++;throw Error('mining worker offline');}};
+ let prepares=0;options.freshProductVerifier.prepareIndex=async()=>{prepares++;return options.freshProductVerifier;};
  const params=[addr(4),9,1000,900,addr(0),0,2000,3000];
  const mine=intent('mine',[new Interface(['function reclaim(bytes32)']).encodeFunctionData('reclaim',[hash(2)])],'0');
  const budgetCreate={...intent(),target:factory,targetType:'portfolioFactory',action:{kind:'createPortfolio'},value:'0',
@@ -1013,6 +1031,7 @@ test('fresh operator actions remain on Authority and automated purchases retain 
  for(const record of [mine,intent('createPool',[params],'0','factory'),budgetCreate,budgetBuy])
    await assert.rejects(verifyWithGraph(p.provider,record,allow,graph,options),/administrator signature/);
  assert.equal(readinessCalls,0,'Authority-only operations are denied before worker access');
+ assert.equal(prepares,0,'Authority-only actions cannot acquire an index dependency before their original rejection');
  for(const name of ['buyFromMarket','buyAlternativeFromMarket'])
    await assert.rejects(verifyWithGraph(p.provider,intent(name,[1],'0'),allow,graph,options));
  assert.equal(readinessCalls,2,'operator pool purchase paths still require service readiness');
