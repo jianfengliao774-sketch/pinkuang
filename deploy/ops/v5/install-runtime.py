@@ -32,7 +32,7 @@ assert os.getuid()==0
 assert not Path('/var/www/bemine-v5/current').exists(), 'Existing v5 must use a release update'
 for user in ['pinkuang-v5-product','pinkuang-v5-signer']:
     try:pwd.getpwnam(user)
-    except KeyError:run('useradd','--system','--no-create-home','--shell','/usr/sbin/nologin',user)
+    except KeyError:run('useradd','--system','--user-group','--no-create-home','--shell','/usr/sbin/nologin',user)
     run('usermod','-aG','pinkuang-v4-relay',user)
 extract('runtime.tgz',RUNTIME);extract('static.tgz',STATIC)
 metadata=json.loads((RUNTIME/'public/fresh-release-manifest.json').read_text())

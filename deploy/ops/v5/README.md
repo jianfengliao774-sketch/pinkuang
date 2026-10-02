@@ -63,3 +63,18 @@ The old v4 and test sites remain paused under
 [the retirement runbook](../retired-20261002/README.md). Their two NFT assets and
 contracts are unchanged. Rollback stops only v5 services, restores the attestor
 and removes only the v5 nginx include; it does not reopen any old site.
+
+## Release status - 2026-10-02 23:52 CST
+
+The complete static and runtime packages were built from `dea3a78` and verified.
+37 frontend/build tests, 131 runtime/readiness tests, 41 index/relay tests and
+6 packaging/layout tests passed (the last group overlaps the frontend run).
+All 26 initial HTML asset references resolve inside the v5 static package.
+The separate install and read-only nonce verification scripts are ready.
+
+**Not yet published:** SSH and HTTPS connections to the existing server began
+failing before the upload. No v5 services, website symlink or nginx routing
+were changed. `release-status.json` records the artifact digests and the exact
+pending state. Resume by restoring connectivity, copying the prepared upload
+directory, installing it, verifying index/worker readiness, then publishing
+only the v5 nginx include and root redirect. Do not redeploy contracts.
