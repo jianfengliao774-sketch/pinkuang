@@ -16,8 +16,10 @@ const isRecord = value => value !== null && typeof value === 'object' && !Array.
 const ownKeys = (value, allowed) => isRecord(value) && Object.keys(value).every(key => allowed.includes(key));
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
 
-class ProxyError extends Error { constructor(status, message) { super(message); this.status = status; } }
-const requireValue = (condition, status, message) => { if (!condition) throw new ProxyError(status, message); };
+class ProxyError extends Error { constructor(status, message, { transportFailure = false } = {}) {
+  super(message); this.status = status; this.transportFailure = transportFailure;
+} }
+const requireValue = (condition, status, message, options) => { if (!condition) throw new ProxyError(status, message, options); };
 
 function upstreamUrl(value, name, { query = false } = {}) {
   if (!value) return null;
@@ -36,6 +38,9 @@ export function liveDataProxyConfiguration(env = process.env, { freshProduct } =
   // may have a different RPC allowance even for a single-block log request.
   config.logsRpcUrl = env.CHAIN_INDEX_LOGS_RPC_URL
     ? upstreamUrl(env.CHAIN_INDEX_LOGS_RPC_URL, 'CHAIN_INDEX_LOGS_RPC_URL', { query: true }) : config.rpcUrl;
+  config.fallbackRpcUrl = env.BEMINE_READ_FALLBACK_RPC_URL
+    ? upstreamUrl(env.BEMINE_READ_FALLBACK_RPC_URL, 'BEMINE_READ_FALLBACK_RPC_URL', { query: true })
+    : config.logsRpcUrl !== config.rpcUrl ? config.logsRpcUrl : null;
   if (freshProduct) config.feeHistoryLogScope = normalizeFeeHistoryScope({
     authority: freshProduct.manifest?.authority, deploymentBlock: freshProduct.manifest?.deployment?.blockNumber });
   return config;
@@ -161,7 +166,8 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
     const response = await fetcher(url, { ...options, redirect: 'error', signal: controller.signal,
       headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) } });
     requireValue(!response.redirected && ![301, 302, 303, 307, 308].includes(response.status), 502, 'Upstream redirects are not allowed.');
-    requireValue(/\bapplication\/([\w.+-]*\+)?json\b/i.test(response.headers?.get('content-type') ?? ''), 502, 'Upstream returned invalid JSON content.');
+    requireValue(/\bapplication\/([\w.+-]*\+)?json\b/i.test(response.headers?.get('content-type') ?? ''), 502,
+      'Upstream returned invalid JSON content.', { transportFailure: true });
     const declared = Number(response.headers?.get('content-length') || 0);
     requireValue(Number.isFinite(declared) && declared >= 0 && declared <= maxResponseBytes, 502, 'Upstream response exceeds its limit.');
     let text;
@@ -172,18 +178,19 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
       catch (error) { void reader.cancel().catch(() => {}); throw error; }
       text = Buffer.concat(chunks).toString('utf8');
     } else { text = await response.text(); requireValue(Buffer.byteLength(text) <= maxResponseBytes, 502, 'Upstream response exceeds its limit.'); }
-    let value; try { value = JSON.parse(text); } catch { throw new ProxyError(502, 'Upstream returned invalid JSON.'); }
+    let value; try { value = JSON.parse(text); } catch { throw new ProxyError(502, 'Upstream returned invalid JSON.', { transportFailure: true }); }
     requireValue(isRecord(value), 502, 'Upstream returned an invalid object.');
     return { status: response.status, value };
   };
   try {
     return await Promise.race([work(), new Promise((_, reject) => { timer = setTimeout(() => {
-      controller.abort(); reject(new ProxyError(504, 'Read-only data service timed out.')); }, timeoutMs); })]);
-  } catch (error) { if (error instanceof ProxyError) throw error; throw new ProxyError(502, 'Read-only data service is unavailable.'); }
+      controller.abort(); reject(new ProxyError(504, 'Read-only data service timed out.', { transportFailure: true })); }, timeoutMs); })]);
+  } catch (error) { if (error instanceof ProxyError) throw error; throw new ProxyError(502, 'Read-only data service is unavailable.', { transportFailure: true }); }
   finally { clearTimeout(timer); controller.abort(); }
 }
 
-export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
+export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUrl = logsRpcUrl !== rpcUrl ? logsRpcUrl : null,
+  indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
   // A portfolio page can issue ~104 independent reads at once. Allow one
   // page's burst while bounding each client's share of the global wait queue.
@@ -192,6 +199,8 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
   chainIdTtlMs = 5000, headerTtlMs = 250, now = Date.now, feeHistoryLogScope } = {}) {
   rpcUrl = upstreamUrl(rpcUrl, 'rpcUrl', { query: true }); indexUrl = upstreamUrl(indexUrl, 'indexUrl');
   logsRpcUrl = upstreamUrl(logsRpcUrl, 'logsRpcUrl', { query: true });
+  fallbackRpcUrl = upstreamUrl(fallbackRpcUrl, 'fallbackRpcUrl', { query: true });
+  if (fallbackRpcUrl === rpcUrl) fallbackRpcUrl = null;
   feeHistoryLogScope = normalizeFeeHistoryScope(feeHistoryLogScope);
   for (const [key, value] of Object.entries({ timeoutMs, maxRequestBytes, maxResponseBytes, maxConcurrent,
     maxQueuedPerClient, maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs }))
@@ -264,6 +273,42 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
   };
   const pinnedRpc = new Map(), headerRpc = new Map(), feeLogRpc = new Map(), pendingRpc = new Map(), observedHeaders = new Map();
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
+  let fallbackChainUntil = 0, fallbackChainProof = null, primaryUnavailableUntil = 0;
+  // Latest display calls and transaction receipts do not introduce a second
+  // node into pinned block/cache proofs or the scoped fee-history path.
+  const fallbackEligible = payload => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(payload.method)
+    || ['eth_call', 'eth_getCode'].includes(payload.method) && payload.params[1] === 'latest'
+    || payload.method === 'eth_getStorageAt' && payload.params[2] === 'latest';
+  const fetchRpcJson = async (destination, payload) => {
+    const reply = await fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) },
+      { fetcher, timeoutMs, maxResponseBytes });
+    // A JSON-RPC error is a business answer, even if a node uses HTTP 5xx for it.
+    const rpcReply = Object.hasOwn(reply.value, 'jsonrpc') || Object.hasOwn(reply.value, 'id')
+      || Object.hasOwn(reply.value, 'result') || isRecord(reply.value.error) && typeof reply.value.error.code === 'number';
+    requireValue(rpcReply || reply.status !== 429 && reply.status < 500, 502,
+      'Read-only RPC upstream is temporarily unavailable.', { transportFailure: true });
+    return reply;
+  };
+  const ensureFallbackBscChain = async () => {
+    requireValue(fallbackRpcUrl, 503, 'Read-only fallback RPC is not configured.');
+    if (now() < fallbackChainUntil) return;
+    if (!fallbackChainProof) {
+      const proof = (async () => {
+        try {
+          const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
+          const { status, value } = await fetchRpcJson(fallbackRpcUrl, request);
+          requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+            && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
+            && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
+          502, 'Read-only fallback RPC is not BSC mainnet.');
+          fallbackChainUntil = now() + chainIdTtlMs;
+        } catch (error) { fallbackChainUntil = 0; throw error; }
+      })();
+      fallbackChainProof = proof;
+      proof.finally(() => { if (fallbackChainProof === proof) fallbackChainProof = null; }).catch(() => {});
+    }
+    await fallbackChainProof;
+  };
   const clearReadCaches = () => {
     pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
   };
@@ -332,19 +377,23 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
   };
   // A fixed BSC URL is still a configuration claim, not chain evidence. Verify
   // it upstream before answering locally, then recheck at most five seconds later.
-  const ensureBscChain = async () => {
-    if (now() < verifiedChainUntil) return;
+  const ensureBscChain = async ({ allowFallback = false } = {}) => {
+    if (now() < verifiedChainUntil) return rpcUrl;
+    if (allowFallback && fallbackRpcUrl && now() < primaryUnavailableUntil) {
+      await ensureFallbackBscChain();
+      return fallbackRpcUrl;
+    }
     if (!chainProof) {
       const proof = (async () => {
         try {
           const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-          const { status, value } = await fetchJson(rpcUrl, { method: 'POST', body: JSON.stringify(request) },
-            { fetcher, timeoutMs, maxResponseBytes });
+          const { status, value } = await fetchRpcJson(rpcUrl, request);
           requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
             && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
             && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
           502, 'Read-only RPC is not BSC mainnet.');
           verifiedChainUntil = now() + chainIdTtlMs;
+          primaryUnavailableUntil = 0;
         } catch (error) {
           verifiedChainUntil = 0;
           clearReadCaches();
@@ -354,9 +403,17 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
       chainProof = proof;
       proof.finally(() => { if (chainProof === proof) chainProof = null; }).catch(() => {});
     }
-    await chainProof;
+    try { await chainProof; return rpcUrl; }
+    catch (error) {
+      if (!allowFallback || !fallbackRpcUrl || !error.transportFailure) throw error;
+      await ensureFallbackBscChain();
+      // This remembers a transport outage only. It never establishes the
+      // primary identity or allows pinned/header reads to use the backup.
+      primaryUnavailableUntil = now() + chainIdTtlMs;
+      return fallbackRpcUrl;
+    }
   };
-  const readRpc = async (payload, key) => {
+  const readRpc = async (payload, key, { rpcDestination = rpcUrl, allowTransportFallback = false } = {}) => {
     let entry = key && pendingRpc.get(key);
     if (!entry) {
       const epoch = chainEpoch, startedForkEpoch = forkEpoch;
@@ -364,8 +421,19 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
       const created = { pending: null, epoch, forkEpoch: startedForkEpoch, invalidated: false,
         isFeeLog: payload.method === 'eth_getLogs' };
       created.pending = (async () => {
-        const destination = created.isFeeLog ? logsRpcUrl : rpcUrl;
-        const dataRead = fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes });
+        const destination = created.isFeeLog ? logsRpcUrl : rpcDestination;
+        const dataRead = created.isFeeLog || !allowTransportFallback
+          ? fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes })
+          : (async () => {
+            try { return await fetchRpcJson(destination, payload); }
+            catch (error) {
+              if (destination !== rpcUrl || !fallbackRpcUrl || !error.transportFailure) throw error;
+              await ensureFallbackBscChain();
+              // Exactly one secondary data request. Contract errors, invalid
+              // envelopes and a failed backup are returned without retrying.
+              return fetchRpcJson(fallbackRpcUrl, payload);
+            }
+          })();
         let response;
         if (created.isFeeLog && logsRpcUrl !== rpcUrl) {
           const tag = payload.params[0].toBlock;
@@ -454,11 +522,12 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         await acquire(client); acquired = true;
         if (payload.method === 'eth_chainId') {
-          await ensureBscChain();
+          await ensureBscChain({ allowFallback: true });
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         }
         const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
-        await ensureBscChain();
+        const allowTransportFallback = fallbackEligible(payload);
+        const rpcDestination = await ensureBscChain({ allowFallback: allowTransportFallback });
         if (feeLog) requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
@@ -469,7 +538,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, indexUrl = 'h
         const cached = cache?.get(key);
         const hit = cached && now() < cached.until;
         if (!hit && cached) cache.delete(key);
-        const value = hit ? cached.value : await readRpc(payload, key);
+        const value = hit ? cached.value : await readRpc(payload, key, { rpcDestination, allowTransportFallback });
         if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
         if (feeLog) invalidateHeadersForLogRead();

@@ -78,12 +78,12 @@ export function minerAskPriceWei(detail, now = Date.now()) {
   return best;
 }
 
-/** Fundraising/sale uses this miner's ask; mining uses its actual acquisition cost. */
+/** Listed pools use their approved sale price; fundraising uses the miner ask and mining uses acquisition cost. */
 export function poolDailyCapacityPriceWei(pool, quote) {
   if (!quote?.available || typeof quote.estimated24hAtomic !== 'bigint'
     || quote.estimated24hAtomic <= 0n || pool?.kind === 'portfolio') return null;
-  const price = ['Funding', 'Funded', 'Listed'].includes(pool?.status)
-    ? quote.minerAskPriceWei : pool?.purchaseCost;
+  const price = pool?.status === 'Listed' ? pool.salePrice
+    : ['Funding', 'Funded'].includes(pool?.status) ? quote.minerAskPriceWei : pool?.purchaseCost;
   return typeof price === 'bigint' && price > 0n
     ? minerDailyCapacityPriceWei(price, quote.estimated24hAtomic) : null;
 }

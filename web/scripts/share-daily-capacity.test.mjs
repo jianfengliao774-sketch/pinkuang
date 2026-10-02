@@ -116,7 +116,8 @@ test('TapeOut 12962 uses its 0.1 BNB ask / 0.00432 BEM, not the class reference 
   assert.notEqual(capacity, result.marketReferencePriceWei);
   assert.notEqual(capacity, result.priceWeiPerDailyBem, 'share-order economics still include their own price');
   assert.equal(poolDailyCapacityPriceWei({ ...funding, status: 'Funded' }, result), capacity);
-  assert.equal(poolDailyCapacityPriceWei({ ...funding, status: 'Listed' }, result), capacity);
+  assert.equal(displayPreciseAmount(poolDailyCapacityPriceWei({ ...funding, status: 'Listed',
+    salePrice: 40_000_000_000_000_000n }, result)), '9.25926');
   assert.equal(displayPreciseAmount(poolDailyCapacityPriceWei({ status: 'Active',
     purchaseCost: 101_000_000_000_000_000n }, result)), '23.37963');
   const other = { pool: address(22), status: 'Funding', funded: 0 };
@@ -146,6 +147,9 @@ test('no own ask does not substitute a class average, funding target or price ca
   assert.equal(poolDailyCapacityPriceWei({ status: 'Funding', unitPriceWei: 1111000000000000n,
     params: { priceCap: 101000000000000000n } }, quote), null);
   assert.equal(poolDailyCapacityPriceWei({ status: 'Active', purchaseCost: 0n }, quote), null);
+  assert.equal(displayPreciseAmount(poolDailyCapacityPriceWei({ status: 'Listed',
+    salePrice: 40_000_000_000_000_000n }, quote)), '9.25926', 'a local approved sale does not require a Firsto external ask');
+  assert.equal(poolDailyCapacityPriceWei({ status: 'Listed', purchaseCost: 40_000_000_000_000_000n }, quote), null);
   assert.equal(poolDailyCapacityPriceWei({ kind: 'portfolio', status: 'Active', purchaseCost: 1n }, quote), null);
   assert.equal(minerDailyCapacityPriceWei(100000000000000000n, 432000n), 23148148148148148148n);
 });

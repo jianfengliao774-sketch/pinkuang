@@ -197,6 +197,9 @@ export default function FreshSaleUpgradePanel() {
     finally { lock.current = false; if (life.current === context) setBusy(false); }
   }
 
+  const journalComplete = [...order, 'schedule', 'execute'].every(name => progress?.steps?.[name]?.status === 'confirmed'
+    && hashPattern.test(progress.steps[name].hash));
+  const statusNotice = notice || (journalComplete ? '本次升级的6笔交易已确认，可以返回网站继续使用。' : '');
   return <main style={{ maxWidth: 760, margin: '40px auto', padding: 24 }}><section className="panel" style={{ padding: 28 }}>
     <p className="subtle-note">BEMine · {profile === 'full-test' ? '独立测试版' : '正式版'}</p>
     <h1>启用自动参考价</h1>
@@ -204,7 +207,7 @@ export default function FreshSaleUpgradePanel() {
     <p>这次启用需部署 4 个合约，并提交、执行 1 个升级批次，共 6 笔钱包交易，只支付 Gas。{profile === 'full-test' ? '测试版无需等待。' : '正式版按原合约等待 48 小时后执行。'}</p>
     {catalog && <p>请使用部署钱包：<span style={{ overflowWrap: 'anywhere' }}>{catalog.bindings.proposer}</span></p>}
     {error && <p className="live-notice error" role="alert">{error}</p>}
-    {notice && <p className="live-notice" role="status">{notice}</p>}
+    {statusNotice && <p className="live-notice" role="status">{statusNotice}</p>}
     <ol>{[...order, 'schedule', 'execute'].map(name => <li key={name} style={{ margin: '12px 0' }}>{labels[name]} · {progress?.steps?.[name]?.status === 'confirmed' ? '已确认' : progress?.steps?.[name]?.status === 'failed' ? '链上已失败' : progress?.steps?.[name]?.hash ? '等待确认' : '待完成'}
       {progress?.steps?.[name]?.hash && <> · <a href={`https://bscscan.com/tx/${progress.steps[name].hash}`} target="_blank" rel="noreferrer">交易记录</a></>}
       {progress?.steps?.[name]?.status === 'failed' && <button className="btn secondary" disabled={busy} onClick={() => void run(name)}>重试已失败交易</button>}
@@ -214,10 +217,10 @@ export default function FreshSaleUpgradePanel() {
           onChange={event => setRecoveryHashes({ ...recoveryHashes, [name]: event.target.value })} placeholder="0x…" />
         <button className="btn secondary" disabled={busy} onClick={() => recoverHash(name)}>保存交易哈希</button>
       </div>}</li>)}</ol>
-    <div className="live-actions"><button className="btn primary" disabled={busy} onClick={() => void connect()}>{account ? '切换或重连钱包' : '连接部署钱包'}</button>
-      <button className="btn primary" disabled={busy || !catalog || !same(account, catalog.bindings.proposer) || !journal.current
-        || chainStatus?.batchConfirmed} onClick={() => void run()}>{busy ? '请完成钱包确认…' : progress && Object.keys(progress.steps).length ? '继续启用' : '开始启用'}</button>
-      <a className="btn secondary" href={`${basePath}/`}>返回拼矿</a></div>
+    <div className="live-actions"><button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy} onClick={() => void connect()}>{account ? '切换或重连钱包' : '连接部署钱包'}</button>
+      <button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy || !catalog || !same(account, catalog.bindings.proposer) || !journal.current
+        || chainStatus?.batchConfirmed} onClick={() => void run()}>{busy ? '请完成钱包确认…' : chainStatus?.batchConfirmed ? '已启用' : journalComplete ? '同步升级状态' : progress && Object.keys(progress.steps).length ? '继续启用' : '开始启用'}</button>
+      <a className={journalComplete ? 'btn primary' : 'btn secondary'} href={`${basePath}/`}>{journalComplete && profile === 'full-test' ? '返回测试网站' : '返回拼矿'}</a></div>
     {account && !same(account, catalog?.bindings?.proposer) && <p role="status">当前钱包没有这次升级权限，请切换到上方部署钱包。</p>}
     <details style={{ marginTop: 20 }}><summary>升级合约信息</summary>{catalog && <dl>{Object.entries(catalog.bindings).map(([name, value]) => <div key={name} style={{ overflowWrap: 'anywhere' }}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>}</details>
   </section></main>;
