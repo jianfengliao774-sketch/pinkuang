@@ -1153,7 +1153,7 @@ test('server materialized display reads return exact page values without any bro
 test('test cache outage cannot escalate into chain RPC or legacy index fallback', async () => {
   for (const failure of ['network', 'http']) {
     const requests = []; let rpcCalls = 0;
-    const client = createLiveDataClient({ ...config, productFamily: 'fresh-v4', testProfile: true }, {
+    const client = createLiveDataClient({ ...config, productFamily: 'fresh-v4', testProfile: true, displayOnly: true }, {
       provider: { request: async () => { rpcCalls++; throw new Error('unexpected RPC'); } },
       now: () => now,
       fetcher: async url => {
