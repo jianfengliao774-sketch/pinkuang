@@ -18,25 +18,34 @@ const pureRead = rows => rows.length > 0 && rows.every(row => row?.jsonrpc === '
   && READ_METHODS.has(row.method) && Array.isArray(row.params)
   && (typeof row.id === 'string' || Number.isSafeInteger(row.id)))
   && new Set(rows.map(row => idKey(row.id))).size === rows.length;
+const unavailableRead = row => ({ jsonrpc: '2.0', id: row.id,
+  error: { code: -32098, message: 'Runtime RPC read transport failed; retry the read later.' } });
 
 async function readWithBackoff(rows, send, retryWait, isBatch) {
   const results = new Map();
+  const preserveOrThrow = error => {
+    if (!results.size) throw error;
+    // Keep the last validated quota error for a failed retry. Never overwrite
+    // an already received success or business error with a transport failure.
+    return rows.map(row => results.get(idKey(row.id)) ?? unavailableRead(row));
+  };
   let pending = rows;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response;
     try { response = await send(isBatch ? pending : pending[0]); }
     catch (error) {
-      if (!http429(error) || attempt === 2) throw error;
+      if (!http429(error) || attempt === 2) return preserveOrThrow(error);
       await retryWait(RETRY_DELAYS[attempt]); continue;
     }
     // Never retry a malformed or mismatched reply, even if it includes a quota
     // error. Exact IDs keep partial batches bound to their original requests.
-    check(Array.isArray(response) && response.length === pending.length
+    try { check(Array.isArray(response) && response.length === pending.length
       && response.every(row => row?.jsonrpc === '2.0' && pending.some(request => request.id === row.id)
         && Object.hasOwn(row, 'result') !== Object.hasOwn(row, 'error')
         && (!Object.hasOwn(row, 'error') || Number.isInteger(row.error?.code) && typeof row.error.message === 'string'))
       && new Set(response.map(row => idKey(row.id))).size === pending.length,
-    'Runtime RPC response does not match the read batch.');
+    'Runtime RPC response does not match the read batch.'); }
+    catch (error) { return preserveOrThrow(error); }
     const retryIds = new Set();
     for (const row of response) {
       results.set(idKey(row.id), row);
@@ -62,9 +71,15 @@ class ReadBackoffRpcProvider extends JsonRpcProvider {
     const run = async () => {
       const values = [];
       for (let offset = 0; offset < rows.length; offset += 4) {
-        values.push(...await readWithBackoff(rows.slice(offset, offset + 4),
+        try { values.push(...await readWithBackoff(rows.slice(offset, offset + 4),
           request => { check(!this.destroyed, 'Runtime RPC provider is closed.'); return super._send(request); },
-          this.#retryWait, Array.isArray(payload)));
+          this.#retryWait, Array.isArray(payload))); }
+        catch (error) {
+          if (!values.length) throw error;
+          // Ethers resolves each ID independently. A later transport failure
+          // must not reject the successes from earlier four-request groups.
+          return [...values, ...rows.slice(offset).map(unavailableRead)];
+        }
       }
       return values;
     };

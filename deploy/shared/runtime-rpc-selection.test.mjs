@@ -90,6 +90,49 @@ test('partial JSON-RPC quota failures retry only affected IDs and retain success
   } finally { provider.destroy(); await f.close(); }
 });
 
+test('actual provider sends retain a successful read when its sibling quota retry ends in HTTP429', async () => {
+  const f = await pair((row, calls) => {
+    if (row.method === 'eth_chainId') return { result: '0x38' };
+    if (row.params[0].data === '0x02') return calls.filter(value => value.method === 'eth_call'
+      && value.params[0].data === '0x02').length === 1 ? { error: quota } : { http: 429 };
+    return { result: '0x1234' };
+  });
+  const delays = [], provider = await createRuntimeRpcProvider(f.request, { env: f.env, network: 56,
+    providerOptions: { staticNetwork: true }, retryWait: async ms => { delays.push(ms); } });
+  try {
+    await provider.send('eth_chainId', []); f.calls.primary.length = 0; f.batchSizes.primary.length = 0;
+    const settled = await Promise.allSettled(['0x01', '0x02'].map(data =>
+      provider.send('eth_call', [{ to: '0x' + '1'.repeat(40), data }, 'latest'])));
+    assert.deepEqual(settled.map(row => row.status), ['fulfilled', 'rejected']);
+    assert.equal(settled[0].value, '0x1234');
+    assert.match(JSON.stringify(settled[1].reason), /Compute Units Per Second/);
+    assert.deepEqual(f.calls.primary.filter(row => row.method === 'eth_call').map(row => row.params[0].data),
+      ['0x01', '0x02', '0x02', '0x02']);
+    assert.deepEqual(delays, [1100, 2200]); assert.equal(f.calls.backup.length, 0);
+  } finally { provider.destroy(); await f.close(); }
+});
+
+test('actual provider sends retain earlier group results and explicitly fail unreceived IDs after a later transport error', async () => {
+  const f = await pair(row => row.method === 'eth_chainId' ? { result: '0x38' }
+    : Number.parseInt(row.params[0].data.slice(2), 16) >= 4 ? { http: 503 } : { result: '0x1234' });
+  const delays = [], provider = await createRuntimeRpcProvider(f.request, { env: f.env, network: 56,
+    providerOptions: { staticNetwork: true }, retryWait: async ms => { delays.push(ms); } });
+  try {
+    await provider.send('eth_chainId', []); f.calls.primary.length = 0; f.batchSizes.primary.length = 0;
+    const settled = await Promise.allSettled(Array.from({ length: 9 }, (_, index) =>
+      provider.send('eth_call', [{ to: '0x' + '1'.repeat(40), data: `0x0${index}` }, 'latest'])));
+    assert.deepEqual(settled.map(row => row.status), [...Array(4).fill('fulfilled'), ...Array(5).fill('rejected')]);
+    assert.deepEqual(settled.slice(0, 4).map(row => row.value), Array(4).fill('0x1234'));
+    for (const row of settled.slice(4)) {
+      const error = JSON.stringify(row.reason);
+      assert.match(error, /Runtime RPC read transport failed/);
+      assert.equal(error.includes(f.primary), false); assert.equal(error.includes(f.backup), false);
+    }
+    assert.deepEqual(f.batchSizes.primary, [4, 4]);
+    assert.deepEqual(delays, []); assert.equal(f.calls.backup.length, 0);
+  } finally { provider.destroy(); await f.close(); }
+});
+
 test('other -32005 messages, mixed batches, sends, signing and unknown methods never retry', async () => {
   const cases = [
     { payload: rpc(101), response: { error: { code: -32005, message: 'Query exceeds the allowed block range.' } }, rejects: false },
