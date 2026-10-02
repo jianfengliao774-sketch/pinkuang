@@ -1,7 +1,7 @@
 import {isFreshUserExit,FRESH_USER_EXIT_ACTIONS} from '../shared/fresh-user-exits.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -37,6 +37,42 @@ test('fresh product stays closed without explicit isolated-process configuration
 });
 test('fresh graph+two worker processes+canonical fresh index admit only the exact release',async()=>{
  const f=fixture();assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
+});
+
+async function localIndex(source,{bodyDelayMs=0}={}){
+ const timers=new Set(),server=createServer((_req,res)=>{
+  res.writeHead(200,{'content-type':'application/json'});res.flushHeaders();
+  if(!bodyDelayMs)res.end(JSON.stringify({source}));
+  else{const timer=setTimeout(()=>{timers.delete(timer);res.end(JSON.stringify({source}));},bodyDelayMs);timers.add(timer);}
+ });
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ return{url:`http://127.0.0.1:${server.address().port}/health`,async close(){
+  for(const timer of timers)clearTimeout(timer);server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+ }};
+}
+
+test('native index Fetch body is consumed before a machine proof longer than the five-second timeout',async()=>{
+ const f=fixture(),server=await localIndex(f.source);
+ const gate=createFreshProductGate({...f.config,indexUrl:server.url},{trusted:f.trusted,factories:f.factories,
+  machineReader:async()=>{await new Promise(resolve=>setTimeout(resolve,5400));return f.machine;},now:()=>stamp});
+ try{assert.deepEqual(await gate(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});}
+ finally{await server.close();}
+});
+
+test('native index Fetch still rejects a body that arrives after its own five-second timeout',async()=>{
+ const f=fixture(),server=await localIndex(f.source,{bodyDelayMs:5400});
+ const gate=createFreshProductGate({...f.config,indexUrl:server.url},{trusted:f.trusted,factories:f.factories,
+  machineReader:async()=>f.machine,now:()=>stamp});
+ try{await assert.rejects(gate(f.provider,f.graph,f.block),error=>['TimeoutError','AbortError'].includes(error.name));}
+ finally{await server.close();}
+});
+
+test('a promptly consumed native index response cannot conceal a machine proof failure',async()=>{
+ const f=fixture(),server=await localIndex(f.source);
+ const gate=createFreshProductGate({...f.config,indexUrl:server.url},{trusted:f.trusted,factories:f.factories,
+  machineReader:async()=>{throw new Error('Controlled machine proof failed.');},now:()=>stamp});
+ try{await assert.rejects(gate(f.provider,f.graph,f.block),/Controlled machine proof failed/);}
+ finally{await server.close();}
 });
 test('installed product configuration defaults to its own source and accepts only an explicit lowercase machine pin',async t=>{
  const root=mkdtempSync(join(tmpdir(),'fresh-machine-source-pin-'));t.after(()=>rmSync(root,{recursive:true,force:true}));

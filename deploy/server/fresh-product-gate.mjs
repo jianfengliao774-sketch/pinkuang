@@ -51,12 +51,16 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
     assertFreshIdentity(identity,{chainId:56,artifactDigest:m.artifactDigest,factory:m.factory,market:m.shareMarket,
       portfolioFactory:m.portfolioFactory,portfolioMarket:m.portfolioMarket,authority:m.authority,
       authorityCodehash:m.freshAuthority.codehash,gasWallet:m.gasWallet});
-    const [response,machine]=await Promise.all([
-      fetcher(config.indexUrl,{cache:'no-store',signal:AbortSignal.timeout(5000)}),machineReader(),
-    ]);
-    need(response.ok,'Fresh index health is unavailable.');
-    const bytes=await response.text();need(bytes.length<=65536,'Fresh index health is oversized.');
-    const source=JSON.parse(bytes).source;
+    // Consume the index body inside its own timeout. The independent machine
+    // proof may take longer than five seconds; leaving the body unread until
+    // that proof finishes lets Fetch abort an already successful response.
+    const readIndex=async()=>{
+      const response=await fetcher(config.indexUrl,{cache:'no-store',signal:AbortSignal.timeout(5000)});
+      need(response.ok,'Fresh index health is unavailable.');
+      const bytes=await response.text();need(bytes.length<=65536,'Fresh index health is oversized.');
+      return JSON.parse(bytes).source;
+    };
+    const [source,machine]=await Promise.all([readIndex(),machineReader()]);
     need(source?.chainId===56 && source.complete===true && !source.unknownReason
       && same(source.factory,m.factory) && same(source.market,m.shareMarket)
       && same(source.portfolioFactory,m.portfolioFactory) && same(source.portfolioMarket,m.portfolioMarket)
