@@ -4,6 +4,7 @@ import { activityAmounts } from '../lib/activity-summary.mjs';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
 import { claimDisplayState } from '../lib/claim-display.mjs';
+import { publishedProjectIntent, readPublishedProject, readPublishedPoolDisplay, mergePublishedProjects } from '../lib/published-project.mjs';
 import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
@@ -318,13 +319,24 @@ export default function LivePlatform() {
   const [notificationClaim, setNotificationClaim] = useState(null);
   const [memberTransactions, setMemberTransactions] = useState([]);
   const [transactionResults, setTransactionResults] = useState([]);
+  const [publishingProject, setPublishingProject] = useState(null);
+  const publishedProjects = useRef([]);
+  const publishedPortfolios = useRef([]);
   const shownTransactionResults = useRef(new Set());
   const transactionResult = transactionResults[0] ?? null;
   function showTransactionResult(input, options) {
-    const result = normalizeTransactionResult(input, { locale, ...options });
+    let result = normalizeTransactionResult(input, { locale, ...options });
+    if (!result && options?.creationPending) result = { kind: 'pending', reason: 'publication', hash: input?.hash,
+      title: L('项目正在发布', 'Publishing project'),
+      message: L('交易已提交，正在等待链上确认。确认成功后会显示项目地址，请勿重复发布。',
+        'Transaction submitted. The project address will appear after confirmation. Do not submit it again.') };
+    if (!result && options?.creationFailure) result = { kind: 'failed', reason: 'publication',
+      title: L('项目发布失败', 'Project publication failed'), message: textError(input) };
+    if (result && input?.poolAddress && input?.status === 'confirmed') result = { ...result,
+      projectAddress: input.poolAddress, projectKind: input.projectKind };
     if (!result || result.key && shownTransactionResults.current.has(result.key)) return;
     if (result.key) shownTransactionResults.current.add(result.key);
-    setTransactionResults(previous => [...previous, result].slice(-20));
+    setTransactionResults(previous => [...previous.filter(item => !(item.kind === 'pending' && item.reason === 'publication')), result].slice(-20));
   }
   const [readRetry, setReadRetry] = useState(null), [readFailed, setReadFailed] = useState(false);
   const [cachedPage, setCachedPage] = useState(false);
@@ -387,6 +399,7 @@ export default function LivePlatform() {
     setOrders([]); setOrderCursor(null); setActivity([]); setActivityCursor(null);
     setGovernance(null); setGovernanceProof(null); setYieldData(null); setMarketCredit(null); setNotificationClaim(null);
     setTransactionResults([]);
+    setPublishingProject(null); publishedProjects.current = []; publishedPortfolios.current = [];
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
@@ -584,7 +597,7 @@ export default function LivePlatform() {
       if (!cached?.catalog && !cached?.detail) return;
       const visiblePools = cached.catalog?.items.map(viewPool);
       const visibleDetail = cached.detail ? viewPool(cached.detail.item) : null;
-      if (visiblePools) { setPools(visiblePools); setPoolCursor(cached.catalog.nextCursor); }
+      if (visiblePools) { setPools(mergePublishedProjects(visiblePools, publishedProjects.current)); setPoolCursor(cached.catalog.nextCursor); }
       if (visibleDetail) setDetail(visibleDetail);
       setSource(cached.detail?.source ?? cached.catalog?.source);
       setLoadedAccount(account);
@@ -960,7 +973,7 @@ export default function LivePlatform() {
       : persisted || (sharedDisplay?.catalog ? { catalog: sharedDisplay.catalog } : null);
     const showResult = result => {
       if (result.catalog) {
-        setPools(result.catalog.items.map(viewPool));
+        setPools(mergePublishedProjects(result.catalog.items.map(viewPool), publishedProjects.current));
         setPoolCursor(result.catalog.nextCursor);
         setSource(result.catalog.source);
       }
@@ -993,7 +1006,7 @@ export default function LivePlatform() {
       // The route's sections own their data. Keep verified display values visible
       // while this page revalidates, instead of clearing unrelated panels.
       if (!cached && progress.attempt === 1) {
-        if (needsCatalog) { setPools([]); setPoolCursor(null); }
+        if (needsCatalog) { setPools(mergePublishedProjects([], publishedProjects.current)); setPoolCursor(null); }
         if (route.route === 'detail') { setDetail(null); setGovernance(null); setGovernanceProof(null); setMembers([]);
           setMembersRead({ status: 'idle' }); setYieldData(null); }
         setSource(null);
@@ -1689,7 +1702,65 @@ export default function LivePlatform() {
     timer = setTimeout(poll, 3000);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [pending?.hash, pending?.recoveryHashes?.at(-1), account, config, busy]);
-  async function submitFreshAuthority(kind, args, current) {
+  useEffect(() => {
+    const job = publishingProject;
+    if (!job || job.client !== client || !same(job.account, account)
+      || !same(job.config.factory, config?.factory) || !same(job.config.authority, config?.authority)
+      || job.config.artifactDigest !== config?.artifactDigest) return;
+    let cancelled = false, timer;
+    const current = () => !cancelled;
+    const finish = result => {
+      if (!current()) return;
+      showTransactionResult(result);
+      setOperatorRefresh(value => value + 1); setRefresh(value => value + 1);
+    };
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        if (!job.result) {
+          const status = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
+          if (!current()) return;
+          job.initialStatus = null;
+          if ((!job.hash || same(status.hash, job.hash)) && ['confirmed', 'failed'].includes(status.status)) {
+            job.result = await readPublishedProject({ provider: job.client.provider, intent: job.intent,
+              status, hash: job.hash || status.hash });
+            if (!current()) return;
+            if (job.result) finish(job.result);
+          }
+        }
+        if (job.result?.status === 'confirmed' && !job.result.child) {
+          // Read the actual registered project directly while its catalog is still catching up.
+          if (job.result.projectKind === 'single') {
+            const result = await readPublishedPoolDisplay(job.client, job.result, job.intent, job.account);
+            if (!current()) return;
+            if (current()) {
+              const row = viewPool(result.item);
+              publishedProjects.current = mergePublishedProjects(publishedProjects.current, [row]).slice(-20);
+              setPools(previous => mergePublishedProjects(previous, [row]));
+              // The direct row stays in this client session until the directory catches up.
+            }
+          } else {
+            const result = await readPortfolioDisplayRow(job.config, job.client.provider, job.result.poolAddress, job.account);
+            if (!current()) return;
+            if (current()) {
+              rememberPortfolioDisplay(job.config, result.item, job.account);
+              publishedPortfolios.current = mergePublishedProjects(publishedPortfolios.current, [result.item]).slice(-20);
+            }
+          }
+          if (current()) { setRefresh(value => value + 1); setOperatorRefresh(value => value + 1); }
+          setPublishingProject(null); return;
+        }
+        if (job.result) { setPublishingProject(null); return; }
+      } catch (problem) {
+        // A temporary display/status outage never turns a submitted transaction into a failure.
+        if (current() && job.result?.status === 'confirmed') setMessage(L('项目已发布，列表资料正在更新。', 'Project published. Its directory data is updating.'));
+      }
+      if (!cancelled && Date.now() - job.startedAt < 120_000) timer = setTimeout(poll, 3000);
+    };
+    poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [publishingProject, client, config?.factory, config?.authority, config?.artifactDigest, account]);
+  async function submitFreshAuthority(kind, args, current, creationTransaction) {
     let enteredRelay = false;
     try {
     if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account || !operatorServiceReady)
@@ -1700,6 +1771,7 @@ export default function LivePlatform() {
       throw new Error('已有管理员代付交易待确认；先核对状态，不能重复发送。');
     if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
     const command = await signAuthorityAction({ provider: wallet, config, account, kind, args });
+    const creation = creationTransaction ? publishedProjectIntent(config, creationTransaction, { account, command }) : null;
     if (!current()) throw new Error('签名期间页面或钱包已改变；请先核对管理员代付状态。');
     // A network error after submission is ambiguous. The relay journal is the
     // source of truth; never resend the same signed command automatically.
@@ -1711,6 +1783,9 @@ export default function LivePlatform() {
       else throw problem;
     }
     if (current()) {
+      if (creation) setPublishingProject({ intent: creation, hash: result.hash ?? null,
+        initialStatus: result, account, config, client, startedAt: Date.now() });
+      if (creation && !['confirmed', 'failed'].includes(result.status)) showTransactionResult(result, { creationPending: true });
       setMessage(result.hash ? `Gas 钱包交易已提交：${result.hash}。请等待链上确认。`
         : '管理员签名已提交，请在运营工作台核对代付状态。');
       setOperatorRefresh(value => value + 1);
@@ -1752,7 +1827,7 @@ export default function LivePlatform() {
         : await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
       if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
-        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current);
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current, checked.transaction);
       if (config?.stage === 'fresh-active' && ['buyOfficial', 'buyFirsto'].includes(checked.action.kind)) {
         const command = approvedPortfolioPurchase(config, checked);
         return await submitFreshAuthority(command.kind, command.args, current);
@@ -1762,7 +1837,8 @@ export default function LivePlatform() {
       if (revision === walletEpoch.current) await handleResult(result, revision);
       return result;
     } catch (problem) {
-      if (revision === walletEpoch.current) showTransactionResult(problem, { source: 'wallet', action: confirmed.action?.kind });
+      if (revision === walletEpoch.current) showTransactionResult(problem, { source: 'wallet', action: confirmed.action?.kind,
+        creationFailure: confirmed.action?.kind === 'createPortfolio' && problem.beforeWalletSubmission === true });
       throw problem;
     } finally {
       if (submissionLock.current === ticket) submissionLock.current = null;
@@ -1913,7 +1989,7 @@ export default function LivePlatform() {
           && !(checked.kind === 'mine' && checked.miningAction === 'reclaim'))
           throw new Error('单机采购与挖矿准备、启动由独立服务执行；此处只接受精确建池或回收签名。');
         return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction,
-          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current);
+          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current, checked.kind === 'mine' ? null : checked.transaction);
       }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
@@ -1921,7 +1997,8 @@ export default function LivePlatform() {
       await handleResult(result, requestEpoch);
       return result;
     } catch (problem) {
-      if (current()) showTransactionResult(problem, { source: 'wallet', action: preview.kind });
+      if (current()) showTransactionResult(problem, { source: 'wallet', action: preview.kind,
+        creationFailure: preview.kind?.startsWith('create') && problem.beforeWalletSubmission === true });
       throw problem;
     } finally { if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); setTransactionStage(null); } }
   }
@@ -2291,7 +2368,8 @@ export default function LivePlatform() {
     </div>;
   };
   const renderProjectDirectory = page => {
-    const directory = projectDirectory(pools, page.rows, { filter, query, sort,
+    const directory = projectDirectory(mergePublishedProjects(pools, publishedProjects.current),
+      mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort,
       capacityFor: row => currentPoolCapacityPrice(row) });
     const updating = loading || busy || page.loading || boot.status === 'loading' || page.enabled && !page.loaded && !page.failed;
     const failed = readFailed || page.failed || !page.enabled && boot.status !== 'loading';
@@ -3734,6 +3812,8 @@ export default function LivePlatform() {
         </main>
       </div>
       {transactionResult && <TransactionResultDialog result={transactionResult} locale={locale}
+        onProject={() => { setTransactionResults(previous => previous.slice(1)); go(transactionResult.projectKind === 'portfolio' ? 'portfolio' : 'detail', transactionResult.projectAddress); }}
+        onDirectory={() => { setTransactionResults(previous => previous.slice(1)); setFilter('Funding'); go('pools'); }}
         onClose={() => setTransactionResults(previous => previous.slice(1))}/>}
       {modal && !transactionResult && (
         <div
