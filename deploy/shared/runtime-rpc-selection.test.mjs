@@ -5,12 +5,13 @@ import { FetchRequest } from 'ethers';
 import { createDeferredRuntimeRpcProvider, createRuntimeRpcProvider, selectRuntimeRpcRequest } from './runtime-rpc-selection.mjs';
 
 async function pair(primaryReply, backupReply = () => ({ result: '0x38' })) {
-  const calls = { primary: [], backup: [] }, servers = [];
+  const calls = { primary: [], backup: [] }, batchSizes = { primary: [], backup: [] }, servers = [];
   const start = async (name, reply) => {
     const server = createServer(async (req, res) => {
       const chunks = []; for await (const value of req) chunks.push(value);
       const payload = JSON.parse(Buffer.concat(chunks).toString());
       const rows = Array.isArray(payload) ? payload : [payload]; calls[name].push(...rows);
+      batchSizes[name].push(rows.length);
       const response = reply(rows[0], calls[name]);
       if (response.http) { res.writeHead(response.http, { 'Content-Type': 'text/html' }); res.end(response.body ?? 'unavailable'); return; }
       if (response.html) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end('<html>temporarily unavailable</html>'); return; }
@@ -23,10 +24,30 @@ async function pair(primaryReply, backupReply = () => ({ result: '0x38' })) {
   };
   const primary = await start('primary', primaryReply), backup = await start('backup', backupReply);
   const request = new FetchRequest(primary); request.timeout = 1000;
-  return { primary, backup, calls, request, env: { CHAIN_INDEX_LOGS_RPC_URL: backup },
+  return { primary, backup, calls, batchSizes, request, env: { CHAIN_INDEX_LOGS_RPC_URL: backup },
     close: async () => { for (const server of servers) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } } };
 }
 const options = f => ({ env: f.env, network: 56, providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 } });
+
+test('worker defaults preserve HTTP batching while an explicit single-request option remains single', async () => {
+  for (const single of [false, true]) {
+    const f = await pair(row => ({ result: row.method === 'eth_chainId' ? '0x38' : '0x1234' }));
+    let provider;
+    try {
+      provider = await createRuntimeRpcProvider(f.request, { env: f.env, network: 56,
+        ...(single ? { providerOptions: { batchMaxCount: 1 } } : {}) });
+      // Finish Ethers network initialization before measuring business reads.
+      await provider.send('eth_chainId', []);
+      f.calls.primary.length = 0; f.batchSizes.primary.length = 0;
+      const results = await Promise.all(Array.from({ length: 8 }, (_, index) =>
+        provider.send('eth_call', [{ to: '0x' + '1'.repeat(40), data: `0x${index.toString(16).padStart(2, '0')}` }, 'latest'])));
+      assert.deepEqual(results, Array(8).fill('0x1234'));
+      assert.equal(f.calls.primary.length, 8);
+      assert.deepEqual(f.batchSizes.primary, single ? Array(8).fill(1) : [8]);
+      assert.equal(f.calls.backup.length, 0);
+    } finally { provider?.destroy(); await f.close(); }
+  }
+});
 
 test('a healthy configured primary is selected once and a later send failure never activates backup', async () => {
   const f = await pair(row => row.method === 'eth_sendRawTransaction' ? { http: 503 }

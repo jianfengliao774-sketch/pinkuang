@@ -49,7 +49,7 @@ export async function selectRuntimeRpcRequest(request, { env = process.env } = {
  * chain read and broadcast for the lifetime of this provider. */
 export async function createRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {} } = {}) {
   const selected = await selectRuntimeRpcRequest(request, { env });
-  return new JsonRpcProvider(selected.request, network, { batchMaxCount: 1, ...providerOptions });
+  return new JsonRpcProvider(selected.request, network, providerOptions);
 }
 
 class DeferredRuntimeRpcProvider extends JsonRpcProvider {
