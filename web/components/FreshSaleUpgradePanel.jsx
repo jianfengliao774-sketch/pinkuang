@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { confirmUpgradeTransaction, executeUpgradeTransaction, readUpgradeStatus, scheduleUpgradeTransaction,
   reconcileUpgradeDeployments, submitUpgradeTransaction, upgradeDeployment, validateSaleUpgradeCatalog,
-  verifyUpgradeDeploymentRuntime } from '../lib/sale-policy-upgrade.mjs';
+  verifyUpgradeDeploymentRuntime, readUpgradeWrapperRuntime } from '../lib/sale-policy-upgrade.mjs';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 const profile = process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'full-test' ? 'full-test' : 'formal';
@@ -85,11 +85,36 @@ export default function FreshSaleUpgradePanel() {
       save({ ...record, steps: { ...record.steps, [name]: step } }, currentJournal);
     };
     let activeStep = null;
-    const transact = async (name, transaction) => {
+    let wrapperRuntime;
+    const runtimeProof = () => wrapperRuntime ??= readUpgradeWrapperRuntime(connected);
+    const confirmBatchStep = async (name, status) => {
+      activeStep = name;
+      const step = currentJournal.record.steps[name];
+      if (!step?.hash) {
+        persistStep(name, { ...step, status: 'unknown' });
+        throw new Error(`升级已在链上${name === 'schedule' ? '提交' : '执行'}，请填写${labels[name]}的交易哈希后继续。`);
+      }
+      const delay = BigInt(currentJournal.record.steps.schedule?.scheduleDelay ?? status.delay);
+      const transaction = name === 'schedule' ? scheduleUpgradeTransaction(catalog, status.batch, delay)
+        : executeUpgradeTransaction(catalog, status.batch);
+      const batchProof = { kind: name, batch: status.batch, ...(name === 'schedule' ? { delay } : {}) };
+      setNotice(`正在确认${labels[name]}的链上结果；不会重复提交。`);
+      await confirmUpgradeTransaction(connected, step, { from: currentAccount, ...transaction, batchProof }, { current, runtimeProof });
+      if (!current()) throw new Error('钱包或页面已变化，升级进度已保存。');
+      persistStep(name, { ...step, status: 'confirmed' });
+    };
+    const confirmActivated = async status => {
+      await confirmBatchStep('schedule', status);
+      await confirmBatchStep('execute', status);
+      const latest = await readUpgradeStatus(connected, catalog, currentJournal.record.deployed);
+      if (!current() || !latest.activated || latest.timestamp !== 1n) throw new Error('升级状态尚未同步，请稍后继续查询。');
+      setChainStatus({ ...latest, batchConfirmed: true }); setNotice('升级已在链上启用；后台将自动更新 Firsto 参考价。');
+    };
+    const transact = async (name, transaction, batchProof) => {
       activeStep = name;
       let step = currentJournal.record.steps[name], failed = false;
       if (step?.hash) {
-        try { return await confirmUpgradeTransaction(connected, step, { from: currentAccount, ...transaction }, { current }); }
+        try { return await confirmUpgradeTransaction(connected, step, { from: currentAccount, ...transaction, batchProof }, { current, runtimeProof }); }
         catch (problem) {
           if (!problem.confirmedFailure) throw problem;
           persistStep(name, { ...step, status: 'failed' });
@@ -103,9 +128,10 @@ export default function FreshSaleUpgradePanel() {
       const previousHashes = failed ? [...(step.previousHashes || []), step.hash] : step?.previousHashes;
       setNotice(`请在钱包确认：${labels[name]}。`);
       step = await submitUpgradeTransaction(connected, currentAccount, transaction,
-        value => persistStep(name, { ...value, ...(previousHashes ? { previousHashes } : {}) }), { current });
+        value => persistStep(name, { ...value, ...(previousHashes ? { previousHashes } : {}),
+          ...(name === 'schedule' ? { scheduleDelay: batchProof.delay.toString() } : {}) }), { current });
       setNotice(`正在等待${labels[name]}确认；不会重复提交。`);
-      return await confirmUpgradeTransaction(connected, step, { from: currentAccount, ...transaction }, { current });
+      return await confirmUpgradeTransaction(connected, step, { from: currentAccount, ...transaction, batchProof }, { current, runtimeProof });
     };
     try {
       const [chain, accounts] = await Promise.all([connected.request({ method: 'eth_chainId' }), connected.request({ method: 'eth_accounts' })]);
@@ -118,7 +144,7 @@ export default function FreshSaleUpgradePanel() {
       let status = await readUpgradeStatus(connected, catalog, recovered.deployed);
       if (!current()) return;
       setChainStatus(status);
-      if (status.activated && status.timestamp === 1n) { setNotice('升级已在链上启用；后台将自动更新 Firsto 参考价。'); return; }
+      if (status.activated && status.timestamp === 1n) { await confirmActivated(status); return; }
       if (!status.proposer) throw new Error('指定钱包没有本次升级权限。');
       for (const name of order) {
         if (!current()) return;
@@ -136,27 +162,30 @@ export default function FreshSaleUpgradePanel() {
       setChainStatus(status);
       if (status.timestamp === 0n) {
         const transaction = scheduleUpgradeTransaction(catalog, status.batch, status.delay);
-        await transact('schedule', transaction);
+        await transact('schedule', transaction, { kind: 'schedule', batch: status.batch, delay: status.delay });
         if (!current()) return;
         persistStep('schedule', { ...currentJournal.record.steps.schedule, status: 'confirmed' });
         status = await readUpgradeStatus(connected, catalog, currentJournal.record.deployed);
         if (!current()) return;
         setChainStatus(status);
+        if (status.timestamp === 0n) throw new Error('升级提交已确认，链上状态正在更新，请稍后继续。');
+      } else {
+        await confirmBatchStep('schedule', status);
       }
-      if (status.timestamp === 1n) { setNotice('升级已在链上启用；后台将自动更新 Firsto 参考价。'); return; }
+      if (status.timestamp === 1n) { await confirmActivated(status); return; }
       const block = await connected.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
       if (!current()) return;
       if (BigInt(block.timestamp) < status.timestamp) {
         setNotice(`升级已提交，可启用时间：${new Date(Number(status.timestamp) * 1000).toLocaleString('zh-CN')}。届时点击继续。`); return;
       }
       const transaction = executeUpgradeTransaction(catalog, status.batch);
-      await transact('execute', transaction);
+      await transact('execute', transaction, { kind: 'execute', batch: status.batch });
       if (!current()) return;
       persistStep('execute', { ...currentJournal.record.steps.execute, status: 'confirmed' });
       status = await readUpgradeStatus(connected, catalog, currentJournal.record.deployed);
       if (!current()) return;
       if (!status.activated || status.timestamp !== 1n) throw new Error('升级状态尚未同步，请稍后继续查询。');
-      setChainStatus(status); setNotice('升级已在链上启用；后台将自动更新 Firsto 参考价。');
+      setChainStatus({ ...status, batchConfirmed: true }); setNotice('升级已在链上启用；后台将自动更新 Firsto 参考价。');
     } catch (problem) {
       if (current()) {
         const name = problem.stepName || activeStep;
@@ -186,7 +215,8 @@ export default function FreshSaleUpgradePanel() {
         <button className="btn secondary" disabled={busy} onClick={() => recoverHash(name)}>保存交易哈希</button>
       </div>}</li>)}</ol>
     <div className="live-actions"><button className="btn primary" disabled={busy} onClick={() => void connect()}>{account ? '切换或重连钱包' : '连接部署钱包'}</button>
-      <button className="btn primary" disabled={busy || !catalog || !same(account, catalog.bindings.proposer) || !journal.current || chainStatus?.activated && chainStatus.timestamp === 1n} onClick={() => void run()}>{busy ? '请完成钱包确认…' : progress && Object.keys(progress.steps).length ? '继续启用' : '开始启用'}</button>
+      <button className="btn primary" disabled={busy || !catalog || !same(account, catalog.bindings.proposer) || !journal.current
+        || chainStatus?.batchConfirmed} onClick={() => void run()}>{busy ? '请完成钱包确认…' : progress && Object.keys(progress.steps).length ? '继续启用' : '开始启用'}</button>
       <a className="btn secondary" href={`${basePath}/`}>返回拼矿</a></div>
     {account && !same(account, catalog?.bindings?.proposer) && <p role="status">当前钱包没有这次升级权限，请切换到上方部署钱包。</p>}
     <details style={{ marginTop: 20 }}><summary>升级合约信息</summary>{catalog && <dl>{Object.entries(catalog.bindings).map(([name, value]) => <div key={name} style={{ overflowWrap: 'anywhere' }}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>}</details>

@@ -1,4 +1,6 @@
 import { AbiCoder, Interface, ZeroHash, getAddress, keccak256, toQuantity, toUtf8Bytes } from 'ethers';
+import { decodeFreshSingleCallEnvelope, FRESH_BALANCE_ENFORCER, FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR }
+  from '../../deploy/shared/fresh-activation-execution.mjs';
 
 const HASH = /^0x[\da-f]{64}$/i;
 const SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -9,7 +11,10 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLow
 const timelock = new Interface(['function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)',
   'function executeBatch(address[],uint256[],bytes[],bytes32,bytes32) payable',
   'function getMinDelay() view returns(uint256)', 'function PROPOSER_ROLE() view returns(bytes32)',
-  'function hasRole(bytes32,address) view returns(bool)', 'function getTimestamp(bytes32) view returns(uint256)']);
+  'function hasRole(bytes32,address) view returns(bool)', 'function getTimestamp(bytes32) view returns(uint256)',
+  'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
+  'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
+  'event CallSalt(bytes32 indexed id,bytes32 salt)']);
 const beacon = new Interface(['function upgradeTo(address)', 'function implementation() view returns(address)']);
 const market = new Interface(['function upgradeToAndCall(address,bytes)']);
 
@@ -152,22 +157,68 @@ export async function reconcileUpgradeDeployments(provider, catalog, steps, from
   return { deployed, retryName: null };
 }
 
+export async function readUpgradeWrapperRuntime(provider) {
+  const fixed = [['managerCode', FRESH_DELEGATION_MANAGER], ['delegatorCode', FRESH_DELEGATOR], ['enforcerCode', FRESH_BALANCE_ENFORCER]];
+  return Object.fromEntries(await Promise.all(fixed.map(async ([name, contract]) =>
+    [name, await provider.request({ method: 'eth_getCode', params: [contract.address, 'latest'] })])));
+}
+
+/** A wallet wrapper is accepted only when the fixed Timelock emitted this complete, exact batch. */
+export function verifyUpgradeBatchReceipt(receipt, to, { kind, batch, delay }) {
+  need(['schedule', 'execute'].includes(kind) && Array.isArray(receipt.logs), '升级批次回执不完整。');
+  need(batch.targets.length === 3 && batch.values.length === 3 && batch.payloads.length === 3, '升级批次无效。');
+  const operationId = keccak256(AbiCoder.defaultAbiCoder().encode(
+    ['address[]', 'uint256[]', 'bytes[]', 'bytes32', 'bytes32'],
+    [batch.targets, batch.values, batch.payloads, batch.predecessor, batch.salt]));
+  need(same(operationId, batch.operationId), '升级批次编号不一致。');
+  const topics = ['CallScheduled', 'CallExecuted', 'CallSalt'].map(name => timelock.getEvent(name).topicHash.toLowerCase());
+  const logs = receipt.logs.filter(log => same(log.address, to) && topics.includes(log.topics?.[0]?.toLowerCase()));
+  const expected = batch.targets.map((target, index) => timelock.encodeEventLog(
+    timelock.getEvent(kind === 'schedule' ? 'CallScheduled' : 'CallExecuted'),
+    kind === 'schedule' ? [operationId, index, target, batch.values[index], batch.payloads[index], batch.predecessor, delay]
+      : [operationId, index, target, batch.values[index], batch.payloads[index]]));
+  if (kind === 'schedule') expected.push(timelock.encodeEventLog(timelock.getEvent('CallSalt'), [operationId, batch.salt]));
+  need(logs.length === expected.length && logs.every(log => log.removed !== true
+    && same(log.transactionHash, receipt.transactionHash ?? receipt.hash) && same(log.blockHash, receipt.blockHash)
+    && BigInt(log.blockNumber) === BigInt(receipt.blockNumber))
+    && expected.every(event => logs.some(log => log.topics.length === event.topics.length
+      && log.topics.every((topic, index) => same(topic, event.topics[index])) && same(log.data, event.data))),
+  '链上升级批次事件与本次升级不一致。');
+  return operationId;
+}
+
 /** A saved hash is reconciled; it is never submitted again when a receipt is late. */
-export async function confirmUpgradeTransaction(provider, step, { from, to = null, data }, { now = Date.now, timeoutMs = 120_000, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), current = () => true } = {}) {
+export async function confirmUpgradeTransaction(provider, step, { from, to = null, data, batchProof }, { now = Date.now, timeoutMs = 120_000, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), current = () => true, runtimeProof } = {}) {
   need(HASH.test(step.hash), '交易回执尚未明确，请在钱包中核对，不能重复提交。');
   const deadline = now() + timeoutMs;
   while (current()) {
     const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [step.hash] });
     if (receipt) {
       const tx = await provider.request({ method: 'eth_getTransactionByHash', params: [step.hash] });
-      need(tx && same(tx.from, from) && (to ? same(tx.to, to) : tx.to === null)
-        && same(tx.input ?? tx.data, data) && BigInt(tx.value) === 0n && tx.chainId != null && BigInt(tx.chainId) === 56n,
-      '交易内容与本次升级不一致。');
+      if (batchProof) {
+        need(to && same(tx?.hash, step.hash), '交易内容与本次升级不一致。');
+        const expectedData = batchProof.kind === 'schedule'
+          ? timelock.encodeFunctionData('scheduleBatch', [batchProof.batch.targets, batchProof.batch.values,
+            batchProof.batch.payloads, batchProof.batch.predecessor, batchProof.batch.salt, batchProof.delay])
+          : timelock.encodeFunctionData('executeBatch', [batchProof.batch.targets, batchProof.batch.values,
+            batchProof.batch.payloads, batchProof.batch.predecessor, batchProof.batch.salt]);
+        need(same(expectedData, data), '升级批次内容不一致。');
+        const proof = same(tx.to, to) ? undefined : typeof runtimeProof === 'function' ? await runtimeProof()
+          : runtimeProof ?? await readUpgradeWrapperRuntime(provider);
+        decodeFreshSingleCallEnvelope({ account: from, target: to, data,
+          tx: { ...tx, data: tx.input ?? tx.data, type: tx.type == null ? null : Number(BigInt(tx.type)) },
+          receipt: { ...receipt, status: Number(BigInt(receipt.status)) }, runtimeProof: proof });
+      } else {
+        need(tx && same(tx.from, from) && (to ? same(tx.to, to) : tx.to === null)
+          && same(tx.input ?? tx.data, data) && BigInt(tx.value) === 0n && tx.chainId != null && BigInt(tx.chainId) === 56n,
+        '交易内容与本次升级不一致。');
+      }
       need(current(), '钱包或页面已变化，升级进度已保存。');
       if (BigInt(receipt.status) !== 1n) {
         const failure = new Error('升级交易已确认失败；可明确重试这一步。');
         failure.confirmedFailure = true; failure.hash = step.hash; throw failure;
       }
+      if (batchProof) verifyUpgradeBatchReceipt(receipt, to, batchProof);
       if (!to) getAddress(receipt.contractAddress);
       return receipt;
     }
