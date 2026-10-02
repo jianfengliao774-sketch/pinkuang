@@ -9,7 +9,7 @@ User=pinkuang-v4
 Group=pinkuang-v4
 SupplementaryGroups=pinkuang-v4-relay
 WorkingDirectory=/srv/pinkuang-deploy-v5/current
-ExecStart=/usr/bin/node /srv/pinkuang-deploy-v5/current/server/index.mjs
+ExecStart=/usr/bin/node server/index.mjs
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=4217
