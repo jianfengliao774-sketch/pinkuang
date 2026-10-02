@@ -186,6 +186,28 @@ test('all permitted pool and market actions require exact values, registration a
   p.state.registered=true;p.state.nonce=8; await assert.rejects(verifyProductIntent(p.provider,intent(),allow),/nonce/);
 });
 
+test('early delisting uses only the upgraded pool action with exact zero value and listing-bound IDs', async () => {
+  const allow = new Set([factory.toLowerCase()]), upgraded = async () => ({ nativeSaleUpgrade: { version: 1 } });
+  for (const args of [[0, 0, 7, true], [1, 3, 7, true], [1, 3, 7, false], [2, 3, 7, true]]) {
+    const record = intent('delist', args, '0'), p = proof(record);
+    await verifyWithGraph(p.provider, record, allow, upgraded);
+    assert.equal(p.state.simulations, 0, 'The existing member journal does not add a new preflight simulation round.');
+    assert.equal(p.state.estimates, 0);
+    await assert.rejects(verifyWithGraph(p.provider, record, allow, async () => ({})), /verified native-sale upgrade/);
+    await assert.rejects(verifyWithGraph(p.provider, { ...record, value: '1' }, allow, upgraded), /cannot send BNB/);
+  }
+  for (const args of [[3, 3, 7, true], [0, 3, 7, true], [1, 0, 7, true], [2, 0, 7, true], [0, 0, 0, true]]) {
+    const record = intent('delist', args, '0'), p = proof(record);
+    await assert.rejects(verifyWithGraph(p.provider, record, allow, upgraded), /current listing and exact/);
+    assert.equal(p.state.simulations, 0, 'Malformed intent never reaches a simulation or wallet reservation.');
+  }
+  const record = intent('delist', [0, 0, 7, true], '0'), p = proof(record);
+  p.state.registered = false;
+  await assert.rejects(verifyWithGraph(p.provider, record, allow, upgraded), /registered/);
+  p.state.registered = true;
+  await assert.rejects(verifyWithGraph(p.provider, { ...record, action: { kind: 'vote' } }, allow, upgraded), /calldata must match/);
+});
+
 test('share fill charges the buyer separately and rejects the old one-sided value', async()=>{
   const p=proof(),allow=new Set([factory.toLowerCase()]);
   p.state.orderPrice=101n;

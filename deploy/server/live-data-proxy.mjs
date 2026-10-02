@@ -121,6 +121,7 @@ export function validateIndexRequest(url) {
     : /^\/v1\/display\/portfolios\/0x[\da-f]{40}$/i.test(route) ? ['account','children']
     : /^\/v1\/display\/positions\/0x[\da-f]{40}$/i.test(route) ? ['cursor','limit']
     : /^\/v1\/display\/sale-reference\/0x[\da-f]{40}$/i.test(route) ? []
+    : /^\/v1\/display\/firsto-ask\/0x[\da-f]{40}$/i.test(route) ? []
     : /^\/v1\/snapshot\/pools\/0x[\da-f]{40}$/i.test(route) ? []
     : /^\/v1\/accounts\/0x[\da-f]{40}\/(pools|portfolios)$/i.test(route)
     || /^\/v1\/portfolios\/0x[\da-f]{40}\/children$/i.test(route) ? ['cursor', 'limit'] : routes[route];

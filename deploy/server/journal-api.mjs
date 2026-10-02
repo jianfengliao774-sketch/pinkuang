@@ -18,6 +18,7 @@ import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
 import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
 import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
+import { firstoAskPublisherConfiguration, createFirstoAskApiWorker, trackFirstoAsks } from './firsto-ask-publisher.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -109,6 +110,7 @@ export const PRODUCT_POOL_ABI = new Interface([
   'function propose(uint256 price,uint256 refPrice,uint64 refAt)', 'function vote(uint256 proposalId,bool support)',
   'function executeSale(uint256 proposalId)', 'function cancelExpired()', 'function completeSale() payable',
   'function completeFirstoSale(uint256 expectedProposalId,uint256 expectedSalePrice,uint16 expectedFeeBps,uint256 expectedFeeEpoch) payable',
+  'function delist(uint8 action,uint256 cancellationId,uint256 expectedListedProposalId,bool support) returns(uint256 id)',
   'event Deposited(address indexed user,uint8 shares,uint256 amount,uint256 totalRaised)',
 ]);
 export const PRODUCT_MARKET_ABI = new Interface([
@@ -253,6 +255,9 @@ function decodeProduct(value) {
     || decoded.name === 'fill' && (decoded.args[1] < 1n || decoded.args[1] > 100n)) fail(400, 'Invalid share quantity.');
   if (decoded.name === 'propose' && decoded.args[0] === 0n) fail(400, 'Whole miner sale price must be positive.');
   if (decoded.name === 'proposeChildSale' && decoded.args[1] === 0n) fail(400,'Child sale price must be positive.');
+  if (decoded.name === 'delist' && (decoded.args[0] > 2n || decoded.args[2] === 0n
+    || decoded.args[0] === 0n && decoded.args[1] !== 0n || decoded.args[0] !== 0n && decoded.args[1] === 0n))
+    fail(400, 'Delisting must bind the current listing and exact create, vote or execute action.');
   if (decoded.name === 'buyFirsto') {
     try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400,'Invalid canonical Firsto order.'); }
   }
@@ -371,6 +376,8 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     // the reviewed upgrade has actually become the verified chain graph.
     if (decoded.name === 'createBudgetChildPool' && !graph?.securityUpgrade)
       fail(409, 'Budget child creation requires the verified upgraded Factory.');
+    if (decoded.name === 'delist' && graph?.nativeSaleUpgrade?.version !== 1)
+      fail(409, 'Delisting requires the verified native-sale upgrade.');
     await verifyCreationCutover(provider, record, decoded, block, legacyFactory, fail,
       { freshGraphVerified: graph?.freshFactoryVerified === true && Boolean(graph?.freshAuthority) });
     const call = async (to, method, args = []) => IDENTITY_ABI.decodeFunctionResult(method,
@@ -957,6 +964,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
   salePolicyCatalogPath, salePolicyArtifactPath,
+  nativeSaleCatalogPath, nativeSaleArtifactPath,
+  firstoAskPublisher = null, firstoAskPublisherDependencies,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
   freshStage2Hold = true, freshProduct = null, freshProductReadinessReader,
   sessionCookieName = TOKEN_COOKIE, sessionCookiePath = '/api/journal', deploymentAccountAllowlist = null } = {}) {
@@ -1010,7 +1019,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle,
     integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
-    productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath});
+    productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath,
+    nativeSaleCatalogPath,nativeSaleArtifactPath});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
   if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
@@ -1612,6 +1622,21 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   productGraphTimer?.unref?.();
   if(productGraphTimer)startProductGraphRefresh().catch(()=>{});
 
+  // This worker needs the authenticated buyer journal but no key. Keep it in
+  // the API uid; the isolated signer retains only permissionless expiry work.
+  if (firstoAskPublisher && (!trustedProduct || !officialProvider))
+    throw new Error('Native ask publisher requires the reviewed API product graph and read provider.');
+  const nativeAskPublisher = firstoAskPublisher ? createFirstoAskApiWorker({
+    config: firstoAskPublisher, provider: officialProvider, factory: trustedProduct.record.addresses.factory,
+    store, verifyDeployment: async () => {
+      if (closed) throw new Error('Native ask publication is closed.');
+      const block = await officialProvider.getBlock('latest');
+      return graphVerifier(officialProvider, trustedProduct.record.addresses.factory, block);
+    }, dependencies: firstoAskPublisherDependencies,
+  }) : null;
+  const stopNativeAskTracking = nativeAskPublisher
+    ? trackFirstoAsks(nativeAskPublisher, { intervalMs: firstoAskPublisher.intervalMs }) : async () => {};
+
   async function operationalBody(body) {
     if (!freshProductVerifier || body.stage !== 'fresh-active') return body;
     try {
@@ -2030,6 +2055,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     async close() {
       closed = true;
       if(productGraphTimer)clearInterval(productGraphTimer);
+      await stopNativeAskTracking();
+      await nativeAskPublisher?.close();
       await Promise.allSettled([...inFlight]);
       store.close();
       if (!suppliedProvider) provider?.destroy();
@@ -2053,6 +2080,7 @@ export function journalConfiguration(env = process.env) {
     && !['0','1'].includes(env.BEMINE_FRESH_STAGE2_HOLD))
     throw new Error('BEMINE_FRESH_STAGE2_HOLD must be 0 or 1.');
   return { dbPath, origin, rpcUrl,
+    firstoAskPublisher: firstoAskPublisherConfiguration(env, { dbPath }),
     freshConsolePreGenesis: env.BEMINE_FRESH_CONSOLE_PRE_GENESIS === '1',
     // Missing configuration must never enable the seven Authority writes.
     // A reviewed cutover must explicitly set 0 after recovery is proven.
@@ -2070,6 +2098,8 @@ export function journalConfiguration(env = process.env) {
     freshActivationEvidencePath: env.BEMINE_PRODUCT_ACTIVATION_PATH,
     salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
+    nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
+    nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
     expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

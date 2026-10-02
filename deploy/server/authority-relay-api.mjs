@@ -14,6 +14,7 @@ import { acquireKeeperLock, acquireWalletLock, readJournal,
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 import { saleReferencePublisherConfiguration, createSaleReferencePublisher } from './sale-reference-publisher.mjs';
+import { firstoExpiryKeeperConfiguration, createFirstoListingExpiryKeeper } from './firsto-listing-expiry-keeper.mjs';
 
 const SESSION_COOKIE = 'pinkuang_journal';
 const HASH = /^0x[0-9a-f]{64}$/i;
@@ -112,8 +113,11 @@ export function authorityRelayConfiguration(env = process.env) {
   }
   return { origin, rpcUrl, journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
     saleReferencePublisher:saleReferencePublisherConfiguration(env,{journal}),
+    firstoExpiryKeeper:firstoExpiryKeeperConfiguration(env,{journal,expectedGasWallet}),
     salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
+    nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
+    nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
     dbPath: env.DEPLOYMENT_JOURNAL_DB, recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
@@ -196,6 +200,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     recordPath: config.recordPath, bundlePath: config.bundlePath,
     productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
     salePolicyCatalogPath: config.salePolicyCatalogPath, salePolicyArtifactPath: config.salePolicyArtifactPath,
+    nativeSaleCatalogPath: config.nativeSaleCatalogPath, nativeSaleArtifactPath: config.nativeSaleArtifactPath,
   });
   if (!trusted?.freshAuthority || !trusted.bundle?.artifacts?.FreshPoolFactory)
     throw new Error('Authority relay requires a complete reviewed fresh activation.');
@@ -350,10 +355,16 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     market:trusted.record.addresses.shareMarket,
     verifyDeployment:freshGraph,dependencies:dependencies.referencePublisherDependencies,
   }) : null;
+  const expiryKeeper = config.firstoExpiryKeeper ? createFirstoListingExpiryKeeper({
+    config: config.firstoExpiryKeeper, provider, signer: new Wallet(loadCredential(), provider),
+    factory: trusted.record.addresses.factory, verifyDeployment: freshGraph,
+    dependencies: dependencies.firstoExpiryKeeperDependencies,
+  }) : null;
 
   return {
     // Private signer timer only. The public HTTP/IPC surface has no route to trigger this task.
     publishSaleReferences:()=>closed || !referencePublisher ? Promise.resolve(null) : referencePublisher.tick(),
+    expireNativeFirstoListings:()=>closed || !expiryKeeper ? Promise.resolve(null) : expiryKeeper.tick(),
     // Private signer background work uses the same queue and receipt-only
     // reconciliation as status polling. It never submits an operation.
     reconcile:()=>closed ? Promise.resolve(null) : status(),
@@ -395,6 +406,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     },
     async close() {
       closed = true;
+      await expiryKeeper?.close();
       await referencePublisher?.close();
       await Promise.allSettled([...inFlight]);
       await journalQueue;

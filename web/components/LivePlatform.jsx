@@ -175,6 +175,7 @@ const actionNames = {
   executeSale: ["执行整机挂牌", "Execute listing"],
   completeFirstoSale: ["购买整台矿机", "Buy whole miner"],
   cancelExpired: ["解除到期挂牌", "Clear expired listing"],
+  delist: ["整机下架投票", "Miner delisting vote"],
 };
 const textError = (error) =>
   String(

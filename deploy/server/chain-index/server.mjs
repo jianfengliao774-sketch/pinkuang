@@ -8,6 +8,8 @@ import { ChainIndex } from './indexer.mjs';
 import { createChainIndexServer } from './api.mjs';
 import { loadFreshIndexManifest } from './fresh-manifest.mjs';
 import { readSaleReferencePublisherStatus } from '../sale-reference-status-read.mjs';
+import { readFirstoAskPublisherStatus } from '../firsto-ask-publisher-store.mjs';
+import { FIRSTO_NATIVE_EXCHANGE } from '../../shared/firsto-native-ask.mjs';
 
 /** Independent materializers must not suppress updates from a healthy cache.
  * DisplayEvents still gates publication on a complete index and the pool cache
@@ -41,6 +43,9 @@ export function serverConfiguration(env = process.env) {
   const saleReferenceStatusPath = env.SALE_REFERENCE_STATUS_PATH || null;
   if (saleReferenceStatusPath !== null && !isAbsolute(saleReferenceStatusPath))
     throw new Error('SALE_REFERENCE_STATUS_PATH must be absolute.');
+  const firstoAskStatusPath = env.BEMINE_NATIVE_FIRSTO_ASKS_STATUS_PATH || null;
+  if (firstoAskStatusPath !== null && !isAbsolute(firstoAskStatusPath))
+    throw new Error('BEMINE_NATIVE_FIRSTO_ASKS_STATUS_PATH must be absolute.');
   const rpc = required(env, 'CHAIN_INDEX_RPC_URL');
   if (!/^https:\/\//.test(rpc)) throw new Error('CHAIN_INDEX_RPC_URL must use HTTPS.');
   const logsRpc = env.CHAIN_INDEX_LOGS_RPC_URL || null;
@@ -69,7 +74,7 @@ export function serverConfiguration(env = process.env) {
       throw new Error('Fresh v4 index requires a release-pinned manifest path.');
     const manifest=loadFreshIndexManifest(manifestPath,
       required(env,'CHAIN_INDEX_FRESH_MANIFEST_SHA256'));
-    return {rpc,logsRpc,fallbackLogsRpc,logsTimeoutMs:logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS),saleReferenceStatusPath,
+    return {rpc,logsRpc,fallbackLogsRpc,logsTimeoutMs:logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS),saleReferenceStatusPath,firstoAskStatusPath,
       host,port,dbPath,scanRange,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
       factory:manifest.factory,market:manifest.shareMarket,lens:manifest.lens,
       portfolioFactory:manifest.portfolioFactory,portfolioMarket:manifest.portfolioMarket,
@@ -84,7 +89,7 @@ export function serverConfiguration(env = process.env) {
   if (!['legacy','required'].includes(reservationMode)) throw new Error('Invalid chain-index reservation mode.');
   if (reservationMode==='required' && !env.CHAIN_INDEX_PORTFOLIO_FACTORY)
     throw new Error('Reservation proofs require the integrated portfolio Factory.');
-  return { rpc, logsRpc, fallbackLogsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), saleReferenceStatusPath, host, port, dbPath, factory: required(env, 'CHAIN_INDEX_FACTORY'),
+  return { rpc, logsRpc, fallbackLogsRpc, logsTimeoutMs: logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS), saleReferenceStatusPath, firstoAskStatusPath, host, port, dbPath, factory: required(env, 'CHAIN_INDEX_FACTORY'),
     ...(env.CHAIN_INDEX_PORTFOLIO_FACTORY?{portfolioFactory:env.CHAIN_INDEX_PORTFOLIO_FACTORY,portfolioMarket:env.CHAIN_INDEX_PORTFOLIO_MARKET}:{}),
     reservationMode,
     market: required(env, 'CHAIN_INDEX_MARKET'), startBlock: exactNumber(required(env, 'CHAIN_INDEX_START_BLOCK'), 'start block'),
@@ -198,7 +203,9 @@ export async function startChainIndex(config) {
     displayEvents = new DisplayEvents(index,{displayRevision:displayCache?()=>displayCache.revision():null});
     server = createChainIndexServer(index,{displayCache,portfolioReads,displayEvents,
       saleReferenceStatus: config.saleReferenceStatusPath ? pool => readSaleReferencePublisherStatus(config.saleReferenceStatusPath,
-        { factory: config.factory, market: config.market, pool }) : undefined});
+        { factory: config.factory, market: config.market, pool }) : undefined,
+      firstoAskStatus: config.firstoAskStatusPath ? pool => readFirstoAskPublisherStatus(config.firstoAskStatusPath,
+        { factory: config.factory, exchange: FIRSTO_NATIVE_EXCHANGE, pool }) : undefined});
     await new Promise((resolve, reject) => {
       const onError = error => { server.off('listening', onListening); reject(error); };
       const onListening = () => { server.off('error', onError); resolve(); };
