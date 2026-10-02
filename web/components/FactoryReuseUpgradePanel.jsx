@@ -5,7 +5,8 @@ import { confirmFactoryReuseTransaction as confirmUpgradeTransaction, executeFac
   reconcileFactoryReuseDeployment as reconcileUpgradeDeployments, submitUpgradeTransaction, factoryReuseDeployment as upgradeDeployment,
   validateFactoryReuseCatalog as validateSaleUpgradeCatalog, verifyFactoryReuseDeploymentRuntime as verifyUpgradeDeploymentRuntime,
   readUpgradeWrapperRuntime, factoryReuseProgressKey } from '../lib/factory-reuse-upgrade.mjs';
-import { connectWallet } from '../lib/live-transactions.mjs';
+import { connectWallet, requireWallet } from '../lib/live-transactions.mjs';
+import { createWalletDiscovery, walletConnectionError } from '../lib/wallet-discovery.mjs';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
 const profile = process.env.NEXT_PUBLIC_BEMINE_PRODUCT_FAMILY === 'full-test' ? 'full-test' : 'formal';
@@ -20,7 +21,10 @@ export default function FactoryReuseUpgradePanel() {
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [chainStatus, setChainStatus] = useState(null);
   const [recoveryHashes, setRecoveryHashes] = useState({});
+  const [wallets, setWallets] = useState([]), [selectedWalletId, setSelectedWalletId] = useState('');
+  const [connecting, setConnecting] = useState(false);
   const live = useRef({}), provider = useRef(null), journal = useRef(null), lock = useRef(false);
+  const discovery = useRef(null), connectionLock = useRef(false);
   const life = useRef(null), networkEpoch = useRef(0);
   live.current = { catalog, account };
 
@@ -31,12 +35,42 @@ export default function FactoryReuseUpgradePanel() {
       .then(response => { if (!response.ok) throw new Error('升级资料正在准备，请稍后刷新。'); return response.json(); })
       .then(value => { validateSaleUpgradeCatalog(value, { profile }); if (life.current === context) setCatalog(value); })
       .catch(problem => { if (!controller.signal.aborted && life.current === context) setError(problem.message); });
-    provider.current = window.ethereum;
-    const changed = accounts => { networkEpoch.current++; setAccount(accounts?.[0] || ''); setChainStatus(null); };
-    const networkChanged = () => { networkEpoch.current++; setChainStatus(null); setNotice('网络已变化，进度已保存。'); };
-    provider.current?.on?.('accountsChanged', changed); provider.current?.on?.('chainChanged', networkChanged);
-    return () => { life.current = null; controller.abort(); provider.current?.removeListener?.('accountsChanged', changed); provider.current?.removeListener?.('chainChanged', networkChanged); };
+    discovery.current = createWalletDiscovery(window, values => {
+      if (life.current !== context) return;
+      setWallets(values);
+      setSelectedWalletId(previous => values.some(value => value.id === previous) ? previous
+        : (values.find(value => value.brandId === 'metamask') || values[0])?.id || '');
+    });
+    return () => { life.current = null; controller.abort(); discovery.current?.destroy(); discovery.current = null; };
   }, []);
+
+  useEffect(() => {
+    const connected = wallets.find(value => value.id === selectedWalletId)?.provider;
+    if (!connected) return;
+    if (provider.current !== connected) {
+      networkEpoch.current++; provider.current = connected; setAccount(''); setChainStatus(null);
+    }
+    let active = true, revision = 0;
+    const readAuthorized = async () => {
+      const currentRevision = ++revision, epoch = networkEpoch.current;
+      try {
+        const [accounts, chain] = await Promise.all([
+          connected.request({ method: 'eth_accounts' }), connected.request({ method: 'eth_chainId' }),
+        ]);
+        if (!active || provider.current !== connected || currentRevision !== revision || networkEpoch.current !== epoch) return;
+        const owner = Array.isArray(accounts) ? accounts[0] : '';
+        setAccount(BigInt(chain) === 56n && /^0x[\da-f]{40}$/i.test(owner) && !/^0x0{40}$/i.test(owner) ? owner : '');
+      } catch { if (active && provider.current === connected && currentRevision === revision && networkEpoch.current === epoch) setAccount(''); }
+    };
+    const changed = () => { networkEpoch.current++; setAccount(''); setChainStatus(null); void readAuthorized(); };
+    const disconnected = () => { revision++; networkEpoch.current++; setAccount(''); setChainStatus(null); setNotice('钱包已断开，请重新连接。'); };
+    connected.on?.('accountsChanged', changed); connected.on?.('chainChanged', changed); connected.on?.('disconnect', disconnected);
+    void readAuthorized();
+    return () => { active = false; revision++;
+      const remove = connected.removeListener || connected.off;
+      remove?.call(connected, 'accountsChanged', changed); remove?.call(connected, 'chainChanged', changed);
+      remove?.call(connected, 'disconnect', disconnected); };
+  }, [wallets, selectedWalletId]);
 
   function key() { return factoryReuseProgressKey(catalog, account); }
   function save(next, destination = journal.current) {
@@ -58,12 +92,33 @@ export default function FactoryReuseUpgradePanel() {
   }, [catalog, account]);
 
   async function connect() {
-    setError('');
+    if (connectionLock.current || lock.current) return;
+    connectionLock.current = true; setConnecting(true); setError(''); setNotice('请在钱包弹窗中确认连接。');
+    networkEpoch.current++; setChainStatus(null);
+    const context = life.current;
+    let connected;
     try {
-      if (!provider.current) throw new Error('请在安装钱包插件的浏览器中打开。');
-      const connected = await connectWallet(provider.current, { reselectAccount: !!account });
-      setAccount(connected.account);
-    } catch (problem) { setError(problem?.message || '钱包连接未完成。'); }
+      discovery.current?.refresh();
+      const available = discovery.current?.getWallets() || [];
+      const selected = available.find(value => value.id === selectedWalletId)
+        || available.find(value => value.provider === provider.current)
+        || available.find(value => value.brandId === 'metamask') || available[0];
+      connected = selected?.provider || window.ethereum;
+      if (typeof connected?.request !== 'function') throw new Error('尚未检测到钱包，请启用钱包扩展，或在钱包 App 浏览器中打开本页后重试。');
+      if (provider.current !== connected) { networkEpoch.current++; provider.current = connected; setAccount(''); setChainStatus(null); }
+      if (selected) setSelectedWalletId(selected.id);
+      const owner = await connectWallet(connected, { reselectAccount: !!account });
+      if (life.current !== context || provider.current !== connected) return;
+      if (typeof owner !== 'string' || !/^0x[\da-f]{40}$/i.test(owner)) throw new Error('钱包未提供有效账户，请重新连接。');
+      const epoch = networkEpoch.current;
+      const currentOwner = await requireWallet(connected, owner);
+      if (life.current !== context || provider.current !== connected) return;
+      if (networkEpoch.current !== epoch) throw new Error('钱包账户或网络已变化，请重新连接。');
+      networkEpoch.current++; setAccount(currentOwner); setNotice('钱包已连接。');
+    } catch (problem) { if (life.current === context && (!connected || provider.current === connected)) {
+      setError(walletConnectionError(problem)); setNotice('');
+    } }
+    finally { connectionLock.current = false; if (life.current === context) setConnecting(false); }
   }
 
   function recoverHash(name) {
@@ -210,6 +265,10 @@ export default function FactoryReuseUpgradePanel() {
     <p>每台矿机同时只允许一个有效项目。仍在运行、出售中，或尚未完成矿机过户的项目，继续保留原来的占用。</p>
     <p>本次只升级创建项目的工厂合约，需要部署、提交升级、启用升级，共 3 笔钱包交易，只支付网络 Gas。{profile === 'full-test' ? '测试版无需等待。' : '正式版提交后按原合约等待 48 小时，再回来继续启用。'}</p>
     {catalog && <p>请使用部署钱包：<span style={{ overflowWrap: 'anywhere' }}>{catalog.bindings.proposer}</span></p>}
+    {wallets.length > 1 && <label>选择钱包<select aria-label="部署钱包" value={selectedWalletId} disabled={busy || connecting}
+      onChange={event => { networkEpoch.current++; setSelectedWalletId(event.target.value); setAccount(''); setChainStatus(null); }}>
+      {wallets.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select></label>}
+    {account && <p role="status">当前已连接：<span style={{ overflowWrap: 'anywhere' }}>{account}</span></p>}
     {error && <p className="live-notice error" role="alert">{error}</p>}
     {statusNotice && <p className="live-notice" role="status">{statusNotice}</p>}
     <ol>{[...order, 'schedule', 'execute'].map(name => <li key={name} style={{ margin: '12px 0' }}>{labels[name]} · {progress?.steps?.[name]?.status === 'confirmed' ? '已确认' : progress?.steps?.[name]?.status === 'failed' ? '链上已失败' : progress?.steps?.[name]?.hash ? '等待确认' : '待完成'}
@@ -221,8 +280,8 @@ export default function FactoryReuseUpgradePanel() {
           onChange={event => setRecoveryHashes({ ...recoveryHashes, [name]: event.target.value })} placeholder="0x…" />
         <button className="btn secondary" disabled={busy} onClick={() => recoverHash(name)}>保存交易哈希</button>
       </div>}</li>)}</ol>
-    <div className="live-actions"><button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy} onClick={() => void connect()}>{account ? '切换或重连钱包' : '连接部署钱包'}</button>
-      <button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy || !catalog || !same(account, catalog.bindings.proposer) || !journal.current
+    <div className="live-actions"><button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy || connecting} onClick={() => void connect()}>{connecting ? '请在钱包确认连接…' : account ? '切换或重连钱包' : '连接部署钱包'}</button>
+      <button className={journalComplete ? 'btn secondary' : 'btn primary'} disabled={busy || connecting || !catalog || !same(account, catalog.bindings.proposer) || !journal.current
         || chainStatus?.batchConfirmed} onClick={() => void run()}>{busy ? '请完成钱包确认…' : chainStatus?.batchConfirmed ? '已启用' : journalComplete ? '同步升级状态' : progress && Object.keys(progress.steps).length ? '继续启用' : '开始启用'}</button>
       <a className={journalComplete ? 'btn primary' : 'btn secondary'} href={`${basePath}/`}>{journalComplete && profile === 'full-test' ? '返回测试网站' : '返回拼矿'}</a></div>
     {account && !same(account, catalog?.bindings?.proposer) && <p role="status">当前钱包没有这次升级权限，请切换到上方部署钱包。</p>}
