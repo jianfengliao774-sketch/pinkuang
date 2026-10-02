@@ -2,6 +2,7 @@ import { isFreshActivationWrapper, verifyWrappedFreshActivation } from '../share
 import { lstatSync, readFileSync } from 'node:fs';
 import { AbiCoder, Interface, getAddress, keccak256, toUtf8Bytes } from 'ethers';
 import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirstoUpgradeRecord, verifyFirstoUpgradeProof, evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
+import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared/fresh-sale-policy-proof.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
   integratedUpgradeDeploymentOrder, validateIntegratedPostCodeGraphAgainstChain,
@@ -64,7 +65,8 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
   genesisRecordPath, genesisBundlePath, genesisRecord, genesisBundle,
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
-  productActivationPath, productActivation, expectedGasWallet }={}) {
+  productActivationPath, productActivation, expectedGasWallet,
+  salePolicyCatalogPath, salePolicyCatalog, salePolicyArtifactPath, salePolicyArtifact }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
   if (record?.schemaVersion === 2) {
@@ -183,10 +185,19 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
     const authorityAddress=getAddress(authority.address);
     check(!Object.values(record.addresses).some(value=>same(value,authorityAddress)),
       'Fresh Authority reuses a genesis deployment address.');
-    return JSON.parse(JSON.stringify({record,bundle,freshAuthority:{...evidence,
+    const trusted = JSON.parse(JSON.stringify({record,bundle,freshAuthority:{...evidence,
       authority:{...authority,address:authorityAddress}}}));
+    if (salePolicyCatalog || salePolicyCatalogPath || salePolicyArtifact || salePolicyArtifactPath) {
+      check((salePolicyCatalog || salePolicyCatalogPath) && (salePolicyArtifact || salePolicyArtifactPath),
+        'Sale policy requires both a reviewed local catalog and artifact bundle.');
+      trusted.freshSalePolicy = validateFreshSalePolicyCatalog(salePolicyCatalog ?? load(salePolicyCatalogPath),
+        salePolicyArtifact ?? load(salePolicyArtifactPath), trusted);
+    }
+    return trusted;
   }
   // Defensive clone: consumers cannot modify the trusted evidence through a browser record.
+  check(!salePolicyCatalog && !salePolicyCatalogPath && !salePolicyArtifact && !salePolicyArtifactPath,
+    'Sale policy cannot bypass the original fresh activation evidence.');
   return JSON.parse(JSON.stringify({record,bundle}));
 }
 
@@ -297,29 +308,36 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   check(same(factory,a.factory) || budget,'Factory differs from the trusted deployment.');
   const freshAuthority=trusted.freshAuthority
     ? await verifyFreshAuthority(provider,record,bundle,trusted.freshAuthority,block) : null;
+  const salePolicy=await verifyFreshSalePolicy(provider,trusted,block);
+  if (salePolicy) a={...a,...salePolicy.replacements,portfolioVaultImplementation:salePolicy.replacements.BudgetPortfolioVault};
   const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
   const upgradedNames=candidateActive ? integratedUpgradeDeploymentOrder
     : trusted.upgradeRecord ? upgradeNamesForKind(trusted.upgradeRecord.kind) : [];
-  const sourceFor=name=>candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
+  const policyNames=salePolicy ? ['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'] : [];
+  const sourceFor=name=>policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
   const artifactFor=name=>name==='PoolFactory' && freshFactory ? 'FreshPoolFactory' : artifacts[name] ?? name;
-  const runtimeLinksFor=name=>candidateActive && !upgradedNames.includes(name) ? record.addresses
+  const runtimeLinksFor=name=>salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
+    : candidateActive && !upgradedNames.includes(name) ? record.addresses
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisRecord.addresses : a;
   const read=async(name,method,args=[])=>{
     const artifactName=artifactFor(({factory:'PoolFactory',shareMarket:'ShareMarket',portfolioFactory:'BudgetPortfolioFactory',portfolioShareMarket:'ShareMarket'})[name] ?? name);
-    const iface=new Interface(sourceFor(artifactName).artifacts[artifactName].abi);
+    const source=name==='portfolioShareMarket' ? bundle : sourceFor(artifactName);
+    const iface=new Interface(source.artifacts[artifactName].abi);
     return iface.decodeFunctionResult(method,await provider.send('eth_call',[{to:a[name],data:iface.encodeFunctionData(method,args)},tag]))[0];
   };
   const observedCodehash={};
   await settleReads((integrated ? INTEGRATED_NAMES : NAMES).map(async name=>{
     const code=await provider.getCode(a[name],block.number);
+    const policyUpgraded=policyNames.includes(name);
     const upgraded=(candidateActive || trusted.upgradeRecord) && upgradedNames.includes(name);
     // The common proof checked replacement bytes at a finalized block. Compare
     // their complete hash again at the signing block, including immutables;
     // artifact shape matching alone masks constructor immutable values.
     const finalizedCode=candidateActive && upgraded
       ? await provider.getCode(a[name],finalizedProof.blockNumber) : null;
-    check(code!=='0x' && (upgraded || same(keccak256(code),record.verification.code[name].codehash))
+    check(code!=='0x' && (policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
+      : upgraded || same(keccak256(code),record.verification.code[name].codehash))
       && (!finalizedCode || same(keccak256(code),keccak256(finalizedCode)))
       && runtimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,runtimeLinksFor(name),a[name]),`Reviewed runtime changed: ${name}.`);
     observedCodehash[name]=keccak256(code);
@@ -348,7 +366,8 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket'],...(integrated
     ? [['portfolioFactory','BudgetPortfolioFactory'],['portfolioShareMarket','ShareMarket']] : [])].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);
-    check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,a[implementation]),`Reviewed implementation changed: ${name}.`);
+    const expected=name==='portfolioShareMarket' && salePolicy ? record.addresses.ShareMarket : a[implementation];
+    check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,expected),`Reviewed implementation changed: ${name}.`);
   }));
   const roles=await settleReads(['PROPOSER_ROLE','CANCELLER_ROLE','EXECUTOR_ROLE','DEFAULT_ADMIN_ROLE'].map(name=>read('timelock',name)));
   await settleReads([[roles[0],record.input.ownerMultisig,roleState?.roles?.proposerOld ?? true],
@@ -372,6 +391,11 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     addresses:{...a},codehash:observedCodehash,
     ...(freshFactory ? {freshFactoryVerified:true} : {}),
     ...(freshAuthority ? {freshAuthority} : {}),
+    ...(salePolicy ? {salePolicyUpgrade:{candidateArtifactDigest:salePolicy.candidateArtifactDigest,
+      operationId:salePolicy.operationId,saleReviewThresholdBps:salePolicy.saleReviewThresholdBps,
+      automaticSaleReferenceVersion:salePolicy.automaticSaleReferenceVersion,
+      replacements:{...salePolicy.replacements},codehash:{...salePolicy.codehash},
+      verifiedBlockNumber:salePolicy.blockNumber,verifiedBlockHash:salePolicy.blockHash}} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,
       roleMigrationStarted:roleState?.applied?.some(Boolean)===true}} : {}),

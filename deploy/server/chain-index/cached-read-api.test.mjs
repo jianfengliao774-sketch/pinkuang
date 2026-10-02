@@ -5,7 +5,7 @@ import { request } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ZeroAddress } from 'ethers';
+import { Interface, ZeroAddress } from 'ethers';
 import { abi } from '../../../web/lib/chain-client.mjs';
 import { cacheDecode } from './pool-display-cache.mjs';
 import { createChainIndexServer } from './api.mjs';
@@ -15,10 +15,12 @@ const a = n => '0x' + n.toString(16).padStart(40, '0');
 const factory = a(1), portfolioFactory = a(2), portfolioMarket = a(3), market = a(4), portfolio = a(5);
 const account = a(6), other = a(7), child = a(8), collection = a(9), hash = '0x' + 'ab'.repeat(32);
 const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+const thresholdView = new Interface(['function saleReviewThresholdBps() view returns(uint16)']);
 
-function fixture({ proposals = false, children = false } = {}) {
+function fixture({ proposals = false, children = false, saleReviewThresholdBps, childReviewThresholdBps,
+  price = 100n, referencePrice = 120n, reviewStatus = 1n, proposalCount = 1 } = {}) {
   let now = 1000_000, block = 10, calls = 0, active = 0, maxActive = 0, failed = false;
-  let logCount = 1, logTip = { block_number: 10, tx_hash: hash, log_index: 0 };
+  let logCount = 1, thresholdCalls = [], logTip = { block_number: 10, tx_hash: hash, log_index: 0 };
   const source = () => ({ complete: true, chainId: 56, factory, market, portfolioFactory, portfolioMarket,
     startBlock: 1, indexedThrough: block, indexedTimestamp: 1000, indexedBlockHash: hash,
     checkedAt: new Date(now).toISOString(), confirmations: 12, observedSafeHead: block });
@@ -33,7 +35,7 @@ function fixture({ proposals = false, children = false } = {}) {
     absoluteCapWei: 10000n, unitCapWei: 1000n, spentWei: 8000n, totalSupply: 100n, memberCount: 2n,
     childCount: children ? 1n : 0n, activeChildCount: children ? 1n : 0n, fundingDeadline: 2000n,
     purchaseDeadline: 3000n, fundingFailed: false, refundPerShareWei: 4n, salePerShareWei: 6n,
-    activeProposalId: proposals ? 1n : 0n, nextProposalId: proposals ? 2n : 1n, shareTradingAllowed: true, nextRoundAt: 0n };
+    activeProposalId: proposals ? 1n : 0n, nextProposalId: proposals ? BigInt(proposalCount + 1) : 1n, shareTradingAllowed: true, nextRoundAt: 0n };
   const member = { balanceOf: 5n, claimableBem: 13n, bnbOwed: 11n, refundSettled: false, saleDebt: 20n, lockedShares: 1n };
   const provider = { send: async (method, params) => {
     assert.equal(method, 'eth_call', 'No chain, header, code, storage, simulation or proof requests.');
@@ -41,15 +43,21 @@ function fixture({ proposals = false, children = false } = {}) {
     calls++; active++; maxActive = Math.max(maxActive, active);
     try {
       await nextTurn(); if (failed) throw new Error('RPC is offline: https://private.invalid/secret');
+      if (params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')) {
+        thresholdCalls.push(params[0].to.toLowerCase());
+        const threshold = params[0].to.toLowerCase() === child ? childReviewThresholdBps : saleReviewThresholdBps;
+        if (threshold === undefined) throw Error('old implementation');
+        return thresholdView.encodeFunctionResult('saleReviewThresholdBps', [threshold]);
+      }
       const iface = params[0].to.toLowerCase() === market ? abi.ShareMarket
         : params[0].to.toLowerCase() === child ? abi.PoolVault : abi.BudgetPortfolioVault;
       const call = iface.parseTransaction(params[0]); let value;
       if (Object.hasOwn(base, call.name)) value = [base[call.name]];
       else if (Object.hasOwn(member, call.name)) value = [call.args[0].toLowerCase() === account ? member[call.name]
         : typeof member[call.name] === 'boolean' ? false : 0n];
-      else if (call.name === 'proposals') value = [child, 100n, 120n, 900n, 2000n, 2n, 2n, 60n, false];
-      else if (call.name === 'saleReference') value = [120n, 900n, hash];
-      else if (call.name === 'childSaleReview') value = [1n];
+      else if (call.name === 'proposals') value = [child, price, referencePrice, 900n, 2000n, 2n, 2n, 60n, false];
+      else if (call.name === 'saleReference') value = [referencePrice, 900n, hash];
+      else if (call.name === 'childSaleReview') value = [reviewStatus];
       else if (call.name === 'hasVoted') value = [call.args[1].toLowerCase() === account];
       else if (call.name === 'childAt') value = [child];
       else if (call.name === 'childInfo') value = [collection, 123n, 8000n, true, false];
@@ -60,7 +68,7 @@ function fixture({ proposals = false, children = false } = {}) {
       return iface.encodeFunctionResult(call.name, value);
     } finally { active--; }
   } };
-  return { index, provider, now: () => now, get calls() { return calls; }, get maxActive() { return maxActive; },
+  return { index, provider, thresholdCalls, now: () => now, get calls() { return calls; }, get maxActive() { return maxActive; },
     advance: ms => { now += ms; block++; }, fail: () => { failed = true; },
     nextLog: () => { logCount++; logTip = { ...logTip, log_index: logCount }; } };
 }
@@ -83,12 +91,12 @@ test('portfolio pages share exact public getters across accounts; repeat reads u
   const f = fixture(), reads = new PortfolioDisplayReads(f.index, f.provider, { now: f.now, concurrency: 4 });
   try {
     const [first, repeated] = await Promise.all([reads.page({ account }), reads.page({ account })]);
-    assert.equal(f.calls, 26); assert.equal(first.data.items[0].shares, 5n); assert.equal(repeated.data.items[0].withdrawableBnb, 41n);
+    assert.equal(f.calls, 27); assert.equal(first.data.items[0].shares, 5n); assert.equal(repeated.data.items[0].withdrawableBnb, 41n);
     assert.equal(first.data.items[0].availableShares, 4n); assert.equal(first.source.displayOnly, true);
     assert.equal(first.source.transactionReady, false); assert.equal(first.source.cacheOrigin, 'server');
     assert.equal(first.data.items[0].blockNumber, 10n); assert.equal(first.data.items[0].displaySource, first.source);
-    const empty = await reads.page({ account: other }); assert.equal(f.calls, 32); assert.equal(empty.data.items[0].shares, 0n);
-    await reads.detail(portfolio, { account, includeChildren: false }); assert.equal(f.calls, 32);
+    const empty = await reads.page({ account: other }); assert.equal(f.calls, 33); assert.equal(empty.data.items[0].shares, 0n);
+    await reads.detail(portfolio, { account, includeChildren: false }); assert.equal(f.calls, 33);
     assert.equal(f.maxActive, 4); assert.equal(first.data.items[0].operator, undefined);
     assert.deepEqual((await reads.page({ account: other, mine: true })).data.items, []);
     assert.equal((await reads.page({ account, mine: true })).data.items.length, 1);
@@ -104,6 +112,32 @@ test('detail returns full proposal, vote, child and amount model without runtime
     assert.equal(row.children[0].costWei, 8000n); assert.equal(row.children[0].collection, collection);
     const before = f.calls; await reads.detail(portfolio, { account }); assert.equal(f.calls, before);
   } finally { await reads.close(); }
+});
+
+test('cached proposal display uses the stricter deployed parent and child rule with one getter each', async () => {
+  for (const [parent, childRule, price, referencePrice, required] of [
+    [8000n, 8000n, 79999n, 100000n, true], [8000n, 8000n, 80000n, 100000n, false],
+    [8000n, 8000n, 80001n, 100000n, false], [8000n, 8000n, 99n, 100n, false],
+    [undefined, undefined, 99n, 100n, true], [8000n, undefined, 90n, 100n, true],
+    [undefined, 8000n, 90n, 100n, true], [8000n, 8000n, 80n, 101n, true],
+  ]) {
+    const f = fixture({ proposals: true, proposalCount: 2, saleReviewThresholdBps: parent,
+      childReviewThresholdBps: childRule, price, referencePrice, reviewStatus: 0n });
+    const reads = new PortfolioDisplayReads(f.index, f.provider, { now: f.now });
+    try {
+      const item = (await reads.detail(portfolio, { account, includeChildren: false })).data.item;
+      assert.equal(item.saleReviewThresholdBps, parent ?? 10000n);
+      assert.equal(item.proposal.saleReviewThresholdBps, parent === 8000n && childRule === 8000n ? 8000n : 10000n);
+      assert.equal(item.proposal.discounted, true); assert.equal(item.proposal.reviewRequired, required);
+      assert.equal(item.proposal.canExecute, !required);
+      assert.deepEqual(f.thresholdCalls.sort(), [portfolio, child].sort(), 'same child in multiple proposals shares its optional read');
+      const before = f.calls;
+      await reads.detail(portfolio, { account, includeChildren: false });
+      await reads.page({ account: other });
+      assert.equal(f.calls, before + 8, 'only the other wallet member fields and votes are new');
+      assert.equal(f.thresholdCalls.length, 2, 'public rules stay in the shared snapshot cache');
+    } finally { await reads.close(); }
+  }
 });
 
 test('cached rows return immediately during expiry; offline background reads preserve the last display snapshot', async () => {
@@ -136,7 +170,7 @@ test('persisted portfolio pages reopen with exact BigInt values and remain separ
     await reads.page({ account }); reads.persist(); await reads.close();
     restored = new PortfolioDisplayReads(f.index, f.provider, { now: f.now, path }); const before = f.calls;
     assert.equal((await restored.page({ account })).data.items[0].withdrawableBnb, 41n); assert.equal(f.calls, before);
-    assert.equal((await restored.page({ account: other })).data.items[0].shares, 0n); assert.equal(f.calls, before + 26);
+    assert.equal((await restored.page({ account: other })).data.items[0].shares, 0n); assert.equal(f.calls, before + 27);
   } finally { await reads.close(); await restored?.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -160,6 +194,31 @@ test('portfolio HTTP cache routes bypass index sync wait, validate inputs and pr
       assert.equal((await fetch(base + route)).status, 400);
     assert.equal((await fetch(base + `/v1/display/portfolios/${other}`)).status, 404);
   } finally { await reads.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test('public sale-reference status GET reads a snapshot during sync without any RPC or transaction task', async () => {
+  const f = fixture(); let reads = 0;
+  f.index.syncing = true; f.index.waitForSync = () => assert.fail('Status cannot wait for index sync.');
+  const payload = { schemaVersion: 1, chainId: 56, factory, market, updatedAt: null, enabled: true, stale: true,
+    item: { pool: child, status: 'pending', proposalId: '1', hash } };
+  const server = createChainIndexServer(f.index, { saleReferenceStatus: pool => {
+    reads++; assert.equal(pool, child); return payload;
+  } });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const route = `http://127.0.0.1:${server.address().port}/v1/display/sale-reference/${child}`;
+  try {
+    const response = await fetch(route); assert.equal(response.status, 200); assert.deepEqual(await response.json(), payload);
+    assert.equal(reads, 1); assert.equal(f.calls, 0);
+    assert.equal((await fetch(route, { method: 'POST' })).status, 405);
+    assert.equal((await fetch(route + '?rpc=https://other.invalid')).status, 400);
+    assert.equal((await fetch(route.replace(child, 'bad'))).status, 400); assert.equal(reads, 1);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+  const disabledServer = createChainIndexServer(f.index);
+  await new Promise(resolve => disabledServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const reply = await (await fetch(`http://127.0.0.1:${disabledServer.address().port}/v1/display/sale-reference/${child}`)).json();
+    assert.equal(reply.enabled, false); assert.equal(reply.item.status, 'disabled'); assert.equal(f.calls, 0);
+  } finally { disabledServer.closeAllConnections(); await new Promise(resolve => disabledServer.close(resolve)); }
 });
 
 function fakeClient({ blocked = false } = {}) {

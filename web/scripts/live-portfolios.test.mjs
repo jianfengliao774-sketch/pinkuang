@@ -264,6 +264,27 @@ test('v4 reviews and references remain bound to each child sale candidate',async
   await assert.rejects(preparePortfolioAction({config:f.config,provider:f.provider,account:f.account,pool:PORTFOLIOS[0],
     action:{kind:'executeChildSale',proposalId:'1'}}),/提案已改变/);
 });
+
+test('budget sale display applies both deployed versions and caches one child rule within its snapshot',async()=>{
+  for(const [parent,childRule,price,referencePrice,required] of [
+    [8000n,8000n,79n,100n,true],[8000n,8000n,80n,100n,false],
+    [8000n,8000n,81n,100n,false],[8000n,8000n,99n,100n,false],
+    [8000n,undefined,90n,100n,true],[undefined,8000n,90n,100n,true],
+    [8000n,8000n,80n,101n,true],
+  ]){
+    const candidate=saleProposal({price});
+    const f=portfolioFixture({poolState:2n,activeProposalId:1n,nextProposalId:3n,
+      proposals:[candidate,{...candidate}],referencePrice,reviewStatus:0n,
+      saleReviewThresholdBps:parent,childReviewThresholdBps:childRule});
+    const row=await readPortfolio(await readPortfolioContext(f.config,f.provider),PORTFOLIOS[0],f.account,{includeChildren:false});
+    assert.equal(row.proposal.saleReviewThresholdBps,parent===8000n&&childRule===8000n?8000n:10000n);
+    assert.equal(row.proposal.discounted,true);assert.equal(row.proposal.reviewRequired,required);
+    assert.equal(row.proposal.canExecute,!required);
+    assert.equal(f.calls.filter(c=>c.method==='eth_call'&&c.params[0].data.startsWith('0x')
+      && !abi.PoolVault.parseTransaction(c.params[0])&&!abi.BudgetPortfolioVault.parseTransaction(c.params[0])
+      && c.params[0].to.toLowerCase()===candidate.child.toLowerCase()).length,1);
+  }
+});
 test('automatic portfolio fallback remains an explicitly stale display snapshot',async()=>{
   const f=portfolioFixture();
   const source={...f.source(),checkedAt:new Date(Date.now()-60_000).toISOString(),

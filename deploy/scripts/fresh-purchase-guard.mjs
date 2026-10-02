@@ -42,6 +42,8 @@ export function configureFreshPurchase(options, env = process.env, dependencies 
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     productActivationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH,
     expectedGasWallet: gasWallet,
+    salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
+    salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
   });
   if (!trusted?.bundle?.artifacts?.FreshPoolFactory || !trusted?.freshAuthority
     || !same(options.factory, trusted.record.addresses.factory)

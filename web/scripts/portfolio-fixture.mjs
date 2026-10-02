@@ -6,6 +6,7 @@ import { GENESIS_ARTIFACT_DIGEST, PORTFOLIO_MANIFEST_KEYS } from '../lib/live-co
 export const address=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 export const PORTFOLIOS = [address(0x901),address(0x902)];
 const binds=new Interface(['function implementation() view returns(address)','function owner() view returns(address)']);
+const thresholdView=new Interface(['function saleReviewThresholdBps() view returns(uint16)']);
 const code='0x60006000';
 export function portfolioFixture(options={}) {
   const base=createLiveBrowserFixture({isOperator:true,...options.baseOptions}), calls=[], simulations=[];
@@ -24,6 +25,11 @@ export function portfolioFixture(options={}) {
     if(method==='eth_getStorageAt'&&[extra.portfolioMarket,manifest.shareMarket].some(a=>same(a,params[0])))return `0x${(state.wrongMarketImplementation&&same(params[0],extra.portfolioMarket)?address(78):address(79)).slice(2).padStart(64,'0')}`;
     if(method==='eth_getCode'&&Object.values(extra).some(a=>same(a,params[0])))return state.badCode?'0x6001':code;
     if(method!=='eth_call')return base.request(input);
+    if(params[0].data===thresholdView.encodeFunctionData('saleReviewThresholdBps')){
+      const threshold=PORTFOLIOS.some(a=>same(a,params[0].to))?state.saleReviewThresholdBps:state.childReviewThresholdBps;
+      if(threshold===undefined)throw new Error('old implementation');
+      return thresholdView.encodeFunctionResult('saleReviewThresholdBps',[threshold]);
+    }
     const tx=params[0];let contract=PORTFOLIOS.some(a=>same(a,tx.to))?abi.BudgetPortfolioVault
       :same(tx.to,extra.portfolioFactory)?abi.BudgetPortfolioFactory:same(tx.to,extra.portfolioMarket)?abi.ShareMarket
       :same(tx.to,extra.portfolioBeacon)?binds:same(tx.to,address(0x951))?abi.PoolVault:null;

@@ -21,15 +21,36 @@ export function fixedPrice(atomic, decimals = 18, places = 5) {
 
 export function linkedPrice(value, editedField, dailyAtomic) {
   if (value === '') return '';
+  return fixedPrice(linkedPriceWei(value, editedField, dailyAtomic));
+}
+
+/** Firsto: ask / gross daily output floors wei; an ask derived from capacity rounds up wei. */
+export function linkedPriceWei(value, editedField, dailyAtomic) {
   const daily = BigInt(dailyAtomic);
   if (daily <= 0n) throw new Error('当前24H日产暂不可用。');
   const amount = inputPriceWei(value);
   if (!['sale', 'capacity'].includes(editedField)) throw new Error('无效的价格字段。');
-  // Round directly at the five-decimal display boundary, avoiding Number loss.
-  const numerator = editedField === 'sale' ? amount * BEM * 100000n : amount * daily * 100000n;
-  const denominator = editedField === 'sale' ? daily * BNB : BEM * BNB;
-  const rounded = (numerator + denominator / 2n) / denominator;
-  return `${rounded / 100000n}.${(rounded % 100000n).toString().padStart(5, '0')}`;
+  const atomic = editedField === 'sale' ? amount * BEM / daily : (amount * daily + BEM - 1n) / BEM;
+  if (atomic > UINT256) throw new Error('金额超出有效范围。');
+  return atomic;
+}
+
+/** Exact decimal source for editable inputs; never round a transaction value for display. */
+export function exactPrice(atomic) {
+  const value = BigInt(atomic);
+  if (value < 0n || value > UINT256) throw new Error('金额超出有效范围。');
+  const fraction = (value % BNB).toString().padStart(18, '0').replace(/0+$/, '');
+  return `${value / BNB}${fraction ? `.${fraction}` : ''}`;
+}
+
+/** The last user-edited field determines the exact transaction price, not its linked display. */
+export function proposedSalePriceWei({ salePrice, capacityPrice, editedField, dailyAtomic }) {
+  if (editedField === 'sale') return inputPriceWei(salePrice);
+  if (editedField === 'capacity') {
+    if (dailyAtomic === undefined || dailyAtomic === null) throw new Error('当前24H日产暂不可用，请刷新日产或直接修改整机价。');
+    return linkedPriceWei(capacityPrice, 'capacity', dailyAtomic);
+  }
+  throw new Error('无效的价格字段。');
 }
 
 /** A quote may be used only for its bound pool, during its validity window. */

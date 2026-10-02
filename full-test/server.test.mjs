@@ -25,7 +25,8 @@ function inputs() {
   const codehash=Object.fromEntries(names.map((n,i)=>[n,hash(i+20)]));
   const initial={id:'initialize',status:'confirmed',txHash:hash(70),receipt:{status:1,blockNumber:100,blockHash:hash(100)}};
   const record={schemaVersion:1,id:'test-deployment',kind:'integrated-v2',chainId:56,account:deployer,
-    artifactDigest,sourceCommit:sourceHead,status:'complete',addresses,steps:[initial]};
+    artifactDigest,sourceCommit:sourceHead,status:'complete',addresses,steps:[initial],
+    verification:{code:{BudgetPortfolioVault:{address:addresses.BudgetPortfolioVault,codehash:codehash.BudgetPortfolioVault}}}};
   const activation={schemaVersion:1,kind:'fresh-authority',chainId:56,account:deployer,status:'complete',
     genesisArtifactDigest:artifactDigest,deploymentId:record.id,authorityAddress:address(80),
     administratorOne:admins[0],administratorTwo:admins[1],gasWallet:gas,
@@ -41,12 +42,14 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
   const state=directory??await mkdtemp(join(tmpdir(),'bemine-full-test-'));
   let deploymentRevision=1,activationRevision=1,graphFailure=false,closedIndex=0,starts=0,proofs=0;
   const calls=[],journals=[];
+  let graphSnapshot=null;
   const runtime={
     createJournalService(options){journals.push(options);return {
       readAuthenticatedDeployment(req){if(req.headers.cookie!=='test_session=valid'){const e=new Error('Wallet session is required.');e.status=401;throw e;}
         return {account:deployer,deployment:{record:input.record,revision:deploymentRevision},activation:{record:input.activation,revision:activationRevision}};},
       handle(req,res){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({journal:true}));},
       verifyFreshOperationalReadiness:verifyReadiness,close:async()=>{},
+      currentProductGraphSnapshot:()=>graphSnapshot,
     };},
     validateFreshActivation(){calls.push('activation');},
     verifyCompletedDeployment:async(_provider,_record,{trustedArtifactBundle})=>{assert.equal(trustedArtifactBundle,input.bundle);calls.push('receipts');},
@@ -71,6 +74,7 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
       headers:{Origin:requestOrigin,'Content-Type':'application/json',Cookie:cookie},...(method==='GET'?{}:{body:JSON.stringify(body)})});
     return {status:response.status,body:await response.json()};};
   return {service,state,input,request,calls,journals,stats:()=>({starts,proofs,closedIndex}),
+    setGraphSnapshot(value){graphSnapshot=value;},
     graphFailure(){graphFailure=true;},changeRevision(){activationRevision++;},
     async close(keep=false){const stopped=new Promise(accept=>server.close(accept));await service.close();server.closeAllConnections();await stopped;
       if(!keep)await rm(state,{recursive:true,force:true});}};
@@ -147,6 +151,40 @@ test('restart independently proves persisted graph and preserves the unique depl
     assert.equal(restored.stats().proofs,1);assert.equal(restored.stats().starts,1);
   }finally{await restored.close();}
 });
+test('approved policy restart exposes metadata while preserving the public manifest and every genesis bridge',async()=>{
+  const f=await fixture(),input=f.input;await f.request();const directory=f.state;
+  const files=['genesis.json','authority-activation.json','active-manifest.json','index-manifest.json',
+    'activation-ready.json','activation-state.json'];
+  const before=await Promise.all(files.map(name=>readFile(join(directory,name),'utf8')));
+  await f.close(true);
+  input.graph={...input.graph,addresses:{...input.graph.addresses,BudgetPortfolioVault:address(880)},
+    codehash:{...input.graph.codehash,BudgetPortfolioVault:hash(880)},
+    salePolicyUpgrade:{candidateArtifactDigest:hash(881),operationId:hash(882)}};
+  const restored=await fixture({input,directory});try{
+    const config=await restored.service.config();
+    assert.equal(config.artifactDigest,artifactDigest);assert.equal(config.manifest.portfolioImplementation,input.record.addresses.BudgetPortfolioVault);
+    assert.equal(config.manifest.codehash.portfolioImplementation,input.record.verification.code.BudgetPortfolioVault.codehash);assert.deepEqual(config.roles,input.profile.roles);
+    assert.equal(config.salePolicyUpgrade.operationId,hash(882));
+    assert.deepEqual(await Promise.all(files.map(name=>readFile(join(directory,name),'utf8'))),before);
+  }finally{await restored.close();}
+});
+
+test('live policy display reuses the background graph snapshot without starting another proof',async()=>{
+  const f=await fixture();try{
+    await f.request();const initial=await f.service.config(),proofs=f.stats().proofs;
+    const manifest={...initial.manifest,portfolioImplementation:address(880),
+      codehash:{...initial.manifest.codehash,portfolioImplementation:hash(880)}};
+    f.setGraphSnapshot({factory:initial.manifest.factory,artifactDigest,manifest,
+      salePolicyUpgrade:{candidateArtifactDigest:hash(881),operationId:hash(882)}});
+    for(let i=0;i<3;i++){
+      const config=await f.service.config();assert.equal(config.manifest.portfolioImplementation,initial.manifest.portfolioImplementation);
+      assert.equal(config.salePolicyUpgrade.operationId,hash(882));
+    }
+    assert.equal(f.stats().proofs,proofs);assert.equal((await f.service.config()).artifactDigest,artifactDigest);
+    assert.equal(JSON.parse(await readFile(join(f.state,'active-manifest.json'),'utf8')).portfolioImplementation,initial.manifest.portfolioImplementation);
+  }finally{await f.close();}
+});
+
 test('declared zero-delay profile cannot reuse formal bundle or production gas signer',()=>{
   const {profile,bundle}=inputs();
   assert.doesNotThrow(()=>validateFullTestProfile(profile,bundle,artifactDigest));

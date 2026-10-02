@@ -45,11 +45,11 @@ function PortfolioSaleStatus({candidate,stage,locale}){
     ? candidate.threshold===60n ? '低于购机成本，需至少 60 份赞成；此阶段不使用平台折价审核。'
       : '不低于购机成本，需人数与份额过半；此阶段不使用平台折价审核。'
     : !reference?.available ? '市场参考价不可用，挂牌暂不可执行。'
-      : candidate.discounted ? !review?.available ? '平台审核状态不可用，挂牌暂不可执行。'
+      : candidate.reviewRequired ? !review?.available ? '平台审核状态不可用，挂牌暂不可执行。'
         : review.status===2n ? '平台已驳回该提案，禁止折价挂牌。'
-        : candidate.reviewApproved ? '低于市场参考价，平台已批准折价挂牌。'
-        : '低于市场参考价，等待平台审核。'
-      : '不低于市场参考价，无需额外审核。';
+        : candidate.reviewApproved ? '报价需人工审核，平台已批准。'
+        : '报价需人工审核，等待管理员处理。'
+      : '报价符合免审核范围，无需额外审核。';
   return <p role="status">{stage!=='genesis'&&<>{T('Firsto 市场参考价：')}{reference?.available?`${amount(reference.priceWei)} BNB · ${new Date(Number(reference.observedAt)*1000).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:T('暂不可用')}{T('。')}</>}{T(status)}</p>;
 }
 

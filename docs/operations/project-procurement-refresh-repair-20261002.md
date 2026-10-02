@@ -56,11 +56,18 @@ the mining supervisor did not need to send an extra startup transaction.
 The public display API subsequently returned these new values with errorMask 0
 and indexedThrough 125203656, after the procurement block.
 
-The test receipt RPC intermittently returned HTTP 403. Only
-`DEPLOYMENT_JOURNAL_RPC_URL` in the test RPC environment was changed from
-`bsc-dataseed.bnbchain.org` to the successfully checked
-`bsc-dataseed1.binance.org`. Other environment keys, credentials and all formal
-RPC configuration were preserved. Formal endpoints were reading successfully.
+The test receipt RPC intermittently returned HTTP 403. The test index RPC also
+returned missing-state errors during deployment reads at the recent safe head.
+`DEPLOYMENT_JOURNAL_RPC_URL` and `CHAIN_INDEX_RPC_URL` in the test RPC environment
+were changed to the successfully checked `bsc-dataseed1.binance.org`. Other
+environment keys, credentials and all formal RPC configuration were preserved.
+Formal endpoints were reading successfully. After this change, the test index
+advanced normally and its deployment-read errors stopped.
+
+The full-test config can briefly report not ready when its 15-second readiness
+sample overlaps an index refresh. This is not an automation stop: procurement
+and mining supervisors use their independent RPC and journal heartbeat paths,
+and direct member-wallet actions use the display-only bootstrap path.
 
 ## Publication and validation
 

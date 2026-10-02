@@ -2486,7 +2486,7 @@ export default function LivePlatform() {
   function renderGovernance() {
     return <section className="panel"><LiveGovernance
       key={`${detail?.pool || ''}:${account || ''}`}
-      selectedPool={detail?.pool} capacityQuote={currentPoolQuote(detail)} config={config} account={account} wallet={wallet} refreshToken={refresh}
+      selectedPool={detail?.pool} poolParams={detail?.params} capacityQuote={currentPoolQuote(detail)} config={config} account={account} wallet={wallet} refreshToken={refresh}
       readProvider={client?.provider} disabled={busy || !!pending}
       onConnect={connect} onError={problem => setError(textError(problem))}
       onAction={sendGovernanceAction} /></section>;

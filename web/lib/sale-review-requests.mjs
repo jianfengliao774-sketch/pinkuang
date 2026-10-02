@@ -2,7 +2,7 @@ import { getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
 import { hash, insist, liveAddress, validateManifest } from './live-config.mjs';
 import { displayIndexSource, fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
-import { saleReferenceState } from './sale-governance-gate.mjs';
+import { saleReferenceState, readSaleReviewThreshold, effectiveSaleReviewThresholdBps, requiresSaleReview } from './sale-governance-gate.mjs';
 import { createDisplayReadCache, displayConfigIdentity, displayProviderIdentity } from './display-read-cache.mjs';
 
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -11,6 +11,14 @@ const check = (ok, text) => insist(ok, 'review_requests', text);
 const candidateLimit = kind => kind === 'pool' ? 100n : 16n;
 const displayReads = createDisplayReadCache();
 const abortCheck = signal => { if (signal?.aborted) throw Object.assign(new Error('申请读取已取消。'), { name: 'AbortError' }); };
+const thresholdReader = read => {
+  const values = new Map();
+  return project => {
+    const key = project.toLowerCase();
+    if (!values.has(key)) values.set(key, readSaleReviewThreshold(read, project));
+    return values.get(key);
+  };
+};
 
 // Bound actual RPC requests, not just projects. One slow project must not open
 // hundreds of concurrent view calls when its voting round has many candidates.
@@ -71,7 +79,7 @@ async function context(config, provider, source, signal) {
           .catch(error => ({ available: false, priceWei: null, observedAt: null, reason: message(error) })));
         return references.get(key);
       };
-      return { config, manifest, base, queue, request, read, reference, source,
+      return { config, manifest, base, queue, request, read, reference, source, saleReviewThreshold: thresholdReader(read),
         current: !source || source.stale !== true, displayOnly: true,
         block: source ? { hash: source.indexedBlockHash } : null, blockNumber, timestamp, async canonical() {} };
     }
@@ -102,6 +110,7 @@ async function context(config, provider, source, signal) {
     };
     const current = !source || source.stale !== true && source.readMode !== 'verified_snapshot';
     return { config, manifest, base, queue, request, read, reference, source, current, block, blockNumber, timestamp,
+      saleReviewThreshold: thresholdReader(read),
       async canonical() {
         await queue.drain();
         const [again, finalChain] = await Promise.all([request('eth_getBlockByNumber', [tag, false]), request('eth_chainId')]);
@@ -111,23 +120,24 @@ async function context(config, provider, source, signal) {
   } catch (error) { await queue.drain(); throw error; }
 }
 
-function reviewState({ state, openerExecuted, executed, endsAt, timestamp, reference, review, priceWei }) {
+function reviewState({ state, openerExecuted, executed, endsAt, timestamp, reference, review, priceWei, saleReviewThresholdBps }) {
   const discounted = reference.available ? priceWei < reference.priceWei : null;
+  const reviewRequired = reference.available ? requiresSaleReview(priceWei, reference.priceWei, saleReviewThresholdBps) : null;
   const open = state === 2n && !openerExecuted && !executed && timestamp < endsAt;
   let status;
   if (openerExecuted || executed || state === 3n || state === 4n) status = 'executed';
   else if (!open) status = 'expired';
-  else if (review?.status === 2n) status = 'rejected';
-  else if (discounted === false) status = 'no-review';
-  else if (review?.status === 1n && review.priceWei === priceWei) status = 'approved';
   else if (!reference.available) status = 'reference-missing';
+  else if (reviewRequired === false) status = 'no-review';
+  else if (review?.status === 2n) status = 'rejected';
+  else if (review?.status === 1n && review.priceWei === priceWei) status = 'approved';
   else if (!review || review.status === 1n && review.priceWei !== priceWei) status = 'review-unavailable';
   else status = 'pending';
-  return { status, discounted, canReview: open && discounted === true
+  return { status, discounted, reviewRequired, saleReviewThresholdBps, canReview: open && reviewRequired === true
     && (status === 'pending' || status === 'approved') };
 }
 
-function row(context, kind, project, pool, id, p, opener, state, reference, review, identity) {
+function row(context, kind, project, pool, id, p, opener, state, reference, review, identity, saleReviewThresholdBps) {
   const { timestamp, blockNumber } = context;
   const members = kind === 'pool' ? p.snapshotMemberCount : p.memberCount;
   const yesCount = kind === 'pool' ? p.yesCount : p.yesMembers;
@@ -136,7 +146,7 @@ function row(context, kind, project, pool, id, p, opener, state, reference, revi
   if (kind === 'pool') check(p.snapshotTotalShares === 100n && p.snapshotTs + 86400n === p.endsAt,
     '单机提案的快照格式不受支持。');
   const gate = reviewState({ state, openerExecuted: opener.executed, executed: p.executed,
-    endsAt: p.endsAt, timestamp, reference, review, priceWei: p.price });
+    endsAt: p.endsAt, timestamp, reference, review, priceWei: p.price, saleReviewThresholdBps });
   return { key: `${kind}:${project.toLowerCase()}:${id}`, kind, project, pool, proposalId: id,
     priceWei: p.price, referencePriceWei: reference.priceWei ?? null,
     referenceObservedAt: reference.observedAt ?? null, referenceAvailable: reference.available,
@@ -173,6 +183,7 @@ async function projectRequests(ctx, kind, project, options, selectedId) {
     && nextId - (activeId || nextId) <= candidateLimit(kind), '当前轮申请数量或状态无效。');
   if (!activeId) return [];
   if (selectedId !== undefined && (selectedId < activeId || selectedId >= nextId)) return [];
+  const saleReviewThresholdBps = await ctx.saleReviewThreshold(project);
   let identity;
   if (isPool) {
     const [params, boundFactory, subscriber] = await Promise.all([
@@ -200,16 +211,18 @@ async function projectRequests(ctx, kind, project, options, selectedId) {
       const p = id === activeId ? opener : await get(id);
       if (p.endsAt !== opener.endsAt || isPool && p.snapshotTs !== opener.snapshotTs) return null;
       const pool = isPool ? project : liveAddress(p.child);
-      const [reference, reviewResult, childResult] = await Promise.all([
+      const [reference, reviewResult, childResult, childThreshold] = await Promise.all([
         ctx.reference(pool),
         (isPool ? read(manifest.shareMarket, abi.ShareMarket, 'saleReview', [project, id])
           : read(project, contract, 'childSaleReview', [id])).catch(() => null),
         isPool ? null : read(project, contract, 'childInfo', [pool]),
+        isPool ? saleReviewThresholdBps : ctx.saleReviewThreshold(pool),
       ]);
       let review = null;
       if (reviewResult && reviewResult[0] <= 2n) review = { status: reviewResult[0], priceWei: isPool ? reviewResult[1] : p.price };
       const child = isPool ? identity : { collection: liveAddress(childResult.collection), tokenId: childResult.tokenId };
-      return row(ctx, kind, project, pool, id, p, opener, state, reference, review, child);
+      return row(ctx, kind, project, pool, id, p, opener, state, reference, review, child,
+        effectiveSaleReviewThresholdBps(saleReviewThresholdBps, childThreshold));
     }));
     const failed = batch.find(result => result.status === 'rejected');
     if (failed) throw failed.reason;

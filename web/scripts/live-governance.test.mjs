@@ -4,6 +4,7 @@ import { firstoProvider, runtime } from '../../deploy/scripts/fixtures/firsto-or
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { Interface } from 'ethers';
 const capability = new Interface(['function controlledFirstoSaleVersion() view returns(uint8)']);
+const thresholdView = new Interface(['function saleReviewThresholdBps() view returns(uint16)']);
 const saleViews = new Interface([
   'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
   'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
@@ -39,9 +40,13 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   factoryBinding = factory, alreadyVoted = false, oldSale = false, firsto = {},
   referencePrice = 8n, referenceAt = timestamp - 100n, referenceDigest = digest,
   reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false,
-  genesis = false, displayOnly = false } = {}) {
+  genesis = false, displayOnly = false, saleReviewThresholdBps } = {}) {
   const external = firstoProvider({ account }, firsto).provider;
   return { request: async ({ method, params = [] }) => {
+    if (method === 'eth_call' && params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')) {
+      if (saleReviewThresholdBps === undefined) throw Error('old implementation');
+      return thresholdView.encodeFunctionResult('saleReviewThresholdBps', [saleReviewThresholdBps]);
+    }
     if (method === 'eth_getStorageAt' || method === 'eth_getCode' && [FIRSTO_SIGNED_EXCHANGE, runtime.implementation].some(a => a.toLowerCase() === params[0].toLowerCase()) || method === 'eth_call' && params[0].to.toLowerCase() === FIRSTO_SIGNED_EXCHANGE.toLowerCase()) return external.request({ method, params });
     if (method === 'eth_call' && params[0].data === capability.encodeFunctionData('controlledFirstoSaleVersion')) {
       if (oldSale) throw new Error('old implementation');
@@ -117,6 +122,26 @@ function directRpc(options = {}) {
 }
 const directOptions = { factory, pool, account, shareMarket: market, stage: 'fresh-active',
   displayOnly: true, now: () => 1700000100000 };
+
+test('direct governance reads one deployed review rule and preview carries the actual requirement', async () => {
+  for (const [saleReviewThresholdBps, price, required] of [[8000n, 79n, true], [8000n, 80n, false],
+    [8000n, 81n, false], [undefined, 99n, true]]) {
+    const f = directRpc({ saleReviewThresholdBps, referencePrice: 100n,
+      proposals: [proposal({ price, yesCount: 2n, yesShares: 51n })] });
+    const snapshot = await readGovernanceSnapshot(f.provider, directOptions), candidate = snapshot.candidates[0];
+    assert.equal(snapshot.saleReviewThresholdBps, saleReviewThresholdBps ?? 10000n);
+    assert.equal(candidate.discounted, true); assert.equal(candidate.reviewRequired, required);
+    assert.equal(candidate.canExecute, !required);
+    const thresholdCalls = () => f.calls.filter(input => input.params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')).length;
+    assert.equal(thresholdCalls(), 1);
+    if (!required) {
+      const prepared = await prepareGovernanceAction(f.provider, { ...directOptions, snapshot,
+        action: { kind: 'executeSale', proposalId: '1' } });
+      assert.equal(prepared.quote.reviewRequired, false); assert.equal(prepared.quote.saleReviewThresholdBps, 8000n);
+      assert.equal(thresholdCalls(), 1, 'preview reuses the existing display snapshot');
+    }
+  }
+});
 
 test('direct governance uses business getters only and preserves review and vote rules', async () => {
   const { provider, calls } = directRpc({ factoryBinding: pool, chain: '0x1', referencePrice: 10n,

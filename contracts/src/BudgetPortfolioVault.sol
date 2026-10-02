@@ -8,6 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IPoolVault} from "./interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {TransferableBemRewards} from "./libraries/TransferableBemRewards.sol";
+import {SaleReviewPolicy} from "./libraries/SaleReviewPolicy.sol";
 import {BudgetGovernanceState} from "./BudgetGovernanceState.sol";
 
 interface IBudgetLegacyFactory {
@@ -53,6 +54,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     using TransferableBemRewards for TransferableBemRewards.Ledger;
 
     uint256 public constant TOTAL_SHARES = 100;
+    uint16 public constant saleReviewThresholdBps = SaleReviewPolicy.THRESHOLD_BPS;
     uint256 public constant MAX_FUNDING_DURATION = 30 days;
     uint256 public constant MAX_PURCHASE_DURATION = 7 days;
     uint256 public constant MAX_SALE_CANDIDATES = 16;
@@ -462,8 +464,8 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         if (!_currentSaleCandidate(proposalId) || p.executed || g.saleReviews[proposalId] == 2) {
             revert InvalidProposal();
         }
-        // A sale at or above the current reference needs no operator decision.
-        if (p.price >= _freshChildMarketPrice(p.child)) revert InvalidProposal();
+        // At exactly 80% of the current reference, voting alone is sufficient.
+        if (!SaleReviewPolicy.requiresReview(p.price, _freshChildMarketPrice(p.child))) revert InvalidProposal();
         g.saleReviews[proposalId] = approved ? 1 : 2;
         emit ChildSaleReviewed(proposalId, approved, msg.sender);
     }
@@ -478,7 +480,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             state != IPoolVault.State.Active || !_currentSaleCandidate(proposalId) || block.timestamp >= p.endsAt
                 || p.executed
         ) revert InvalidProposal();
-        bool discount = p.price < _freshChildMarketPrice(p.child);
+        bool discount = SaleReviewPolicy.requiresReview(p.price, _freshChildMarketPrice(p.child));
         if (discount && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
             revert ProposalNotPassed();
         }

@@ -1,7 +1,8 @@
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 import { readControlledFirstoSale } from './firsto-sale.mjs';
-import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState,
+  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold, requiresSaleReview } from './sale-governance-gate.mjs';
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { saleTimings } from './sale-timings.mjs';
@@ -68,7 +69,8 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     return (await result(to, contract, method, args))[0];
   }
   const [factoryCode, poolCode, registered, poolFactory, officialFactory, shareMarket, state, purchaseCost,
-    activatedAt, activeProposalId, nextProposalId, lastProposed, shares, listedProposalId, expiresAt, salePrice] = await Promise.all([
+    activatedAt, activeProposalId, nextProposalId, lastProposed, shares, listedProposalId, expiresAt, salePrice,
+    saleReviewThresholdBps] = await Promise.all([
     displayOnly ? null : request('eth_getCode', [factory, tag]), displayOnly ? null : request('eth_getCode', [pool, tag]),
     displayOnly ? null : call(factory, abi.PoolFactory, 'isPool', [pool]), displayOnly ? null : call(pool, abi.PoolVault, 'factory'),
     displayOnly ? null : call(pool, abi.PoolVault, 'OFFICIAL_FACTORY'),
@@ -79,6 +81,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     call(pool, abi.PoolVault, 'lastProposed', [owner]), call(pool, abi.PoolVault, 'balanceOf', [owner]),
     call(pool, abi.PoolVault, 'listedProposalId'), call(pool, abi.PoolVault, 'expiresAt'),
     call(pool, abi.PoolVault, 'salePrice'),
+    stage === 'genesis' ? DEFAULT_SALE_REVIEW_THRESHOLD_BPS : readSaleReviewThreshold(result, pool),
   ]);
   if (!displayOnly) requireGovernance(factoryCode && factoryCode !== '0x' && poolCode && poolCode !== '0x'
     && registered === true && same(poolFactory, factory) && same(officialFactory, factory),
@@ -128,7 +131,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
         proposal.yesShares >= requiredYesShares && proposal.yesCount >= requiredYesCount
       ), 'Sale proposal vote state is inconsistent.');
     let saleReview = null;
-    if (saleReference?.available && proposal.price < saleReference.priceWei) {
+    if (saleReference?.available && requiresSaleReview(proposal.price, saleReference.priceWei, saleReviewThresholdBps)) {
       try {
         if (displayOnly) {
           const [status, priceWei] = await result(market, directViews, 'saleReview', [pool, id]);
@@ -141,7 +144,8 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
     const gate = stage === 'genesis'
       ? { discounted: purchaseDiscount, reviewRequired: false, reviewApproved: null,
         canExecute: passed && state === 2n && !proposal.executed && timestamp < proposal.endsAt }
-      : saleExecutionGate({ proposal, passed, state, timestamp, reference: saleReference, review: saleReview });
+      : saleExecutionGate({ proposal, passed, state, timestamp, reference: saleReference, review: saleReview,
+        saleReviewThresholdBps });
     return Object.freeze({ id, proposer: getAddress(proposal.proposer), snapshotTs: proposal.snapshotTs,
       endsAt: proposal.endsAt, priceWei: proposal.price, refPriceWei: proposal.refPrice,
       refAt: proposal.refAt, snapshotMemberCount: proposal.snapshotMemberCount,
@@ -197,7 +201,7 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
       snapshotTs: opener.snapshotTs, executed: opener.executed,
       currentFormat: opener.snapshotTs + DAY === opener.endsAt }),
     lastProposed, shares, snapshotShares, listedProposalId, expiresAt,
-    salePrice, firstoSale, saleReference, candidates: Object.freeze(candidates) });
+    salePrice, firstoSale, saleReference, saleReviewThresholdBps, candidates: Object.freeze(candidates) });
 }
 
 /** ABI disclosure only: reuse a known chain price without another request or user input. */
@@ -282,6 +286,8 @@ export function governanceAction(snapshot, from, action) {
     sourceFeeWei: value === 0n ? 0n : value - snapshot.salePrice,
     marketReferenceWei: snapshot.saleReference?.available ? snapshot.saleReference.priceWei : null,
     marketReferenceObservedAt: snapshot.saleReference?.available ? snapshot.saleReference.observedAt : null,
+    reviewRequired: chosen?.reviewRequired ?? null,
+    saleReviewThresholdBps: snapshot.saleReviewThresholdBps,
     saleReviewStatus: chosen?.saleReview?.status ?? null,
     saleReviewPriceWei: chosen?.saleReview?.priceWei ?? null,
     feeBps: snapshot.firstoSale?.feeBps ?? null, feeEpoch: snapshot.firstoSale?.feeEpoch ?? null,

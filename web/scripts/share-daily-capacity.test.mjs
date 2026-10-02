@@ -69,15 +69,35 @@ const input = (provider, options = {}) => readShareDailyCapacityPrice(provider, 
   quoteLoader: async () => detail(), ...options,
 });
 
-test('daily capacity price uses exact BigInt and rounds up at most one wei', () => {
+test('daily capacity price uses exact BigInt and Firsto integer floor rounding', () => {
   assert.equal(shareDailyCapacityPriceWei(sharePrice, '95000000'),
-    (sharePrice * 100n * 100_000_000n + 94_999_999n) / 95_000_000n);
+    sharePrice * 100n * 100_000_000n / 95_000_000n);
   const huge = (1n << 255n) + 123n;
   assert.equal(shareDailyCapacityPriceWei(huge, 3n),
-    (huge * 100n * 100_000_000n + 2n) / 3n);
+    huge * 100n * 100_000_000n / 3n);
   assert.equal(shareDailyCapacityPriceWei(0n, 1n), 0n);
   assert.throws(() => shareDailyCapacityPriceWei(1n, 0n), /unavailable/);
   assert.throws(() => shareDailyCapacityPriceWei(1.1, 1n), /exact bigint/);
+});
+
+test('TapeOut 16736 proposed price uses its gross daily BEM output without adding fees', () => {
+  // Firsto's current Task 4 / verified weight 1 estimate is 432000 atomic BEM.
+  const daily = 432_000n, sale = 15_000_000_000_000_000n;
+  const capacity = minerDailyCapacityPriceWei(sale, daily);
+  assert.equal(capacity, 3_472_222_222_222_222_222n);
+  assert.equal(displayPreciseAmount(capacity), '3.47222');
+  assert.equal(shareDailyCapacityPriceWei(sale / 100n, daily), capacity);
+  assert.notEqual(capacity, minerDailyCapacityPriceWei(sale * 101n / 100n, daily),
+    'buyer fees do not increase the proposal capacity price');
+  assert.notEqual(capacity, minerDailyCapacityPriceWei(sale * 99n / 100n, daily),
+    'holder settlement fees do not reduce the proposal capacity price');
+});
+
+test('fractional wei is truncated instead of overstating either miner or share capacity price', () => {
+  assert.equal(minerDailyCapacityPriceWei(1n, 3n), 33_333_333n);
+  assert.equal(shareDailyCapacityPriceWei(1n, 3n), 3_333_333_333n);
+  assert.equal(minerDailyCapacityPriceWei(3n, 3n), 100_000_000n);
+  assert.equal(shareDailyCapacityPriceWei(3n, 3n), 10_000_000_000n);
 });
 
 test('TapeOut 12962 uses its 0.1 BNB ask / 0.00432 BEM, not the class reference or funding reserve', async () => {
@@ -127,7 +147,7 @@ test('no own ask does not substitute a class average, funding target or price ca
     params: { priceCap: 101000000000000000n } }, quote), null);
   assert.equal(poolDailyCapacityPriceWei({ status: 'Active', purchaseCost: 0n }, quote), null);
   assert.equal(poolDailyCapacityPriceWei({ kind: 'portfolio', status: 'Active', purchaseCost: 1n }, quote), null);
-  assert.equal(minerDailyCapacityPriceWei(100000000000000000n, 432000n), 23148148148148148149n);
+  assert.equal(minerDailyCapacityPriceWei(100000000000000000n, 432000n), 23148148148148148148n);
 });
 
 test('uses the actual replacement NFT and its source block, with no sell order required', async () => {
@@ -143,7 +163,7 @@ test('uses the actual replacement NFT and its source block, with no sell order r
   assert.equal(result.observedAt, sourceAt);
   assert.equal(result.validUntil, sourceAt + 300_000);
   assert.equal(result.miningSourceBlock, 9n);
-  assert.equal(result.priceWeiPerDailyBem, (sharePrice * 100n * 100_000_000n + 95_000_000n - 1n) / 95_000_000n);
+  assert.equal(result.priceWeiPerDailyBem, sharePrice * 100n * 100_000_000n / 95_000_000n);
   assert.equal(result.basis, 'gross_estimated_output');
   assert(provider.calls.every(call => ['eth_call', 'eth_chainId', 'eth_getBlockByNumber'].includes(call.method)));
 });

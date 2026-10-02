@@ -1,7 +1,7 @@
 import { createServer, request as httpRequest } from 'node:http';
 import { existsSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { join, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   FULL_TEST_ORIGIN, FULL_TEST_STATE, FULL_TEST_COOKIE, FULL_TEST_COOKIE_PATH, FULL_TEST_DEPLOYERS,
@@ -48,7 +48,8 @@ export async function loadFullTestRuntime() {
 /** Isolated public API. All trust enters through its private journal and the bound test build. */
 export async function createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,
   stateRoot=FULL_TEST_STATE,origin=FULL_TEST_ORIGIN,gasWalletProofReader,freshProductReadinessReader,
-  authorityRelayFactory,assertInputsCurrent=()=>{},allowTemporaryState=false,manageIndex=false,now=Date.now}={}) {
+  authorityRelayFactory,assertInputsCurrent=()=>{},allowTemporaryState=false,manageIndex=false,now=Date.now,
+  salePolicyCatalogPath,salePolicyArtifactPath}={}) {
   if(!runtime || !provider || typeof rpcUrl!=='string' || !/^https:\/\//.test(rpcUrl))
     throw new Error('Full-test requires its isolated runtime and HTTPS read provider.');
   if(origin!==FULL_TEST_ORIGIN && !(allowTemporaryState && /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)))
@@ -102,10 +103,14 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     // Retain the last live result while the next display refresh runs. Actual
     // privileged submissions still invoke the journal's fresh readiness gate.
     const operationalReady=readiness.ready && age>=0 && age<READINESS_DISPLAY_TTL_MS;
+    const cachedGraph=productJournal?.currentProductGraphSnapshot?.();
+    const salePolicyUpgrade=cachedGraph?.salePolicyUpgrade && same(cachedGraph.artifactDigest,artifactDigest)
+      && same(cachedGraph.factory,active?.manifest.factory) ? cachedGraph.salePolicyUpgrade : active?.salePolicyUpgrade;
     return {schemaVersion:1,profile:'full-test',productFamily:'fresh-v4',testProfile:true,chainId:56,
       artifactDigest,sourceHead:trustedProfile.sourceHead,roles:trustedProfile.roles,timings:trustedProfile.timings,
       status:active?'ready':'unconfigured',stage:active?'fresh-active':'unconfigured',operationalReady,
-      ...(active?{manifest:active.manifest,creator:active.record.account,activatedAt:active.activatedAt}:{}),
+      ...(active?{manifest:active.manifest,creator:active.record.account,activatedAt:active.activatedAt,
+        ...(salePolicyUpgrade?{salePolicyUpgrade}:{})}:{}),
       dataServicesReady:operationalReady,automationReady:operationalReady,
       operationalReadinessCheckedAt:readiness.checkedAt};
   };
@@ -115,15 +120,19 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     await runtime.verifyCompletedDeployment(provider,record,{trustedArtifactBundle:bundle});
     const evidence=activationEvidence(activation);
     const trusted=runtime.productGraphConfiguration({record,bundle,productActivation:evidence,
-      expectedGasWallet:trustedProfile.roles.gasWallet});
+      expectedGasWallet:trustedProfile.roles.gasWallet,salePolicyCatalogPath,salePolicyArtifactPath});
     const block=await provider.getBlock('latest');
     if(!Number.isSafeInteger(block?.number) || !HASH.test(block.hash))fail(503,'Canonical test graph block is unavailable.');
     const graph=await runtime.verifyProductGraph(provider,record.addresses.factory,trusted,block);
     if(!same((await provider.getBlock(block.number))?.hash,block.hash))fail(409,'Chain changed during test activation.');
-    const manifest=manifestFromVerifiedGraph(record,evidence,graph);
+    const manifestGraph=graph.salePolicyUpgrade ? {...graph,
+      addresses:{...graph.addresses,BudgetPortfolioVault:record.addresses.BudgetPortfolioVault},
+      codehash:{...graph.codehash,BudgetPortfolioVault:record.verification.code.BudgetPortfolioVault.codehash}} : graph;
+    const manifest=manifestFromVerifiedGraph(record,evidence,manifestGraph);
     const indexManifest=runtime.createFreshIndexManifest(manifest);
     return {schemaVersion:1,profile:'full-test',profileDigest:binding,artifactDigest,
       record:structuredClone(record),activationRecord:structuredClone(activation),evidence,manifest,indexManifest,
+      ...(graph.salePolicyUpgrade?{salePolicyUpgrade:graph.salePolicyUpgrade}:{}),
       activatedAt:new Date(now()).toISOString()};
   }
   async function activateServices(candidate) {
@@ -148,6 +157,7 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
         assertSigningInputsCurrent:assertInputsCurrent,allowedProductFactories:[m.factory,m.portfolioFactory],
         productDeploymentRecord:candidate.record,productArtifactBundle:bundle,genesisBundle:bundle,
         freshActivationEvidencePath:graphPaths.activation,expectedGasWallet:trustedProfile.roles.gasWallet,
+        salePolicyCatalogPath,salePolicyArtifactPath,
         freshProduct:freshProductReadinessReader?freshProduct:null,freshProductReadinessReader,
         freshConsolePreGenesis:false,freshStage2Hold:true});
       if(authorityRelayFactory)nextRelay=await authorityRelayFactory(nextJournal);
@@ -279,7 +289,12 @@ export async function startFullTestServer({env=process.env,runtime:providedRunti
   // The installed runtime validates an exact full-test socket and an HMAC
   // credential. A missing private test process leaves Stage 2 unverified.
   const ipc=runtime.authorityIpcConfiguration(env);
+  const salePolicyCatalogPath=env.BEMINE_SALE_POLICY_CATALOG_PATH,salePolicyArtifactPath=env.BEMINE_SALE_POLICY_ARTIFACT_PATH;
+  if(Boolean(salePolicyCatalogPath)!==Boolean(salePolicyArtifactPath)
+    || salePolicyCatalogPath && (!isAbsolute(salePolicyCatalogPath)||!isAbsolute(salePolicyArtifactPath)))
+    throw new Error('Full-test sale policy requires both absolute reviewed local paths.');
   const service=await createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,assertInputsCurrent,
+    salePolicyCatalogPath,salePolicyArtifactPath,
     gasWalletProofReader:ipc?runtime.createGasSignerProofReader(ipc):undefined,
     freshProductReadinessReader:ipc?runtime.createFreshProductReadinessReader(ipc):undefined,
     authorityRelayFactory:ipc && env.AUTHORITY_RELAY_PUBLIC_ENABLED==='1'

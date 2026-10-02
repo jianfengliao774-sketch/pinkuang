@@ -1,4 +1,13 @@
 import { Interface, ZeroHash, toQuantity } from 'ethers';
+import { DEFAULT_SALE_REVIEW_THRESHOLD_BPS, SALE_REVIEW_THRESHOLD_VIEW,
+  normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps, readSaleReviewThresholdBps, requiresSaleReview } from '../../deploy/shared/sale-review-policy.mjs';
+export { DEFAULT_SALE_REVIEW_THRESHOLD_BPS, normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps, requiresSaleReview };
+
+const thresholdView = new Interface([SALE_REVIEW_THRESHOLD_VIEW]);
+/** One optional business read, included in the caller's existing snapshot cache. */
+export function readSaleReviewThreshold(read, project) {
+  return readSaleReviewThresholdBps(async () => (await read(project, thresholdView, 'saleReviewThresholdBps', []))[0]);
+}
 
 // These views live on the upgradeable ShareMarket. The immutable genesis Lens
 // cannot know about them or the Vault's current execution rules.
@@ -33,13 +42,15 @@ export async function readSaleReview(request, market, pool, proposalId, blockNum
 }
 
 /** A vote can pass while the listing is still blocked by a missing reference or review. */
-export function saleExecutionGate({ proposal, passed, state, timestamp, reference, review }) {
+export function saleExecutionGate({ proposal, passed, state, timestamp, reference, review,
+  saleReviewThresholdBps = DEFAULT_SALE_REVIEW_THRESHOLD_BPS }) {
+  saleReviewThresholdBps = normalizeSaleReviewThresholdBps(saleReviewThresholdBps);
   const open = state === 2n && !proposal.executed && timestamp < proposal.endsAt && passed === true;
   if (!reference?.available) return Object.freeze({ discounted: null, reviewRequired: null,
-    reviewApproved: false, canExecute: false });
+    reviewApproved: false, canExecute: false, saleReviewThresholdBps });
   const discounted = proposal.price < reference.priceWei;
-  const reviewRequired = discounted;
-  const reviewApproved = !discounted || review?.status === 1n && review.priceWei === proposal.price;
-  return Object.freeze({ discounted, reviewRequired, reviewApproved,
+  const reviewRequired = requiresSaleReview(proposal.price, reference.priceWei, saleReviewThresholdBps);
+  const reviewApproved = !reviewRequired || review?.status === 1n && review.priceWei === proposal.price;
+  return Object.freeze({ discounted, reviewRequired, reviewApproved, saleReviewThresholdBps,
     canExecute: open && reviewApproved });
 }

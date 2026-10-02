@@ -8,7 +8,7 @@ test('complete fixed-block pagination includes more than 100 children and sums e
   const q=await readPortfolioDailyCapacity(f.config,f.provider,{...f.input,onProgress:p=>progress.push(p.inspected)});
   assert.equal(q.available,true);assert.equal(q.inspectedChildren,101n);assert.equal(q.retainedChildren,101n);
   assert.equal(q.estimated24hAtomic,101n*100000001n);assert.deepEqual(progress,[100n,101n]);assert.equal(f.quotes.length,101);
-  assert.equal(q.priceWeiPerDailyBem,(q.pricePerUnitWei*100n*100000000n+q.estimated24hAtomic-1n)/q.estimated24hAtomic);
+  assert.equal(q.priceWeiPerDailyBem,q.pricePerUnitWei*100n*100000000n/q.estimated24hAtomic);
   assert(f.requests.every(c=>!/(send|sign)/i.test(c.method)));
 });
 test('sold and completed-but-not-settled children contribute no capacity and are not fetched',async()=>{

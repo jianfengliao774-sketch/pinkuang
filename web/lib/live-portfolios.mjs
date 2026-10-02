@@ -7,7 +7,8 @@ import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.m
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
-import { saleReferenceState } from './sale-governance-gate.mjs';
+import { saleReferenceState, DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold,
+  normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps, requiresSaleReview } from './sale-governance-gate.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
 import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
 
@@ -63,15 +64,16 @@ function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, s
   if (stage === 'genesis') return { passed, discounted: candidate.threshold === 60n,
     reviewRequired: false, reviewApproved: null, canExecute: open && passed, executionBlockReason: null };
   const { saleReference: reference, saleReview: review } = candidate;
+  const saleReviewThresholdBps = normalizeSaleReviewThresholdBps(candidate.saleReviewThresholdBps);
   const discounted = reference?.available ? candidate.price < reference.priceWei : null;
-  const reviewRequired = discounted;
-  const reviewApproved = discounted === true && review?.status === 1n;
+  const reviewRequired = reference?.available ? requiresSaleReview(candidate.price, reference.priceWei, saleReviewThresholdBps) : null;
+  const reviewApproved = review?.available === true && review.status === 1n;
   let executionBlockReason = null;
   if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
-  else if (discounted && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
-  else if (discounted && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
-  else if (discounted && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价，尚待平台审核通过。';
-  return { passed, discounted, reviewRequired, reviewApproved,
+  else if (reviewRequired && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (reviewRequired && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
+  else if (reviewRequired && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价的审核门槛，尚待平台审核通过。';
+  return { passed, discounted, reviewRequired, reviewApproved, saleReviewThresholdBps,
     canExecute: open && passed && executionBlockReason === null, executionBlockReason };
 }
 // Leave capacity for other page sections on the 24-active-request read proxy.
@@ -321,8 +323,10 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
     'refundPerShareWei', 'salePerShareWei', 'activeProposalId', 'nextProposalId', 'shareTradingAllowed', 'nextRoundAt'];
   const memberNames = ['balanceOf', 'claimableBem', 'bnbOwed', 'refundSettled', 'saleDebt', 'lockedShares'];
   const values = await Promise.all([...names.map(name => read(target, contract, name)),
-    ...memberNames.map(name => read(target, contract, name, [owner]))]);
+    ...memberNames.map(name => read(target, contract, name, [owner])),
+    context.stage === 'genesis' ? DEFAULT_SALE_REVIEW_THRESHOLD_BPS : readSaleReviewThreshold(read, target)]);
   const row = Object.fromEntries([...names, ...memberNames].map((key, i) => [key, values[i][0]]));
+  row.saleReviewThresholdBps = values[names.length + memberNames.length];
   if (context.displayOnly) Object.assign(row, { displayOnly: true, displaySource: context.source });
   requireValue(same(row.OFFICIAL_FACTORY, manifest.portfolioFactory) && same(row.legacyFactory, manifest.factory)
     && row.state <= 5n && row.totalSupply <= 100n && row.balanceOf <= 100n && row.budgetWei > 0n
@@ -331,6 +335,12 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
     unitPriceWei: row.budgetWei / 100n, availableShares: row.balanceOf - row.lockedShares, timestamp,
     blockNumber: context.block.number === null ? null : BigInt(context.block.number), blockHash: context.block.hash, children: [], proposal: null, proposals: [] });
   row.withdrawableBnb = portfolioBnbEntitlement(row);
+  const childThresholds = new Map();
+  const childThreshold = child => {
+    const key = child.toLowerCase();
+    if (!childThresholds.has(key)) childThresholds.set(key, readSaleReviewThreshold(read, child));
+    return childThresholds.get(key);
+  };
   if (row.activeProposalId > 0n) {
     requireValue(row.nextProposalId > row.activeProposalId && row.nextProposalId - row.activeProposalId <= 16n,
       '预算项目出售候选数量超出可核验范围。');
@@ -341,12 +351,15 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
           const cost = context.stage === 'genesis'
             ? (await read(target, contract, 'childInfo', [p.child]))[2] : null;
           requireValue(cost === null || cost > 0n, '创世子矿机购机成本未通过链上核验。');
-          let saleReference = null, saleReview = null;
+          let saleReference = null, saleReview = null, saleReviewThresholdBps = row.saleReviewThresholdBps;
           if (context.stage !== 'genesis') {
-            const [referenceResult, reviewResult] = await Promise.allSettled([
+            const [referenceResult, reviewResult, childThresholdResult] = await Promise.allSettled([
               read(manifest.shareMarket, abi.ShareMarket, 'saleReference', [p.child]),
               read(target, contract, 'childSaleReview', [id]),
+              childThreshold(p.child),
             ]);
+            saleReviewThresholdBps = effectiveSaleReviewThresholdBps(row.saleReviewThresholdBps,
+              childThresholdResult.status === 'fulfilled' ? childThresholdResult.value : DEFAULT_SALE_REVIEW_THRESHOLD_BPS);
             saleReference = referenceResult.status === 'fulfilled'
               ? saleReferenceState(referenceResult.value, timestamp)
               : Object.freeze({ available: false, reason: 'Firsto 市场参考价暂不可读取。' });
@@ -358,7 +371,8 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
           return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
             referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
             yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0],
-            threshold: cost !== null && p.price < cost ? 60n : 51n, saleReference, saleReview };
+            threshold: cost !== null && p.price < cost ? 60n : 51n, saleReference, saleReview,
+            saleReviewThresholdBps };
         });
     }));
     row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt)

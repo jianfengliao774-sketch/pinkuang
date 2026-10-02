@@ -41,6 +41,7 @@ const saleViews = new Interface([
   'function saleReference(address pool) view returns(uint128 marketPriceWei,uint64 observedAt,bytes32 sourceDigest)',
   'function saleReview(address pool,uint256 proposalId) view returns(uint8 status,uint128 priceWei)',
 ]);
+const thresholdView = new Interface(['function saleReviewThresholdBps() view returns(uint16)']);
 const referenceDigest = `0x${'ee'.repeat(32)}`;
 function row(changes = {}) { return { pool, status: { validMask: (1n << 17n) - 1n, errorMask: 0n, trustError: 0n }, params,
   state: 2n, unitPriceWei: params.targetRaise / 100n, totalRaised: params.targetRaise, totalSupply: 100n,
@@ -68,6 +69,10 @@ function provider(options = {}) {
     if (method === 'eth_getCode') return options.badCode ? '0x6001' : code;
     assert.equal(method, 'eth_call'); assert.equal(args[1], options.directLatest ? 'latest' : toQuantity(options.blockNumber ?? 10n));
     const { to, data } = args[0];
+    if (data === thresholdView.encodeFunctionData('saleReviewThresholdBps')) {
+      if (options.saleReviewThresholdBps === undefined) throw Error('old implementation');
+      return thresholdView.encodeFunctionResult('saleReviewThresholdBps', [options.saleReviewThresholdBps]);
+    }
     let iface = to === factory ? abi.PoolFactory : to === lens ? abi.PoolLens : to === shareMarket ? abi.ShareMarket
       : to === portfolioFactory ? abi.BudgetPortfolioFactory : (options.portfolios ?? []).includes(to) ? abi.BudgetPortfolioVault
         : to === pool ? abi.PoolVault : bindings;
@@ -1001,15 +1006,16 @@ test('fresh direct governance reads active proposals and exact review via latest
   assert.equal(result.data.canExecute, true);
   assert.equal(result.data.saleReference.observedAt, BigInt(timestamp + 50),
     'Latest business rules use the current clock rather than the older indexed block timestamp');
-  assert.equal(rpc.calls.length, 4);
+  assert.equal(rpc.calls.length, 5);
   const names = rpc.calls.map(input => {
     assert.equal(input.method, 'eth_call', 'No chain identity, code, storage or canonical block proofs');
     assert.equal(input.params[1], 'latest');
-    const iface = input.params[0].to === lens ? abi.PoolLens
+    const iface = input.params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps') ? thresholdView
+      : input.params[0].to === lens ? abi.PoolLens
       : input.params[0].to === pool ? abi.PoolVault : saleViews;
     return iface.parseTransaction(input.params[0]).name;
   });
-  assert.deepEqual(names, ['governance', 'proposalPassed', 'saleReference', 'saleReview']);
+  assert.deepEqual(names, ['governance', 'proposalPassed', 'saleReviewThresholdBps', 'saleReference', 'saleReview']);
 });
 
 test('fresh direct governance preserves missing Lens fields and required business review gates', async () => {
