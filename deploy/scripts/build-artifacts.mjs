@@ -138,7 +138,11 @@ export function validateArtifacts(artifacts) {
       }
     }
   }
-  for (const name of libraryNames) assert.deepEqual(dependencies(artifacts[name]), name === 'FlexiblePurchase' ? ['PoolFunds', 'PurchaseValidation'] : name === 'FirstoSale' ? ['SaleSettlement'] : [], `${name} has an unexpected external-library dependency.`);
+  const nativeSale=artifacts.PoolVault.abi.some(entry=>entry.type==='function' && entry.name==='nativeFirstoSaleVersion');
+  assert.equal(artifacts.FirstoSale.abi.some(entry=>entry.type==='function' && entry.name==='nativeAskEncoded'),nativeSale,
+    'Native Vault and FirstoSale library capabilities disagree.');
+  for (const name of libraryNames) assert.deepEqual(dependencies(artifacts[name]), name === 'FlexiblePurchase' ? ['PoolFunds', 'PurchaseValidation'] : name === 'FirstoSale'
+    ? nativeSale ? ['MiningOperations','PoolFunds','RewardAccounting','SaleGovernance','SaleSettlement'] : ['SaleSettlement'] : [], `${name} has an unexpected external-library dependency.`);
   assert.deepEqual(dependencies(artifacts.PoolVault), libraryNames.filter(name => name !== 'PurchaseValidation').sort(), 'PoolVault direct links differ from the reviewed dependency graph.');
   linkedDeploymentOrder(artifacts);
 }
