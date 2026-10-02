@@ -150,7 +150,7 @@ function harness(state=fixture()) {
   render();
   return {state,settle,render,button,click,nodes:()=>nodes(tree),
     async connect(){await settle();await click('连接部署钱包');},
-    async run(){await click(button('开始启用')?'开始启用':'继续启用');},
+    async run(){await click(button('开始启用')?'开始启用':button('同步升级状态')?'同步升级状态':'继续启用');},
     error(){return nodes(tree).find(node=>node.props?.role==='alert')?.props.children||'';},
     notices(){return nodes(tree).filter(node=>node.props?.role==='status').map(node=>node.props.children);},
     dispose(){for(const slot of slots)slot?.cleanup?.();globalThis.window=oldWindow;globalThis.fetch=oldFetch;}};
@@ -275,8 +275,17 @@ test('an already completed wrapped batch reconciles both saved hashes before rep
   try{await ui.connect();await ui.run();assert.equal(ui.error(),'');assert.equal(state.broadcasts.length,0);
     assert.equal(state.record.steps.schedule.status,'confirmed');assert.equal(state.record.steps.execute.status,'confirmed');
     assert(ui.notices().some(message=>String(message).includes('链上启用')));
-    assert(ui.button('继续启用').props.disabled);
+    assert(ui.button('已启用').props.disabled);
   }finally{ui.dispose();}
+  const reloaded=harness(state);try{await reloaded.connect();
+    assert(reloaded.notices().some(message=>String(message).includes('6笔交易已确认')));
+    assert.equal(reloaded.notices().some(message=>String(message).includes('链上启用')),false);
+    assert(reloaded.button('同步升级状态')&&!reloaded.button('同步升级状态').props.disabled);
+    assert(reloaded.nodes().some(node=>node.type==='a'&&node.props.children==='返回测试网站'));
+    assert.equal(state.broadcasts.length,0);
+    await reloaded.run();assert.equal(reloaded.error(),'');assert.equal(state.broadcasts.length,0);
+    assert(reloaded.notices().some(message=>String(message).includes('链上启用')));
+  }finally{reloaded.dispose();}
 });
 
 for(const mode of ['wrapped-wrong-batch','wrapped-bad-inner','wrapped-bad-runtime'])

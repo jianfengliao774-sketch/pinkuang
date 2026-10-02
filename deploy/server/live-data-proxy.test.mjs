@@ -24,15 +24,185 @@ async function fixture(t, options = {}) {
 }
 
 test('configuration uses only fixed operator destinations and existing journal RPC fallback', () => {
-  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, logsRpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
+  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, logsRpcUrl: null, fallbackRpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
   assert.equal(liveDataProxyConfiguration({ DEPLOYMENT_JOURNAL_RPC_URL: 'https://bsc.example/rpc' }).rpcUrl, 'https://bsc.example/rpc');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', DEPLOYMENT_JOURNAL_RPC_URL: 'https://b.test' }).rpcUrl, 'https://a.test/');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test' }).logsRpcUrl, 'https://a.test/');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', CHAIN_INDEX_LOGS_RPC_URL: 'https://logs.test/rpc?key=fixed' }).logsRpcUrl,
     'https://logs.test/rpc?key=fixed');
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', CHAIN_INDEX_LOGS_RPC_URL: 'https://logs.test/rpc?key=fixed' }).fallbackRpcUrl,
+    'https://logs.test/rpc?key=fixed');
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', CHAIN_INDEX_LOGS_RPC_URL: 'https://a.test/' }).fallbackRpcUrl, null);
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', BEMINE_READ_FALLBACK_RPC_URL: 'https://backup.test/rpc' }).fallbackRpcUrl,
+    'https://backup.test/rpc');
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: value }));
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ CHAIN_INDEX_LOGS_RPC_URL: value }));
+  for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_FALLBACK_RPC_URL: value }));
   assert.throws(() => liveDataProxyConfiguration({ BEMINE_INDEX_URL: 'http://127.0.0.1:4180?url=http://evil.test' }));
+});
+
+const backupRpc = 'https://backup-rpc.test/key';
+const htmlGateway = () => new Response('<html>Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
+const latestCall = () => rpc('eth_call', [{ to: address, data: '0xab' }, 'latest']);
+const requestsAt = (f, destination) => f.calls.filter(call => call.url === destination).map(call => JSON.parse(call.init.body));
+
+test('healthy latest reads do not contact the configured transport fallback or cache latest answers', async t => {
+  const f = await fixture(t, { logsRpcUrl: backupRpc, upstream: (url, init) => {
+    assert.notEqual(url, backupRpc);
+    const request = JSON.parse(init.body);
+    return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0x38' : '0x6000' });
+  } });
+  for (let i = 0; i < 2; i++) {
+    const response = await f.post(latestCall());
+    assert.deepEqual((await response.json()).result, '0x6000');
+    assert.equal(response.headers.get('x-bemine-server-cache'), null);
+  }
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_call', 'eth_call']);
+});
+
+test('HTML gateway failures use one backup request and share a BSC proof bounded to five seconds', async t => {
+  let clock = 100000;
+  const f = await fixture(t, { now: () => clock, logsRpcUrl: backupRpc, upstream: async (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    }
+    return url === backupRpc ? json({ jsonrpc: '2.0', id: request.id, result: '0x1234' }) : htmlGateway();
+  } });
+  const replies = await Promise.all([f.post(latestCall()), f.post(latestCall()), f.post(latestCall())]);
+  for (const reply of replies) { assert.equal(reply.status, 200); assert.equal((await reply.json()).result, '0x1234'); }
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_chainId').length, 1);
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_call').length, 3);
+  clock += 4999;
+  assert.equal((await f.post(latestCall())).status, 200);
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_chainId').length, 1);
+  clock++;
+  assert.equal((await f.post(latestCall())).status, 200);
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_chainId').length, 2);
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_call').length, 5);
+});
+
+test('HTTP quota and gateway failures without an RPC answer use the same bounded fallback', async t => {
+  for (const status of [429, 503]) {
+    const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      return json(request.method === 'eth_chainId' ? { jsonrpc: '2.0', id: request.id, result: '0x38' }
+        : url === backupRpc ? { jsonrpc: '2.0', id: request.id, result: '0x6000' } : { message: 'Gateway unavailable' },
+      url !== backupRpc && request.method !== 'eth_chainId' ? status : 200);
+    } });
+    assert.equal((await f.post(latestCall())).status, 200);
+    assert.deepEqual(requestsAt(f, backupRpc).map(request => request.method), ['eth_chainId', 'eth_call']);
+  }
+});
+
+test('contract errors and invalid RPC envelopes never switch nodes even with HTTP 500', async t => {
+  for (const fault of ['revert', 'http_revert', 'wrong_id', 'http_wrong_id', 'invalid_object']) {
+    const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      return json(fault.includes('revert') ? { jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'execution reverted' } }
+        : fault === 'invalid_object' ? { answer: '0x6000' } : { jsonrpc: '2.0', id: request.id + 1, result: '0x6000' },
+      fault.startsWith('http_') ? 500 : 200);
+    } });
+    const response = await f.post(latestCall());
+    assert.equal(response.status, fault === 'revert' ? 200 : 502);
+    if (fault === 'revert') assert.equal((await response.json()).error.message, 'Upstream rejected the read request.');
+    assert.equal(requestsAt(f, backupRpc).length, 0, fault);
+  }
+});
+
+test('wrong-chain answers fail closed on either node and never permit a backup business request', async t => {
+  for (const wrongNode of ['primary', 'backup']) {
+    const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method !== 'eth_chainId') return htmlGateway();
+      return json({ jsonrpc: '2.0', id: request.id, result: (url === backupRpc) === (wrongNode === 'backup') ? '0x1' : '0x38' });
+    } });
+    assert.equal((await f.post(latestCall())).status, 502);
+    assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_call').length, 0);
+    assert.equal(requestsAt(f, backupRpc).length, wrongNode === 'primary' ? 0 : 1);
+  }
+});
+
+test('a failed backup ends the request without cycling back or retrying either data request', async t => {
+  const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (_url, init) => {
+    const request = JSON.parse(init.body);
+    return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : htmlGateway();
+  } });
+  assert.equal((await f.post(latestCall())).status, 502);
+  assert.deepEqual(f.calls.map(call => [call.url, JSON.parse(call.init.body).method]), [
+    ['https://operator-rpc.test/key', 'eth_chainId'], ['https://operator-rpc.test/key', 'eth_call'],
+    [backupRpc, 'eth_chainId'], [backupRpc, 'eth_call']]);
+});
+
+test('normalized identical RPC destinations disable transport fallback', async t => {
+  const f = await fixture(t, { rpcUrl: 'https://same-rpc.test', fallbackRpcUrl: 'https://same-rpc.test/', upstream: (_url, init) => {
+    const request = JSON.parse(init.body);
+    return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : htmlGateway();
+  } });
+  assert.equal((await f.post(latestCall())).status, 502);
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_call']);
+});
+
+test('pinned reads, safe/finalized reads and canonical headers retain the primary path on transport errors', async t => {
+  const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (_url, init) => {
+    const request = JSON.parse(init.body);
+    return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : htmlGateway();
+  } });
+  for (const request of [rpc('eth_call', [{ to: address, data: '0xab' }, '0xa']),
+    rpc('eth_getCode', [address, '0xa']), rpc('eth_getStorageAt', [address, '0x0', '0xa']),
+    rpc('eth_call', [{ to: address, data: '0xab' }, 'safe']), rpc('eth_getCode', [address, 'finalized']),
+    rpc('eth_getBlockByNumber', ['0xa', false]), rpc('eth_getBlockByNumber', ['latest', false]), rpc('eth_blockNumber')])
+    assert.equal((await f.post(request)).status, 502);
+  assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('receipt and transaction lookups can recover once without caching pending or confirmed results', async t => {
+  const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+    const request = JSON.parse(init.body);
+    return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' })
+      : url === backupRpc ? json({ jsonrpc: '2.0', id: request.id, result: { hash: transactionHash, status: '0x1' } }) : htmlGateway();
+  } });
+  for (const method of ['eth_getTransactionReceipt', 'eth_getTransactionByHash']) for (let i = 0; i < 2; i++) {
+    const response = await f.post(rpc(method, [transactionHash]));
+    assert.equal(response.status, 200); assert.equal((await response.json()).result.hash, transactionHash);
+    assert.equal(response.headers.get('x-bemine-server-cache'), null);
+  }
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method !== 'eth_chainId').length, 4);
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_chainId').length, 1);
+});
+
+test('temporary primary identity transport failures only route eligible reads to a proven backup', async t => {
+  let clock = 100000, recovered = false;
+  const f = await fixture(t, { now: () => clock, fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+    const request = JSON.parse(init.body);
+    if (url !== backupRpc && request.method === 'eth_chainId' && !recovered) return htmlGateway();
+    return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0x38' : '0x6000' });
+  } });
+  assert.equal((await f.post(latestCall())).status, 200);
+  assert.equal((await f.post(latestCall())).status, 200);
+  assert.equal((await f.post(rpc())).status, 200);
+  assert.equal(requestsAt(f, 'https://operator-rpc.test/key').length, 1, 'only the bounded identity outage is remembered');
+  assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 502, 'backup identity does not certify the primary or pinned reads');
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_getCode').length, 0);
+  clock += 5000; recovered = true;
+  assert.equal((await f.post(latestCall())).status, 200);
+  assert.equal(requestsAt(f, 'https://operator-rpc.test/key').at(-1).method, 'eth_call');
+  assert.equal(requestsAt(f, backupRpc).filter(request => request.method === 'eth_call').length, 2);
+});
+
+test('redirects and oversized replies are rejected without weakening bounds through fallback', async t => {
+  for (const fault of ['redirect', 'oversized']) {
+    const f = await fixture(t, { fallbackRpcUrl: backupRpc, maxResponseBytes: 256, upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      return fault === 'redirect' ? new Response(null, { status: 302, headers: { location: 'https://attacker.test' } })
+        : json({ jsonrpc: '2.0', id: request.id, result: 'x'.repeat(300) });
+    } });
+    assert.equal((await f.post(latestCall())).status, 502);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+  }
 });
 
 test('public sale reference status proxies only one valid pool without caller query options', async t => {

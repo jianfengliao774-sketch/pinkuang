@@ -2139,7 +2139,11 @@ export default function LivePlatform() {
       && quote.collection?.toLowerCase() === p.params?.circuits?.toLowerCase()
       && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
   };
-  const currentPoolCapacityPrice = p => poolDailyCapacityPriceWei(p, currentPoolQuote(p));
+  const currentPoolCapacityPrice = p => {
+    const salePrice = p?.status === 'Listed' && same(governanceProof?.pool, p.pool)
+      && same(governanceProof?.account, account || ZeroAddress) ? governance?.salePrice : null;
+    return poolDailyCapacityPriceWei(salePrice != null ? { ...p, salePrice } : p, currentPoolQuote(p));
+  };
   const poolQuotePlaceholder = p => !["pools", "detail"].includes(route.route) ? "—" : poolCapacity[p.pool.toLowerCase()]?.loading
     ? L("读取中…", "Loading…")
     : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
@@ -2489,6 +2493,25 @@ export default function LivePlatform() {
       selectedPool={detail?.pool} poolParams={detail?.params} capacityQuote={currentPoolQuote(detail)} config={config} account={account} wallet={wallet} refreshToken={refresh}
       readProvider={client?.provider} disabled={busy || !!pending}
       onConnect={connect} onError={problem => setError(textError(problem))}
+      onSnapshot={snapshot => {
+        // Reuse the child reader's successful display result for the price card.
+        // It is display data, never a replacement for transaction preparation.
+        if (!client || config?.displayOnly !== true || snapshot?.displayOnly !== true
+          || route.route !== 'detail' || !same(snapshot.pool, route.pool)
+          || !same(snapshot.account, account || ZeroAddress)
+          || !same(snapshot.factory, config.factory)
+          || !same(snapshot.shareMarket, config.shareMarket)
+          || snapshot.stage !== config.stage
+          || (snapshot.testProfile === true) !== (config.testProfile === true)) return;
+        setGovernance(snapshot);
+        setGovernanceProof({ pool: snapshot.pool, account: snapshot.account, source: null, displayOnly: true });
+        setDetail(previous => same(previous?.pool, snapshot.pool) && previous.shares !== snapshot.shares
+          ? { ...previous, shares: snapshot.shares } : previous);
+        let cache = readCache.current.get(client);
+        if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
+        cache.set(`pool-governance:${snapshot.pool.toLowerCase()}:${snapshot.account.toLowerCase()}`,
+          { savedAt: Date.now(), refresh, result: { data: snapshot, source: null, displayOnly: true } });
+      }}
       onAction={sendGovernanceAction} /></section>;
   }
 
@@ -3133,8 +3156,9 @@ export default function LivePlatform() {
                             || !config?.displayOnly && (governanceProof?.source?.readMode !== 'current' || governanceProof?.source?.stale === true)}
                           onClick={() => openAction("completeFirstoSale", detail)}
                         >
-                          {L("预览 Firsto 整机成交", "Preview Firsto purchase")}
+                          {L("在本站购买整机", "Buy miner here")}
                         </Button>
+                        <small>{L("通过 Firsto 合约成交；Firsto 网站暂不展示此卖单。", "Settles through the Firsto contract; this listing is not shown on the Firsto website.")}</small>
                       </>
                     ) : (
                       <div className="ownership">

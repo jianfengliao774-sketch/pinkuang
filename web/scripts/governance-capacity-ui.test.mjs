@@ -13,8 +13,9 @@ const code = (await transform(await readFile(new URL('../components/LiveGovernan
 })).code;
 const turn = () => new Promise(resolve => setImmediate(resolve));
 
-function harness({prepareWait,snapshotOverride={}}={}) {
-  const slots = [], effects = [], snapshotReads=[]; let position = 0, tree, preparedAction, sends=0;
+function harness({prepareWait,actionWait,snapshotOverride={}}={}) {
+  const slots = [], effects = [], snapshotReads=[], acceptedSnapshots=[]; let position = 0, tree, preparedAction, sends=0;
+  let nextReadFails = false, nextActionProblem;
   const ReferenceAction=()=>null;
   const hooks = {
     useState(initial) { const at = position++; if (!slots[at]) slots[at] = { value: typeof initial === 'function' ? initial() : initial };
@@ -35,7 +36,8 @@ function harness({prepareWait,snapshotOverride={}}={}) {
     '../app/live-governance.css': {},
     './FirstoSaleReferenceAction': {__esModule:true,default:ReferenceAction},
     '../lib/live-governance.mjs': {
-      readGovernanceSnapshot:async (_provider,options) => {snapshotReads.push(options);return snapshot;},
+      readGovernanceSnapshot:async (_provider,options) => {snapshotReads.push(options);
+        if(nextReadFails){nextReadFails=false;throw new Error('HTTP 502');}return snapshot;},
       proposalReferenceRecord:() => ({refPriceWei:snapshot.purchaseCost.toString(),refAt:snapshot.activatedAt.toString()}),
       prepareGovernanceAction:async (_provider,{action}) => { preparedAction=action;
         if(prepareWait)await prepareWait;
@@ -49,7 +51,9 @@ function harness({prepareWait,snapshotOverride={}}={}) {
     readProvider:{request:()=>assert.fail('Cached fixture handles this read')},
     poolParams:{circuits:'0x'+'dd'.repeat(20),circuitId:16736n},
     onReferenceAction:async()=>assert.fail('The shared component is mocked; no reference signature or transaction is requested'),
-    onAction:async()=>{sends++;},
+    onAction:async()=>{sends++;if(actionWait)await actionWait;
+      if(nextActionProblem){const problem=nextActionProblem;nextActionProblem=undefined;throw problem;}},
+    onSnapshot:next=>acceptedSnapshots.push(next),
     capacityQuote:{available:true,pool,estimated24hAtomic:432000n,observedAt:Date.now()-1000,validUntil:Date.now()+120000}};
   const render=()=>{position=0;tree=Component(props);while(effects.length)effects.shift()();};
   const settle=async()=>{for(let i=0;i<4;i++){await turn();render();}};
@@ -63,9 +67,10 @@ function harness({prepareWait,snapshotOverride={}}={}) {
     &&node.props.children[0]==='预览提案');assert(button&&!button.props.disabled);button.props.onClick();await settle();return preparedAction;};
   render();
   return {settle,edit,preview,input,render,updateCapacity(quote){props={...props,capacityQuote:quote};render();},
+    allNodes(){return nodes(tree);},failNextRead(){nextReadFails=true;},failNextAction(problem){nextActionProblem=problem;},
     hasPreview(){return nodes(tree).some(node=>node.props?.role==='dialog');},
     reference(){return nodes(tree).find(node=>node.type===ReferenceAction);},
-    get props(){return props;},get snapshotReads(){return snapshotReads;},
+    get props(){return props;},get snapshotReads(){return snapshotReads;},get acceptedSnapshots(){return acceptedSnapshots;},
     executeButton(){return nodes(tree).find(node=>node.type==='button'&&node.props.children==='执行挂牌');},
     async submit(){const button=nodes(tree).find(node=>node.type==='button'&&node.props.children==='发送到钱包确认');
       assert(button&&!button.props.disabled);await button.props.onClick();await settle();},
@@ -157,5 +162,72 @@ test('a passed sale with missing reference passes its current identity to the sh
     assert.equal(ui.snapshotReads.length,2);assert.equal(ui.snapshotReads[1].force,true);
     assert.equal(ui.executeButton().props.disabled,true,'The refresh fixture still has no on-chain reference.');
     assert.equal(ui.sends,0);
+  }finally{ui.dispose();}
+});
+
+test('confirmation is modal and cannot close or send twice while its exact action awaits the wallet', async () => {
+  let finish;const actionWait=new Promise(resolve=>{finish=resolve;});
+  const ui=harness({actionWait});try {
+    await ui.settle();ui.edit('sale','0.015001234567890123');await ui.preview();
+    const find=predicate=>ui.allNodes().find(predicate);
+    const dialog=()=>find(node=>node.props?.role==='dialog');
+    assert.equal(dialog().props['aria-modal'],'true');
+    assert.equal((find(node=>node.type==='footer')).props.className,'live-gov-preview-footer');
+    assert.equal(ui.sends,0,'Opening the overlay only prepares an unsigned action.');
+    const send=find(node=>node.type==='button'&&node.props.children==='发送到钱包确认');
+    send.props.onClick();ui.render();assert.equal(ui.sends,1);assert.equal(dialog().props['aria-busy'],true);
+    const close=find(node=>node.props?.['aria-label']==='关闭确认弹窗');
+    assert.equal(close.props.disabled,true);close.props.onClick();
+    const overlay=find(node=>node.props?.className==='live-gov-preview-overlay'),backdrop={};
+    overlay.props.onClick({target:backdrop,currentTarget:backdrop});send.props.onClick();ui.render();
+    assert(dialog(),'Wallet confirmation stays visible while the action is pending.');assert.equal(ui.sends,1);
+    finish();await ui.settle();assert.equal(dialog(),undefined);assert.equal(ui.sends,1);
+  }finally{finish();ui.dispose();}
+});
+
+test('a failed refresh preserves the known deployed review rule and snapshot while blocking all wallet actions', async () => {
+  const ui=harness({snapshotOverride:{saleReviewThresholdBps:8000n}});try {
+    await ui.settle();ui.edit('sale','0.01500');ui.failNextRead();
+    ui.allNodes().find(node=>node.props?.className==='live-gov-refresh').props.onClick();await ui.settle();
+    const text=node=>!node?'':typeof node==='string'?node:Array.isArray(node)?node.map(text).join(''):
+      typeof node==='object'?text(node.props?.children):'';
+    assert(ui.allNodes().some(node=>node.props?.className==='live-gov-metrics'));
+    const header=ui.allNodes().find(node=>node.props?.className==='live-section-head');
+    assert.match(text(header),/80%/);assert.doesNotMatch(text(header),/100%/);
+    assert(ui.allNodes().some(node=>node.props?.role==='alert'&&text(node).includes('HTTP 502')));
+    const propose=ui.allNodes().find(node=>node.type==='button'&&Array.isArray(node.props.children)&&node.props.children[0]==='预览提案');
+    assert.equal(propose.props.disabled,true);propose.props.onClick();await ui.settle();
+    assert.equal(ui.hasPreview(),false);assert.equal(ui.sends,0);
+    assert.equal(ui.acceptedSnapshots.length,1,'A failed read never publishes an old snapshot as a successful refresh.');
+    ui.allNodes().find(node=>node.props?.className==='live-gov-refresh').props.onClick();await ui.settle();
+    assert.equal(ui.acceptedSnapshots.length,2);await ui.preview();assert.equal(ui.hasPreview(),true,
+      'A successful current read unlocks the next exact preview.');
+  }finally{ui.dispose();}
+});
+
+test('input validation and a rejected wallet request allow a fresh exact preview without reloading the page', async () => {
+  const ui=harness();try {
+    await ui.settle();ui.edit('sale','0');await ui.preview();assert.equal(ui.hasPreview(),false);
+    assert(ui.allNodes().some(node=>node.props?.role==='alert'));
+    ui.edit('sale','0.015001234567890123');assert.equal((await ui.preview()).priceWei,'15001234567890123');
+    ui.failNextAction(Object.assign(new Error('用户取消交易'),{code:'ACTION_REJECTED'}));await ui.submit();
+    assert.equal(ui.hasPreview(),false);assert.equal(ui.sends,1);
+    assert.equal(ui.snapshotReads.length,1,'A wallet rejection does not need a snapshot refresh to retry.');
+    assert.equal((await ui.preview()).priceWei,'15001234567890123');assert.equal(ui.hasPreview(),true);
+    await ui.submit();assert.equal(ui.sends,2);
+  }finally{ui.dispose();}
+});
+
+test('only successful current business snapshots reach the parent and absent review policy stays unnumbered', async () => {
+  const ui=harness();try {
+    await ui.settle();assert.equal(ui.acceptedSnapshots.length,1);
+    assert.equal(ui.acceptedSnapshots[0].pool,ui.props.selectedPool);
+    const text=node=>!node?'':typeof node==='string'?node:Array.isArray(node)?node.map(text).join(''):
+      typeof node==='object'?text(node.props?.children):'';
+    const header=ui.allNodes().find(node=>node.props?.className==='live-section-head');
+    assert.match(text(header),/规定比例/);assert.doesNotMatch(text(header),/100%|80%/);
+    ui.edit('sale','0.01500');await ui.preview();assert.equal(ui.acceptedSnapshots.length,2);
+    assert.equal(ui.acceptedSnapshots[1],ui.acceptedSnapshots[0],'The callback receives the actual prepared snapshot object.');
+    assert.equal(ui.sends,0,'Parent display updates cannot submit a transaction.');
   }finally{ui.dispose();}
 });
