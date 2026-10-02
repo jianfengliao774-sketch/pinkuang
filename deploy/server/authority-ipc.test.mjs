@@ -32,10 +32,19 @@ test('public relay configuration rejects a Gas credential and any unreviewed IPC
     BEMINE_EXPECTED_GAS_WALLET:Wallet.createRandom().address,
     BEMINE_DEPLOYMENT_RECORD_PATH:join(root,'record.json'),
     BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH:join(root,'bundle.json'),
-    BEMINE_PRODUCT_ACTIVATION_PATH:join(root,'activation.json')};
+    BEMINE_PRODUCT_ACTIVATION_PATH:join(root,'activation.json'),
+    BEMINE_SALE_POLICY_CATALOG_PATH:join(root,'sale-policy-catalog.json'),
+    BEMINE_SALE_POLICY_ARTIFACT_PATH:join(root,'sale-policy-artifacts.json'),
+    BEMINE_NATIVE_SALE_CATALOG_PATH:join(root,'native-sale-catalog.json'),
+    BEMINE_NATIVE_SALE_ARTIFACT_PATH:join(root,'native-sale-artifacts.json')};
   try {
     writeFileSync(join(root,'authority-ipc-hmac'),randomBytes(32));
     assert.equal(authorityIpcConfiguration(env).key.length,32);
+    const configured=authorityIpcConfiguration(env);
+    assert.equal(configured.salePolicyCatalogPath,env.BEMINE_SALE_POLICY_CATALOG_PATH);
+    assert.equal(configured.salePolicyArtifactPath,env.BEMINE_SALE_POLICY_ARTIFACT_PATH);
+    assert.equal(configured.nativeSaleCatalogPath,env.BEMINE_NATIVE_SALE_CATALOG_PATH);
+    assert.equal(configured.nativeSaleArtifactPath,env.BEMINE_NATIVE_SALE_ARTIFACT_PATH);
     const attestOnly={...env,AUTHORITY_RELAY_PUBLIC_ENABLED:'0'};
     for(const name of ['BEMINE_DEPLOYMENT_RECORD_PATH','BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH',
       'BEMINE_PRODUCT_ACTIVATION_PATH']) delete attestOnly[name];
@@ -48,6 +57,19 @@ test('public relay configuration rejects a Gas credential and any unreviewed IPC
     writeFileSync(join(root,'keeper-private-key'),'secret');
     assert.throws(()=>authorityIpcConfiguration(env),/must not receive a Gas private key/);
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('public Authority proxy forwards complete policy and native evidence and rejects invalid configuration before RPC',()=>{
+  const paths={salePolicyCatalogPath:'/srv/reviewed/sale-policy-catalog.json',
+    salePolicyArtifactPath:'/srv/reviewed/sale-policy-artifacts.json',
+    nativeSaleCatalogPath:'/srv/reviewed/native-sale-catalog.json',
+    nativeSaleArtifactPath:'/srv/reviewed/native-sale-artifacts.json'};
+  let captured;
+  assert.throws(()=>createAuthorityRelayProxy({socketPath:'/run/pinkuang-v4-relay/authority.sock',
+    origin,key:randomBytes(32),...paths},{store:{close(){}},configuration(input){
+      captured=input;throw new Error('Reviewed native-sale configuration rejected.');
+    }}),/Reviewed native-sale configuration rejected/);
+  assert.deepEqual(Object.fromEntries(Object.keys(paths).map(key=>[key,captured[key]])),paths);
 });
 
 test('authority assertion binds exact method, path, body, account, time and single use',()=>{
