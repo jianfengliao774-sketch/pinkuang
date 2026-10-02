@@ -2,6 +2,7 @@ import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ether
 import { abi, uint } from './chain-client.mjs';
 import { validateManifest, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource, displayIndexSource } from './live-data.mjs';
+import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
@@ -236,8 +237,13 @@ async function serverPortfolioDisplay(config, path, query, { fetcher = globalThi
   const url = new URL(`${base.href.replace(/\/$/, '')}/v1/display/portfolios${path}`);
   for (const [key, value] of Object.entries(query)) if (value !== undefined) url.searchParams.set(key, String(value));
   let response;
-  try { response = await fetchLiveJsonWithClock(url.href, { fetcher, now, timeoutMs: 2500 }); }
+  try {
+    const read = () => fetchLiveJsonWithClock(url.href, { fetcher, now,
+      timeoutMs: DISPLAY_CACHE_TIMEOUT_MS });
+    response = await (readDisplayCache(read));
+  }
   catch (error) {
+    if (config.testProfile === true || config.displayOnly === true) throw error;
     if (isRetryableReadError(error) || error?.code === 'network_unavailable' || [404,503].includes(error?.details?.status)) return null;
     throw error;
   }
