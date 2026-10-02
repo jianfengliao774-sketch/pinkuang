@@ -26,7 +26,7 @@ These are the existing `shared/fresh-roles.mjs` values; no new private key is re
 
 ## Isolated console
 
-`https://tapeout.cc.cd/pinkuang-deploy-v5/` uses a new service, port 4217, release root and SQLite journal. It reuses the existing deployment HTTP login and the protected read-RPC configuration. A separate index destination (4224) avoids mixing old project data. No v5 index or product is activated by installing this console.
+`https://tapeout.cc.cd/pinkuang-deploy-v5/` uses a new service, port 4217, release root and SQLite journal. It uses the existing signed wallet login and designated-deployer check, with no extra HTTP password prompt. It reuses the protected read-RPC configuration. A separate index destination (4224) avoids mixing old project data. No v5 index or product is activated by installing this console. The older console's HTTP authentication is unchanged.
 
 Build and package from committed source using `deploy/scripts/package-fresh-console.mjs`. Install the adjacent unit and nginx snippet; add the snippet inside the existing tapeout HTTPS server, validate nginx, then reload. The older snippets and services stay unchanged. Rollback removes only the v5 include and stops `pinkuang-deploy-v5`.
 
