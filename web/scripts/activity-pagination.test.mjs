@@ -26,9 +26,9 @@ test('overview pages five operations after combining deposit and mint logs', () 
   assert.deepEqual(rows, original, 'Paging cannot change raw logs or export contents');
 });
 
-test('public records and rewards keep every raw log with five per page', () => {
+test('public, rewards and pool detail keep every raw log with five per page', () => {
   const rows = Array.from({ length: 4 }, (_, index) => subscription(index)).flat();
-  for (const route of ['records', 'rewards']) {
+  for (const route of ['records', 'rewards', 'detail']) {
     const first = activityPage(rows, { route, page: 0 });
     const second = activityPage(rows, { route, page: 1 });
     assert.deepEqual(first.visibleRows, rows.slice(0, 5));
@@ -60,13 +60,15 @@ test('empty or shortened history clamps to an existing page', () => {
   assert.deepEqual(activityPage(rows, { route: 'overview', page: -1 }).visibleRows, [rows[0]]);
 });
 
-test('pool detail activity remains unpaged and refresh guards can share the route predicate', () => {
+test('pool detail uses full history totals and clamps page jumps', () => {
   const rows = Array.from({ length: 4 }, (_, index) => subscription(index)).flat();
-  const detail = activityPage(rows, { route: 'detail', page: 1 });
-  assert.equal(detail.paginated, false);
-  assert.equal(detail.visibleRows, rows);
-  for (const route of ['overview', 'records', 'rewards']) assert.equal(activityPaginationEnabled(route), true);
-  for (const route of ['detail', 'home', 'market']) assert.equal(activityPaginationEnabled(route), false);
+  const detail = activityPage(rows, { route: 'detail', page: 99, totalCount: 8 });
+  assert.equal(detail.paginated, true);
+  assert.equal(detail.totalPages, 2);
+  assert.equal(detail.pageIndex, 1);
+  assert.deepEqual(detail.visibleRows, rows.slice(5));
+  for (const route of ['overview', 'records', 'rewards', 'detail']) assert.equal(activityPaginationEnabled(route), true);
+  for (const route of ['home', 'market']) assert.equal(activityPaginationEnabled(route), false);
 });
 
 test('total pages come from the full server count, with the overview count kept separate', () => {

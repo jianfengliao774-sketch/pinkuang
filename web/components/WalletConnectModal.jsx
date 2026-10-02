@@ -15,7 +15,7 @@ export function WalletIcon({ wallet, size = 36 }) {
   </span>;
 }
 
-export default function WalletConnectModal({ wallets, onSelect, onRefresh, pendingId, error, locale = 'zh', dappUrl, qrEnabled = false, onScan, qrImage, onCancelScan }) {
+export default function WalletConnectModal({ wallets, onSelect, onRefresh, pendingId, error, locale = 'zh', dappUrl, qrEnabled = false, onScan, qrImage, onCancelScan, reselectAccount = false }) {
   const L = (zh, en) => locale === 'en' ? en : zh;
   const [mobile, setMobile] = useState(false), [copied, setCopied] = useState(false), [copyFailed, setCopyFailed] = useState(false);
   useEffect(() => setMobile(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -28,11 +28,11 @@ export default function WalletConnectModal({ wallets, onSelect, onRefresh, pendi
   }
   return <div className="wallet-connect">
     <div className="wallet-connect-eyebrow"><span /><span>BNB Smart Chain</span><span className="wallet-chain-label">56</span></div>
-    <h2 id="live-dialog-title">{L('连接你的钱包', 'Connect your wallet')}</h2>
-    <p className="wallet-connect-intro">{L('选择你要使用的钱包，在钱包中确认连接。', 'Choose a wallet, then approve the connection in your wallet.')}</p>
+    <h2 id="live-dialog-title">{reselectAccount ? L('切换钱包或账户', 'Switch wallet or account') : L('连接你的钱包', 'Connect your wallet')}</h2>
+    <p className="wallet-connect-intro">{reselectAccount ? L('选择钱包，在钱包弹窗中选择账户并确认，页面会自动更新。', 'Choose a wallet, select an account in its prompt and approve. The page will update automatically.') : L('选择你要使用的钱包，在钱包中确认连接。', 'Choose a wallet, then approve the connection in your wallet.')}</p>
     {error && <div className="wallet-connect-error" role="alert">{error}</div>}
     {pendingId && <div className="wallet-connect-status" role="status"><LoaderCircle size={18} className="wallet-spin" />
-      <span>{pendingId === 'walletconnect' ? L('请使用手机钱包扫描二维码，并在钱包中确认。', 'Scan with your mobile wallet and approve in the wallet.') : L('请打开所选钱包，确认连接或网络切换请求。', 'Open the selected wallet to approve connection or network switching.')}</span></div>}
+      <span>{pendingId === 'walletconnect' ? L('请使用手机钱包扫描二维码，并在钱包中确认。', 'Scan with your mobile wallet and approve in the wallet.') : reselectAccount ? L('请在钱包弹窗中选择账户并确认。', 'Select an account in the wallet prompt and approve.') : L('请打开所选钱包，确认连接或网络切换请求。', 'Open the selected wallet to approve connection or network switching.')}</span></div>}
     {pendingId === 'walletconnect' && <div className="wallet-qr-panel">
       {qrImage ? <img src={qrImage} width="288" height="288" alt={L('WalletConnect 连接二维码', 'WalletConnect connection QR code')} /> : <p role="status">{L('正在准备连接二维码…', 'Preparing connection QR code…')}</p>}
       <button type="button" className="wallet-copy" onClick={onCancelScan}>{L('取消扫码', 'Cancel QR connection')}</button>
