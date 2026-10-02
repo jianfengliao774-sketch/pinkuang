@@ -11,6 +11,15 @@ const FACTORY_ABI = ['function poolCount() view returns(uint256)', 'function all
 const POOL_ABI = ['function state() view returns(uint8)'];
 const serial = value => JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item);
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
+const walletContention = error => error.message === 'Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.'
+  || /^Keeper lock already exists: .+\. Another process holds it\.$/.test(error.message ?? '');
+export const awaitingWallet = result => result.results?.some(row => row.walletWait === true) === true;
+/** Waiting for another journal must not renew proof that this worker can send. */
+export function publishSupervisorReadiness(heartbeat, proof, result) {
+  if (awaitingWallet(result)) return false;
+  heartbeat.publish(proof.graph, proof.block, result);
+  return true;
+}
 export const needsOperatorReview = result => {
   const status = typeof result === 'string' ? result : result?.status;
   // A just-broadcast transaction may be invisible to another RPC backend for
@@ -100,31 +109,50 @@ async function refreshPools(provider, options, known) {
   return known;
 }
 
-export async function runSupervisorCycle(provider, options, signer, state) {
-  const pools = await refreshPools(provider, options, state.pools);
+export async function runSupervisorCycle(provider, options, signer, state, dependencies = {}) {
+  const pools = await (dependencies.refreshPools ?? refreshPools)(provider, options, state.pools);
   const journalPath = pool => resolve(options.journalDir, `${pool.toLowerCase()}.json`);
   const journalFor = pool => readJournal(journalPath(pool), { factory: options.factory, pool });
   const states = new Map();
-  await Promise.all(pools.map(async pool => states.set(pool, await new Contract(pool, POOL_ABI, provider).state())));
+  const readState = dependencies.readPoolState ?? (pool => new Contract(pool, POOL_ABI, provider).state());
+  await Promise.all(pools.map(async pool => states.set(pool, await readState(pool))));
   const { selected, nextCursor } = selectPools(pools, journalFor, states, state.cursor);
   state.cursor = nextCursor;
   const results = [];
+  let walletBusy = false;
   for (const pool of selected) {
-    const journal = journalPath(pool), releaseJournal = acquireKeeperLock(journal);
-    let releaseWallet;
+    if (walletBusy) {
+      results.push({ pool, status: 'wallet-lane-busy', walletWait: true });
+      continue;
+    }
+    const journal = journalPath(pool);
+    let releaseJournal, releaseWallet, acquiringWallet = false;
     try {
+      releaseJournal = (dependencies.acquireKeeperLock ?? acquireKeeperLock)(journal);
       if (options.send) {
-        releaseWallet = acquireWalletLock(await signer.getAddress(), journal);
+        acquiringWallet = true;
+        releaseWallet = (dependencies.acquireWalletLock ?? acquireWalletLock)(await signer.getAddress(), journal);
+        acquiringWallet = false;
         if (!existsSync(journal)) writeJournal(journal, journalFor(pool));
       }
       const runtime = state.runtimes.get(pool) ?? createKeeperRuntime();
       state.runtimes.set(pool, runtime);
-      const result = await runKeeperCycle(provider, { ...options, pool, journal, venue: 'auto', refreshInterval: 30 }, signer, fetch, runtime);
+      const result = await (dependencies.runKeeperCycle ?? runKeeperCycle)(provider, { ...options, pool, journal, venue: 'auto', refreshInterval: 30 }, signer, fetch, runtime);
       results.push({ pool, ...result });
       // A terminal pool no longer reserves this wallet. Continue to other
       // Funded pools; only an unresolved nonce or review state blocks them.
       if (stopsOtherPurchases(options.send, journalFor(pool), result)) break;
-    } finally { releaseWallet?.(); releaseJournal(); }
+    } catch (error) {
+      if (options.send && acquiringWallet && walletContention(error)) {
+        // The owning relay/mining worker must reconcile its exact receipt.
+        // Preserve its durable reservation and wait without entering a new
+        // signing cycle or repeatedly crashing the purchase supervisor.
+        walletBusy = true;
+        results.push({ pool, status: 'wallet-lane-busy', walletWait: true });
+        continue;
+      }
+      throw error;
+    } finally { releaseWallet?.(); releaseJournal?.(); }
   }
   return { status: 'scanned', poolCount: pools.length, fundedCount: [...states.values()].filter(value => value === 1n).length, results };
 }
@@ -176,7 +204,7 @@ export async function main(args = process.argv.slice(2)) {
         const result = await runSupervisorCycle(provider, options, signer, state);
         console.log(serial({ at: new Date().toISOString(), mode: options.send ? 'send' : 'dry-run', ...result }));
         if (reportOperatorReview(result.results)) break;
-        if (heartbeat && !stopping) heartbeat.publish(proof.graph,proof.block,result);
+        if (heartbeat && !stopping) publishSupervisorReadiness(heartbeat,proof,result);
       } catch (error) {
         heartbeat?.clear();
         const message = String(error.shortMessage ?? error.message ?? 'Purchase supervisor cycle failed.')

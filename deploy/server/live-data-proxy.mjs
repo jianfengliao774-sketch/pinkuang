@@ -103,6 +103,7 @@ export function validateIndexRequest(url) {
   const routes = {
     '/health': [], '/v1/stats': [], '/v1/pools': ['cursor', 'limit'], '/v1/portfolios':['cursor','limit'],
     '/v1/display/pools': ['cursor','limit','account'], '/v1/display/stats': [],
+    '/v1/display/portfolios': ['account','cursor','limit','mine'],
     '/v1/display/orders': ['pool','seller','active','cursor','limit'],
     '/v1/snapshot/pools': ['cursor', 'limit'], '/v1/snapshot/portfolios': ['cursor', 'limit'],
     '/v1/snapshot/stats': [], '/v1/snapshot/orders': ['pool', 'seller', 'active', 'cursor', 'limit'],
@@ -112,6 +113,7 @@ export function validateIndexRequest(url) {
     '/v1/yield': ['pool', 'account', 'days'],
   };
   const allowed = /^\/v1\/display\/pools\/0x[\da-f]{40}$/i.test(route) ? ['account']
+    : /^\/v1\/display\/portfolios\/0x[\da-f]{40}$/i.test(route) ? ['account','children']
     : /^\/v1\/display\/positions\/0x[\da-f]{40}$/i.test(route) ? ['cursor','limit']
     : /^\/v1\/snapshot\/pools\/0x[\da-f]{40}$/i.test(route) ? []
     : /^\/v1\/accounts\/0x[\da-f]{40}\/(pools|portfolios)$/i.test(route)
@@ -122,14 +124,16 @@ export function validateIndexRequest(url) {
     requireValue(allowed.includes(key) && !seen.has(key), 400, 'Unknown or duplicate index query parameter.'); seen.add(key);
     let valid = false;
     if (['pool', 'seller', 'account'].includes(key)) valid = ADDRESS.test(value);
-    else if (key === 'active') valid = value === 'true' || value === 'false';
-    else if (key === 'limit') valid = natural(value, 50) && Number(value) > 0;
+    else if (['active','mine','children'].includes(key)) valid = value === 'true' || value === 'false';
+    else if (key === 'limit') valid = natural(value, route === '/v1/display/portfolios' ? 20 : 50) && Number(value) > 0;
     else if (key === 'days') valid = natural(value, 90) && Number(value) > 0;
       else if (key === 'cursor') valid = ['/v1/orders','/v1/portfolio-orders','/v1/display/orders'].includes(route) ? /^[1-9]\d{0,77}$/.test(value) && BigInt(value) < 2n ** 256n
       : route === '/v1/activity' ? /^\d+:\d+:\d+$/.test(value) && value.split(':').every(n => natural(n)) : natural(value);
     requireValue(valid, 400, 'Invalid index query parameter.');
   }
   requireValue(route !== '/v1/yield' || seen.has('pool'), 400, 'A pool address is required.');
+  requireValue(route !== '/v1/display/portfolios' || url.searchParams.get('mine') !== 'true' || seen.has('account'),
+    400, 'An account is required for personal portfolio display.');
   return route;
 }
 

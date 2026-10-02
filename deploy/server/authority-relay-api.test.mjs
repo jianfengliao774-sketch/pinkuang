@@ -75,6 +75,14 @@ async function signedReview(f) {
   return {authority:f.authority,expectedCodehash:f.codehash,kind:'reviewSale',args,nonce,deadline,signature};
 }
 
+test('private receipt reconciliation needs no browser session and stops when the relay closes',async()=>{
+  const f=fixture({authenticateAccount:()=>{throw new Error('No browser is open');}});
+  assert.equal((await f.service.reconcile()).status,'idle');
+  await f.service.close();
+  assert.equal(await f.service.reconcile(),null);
+  await f.close();
+});
+
 test('Gas relay is disabled by default and requires a systemd credential when enabled',()=>{
   assert.equal(authorityRelayConfiguration({}),null);
   assert.throws(()=>authorityRelayConfiguration({AUTHORITY_RELAY_ENABLED:'1',AUTHORITY_REQUIRE_FRESH_READINESS:'1',

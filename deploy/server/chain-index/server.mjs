@@ -8,6 +8,18 @@ import { ChainIndex } from './indexer.mjs';
 import { createChainIndexServer } from './api.mjs';
 import { loadFreshIndexManifest } from './fresh-manifest.mjs';
 
+/** Independent materializers must not suppress updates from a healthy cache.
+ * DisplayEvents still gates publication on a complete index and the pool cache
+ * catching up to the latest business event. */
+export async function refreshDisplayCaches({displayCache,portfolioReads,displayEvents,
+  isStopped=()=>false,onError=()=>console.error('Display cache refresh failed; retaining previous display data.')}={}) {
+  const caches=[displayCache,portfolioReads].filter(Boolean);
+  const completed=await Promise.allSettled(caches.map(cache=>Promise.resolve().then(()=>cache.refresh())));
+  if(completed.some(item=>item.status==='rejected')) onError();
+  if(!isStopped() && completed.some(item=>item.status==='fulfilled')) displayEvents.publish();
+  return completed;
+}
+
 const required = (env, key) => {
   if (!env[key]) throw new Error(`${key} is required.`);
   return env[key];
@@ -213,9 +225,7 @@ export async function startChainIndex(config) {
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);
   }
   const refreshDisplay=async()=>{
-    const completed = await Promise.allSettled([displayCache?.refresh(), portfolioReads?.refresh()]);
-    if (completed.some(item => item.status === 'rejected')) console.error('Display cache refresh failed; retaining previous display data.');
-    else if (!stopped) displayEvents.publish();
+    await refreshDisplayCaches({displayCache,portfolioReads,displayEvents,isStopped:()=>stopped});
     if(!stopped && (displayCache || portfolioReads)) displayTimer=setTimeout(()=>void refreshDisplay(),15_000);
   };
   if(displayCache || portfolioReads) void refreshDisplay();

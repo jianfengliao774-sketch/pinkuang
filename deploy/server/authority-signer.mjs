@@ -8,6 +8,21 @@ import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 import { AUTHORITY_SOCKET, createAuthoritySignerServer, listenAuthoritySigner,
   readAuthorityIpcKey } from './authority-ipc.mjs';
 
+/** Finalize the existing durable transaction even after its browser closes.
+ * Reconciliation is read-only on chain; no new command, signature or resend. */
+export function trackAuthorityReceipts(relay,{intervalMs=5_000,onError=()=>
+  console.error('Authority receipt read failed; retaining the transaction reservation.')}={}) {
+  let stopped=false,timer,task;
+  const check=()=>{
+    if(stopped) return;
+    task=Promise.resolve().then(()=>relay.reconcile()).catch(onError).finally(()=>{
+      if(!stopped){timer=setTimeout(check,intervalMs);timer.unref?.();}
+    });
+  };
+  check();
+  return async()=>{stopped=true;clearTimeout(timer);await task;};
+}
+
 export async function startAuthoritySigner(env = process.env, dependencies = {}) {
   const attestOnly = env.AUTHORITY_SIGNER_ATTEST_ONLY === '1';
   if (env.AUTHORITY_RELAY_SOCKET !== AUTHORITY_SOCKET
@@ -44,7 +59,9 @@ export async function startAuthoritySigner(env = process.env, dependencies = {})
   });
   try { await listenAuthoritySigner(server); }
   catch (error) { await relay?.close(); throw error; }
+  const stopReceiptTracking=relay ? trackAuthorityReceipts(relay) : async()=>{};
   const close = async () => {
+    await stopReceiptTracking();
     await new Promise(resolve => server.close(resolve));
     await relay?.close();
     try { unlinkSync(AUTHORITY_SOCKET); } catch { /* systemd may remove RuntimeDirectory. */ }

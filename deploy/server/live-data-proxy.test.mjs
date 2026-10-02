@@ -319,6 +319,42 @@ test('missing RPC configuration is explicit 503, not dummy chain data', async t 
   const f = await fixture(t, { rpcUrl: null }); assert.equal((await f.post(rpc())).status, 503); assert.equal(f.calls.length, 0);
 });
 
+test('portfolio display directory and detail reach the shared cache without chain reads', async t => {
+  const source = { cacheOrigin: 'server', displayOnly: true, transactionReady: false };
+  const empty = { source, data: { items: [], nextCursor: null } };
+  const detail = { source, data: { item: { kind: 'portfolio', pool: address } } };
+  const f = await fixture(t, { upstream: (url, init) => {
+    assert.equal(init.method, 'GET');
+    return json(new URL(url).pathname === '/v1/display/portfolios' ? empty : detail);
+  } });
+  for (const query of ['', '?cursor=0&limit=20', `?account=${address}&mine=false`,
+    `?account=${address}&mine=true&cursor=20&limit=5`]) {
+    const response = await f.get('/api/chain-index/v1/display/portfolios' + query);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), empty, 'An empty budget directory remains a successful read.');
+  }
+  for (const query of ['', `?account=${address}&children=true`, `?account=${address}&children=false`]) {
+    const response = await f.get(`/api/chain-index/v1/display/portfolios/${address}${query}`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), detail);
+  }
+  assert(f.calls.every(call => call.url.startsWith('http://127.0.0.1:4180/v1/display/portfolios')
+    && call.init.method === 'GET'), 'Portfolio display never falls back to RPC.');
+  const count = f.calls.length;
+  for (const path of ['/v1/display/portfolios?mine=true', '/v1/display/portfolios?mine=1',
+    '/v1/display/portfolios?limit=21', '/v1/display/portfolios?limit=0',
+    '/v1/display/portfolios?cursor=-1', '/v1/display/portfolios?cursor=9007199254740992',
+    '/v1/display/portfolios?account=0x1234', `/v1/display/portfolios?account=${address}&account=${address}`,
+    '/v1/display/portfolios?children=true', '/v1/display/portfolios?url=https://evil.test',
+    `/v1/display/portfolios/${address}?children=maybe`, `/v1/display/portfolios/${address}?children=true&children=false`,
+    `/v1/display/portfolios/${address}?mine=true`, `/v1/display/portfolios/${address}?cursor=0`,
+    '/v1/display/portfolios/0x1234', `/v1/display/portfolios/${address}/private`]) {
+    assert((await f.get('/api/chain-index' + path)).status >= 400, path);
+  }
+  assert.equal((await f.post(rpc(), '/api/chain-index/v1/display/portfolios')).status, 405);
+  assert.equal(f.calls.length, count, 'Invalid display requests are rejected before any upstream request.');
+});
+
 test('proxy preserves incomplete index 503 and refuses redirected/HTML/mismatched upstream results', async t => {
   const incomplete = await fixture(t, { upstream: () => json({ source: { complete: false }, data: null }, 503) });
   const result = await incomplete.get('/api/chain-index/v1/pools'); assert.equal(result.status, 503); assert.equal((await result.json()).data, null);
