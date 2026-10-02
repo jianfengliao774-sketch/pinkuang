@@ -321,7 +321,7 @@ export default function LivePlatform() {
     [transactionStage, setTransactionStage] = useState(null),
     [transactionGasWei, setTransactionGasWei] = useState(null),
     [error, setError] = useState(""),
-    [message, setMessage] = useState(""),
+    [, setMessage] = useState(""),
     [refresh, setRefresh] = useState(0),
     [operatorRefresh, setOperatorRefresh] = useState(0);
   const [modal, setModal] = useState(null),
@@ -2621,9 +2621,6 @@ export default function LivePlatform() {
           </div>
         </header>
         <main aria-busy={loading} data-ready-route={loadedRoute}>
-          {fullTestBuild && <div className="live-notice" role="status" data-test-profile="full-test">
-            <span>{L('完整测试站 · BNB 主网 · 使用独立合约和真实资产；出售无强制等待。', 'Full test site · BNB mainnet · Independent contracts and real assets; no mandatory sale waiting.')}</span>
-          </div>}
           <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
             account={account} wallet={wallet} config={config} locale={locale} route={route.route}
             positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
@@ -2658,18 +2655,6 @@ export default function LivePlatform() {
               <button
                 aria-label={L("关闭提示", "Dismiss")}
                 onClick={() => setError("")}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          {message && (
-            <div className="live-notice" role="status">
-              <CheckCircle2 size={18} />
-              <span>{message}</span>
-              <button
-                aria-label={L("关闭提示", "Dismiss")}
-                onClick={() => setMessage("")}
               >
                 <X size={16} />
               </button>
