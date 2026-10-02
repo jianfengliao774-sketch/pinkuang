@@ -23,6 +23,14 @@ export function trackAuthorityReceipts(relay,{intervalMs=5_000,onError=()=>
   return async()=>{stopped=true;clearTimeout(timer);await task;};
 }
 
+export function trackSaleReferences(relay,{intervalMs=30_000,onError=()=>
+  console.error('Automatic Firsto reference update unavailable; retaining its transaction record.')}={}) {
+  let stopped=false,timer,task;
+  const check=()=>{if(stopped)return;task=Promise.resolve().then(()=>relay.publishSaleReferences()).catch(onError)
+    .finally(()=>{if(!stopped){timer=setTimeout(check,intervalMs);timer.unref?.();}});};
+  check();return async()=>{stopped=true;clearTimeout(timer);await task;};
+}
+
 export async function startAuthoritySigner(env = process.env, dependencies = {}) {
   const attestOnly = env.AUTHORITY_SIGNER_ATTEST_ONLY === '1';
   if (env.AUTHORITY_RELAY_SOCKET !== AUTHORITY_SOCKET
@@ -60,7 +68,9 @@ export async function startAuthoritySigner(env = process.env, dependencies = {})
   try { await listenAuthoritySigner(server); }
   catch (error) { await relay?.close(); throw error; }
   const stopReceiptTracking=relay ? trackAuthorityReceipts(relay) : async()=>{};
+  const stopReferenceTracking=relay && config.saleReferencePublisher ? trackSaleReferences(relay) : async()=>{};
   const close = async () => {
+    await stopReferenceTracking();
     await stopReceiptTracking();
     await new Promise(resolve => server.close(resolve));
     await relay?.close();

@@ -16,6 +16,7 @@ import {FirstoSale} from "./libraries/FirstoSale.sol";
 import {MiningOperations} from "./libraries/MiningOperations.sol";
 import {ShareCheckpoints} from "./libraries/ShareCheckpoints.sol";
 import {SaleGovernance} from "./libraries/SaleGovernance.sol";
+import {SaleReviewPolicy} from "./libraries/SaleReviewPolicy.sol";
 import {FlexiblePurchase} from "./libraries/FlexiblePurchase.sol";
 import {SaleSettlement} from "./libraries/SaleSettlement.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
@@ -43,6 +44,7 @@ contract PoolVault is
     using Checkpoints for Checkpoints.Trace208;
 
     uint256 public constant TOTAL_SHARES = 100;
+    uint16 public constant saleReviewThresholdBps = SaleReviewPolicy.THRESHOLD_BPS;
     uint16 public constant minShares = 1;
     uint16 public constant maxShares = 100;
     uint8 public constant minMembers = 1;

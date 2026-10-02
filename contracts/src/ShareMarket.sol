@@ -43,6 +43,11 @@ interface IReviewedPortfolio {
         );
 }
 
+interface IAutomaticSaleReferenceAuthority {
+    function coreFactory() external view returns (address);
+    function gasWallet() external view returns (address);
+}
+
 /// @notice BNB orders for integer shares, locked in each seller's PoolVault account.
 /// @dev No ERC-20 custody or daily administration. Upgrades require the fixed Factory timelock.
 contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarket {
@@ -244,11 +249,56 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         return _budgetFactoryStorage().trusted[budgetFactory];
     }
 
+    /// @notice This implementation supports a reference-only backend publisher.
+    function automaticSaleReferenceVersion() external pure returns (uint256) {
+        return 1;
+    }
+
+    /// @notice The existing authority's gas wallet can only publish Firsto references.
+    /// @dev A gas-wallet or operator rotation takes effect immediately. An EOA
+    /// operator or another factory's authority enables no automatic publisher.
+    function saleReferencePublisher() public view returns (address) {
+        address boundFactory = _marketStorage().factory;
+        address authority = IShareMarketFactory(boundFactory).operator();
+        if (authority.code.length == 0) return address(0);
+        try IAutomaticSaleReferenceAuthority(authority).coreFactory() returns (address coreFactory) {
+            if (coreFactory != boundFactory) return address(0);
+        } catch {
+            return address(0);
+        }
+        try IAutomaticSaleReferenceAuthority(authority).gasWallet() returns (address publisher) {
+            return publisher;
+        } catch {
+            return address(0);
+        }
+    }
+
+    /// @notice Publishes a backend Firsto reference without an administrator signature.
+    /// @dev This entry grants no review, acquisition, fee or treasury authority.
+    function publishSaleReference(address pool, uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest)
+        external
+    {
+        if (msg.sender != saleReferencePublisher()) revert Unauthorized();
+        MarketStorage storage s = _marketStorage();
+        if (observedAt < s.saleReferences[pool].observedAt) revert InvalidSaleReference();
+        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest);
+    }
+
     /// @notice Operator attests Firsto reference daily price × verified daily BEM for one miner.
     /// @dev The digest identifies evidence, but BSC cannot independently verify a website API.
     function setSaleReference(address pool, uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest) external {
         MarketStorage storage s = _marketStorage();
         if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
+        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest);
+    }
+
+    function _setSaleReference(
+        MarketStorage storage s,
+        address pool,
+        uint128 marketPriceWei,
+        uint64 observedAt,
+        bytes32 sourceDigest
+    ) private {
         if (
             !IShareMarketFactory(s.factory).isPool(pool) || marketPriceWei == 0 || sourceDigest == bytes32(0)
                 || observedAt > block.timestamp || block.timestamp - observedAt > 5 minutes
@@ -266,7 +316,8 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         return (quote.marketPriceWei, quote.observedAt, quote.sourceDigest);
     }
 
-    /// @notice Platform review is required only when a passed sale lists below the fresh market reference.
+    /// @notice Records human review for the price bound to a current sale proposal.
+    /// @dev The vault implementation defines the discount that requires review.
     /// @dev Rejection is final only for an existing, current proposal. Neither
     /// approval nor rejection may reserve a future proposal ID.
     function reviewSale(address pool, uint256 proposalId, uint128 priceWei, bool approved) external {

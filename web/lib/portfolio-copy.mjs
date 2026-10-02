@@ -1,4 +1,7 @@
 const en = {
+  '报价需人工审核，平台已批准。':'This price needs review; the platform has approved it.',
+  '报价需人工审核，等待管理员处理。':'This price needs review; an administrator will process it.',
+  '报价符合免审核范围，无需额外审核。':'This price is within the range that requires no additional review.',
   '金额按精确整数发送；请在钱包中确认本次交易。':'Exact integer amounts are sent. Confirm this transaction in your wallet.',
   '表决达到门槛后，挂牌仍需通过当前市场参考价与平台审核核验。':'A passed vote still needs a current market reference and the applicable platform review before listing.',
   'Firsto 市场参考价：':'Firsto market reference: ',

@@ -956,6 +956,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   integratedUpgradeEvidencePath, integratedUpgradeEvidence, integratedUpgradeArtifactPath,
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   freshActivationEvidencePath, expectedGasWallet,
+  salePolicyCatalogPath, salePolicyArtifactPath,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
   freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
   if (typeof dbPath !== 'string' || !dbPath) throw new Error('Journal database path is required.');
@@ -991,7 +992,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     genesisRecordPath,genesisBundlePath,genesisRecord,genesisBundle,
     integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
-    productActivationPath:freshActivationEvidencePath,expectedGasWallet});
+    productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
   if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
@@ -1501,13 +1502,15 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         portfolioBeacon:'portfolioBeacon',portfolioImplementation:'BudgetPortfolioVault',
         portfolioFactoryImplementation:'BudgetPortfolioFactory'};
       const manifestCodehash=Object.fromEntries(Object.entries(manifestNames)
-        .map(([key,name])=>[key,graph.codehash[name]]));
+        .map(([key,name])=>[key,graph.salePolicyUpgrade && key==='portfolioImplementation'
+          ? old.verification.code.BudgetPortfolioVault.codehash : graph.codehash[name]]));
       const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-active' : graph.securityUpgrade
         ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
           : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
       const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
         ...Object.fromEntries(Object.entries(manifestNames)
-          .map(([key,name])=>[key,graph.addresses[name]])),
+          .map(([key,name])=>[key,graph.salePolicyUpgrade && key==='portfolioImplementation'
+            ? old.addresses.BudgetPortfolioVault : graph.addresses[name]])),
         ...(graph.freshAuthority ? {authority:graph.freshAuthority.address,
           gasWallet:graph.freshAuthority.gasWallet,
           freshAuthority:{address:graph.freshAuthority.address,
@@ -1528,6 +1531,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         reviewedUpgradeOperationId:trustedProduct.integratedUpgrade?.plan.operationId ?? null,
         reviewedBootstrapOperationId:trustedProduct.integratedUpgrade?.bootstrapPlan.operationId ?? null,
         operationId:graph.securityUpgrade?.operationId ?? null,
+        ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
           codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
           activationHash:graph.freshAuthority.activationHash,
@@ -1979,6 +1983,12 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   return {
+    /** Internal display handoff; this never refreshes a graph or reads RPC. */
+    currentProductGraphSnapshot() {
+      const snapshot=lastVerifiedProductGraphSnapshot;
+      const age=snapshot ? now()-snapshot.savedAt : Infinity;
+      return snapshot && age>=0 && age<PRODUCT_GRAPH_STALE_MS ? structuredClone(snapshot.body) : null;
+    },
     async verifyFreshOperationalReadiness() {
       if (closed || !freshProductVerifier || !officialProvider) fail(503, 'Fresh product operations are not enabled.');
       const block = await officialProvider.getBlock('latest');
@@ -2031,6 +2041,8 @@ export function journalConfiguration(env = process.env) {
     integratedUpgradeArtifactPath: env.BEMINE_INTEGRATED_UPGRADE_ARTIFACT_PATH,
     genesisManifestPath: env.BEMINE_GENESIS_MANIFEST_PATH,
     freshActivationEvidencePath: env.BEMINE_PRODUCT_ACTIVATION_PATH,
+    salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
+    salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

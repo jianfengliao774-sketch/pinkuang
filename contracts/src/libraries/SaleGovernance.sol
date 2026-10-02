@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolSaleState} from "../PoolSaleState.sol";
+import {SaleReviewPolicy} from "./SaleReviewPolicy.sol";
 
 interface IFirstoSaleReference {
     function saleReference(address pool)
@@ -175,7 +176,7 @@ library SaleGovernance {
         if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
         address market = ISaleReferenceFactory(factory).shareMarket();
         uint256 marketPrice = _marketPrice(market);
-        if (p.price < marketPrice) {
+        if (SaleReviewPolicy.requiresReview(p.price, marketPrice)) {
             (uint8 status, uint128 approvedPrice) = IFirstoSaleReference(market).saleReview(address(this), proposalId);
             if (status != 1 || approvedPrice != p.price) revert SaleNotApproved();
         }

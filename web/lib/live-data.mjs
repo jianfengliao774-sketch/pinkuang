@@ -2,7 +2,8 @@ import { Interface, ZeroAddress, getAddress, keccak256, toQuantity } from 'ether
 import { abi, uint, readPoolSnapshot, decodePoolRow, hasPosition, assetKey } from './chain-client.mjs';
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
-import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState } from './sale-governance-gate.mjs';
+import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState,
+  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold, requiresSaleReview } from './sale-governance-gate.mjs';
 import { readMiningOverviewStats } from './mining-overview.mjs';
 import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
 
@@ -756,7 +757,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
     // from the old purchase-cost rule. Never expose those fields from the Lens.
     Object.assign(result, { requiredYesCount: null, requiredYesShares: null, discounted: null,
       passed: null, canExecute: null, reviewRequired: null, reviewApproved: null,
-      saleReference: null, saleReview: null });
+      saleReference: null, saleReview: null, saleReviewThresholdBps: DEFAULT_SALE_REVIEW_THRESHOLD_BPS });
     if (result.activeProposalId > 0n && result.proposal !== null) {
       const p = result.proposal;
       insist(p.snapshotTotalShares === 100n && p.snapshotMemberCount > 0n && p.snapshotMemberCount <= 100n
@@ -783,13 +784,15 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         await ensureCanonical(source);
         return Object.freeze({ source, data: Object.freeze(result) });
       }
+      const threshold = readSaleReviewThreshold((to, contract, method, args) => call(to, contract, method, args, block), pool);
       try {
-        result.saleReference = displayReads
-          ? saleReferenceState(await call(manifest.shareMarket, governanceViews, 'saleReference', [pool], block), timestamp)
-          : await readSaleReference(request, manifest.shareMarket, pool, block, timestamp);
+        [result.saleReference, result.saleReviewThresholdBps] = await Promise.all([displayReads
+          ? call(manifest.shareMarket, governanceViews, 'saleReference', [pool], block).then(value => saleReferenceState(value, timestamp))
+          : readSaleReference(request, manifest.shareMarket, pool, block, timestamp), threshold]);
       } catch (error) { result.saleReference = Object.freeze({ available: false,
-        reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' }); }
-      if (result.saleReference.available && p.price < result.saleReference.priceWei) {
+        reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' });
+        result.saleReviewThresholdBps = await threshold; }
+      if (result.saleReference.available && requiresSaleReview(p.price, result.saleReference.priceWei, result.saleReviewThresholdBps)) {
         try {
           if (displayReads) {
             const [status, priceWei] = await call(manifest.shareMarket, governanceViews, 'saleReview', [pool, result.activeProposalId], block);
@@ -801,7 +804,8 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
       }
       const gate = saleExecutionGate({ proposal: p, passed, state: result.state,
-        timestamp, reference: result.saleReference, review: result.saleReview });
+        timestamp, reference: result.saleReference, review: result.saleReview,
+        saleReviewThresholdBps: result.saleReviewThresholdBps });
       Object.assign(result, gate);
     }
     await ensureCanonical(source); return Object.freeze({ source, data: Object.freeze(result) });

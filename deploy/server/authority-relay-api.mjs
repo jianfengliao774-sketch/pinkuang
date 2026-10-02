@@ -13,6 +13,7 @@ import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
+import { saleReferencePublisherConfiguration, createSaleReferencePublisher } from './sale-reference-publisher.mjs';
 
 const SESSION_COOKIE = 'pinkuang_journal';
 const HASH = /^0x[0-9a-f]{64}$/i;
@@ -110,6 +111,9 @@ export function authorityRelayConfiguration(env = process.env) {
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Authority relay requires ${key}.`);
   }
   return { origin, rpcUrl, journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
+    saleReferencePublisher:saleReferencePublisherConfiguration(env,{journal}),
+    salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
+    salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     dbPath: env.DEPLOYMENT_JOURNAL_DB, recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
@@ -191,6 +195,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   const trusted = dependencies.trusted ?? productGraphConfiguration({
     recordPath: config.recordPath, bundlePath: config.bundlePath,
     productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
+    salePolicyCatalogPath: config.salePolicyCatalogPath, salePolicyArtifactPath: config.salePolicyArtifactPath,
   });
   if (!trusted?.freshAuthority || !trusted.bundle?.artifacts?.FreshPoolFactory)
     throw new Error('Authority relay requires a complete reviewed fresh activation.');
@@ -339,7 +344,16 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     });
   }
 
+  const referencePublisher=config.saleReferencePublisher ? createSaleReferencePublisher({
+    config:config.saleReferencePublisher,provider,signer:new Wallet(loadCredential(),provider),
+    factory:trusted.record.addresses.factory,portfolioFactory:trusted.record.addresses.portfolioFactory,
+    market:trusted.record.addresses.shareMarket,
+    verifyDeployment:freshGraph,dependencies:dependencies.referencePublisherDependencies,
+  }) : null;
+
   return {
+    // Private signer timer only. The public HTTP/IPC surface has no route to trigger this task.
+    publishSaleReferences:()=>closed || !referencePublisher ? Promise.resolve(null) : referencePublisher.tick(),
     // Private signer background work uses the same queue and receipt-only
     // reconciliation as status polling. It never submits an operation.
     reconcile:()=>closed ? Promise.resolve(null) : status(),
@@ -381,6 +395,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     },
     async close() {
       closed = true;
+      await referencePublisher?.close();
       await Promise.allSettled([...inFlight]);
       await journalQueue;
       store.close();

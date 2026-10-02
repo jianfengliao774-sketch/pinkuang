@@ -1,17 +1,15 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { getAddress, keccak256, parseEther, toUtf8Bytes } from 'ethers';
 import { authorityActionStatus } from '../lib/authority-client.mjs';
 import SaleReviewRequests from './SaleReviewRequests';
 import FeeCollection from './FeeCollection';
+import FirstoSaleReferenceAction from './FirstoSaleReferenceAction';
 
 const errorText = value => value instanceof Error ? value.message : String(value);
 
 /** Administrator approvals are exact EIP-712 messages; the service Gas wallet sends them. */
 export default function FreshAuthorityConsole({ config, account, wallet, provider, disabled, onAction, mode = 'review', refreshKey = 0 }) {
   const [pool, setPool] = useState('');
-  const [referencePrice, setReferencePrice] = useState('');
-  const [referenceSource, setReferenceSource] = useState('');
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -66,23 +64,14 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     {mode === 'review' && <>
     <SaleReviewRequests config={config} provider={provider} account={account} disabled={frozen}
       refreshKey={`${refreshKey}:${reviewRefresh}`} onSelect={item => setPool(item.pool)} onReview={submit}/>
-    <details className="operator-reference-tools"><summary>更新 Firsto 市场参考价</summary>
+    <details className="operator-reference-tools"><summary>后台自动市场参考价</summary>
     <div className="operator-grid"><label>矿池或子矿机地址<input value={pool} onChange={event => setPool(event.target.value)} placeholder="选择申请自动填入，也可填写 0x…"/></label></div>
-    <h3>Firsto 市场参考价</h3>
-    <p className="subtle-note">填写该矿机整机参考价和报价来源；链上记录来源摘要及当前区块时间。请先核对报价。</p>
-    <div className="operator-grid">
-      <label>整机参考价（BNB）<input inputMode="decimal" value={referencePrice} onChange={event => setReferencePrice(event.target.value)}/></label>
-      <label>报价来源 URL 或编号<input value={referenceSource} onChange={event => setReferenceSource(event.target.value)}/></label>
-    </div>
-    <button className="btn secondary" disabled={frozen} onClick={() => void (async () => { try {
-      if (!referenceSource.trim()) throw new Error('必须填写可核对的 Firsto 报价来源。');
-      const block = config.displayOnly === true ? null : await wallet.request({ method: 'eth_getBlockByNumber', params: ['latest', false] });
-      if (config.displayOnly !== true && !block?.timestamp) throw new Error('链上区块暂不可用。');
-      await submit('setSaleReference', { market: getAddress(config.shareMarket), pool: getAddress(pool),
-        priceWei: parseEther(referencePrice).toString(), observedAt: (config.displayOnly === true
-          ? BigInt(Math.floor(Date.now() / 1000)) : BigInt(block.timestamp)).toString(),
-        digest: keccak256(toUtf8Bytes(`${referenceSource.trim()}|${referencePrice.trim()}`)) });
-    } catch (problem) { setError(errorText(problem)); } })()}>签名更新参考价</button>
+    {/^0x[\da-f]{40}$/i.test(pool)
+      ? <FirstoSaleReferenceAction config={config} account={account} provider={provider} pool={pool}
+          disabled={disabled} onUpdated={() => {
+            setNotice('Firsto 市场参考价已由后台更新。'); setReviewRefresh(key => key + 1);
+          }}/>
+      : <p className="subtle-note">选择出售申请后可查看后台参考价状态，无需录入报价或签名更新。</p>}
     </details>
     </>}
     {mode === 'fees' && <FeeCollection config={config} provider={provider} account={account} wallet={wallet}

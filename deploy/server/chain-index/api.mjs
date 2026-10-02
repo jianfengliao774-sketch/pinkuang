@@ -21,7 +21,7 @@ const displaySnapshots = Object.freeze({
 });
 
 /** Separate read-only HTTP surface. Never accepts a transaction, private key or arbitrary RPC address. */
-export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache, portfolioReads, displayEvents } = {}) {
+export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache, portfolioReads, displayEvents, saleReferenceStatus } = {}) {
   return createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
@@ -38,6 +38,15 @@ export function createChainIndexServer(index, { syncWaitMs = 1000, displayCache,
     try { url = new URL(req.url, 'http://localhost'); }
     catch { return send(400, { error: 'Invalid URL.' }); }
     try {
+    const referenceMatch = /^\/v1\/display\/sale-reference\/(0x[\da-f]{40})$/i.exec(url.pathname);
+    if (referenceMatch) {
+      if ([...url.searchParams].length) return send(400, { error: 'Reference status takes no query parameters.' });
+      if (!saleReferenceStatus) return send(200, { schemaVersion: 1, chainId: 56, factory: index.factory,
+        market: index.market, updatedAt: null, enabled: false, stale: false,
+        item: { pool: referenceMatch[1], status: 'disabled', proposalId: null } });
+      return send(200, await saleReferenceStatus(referenceMatch[1]));
+    }
+    if (url.pathname.startsWith('/v1/display/sale-reference/')) return send(400, { error: 'Invalid pool.' });
     if (url.pathname === '/v1/display/events') {
       if ([...url.searchParams].length) return send(400, { error: 'Display stream takes no query parameters.' });
       if (!displayEvents) return send(404, { error: 'Display stream is unavailable.' });

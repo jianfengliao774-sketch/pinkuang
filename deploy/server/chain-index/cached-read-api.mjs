@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { Interface, ZeroAddress, ZeroHash, getAddress, toQuantity } from 'ethers';
 import { cacheDecode, cacheEncode } from './pool-display-cache.mjs';
+import { SALE_REVIEW_THRESHOLD_VIEW, normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps, readSaleReviewThresholdBps,
+  requiresSaleReview } from '../../shared/sale-review-policy.mjs';
 
 const artifacts = JSON.parse(readFileSync(new URL('../../public/deployment-artifacts.json', import.meta.url)));
 const vaultAbi = new Interface(artifacts.artifacts.BudgetPortfolioVault.abi);
 const poolAbi = new Interface(artifacts.artifacts.PoolVault.abi);
 const marketAbi = new Interface(artifacts.artifacts.ShareMarket.abi);
+const thresholdAbi = new Interface([SALE_REVIEW_THRESHOLD_VIEW]);
 const publicNames = ['OFFICIAL_FACTORY', 'legacyFactory', 'state', 'budgetWei', 'absoluteCapWei', 'unitCapWei',
   'spentWei', 'totalSupply', 'memberCount', 'childCount', 'activeChildCount', 'fundingDeadline', 'purchaseDeadline',
   'fundingFailed', 'refundPerShareWei', 'salePerShareWei', 'activeProposalId', 'nextProposalId', 'shareTradingAllowed', 'nextRoundAt'];
@@ -76,14 +79,16 @@ function proposalGate(candidate, openerExecuted, row) {
   const passed = candidate.yesShares >= candidate.threshold && candidate.yesMembers * 2n > candidate.memberCount;
   const open = row.state === 2n && !openerExecuted && !candidate.executed && row.timestamp < candidate.endsAt;
   const reference = candidate.saleReference, review = candidate.saleReview;
+  const saleReviewThresholdBps = normalizeSaleReviewThresholdBps(candidate.saleReviewThresholdBps ?? row.saleReviewThresholdBps);
   const discounted = reference?.available ? candidate.price < reference.priceWei : null;
-  const reviewApproved = discounted === true && review?.status === 1n;
+  const reviewRequired = reference?.available ? requiresSaleReview(candidate.price, reference.priceWei, saleReviewThresholdBps) : null;
+  const reviewApproved = review?.available === true && review.status === 1n;
   let executionBlockReason = null;
   if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
-  else if (discounted && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
-  else if (discounted && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
-  else if (discounted && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价，尚待平台审核通过。';
-  return { passed, discounted, reviewRequired: discounted, reviewApproved,
+  else if (reviewRequired && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (reviewRequired && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
+  else if (reviewRequired && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价的审核门槛，尚待平台审核通过。';
+  return { passed, discounted, reviewRequired, reviewApproved, saleReviewThresholdBps,
     canExecute: open && passed && executionBlockReason === null, executionBlockReason };
 }
 
@@ -147,26 +152,40 @@ export class PortfolioDisplayReads {
     const block = source.indexedThrough, timestamp = BigInt(source.indexedTimestamp);
     const key = `base:${pool.toLowerCase()}:${block}:${source.indexedBlockHash}`;
     return this.shared.get(key, async () => {
-      const values = await this.round(publicNames.map(name => this.read(pool, vaultAbi, name, [], block)));
+      const [values, saleReviewThresholdBps] = await Promise.all([
+        this.round(publicNames.map(name => this.read(pool, vaultAbi, name, [], block))),
+        readSaleReviewThresholdBps(async () => (await this.read(pool, thresholdAbi, 'saleReviewThresholdBps', [], block))[0]),
+      ]);
       const row = Object.fromEntries(publicNames.map((name, i) => [name, values[i][0]]));
+      row.saleReviewThresholdBps = saleReviewThresholdBps;
       need(same(row.OFFICIAL_FACTORY, this.index.portfolioFactory) && same(row.legacyFactory, this.index.factory)
         && row.state <= 5n && row.totalSupply <= 100n && row.budgetWei > 0n && row.budgetWei % 100n === 0n,
       'Portfolio display fields are inconsistent.');
       Object.assign(row, { kind: 'portfolio', pool: address(pool), timestamp, unitPriceWei: row.budgetWei / 100n,
         blockNumber: BigInt(block), blockHash: source.indexedBlockHash, children: [], proposal: null, proposals: [] });
+      const childThresholds = new Map();
+      const childThreshold = child => {
+        const key = child.toLowerCase();
+        if (!childThresholds.has(key)) childThresholds.set(key,
+          readSaleReviewThresholdBps(async () => (await this.read(child, thresholdAbi, 'saleReviewThresholdBps', [], block))[0]));
+        return childThresholds.get(key);
+      };
       if (row.activeProposalId > 0n) {
         need(row.nextProposalId > row.activeProposalId && row.nextProposalId - row.activeProposalId <= 16n,
           'Portfolio proposal range is unavailable.');
         const entries = await this.round(Array.from({ length: Number(row.nextProposalId - row.activeProposalId) }, (_, offset) => (async () => {
           const id = row.activeProposalId + BigInt(offset), p = await this.read(pool, vaultAbi, 'proposals', [id], block);
-          const [referenceResult, reviewResult] = await Promise.allSettled([
+          const [referenceResult, reviewResult, childThresholdResult] = await Promise.allSettled([
             this.read(this.index.market, marketAbi, 'saleReference', [p.child], block),
             this.read(pool, vaultAbi, 'childSaleReview', [id], block),
+            childThreshold(p.child),
           ]);
           const status = reviewResult.status === 'fulfilled' ? reviewResult.value[0] : null;
           return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice, referenceAt: p.referenceAt,
             endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers, yesShares: p.yesShares,
             executed: p.executed, hasVoted: false, threshold: 51n,
+            saleReviewThresholdBps: effectiveSaleReviewThresholdBps(row.saleReviewThresholdBps,
+              childThresholdResult.status === 'fulfilled' ? childThresholdResult.value : undefined),
             saleReference: referenceResult.status === 'fulfilled' ? referenceState(referenceResult.value, timestamp)
               : { available: false, reason: 'Firsto 市场参考价暂不可读取。' },
             saleReview: status !== null && status <= 2n ? { available: true, status }

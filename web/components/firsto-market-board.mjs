@@ -19,12 +19,12 @@ const positiveInteger = value => typeof value === 'string' && /^(?:[1-9]\d*)$/.t
 const sameAddress = (left, right) => typeof left === 'string' && typeof right === 'string'
   && left.toLowerCase() === right.toLowerCase();
 
-/** The unit is BNB / (one BEM per day); display only, never a transaction amount. */
+/** BNB / (one BEM per day), floored to wei like Firsto; never a transaction amount. */
 export function dailyCapacityPriceWei(priceWei, estimated24hAtomic) {
   if (!positiveInteger(priceWei) || !positiveInteger(estimated24hAtomic)) return null;
   const price = BigInt(priceWei), daily = BigInt(estimated24hAtomic);
   if (!daily) return null;
-  return ((price * BEM_ATOMIC + daily - 1n) / daily).toString();
+  return (price * BEM_ATOMIC / daily).toString();
 }
 
 /** A failed quote must not leave its old price visible as if it were current. */

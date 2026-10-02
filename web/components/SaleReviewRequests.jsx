@@ -115,7 +115,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
       </select></label>
       <button className="btn secondary" disabled={loading || acting || disabled || !provider} onClick={() => void load(undefined, { force: true })}>刷新申请</button>
     </div>
-    <p className="subtle-note">显示用户已上链的本轮出售申请。低于当前市场参考价需审核，投票仍须双过半；不低于参考价无需审核。</p>
+    <p className="subtle-note">显示已提交的本轮出售申请。投票须双过半，仅需要人工审核的报价可在此批准或驳回。</p>
     {!direct && cached && result && <p className="live-notice" role="status">正在显示上次读取的申请，更新后可审核。</p>}
     {error && <p className="live-notice error" role="alert">申请读取或处理失败：{error}。已有记录已保留，请重试。</p>}
     {!!result?.errors?.length && <div className="live-notice error" role="alert">部分项目尚未读取成功，列表可能不完整。
@@ -150,6 +150,7 @@ function RequestsPage({ config, provider, account, disabled, onReview, onSelect,
         {selected.kind === 'portfolio' && <div><dt>出售的子矿机</dt><dd>{link(selected.pool)}</dd></div>}
         <div><dt>申请出售总价</dt><dd>{amount(selected.priceWei)} BNB</dd></div>
         <div><dt>当前市场参考价</dt><dd>{amount(selected.referencePriceWei)} BNB</dd></div>
+        <div><dt>人工审核门槛</dt><dd>售价低于参考价的 {Number(selected.saleReviewThresholdBps ?? 10000n) / 100}%</dd></div>
         <div><dt>申请时记录的参考价</dt><dd>{amount(selected.recordedReferencePriceWei)} BNB</dd></div>
         <div><dt>截止时间</dt><dd>{time(selected.endsAt)}</dd></div>
         <div><dt>当前状态</dt><dd>{labels[selected.status] || '待核对'}</dd></div>

@@ -1,6 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inputPriceWei, fixedPrice, linkedPrice, validCapacityQuote, purchaseReference } from '../lib/capacity-input.mjs';
+import { inputPriceWei, fixedPrice, linkedPrice, linkedPriceWei, exactPrice, proposedSalePriceWei,
+  validCapacityQuote, purchaseReference } from '../lib/capacity-input.mjs';
+
+test('Firsto NFT 16736 capacity uses its exact gross BEM output and floors the quotient in wei', () => {
+  const daily = 432000n, price = inputPriceWei('0.01500');
+  assert.equal(linkedPriceWei('0.01500', 'sale', daily), price * 100000000n / daily);
+  assert.equal(linkedPriceWei('0.01500', 'sale', daily), 3472222222222222222n);
+  assert.equal(linkedPrice('0.01500', 'sale', daily), '3.47222');
+});
+
+test('capacity-edited proposals round up only to wei and never reuse the five-place linked display', () => {
+  const daily = 432000n;
+  assert.equal(linkedPrice('0.01000', 'capacity', daily), '0.00004');
+  const exact = proposedSalePriceWei({ salePrice: '0.00004', capacityPrice: '0.01000',
+    editedField: 'capacity', dailyAtomic: daily });
+  assert.equal(exact, 43200000000000n);
+  assert.equal(exactPrice(exact), '0.0000432');
+  assert.equal(linkedPriceWei('0.000000000000000001', 'capacity', daily), 1n,
+    'A positive Firsto derived ask below one wei rounds up to one wei.');
+});
+
+test('five-place zero display does not turn a positive derived proposal into a zero-price transaction', () => {
+  const derived = proposedSalePriceWei({ salePrice: '0.00000', capacityPrice: '0.000000001',
+    editedField: 'capacity', dailyAtomic: 432000n });
+  assert.equal(derived, 4320000n);
+  assert.equal(fixedPrice(derived), '0.00000');
+  assert.equal(exactPrice(derived), '0.00000000000432');
+});
+
+test('sale-edited proposals preserve all eighteen entered decimals regardless of linked display precision', () => {
+  const source = '0.015001234567890123';
+  assert.equal(proposedSalePriceWei({ salePrice: source, capacityPrice: '3.47222', editedField: 'sale',
+    dailyAtomic: 432000n }), 15001234567890123n);
+  assert.equal(fixedPrice(inputPriceWei(source)), '0.01500');
+  assert.equal(exactPrice(inputPriceWei(source)), source);
+});
+
+test('an expired capacity source cannot submit the previously rounded sale display', () => {
+  assert.throws(() => proposedSalePriceWei({ salePrice: '0.00004', capacityPrice: '0.01', editedField: 'capacity' }), /日产/);
+  assert.throws(() => linkedPriceWei('9'.repeat(78), 'capacity', (1n << 256n) - 1n), /有效范围/);
+});
 
 test('linked whole-miner and daily capacity prices use BEM eight decimals and BNB eighteen', () => {
   assert.equal(linkedPrice('3', 'sale', 200000000n), '1.50000');

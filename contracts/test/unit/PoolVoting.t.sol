@@ -451,14 +451,14 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
 
-    function test_belowFreshMarketReferenceRequiresPlatformApproval() public {
+    function test_belowEightyPercentFreshReferenceRequiresPlatformApproval() public {
         _ready();
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
         vm.prank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
         vm.prank(OPERATOR);
@@ -468,6 +468,52 @@ contract PoolVotingTest is ShareTransferTestBase {
         voting.executeSale(id);
         vm.prank(OPERATOR);
         shareMarket.reviewSale(address(pool), id, 4 ether, true);
+        voting.executeSale(id);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_eightyPercentBoundaryExecutesWithoutReview() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        (uint8 status,) = shareMarket.saleReview(address(pool), id);
+        assertEq(status, 0);
+        assertEq(voting.saleReviewThresholdBps(), 8000);
+        voting.executeSale(id);
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_oneWeiBelowEightyPercentNeedsReviewButBoundaryNeedsNone() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether - 1, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
+        voting.executeSale(id);
+        vm.prank(OPERATOR);
+        shareMarket.reviewSale(address(pool), id, uint128(4 ether - 1), true);
+        voting.executeSale(id);
+        assertEq(voting.salePrice(), 4 ether - 1);
+    }
+
+    function test_rejectionCannotBlockSaleAtCurrentEightyPercentBoundary() public {
+        _ready();
+        vm.prank(ALICE);
+        uint256 id = voting.propose(4 ether, 0, 0);
+        _vote(BOB, id, true);
+        _vote(CAROL, id, true);
+        vm.startPrank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        shareMarket.reviewSale(address(pool), id, 4 ether, false);
+        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("updated-reference"));
+        vm.stopPrank();
         voting.executeSale(id);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
     }
@@ -505,14 +551,14 @@ contract PoolVotingTest is ShareTransferTestBase {
         shareMarket.reviewSale(address(pool), id, 4 ether, false);
     }
 
-    function test_platformCanFinallyRejectBelowMarketProposal() public {
+    function test_platformCanFinallyRejectBelowEightyPercentProposal() public {
         _ready();
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
         vm.startPrank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         shareMarket.reviewSale(address(pool), id, 4 ether, false);
         vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
         shareMarket.reviewSale(address(pool), id, 4 ether, true);
@@ -521,7 +567,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         voting.executeSale(id);
     }
 
-    function test_singleOwnerCannotBypassBelowMarketPlatformReview() public {
+    function test_singleOwnerCannotBypassBelowEightyPercentPlatformReview() public {
         _transfer(BOB, ALICE, 26);
         _transfer(CAROL, ALICE, 25);
         _ready();
@@ -529,7 +575,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(ALICE, id, true);
         vm.prank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
     }

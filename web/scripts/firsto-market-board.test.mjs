@@ -11,16 +11,28 @@ import {
 
 test('per-miner daily-capacity prices distinguish exact seller ask and buyer total', () => {
   const data = dataFixture(), quote = marketQuoteView(data.quote, data.now);
-  const expected = (BigInt(data.row.bestAsk.priceWei) * 100_000_000n + 123_456_789n - 1n) / 123_456_789n;
+  const expected = BigInt(data.row.bestAsk.priceWei) * 100_000_000n / 123_456_789n;
   assert.equal(quote.dailyCapacityPriceWei, expected.toString());
   assert.equal(quote.buyerCostWei, data.row.bestAsk.buyerCostWei);
   assert.equal(quote.buyerDailyCapacityPriceWei,
     dailyCapacityPriceWei(data.row.bestAsk.buyerCostWei, data.row.mining.estimated24hAtomic));
   assert.notEqual(quote.dailyCapacityPriceWei, quote.buyerDailyCapacityPriceWei);
-  assert.equal(dailyCapacityPriceWei('1', '300000000'), '1');
+  assert.equal(dailyCapacityPriceWei('1', '300000000'), '0');
   assert.equal(dailyCapacityPriceWei('0', '100000000'), null);
   assert.equal(dailyCapacityPriceWei('1', '0'), null);
   assert.equal(formatMarketAmount(null), '暂不可用');
+});
+
+test('Firsto board floors the real 16736 ask and separately priced buyer total', () => {
+  const data = dataFixture();
+  const quote = marketQuoteView({ ...data.quote, estimated24hAtomic: '432000',
+    ask: { ...data.quote.ask, priceWei: '15000000000000000', buyerCostWei: '15150000000000000' } }, data.now);
+  assert.equal(quote.dailyCapacityPriceWei, '3472222222222222222');
+  assert.equal(quote.buyerDailyCapacityPriceWei, '3506944444444444444');
+  assert.equal(formatMarketAmount(quote.dailyCapacityPriceWei), '3.47222');
+  assert.equal(formatMarketAmount(quote.buyerDailyCapacityPriceWei), '3.50694');
+  assert.equal(dailyCapacityPriceWei('1', '3'), '33333333');
+  assert.equal(dailyCapacityPriceWei('3', '3'), '100000000');
 });
 
 test('stale, changed-owner and invalid mining quotes expose no executable-looking prices', () => {

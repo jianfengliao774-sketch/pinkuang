@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ZeroAddress, toQuantity } from 'ethers';
+import { Interface, ZeroAddress, toQuantity } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { readSaleReviewRequests, refreshSaleReviewRequest } from '../lib/sale-review-requests.mjs';
 import { portfolioFixture, address } from './portfolio-fixture.mjs';
@@ -8,6 +8,7 @@ import { portfolioFixture, address } from './portfolio-fixture.mjs';
 const pool = address(0x1201), otherPool = address(0x1202), portfolio = address(0x1301);
 const child = address(0x1401), collection = address(0x1501), proposer = address(0x1601);
 const hash = digit => `0x${digit.repeat(64)}`;
+const thresholdView = new Interface(['function saleReviewThresholdBps() view returns(uint16)']);
 
 function fixture(options = {}) {
   const base = portfolioFixture(), manifest = base.manifest, config = base.config;
@@ -56,6 +57,11 @@ function fixture(options = {}) {
       const [tx, tag] = params;
       assert.equal(tag, toQuantity(blockNumber));
       assert.equal(tx.from, undefined, 'view reads never simulate a sender transaction');
+      if (tx.data === thresholdView.encodeFunctionData('saleReviewThresholdBps')) {
+        const threshold = tx.to === child ? state.childReviewThresholdBps : state.saleReviewThresholdBps;
+        if (threshold === undefined) throw Error('old implementation');
+        return thresholdView.encodeFunctionResult('saleReviewThresholdBps', [threshold]);
+      }
       const iface = tx.to === manifest.factory ? abi.PoolFactory
         : tx.to === manifest.portfolioFactory ? abi.BudgetPortfolioFactory
           : tx.to === manifest.shareMarket ? abi.ShareMarket
@@ -123,10 +129,41 @@ test('current round requests preserve exact prices, proposer, miner and double-m
   assert(!f.calls.some(call => /estimateGas|sign|send/i.test(call.method)));
 });
 
+test('review requests distinguish an ordinary discount from the actual deployed review threshold', async () => {
+  for (const [threshold, price, required] of [[8000n, 79999n, true], [8000n, 80000n, false],
+    [8000n, 80001n, false], [8000n, 99000n, false], [undefined, 99000n, true]]) {
+    const f = fixture({ saleReviewThresholdBps: threshold, referencePrice: 100000n });
+    f.proposals[0].price = price;
+    const args = { ...f.args, config: { ...f.args.config, displayOnly: true } };
+    const page = await readSaleReviewRequests(args), item = page.items[0];
+    assert.equal(item.saleReviewThresholdBps, threshold ?? 10000n);
+    assert.equal(item.discounted, true); assert.equal(item.reviewRequired, required);
+    assert.equal(item.status, required ? 'pending' : 'no-review'); assert.equal(item.canReview, required);
+    const thresholdCalls = () => f.calls.filter(c => c.method === 'eth_call'
+      && c.params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')).length;
+    assert.equal(thresholdCalls(), 1);
+    await readSaleReviewRequests(args); assert.equal(thresholdCalls(), 1, 'repeat visits use the existing display cache');
+  }
+});
+
+test('budget review requests keep the stricter child rule in a mixed deployment', async () => {
+  for (const [parent, childRule, required] of [[8000n, 8000n, false], [8000n, undefined, true],
+    [undefined, 8000n, true]]) {
+    const f = fixture({ scope: 'portfolio', saleReviewThresholdBps: parent, childReviewThresholdBps: childRule,
+      referencePrice: 100000n });
+    f.childProposals[0].price = 90000n;
+    const item = (await readSaleReviewRequests(f.args)).items[0];
+    assert.equal(item.saleReviewThresholdBps, required ? 10000n : 8000n);
+    assert.equal(item.reviewRequired, required); assert.equal(item.canReview, required);
+    assert.equal(f.calls.filter(c => c.method === 'eth_call'
+      && c.params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')).length, 2);
+  }
+});
+
 test('review status and terminal round states are distinct, missing reads never become pending', async () => {
   for (const [options, status, canReview] of [
     [{ reviewStatus: 1n }, 'approved', true], [{ reviewStatus: 2n }, 'rejected', false],
-    [{ reviewStatus: 2n, referencePrice: 10n }, 'rejected', false],
+    [{ reviewStatus: 2n, referencePrice: 10n }, 'no-review', false],
     [{ referencePrice: 10n }, 'no-review', false], [{ referenceFails: true }, 'reference-missing', false],
     [{ reviewFails: true }, 'review-unavailable', false], [{ reviewStatus: 1n, reviewPrice: 1n }, 'review-unavailable', false],
     [{ poolState: 3n }, 'executed', false],
@@ -186,7 +223,7 @@ test('only the current request is re-read before signing and changed price is re
   assert.equal(latest.status, 'rejected'); assert.equal(latest.canReview, false);
   assert.equal(f.urls.length, 0, 'selected read does not reload any directory');
   const proposalCalls = f.calls.filter(call => call.method === 'eth_call' && call.params[0].to === pool)
-    .map(call => abi.PoolVault.parseTransaction(call.params[0])).filter(call => call.name === 'getProposal');
+    .map(call => abi.PoolVault.parseTransaction(call.params[0])).filter(call => call?.name === 'getProposal');
   assert(proposalCalls.every(call => call.args[0] === 1n), 'unselected candidates are not re-read');
   f.proposals[0].price += 1n;
   await assert.rejects(refreshSaleReviewRequest({ ...f.args, item: selected }), /价格已变化/);

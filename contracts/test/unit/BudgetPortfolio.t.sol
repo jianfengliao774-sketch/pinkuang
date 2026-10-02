@@ -643,7 +643,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.claimBem(), pending);
     }
 
-    function test_belowMarketSaleNeedsPlatformReviewAfterDoubleMajority() public {
+    function test_belowEightyPercentSaleNeedsPlatformReviewAfterDoubleMajority() public {
         _subscribe(ALICE, 29);
         _subscribe(BOB, 30);
         _subscribe(CAROL, 41);
@@ -658,7 +658,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.voteChildSale(id, true);
         vm.prank(BOB);
         project.voteChildSale(id, true);
-        _saleReference(5 ether);
+        _saleReference(6 ether);
         vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
         project.executeChildSale(id);
         uint256 childProposalId = PoolVault(payable(address(pool))).nextProposalId();
@@ -717,7 +717,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.voteChildSale(id, true);
         vm.prank(BOB);
         project.voteChildSale(id, true);
-        _saleReference(5 ether);
+        _saleReference(6 ether);
         vm.prank(OPERATOR);
         project.reviewChildSale(id, true);
 
@@ -760,15 +760,73 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.voteChildSale(id, true);
         vm.prank(BOB);
         project.voteChildSale(id, true);
-        _saleReference(5 ether);
+        _saleReference(6 ether);
         vm.prank(OPERATOR);
         project.reviewChildSale(id, false);
         assertEq(project.childSaleReview(id), 2);
         vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
         project.executeChildSale(id);
-        _saleReference(3 ether);
+        _saleReference(5 ether);
         project.executeChildSale(id);
         assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function _passedChildSaleAtPrice(uint256 price) private returns (uint256 id) {
+        _subscribe(ALICE, 29);
+        _subscribe(BOB, 30);
+        _subscribe(CAROL, 41);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(ALICE);
+        id = project.proposeChildSale(address(pool), price, 0, 0);
+        vm.prank(ALICE);
+        project.voteChildSale(id, true);
+        vm.prank(BOB);
+        project.voteChildSale(id, true);
+    }
+
+    function test_childAtEightyPercentListsWithoutAnyPlatformReview() public {
+        uint256 id = _passedChildSaleAtPrice(4 ether);
+        _saleReference(5 ether);
+        assertEq(project.saleReviewThresholdBps(), 8000);
+        assertEq(PoolVault(payable(address(pool))).saleReviewThresholdBps(), 8000);
+        vm.prank(OPERATOR);
+        vm.expectRevert(BudgetPortfolioVault.InvalidProposal.selector);
+        project.reviewChildSale(id, true);
+        project.executeChildSale(id);
+        (uint8 review,) = coreShareMarket.saleReview(address(pool), PoolVault(payable(address(pool))).listedProposalId());
+        assertEq(review, 0, "no child approval is recorded for an 80% sale");
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_childOneWeiBelowEightyPercentRequiresAndPropagatesReview() public {
+        uint256 price = 4 ether - 1;
+        uint256 id = _passedChildSaleAtPrice(price);
+        _saleReference(5 ether);
+        vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
+        project.executeChildSale(id);
+        vm.prank(OPERATOR);
+        project.reviewChildSale(id, true);
+        project.executeChildSale(id);
+        (uint8 review, uint128 reviewedPrice) =
+            coreShareMarket.saleReview(address(pool), PoolVault(payable(address(pool))).listedProposalId());
+        assertEq(review, 1);
+        assertEq(reviewedPrice, price);
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Listed));
+    }
+
+    function test_childFractionalWeiReferenceDoesNotTruncateReviewBoundary() public {
+        uint256 id = _passedChildSaleAtPrice(80);
+        _saleReference(101);
+        vm.expectRevert(BudgetPortfolioVault.ProposalNotPassed.selector);
+        project.executeChildSale(id);
+        vm.prank(OPERATOR);
+        project.reviewChildSale(id, true);
+        project.executeChildSale(id);
+        assertEq(PoolVault(payable(address(pool))).salePrice(), 80);
     }
 
     function test_atOrAboveReferenceCannotBeReviewedAndListsAfterDoubleMajority() public {
@@ -813,7 +871,7 @@ contract BudgetPortfolioTest is FundingTestBase {
             vm.prank(BOB);
             project.voteChildSale(id, true);
         }
-        _saleReference(5 ether);
+        _saleReference(6 ether);
         PlatformAuthority authority = new PlatformAuthority(
             address(poolFactory), address(portfolios), vm.addr(0xA11CE), vm.addr(0xB0B), address(0xFEE)
         );

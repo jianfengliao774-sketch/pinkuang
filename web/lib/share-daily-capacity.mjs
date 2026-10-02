@@ -35,19 +35,19 @@ export function parseMinerDisplayMetadata(mining) {
     miningClassification: classification, hashPower: classification ? weight.toString() : null });
 }
 
-/** Buyer price per one whole BEM of estimated daily output, rounded up by at most one wei. */
+/** Whole-miner equivalent per one BEM/day, using Firsto's integer floor convention. */
 export function shareDailyCapacityPriceWei(pricePerUnitWei, estimated24hAtomic) {
   const price = uint(pricePerUnitWei), daily = uint(estimated24hAtomic);
   if (daily === 0n) throw new Error('Estimated daily BEM output is unavailable.');
   const numerator = price * TOTAL_SHARES * BEM_ATOMIC_PER_TOKEN;
-  return (numerator + daily - 1n) / daily;
+  return numerator / daily;
 }
 
 /** Whole-miner price / this NFT's gross daily output; never a class average. */
 export function minerDailyCapacityPriceWei(priceWei, estimated24hAtomic) {
   const price = uint(priceWei), daily = uint(estimated24hAtomic);
   if (daily === 0n) throw new Error('Estimated daily BEM output is unavailable.');
-  return (price * BEM_ATOMIC_PER_TOKEN + daily - 1n) / daily;
+  return price * BEM_ATOMIC_PER_TOKEN / daily;
 }
 
 /** Display quote only. Bids, expired orders and another NFT's asks cannot supply its price. */
