@@ -1,7 +1,8 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync, mkdirSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
+import { Contract, FetchRequest, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
+import { createRuntimeRpcProvider } from '../shared/runtime-rpc-selection.mjs';
 import { acquireKeeperLock, acquireWalletLock, createKeeperRuntime, KEEPER_STATE_ROOT,
   readJournal, runKeeperCycle, writeJournal } from './purchase-keeper.mjs';
 import { createFreshWorkerReadiness } from './fresh-worker-readiness.mjs';
@@ -178,9 +179,10 @@ export async function main(args = process.argv.slice(2)) {
     }
   };
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
-  const request = new FetchRequest(options.rpc); request.timeout = 15_000;
-  const provider = new JsonRpcProvider(request);
+  let provider = null;
   try {
+    const request = new FetchRequest(options.rpc); request.timeout = 15_000;
+    provider = await createRuntimeRpcProvider(request);
     let signer = null;
     let freshGuard = null, fresh = null;
     if (options.freshGraph) {
@@ -219,7 +221,7 @@ export async function main(args = process.argv.slice(2)) {
   } finally {
     stop();
     await Promise.all([...state.runtimes.values()].flatMap(runtime => [runtime.refreshTask, runtime.autoOfficial?.refreshTask, runtime.autoFirsto?.refreshTask]).filter(Boolean));
-    provider.destroy(); process.off('SIGINT', stop); process.off('SIGTERM', stop); releaseFactory();
+    provider?.destroy(); process.off('SIGINT', stop); process.off('SIGTERM', stop); releaseFactory();
   }
 }
 
