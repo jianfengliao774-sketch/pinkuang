@@ -46,21 +46,45 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
     'Fresh machine source head must be an explicit lowercase forty-character commit.');
   const machineSourceHead=config.machineSourceHead??config.sourceHead;
   need(typeof machineReader==='function','Fresh product machine readiness reader is required.');
-  return async(provider,graph,block)=>{
-    const identity=freshGraphIdentity(graph),m=config.manifest;
+  const m=config.manifest;
+  const readIndex=async()=>{
+    const signal=AbortSignal.timeout(5000);
+    while(true) {
+      signal.throwIfAborted();
+      const response=await fetcher(config.indexUrl,{cache:'no-store',signal});
+      need(response.ok,'Fresh index health is unavailable.');
+      const bytes=await response.text();signal.throwIfAborted();
+      need(bytes.length<=65536,'Fresh index health is oversized.');
+      const source=JSON.parse(bytes).source;signal.throwIfAborted();
+      const valid=source?.chainId===56 && same(source.factory,m.factory) && same(source.market,m.shareMarket)
+        && same(source.portfolioFactory,m.portfolioFactory) && same(source.portfolioMarket,m.portfolioMarket)
+        && source.startBlock===m.deployment.blockNumber && Number.isSafeInteger(source.indexedThrough)
+        && source.indexedThrough>=m.verifiedBlockNumber && Number.isSafeInteger(source.observedSafeHead)
+        && source.observedSafeHead>=source.indexedThrough && HASH.test(source.indexedBlockHash)
+        && Number.isSafeInteger(source.indexedTimestamp) && now()/1000-source.indexedTimestamp>=0
+        && now()/1000-source.indexedTimestamp<=90;
+      need(valid,'Fresh index is incomplete, stale or belongs to another graph.');
+      if(source.complete===true && !source.unknownReason && source.indexedThrough===source.observedSafeHead)return source;
+      need(source.complete===false && source.unknownReason==='index_refreshing',
+        'Fresh index is incomplete, stale or belongs to another graph.');
+      // Wait only on the fixed local health surface; its existing sync task does
+      // the work. Every response and pause shares the original five-second budget.
+      await new Promise((resolve,reject)=>{
+        const finish=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);resolve();};
+        const abort=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);reject(signal.reason);};
+        const timer=setTimeout(finish,100);signal.addEventListener('abort',abort,{once:true});
+        if(signal.aborted)abort();
+      });
+    }
+  };
+  const graphIdentity=graph=>{
+    const identity=freshGraphIdentity(graph);
     assertFreshIdentity(identity,{chainId:56,artifactDigest:m.artifactDigest,factory:m.factory,market:m.shareMarket,
       portfolioFactory:m.portfolioFactory,portfolioMarket:m.portfolioMarket,authority:m.authority,
       authorityCodehash:m.freshAuthority.codehash,gasWallet:m.gasWallet});
-    // Consume the index body inside its own timeout. The independent machine
-    // proof may take longer than five seconds; leaving the body unread until
-    // that proof finishes lets Fetch abort an already successful response.
-    const readIndex=async()=>{
-      const response=await fetcher(config.indexUrl,{cache:'no-store',signal:AbortSignal.timeout(5000)});
-      need(response.ok,'Fresh index health is unavailable.');
-      const bytes=await response.text();need(bytes.length<=65536,'Fresh index health is oversized.');
-      return JSON.parse(bytes).source;
-    };
-    const [source,machine]=await Promise.all([readIndex(),machineReader()]);
+    return identity;
+  };
+  const validate=async(provider,identity,block,source,machine)=>{
     try {need(source?.chainId===56 && source.complete===true && !source.unknownReason
       && same(source.factory,m.factory) && same(source.market,m.shareMarket)
       && same(source.portfolioFactory,m.portfolioFactory) && same(source.portfolioMarket,m.portfolioMarket)
@@ -99,6 +123,24 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
       && same((await provider.getBlock(block.number))?.hash,block.hash),'Fresh readiness chain changed.');
     return {ready:true,indexedThrough:source.indexedThrough,checkedAt:now()};
   };
+  const gate=async(provider,graph,block)=>{
+    const identity=graphIdentity(graph);
+    // Fully consume the body during its own timeout, even if the independent
+    // machine proof takes longer. Existing three-argument callers remain valid.
+    const [source,machine]=await Promise.all([readIndex(),machineReader()]);
+    return validate(provider,identity,block,source,machine);
+  };
+  gate.prepareIndex=async()=>{
+    // Capture this request's index before the caller pins its graph block. An
+    // index that advances during the graph proof cannot become its future tip.
+    const source=await readIndex();let used=false;
+    return async(provider,graph,block)=>{
+      need(!used,'Fresh index validation has already been used.');used=true;
+      const identity=graphIdentity(graph),machine=await machineReader();
+      return validate(provider,identity,block,source,machine);
+    };
+  };
+  return gate;
 }
 
 export const FRESH_AUTHORITY_ONLY = new Set(['createPool','createPoolWithExpiry','createFlexiblePool',

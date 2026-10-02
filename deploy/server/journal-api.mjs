@@ -355,6 +355,10 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
   const decoded = decodeProduct(record);
   try {
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'Product RPC is not BSC mainnet.');
+    const needsFreshServices=!isFreshWalletAction(record.targetType,decoded.name,record.value)
+      && !FRESH_AUTHORITY_ONLY.has(decoded.name) && !['factory','portfolioFactory'].includes(record.targetType);
+    const preparedFreshVerifier=needsFreshServices && typeof freshProductVerifier?.prepareIndex==='function'
+      ? await freshProductVerifier.prepareIndex() : null;
     const block = await provider.getBlock('latest');
     if (!block?.hash) fail(503, 'Product block is unavailable.');
     const tag = `0x${block.number.toString(16)}`;
@@ -369,7 +373,7 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
       // Registered targets, canonical calldata, exact value, fees and nonce
       // are still verified below; operator calls keep their service proof.
       if (!isFreshWalletAction(record.targetType, decoded.name, record.value))
-        await freshProductVerifier(provider, graph, block);
+        await (preparedFreshVerifier??freshProductVerifier)(provider, graph, block);
     }
     // This selector does not exist on the independently pinned genesis Factory.
     // A stale page must not reserve a nonce for candidate-only calldata before
@@ -1641,8 +1645,10 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   async function operationalBody(body) {
     if (!freshProductVerifier || body.stage !== 'fresh-active') return body;
     try {
+      const verifier=typeof freshProductVerifier.prepareIndex==='function'
+        ? await freshProductVerifier.prepareIndex() : freshProductVerifier;
       const block=await officialProvider.getBlock('latest');
-      await freshProductVerifier(officialProvider,lastVerifiedProductGraphSnapshot.graph,block);
+      await verifier(officialProvider,lastVerifiedProductGraphSnapshot.graph,block);
       return {...body,operationalReady:true};
     } catch { return {...body,operationalReady:false}; }
   }
@@ -2044,9 +2050,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     },
     async verifyFreshOperationalReadiness() {
       if (closed || !freshProductVerifier || !officialProvider) fail(503, 'Fresh product operations are not enabled.');
+      const verifier=typeof freshProductVerifier.prepareIndex==='function'
+        ? await freshProductVerifier.prepareIndex() : freshProductVerifier;
       const block = await officialProvider.getBlock('latest');
       const graph = await graphVerifier(officialProvider,trustedProduct.record.addresses.factory,block);
-      return freshProductVerifier(officialProvider,graph,block);
+      return verifier(officialProvider,graph,block);
     },
     handle(req, res) {
       const task = respond(req, res);
