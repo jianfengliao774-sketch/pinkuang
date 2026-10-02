@@ -1798,7 +1798,7 @@ export default function LivePlatform() {
     }
     return result;
     } catch (problem) {
-      if (!enteredRelay) throw Object.assign(new Error(textError(problem)), { beforeWalletSubmission: true });
+      if (!enteredRelay) throw Object.assign(new Error(textError(problem), { cause: problem }), { beforeWalletSubmission: true });
       throw problem;
     }
   }
