@@ -63,10 +63,21 @@ export function fullTestSaleConfiguration(env,runtime,{stateRoot=FULL_TEST_STATE
   return {salePolicyCatalogPath,salePolicyArtifactPath,nativeSaleCatalogPath,nativeSaleArtifactPath,firstoAskPublisher};
 }
 
+/** Keep the test primary and local index fixed while reusing operator-configured read backups. */
+export function fullTestReadProxyConfiguration(env,runtime) {
+  const {logsRpcUrl,fallbackRpcUrl}=runtime.liveDataProxyConfiguration({
+    BEMINE_READ_RPC_URL:env.FULL_TEST_RPC_URL,
+    CHAIN_INDEX_LOGS_RPC_URL:env.CHAIN_INDEX_LOGS_RPC_URL,
+    BEMINE_READ_FALLBACK_RPC_URL:env.BEMINE_READ_FALLBACK_RPC_URL,
+  });
+  return {logsRpcUrl,fallbackRpcUrl};
+}
+
 /** Isolated public API. All trust enters through its private journal and the bound test build. */
 export async function createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,
   stateRoot=FULL_TEST_STATE,origin=FULL_TEST_ORIGIN,gasWalletProofReader,freshProductReadinessReader,
   authorityRelayFactory,assertInputsCurrent=()=>{},allowTemporaryState=false,manageIndex=false,now=Date.now,
+  readProxyConfiguration={},
   salePolicyCatalogPath,salePolicyArtifactPath,nativeSaleCatalogPath,nativeSaleArtifactPath,firstoAskPublisher=null}={}) {
   if(!runtime || !provider || typeof rpcUrl!=='string' || !/^https:\/\//.test(rpcUrl))
     throw new Error('Full-test requires its isolated runtime and HTTPS read provider.');
@@ -75,6 +86,9 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
   if(!allowTemporaryState && resolve(stateRoot)!==FULL_TEST_STATE)throw new Error('Full-test state must use its dedicated directory.');
   reviewedUpgradePaths(salePolicyCatalogPath,salePolicyArtifactPath,'sale policy');
   reviewedUpgradePaths(nativeSaleCatalogPath,nativeSaleArtifactPath,'native sale');
+  if(!readProxyConfiguration || typeof readProxyConfiguration!=='object' || Array.isArray(readProxyConfiguration)
+    || Object.keys(readProxyConfiguration).some(key=>!['logsRpcUrl','fallbackRpcUrl'].includes(key)))
+    throw new Error('Full-test read proxy accepts only configured logs and fallback destinations.');
   const trustedProfile=validateFullTestProfile(profile,bundle,artifactDigest),binding=profileDigest(trustedProfile);
   const state=privateDirectory(stateRoot),journalPath=join(state,'journal.sqlite'),activePath=join(state,'activation-state.json');
   if(firstoAskPublisher && firstoAskPublisher.intentDbPath!==journalPath)
@@ -90,7 +104,8 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
     genesisBundle:bundle,expectedGasWallet:trustedProfile.roles.gasWallet,gasWalletProofReader,
     freshConsolePreGenesis:false,freshStage2Hold:false});
   let active=null,indexService=null,productJournal=null,relayService=null,activating=null,closed=false;
-  const rpcProxy=runtime.createLiveDataProxy({rpcUrl,indexUrl:'http://127.0.0.1:4204'});
+  const proxyConfiguration={...readProxyConfiguration,rpcUrl,indexUrl:'http://127.0.0.1:4204'};
+  const rpcProxy=runtime.createLiveDataProxy(proxyConfiguration);
   let activeProxy=null;
   const streams=new Set(),requests=new Set();
   let readinessPending=null,readiness={ready:false,checkedAt:null};
@@ -187,7 +202,7 @@ export async function createFullTestService({runtime,profile,bundle,artifactDige
         freshProduct:freshProductReadinessReader?freshProduct:null,freshProductReadinessReader,
         freshConsolePreGenesis:false,freshStage2Hold:true});
       if(authorityRelayFactory)nextRelay=await authorityRelayFactory(nextJournal);
-      activeProxy=runtime.createLiveDataProxy({rpcUrl,logsRpcUrl:rpcUrl,indexUrl:'http://127.0.0.1:4204',
+      activeProxy=runtime.createLiveDataProxy({...proxyConfiguration,
         feeHistoryLogScope:{authority:m.authority,deploymentBlock:m.deployment.blockNumber}});
       indexService=nextIndex;productJournal=nextJournal;relayService=nextRelay;
     } catch(error) {await Promise.allSettled([nextIndex?.close(),nextJournal?.close(),nextRelay?.close()]);throw error;}
@@ -316,8 +331,9 @@ export async function startFullTestServer({env=process.env,runtime:providedRunti
   // credential. A missing private test process leaves Stage 2 unverified.
   const ipc=runtime.authorityIpcConfiguration(env);
   const saleConfiguration=fullTestSaleConfiguration(env,runtime);
+  const readProxyConfiguration=fullTestReadProxyConfiguration(env,runtime);
   const service=await createFullTestService({runtime,profile,bundle,artifactDigest,provider,rpcUrl,assertInputsCurrent,
-    ...saleConfiguration,
+    ...saleConfiguration,readProxyConfiguration,
     gasWalletProofReader:ipc?runtime.createGasSignerProofReader(ipc):undefined,
     freshProductReadinessReader:ipc?runtime.createFreshProductReadinessReader(ipc):undefined,
     authorityRelayFactory:ipc && env.AUTHORITY_RELAY_PUBLIC_ENABLED==='1'

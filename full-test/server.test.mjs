@@ -5,7 +5,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { createFullTestService, fullTestSaleConfiguration } from './server.mjs';
+import { createFullTestService, fullTestReadProxyConfiguration, fullTestSaleConfiguration } from './server.mjs';
+import { createLiveDataProxy, liveDataProxyConfiguration } from '../deploy/server/live-data-proxy.mjs';
 import { FULL_TEST_COOKIE, FULL_TEST_COOKIE_PATH, FULL_TEST_TIMINGS, validateFullTestProfile } from './server-profile.mjs';
 import { createJournalService } from '../deploy/server/journal-api.mjs';
 const {Wallet}=createRequire(new URL('../deploy/package.json',import.meta.url))('ethers');
@@ -38,7 +39,8 @@ function inputs() {
   return {profile,bundle,record,activation,graph};
 }
 async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
- saleConfiguration={},verifyReadiness=async()=>{throw new Error('Workers are not ready.');}}={}) {
+ saleConfiguration={},readProxyConfiguration={},proxyFetcher,
+ verifyReadiness=async()=>{throw new Error('Workers are not ready.');}}={}) {
   const state=directory??await mkdtemp(join(tmpdir(),'bemine-full-test-'));
   let deploymentRevision=1,activationRevision=1,graphFailure=false,closedIndex=0,starts=0,proofs=0;
   const calls=[],journals=[],graphConfigurations=[];
@@ -60,12 +62,14 @@ async function fixture({input=inputs(),directory,manageIndex=true,now=Date.now,
     startChainIndex:async config=>{starts++;assert.equal(config.port,4204);assert.equal(config.host,'127.0.0.1');
       assert.ok(config.dbPath.startsWith(state));assert.equal(config.freshCodehashes.length,11);
       return {close:async()=>{closedIndex++;}};},
-    createLiveDataProxy(config){assert.equal(config.indexUrl,'http://127.0.0.1:4204');return {handle:async(_req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({localProxy:true}));}};},
+    createLiveDataProxy(config){assert.equal(config.indexUrl,'http://127.0.0.1:4204');
+      if(proxyFetcher)return createLiveDataProxy({...config,fetcher:proxyFetcher});
+      return {handle:async(_req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({localProxy:true}));}};},
     proxyFirsto:async(_req,res)=>res.end(),
   };
   const provider={getBlock:async id=>({number:id==='latest'?150:id,hash:hash(id==='latest'?150:id)})};
   const service=await createFullTestService({runtime,profile:input.profile,bundle:input.bundle,artifactDigest,provider,
-    rpcUrl:'https://test-read.example/',stateRoot:state,origin,allowTemporaryState:true,manageIndex,
+    rpcUrl:'https://test-read.example/',stateRoot:state,origin,allowTemporaryState:true,manageIndex,readProxyConfiguration,
     ...(typeof saleConfiguration==='function'?saleConfiguration(state):saleConfiguration),
     freshProductReadinessReader:async()=>({ready:false}),now});
   const server=createServer((req,res)=>void service.handle(req,res));
@@ -92,6 +96,49 @@ test('unconfigured test site exposes no formal manifest, index, or product journ
     assert.equal(f.journals[0].sessionCookieName,FULL_TEST_COOKIE);assert.equal(f.journals[0].sessionCookiePath,FULL_TEST_COOKIE_PATH);
     assert.equal(f.journals[0].freshConsolePreGenesis,false);assert.equal(f.journals[0].gasWalletAddressReader,undefined);
   }finally{await f.close();}
+});
+
+test('test read proxy configuration preserves the test primary and ignores formal and index destinations',()=>{
+  const env={FULL_TEST_RPC_URL:'https://test-read.example/',BEMINE_READ_RPC_URL:'https://formal-read.example/',
+    DEPLOYMENT_JOURNAL_RPC_URL:'https://formal-journal.example/',CHAIN_INDEX_LOGS_RPC_URL:'https://logs.example/',
+    BEMINE_READ_FALLBACK_RPC_URL:'https://fallback.example/',BEMINE_INDEX_URL:'http://127.0.0.1:4180'};
+  let selected;
+  const config=fullTestReadProxyConfiguration(env,{liveDataProxyConfiguration(value){
+    selected=value;return liveDataProxyConfiguration(value);
+  }});
+  assert.deepEqual(selected,{BEMINE_READ_RPC_URL:env.FULL_TEST_RPC_URL,
+    CHAIN_INDEX_LOGS_RPC_URL:env.CHAIN_INDEX_LOGS_RPC_URL,BEMINE_READ_FALLBACK_RPC_URL:env.BEMINE_READ_FALLBACK_RPC_URL});
+  assert.deepEqual(config,{logsRpcUrl:env.CHAIN_INDEX_LOGS_RPC_URL,fallbackRpcUrl:env.BEMINE_READ_FALLBACK_RPC_URL});
+  assert.deepEqual(fullTestReadProxyConfiguration({FULL_TEST_RPC_URL:env.FULL_TEST_RPC_URL},
+    {liveDataProxyConfiguration}),{logsRpcUrl:env.FULL_TEST_RPC_URL,fallbackRpcUrl:null});
+  assert.throws(()=>fullTestReadProxyConfiguration({...env,BEMINE_READ_FALLBACK_RPC_URL:'file:///tmp/other'},
+    {liveDataProxyConfiguration}),/fixed HTTP/);
+});
+
+test('test RPC recovers current reads through its configured backup before and after activation',async()=>{
+  const destinations=[],backup='https://fallback.example/';
+  const f=await fixture({readProxyConfiguration:{logsRpcUrl:backup,fallbackRpcUrl:backup},
+    proxyFetcher:async(url,options)=>{
+      const request=JSON.parse(options.body);destinations.push({url,method:request.method});
+      if(request.method==='eth_chainId')return new Response(JSON.stringify({jsonrpc:'2.0',id:request.id,result:'0x38'}),
+        {headers:{'content-type':'application/json'}});
+      if(url!==backup)return new Response('<html>Forbidden</html>',{status:403,headers:{'content-type':'text/html'}});
+      return new Response(JSON.stringify({jsonrpc:'2.0',id:request.id,result:'0x04'}),{headers:{'content-type':'application/json'}});
+    }});
+  const read={jsonrpc:'2.0',id:7,method:'eth_call',params:[{to:address(10),data:'0xc19d93fb'},'latest']};
+  try{
+    const before=await f.request('/api/rpc',{body:read});assert.equal(before.status,200);assert.equal(before.body.result,'0x04');
+    assert.equal((await f.request()).status,200);
+    const after=await f.request('/api/rpc',{body:read});assert.equal(after.status,200);assert.equal(after.body.result,'0x04');
+    assert.equal(destinations.filter(row=>row.url===backup&&row.method==='eth_call').length,2);
+    assert.equal(destinations.filter(row=>row.url==='https://test-read.example/'&&row.method==='eth_call').length,2);
+  }finally{await f.close();}
+});
+
+test('test read proxy configuration cannot replace the pinned primary or local index',async()=>{
+  for(const readProxyConfiguration of [{rpcUrl:'https://other.example/'},{indexUrl:'http://127.0.0.1:4180'}])
+    await assert.rejects(createFullTestService({runtime:{},provider:{},rpcUrl:'https://test-read.example/',
+      readProxyConfiguration,allowTemporaryState:true}),/only configured logs and fallback/);
 });
 
 test('native sale configuration rejects partial or relative catalog pairs and binds publication to the API database',()=>{
