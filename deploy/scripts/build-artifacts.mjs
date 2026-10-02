@@ -139,7 +139,7 @@ export function validateArtifacts(artifacts) {
     }
   }
   const nativeSale=artifacts.PoolVault.abi.some(entry=>entry.type==='function' && entry.name==='nativeFirstoSaleVersion');
-  assert.equal(artifacts.FirstoSale.abi.some(entry=>entry.type==='function' && entry.name==='nativeAskEncoded'),nativeSale,
+  assert.equal(artifacts.FirstoSale.abi.some(entry=>entry.type==='function' && entry.name==='delistingEncoded'),nativeSale,
     'Native Vault and FirstoSale library capabilities disagree.');
   for (const name of libraryNames) assert.deepEqual(dependencies(artifacts[name]), name === 'FlexiblePurchase' ? ['PoolFunds', 'PurchaseValidation'] : name === 'FirstoSale'
     ? nativeSale ? ['MiningOperations','PoolFunds','RewardAccounting','SaleGovernance','SaleSettlement'] : ['SaleSettlement'] : [], `${name} has an unexpected external-library dependency.`);
