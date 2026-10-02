@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { Interface, ZeroHash } from 'ethers';
 import { loadBindings, transform } from 'next/dist/build/swc/index.js';
 import * as upgrade from '../lib/sale-policy-upgrade.mjs';
+import { FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR, FRESH_BALANCE_ENFORCER } from '../../deploy/shared/fresh-activation-execution.mjs';
 
 const require=createRequire(import.meta.url);
 await loadBindings();
@@ -14,12 +15,19 @@ const code=(await transform(await readFile(new URL('../components/FreshSaleUpgra
 })).code;
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0');
+const actual=JSON.parse(await readFile(new URL('./fixtures/sale-upgrade-wrapped-schedule.json',import.meta.url),'utf8'));
+const runtimes=JSON.parse(await readFile(new URL('../../deploy/fixtures/fresh-activation-envelope.json',import.meta.url),'utf8')).runtimeProof;
+const manager=new Interface(['function redeemDelegations(bytes[] permissionContexts,bytes32[] modes,bytes[] executionCallDatas)']);
+const permissionContext=manager.decodeFunctionData('redeemDelegations',actual.tx.input)[0][0];
 const names=['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'];
 const iface=new Interface(['function getMinDelay() view returns(uint256)','function PROPOSER_ROLE() view returns(bytes32)',
   'function hasRole(bytes32,address) view returns(bool)','function getTimestamp(bytes32) view returns(uint256)',
   'function implementation() view returns(address)','function OFFICIAL_FACTORY() view returns(address)',
   'function scheduleBatch(address[],uint256[],bytes[],bytes32,bytes32,uint256)',
-  'function executeBatch(address[],uint256[],bytes[],bytes32,bytes32) payable']);
+  'function executeBatch(address[],uint256[],bytes[],bytes32,bytes32) payable',
+  'event CallScheduled(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data,bytes32 predecessor,uint256 delay)',
+  'event CallExecuted(bytes32 indexed id,uint256 indexed index,address target,uint256 value,bytes data)',
+  'event CallSalt(bytes32 indexed id,bytes32 salt)']);
 const turn=()=>new Promise(resolve=>setImmediate(resolve));
 const catalog={schemaVersion:1,kind:'fresh-sale-policy-upgrade-v1',profile:'full-test',chainId:56,
   genesisArtifactDigest:hash(1),candidateArtifactDigest:hash(2),minimumDelaySeconds:0,
@@ -29,12 +37,14 @@ const catalog={schemaVersion:1,kind:'fresh-sale-policy-upgrade-v1',profile:'full
   libraries:{},artifacts:Object.fromEntries(names.map((name,index)=>[name,{abi:[],bytecode:'0x0'+(index+1),
     deployedBytecode:name==='SaleGovernance'?'0x73'+'00'.repeat(20)+'00':'0x6000',
     linkReferences:{},deployedLinkReferences:{},immutableReferences:{}}]))};
+catalog.bindings.proposer=actual.tx.from;
 
 function fixture(mode='') {
   const store=new Map(),transactions=new Map(),codes=new Map(),contracts=new Map(),listeners=new Map();
   let account=catalog.bindings.proposer,chain='0x38',scheduled=0n,next=100,usedMode=false;
   let implementations={...catalog.expectedImplementations};
   const deployed={},requests=[],broadcasts=[];
+  const runtimeReads=[];
   const putTransaction=(name,{input,status='0x1'}={})=>{
     const id=next++,transactionHash=hash(id),contractAddress=address(id+1000);
     const data=input??upgrade.upgradeDeployment(catalog,name,deployed);
@@ -54,7 +64,12 @@ function fixture(mode='') {
       if(method==='eth_accounts'||method==='eth_requestAccounts')return [account];
       if(method==='eth_getTransactionReceipt')return transactions.get(params[0])?.receipt??null;
       if(method==='eth_getTransactionByHash')return transactions.get(params[0])?.tx??null;
-      if(method==='eth_getCode')return mode==='bad-runtime'?'0x6001':codes.get(params[0].toLowerCase())??'0x';
+      if(method==='eth_getCode'){
+        const fixed=[[FRESH_DELEGATION_MANAGER,'managerCode'],[FRESH_DELEGATOR,'delegatorCode'],[FRESH_BALANCE_ENFORCER,'enforcerCode']]
+          .find(([contract])=>contract.address.toLowerCase()===params[0].toLowerCase());
+        if(fixed){runtimeReads.push(fixed[1]);return mode==='wrapped-bad-runtime'?'0x6001':runtimes[fixed[1]];}
+        return mode==='bad-runtime'?'0x6001':codes.get(params[0].toLowerCase())??'0x';
+      }
       if(method==='eth_getStorageAt')return '0x'+implementations.ShareMarket.slice(2).padStart(64,'0');
       if(method==='eth_getBlockByNumber')return {timestamp:'0x64'};
       if(method==='eth_call'){
@@ -75,7 +90,23 @@ function fixture(mode='') {
         let item;
         if(!tx.to)item=putTransaction(name,{input:tx.data,status:mode==='failed-first'&&!usedMode?'0x0':'0x1'});
         else{
-          const transactionHash=hash(next++);transactions.set(transactionHash,{tx:{...tx,input:tx.data},receipt:{status:'0x1',transactionHash}});
+          const transactionHash=hash(next++),batch=upgrade.upgradeBatch(catalog,deployed),blockHash=hash(8000);
+          const wrapped=mode.startsWith('wrapped');
+          const inner=`0x${catalog.bindings.timelock.slice(2)}${'00'.repeat(32)}${tx.data.slice(2)}`;
+          const input=wrapped?manager.encodeFunctionData('redeemDelegations',[[permissionContext],[ZeroHash],
+            [mode==='wrapped-bad-inner'?'0x'+address(777).slice(2)+inner.slice(42):inner]]):tx.data;
+          const outer={...tx,to:wrapped?FRESH_DELEGATION_MANAGER.address:tx.to,input,
+            hash:transactionHash,nonce:'0x10',type:'0x2',blockNumber:'0x64',blockHash};
+          const eventName=name==='scheduleBatch'?'CallScheduled':'CallExecuted';
+          const logs=batch.targets.map((target,index)=>({address:catalog.bindings.timelock,transactionHash,
+            blockHash,blockNumber:'0x64',removed:false,...iface.encodeEventLog(iface.getEvent(eventName),
+              name==='scheduleBatch'?[batch.operationId,index,target,batch.values[index],
+                mode==='wrapped-wrong-batch'&&index===1?batch.payloads[index]+'00':batch.payloads[index],batch.predecessor,0n]
+                :[batch.operationId,index,target,batch.values[index],batch.payloads[index]])}));
+          if(name==='scheduleBatch')logs.push({address:catalog.bindings.timelock,transactionHash,blockHash,blockNumber:'0x64',removed:false,
+            ...iface.encodeEventLog(iface.getEvent('CallSalt'),[batch.operationId,batch.salt])});
+          transactions.set(transactionHash,{tx:outer,receipt:{status:'0x1',transactionHash,from:outer.from,to:outer.to,
+            blockNumber:'0x64',blockHash,logs}});
           item={hash:transactionHash};
           if(name==='scheduleBatch')scheduled=100n;
           if(name==='executeBatch'){implementations={PoolVault:deployed.PoolVault,BudgetPortfolioVault:deployed.BudgetPortfolioVault,ShareMarket:deployed.ShareMarket};scheduled=1n;}
@@ -90,7 +121,7 @@ function fixture(mode='') {
   const key=`bemine.sale-upgrade.v1:full-test:${catalog.bindings.factory.toLowerCase()}:${catalog.candidateArtifactDigest}:${catalog.bindings.proposer}`;
   const save=record=>store.set(key,JSON.stringify({candidateArtifactDigest:catalog.candidateArtifactDigest,
     account:catalog.bindings.proposer,steps:{},deployed:{},...record}));
-  return {provider,store,requests,broadcasts,key,transactions,codes,putTransaction,save,
+  return {provider,store,requests,broadcasts,key,transactions,codes,putTransaction,save,runtimeReads,
     get record(){return JSON.parse(store.get(key)||'null');},
     switchAccount(value){account=value;listeners.get('accountsChanged')?.([value]);},
     switchChain(value){chain=value;listeners.get('chainChanged')?.(value);},
@@ -208,5 +239,72 @@ test('a forged failed status for a successful exact deployment is reconciled wit
   const ui=harness(state);try{await ui.connect();await ui.click('重试已失败交易');
     assert.equal(ui.error(),'');assert.equal(state.broadcasts.length,5);
     assert.equal(state.record.deployed.SaleGovernance.toLowerCase(),tx.address);
+  }finally{ui.dispose();}
+});
+
+test('the actual panel accepts the fixed signed wallet envelope for schedule and execute and reads runtimes once',async()=>{
+  const ui=harness(fixture('wrapped'));try{await ui.connect();await ui.run();
+    assert.equal(ui.error(),'');assert.equal(ui.state.broadcasts.length,6);
+    assert.equal(ui.state.record.steps.schedule.status,'confirmed');assert.equal(ui.state.record.steps.execute.status,'confirmed');
+    assert.deepEqual(ui.state.runtimeReads.sort(),['delegatorCode','enforcerCode','managerCode']);
+    assert(ui.notices().some(message=>String(message).includes('链上启用')));
+  }finally{ui.dispose();}
+});
+
+async function savedBatch(state,execute=false){
+  const steps={},deployed={};
+  for(const name of names){const tx=state.putTransaction(name);deployed[name]=tx.address;steps[name]={hash:tx.hash,status:'confirmed'};}
+  const batch=upgrade.upgradeBatch(catalog,deployed),schedule=upgrade.scheduleUpgradeTransaction(catalog,batch,0n);
+  const scheduleHash=await state.provider.request({method:'eth_sendTransaction',params:[{...schedule,from:catalog.bindings.proposer,value:'0x0',chainId:'0x38'}]});
+  steps.schedule={hash:scheduleHash,status:'submitted'};
+  if(execute){const transaction=upgrade.executeUpgradeTransaction(catalog,batch);
+    steps.execute={hash:await state.provider.request({method:'eth_sendTransaction',params:[{...transaction,from:catalog.bindings.proposer,value:'0x0',chainId:'0x38'}]}),status:'submitted'};}
+  state.save({steps,deployed});state.broadcasts.length=0;
+}
+
+test('reload restores the successfully wrapped schedule step and sends only the remaining execute',async()=>{
+  const state=fixture('wrapped');await savedBatch(state);const ui=harness(state);
+  try{await ui.connect();await ui.run();assert.equal(ui.error(),'');
+    assert.deepEqual(state.broadcasts.map(item=>item.name),['executeBatch']);
+    assert.equal(state.record.steps.schedule.status,'confirmed');assert.equal(state.record.steps.execute.status,'confirmed');
+  }finally{ui.dispose();}
+});
+
+test('an already completed wrapped batch reconciles both saved hashes before reporting success without sending again',async()=>{
+  const state=fixture('wrapped');await savedBatch(state,true);const ui=harness(state);
+  try{await ui.connect();await ui.run();assert.equal(ui.error(),'');assert.equal(state.broadcasts.length,0);
+    assert.equal(state.record.steps.schedule.status,'confirmed');assert.equal(state.record.steps.execute.status,'confirmed');
+    assert(ui.notices().some(message=>String(message).includes('链上启用')));
+    assert(ui.button('继续启用').props.disabled);
+  }finally{ui.dispose();}
+});
+
+for(const mode of ['wrapped-wrong-batch','wrapped-bad-inner','wrapped-bad-runtime'])
+test('the actual panel rejects '+mode+' without another batch transaction',async()=>{
+  const ui=harness(fixture(mode));try{await ui.connect();await ui.run();
+    assert(ui.error());assert.equal(ui.state.broadcasts.length,5);
+    assert.equal(ui.state.record.steps.schedule.status,'submitted');
+    await ui.run();assert.equal(ui.state.broadcasts.length,5);
+    assert.equal(ui.notices().some(message=>String(message).includes('链上启用')),false);
+  }finally{ui.dispose();}
+});
+
+test('completed state with an incorrect execute event cannot claim success or resend an executed batch',async()=>{
+  const state=fixture('wrapped');await savedBatch(state,true);
+  state.transactions.get(state.record.steps.execute.hash).receipt.logs[1].topics[1]=hash(999);
+  const ui=harness(state);try{await ui.connect();await ui.run();
+    assert.match(ui.error(),/批次事件/);assert.equal(state.broadcasts.length,0);
+    assert.equal(state.record.steps.schedule.status,'confirmed');assert.equal(state.record.steps.execute.status,'submitted');
+    assert.equal(ui.notices().some(message=>String(message).includes('链上启用')),false);
+    assert(!ui.button('继续启用').props.disabled);
+  }finally{ui.dispose();}
+});
+
+test('operation done and matching implementations require the execute hash before completion is reported',async()=>{
+  const state=fixture('wrapped');await savedBatch(state,true);const record=state.record;delete record.steps.execute;state.save(record);
+  const ui=harness(state);try{await ui.connect();await ui.run();assert.match(ui.error(),/填写启用升级/);
+    assert.equal(state.broadcasts.length,0);assert.equal(state.record.steps.execute.status,'unknown');
+    assert(ui.nodes().some(node=>node.type==='input'&&node.props['aria-label']==='启用升级交易哈希'));
+    assert.equal(ui.notices().some(message=>String(message).includes('链上启用')),false);
   }finally{ui.dispose();}
 });

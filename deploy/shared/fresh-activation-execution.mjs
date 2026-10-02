@@ -125,6 +125,45 @@ function checkContext(context, account) {
   requireThat(same(signer, account), 'delegation_signature');
 }
 
+function checkSingleWrapper({ account, target, data, tx, input, runtimeProof }) {
+  requireThat(same(tx.to, FRESH_DELEGATION_MANAGER.address), 'wrapper_target');
+  requireThat(tx.type === 2 && (!tx.authorizationList || tx.authorizationList.length === 0), 'wrapper_type');
+  checkRuntime(runtimeProof);
+  const decoded = MANAGER.decodeFunctionData('redeemDelegations', input);
+  requireThat(same(MANAGER.encodeFunctionData('redeemDelegations', decoded), input), 'wrapper_noncanonical');
+  const [contexts, modes, executions] = decoded;
+  requireThat(contexts.length === 1 && modes.length === 1 && executions.length === 1, 'execution_count');
+  requireThat(same(modes[0], ZERO_MODE), 'execution_mode');
+  checkContext(contexts[0], account);
+  requireThat(same(executions[0], `0x${target.slice(2)}${'00'.repeat(32)}${data.slice(2)}`), 'inner_execution');
+  return { kind: 'wrapped', manager: FRESH_DELEGATION_MANAGER.address,
+    delegator: FRESH_DELEGATOR.address, contextHash: keccak256(contexts[0]) };
+}
+
+/** Exact direct call or the fixed, signed MetaMask single-call envelope. No result is inferred from calldata alone. */
+export function decodeFreshSingleCallEnvelope({ account: rawAccount, target: rawTarget, data: rawData, tx, receipt, runtimeProof }) {
+  const account = address(rawAccount, 'account'), target = address(rawTarget, 'target'), data = bytes(rawData, 'expected_data');
+  requireThat(tx && receipt, 'missing_transaction');
+  requireThat(uint(tx.chainId, 'chain') === 56n && same(tx.from, account), 'transaction_identity');
+  requireThat(uint(tx.value, 'value') === 0n, 'outer_value');
+  const transactionHash = hash(tx.hash, 'tx_hash');
+  requireThat(same(transactionHash, hash(receipt.hash ?? receipt.transactionHash, 'receipt_hash')), 'receipt_transaction');
+  requireThat(same(receipt.from, tx.from) && same(receipt.to, tx.to), 'receipt_identity');
+  requireThat(uint(receipt.blockNumber, 'receipt_block') > 0n
+    && uint(tx.blockNumber, 'tx_block') === uint(receipt.blockNumber, 'receipt_block')
+    && same(hash(tx.blockHash, 'tx_block_hash'), hash(receipt.blockHash, 'receipt_block_hash')), 'receipt_block_binding');
+  requireThat(receipt.status === 0 || receipt.status === 1, 'receipt_status');
+  const input = bytes(tx.data, 'transaction_data');
+  const base = { transactionHash, target, innerDataHash: keccak256(data),
+    nonce: safeNumber(tx.nonce, 'tx_nonce'), blockNumber: safeNumber(receipt.blockNumber, 'receipt_block'),
+    blockHash: receipt.blockHash, status: receipt.status };
+  if (same(tx.to, target)) {
+    requireThat(same(input, data), 'direct_data');
+    return { ...base, kind: 'direct' };
+  }
+  return { ...base, ...checkSingleWrapper({ account, target, data, tx, input, runtimeProof }) };
+}
+
 /**
  * Exact envelope identity, including reverted transactions. A reverted envelope
  * does not prove execution: callers must verify unchanged pre/post permission
@@ -153,21 +192,9 @@ export function decodeFreshActivationEnvelope({ record, step, tx, receipt, expec
     requireThat(same(input, plan.data), 'direct_data');
     return { ...base, kind: 'direct' };
   }
-  requireThat(same(tx.to, FRESH_DELEGATION_MANAGER.address), 'wrapper_target');
   // The observed wallet sends type 2 after installing its delegation. Supporting
   // type 4 would also require proving every authorization; fail closed here.
-  requireThat(tx.type === 2 && (!tx.authorizationList || tx.authorizationList.length === 0), 'wrapper_type');
-  checkRuntime(runtimeProof);
-  const decoded = MANAGER.decodeFunctionData('redeemDelegations', input);
-  requireThat(same(MANAGER.encodeFunctionData('redeemDelegations', decoded), input), 'wrapper_noncanonical');
-  const [contexts, modes, executions] = decoded;
-  requireThat(contexts.length === 1 && modes.length === 1 && executions.length === 1, 'execution_count');
-  requireThat(same(modes[0], ZERO_MODE), 'execution_mode');
-  checkContext(contexts[0], record.account);
-  // ERC-7579 single execution is target(20) || value(32) || exact callData.
-  requireThat(same(executions[0], `0x${plan.target.slice(2)}${'00'.repeat(32)}${plan.data.slice(2)}`), 'inner_execution');
-  return { ...base, kind: 'wrapped', manager: FRESH_DELEGATION_MANAGER.address,
-    delegator: FRESH_DELEGATOR.address, contextHash: keccak256(contexts[0]) };
+  return { ...base, ...checkSingleWrapper({ account: record.account, target: plan.target, data: plan.data, tx, input, runtimeProof }) };
 }
 
 /** Successful execution additionally needs one exact Factory role change event. */
