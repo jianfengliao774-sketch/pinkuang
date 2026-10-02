@@ -4,7 +4,7 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
-import {Interface,ZeroAddress} from 'ethers';
+import {Interface,ZeroAddress,keccak256} from 'ethers';
 import {ChainIndex,chainIndexInterfaces as interfaces} from './indexer.mjs';
 import {createChainIndexServer} from './api.mjs';
 const addr=n=>`0x${n.toString(16).padStart(40,'0')}`,hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
@@ -14,7 +14,7 @@ const abi=new Interface(['function shareMarket() view returns(address)','functio
   'function designatedSubscriber(address) view returns(address)',
   'function poolCount() view returns(uint256)','function portfolioCount() view returns(uint256)','function childCount() view returns(uint256)',
   'function nextOrderId() view returns(uint256)','function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)']);
-function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMode='required',dbPath=':memory:'}={}) {
+function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMode='required',dbPath=':memory:',fresh=false,pruned=false}={}) {
   const events=[];let reorg=false;const state={wrongBinding:false,missingChild:false,incomplete:false,upgraded:false};
   const reservedPools=new Set(reservationMode==='required'?[pool,...Array.from({length:extraReserved},(_,i)=>addr(11+i))]:[]);
   const block=n=>({number:n,hash:hash(n+(reorg&&n>=5?1000:0)),parentHash:hash(n-1+(reorg&&n>5?1000:0)),timestamp:1800000000+n});
@@ -37,11 +37,12 @@ function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMo
     getLogs:async({address,fromBlock,toBlock,topics})=>events.filter(e=>e.blockNumber>=fromBlock&&e.blockNumber<=toBlock&&(!reorg||e.blockNumber<5)
       &&[address].flat().includes(e.address)&&topics[0].includes(e.topics[0])&&!(state.missingChild&&e.address===portfolio&&e.blockNumber===5)),
     call:async({to,data,blockTag})=>{assert(Number.isSafeInteger(blockTag));const call=abi.parseTransaction({data});
+      if(pruned && blockTag<6)throw new Error('missing trie node');
       if(call.name==='childInfo')return abi.encodeFunctionResult(call.name,[collection,7,500,true,false]);
       if(call.name==='designatedSubscriber'){
         if(reservationMode==='legacy'&&!state.upgraded)
           throw Object.assign(new Error('unknown selector'),{code:'CALL_EXCEPTION',data:'0x'});
-        if(reservationMode==='required')assert.equal(blockTag,1,'the reservation is verified at its creation block');
+        if(reservationMode==='required')assert.equal(blockTag,fresh?6:1,'reservation uses confirmed permanent identity only for pinned fresh graphs');
         return abi.encodeFunctionResult(call.name,[reservedPools.has(call.args[0].toLowerCase())?portfolio:ZeroAddress]);
       }
       const values={shareMarket:to===factory?market:portfolioMarket,factory:to===market?factory:portfolioFactory,
@@ -50,9 +51,58 @@ function fixture({purchase=true,ordinaryPool=false,extraReserved=0,reservationMo
         childCount:state.incomplete?2n:reorg||!purchase?0n:1n,nextOrderId:1n};
       return abi.encodeFunctionResult(call.name,[values[call.name]]);}};
   const index=new ChainIndex(provider,{dbPath,factory,market,portfolioFactory,portfolioMarket,
-    reservationMode,startBlock:1,confirmations:2});
+    reservationMode,startBlock:1,confirmations:2,scanRange:fresh?2:100,
+    ...(fresh?{freshCodehashes:Array.from({length:11},(_,i)=>({address:addr(i+1),expected:keccak256('0x6000')}))}: {})});
   return {index,state,provider,event,reorg(){reorg=true;}};
 }
+
+test('fresh catch-up indexes creations and child purchases with pruned historical state',async()=>{
+  const f=fixture({fresh:true,pruned:true,ordinaryPool:true});
+  try{
+    await f.index.sync();
+    assert.equal(f.index.status().complete,true);
+    assert.equal(f.index.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n,2);
+    assert.equal(f.index.portfolioChildren(portfolio).items[0].costWei,'500');
+    assert.equal(f.index.db.prepare('SELECT designated_subscriber AS subscriber FROM pools WHERE address=?').get(pool).subscriber,portfolio);
+    assert.equal(f.index.db.prepare('SELECT created_block AS block FROM pools WHERE address=?').get(ordinary).block,1);
+    f.index.db.prepare('UPDATE pools SET designated_subscriber=NULL').run();
+    f.index.reservationMigrationPending=true;
+    await f.index.sync();
+    assert.equal(f.index.status().complete,true,'reservation backfill also avoids pruned creation state');
+  }finally{f.index.close();}
+});
+
+test('unpinned graphs retain historical registration reads',async()=>{
+  const f=fixture({pruned:true});
+  try{
+    await assert.rejects(f.index.sync(),/missing trie node/);
+    assert.equal(f.index.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n,0);
+  }finally{f.index.close();}
+});
+
+test('fresh permanent registration proof rejects a changing confirmed head',async()=>{
+  const f=fixture({fresh:true,pruned:true});
+  const call=f.provider.call;
+  f.provider.call=async request=>{
+    const result=await call(request);
+    if(abi.parseTransaction(request).name==='designatedSubscriber') f.reorg();
+    return result;
+  };
+  try{
+    await assert.rejects(f.index.sync(),/Registration proof block changed/);
+    assert.equal(f.index.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n,0);
+  }finally{f.index.close();}
+});
+
+test('fresh permanent registration does not accept noncanonical creation logs',async()=>{
+  const f=fixture({fresh:true,pruned:true});
+  const getLogs=f.provider.getLogs;
+  f.provider.getLogs=async filter=>(await getLogs(filter)).map(log=>log.address===factory?{...log,blockHash:hash(999)}:log);
+  try{
+    await assert.rejects(f.index.sync(),/creation block changed/);
+    assert.equal(f.index.db.prepare('SELECT COUNT(*) AS n FROM pools').get().n,0);
+  }finally{f.index.close();}
+});
 test('review decisions are indexed and attributed to their pool, project and operator',async()=>{
   const f=fixture();
   try {

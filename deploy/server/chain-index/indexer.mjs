@@ -345,6 +345,25 @@ export class ChainIndex {
     return binding.decodeFunctionResult(method, result)[0];
   }
 
+  async _registrationProof(historicalBlock) {
+    // The reviewed fresh contracts only set registration, subscriber and child
+    // purchase identity at creation. Read those permanent fields at the confirmed
+    // head so catch-up does not require archive state. Events still establish the
+    // historical creation/purchase block; mutable balances and sold state do not
+    // use this proof. Unpinned/legacy deployments retain historical reads.
+    if (!this.freshCodehashes || this.reservationMode !== 'required') return null;
+    if (this.freshCodehashVerifiedAt === null || this.observedSafeHead < historicalBlock)
+      throw new Error('Fresh registration proof is not verified.');
+    const header = normalizeBlock(await this.provider.getBlock(this.observedSafeHead));
+    if (header.number !== this.observedSafeHead) throw new Error('Registration proof block differs.');
+    return header;
+  }
+
+  async _verifyRegistrationProof(proof) {
+    if (proof && normalizeBlock(await this.provider.getBlock(proof.number)).hash !== proof.hash)
+      throw new Error('Registration proof block changed before index commit.');
+  }
+
   async _backfillPoolReservations() {
     if (!this.reservationMigrationPending) return;
     const rows = this.db.prepare('SELECT address,created_block AS createdBlock FROM pools WHERE designated_subscriber IS NULL ORDER BY created_block,address').all();
@@ -353,9 +372,11 @@ export class ChainIndex {
       const saved = this._header(row.createdBlock);
       if (!saved || normalizeBlock(await this.provider.getBlock(row.createdBlock)).hash !== saved.hash)
         throw new Error('Legacy pool creation block is not canonical.');
+      const proof = await this._registrationProof(row.createdBlock);
       const subscriber = this.reservationMode === 'required'
-        ? getAddress(await this._call(this.factory, 'designatedSubscriber', [row.address], row.createdBlock)).toLowerCase()
+        ? getAddress(await this._call(this.factory, 'designatedSubscriber', [row.address], proof?.number ?? row.createdBlock)).toLowerCase()
         : ZeroAddress.toLowerCase();
+      await this._verifyRegistrationProof(proof);
       if (normalizeBlock(await this.provider.getBlock(row.createdBlock)).hash !== saved.hash)
         throw new Error('Legacy pool creation block changed during reservation proof.');
       resolved.push({ address: row.address, subscriber });
@@ -584,13 +605,18 @@ export class ChainIndex {
     const [factoryLogs, marketLogs, portfolioFactoryLogs, portfolioMarketLogs] = globalReads.map(result => result.value);
     const existing = this.db.prepare('SELECT address FROM pools').all().map(row => row.address);
     const created = [];
+    let registrationProof;
+    const registrationBlock = async () => {
+      if (registrationProof === undefined) registrationProof = await this._registrationProof(toBlock);
+      return registrationProof?.number ?? toBlock;
+    };
     this.lastScanPhase = 'registration';
     for (const log of factoryLogs.filter(log => log.name === 'PoolCreated')) {
       const pool = exactAddress(log.args.pool);
       if (!existing.includes(pool) && !created.some(entry => entry.address === pool)) {
-        if (!(await this._call(this.factory, 'isPool', [pool], toBlock))) throw new Error('Factory event is not registered on-chain.');
+        if (!(await this._call(this.factory, 'isPool', [pool], await registrationBlock()))) throw new Error('Factory event is not registered on-chain.');
         const designatedSubscriber = this.reservationMode === 'required'
-          ? getAddress(await this._call(this.factory, 'designatedSubscriber', [pool], log.blockNumber)).toLowerCase()
+          ? getAddress(await this._call(this.factory, 'designatedSubscriber', [pool], registrationProof?.number ?? log.blockNumber)).toLowerCase()
           : ZeroAddress.toLowerCase();
         if (normalizeBlock(await this.provider.getBlock(log.blockNumber)).hash !== log.blockHash)
           throw new Error('Pool creation block changed during reservation proof.');
@@ -608,9 +634,10 @@ export class ChainIndex {
       for (const log of factoryEvents) {
         const address=exactAddress(log.args.portfolio);
         if (known.includes(address) || newPortfolios.some(row=>row.address===address)) throw new Error('Duplicate budget project.');
-        if (!await this._call(this.portfolioFactory,'isPool',[address],toBlock)
-          || exactAddress(await this._call(address,'OFFICIAL_FACTORY',[],toBlock))!==this.portfolioFactory
-          || exactAddress(await this._call(address,'legacyFactory',[],toBlock))!==this.factory)
+        const proofBlock = await registrationBlock();
+        if (!await this._call(this.portfolioFactory,'isPool',[address],proofBlock)
+          || exactAddress(await this._call(address,'OFFICIAL_FACTORY',[],proofBlock))!==this.portfolioFactory
+          || exactAddress(await this._call(address,'legacyFactory',[],proofBlock))!==this.factory)
           throw new Error('Budget project is not registered to the configured graph.');
         newPortfolios.push({address,createdBlock:log.blockNumber,...log.args});
       }
@@ -621,7 +648,7 @@ export class ChainIndex {
         const child=exactAddress(log.args.child);
         if (!corePools.has(child) || this.db.prepare('SELECT 1 FROM portfolio_children WHERE address=?').get(child)
           || newChildren.some(row=>row.address===child)) throw new Error('Unknown or duplicate budget child miner.');
-        const raw=await this.provider.call({to:log.address,data:binding.encodeFunctionData('childInfo',[child]),blockTag:toBlock});
+        const raw=await this.provider.call({to:log.address,data:binding.encodeFunctionData('childInfo',[child]),blockTag:await registrationBlock()});
         const info=binding.decodeFunctionResult('childInfo',raw);
         if (exactAddress(info.collection)!==exactAddress(log.args.collection) || String(info.tokenId)!==log.args.tokenId
           || String(info.purchaseCost)!==log.args.cost || info.official!==log.args.official)
@@ -646,6 +673,7 @@ export class ChainIndex {
     if (canonicalTip.number !== toBlock || canonicalTip.hash !== headers.at(-1).hash) {
       throw new Error('Chain changed before index commit.');
     }
+    await this._verifyRegistrationProof(registrationProof);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const insertHeader = this.db.prepare('INSERT INTO headers(number,hash,parent_hash,timestamp) VALUES(?,?,?,?)');
