@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import test from 'node:test';
 import { Interface, ZeroAddress, keccak256, toQuantity } from 'ethers';
-import { chainIndexFailureMessage, refreshDisplayCaches, serverConfiguration, startChainIndex } from './server.mjs';
+import { chainIndexFailureMessage, chainIndexSyncDelay, refreshDisplayCaches, serverConfiguration, startChainIndex } from './server.mjs';
 import { createFreshIndexManifest, freshIndexManifestBytes, freshIndexManifestSha256 } from './fresh-manifest.mjs';
 import { ChainIndex } from './indexer.mjs';
 
@@ -54,6 +54,13 @@ test('production configuration keeps HTTPS and loopback requirements', () => {
     CHAIN_INDEX_PORTFOLIO_MARKET:config('').market,CHAIN_INDEX_RESERVATION_MODE:'required'}).reservationMode,'required');
   assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_RESERVATION_MODE:'auto'}),/reservation mode/);
   assert.equal(serverConfiguration(env).scanRange, 100);
+  assert.equal(serverConfiguration(env).maxBlocksPerSync,2000);
+  assert.equal(serverConfiguration(env).headerConcurrency,64);
+  assert.equal(serverConfiguration({...env,CHAIN_INDEX_MAX_BLOCKS_PER_SYNC:'500',CHAIN_INDEX_HEADER_CONCURRENCY:'32'}).headerConcurrency,32);
+  for(const value of ['0','2001','-1','1.5','02'])
+    assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_MAX_BLOCKS_PER_SYNC:value}),/blocks per sync/);
+  for(const value of ['0','65','-1','1.5','08'])
+    assert.throws(()=>serverConfiguration({...env,CHAIN_INDEX_HEADER_CONCURRENCY:value}),/concurrency/);
   assert.equal(serverConfiguration(env).logsTimeoutMs, 12_000);
   for (const timeout of ['12000', '15000', '30000'])
     assert.equal(serverConfiguration({ ...env, CHAIN_INDEX_LOGS_TIMEOUT_MS: timeout }).logsTimeoutMs, Number(timeout));
@@ -99,6 +106,7 @@ test('fresh v4 index derives all addresses and start block only from a pinned ma
     assert.equal(config.portfolioFactory,manifest.portfolioFactory);
     assert.equal(config.portfolioMarket,manifest.portfolioMarket);
     assert.equal(config.startBlock,115);
+    assert.equal(config.maxBlocksPerSync,2000);assert.equal(config.headerConcurrency,64);
     assert.equal(config.reservationMode,'required');
     assert.equal(config.freshCodehashes.length,11);
     assert.deepEqual(config.freshCodehashes.at(-1),{address:manifest.authority,expected:manifest.freshAuthority.codehash});
@@ -172,7 +180,7 @@ test('sync failure diagnostics identify a bounded RPC method without leaking pro
 const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',
   'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
 const hex = number => `0x${number.toString(16).padStart(64, '0')}`;
-function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', chainIdFailure = false, firstLogsDelayMs = 0 } = {}) {
+function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', chainIdFailure = false, firstLogsDelayMs = 0, latestNumber = 4 } = {}) {
   const calls = [];
   let delayed = false;
   const server = createServer(async (request, response) => {
@@ -192,7 +200,7 @@ function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, log
       } else {
         assert.equal(logs, false, 'header/call/code request reached the logs-only RPC');
         if (payload.method === 'eth_getBlockByNumber') {
-          const number = payload.params[0] === 'latest' ? 4 : Number(BigInt(payload.params[0]));
+          const number = payload.params[0] === 'latest' ? latestNumber : Number(BigInt(payload.params[0]));
           result = { number: toQuantity(number), hash: hex(number), parentHash: hex(number - 1),
             timestamp: toQuantity(1_800_000_000 + number), nonce: '0x0000000000000000', difficulty: '0x0',
             gasLimit: '0x1c9c380', gasUsed: '0x0', extraData: '0x', miner: ZeroAddress, transactions: [] };
@@ -222,6 +230,28 @@ async function until(check, ms = 2_000) {
   const deadline = performance.now() + ms;
   while (!check()) { assert(performance.now() < deadline, 'condition did not settle'); await new Promise(resolve => setTimeout(resolve, 10)); }
 }
+
+test('successful bounded catch-up continues without a one-second pause and stops scheduling when closed', async()=>{
+  const primary=rpcFixture({latestNumber:38}),logs=rpcFixture({logs:true});let service;
+  try {
+    const rpc=await listen(primary.server),logsRpc=await listen(logs.server);
+    service=await startChainIndex({...config(rpc),logsRpc,scanRange:12,maxBlocksPerSync:12,headerConcurrency:64});
+    await until(()=>service.index.status().complete);
+    const latestReads=primary.calls.filter(row=>row.method==='eth_getBlockByNumber'&&row.params[0]==='latest');
+    assert.equal(latestReads.length,3);
+    for(let i=1;i<latestReads.length;i++)assert(latestReads[i].at-latestReads[i-1].at<900,
+      'a successful progress cycle must yield and continue without polling delay');
+    assert.equal(service.index.indexedThrough,36);
+    assert.equal(service.index.db.prepare('SELECT COUNT(*) AS n FROM headers').get().n,36);
+    await service.close();const count=primary.calls.length+logs.calls.length;
+    await new Promise(resolve=>setTimeout(resolve,100));
+    assert.equal(primary.calls.length+logs.calls.length,count);
+  } finally {await service?.close();await stop(primary.server);await stop(logs.server);}
+  assert.equal(chainIndexSyncDelay({complete:false,progressed:false}),1000,'idle incomplete state is bounded');
+  assert.equal(chainIndexSyncDelay({complete:true,progressed:true}),10000);
+  assert.equal(chainIndexSyncDelay({failures:1,progressed:true}),4000,'partial progress must not bypass failure backoff');
+  assert.equal(chainIndexSyncDelay({failures:5}),60000);
+});
 
 test('separate RPC routes headers/calls to primary and only logs to its verified logs endpoint', async () => {
   const primary = rpcFixture(), logs = rpcFixture({ logs: true }); let service;

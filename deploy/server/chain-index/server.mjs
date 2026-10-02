@@ -39,6 +39,12 @@ const logsTimeout = value => {
   return timeout;
 };
 
+// Catch-up yields to other requests after each bounded sync. Only observed
+// progress qualifies; an incomplete but idle index must not busy-loop.
+export function chainIndexSyncDelay({ failures = 0, complete = false, progressed = false }) {
+  return failures ? Math.min(60_000,4_000*2**(failures-1)) : complete ? 10_000 : progressed ? 0 : 1_000;
+}
+
 export function serverConfiguration(env = process.env) {
   const saleReferenceStatusPath = env.SALE_REFERENCE_STATUS_PATH || null;
   if (saleReferenceStatusPath !== null && !isAbsolute(saleReferenceStatusPath))
@@ -59,6 +65,10 @@ export function serverConfiguration(env = process.env) {
   if (port < 1 || port > 65535) throw new Error('Invalid port.');
   const scanRange = exactNumber(env.CHAIN_INDEX_SCAN_RANGE ?? '100', 'scan range');
   if (scanRange < 1 || scanRange > 500) throw new Error('Scan range must be between 1 and 500 blocks.');
+  const maxBlocksPerSync = exactNumber(env.CHAIN_INDEX_MAX_BLOCKS_PER_SYNC ?? '2000','maximum blocks per sync');
+  if (maxBlocksPerSync < 1 || maxBlocksPerSync > 2000) throw new Error('Maximum blocks per sync must be between 1 and 2000.');
+  const headerConcurrency = exactNumber(env.CHAIN_INDEX_HEADER_CONCURRENCY ?? '64','header concurrency');
+  if (headerConcurrency < 1 || headerConcurrency > 64) throw new Error('Header concurrency must be between 1 and 64.');
   const mode=env.CHAIN_INDEX_MODE || 'legacy';
   if (!['legacy','fresh-v4'].includes(mode)) throw new Error('Invalid chain-index mode.');
   const dbPath=required(env,'CHAIN_INDEX_DB');
@@ -75,7 +85,7 @@ export function serverConfiguration(env = process.env) {
     const manifest=loadFreshIndexManifest(manifestPath,
       required(env,'CHAIN_INDEX_FRESH_MANIFEST_SHA256'));
     return {rpc,logsRpc,fallbackLogsRpc,logsTimeoutMs:logsTimeout(env.CHAIN_INDEX_LOGS_TIMEOUT_MS),saleReferenceStatusPath,firstoAskStatusPath,
-      host,port,dbPath,scanRange,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
+      host,port,dbPath,scanRange,maxBlocksPerSync,headerConcurrency,confirmations:exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12','confirmations'),
       factory:manifest.factory,market:manifest.shareMarket,lens:manifest.lens,
       portfolioFactory:manifest.portfolioFactory,portfolioMarket:manifest.portfolioMarket,
       startBlock:manifest.deployment.blockNumber,reservationMode:'required',
@@ -93,7 +103,7 @@ export function serverConfiguration(env = process.env) {
     ...(env.CHAIN_INDEX_PORTFOLIO_FACTORY?{portfolioFactory:env.CHAIN_INDEX_PORTFOLIO_FACTORY,portfolioMarket:env.CHAIN_INDEX_PORTFOLIO_MARKET}:{}),
     reservationMode,
     market: required(env, 'CHAIN_INDEX_MARKET'), startBlock: exactNumber(required(env, 'CHAIN_INDEX_START_BLOCK'), 'start block'),
-    confirmations: exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12', 'confirmations'), scanRange };
+    confirmations: exactNumber(env.CHAIN_INDEX_CONFIRMATIONS || '12', 'confirmations'), scanRange, maxBlocksPerSync, headerConcurrency };
 }
 
 function readProvider(rpc, timeout = 12_000) {
@@ -228,13 +238,16 @@ export async function startChainIndex(config) {
   let consecutiveFailures = 0;
   async function tick() {
     if (stopped) return;
+    const previousBlock = index.indexedThrough;
+    const previousBackfill = index.eventTopicBackfill?.nextBlock;
     try { await index.sync(); consecutiveFailures = 0; if (!displayCache && !portfolioReads) displayEvents.publish(); }
     catch (error) {
       consecutiveFailures = Math.min(consecutiveFailures + 1, 5);
       console.error(chainIndexFailureMessage(index, error));
     }
-    const delay = consecutiveFailures ? Math.min(60_000, 4_000 * 2 ** (consecutiveFailures - 1))
-      : index.status().complete ? 10_000 : 1_000;
+    const delay = chainIndexSyncDelay({failures:consecutiveFailures,complete:index.status().complete,
+      progressed:index.indexedThrough>previousBlock || previousBackfill !== undefined
+        && (index.eventTopicBackfill===null || index.eventTopicBackfill?.nextBlock>previousBackfill)});
     if (!stopped) timer = setTimeout(() => { running = tick(); }, delay);
   }
   const refreshDisplay=async()=>{
