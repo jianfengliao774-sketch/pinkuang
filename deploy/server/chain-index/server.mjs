@@ -1,3 +1,4 @@
+import { freshRuntimeLayout } from '../../shared/fresh-runtime-identity.mjs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname, isAbsolute } from 'node:path';
 import { PoolDisplayCache } from './pool-display-cache.mjs';
@@ -73,14 +74,18 @@ export function serverConfiguration(env = process.env) {
   if (!['legacy','fresh-v4'].includes(mode)) throw new Error('Invalid chain-index mode.');
   const dbPath=required(env,'CHAIN_INDEX_DB');
   if (mode==='fresh-v4') {
+    const layout=freshRuntimeLayout(env);
     for (const key of ['CHAIN_INDEX_FACTORY','CHAIN_INDEX_MARKET','CHAIN_INDEX_PORTFOLIO_FACTORY',
       'CHAIN_INDEX_PORTFOLIO_MARKET','CHAIN_INDEX_START_BLOCK','CHAIN_INDEX_RESERVATION_MODE']) {
       if (env[key] !== undefined) throw new Error(`${key} cannot override the fresh manifest.`);
     }
-    if (env.NODE_ENV==='production' && dbPath!=='/var/lib/pinkuang-index-v4/index.sqlite')
+    if (env.NODE_ENV==='production' && dbPath!==`/var/lib/pinkuang-index-v${layout.version}/index.sqlite`)
       throw new Error('Fresh v4 index requires its independent database path.');
     const manifestPath=required(env,'CHAIN_INDEX_FRESH_MANIFEST_PATH');
-    if (env.NODE_ENV==='production' && !/^\/srv\/pinkuang-deploy-v4\/releases\/v4-[a-z0-9][a-z0-9-]{1,70}\/public\/fresh-product-manifest\.json$/.test(manifestPath))
+    const manifestPattern=layout.version==='5'
+      ? /^\/srv\/pinkuang-v5\/releases\/v5-[a-z0-9][a-z0-9-]{1,70}\/public\/fresh-product-manifest\.json$/
+      : /^\/srv\/pinkuang-deploy-v4\/releases\/v4-[a-z0-9][a-z0-9-]{1,70}\/public\/fresh-product-manifest\.json$/;
+    if (env.NODE_ENV==='production' && !manifestPattern.test(manifestPath))
       throw new Error('Fresh v4 index requires a release-pinned manifest path.');
     const manifest=loadFreshIndexManifest(manifestPath,
       required(env,'CHAIN_INDEX_FRESH_MANIFEST_SHA256'));

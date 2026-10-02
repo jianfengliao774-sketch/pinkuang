@@ -1,3 +1,4 @@
+import { FRESH_RUNTIME } from '../shared/fresh-runtime-identity.mjs';
 import { existsSync, lstatSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
@@ -9,8 +10,8 @@ import { readKeeperPrivateKey } from './keeper-credential.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
 import { ORIGINAL_GAS_WALLET, requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 
-export const V4_AUTHORITY_JOURNAL = '/var/lib/pinkuang-v4-signer/authority/authority.json';
-export const V4_KEEPER_STATE_ROOT = '/var/lib/pinkuang-v4-signer/keeper';
+export const V4_AUTHORITY_JOURNAL = FRESH_RUNTIME.authorityJournal;
+export const V4_KEEPER_STATE_ROOT = FRESH_RUNTIME.keeperRoot;
 export const AUTHORITY_RECOVERY_UNIT = 'pinkuang-v4-authority-recovery.service';
 export const AUTHORITY_RECOVERY_SENDERS = Object.freeze([
   'pinkuang-purchase-v2.service', 'pinkuang-v4-signer.service', 'pinkuang-v4-purchase.service',
@@ -41,7 +42,7 @@ export function requireAuthorityCliIsolation(options, env = process.env, keeperS
 
 /** A fixed spelling must not resolve through a link into a legacy state tree. */
 export function requireAuthorityPrivatePaths(paths = [
-  ['/var/lib/pinkuang-v4-signer', 'directory'], [V4_KEEPER_STATE_ROOT, 'directory'],
+  [FRESH_RUNTIME.signerRoot, 'directory'], [V4_KEEPER_STATE_ROOT, 'directory'],
   [dirname(V4_AUTHORITY_JOURNAL), 'directory'], [V4_AUTHORITY_JOURNAL, 'file'],
 ]) {
   for (const [path, kind] of paths) {

@@ -1,20 +1,21 @@
 import { loadFreshIndexManifest } from './chain-index/fresh-manifest.mjs';
-import { freshRuntimeSource,freshGraphIdentity,assertFreshIdentity,need,same,HASH } from '../shared/fresh-runtime-identity.mjs';
+import { freshRuntimeLayout,freshRuntimeSource,freshGraphIdentity,assertFreshIdentity,need,same,HASH } from '../shared/fresh-runtime-identity.mjs';
 
 export function freshProductConfiguration(env=process.env) {
   if(env.BEMINE_FRESH_PRODUCT_ENABLED===undefined || env.BEMINE_FRESH_PRODUCT_ENABLED==='0')return null;
+  const layout=freshRuntimeLayout(env);
   need(env.BEMINE_FRESH_PRODUCT_ENABLED==='1' && env.BEMINE_FRESH_CONSOLE_PRE_GENESIS==='0'
-    && env.BEMINE_FRESH_STAGE2_HOLD==='1' && env.HOST==='127.0.0.1' && env.PORT==='4187'
+    && env.BEMINE_FRESH_STAGE2_HOLD==='1' && env.HOST==='127.0.0.1' && env.PORT===layout.apiPort
     && env.AUTHORITY_RELAY_PUBLIC_ENABLED==='1' && env.AUTHORITY_RELAY_ENABLED==='0',
   'Fresh product mode requires its separate 4187 process and private relay proxy.');
-  need(env.BEMINE_INDEX_URL==='http://127.0.0.1:4184','Fresh product requires the dedicated v4 index.');
+  need(env.BEMINE_INDEX_URL===`http://127.0.0.1:${layout.indexPort}`,'Fresh product requires the dedicated v4 index.');
   const machineSourceHead=env.BEMINE_FRESH_MACHINE_SOURCE_HEAD;
   need(machineSourceHead===undefined || typeof machineSourceHead==='string' && /^[0-9a-f]{40}$/.test(machineSourceHead),
     'Fresh machine source head must be an explicit lowercase forty-character commit.');
   const manifest=loadFreshIndexManifest(env.BEMINE_FRESH_PRODUCT_MANIFEST_PATH,env.BEMINE_FRESH_PRODUCT_MANIFEST_SHA256),
     sourceHead=freshRuntimeSource();
   return {manifest,sourceHead,machineSourceHead:machineSourceHead??sourceHead,
-    indexUrl:'http://127.0.0.1:4184/health'};
+    indexUrl:`http://127.0.0.1:${layout.indexPort}/health`};
 }
 
 export function validateFreshProductBindings(config,trusted,factories) {

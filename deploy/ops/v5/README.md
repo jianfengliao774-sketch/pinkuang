@@ -30,17 +30,36 @@ These are the existing `shared/fresh-roles.mjs` values; no new private key is re
 
 Build and package from committed source using `deploy/scripts/package-fresh-console.mjs`. Install the adjacent unit and nginx snippet; add the snippet inside the existing tapeout HTTPS server, validate nginx, then reload. The older snippets and services stay unchanged. Rollback removes only the v5 include and stops `pinkuang-deploy-v5`.
 
-## Remaining product activation requirements
+## Formal product activation
 
-2026-10-02 update: the live v5 journal now records all 16 bootstrap and 7 Authority
-steps confirmed. Public receipts and addresses are in `mainnet-deployment.json`.
-The new website/index are not active yet. At the user's request, old/test sites
-(including v4) were temporarily paused; their assets and recovery records are
-preserved under [the retirement runbook](../retired-20261002/README.md).
+The v5 journal records all 16 bootstrap and 7 Authority steps confirmed. Public
+receipts are in `mainnet-deployment.json`. `live-graph-verification.json` is an
+independent mainnet verification at block 125317258 against the deployed Solidity
+artifacts. `frontend-manifest.json` and `fresh-activation.json` bind the website,
+API, index and workers to this new graph. Whole-miner timing is three days.
 
-1. Obtain the actual latest website sources: live formal static release identifies `d90f5f09cd0a63c9321abcf080f60d5fc8ae9e75`, test identifies `1f3c3809ca442965dba98987478afe91260bc8c1`. Neither commit was present in either Git remote or available checkouts during preparation. This branch starts from formal `5785c04`; do not describe its website as the exact latest live source.
-2. Export and independently verify the completed mainnet graph, then derive its pinned manifest from the confirmed deployment and activation records.
-3. Prepare `/bemine-v5/`, its separate cache/index and backend from that manifest, using the recovered latest website source. Old v4 remains temporarily closed until the user requests recovery; do not reopen it as part of v5 activation.
-4. Coordinate the shared Gas wallet through one nonce journal before enabling new background senders. Never run two independent nonce managers for this account. The pre-genesis console installed here does not send Gas-wallet transactions.
+The product is rebuilt from this branch's committed source. Historical static
+releases labelled d90f5f09cd0a63c9321abcf080f60d5fc8ae9e75 (formal) and
+1f3c3809ca442965dba98987478afe91260bc8c1 (test) did not include recoverable Git
+source in either accessible remote. This build does not claim byte-for-byte
+identity with those old static assets; its exact source commit is included in
+both release manifests. The source includes the merged live community UI,
+5-row records, server display caches, transaction submission fixes and native
+Firsto sale support. Old site binaries and asset recovery evidence remain saved.
 
-No v5 mainnet receipts or final product manifest are asserted by the local evidence.
+`runtime/` contains the isolated v5 systemd/nginx templates. Replace `@RUNTIME@`
+with the immutable `/srv/pinkuang-v5/releases/v5-product-<commit>` release and
+`@INDEX_SHA@` with that package's index manifest digest. v5 API/index ports are
+4227/4224, each with a new database. Internal `fresh-v4` schema labels describe
+the existing protocol, not the website namespace or contract identity.
+
+All v5 senders use one new v5 wallet lock domain, after the v2/v4 senders have
+stopped and their terminal transactions and pending nonce have been verified.
+The signer replaces the paused v4 attestor on its existing protected IPC socket,
+which also keeps the separate v5 deployment console functional. Protected Gas
+and HMAC credentials are supplied by systemd and never packaged or committed.
+
+The old v4 and test sites remain paused under
+[the retirement runbook](../retired-20261002/README.md). Their two NFT assets and
+contracts are unchanged. Rollback stops only v5 services, restores the attestor
+and removes only the v5 nginx include; it does not reopen any old site.

@@ -47,11 +47,12 @@ export async function loadFreshDisplayConfig({ fetcher = globalThis.fetch,
   pinnedManifest: suppliedManifest, rpcUrl, allowedRpcOrigins = [] } = {}) {
   insist(typeof origin === 'string' && /^https?:\/\//.test(origin) && new URL(origin).origin === origin,
     'invalid_config', '缺少可信网站来源。');
-  insist(basePath === '/bemine-v4' || basePath === '/bemine-v4/',
-    'invalid_config', '正式版只能使用独立的 /bemine-v4/ 路径。');
+  insist(/^\/bemine-v[45]\/?$/.test(basePath),
+    'invalid_config', '正式版必须使用独立的版本路径。');
   insist(hash(manifestSha256), 'fresh_manifest_mismatch', '正式版构建缺少固定的清单摘要。');
-  const base = '/bemine-v4';
-  const manifestUrl = `${origin}${base}/data/frontend-manifest.v4.json`;
+  const base = basePath.replace(/\/$/, '');
+  const version = base.slice(-1);
+  const manifestUrl = `${origin}${base}/data/frontend-manifest.v${version}.json`;
   const rpc = new URL(rpcUrl ?? `${base}/api/rpc`, origin);
   insist(!rpc.username && !rpc.password && !rpc.hash, 'invalid_config', '只读 RPC 配置无效。');
   insist(rpc.origin === origin || rpc.protocol === 'https:' && allowedRpcOrigins.includes(rpc.origin),
@@ -91,10 +92,11 @@ export async function loadFreshLiveConfig({ fetcher = globalThis.fetch,
   rpcUrl, allowedRpcOrigins = [] } = {}) {
   insist(typeof origin === 'string' && /^https?:\/\//.test(origin) && new URL(origin).origin === origin,
     'invalid_config', '缺少可信网站来源。');
-  insist(basePath === '/bemine-v4' || basePath === '/bemine-v4/',
-    'invalid_config', '正式版只能使用独立的 /bemine-v4/ 路径。');
-  const base = '/bemine-v4';
-  const manifestUrl = `${origin}${base}/data/frontend-manifest.v4.json`;
+  insist(/^\/bemine-v[45]\/?$/.test(basePath),
+    'invalid_config', '正式版必须使用独立的版本路径。');
+  const base = basePath.replace(/\/$/, '');
+  const version = base.slice(-1);
+  const manifestUrl = `${origin}${base}/data/frontend-manifest.v${version}.json`;
   const productGraphUrl = `${origin}${base}/api/journal/product-graph`;
   insist(hash(manifestSha256), 'fresh_manifest_mismatch', '正式版构建缺少固定的清单摘要。');
   const [manifestRead, graphRead] = await Promise.allSettled([

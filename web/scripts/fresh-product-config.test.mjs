@@ -3,7 +3,7 @@ import test from 'node:test';
 import { getAddress } from 'ethers';
 import { ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import oldManifest from '../public/data/frontend-manifest.json' with { type: 'json' };
-import { freshManifestDigest, loadFreshLiveConfig, validateFreshManifest,
+import { freshManifestDigest, loadFreshDisplayConfig, loadFreshLiveConfig, validateFreshManifest,
   validateFreshProductGraph } from '../lib/fresh-product-config.mjs';
 import { loadProductConfig, validateCurrentProductGraph } from '../lib/product-config.mjs';
 import { requireCurrentProductStage } from '../lib/live-transactions.mjs';
@@ -140,4 +140,23 @@ test('a recovered service or wallet session does not masquerade as a deployment 
   assert.equal(current.stageActivationHash, config.stageActivationHash);
   await assert.rejects(requireCurrentProductStage({ ...reconnecting, stageActivationHash: hash(999) },
     () => response(recovered)), /链上产品阶段已变化/);
+});
+
+
+test('v5 display and current graph stay in the v5 namespace with no v4 boot requests', async () => {
+  const calls=[];
+  const fetcher=async url=>{calls.push(url);return response(url.endsWith('.v5.json')?manifest:graph);};
+  const options={origin,basePath:'/bemine-v5/',manifestSha256:freshManifestDigest(manifest),fetcher};
+  const display=await loadFreshDisplayConfig({...options,pinnedManifest:manifest});
+  assert.equal(calls.length,0);
+  assert.equal(display.manifestUrl,`${origin}/bemine-v5/data/frontend-manifest.v5.json`);
+  assert.equal(display.rpcUrl,`${origin}/bemine-v5/api/rpc`);
+  const live=await loadFreshLiveConfig(options);
+  assert.equal(live.journalBase,'/bemine-v5/api/journal');
+  assert.equal(live.indexBaseUrl,`${origin}/bemine-v5/api/chain-index`);
+  assert(calls.every(url=>url.startsWith(`${origin}/bemine-v5/`)));
+  const plan=prepareFreshProductBuild(manifest,{version:'5',publicOrigin:origin});
+  assert.equal(plan.basePath,'/bemine-v5');
+  assert.equal(plan.deployConsoleUrl,'https://tapeout.cc.cd/pinkuang-deploy-v5/');
+  assert.throws(()=>prepareFreshProductBuild(manifest,{version:'6'}),/Unsupported/);
 });

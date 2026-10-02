@@ -1,0 +1,44 @@
+[Unit]
+Description=BEMine v5 Authority and Gas signer
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pinkuang-v5-signer
+Group=pinkuang-v4-relay
+SupplementaryGroups=pinkuang-v4-relay
+WorkingDirectory=@RUNTIME@
+EnvironmentFile=/etc/pinkuang-v5/rpc.env
+EnvironmentFile=/etc/pinkuang-v5/product.env
+Environment=AUTHORITY_RELAY_ENABLED=1
+Environment=AUTHORITY_SIGNER_ATTEST_ONLY=0
+Environment=AUTHORITY_REQUIRE_FRESH_READINESS=1
+Environment=AUTHORITY_ATTESTATION_ORIGIN=https://tapeout.cc.cd
+Environment=DEPLOYMENT_JOURNAL_DB=/var/lib/pinkuang-v5-signer/journal.sqlite
+Environment=AUTHORITY_RELAY_MAX_GAS_BNB=0.01
+Environment=AUTHORITY_RELAY_MAX_GAS_PRICE_GWEI=1
+Environment=SALE_REFERENCE_PUBLISHER_ENABLED=1
+Environment=SALE_REFERENCE_PUBLISHER_JOURNAL=/var/lib/pinkuang-v5-signer/authority/sale-reference.json
+Environment=BEMINE_FIRSTO_EXPIRY_ENABLE=1
+Environment=BEMINE_FIRSTO_EXPIRY_JOURNAL_DIR=/var/lib/pinkuang-v5-signer/authority/listing-expiry
+Environment=BEMINE_FIRSTO_EXPIRY_STATUS_PATH=/var/lib/pinkuang-v5-public/signer/listing-expiry.json
+LoadCredential=keeper-private-key:/etc/pinkuang/keeper.key
+LoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac
+RuntimeDirectory=pinkuang-v4-relay
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/node server/authority-signer.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pinkuang-v5-signer /var/lib/pinkuang-v5-public/signer /run/pinkuang-v4-relay
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

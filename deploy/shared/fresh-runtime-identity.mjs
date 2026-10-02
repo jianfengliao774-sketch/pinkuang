@@ -2,9 +2,22 @@ import { readFileSync, lstatSync } from 'node:fs';
 import { getAddress } from 'ethers';
 
 export const FRESH_READINESS_PATH = '/internal/fresh-product-readiness';
-export const FRESH_WORKER_ROOT = '/var/lib/pinkuang-v4-signer/readiness';
-export const FRESH_LEGACY_DRAIN_PATH = '/etc/pinkuang-v4/legacy-drain.json';
-export const FRESH_WORKER_UNITS = Object.freeze({ purchase:'pinkuang-v4-purchase.service', mining:'pinkuang-v4-mining.service' });
+/** v4 remains the default for existing installations; v5 has separate state and services. */
+export function freshRuntimeLayout(env = process.env) {
+  const version = env.BEMINE_FRESH_RUNTIME_VERSION ?? '4';
+  if (!['4', '5'].includes(version)) throw new Error('Unsupported fresh runtime version.');
+  const signerRoot = `/var/lib/pinkuang-v${version}-signer`;
+  return Object.freeze({ version, signerRoot, keeperRoot: `${signerRoot}/keeper`,
+    authorityJournal: `${signerRoot}/authority/authority.json`,
+    workerRoot: `${signerRoot}/readiness`, drainPath: `/etc/pinkuang-v${version}/legacy-drain.json`,
+    apiPort: version === '5' ? '4227' : '4187', indexPort: version === '5' ? '4224' : '4184',
+    workerUnits: Object.freeze({purchase: `pinkuang-v${version}-purchase.service`,
+      mining: `pinkuang-v${version}-mining.service`}) });
+}
+export const FRESH_RUNTIME = freshRuntimeLayout();
+export const FRESH_WORKER_ROOT = FRESH_RUNTIME.workerRoot;
+export const FRESH_LEGACY_DRAIN_PATH = FRESH_RUNTIME.drainPath;
+export const FRESH_WORKER_UNITS = FRESH_RUNTIME.workerUnits;
 export const HASH = /^0x[0-9a-f]{64}$/i;
 export const SOURCE = /^[0-9a-f]{40}$/i;
 export const need = (value, message) => { if (!value) throw new Error(message); };

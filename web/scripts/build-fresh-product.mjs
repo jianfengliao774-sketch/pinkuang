@@ -30,12 +30,14 @@ export function validateFreshProductOrigin(value = defaultPublicOrigin) {
   return value;
 }
 
-export function prepareFreshProductBuild(manifest, { publicOrigin = defaultPublicOrigin } = {}) {
+export function prepareFreshProductBuild(manifest, { publicOrigin = defaultPublicOrigin, version = '4' } = {}) {
+  if (!['4', '5'].includes(version)) fail('Unsupported fresh product version.');
   const origin = validateFreshProductOrigin(publicOrigin);
   const manifestSha256 = freshManifestDigest(manifest);
   const checked = validateFreshManifest(manifest, manifestSha256);
-  return Object.freeze({ basePath: '/bemine-v4', productFamily: 'fresh-v4',
-    publicOrigin: origin, publicUrl: `${origin}/bemine-v4/`, deployConsoleUrl,
+  return Object.freeze({ basePath: `/bemine-v${version}`, productFamily: 'fresh-v4',
+    publicOrigin: origin, publicUrl: `${origin}/bemine-v${version}/`,
+    deployConsoleUrl: version === '5' ? 'https://tapeout.cc.cd/pinkuang-deploy-v5/' : deployConsoleUrl,
     manifestSha256, artifactDigest: checked.artifactDigest,
     factory: checked.factory, portfolioFactory: checked.portfolioFactory,
     authority: checked.authority, gasWallet: checked.gasWallet, deployment: checked.deployment,
@@ -120,7 +122,7 @@ function isolatedCheckout(repository, sourceHead, checkout) {
 /** Build from an isolated source snapshot; publish a separate static release. */
 export function buildFreshProduct(manifestPath, activationEvidencePath,
   { run = spawnSync, repositoryDir = repositoryRoot, outputDir = defaultOutputRoot,
-    publicOrigin = process.env.BEMINE_FRESH_PRODUCT_ORIGIN ?? defaultPublicOrigin } = {}) {
+    publicOrigin = process.env.BEMINE_FRESH_PRODUCT_ORIGIN ?? defaultPublicOrigin, version = '4' } = {}) {
   if (!isAbsolute(manifestPath) || !isAbsolute(activationEvidencePath))
     fail('Reviewed manifest and activation evidence must use absolute paths.');
   if (!isAbsolute(outputDir) || existsSync(outputDir))
@@ -128,7 +130,7 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
   const repository = realpathSync(repositoryDir);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const evidence = JSON.parse(readFileSync(activationEvidencePath, 'utf8'));
-  const plan = prepareFreshProductBuild(manifest, { publicOrigin });
+  const plan = prepareFreshProductBuild(manifest, { publicOrigin, version });
   verifyFreshBuildEvidence(manifest, evidence);
   const frontendSourceHead = reviewedSourceHead(repository);
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'bemine-v4-build-')));
@@ -137,7 +139,7 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
   try {
     isolatedCheckout(repository, frontendSourceHead, checkout);
     const isolatedWeb = join(checkout, 'web');
-    const stagedManifest = join(isolatedWeb, 'public/data/frontend-manifest.v4.json');
+    const stagedManifest = join(isolatedWeb, `public/data/frontend-manifest.v${version}.json`);
     const compiledManifest = join(isolatedWeb, 'public/data/frontend-manifest.json');
     const outputRoot = join(isolatedWeb, 'out');
     if (existsSync(stagedManifest)) fail('Reviewed source already contains a staged v4 manifest.');
@@ -161,7 +163,7 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
       if (build.error || build.status !== 0)
         fail(`v4 product build failed (${build.status ?? build.error?.message}).`);
     }
-    const exportedManifest = join(outputRoot, 'data/frontend-manifest.v4.json');
+    const exportedManifest = join(outputRoot, `data/frontend-manifest.v${version}.json`);
     if (!existsSync(join(outputRoot, 'index.html')) || !existsSync(exportedManifest)
       || !statSync(exportedManifest).isFile()) fail('v4 product export is incomplete.');
     const exported = JSON.parse(readFileSync(exportedManifest, 'utf8'));
@@ -171,7 +173,7 @@ export function buildFreshProduct(manifestPath, activationEvidencePath,
     if (existsSync(oldManifest)) rmSync(oldManifest);
     const files = walk(outputRoot).sort();
     const contentSha256 = sha256(files.map(name => `${name}\0${sha256(readFileSync(join(outputRoot, name)))}\n`).join(''));
-    const release = { schemaVersion: 1, kind: 'fresh-v4-product-static-candidate', chainId: 56,
+    const release = { schemaVersion: 1, kind: `fresh-v${version}-product-static-candidate`, chainId: 56,
       ...plan, frontendSourceHead, contentSha256, fileCount: files.length,
       legacyManifestIncluded: false, activationAllowed: false };
     writeFileSync(join(outputRoot, 'fresh-product-release.json'), `${JSON.stringify(release, null, 2)}\n`,

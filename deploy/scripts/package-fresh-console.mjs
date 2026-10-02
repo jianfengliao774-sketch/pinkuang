@@ -6,7 +6,9 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFreshBuild } from './assert-fresh-build.mjs';
 import { servedArtifactDigest } from '../server/artifact-digest.mjs';
-import { freshIndexManifestBytes, freshIndexManifestSha256 } from '../server/chain-index/fresh-manifest.mjs';
+import { productGraphConfiguration } from '../server/product-graph.mjs';
+import { validateFreshProductBindings } from '../server/fresh-product-gate.mjs';
+import { createFreshIndexManifest, freshIndexManifestBytes, freshIndexManifestSha256 } from '../server/chain-index/fresh-manifest.mjs';
 import { prepareFreshCutover } from '../ops/v4/prepare-fresh-cutover.mjs';
 
 const DEPLOY = fileURLToPath(new URL('../', import.meta.url));
@@ -295,6 +297,16 @@ export function packageFreshProductBackend({ cutoverInput, ...options } = {}) {
   const draft = prepareFreshCutover(cutoverInput);
   assert.equal(draft.activationAllowed, false);
   return packageRelease({ ...options, indexManifest: draft.indexManifest });
+}
+
+/** Package a reviewed fresh graph without installing the historical v4 cutover layout. */
+export function packageReviewedFreshProductBackend({record,bundle,activation,manifest,...options}={}) {
+  const trusted=productGraphConfiguration({record,bundle,productActivation:activation,
+    expectedGasWallet:manifest?.gasWallet});
+  const indexManifest=createFreshIndexManifest(manifest);
+  validateFreshProductBindings({manifest:indexManifest},trusted,
+    new Set([manifest.factory,manifest.portfolioFactory].map(address=>address.toLowerCase())));
+  return packageRelease({...options,indexManifest});
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

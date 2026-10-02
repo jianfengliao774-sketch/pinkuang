@@ -1,3 +1,4 @@
+import { FRESH_RUNTIME } from '../../shared/fresh-runtime-identity.mjs';
 import { createHash } from 'node:crypto';
 
 const officialCollections = new Set([
@@ -11,7 +12,7 @@ const sourceUint = value => typeof value === 'string' ? uint(value) : null;
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** The product proxy already shares and caches exact display-only Firsto details. */
-export function overviewQuoteLoader({ fetcher = fetch, baseUrl = 'http://127.0.0.1:4187/firsto-api' } = {}) {
+export function overviewQuoteLoader({ fetcher = fetch, baseUrl = `http://127.0.0.1:${FRESH_RUNTIME.apiPort}/firsto-api` } = {}) {
   const base = new URL(baseUrl);
   if (base.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(base.hostname)
     || base.pathname !== '/firsto-api' || base.search || base.hash || base.username || base.password)

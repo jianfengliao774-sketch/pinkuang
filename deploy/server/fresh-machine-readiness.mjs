@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { lstatSync,readFileSync } from 'node:fs';
-import { FRESH_WORKER_ROOT,FRESH_WORKER_UNITS,FRESH_LEGACY_DRAIN_PATH, freshRuntimeSource,
+import { FRESH_RUNTIME,FRESH_WORKER_ROOT,FRESH_WORKER_UNITS,FRESH_LEGACY_DRAIN_PATH, freshRuntimeSource,
   freshGraphIdentity,validateFreshWorker,need,same,HASH } from '../shared/fresh-runtime-identity.mjs';
 
 const execute=promisify(execFile);
@@ -30,7 +30,7 @@ export async function verifyFreshLegacyDrain(provider,identity,{readDrain=()=>pr
     && Array.isArray(proof.journals) && proof.journals.length<=1000,
   'The root-reviewed old Gas sender drain proof is incomplete.');
   for(const name of proof.units){
-    need(/^pinkuang-[a-z0-9-]+\.service$/.test(name) && !name.includes('-v4-'),'Invalid old sender unit.');
+    need(/^pinkuang-[a-z0-9-]+\.service$/.test(name) && !name.includes(`-v${FRESH_RUNTIME.version}-`),'Invalid old sender unit.');
     const unit=await unitState(name);
     need(unit.ActiveState==='inactive' && Number(unit.MainPID)===0
       && (unit.LoadState==='not-found' || ['disabled','masked'].includes(unit.UnitFileState)),

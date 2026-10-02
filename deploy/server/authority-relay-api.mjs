@@ -1,3 +1,4 @@
+import { freshRuntimeLayout } from '../shared/fresh-runtime-identity.mjs';
 import { createFreshMachineReadiness } from './fresh-machine-readiness.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, statSync } from 'node:fs';
@@ -90,6 +91,7 @@ function privatePath(path, directory = false) {
 export function authorityRelayConfiguration(env = process.env) {
   if (env.AUTHORITY_RELAY_ENABLED !== '1') return null;
   if (env.AUTHORITY_REQUIRE_FRESH_READINESS !== '1') throw new Error('Fresh relay requires machine readiness verification.');
+  const layout = freshRuntimeLayout(env);
   const origin = env.DEPLOYMENT_JOURNAL_ORIGIN, rpcUrl = env.DEPLOYMENT_JOURNAL_RPC_URL;
   if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://'))
     throw new Error('Authority relay requires the exact HTTPS journal origin.');
@@ -97,10 +99,10 @@ export function authorityRelayConfiguration(env = process.env) {
   if (!env.CREDENTIALS_DIRECTORY || env.KEEPER_PRIVATE_KEY)
     throw new Error('Authority relay requires a systemd Gas-wallet credential, never an environment private key.');
   if (!env.PINKUANG_KEEPER_STATE_ROOT || !isAbsolute(env.PINKUANG_KEEPER_STATE_ROOT)
-    || env.PINKUANG_KEEPER_STATE_ROOT !== '/var/lib/pinkuang-v4-signer/keeper')
+    || env.PINKUANG_KEEPER_STATE_ROOT !== layout.keeperRoot)
     throw new Error('Authority relay requires its exclusive v4 wallet state root.');
   const journal = env.AUTHORITY_RELAY_JOURNAL;
-  if (journal !== '/var/lib/pinkuang-v4-signer/authority/authority.json')
+  if (journal !== layout.authorityJournal)
     throw new Error('Authority relay requires its exclusive v4 transaction journal.');
   privatePath(journal);
   const maxGasWei = parseEther(env.AUTHORITY_RELAY_MAX_GAS_BNB ?? '0.5');

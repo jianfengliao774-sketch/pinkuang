@@ -1,3 +1,4 @@
+import { FRESH_RUNTIME } from '../shared/fresh-runtime-identity.mjs';
 import { openSync, closeSync, existsSync, readFileSync, writeFileSync, writeSync, renameSync, mkdirSync, fsyncSync, statSync, fstatSync, ftruncateSync, chmodSync, lstatSync, realpathSync, unlinkSync, constants } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, resolve } from 'node:path';
@@ -11,7 +12,7 @@ import { readKeeperPrivateKey } from './keeper-credential.mjs';
 const configuredStateRoot = process.env.PINKUANG_KEEPER_STATE_ROOT;
 if (configuredStateRoot && !isAbsolute(configuredStateRoot)) throw new Error('Keeper state root must be absolute.');
 export const KEEPER_STATE_ROOT = configuredStateRoot || resolve(homedir(), '.local/state/pinkuang/purchase-keeper');
-const V4_KEEPER_STATE_ROOT = '/var/lib/pinkuang-v4-signer/keeper';
+const V4_KEEPER_STATE_ROOT = FRESH_RUNTIME.keeperRoot;
 
 export const OFFICIAL_MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 export const OFFICIAL_COLLECTIONS = ['0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', '0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C'];
