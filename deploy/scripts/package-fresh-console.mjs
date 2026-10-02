@@ -140,6 +140,8 @@ export const PRODUCT_BACKEND_MODULES = Object.freeze([
   "shared/initialization-proof.mjs",
   "shared/integrated-upgrade-plan.mjs",
   "shared/original-gas-wallet.mjs",
+  "shared/read-only-rpc-fallback.mjs",
+  "shared/runtime-rpc-selection.mjs",
   "shared/sale-review-policy.mjs",
   "src/pricing.ts",
   "src/firsto-purchase.mjs"

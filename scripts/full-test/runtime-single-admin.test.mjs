@@ -36,3 +36,15 @@ test('standalone test index reads miner quotes through its own product cache',()
  assert.match(installed,/http:\/\/127\.0\.0\.1:4207\/firsto-api/);
  assert.doesNotMatch(installed,/http:\/\/127\.0\.0\.1:4187/);
 });
+
+test('test supervisors select their fixed RPC before loading a wallet and preserve BSC single-request settings',()=>{
+ for(const name of ['purchase-supervisor','mining-supervisor']){
+  const original=readFileSync(new URL('../../deploy/scripts/'+name+'.mjs',import.meta.url),'utf8');
+  const installed=transformFullTestModule(original,'scripts/'+name+'.mjs');
+  assert.match(installed,/await createRuntimeRpcProvider\(request, \{ network: 56, providerOptions: \{ staticNetwork: true, batchMaxCount: 1 \} \}\)/);
+  assert.match(installed,/shared\/runtime-rpc-selection\.mjs/);
+  const main=installed.slice(installed.indexOf('export async function main('));
+  assert(main.indexOf('await createRuntimeRpcProvider(')<main.indexOf('new Wallet('));
+  assert.doesNotMatch(main,/new JsonRpcProvider\(request/);
+ }
+});

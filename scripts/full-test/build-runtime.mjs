@@ -54,10 +54,10 @@ const exact={
   ['requireOriginalSenderDrained(ORIGINAL_GAS_WALLET, env);',"throw new Error('Use the independent full-test transaction journal for recovery; the formal recovery CLI is disabled.');"],
  ],
  'scripts/purchase-supervisor.mjs':[
-  ['new JsonRpcProvider(request);','new JsonRpcProvider(request, 56, { staticNetwork: true, batchMaxCount: 1 });'],
+  ['createRuntimeRpcProvider(request);','createRuntimeRpcProvider(request, { network: 56, providerOptions: { staticNetwork: true, batchMaxCount: 1 } });'],
  ],
  'scripts/mining-supervisor.mjs':[
-  ['new JsonRpcProvider(request);','new JsonRpcProvider(request, 56, { staticNetwork: true, batchMaxCount: 1 });'],
+  ['createRuntimeRpcProvider(request);','createRuntimeRpcProvider(request, { network: 56, providerOptions: { staticNetwork: true, batchMaxCount: 1 } });'],
  ],
 };
 function once(content,old,next,label){assert.equal(content.split(old).length-1,1,'Runtime source fragment changed: '+label);return content.replace(old,next);}

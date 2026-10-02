@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { createServer } from 'node:http';
 import { Interface, Wallet, getAddress, keccak256 } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { createDeploymentServer } from './index.mjs';
@@ -17,14 +18,15 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
   return wallet.signTypedData(typed.domain,typed.types,typed.message);
 };
 
-function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
   const code = '0x6000', codehash = keccak256(code);
   const second = singleAdmin ? admin.address : address(36);
   const config = {origin:'https://example.test',rpcUrl:'https://example.test/rpc',journal:join(directory,'authority.json'),
-    expectedGasWallet:gas.address,maxGasWei:10n**18n,maxGasPrice:3n*10n**9n};
+    expectedGasWallet:gas.address,maxGasWei:10n**18n,maxGasPrice:3n*10n**9n,
+    ...(runtimeRpc ? {rpcUrl:runtimeRpc.primary,readFallbackRpcUrl:runtimeRpc.backup} : {})};
   const creationAbi = ['function createPool((address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline) params)',
     'function setDepositPaused(bool enabled)'];
   const trusted = {record:{addresses:{factory,portfolioFactory:budget,shareMarket:market}},
@@ -43,7 +45,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
   const provider = {send:async()=> '0x38',getBlock:async()=>({number:1,hash:hash(1),
     timestamp:Math.floor(Date.now()/1000)}),destroy(){}};
   const store = {session:()=>admin.address.toLowerCase(),close(){}};
-  const service = createAuthorityRelayService(config,{trusted,provider,store,onError:error=>errors.push(error),
+  const service = createAuthorityRelayService(config,{trusted,...(runtimeRpc ? {} : {provider}),store,onError:error=>errors.push(error),
     ...(authenticateAccount ? {authenticateAccount} : {}),
     verifyGraph:async()=>graph,loadCredential:()=>gas.privateKey,
     readReclaimState:async target=>({registered:registered && target===pool,factory,
@@ -52,7 +54,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     lockJournal:lockJournal??(()=>()=>{}),lockWallet:()=>()=>{},
     relay:async (_provider,options,signer)=>{
       calls.push({options,signer:signer.address});
-      if (relayHandler) return relayHandler(options,signer);
+      if (relayHandler) return relayHandler(options,signer,_provider);
       return {status:'broadcast',hash:hash(9),kind:options.commandObject.kind};
     }});
   const request = (path,method,body,headers={}) => new Promise(resolve=>{
@@ -74,6 +76,60 @@ async function signedReview(f) {
   const signature = await sign(f.admin,f.authority,'reviewSale',args,nonce,deadline);
   return {authority:f.authority,expectedCodehash:f.codehash,kind:'reviewSale',args,nonce,deadline,signature};
 }
+
+async function localRpcPair({backupChain='0x38',primaryResultError=false}={}) {
+  const calls={primary:[],backup:[]}, servers=[];
+  const block={number:'0x1',hash:hash(1),parentHash:hash(0),timestamp:'0x'+Math.floor(Date.now()/1000).toString(16),
+    nonce:'0x0000000000000000',difficulty:'0x0',gasLimit:'0x1c9c380',gasUsed:'0x0',extraData:'0x',
+    miner:address(0),transactions:[]};
+  const url=async name=>{
+    const server=createServer(async(req,res)=>{
+      const buffers=[];for await(const value of req)buffers.push(value);
+      const payload=JSON.parse(Buffer.concat(buffers).toString());
+      const rows=Array.isArray(payload)?payload:[payload];calls[name].push(...rows.map(row=>row.method));
+      if(name==='primary'&&!primaryResultError){res.writeHead(403,{'Content-Type':'text/html'});res.end('Forbidden');return;}
+      if(rows.some(row=>row.method==='eth_sendRawTransaction')){res.writeHead(503,{'Content-Type':'text/html'});res.end('write unavailable');return;}
+      const replies=rows.map(row=>name==='primary'?{jsonrpc:'2.0',id:row.id,error:{code:-32000,message:'execution reverted'}}
+        :{jsonrpc:'2.0',id:row.id,result:row.method==='eth_chainId'?backupChain:row.method==='eth_getBlockByNumber'?block:null});
+      res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(Array.isArray(payload)?replies:replies[0]));
+    });
+    servers.push(server);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    return `http://127.0.0.1:${server.address().port}`;
+  };
+  return {primary:await url('primary'),backup:await url('backup'),calls,
+    close:async()=>{for(const server of servers){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}}};
+}
+
+test('actual relay provider fixes its startup BSC backup after HTML403 and never reselects on submission failure',async()=>{
+  const rpc=await localRpcPair();let f;
+  try {
+  f=fixture({runtimeRpc:rpc,relayHandler:async(_options,_signer,provider)=>{
+    // A local mock rejects this inert byte string. No real RPC or signed transaction is used.
+    await provider.send('eth_sendRawTransaction',['0x00']);assert.fail('A write failure must never be retried on another node.');
+  }});
+    const result=await f.request('/api/journal/authority-relay','POST',{command:await signedReview(f)});
+    assert.equal(f.calls.length,1,'The verified read path reaches the existing serialized relay exactly once.');
+    assert.equal(result.status,503,'An unknown submission outcome must still be reported honestly.');
+    assert(rpc.calls.backup.includes('eth_getBlockByNumber'));
+    assert(rpc.calls.backup.includes('eth_chainId'));
+    assert.deepEqual(rpc.calls.primary,['eth_chainId'],'The original transport is never revisited after startup selection.');
+    assert.equal(rpc.calls.backup.filter(method=>method==='eth_sendRawTransaction').length,1);
+    assert.equal(result.body.error.includes(rpc.backup),false,'Public errors do not disclose the RPC destination.');
+  } finally {await f?.close();await rpc.close();}
+});
+
+test('actual relay provider rejects a non-BSC backup before authority submission and does not fallback JSON-RPC errors',async()=>{
+  for(const options of [{backupChain:'0x1'},{primaryResultError:true}]){
+    const rpc=await localRpcPair(options);let f;
+    try {
+      f=fixture({runtimeRpc:rpc});
+      const result=await f.request('/api/journal/authority-relay','POST',{command:await signedReview(f)});
+      assert.equal(result.status,503);assert.equal(f.calls.length,0);
+      if(options.backupChain==='0x1')assert.deepEqual(rpc.calls.backup,['eth_chainId']);
+      else assert.equal(rpc.calls.backup.length,0,'Business errors are not transport failures.');
+    } finally {await f?.close();await rpc.close();}
+  }
+});
 
 test('private receipt reconciliation needs no browser session and stops when the relay closes',async()=>{
   const f=fixture({authenticateAccount:()=>{throw new Error('No browser is open');}});

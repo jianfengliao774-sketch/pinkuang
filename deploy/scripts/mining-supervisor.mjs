@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Contract, FetchRequest, JsonRpcProvider, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
+import { Contract, FetchRequest, Wallet, getAddress, parseEther, parseUnits } from 'ethers';
+import { createRuntimeRpcProvider } from '../shared/runtime-rpc-selection.mjs';
 import { acquireKeeperLock, acquireWalletLock, KEEPER_STATE_ROOT, readJournal, writeJournal } from './purchase-keeper.mjs';
 import { assertStage, readMiningState, runMiningCycle } from './mining-keeper.mjs';
 import { createFreshWorkerReadiness } from './fresh-worker-readiness.mjs';
@@ -212,7 +213,7 @@ export async function main(args = process.argv.slice(2)) {
   process.on('SIGINT', stop); process.on('SIGTERM', stop);
   try {
     const request = new FetchRequest(options.rpc); request.timeout = 15_000;
-    provider = new JsonRpcProvider(request);
+    provider = await createRuntimeRpcProvider(request);
     const freshGuard = options.freshGraph ? configureFreshPurchase(options) : null;
     if (freshGuard) {
       if (getAddress(options.authority) !== getAddress(freshGuard.trusted.freshAuthority.authority.address))

@@ -2,7 +2,7 @@ import { createFreshMachineReadiness } from './fresh-machine-readiness.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
-import { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet, getAddress, keccak256,
+import { Contract, FetchRequest, Interface, Wallet, getAddress, keccak256,
   parseEther, parseUnits } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
@@ -15,6 +15,8 @@ import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
 import { saleReferencePublisherConfiguration, createSaleReferencePublisher } from './sale-reference-publisher.mjs';
 import { firstoExpiryKeeperConfiguration, createFirstoListingExpiryKeeper } from './firsto-listing-expiry-keeper.mjs';
+import { readOnlyRpcFallbackUrl } from '../shared/read-only-rpc-fallback.mjs';
+import { createDeferredRuntimeRpcProvider } from '../shared/runtime-rpc-selection.mjs';
 
 const SESSION_COOKIE = 'pinkuang_journal';
 const HASH = /^0x[0-9a-f]{64}$/i;
@@ -111,7 +113,8 @@ export function authorityRelayConfiguration(env = process.env) {
     'BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH', 'BEMINE_PRODUCT_ACTIVATION_PATH']) {
     if (!env[key] || !isAbsolute(env[key])) throw new Error(`Authority relay requires ${key}.`);
   }
-  return { origin, rpcUrl, journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
+  return { origin, rpcUrl, readFallbackRpcUrl: readOnlyRpcFallbackUrl(rpcUrl, env),
+    journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
     saleReferencePublisher:saleReferencePublisherConfiguration(env,{journal}),
     firstoExpiryKeeper:firstoExpiryKeeperConfiguration(env,{journal,expectedGasWallet}),
     salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
@@ -218,8 +221,12 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   const request = new FetchRequest(config.rpcUrl);
   request.timeout = 12_000;
   request.setThrottleParams({ maxAttempts: 1 });
-  const provider = dependencies.provider ?? new JsonRpcProvider(request, 56,
-    { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
+  // Select a healthy BSC transport once at service initialization. Every nonce,
+  // receipt and broadcast stays on it; a failed send never changes the node.
+  const provider = dependencies.provider ?? createDeferredRuntimeRpcProvider(request, {
+    env: { BEMINE_READ_FALLBACK_RPC_URL: config.readFallbackRpcUrl }, network: 56,
+    providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+  });
   const verifyGraph = dependencies.verifyGraph ?? verifyProductGraph;
   const readReclaimState = dependencies.readReclaimState ?? (async (poolAddress, blockNumber) => {
     const overrides = blockNumber ? { blockTag: blockNumber } : {};
