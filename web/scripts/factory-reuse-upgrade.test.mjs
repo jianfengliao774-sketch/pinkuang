@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
 import { Interface } from 'ethers';
+import { connectWallet, requireWallet } from '../lib/live-transactions.mjs';
+import { walletConnectionError } from '../lib/wallet-discovery.mjs';
 import { FACTORY_IMPLEMENTATION_SLOT, confirmFactoryReuseTransaction, factoryReuseBatch, factoryReuseDeployment,
   factoryReuseProgressKey, factoryReuseSalt, readFactoryReuseStatus, reconcileFactoryReuseDeployment,
   scheduleFactoryReuseTransaction, validateFactoryReuseCatalog, verifyFactoryReuseDeploymentRuntime } from '../lib/factory-reuse-upgrade.mjs';
@@ -147,9 +150,130 @@ test('Factory console isolates its catalog, three transaction journal, and user 
   assert.match(ui, /const order = \['FreshPoolFactory'\]/);
   assert.match(ui, /factory-reuse-upgrade\.\$\{profile\}\.json/);
   assert.match(ui, /factoryReuseProgressKey\(catalog, account\)/);
-  assert.match(ui, /connectWallet\(provider\.current, \{ reselectAccount: !!account \}\)/);
+  assert.match(ui, /connectWallet\(connected, \{ reselectAccount: !!account \}\)/);
+  assert.match(ui, /setAccount\(currentOwner\)/);
+  assert.doesNotMatch(ui, /connected\.account/);
   assert.match(ui, /共 3 笔钱包交易/);
   assert.match(ui, /networkEpoch\.current === epoch/);
   assert.match(ui, /journal\.current === currentJournal/);
   assert.doesNotMatch(ui, /displayAmount|catalog\.activation|enableNativeFirstoSale/);
+});
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+function connectionProvider({ owner = address(3), permissionError, approval } = {}) {
+  const provider = new EventEmitter(), calls = [], state = { owner, chain: '0x38' };
+  provider.request = async request => {
+    calls.push(request);
+    if (request.method === 'eth_requestAccounts') {
+      if (permissionError) throw permissionError;
+      if (approval) await approval.promise;
+      return [state.owner];
+    }
+    if (request.method === 'wallet_requestPermissions') return [{ parentCapability: 'eth_accounts' }];
+    if (request.method === 'eth_accounts') return [state.owner];
+    if (request.method === 'eth_chainId') return state.chain;
+    assert.fail(`Factory connection must not sign or send: ${request.method}`);
+  };
+  return { provider, calls, state };
+}
+async function actualConnectHandler({ entries = [], selectedWalletId = '', account = '', injected } = {}) {
+  const source = await readFile(new URL('../components/FactoryReuseUpgradePanel.jsx', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('  async function connect()'), source.indexOf('  function recoverHash('));
+  const state = { account, error: '', notice: '', connecting: false, chainStatus: null }, context = {
+    connectionLock: { current: false }, lock: { current: false }, life: { current: {} }, provider: { current: null },
+    networkEpoch: { current: 0 }, discovery: { current: { refresh() {}, getWallets: () => entries } },
+    window: { ethereum: injected }, account, selectedWalletId, connectWallet, requireWallet, walletConnectionError,
+  };
+  for (const name of ['Account', 'Error', 'Notice', 'Connecting', 'ChainStatus', 'SelectedWalletId'])
+    context['set' + name] = value => { state[name[0].toLowerCase() + name.slice(1)] = value; };
+  const connect = new Function(...Object.keys(context), body + '\nreturn connect;')(...Object.values(context));
+  return { connect, state, context };
+}
+
+test('actual Factory connect caller adopts the shared helper address string and visibly enables its account', async () => {
+  const wallet = connectionProvider(), entries = [{ id: 'metamask', brandId: 'metamask', provider: wallet.provider }];
+  const ui = await actualConnectHandler({ entries }); await ui.connect();
+  assert.equal(ui.state.account, address(3)); assert.equal(typeof ui.state.account, 'string');
+  assert.equal(ui.state.notice, '钱包已连接。'); assert.equal(ui.state.error, ''); assert.equal(ui.state.connecting, false);
+  assert.equal(ui.context.provider.current, wallet.provider);
+  assert.deepEqual(wallet.calls.map(row => row.method), ['eth_requestAccounts', 'eth_chainId', 'eth_chainId', 'eth_accounts', 'eth_chainId', 'eth_accounts']);
+});
+
+test('actual Factory connect refreshes late injected wallets and uses the explicitly selected concrete wallet', async () => {
+  const entries = [], ui = await actualConnectHandler({ entries, selectedWalletId: 'okx' });
+  await ui.connect(); assert.match(ui.state.error, /尚未检测到钱包/);
+  const meta = connectionProvider(), okx = connectionProvider({ owner: address(40) });
+  entries.push({ id: 'metamask', brandId: 'metamask', provider: meta.provider }, { id: 'okx', brandId: 'okx', provider: okx.provider });
+  await ui.connect(); assert.equal(ui.state.account, address(40)); assert.equal(ui.state.error, '');
+  assert.equal(ui.context.provider.current, okx.provider); assert.equal(meta.calls.length, 0);
+});
+
+test('actual Factory connect lock prevents duplicate prompts and stale provider results cannot replace a new wallet', async () => {
+  const approval = deferred(), wallet = connectionProvider({ approval }), entry = { id: 'metamask', provider: wallet.provider };
+  const ui = await actualConnectHandler({ entries: [entry] });
+  const pending = ui.connect(); await tick(); assert.equal(ui.state.connecting, true);
+  await ui.connect(); assert.equal(wallet.calls.filter(row => row.method === 'eth_requestAccounts').length, 1);
+  ui.context.provider.current = connectionProvider().provider;
+  approval.resolve(); await pending; assert.equal(ui.state.account, ''); assert.equal(ui.state.connecting, false);
+});
+
+test('actual Factory rejection and pending wallet requests show useful errors without retry or transaction calls', async () => {
+  for (const [code, message] of [[4001, /取消了钱包授权/], [-32002, /等待确认/], [4100, /尚未授权/]]) {
+    const wallet = connectionProvider({ permissionError: { code } });
+    const ui = await actualConnectHandler({ entries: [{ id: 'metamask', provider: wallet.provider }] });
+    await ui.connect(); assert.match(ui.state.error, message); assert.equal(ui.state.notice, '');
+    assert.equal(ui.state.account, ''); assert.equal(ui.state.connecting, false);
+    assert.deepEqual(wallet.calls.map(row => row.method), ['eth_requestAccounts']);
+  }
+});
+
+test('an account event during the final connect read cannot overwrite the new account with an older helper result', async () => {
+  const finalRead = deferred(), entered = deferred(), wallet = connectionProvider();
+  const request = wallet.provider.request; let accountReads = 0;
+  wallet.provider.request = async input => {
+    if (input.method === 'eth_accounts' && ++accountReads === 2) { entered.resolve(); return finalRead.promise; }
+    return request(input);
+  };
+  const ui = await actualConnectHandler({ entries: [{ id: 'metamask', provider: wallet.provider }] });
+  const pending = ui.connect(); await entered.promise;
+  wallet.state.owner = address(40); ui.context.networkEpoch.current++; ui.state.account = address(40);
+  finalRead.resolve([address(3)]); await pending;
+  assert.equal(ui.state.account, address(40)); assert.match(ui.state.error, /账户或网络已变化/);
+  assert.equal(ui.state.connecting, false); assert.equal(ui.context.connectionLock.current, false);
+  assert(wallet.calls.every(row => ['eth_requestAccounts', 'eth_accounts', 'eth_chainId'].includes(row.method)));
+});
+
+async function actualWalletEffect(wallet) {
+  const source = await readFile(new URL('../components/FactoryReuseUpgradePanel.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('    const connected = wallets.find('), end = source.indexOf('  }, [wallets, selectedWalletId]);', start);
+  assert(start >= 0 && end > start);
+  const state = { account: '', notice: '', chainStatus: null }, context = { wallets: [{ id: 'test', provider: wallet }], selectedWalletId: 'test',
+    provider: { current: null }, networkEpoch: { current: 0 } };
+  for (const name of ['Account', 'Notice', 'ChainStatus']) context['set' + name] = value => { state[name[0].toLowerCase() + name.slice(1)] = value; };
+  const stop = new Function(...Object.keys(context), source.slice(start, end))(...Object.values(context));
+  return { state, context, stop };
+}
+
+test('actual Factory provider effect silently restores authorized accounts and follows wallet/network changes', async () => {
+  const wallet = connectionProvider(), ui = await actualWalletEffect(wallet.provider);
+  try {
+    await tick(); assert.equal(ui.state.account, address(3));
+    wallet.state.owner = address(40); wallet.provider.emit('accountsChanged', [address(40)]);
+    assert.equal(ui.state.account, ''); await tick(); assert.equal(ui.state.account, address(40));
+    wallet.state.chain = '0x1'; wallet.provider.emit('chainChanged', '0x1'); await tick(); assert.equal(ui.state.account, '');
+    wallet.state.chain = '0x38'; wallet.provider.emit('chainChanged', '0x38'); await tick(); assert.equal(ui.state.account, address(40));
+    assert(wallet.calls.every(row => ['eth_accounts', 'eth_chainId'].includes(row.method)));
+  } finally { ui.stop(); }
+  assert.equal(wallet.provider.listenerCount('accountsChanged'), 0);
+});
+
+test('a late empty authorization probe cannot erase an explicitly connected Factory account', async () => {
+  const pending = deferred(), wallet = new EventEmitter();
+  wallet.request = ({ method }) => method === 'eth_accounts' ? pending.promise : Promise.resolve('0x38');
+  const ui = await actualWalletEffect(wallet);
+  try {
+    ui.context.networkEpoch.current++; ui.state.account = address(3);
+    pending.resolve([]); await tick(); assert.equal(ui.state.account, address(3));
+  } finally { ui.stop(); }
 });
