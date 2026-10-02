@@ -340,7 +340,7 @@
 .live-modal .share-sale-footer .live-actions { margin: 0; display: flex; gap: 10px; flex-wrap: nowrap; }
 .share-sale-footer .btn:first-child { flex: 1; }
 .share-sale-footer .wallet-connect-status { margin: 0 0 10px; }
-.transaction-result-overlay { z-index: 120; }
+.transaction-result-overlay { z-index: 1200; }
 .transaction-result-dialog { width: min(420px, 100%); text-align: center; }
 .transaction-result-icon { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: var(--surface-alt, #edf2eb); color: var(--brand-green, #203e35); }
 .transaction-result-failed .transaction-result-icon { color: #ad3b30; background: #faeae6; }
