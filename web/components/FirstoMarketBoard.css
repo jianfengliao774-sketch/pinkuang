@@ -99,6 +99,9 @@
 .firsto-board-table-wrap {
   overflow-x: auto;
 }
+.firsto-board-mobile-cards {
+  display: none;
+}
 .firsto-board table {
   width: 100%;
   border-collapse: collapse;
@@ -197,5 +200,241 @@
   }
   .firsto-board-foot > div {
     justify-content: flex-end;
+  }
+}
+@media (max-width: 760px) {
+  .firsto-board {
+    margin: 16px 0;
+    border-color: var(--border, #dce8de);
+    background: var(--surface, #fcfefc);
+    color: var(--ink, #1c3f2d);
+    font-size: 14px;
+  }
+  .firsto-board .firsto-board-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "eyebrow website" "title refresh" "copy copy";
+    align-items: center;
+    gap: 8px;
+    padding: 16px 14px 14px;
+    border-color: var(--border, #e3ebe4);
+  }
+  .firsto-board .firsto-board-head > div:first-child,
+  .firsto-board .firsto-board-head > .firsto-board-head-actions {
+    display: contents;
+  }
+  .firsto-board .firsto-board-head .firsto-board-eyebrow {
+    grid-area: eyebrow;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board .firsto-board-head h2 {
+    grid-area: title;
+    min-width: 0;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+  .firsto-board .firsto-board-head p {
+    grid-area: copy;
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board .firsto-board-head-actions > a {
+    grid-area: website;
+    justify-self: end;
+    min-height: 44px;
+  }
+  .firsto-board .firsto-board-head-actions > button {
+    grid-area: refresh;
+    justify-self: end;
+    align-self: center;
+    min-height: 44px;
+  }
+  .firsto-board-head p,
+  .firsto-board-reference span,
+  .firsto-board-reference small,
+  .firsto-board-reference p,
+  .firsto-board-foot p,
+  .firsto-board-foot > div {
+    color: var(--muted, #708577);
+    font-size: 12px;
+  }
+  .firsto-board-eyebrow {
+    color: var(--green, #478465);
+  }
+  .firsto-board-head-actions {
+    gap: 8px;
+  }
+  .firsto-board-head-actions a,
+  .firsto-board-head-actions button,
+  .firsto-board-foot button {
+    padding: 8px 11px;
+    border-color: var(--border, #b8cfbd);
+    background: var(--soft, #f4faf5);
+    color: var(--ink, #2e6845);
+    font-size: 13px;
+  }
+  .firsto-board-reference {
+    gap: 9px;
+    padding: 13px 14px;
+    border-color: var(--border, #e2ece2);
+    background: var(--soft, #f3f8f2);
+  }
+  .firsto-board-reference strong {
+    font-size: 14px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-reference small {
+    display: inline-block;
+    margin-left: 6px;
+  }
+  .firsto-board-reference p {
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-table-wrap {
+    display: none;
+  }
+  .firsto-board-mobile-cards {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+  }
+  .firsto-board-mobile-cards:empty {
+    display: none;
+  }
+  .firsto-board-mobile-card {
+    min-width: 0;
+    padding: 13px 12px 0;
+    border: 1px solid var(--border, #e1e3da);
+    border-top: 2px solid var(--brand-gold, #d9c194);
+    border-radius: 10px;
+    background: var(--surface, #fffefa);
+  }
+  .firsto-board-mobile-card header {
+    display: grid;
+    gap: 3px;
+    margin-bottom: 13px;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-mobile-card header strong {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .firsto-board-mobile-card header span {
+    color: var(--muted, #6b766e);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .firsto-board-mobile-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin: 0 0 10px;
+  }
+  .firsto-board-mobile-metrics > div {
+    min-width: 0;
+  }
+  .firsto-board-mobile-metrics dt {
+    color: var(--muted, #6b766e);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-mobile-metrics dd {
+    margin: 6px 0 0;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-mobile-metrics dd strong {
+    display: block;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    line-height: 1.5;
+  }
+  .firsto-board-mobile-metrics dd small {
+    display: block;
+    margin-top: 3px;
+    color: var(--muted, #6b766e);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  .firsto-board-mobile-capacity strong {
+    color: var(--green, #28774b);
+  }
+  .firsto-board-mobile-unavailable {
+    margin: 0 0 10px;
+    color: var(--muted, #a25234);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-mobile-source {
+    border-top: 1px solid var(--border, #e1e3da);
+    font-size: 12px;
+  }
+  .firsto-board-mobile-source summary {
+    min-height: 44px;
+    padding: 10px 0;
+    color: var(--muted, #6b766e);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .firsto-board-mobile-source summary::marker {
+    color: var(--brand-gold, #d9c194);
+  }
+  .firsto-board-mobile-source dl {
+    display: grid;
+    gap: 6px;
+    margin: 0 0 5px;
+  }
+  .firsto-board-mobile-source dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .firsto-board-mobile-source dt {
+    flex-shrink: 0;
+    color: var(--muted, #6b766e);
+  }
+  .firsto-board-mobile-source dd {
+    min-width: 0;
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-mobile-source a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 44px;
+    color: var(--green, #286948);
+    font-size: 13px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .firsto-board-status,
+  .firsto-board-error {
+    padding: 14px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .firsto-board-error {
+    border-left: 3px solid var(--brand-gold, #d9c194);
+    background: var(--soft, #fff0ed);
+    color: var(--ink, #9c412d);
+  }
+  .firsto-board-foot {
+    gap: 12px;
+    padding: 14px;
+    border-top: 1px solid var(--border, #e1e3da);
   }
 }

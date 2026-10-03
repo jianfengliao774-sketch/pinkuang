@@ -10,6 +10,7 @@ import './dark.css';
 import './desktop-review.css';
 import './deploy-console.css';
 import './live.css';
+import '../components/MobileProjectViews.css';
 import { PUBLIC_SHARE_ORIGIN } from '../lib/public-share-origin.mjs';
 const title = '拼矿 BEMine · 矿机资产服务';
 const description = '一起拼矿，一起发光。参与矿机共持，查看资产、收益与共同决策。';

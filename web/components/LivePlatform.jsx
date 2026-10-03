@@ -56,6 +56,8 @@ import LiveGovernance from "./LiveGovernance";
 import LiveOperator from "./LiveOperator";
 import FreshAuthorityConsole from "./FreshAuthorityConsole";
 import FirstoMarketBoard from "./FirstoMarketBoard";
+import MobileProjectViews from "./MobileProjectViews";
+import MobileFinancialCards from "./MobileFinancialCards";
 import LivePortfolios, { clearRecentPortfolioDisplays } from "./LivePortfolios";
 import { preparePortfolioAction, readPortfolioDisplayRow } from "../lib/live-portfolios.mjs";
 import { prepareBudgetQueueStep, beginBudgetQueueStep, budgetQueuePreviewMatches, budgetPurchaseQueueSupported } from "../lib/budget-purchase-plan.mjs";
@@ -367,6 +369,8 @@ export default function LivePlatform() {
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares"),
     [operatorTab, setOperatorTab] = useState("publish");
+  const [expandedProjectRows, setExpandedProjectRows] = useState(() => new Set());
+  const mobileDirectoryReturn = useRef(null);
   const epoch = useRef(0),
     pageCache = useRef(new WeakMap()),
     readCache = useRef(new WeakMap()),
@@ -821,8 +825,38 @@ export default function LivePlatform() {
     };
   }, [modal, busy, transactionResult]);
 
+  useEffect(() => {
+    if (route.route !== 'pools' || !mobileDirectoryReturn.current
+      || !window.matchMedia('(max-width: 760px)').matches) return;
+    let firstFrame, secondFrame;
+    const restore = () => {
+      const target = mobileDirectoryReturn.current;
+      const directory = document.querySelector('[data-project-directory="unified"]');
+      if (!target || !directory || directory.getAttribute('aria-busy') !== 'false') return;
+      cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame);
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+          if (mobileDirectoryReturn.current !== target) return;
+          window.scrollTo({ top: target.scrollY, behavior: 'instant' });
+          mobileDirectoryReturn.current = null;
+          observer.disconnect();
+        });
+      });
+    };
+    const observer = new MutationObserver(restore);
+    observer.observe(document.querySelector('main') || document.body,
+      { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] });
+    restore();
+    return () => { observer.disconnect(); cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame); };
+  }, [route.route]);
+
   const go = (next, pool) => {
     if (busy) return;
+    if (window.matchMedia('(max-width: 760px)').matches && route.route === 'pools' && ['detail', 'portfolio'].includes(next)) {
+      mobileDirectoryReturn.current = { scrollY: window.scrollY };
+    } else if (!(next === 'pools' && ['detail', 'portfolio'].includes(route.route))) {
+      mobileDirectoryReturn.current = null;
+    }
     location.hash = pool ? `${next}/${pool}` : next;
     setDetailTab("asset");
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -2164,12 +2198,12 @@ export default function LivePlatform() {
     if (route.route === 'detail' && detailTab === 'members' && detail?.pool && client && !loading)
       void readMembers();
   }, [client, route.route, detail?.pool, detailTab, source?.indexedThrough, loading, refresh]);
-  const heading = (title, subtitle, action) => (
+  const heading = (title, subtitle, action, mobileSubtitle) => (
     <div className="page-heading">
       <div>
         <div className="eyebrow">BEMine / {route.route.toUpperCase()}</div>
         <h1>{title}</h1>
-        <p>{subtitle}</p>
+        <p>{mobileSubtitle ? <><span className="live-desktop-copy">{subtitle}</span><span className="live-mobile-copy">{mobileSubtitle}</span></> : subtitle}</p>
       </div>
       {action}
     </div>
@@ -2275,19 +2309,18 @@ export default function LivePlatform() {
       daily: holdings ? L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
       capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
     };
-    return <div className={`table-wrap${catalog ? " live-catalog-table" : ""}`}>
-      <table>
-        <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
-        <tbody>{rows.map(p => {
+    const summary = catalog && filter === 'all';
+    const displayRows = rows.map(p => {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+          const identity = <><Chip pool={p}/><span>
+            <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
+            {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
+            {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
+            {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
+          </span></>;
           const cells = {
             miner: <button className="asset-cell" onClick={() => openDetails(p)}>
-              <Chip pool={p}/><span>
-                <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
-                {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
-                {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
-                {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
-              </span>
+              {identity}
             </button>,
             status: <StateBadge state={p.status} L={L}/>,
             shares: <>{holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} / 100</>,
@@ -2302,27 +2335,44 @@ export default function LivePlatform() {
               : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
             actions: <div className="live-pool-row-actions">
               {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
-                onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>{L('挂单出售', 'List shares')}</button>}
-              {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state">
-                {p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
+                onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
+                  <span className="live-desktop-copy">{L('挂单出售', 'List shares')}</span><span className="live-mobile-copy">{L('挂单', 'List')}</span>
+              </button>}
+              {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state"
+                title={p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
                   : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares are locked')
-                    : L('当前状态不可挂牌', 'Listing unavailable in this state')}
+                    : L('当前状态不可挂牌', 'Listing unavailable in this state')}>
+                <span className="live-desktop-copy">{p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
+                  : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares are locked')
+                    : L('当前状态不可挂牌', 'Listing unavailable in this state')}</span>
+                <span className="live-mobile-copy">{p.status === 'Funding' || p.status === 'Funded' ? L('购机挖矿后可售', 'List after mining')
+                  : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares locked')
+                    : L('当前不可挂牌', 'Listing unavailable')}</span>
               </small>}
-              <button className="text-button" onClick={() => openDetails(p)}>{p.kind === 'portfolio' ? L('查看项目', 'View project') : L("查看矿机", "View miner")}<ArrowRight size={16}/></button>
+              <button className="text-button" onClick={() => openDetails(p)}>
+                {holdings ? <><span className="live-desktop-copy">{p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}</span><span className="live-mobile-copy">{L('查看', 'View')}</span></>
+                  : p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}<ArrowRight size={16}/>
+              </button>
             </div>,
           };
-          return <tr key={p.pool} data-project-kind={p.kind === 'portfolio' ? 'portfolio' : 'single'} data-project-address={p.pool}>
-            {columns.map(column => <td key={column} className={["unit", "hash", "capacity"].includes(column) ? "num" : undefined}
-              title={!holdings && column === "daily" && !config?.displayOnly && quote?.cached
+          const columnTitle = column => !holdings && column === "daily" && !config?.displayOnly && quote?.cached
                 ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window')
                 : !holdings && column === "capacity" ? !config?.displayOnly && quote?.cached
                   ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
                   : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
-                  : undefined}>{cells[column]}</td>)}
-          </tr>;
-        })}</tbody>
-      </table>
-      {rows.length === 0 && directory && <Empty title={directory.loading
+                  : undefined;
+          return {
+            key: p.pool, kind: p.kind === 'portfolio' ? 'portfolio' : 'single', cells, columnTitle,
+            identity: <div className="asset-cell">{identity}</div>,
+            status: columns.includes('status') || summary ? cells.status : null,
+            fields: columns.filter(column => !['miner', 'status', 'actions'].includes(column))
+              .map(column => ({ key: column, label: titles[column], value: cells[column], title: columnTitle(column) })),
+            quickFields: group === 'Funding' ? ['shares', 'unit'] : group === 'Active' ? ['daily', 'capacity']
+              : group === 'Listed' ? ['unit', 'capacity'] : ['shares', 'unit'],
+            actions: cells.actions,
+          };
+    });
+    const empty = directory ? <Empty title={directory.loading
         ? L('正在读取项目…', 'Loading projects…')
         : directory.failed || !directory.ready ? L('部分项目暂不可用，请刷新重试', 'Some projects are unavailable. Please refresh.')
           : directory.total === 0 ? holdings ? L('暂无持仓和待领取权益', 'No positions or outstanding entitlements') : L('尚未创建拼矿项目', 'No projects have been created yet')
@@ -2333,8 +2383,7 @@ export default function LivePlatform() {
             {hasOperatorAccess && <Button secondary disabled={busy} onClick={()=>go('operator')}>{L('创建首个项目','Create the first project')}</Button>}
           </>}
         </>}
-      </Empty>}
-      {rows.length === 0 && !directory && (
+      </Empty> : (
         <Empty
           title={
             (holdings ? positionsReadLoading : loading || boot.status === 'loading')
@@ -2354,8 +2403,228 @@ export default function LivePlatform() {
             {hasOperatorAccess && <Button secondary disabled={busy} onClick={() => go('operator')}>{L('创建首个项目', 'Create the first pool')}</Button>}
           </>}
         </Empty>
-      )}
-    </div>;
+      );
+    return <>
+      <div className={`table-wrap live-project-table-desktop${catalog ? " live-catalog-table" : ""}`}>
+        <table>
+          <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
+          <tbody>{displayRows.map(row => <tr key={row.key} data-project-kind={row.kind} data-project-address={row.key}>
+            {columns.map(column => <td key={column} className={["unit", "hash", "capacity"].includes(column) ? "num" : undefined}
+              title={row.columnTitle(column)}>{row.cells[column]}</td>)}
+          </tr>)}</tbody>
+        </table>
+        {!rows.length && empty}
+      </div>
+      <MobileProjectViews rows={displayRows} summary={summary} empty={empty} category={group}
+        expanded={expandedProjectRows} onToggle={(key, open) => setExpandedProjectRows(previous => {
+          if (previous.has(key) === open) return previous;
+          const next = new Set(previous); if (open) next.add(key); else next.delete(key); return next;
+        })} L={L} />
+    </>;
+  };
+  const claimTable = () => {
+    const rows = positions.map(p => {
+      const cells = {
+        miner: <>
+          <button
+            className="text-button"
+            onClick={() => openDetails(p)}
+          >
+            {p.name} #{p.tokenId}
+          </button>
+        </>,
+        bem: <>
+          {amount(p.claimableBEM, 8)}
+        </>,
+        bnb: <>
+          {amount(p.bnbOwed)}
+        </>,
+        actions: <>
+          <div className="live-actions">
+            <Button
+              secondary
+              disabled={!positionsActionReadyFor('claim') || busy || !claimState(p, 'BEM', positionsReadSource).canClaim}
+              onClick={() => openAction("claim", p)}
+            >
+              {L(claimState(p, 'BEM', positionsReadSource).labelZh, claimState(p, 'BEM', positionsReadSource).labelEn)}
+            </Button>
+            <Button
+              secondary
+              disabled={!positionsActionReadyFor('withdrawBnb') || busy || !claimState(p, 'BNB', positionsReadSource).canClaim}
+              onClick={() => openAction("withdrawBnb", p)}
+            >
+              {L(claimState(p, 'BNB', positionsReadSource).labelZh, claimState(p, 'BNB', positionsReadSource).labelEn)}
+            </Button>
+            <Button
+              secondary
+              disabled={!positionsActionReadyFor('harvest') || busy ||
+                !["Active", "Listed"].includes(p.status)
+              }
+              onClick={() => openAction("harvest", p)}
+            >
+              {L("归集", "Collect")}
+            </Button>
+          </div>
+        </>,
+      };
+      return { key: p.pool, cells, identity: cells.miner,
+        fields: [
+          { key: 'bem', label: L("可领取 BEM", "Claimable BEM"), value: cells.bem },
+          { key: 'bnb', label: L("待领取 BNB", "Claimable BNB"), value: cells.bnb }
+        ], actions: cells.actions };
+    });
+    const empty = (
+      <Empty title={positionsReadLoading
+        ? L('正在读取份额…', 'Loading shares…')
+        : positionsReadError
+          ? L('份额读取失败，请刷新重试', 'Could not read shares. Please refresh.')
+          : L("暂无可领取项目", "No claimable pools")} />
+    );
+    return <>
+      <div className="table-wrap live-claim-table-desktop">
+        <table>
+          <thead>
+            <tr>
+              <th>{L("矿机", "Miner")}</th>
+              <th>BEM</th>
+              <th>BNB</th>
+              <th>{L("操作", "Actions")}</th>
+            </tr>
+          </thead>
+          <tbody>{rows.map(row => <tr key={row.key}>
+            {['miner', 'bem', 'bnb', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
+          </tr>)}</tbody>
+        </table>
+        {!rows.length && empty}
+      </div>
+      <MobileFinancialCards rows={rows} empty={empty} variant="claims" L={L}/>
+    </>;
+  };
+  const orderTable = () => {
+    const rows = orders.map(o => {
+      const cells = {
+        miner: <>
+          <button
+            className="text-button"
+            onClick={() => go("detail", o.pool)}
+          >
+            {shortAddress(o.pool)}
+          </button>
+        </>,
+        remaining: <>
+          {o.remaining?.toString() ?? "—"}
+        </>,
+        unit: <>
+          {amount(o.pricePerUnitWei)} BNB
+          {BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei && <small className="live-order-state">
+            {L('旧低价挂单，仅可撤销', 'Old low-price order; cancel only')}
+          </small>}
+        </>,
+        capacity: <>
+          {capacityCell(o)}
+        </>,
+        seller: <>
+          {shortAddress(o.seller)}
+          {same(o.seller, account) && <small className="live-order-state">
+            {L("这是你的挂单；购买请切换买家钱包", "Your order; switch to a buyer wallet to purchase")}
+          </small>}
+        </>,
+        expires: <>
+          {date(o.expiresAt)}
+          {!config?.displayOnly && (marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
+            && <small className="live-order-state">{L('历史挂单 · 待核验', 'Historical order · verification pending')}</small>}
+          {o.active !== true ? (
+            <small className="live-order-state">
+              {L("已结束", "Closed")}
+            </small>
+          ) : o.expiresAt <=
+            BigInt(marketOrderSource?.indexedTimestamp ?? 0) ? (
+            <small className="live-order-state">
+              {L(
+                "已到期 · 待解锁",
+                "Expired · unlock shares",
+              )}
+            </small>
+          ) : null}
+        </>,
+        actions: <>
+          <Button
+            secondary
+            disabled={(!(marketOrderNeedsConnection
+              ? marketOrderConnectReady
+              : marketOrderActionReady(o, same(o.seller, account) ? 'cancel' : 'fill')) ||
+              busy ||
+              o.cancellationPending ||
+              o.active !== true ||
+              (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
+            )}
+            onClick={() => {
+              if (marketOrderNeedsConnection) { connect(); return; }
+              openAction(
+                same(o.seller, account)
+                  ? o.expiresAt <=
+                    BigInt(marketOrderSource?.indexedTimestamp ?? 0)
+                    ? "expire"
+                    : "cancel"
+                  : "fill",
+                { pool: o.pool },
+                { orderId: (o.id ?? o.orderId).toString() },
+              );
+            }}
+          >
+            {o.cancellationPending ? L('撤单处理中…', 'Cancelling…') : !config?.displayOnly && (marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
+              ? L('挂单待核验', 'Order awaiting verification')
+              : same(o.seller, account)
+              ? o.expiresAt <=
+                BigInt(marketOrderSource?.indexedTimestamp ?? 0)
+                ? L("解锁份额", "Unlock shares")
+                : L("撤单", "Cancel")
+              : BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei
+                ? L('不可成交', 'Cannot buy')
+                : L("买入份额", "Buy shares")}
+          </Button>
+        </>,
+      };
+      return { key: o.id?.toString() ?? o.orderId?.toString(), cells, identity: cells.miner,
+        fields: [
+          { key: 'remaining', label: L("剩余份额", "Remaining"), value: cells.remaining },
+          { key: 'unit', label: L("每份挂牌价", "Listed price"), value: cells.unit },
+          { key: 'capacity', label: <>{L("日产能价", "Daily capacity price")}<small>BNB / (BEM / {L("天", "day")})</small></>, value: cells.capacity },
+          { key: 'seller', label: L("卖家", "Seller"), value: cells.seller },
+          { key: 'expires', label: L("到期", "Expires"), value: cells.expires }
+        ], actions: cells.actions };
+    });
+    const empty = (
+      <Empty title={marketOrdersLoading
+        ? L("正在读取订单…", "Loading orders…")
+        : marketOrdersError
+          ? L("订单读取失败，请刷新重试", "Could not read orders. Please refresh.")
+          : marketTab === "mine" && !account
+            ? L("连接钱包查看本人挂单", "Connect your wallet to view your orders")
+            : L("暂无挂单", "No orders")} />
+    );
+    return <>
+      <div className="table-wrap live-order-table-desktop">
+        <table>
+          <thead>
+            <tr>
+              <th>{L("项目", "Pool")}</th>
+              <th>{L("剩余份额", "Remaining")}</th>
+              <th>{L("每份挂牌价", "Listed price")}</th>
+              <th>{L("日产能价", "Daily capacity price")}<small>BNB / (BEM / {L("天", "day")})</small></th>
+              <th>{L("卖家", "Seller")}</th>
+              <th>{L("到期", "Expires")}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>{rows.map(row => <tr key={row.key}>
+            {['miner', 'remaining', 'unit', 'capacity', 'seller', 'expires', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
+          </tr>)}</tbody>
+        </table>
+        {!rows.length && empty}
+      </div>
+      <MobileFinancialCards rows={rows} empty={empty} variant="orders" L={L}/>
+    </>;
   };
   const renderProjectDirectory = page => {
     const directory = projectDirectory(mergePublishedProjects(pools, publishedProjects.current),
@@ -2393,7 +2662,8 @@ export default function LivePlatform() {
           {[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale']].map(([id,zh,en]) => {
             const rows = directory.rows.filter(row => projectMatchesStatus(row,id));
             return <section key={id} className="live-directory-group" data-project-category={id}>
-              <h2>{L(zh,en)} <small>{rows.length}</small></h2>
+              <h2>{L(zh,en)} <small><span className="live-desktop-copy">{rows.length}</span>
+                <span className="live-mobile-copy">{ready && !updating && !failed ? rows.length : '—'}</span></small></h2>
               {poolTable(rows, false, false, {loading:updating, failed, ready, total:directory.all.length},id)}
             </section>;
           })}
@@ -2419,7 +2689,8 @@ export default function LivePlatform() {
     const updating = positionsReadLoading || page.loading;
     const more = positionCursor != null || page.cursor != null;
     return <>
-      {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton)}
+      {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton,
+        L('查看项目持仓、已入账收益和待领取款项。','Positions, rewards and claimable funds.'))}
       <div className="metrics" data-asset-summary="unified">
         <Metric primary title={historical?L('上次核验可领取','Previously verified BEM'):partial?L('已加载可领取','Loaded claimable BEM'):L('当前可领取','Claimable BEM')}
           value={amount(totals.claimableBem,8)} unit="BEM"/>
@@ -2486,9 +2757,31 @@ export default function LivePlatform() {
     }
   }
   const visibleActivity = activityPageView.visibleRows;
-  const activityTable = () => (
-    <>
-      <div className="table-wrap">
+  const activityTable = () => {
+    const amountLabels = { amount: ["金额", "Amount"], gross: ["成交基价", "Base price"],
+      sellerFee: ["卖方费用", "Seller fee"], buyerFee: ["买方费用", "Buyer fee"] };
+    const rows = visibleActivity.map((row, i) => {
+      const hash = row.transactionHash ?? row.txHash;
+      const contract = row.contract ?? row.address ?? row.pool;
+      const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
+      const transactionUrl = explorerTransaction(hash);
+      return { key: `${hash}-${row.logIndex ?? i}`, block: row.blockNumber,
+        operation: <ActivityOperation row={row} locale={locale} />,
+        amounts: activityAmounts(row).map(item => ({ key: item.kind, label: L(...amountLabels[item.kind]),
+          value: <>{displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</> })),
+        contract: contractUrl ? <a className="text-button" href={contractUrl}
+          title={contract} target="_blank" rel="noopener noreferrer">
+          {shortAddress(contract)}<ArrowUpRight size={14} /></a> : "—",
+        transaction: transactionUrl ? <a className="text-button" href={transactionUrl}
+          target="_blank" rel="noopener noreferrer">{hash.slice(0, 10)}…<ArrowUpRight size={14} /></a> : "—" };
+    });
+    const empty = <Empty title={activityReadLoading
+      ? L('正在读取记录…', 'Loading records…')
+      : activityReadError
+        ? L('记录读取失败，请刷新重试', 'Could not read records. Please refresh.')
+        : L("暂无已确认记录", "No confirmed records")} />;
+    return <>
+      <div className="table-wrap live-activity-table-desktop">
         <table>
           <thead>
             <tr>
@@ -2500,52 +2793,31 @@ export default function LivePlatform() {
             </tr>
           </thead>
           <tbody>
-            {visibleActivity.map((row, i) => {
-              const hash = row.transactionHash ?? row.txHash;
-              const contract = row.contract ?? row.address ?? row.pool;
-              const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
-              const entries = activityAmounts(row);
-              return (
-                <tr key={`${hash}-${row.logIndex ?? i}`}>
-                  <td>{row.blockNumber}</td>
-                  <td><ActivityOperation row={row} locale={locale} /></td>
-                  <td>{entries.length ? entries.map((item, index) => {
-                    const labels = { amount: ["金额", "Amount"], gross: ["成交基价", "Base price"],
-                      sellerFee: ["卖方费用", "Seller fee"], buyerFee: ["买方费用", "Buyer fee"] };
-                    return <span key={item.kind}>{index > 0 ? " · " : ""}{L(...labels[item.kind])}{" "}
-                      {displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</span>;
-                  }) : "—"}</td>
-                  <td>
-                    {contractUrl ? <a
-                      className="text-button" href={contractUrl}
-                      title={contract} target="_blank" rel="noopener noreferrer">
-                      {shortAddress(contract)}<ArrowUpRight size={14} />
-                    </a> : "—"}
-                  </td>
-                  <td>
-                    {explorerTransaction(hash) ? (
-                      <a
-                        className="text-button"
-                        href={explorerTransaction(hash)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {hash.slice(0, 10)}…<ArrowUpRight size={14} />
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {rows.map(row => <tr key={row.key}>
+              <td>{row.block}</td>
+              <td>{row.operation}</td>
+              <td>{row.amounts.length ? row.amounts.map((item, index) => <span key={item.key}>
+                {index > 0 ? " · " : ""}{item.label}{" "}{item.value}</span>) : "—"}</td>
+              <td>{row.contract}</td>
+              <td>{row.transaction}</td>
+            </tr>)}
           </tbody>
         </table>
-        {!visibleActivity.length && <Empty title={activityReadLoading
-          ? L('正在读取记录…', 'Loading records…')
-          : activityReadError
-            ? L('记录读取失败，请刷新重试', 'Could not read records. Please refresh.')
-            : L("暂无已确认记录", "No confirmed records")} />}
+        {!rows.length && empty}
+      </div>
+      <div className="live-mobile-activity">
+        {rows.map(row => <article className="live-mobile-activity-row" key={row.key}>
+          <header className="live-mobile-activity-heading"><span>{L("区块", "Block")} #{row.block}</span></header>
+          {row.operation}
+          <dl className="live-mobile-activity-amounts">
+            {row.amounts.length ? row.amounts.map(item => <div key={item.key}>
+              <dt>{item.label}</dt><dd>{item.value}</dd></div>) : <div>
+              <dt>{L("金额 / 费用", "Amount / fee")}</dt><dd>—</dd></div>}
+          </dl>
+          <div className="live-mobile-activity-links"><span>{L("合约", "Contract")} {row.contract}</span>
+            <span>{L("链上记录", "Transaction")} {row.transaction}</span></div>
+        </article>)}
+        {!rows.length && empty}
       </div>
       {activityReadError && <p className="live-dialog-error" role="alert">{activityReadError}</p>}
       {activityPageView.paginated ? <nav className="live-actions live-record-pagination" aria-label={L('记录分页', 'Records pagination')}>
@@ -2569,8 +2841,8 @@ export default function LivePlatform() {
         </form>}
       </nav>
         : moreButton(activityCursor, "activity")}
-    </>
-  );
+    </>;
+  };
   function renderGovernance() {
     return <section className="panel"><LiveGovernance
       key={`${detail?.pool || ''}:${account || ''}`}
@@ -2673,7 +2945,8 @@ export default function LivePlatform() {
               rel="noopener noreferrer"
             >
               <ShieldCheck size={17} />
-              {L("管理员 · 合约部署", "Admin · Contract deployment")}
+              <span className="live-desktop-copy">{L("管理员 · 合约部署", "Admin · Contract deployment")}</span>
+              <span className="live-mobile-copy">{L("运营管理", "Admin")}</span>
               <ArrowUpRight size={14} />
             </a>
           )}
@@ -3344,6 +3617,7 @@ export default function LivePlatform() {
                   "Output is collected into the pool, then claimed personally. Booked entitlements do not expire.",
                 ),
                 refreshButton,
+                L('收益归集后由本人领取；权益永久保留。', 'Claim collected rewards; entitlements do not expire.'),
               )}
               <div className="metrics">
                 <Metric
@@ -3384,68 +3658,7 @@ export default function LivePlatform() {
                 <div className="section-head">
                   <h2>{L("逐池领取", "Claim from each pool")}</h2>
                 </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>{L("矿机", "Miner")}</th>
-                        <th>BEM</th>
-                        <th>BNB</th>
-                        <th>{L("操作", "Actions")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {positions.map((p) => (
-                        <tr key={p.pool}>
-                          <td>
-                            <button
-                              className="text-button"
-                              onClick={() => openDetails(p)}
-                            >
-                              {p.name} #{p.tokenId}
-                            </button>
-                          </td>
-                          <td>{amount(p.claimableBEM, 8)}</td>
-                          <td>{amount(p.bnbOwed)}</td>
-                          <td>
-                            <div className="live-actions">
-                              <Button
-                                secondary
-                                disabled={!positionsActionReadyFor('claim') || busy || !claimState(p, 'BEM', positionsReadSource).canClaim}
-                                onClick={() => openAction("claim", p)}
-                              >
-                                {L(claimState(p, 'BEM', positionsReadSource).labelZh, claimState(p, 'BEM', positionsReadSource).labelEn)}
-                              </Button>
-                              <Button
-                                secondary
-                                disabled={!positionsActionReadyFor('withdrawBnb') || busy || !claimState(p, 'BNB', positionsReadSource).canClaim}
-                                onClick={() => openAction("withdrawBnb", p)}
-                              >
-                                {L(claimState(p, 'BNB', positionsReadSource).labelZh, claimState(p, 'BNB', positionsReadSource).labelEn)}
-                              </Button>
-                              <Button
-                                secondary
-                                disabled={!positionsActionReadyFor('harvest') || busy ||
-                                  !["Active", "Listed"].includes(p.status)
-                                }
-                                onClick={() => openAction("harvest", p)}
-                              >
-                                {L("归集", "Collect")}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!positions.length && (
-                    <Empty title={positionsReadLoading
-                      ? L('正在读取份额…', 'Loading shares…')
-                      : positionsReadError
-                        ? L('份额读取失败，请刷新重试', 'Could not read shares. Please refresh.')
-                        : L("暂无可领取项目", "No claimable pools")} />
-                  )}
-                </div>
+                {claimTable()}
                 {moreButton(positionCursor, "positions")}
               </section>
               <section className="panel live-section">
@@ -3497,119 +3710,7 @@ export default function LivePlatform() {
                     "每份挂牌价是成交基价。买方在基价外另付 1%，卖方从基价中扣除 1%；最终钱包金额在确认前展示。",
                     "The listed price is the trade base. Buyers pay 1% on top and sellers pay a separate 1% from proceeds. Review the exact wallet payment before confirming.",
                   )}</p>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>{L("项目", "Pool")}</th>
-                          <th>{L("剩余份额", "Remaining")}</th>
-                          <th>{L("每份挂牌价", "Listed price")}</th>
-                          <th>{L("日产能价", "Daily capacity price")}<small>BNB / (BEM / {L("天", "day")})</small></th>
-                          <th>{L("卖家", "Seller")}</th>
-                          <th>{L("到期", "Expires")}</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {orders.map((o) => (
-                          <tr key={o.id?.toString() ?? o.orderId?.toString()}>
-                            <td>
-                              <button
-                                className="text-button"
-                                onClick={() => go("detail", o.pool)}
-                              >
-                                {shortAddress(o.pool)}
-                              </button>
-                            </td>
-                            <td>{o.remaining?.toString() ?? "—"}</td>
-                            <td>{amount(o.pricePerUnitWei)} BNB
-                              {BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei && <small className="live-order-state">
-                                {L('旧低价挂单，仅可撤销', 'Old low-price order; cancel only')}
-                              </small>}
-                            </td>
-                            <td>{capacityCell(o)}</td>
-                            <td>
-                              {shortAddress(o.seller)}
-                              {same(o.seller, account) && <small className="live-order-state">
-                                {L("这是你的挂单；购买请切换买家钱包", "Your order; switch to a buyer wallet to purchase")}
-                              </small>}
-                            </td>
-                            <td>
-                              {date(o.expiresAt)}
-                              {!config?.displayOnly && (marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
-                                && <small className="live-order-state">{L('历史挂单 · 待核验', 'Historical order · verification pending')}</small>}
-                              {o.active !== true ? (
-                                <small className="live-order-state">
-                                  {L("已结束", "Closed")}
-                                </small>
-                              ) : o.expiresAt <=
-                                BigInt(marketOrderSource?.indexedTimestamp ?? 0) ? (
-                                <small className="live-order-state">
-                                  {L(
-                                    "已到期 · 待解锁",
-                                    "Expired · unlock shares",
-                                  )}
-                                </small>
-                              ) : null}
-                            </td>
-                            <td>
-                              <Button
-                                secondary
-                                disabled={(!(marketOrderNeedsConnection
-                                  ? marketOrderConnectReady
-                                  : marketOrderActionReady(o, same(o.seller, account) ? 'cancel' : 'fill')) ||
-                                  busy ||
-                                  o.cancellationPending ||
-                                  o.active !== true ||
-                                  (!same(o.seller, account) && BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei)
-                                )}
-                                onClick={() => {
-                                  if (marketOrderNeedsConnection) { connect(); return; }
-                                  openAction(
-                                    same(o.seller, account)
-                                      ? o.expiresAt <=
-                                        BigInt(marketOrderSource?.indexedTimestamp ?? 0)
-                                        ? "expire"
-                                        : "cancel"
-                                      : "fill",
-                                    { pool: o.pool },
-                                    { orderId: (o.id ?? o.orderId).toString() },
-                                  );
-                                }}
-                              >
-                                {o.cancellationPending ? L('撤单处理中…', 'Cancelling…') : !config?.displayOnly && (marketOrderSource?.stale === true || marketOrderSource?.readMode === 'verified_snapshot')
-                                  ? L('挂单待核验', 'Order awaiting verification')
-                                  : same(o.seller, account)
-                                  ? o.expiresAt <=
-                                    BigInt(marketOrderSource?.indexedTimestamp ?? 0)
-                                    ? L("解锁份额", "Unlock shares")
-                                    : L("撤单", "Cancel")
-                                  : BigInt(o.pricePerUnitWei ?? 0) < minimumSharePriceWei
-                                    ? L('不可成交', 'Cannot buy')
-                                    : L("买入份额", "Buy shares")}
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {!orders.length && (
-                      <Empty
-                        title={
-                          marketOrdersLoading
-                            ? L("正在读取订单…", "Loading orders…")
-                            : marketOrdersError
-                              ? L("订单读取失败，请刷新重试", "Could not read orders. Please refresh.")
-                            : marketTab === "mine" && !account
-                              ? L(
-                                  "连接钱包查看本人挂单",
-                                  "Connect your wallet to view your orders",
-                                )
-                              : L("暂无挂单", "No orders")
-                        }
-                      />
-                    )}
-                  </div>
+                  {orderTable()}
                   {marketOrdersError && <p className="live-dialog-error" role="alert">{marketOrdersError}</p>}
                   {moreButton(orderCursor, "orders")}
                   {!!orders.length && <p className="subtle-note">{L("日产能价按该挂单每份价格 × 100 ÷ 当前矿机预计日产出计算，属于毛产能估算；实际收益另按合约费率结算。产能来源过期或未核验时不显示价格，不影响链上买卖。", "Capacity price is each share order's price × 100 ÷ estimated daily miner output. This gross estimate is not a return guarantee; unavailable estimates do not affect on-chain trading.")}</p>}
