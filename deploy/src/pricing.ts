@@ -35,7 +35,7 @@ export interface MineQuotePage { rows: MineQuote[]; excluded: number; page: numb
 export interface CapacityReference { dailyCapacityPriceWei: string; observedAt: number; sourceBlock: string; viewId: string; sourceUrl: string; receivedAt: number }
 export interface QuotePlan {
   schemaVersion: 1; chainId: 56; createdAt: string; sourceDigest: string;
-  target: { collection: string; tokenId: string; series: string; askId: string; askPriceWei: string; firstoBuyerCostWei: string };
+  target: { collection: string; tokenId: string; series: string; askId: string | null; askPriceWei: string | null; firstoBuyerCostWei: string | null };
   reference: CapacityReference;
   flexiblePurchase: { minVerifiedWeight: string; referencePriceWei: string; targetDailyYieldAtomic: string; extraBps: number; referenceObservedAt: number; referenceBlock: string; referenceDigest: string };
   funding: { targetRaiseWei: string; priceCapWei: string; totalShares: 100; pricePerShareWei: string; extraBps: number };
@@ -49,9 +49,12 @@ export function mineCapacityPrice(quote: MineQuote): string | null {
   if (!quote.ask || quote.estimated24hAtomic == null || BigInt(quote.estimated24hAtomic) <= 0n) return null;
   return (BigInt(quote.ask.priceWei) * 100_000_000n / BigInt(quote.estimated24hAtomic)).toString();
 }
-export function quoteIssue(quote: MineQuote, now = Date.now()): string | null {
+export function minerReferenceIssue(quote: MineQuote, now = Date.now()): string | null {
   if (quote.issues.length) return quote.issues[0];
-  const stale = ageIssue(quote.source.observedAt, now); if (stale) return stale;
+  return ageIssue(quote.source.observedAt, now);
+}
+export function quoteIssue(quote: MineQuote, now = Date.now()): string | null {
+  const reference = minerReferenceIssue(quote, now); if (reference) return reference;
   if (!quote.ask) return '当前没有有效卖单，不推测成交价';
   if (quote.ask.expiresAt !== null && quote.ask.expiresAt <= now) return '卖单已过期';
   return null;
@@ -183,8 +186,11 @@ export async function fetchMineQuote(collectionValue: string, tokenValue: string
   return verifyQuoteDetail(found, detail);
 }
 
-export function createQuotePlan(quote: MineQuote, reference: CapacityReference, extraBps = 1000, minVerifiedWeight = quote.verifiedWeight ?? '0', now = Date.now()): QuotePlan {
-  requireValue(!quoteIssue(quote, now), quoteIssue(quote, now) ?? '报价无效');
+export function createQuotePlan(quote: MineQuote, reference: CapacityReference, extraBps = 1000, minVerifiedWeight = quote.verifiedWeight ?? '0', now = Date.now(),
+  options: { allowUnlistedReference?: boolean } = { allowUnlistedReference: false }): QuotePlan {
+  const issue = options?.allowUnlistedReference === true && !quote.ask
+    ? minerReferenceIssue(quote, now) : quoteIssue(quote, now);
+  requireValue(!issue, issue ?? '报价无效');
   requireValue(quote.detailChecked, '请先通过合约地址与编号核对矿机详情');
   requireValue(!referenceIssue(reference, now), referenceIssue(reference, now) ?? '参考价无效');
   requireValue(quote.status === 'verified' && quote.unverifiedWeight === '0' && quote.verifiedWeight && BigInt(quote.verifiedWeight) > 0n, '只支持纯验证池、非最优、无未验证权重的官方矿机');
@@ -200,7 +206,8 @@ export function createQuotePlan(quote: MineQuote, reference: CapacityReference, 
   const sourceDigest = keccak256(toUtf8Bytes(JSON.stringify({ quote, reference })));
   return {
     schemaVersion: 1, chainId: 56, createdAt: new Date(now).toISOString(), sourceDigest,
-    target: { collection: quote.collection, tokenId: quote.tokenId, series: quote.series, askId: quote.ask!.id, askPriceWei: quote.ask!.priceWei, firstoBuyerCostWei: quote.ask!.buyerCostWei },
+    target: { collection: quote.collection, tokenId: quote.tokenId, series: quote.series,
+      askId: quote.ask?.id ?? null, askPriceWei: quote.ask?.priceWei ?? null, firstoBuyerCostWei: quote.ask?.buyerCostWei ?? null },
     reference,
     flexiblePurchase: { minVerifiedWeight: minimum, referencePriceWei: referencePriceWei.toString(), targetDailyYieldAtomic: quote.estimated24hAtomic, extraBps, referenceObservedAt: Math.floor(reference.observedAt / 1000), referenceBlock: reference.sourceBlock, referenceDigest: sourceDigest },
     funding: { targetRaiseWei: targetRaiseWei.toString(), priceCapWei: referencePriceWei.toString(), totalShares: 100, pricePerShareWei: (targetRaiseWei / 100n).toString(), extraBps },

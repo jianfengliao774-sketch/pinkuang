@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createQuotePlan, fetchMineQuote, fetchQuotePage, formatExact, mineCapacityPrice, MAX_QUOTE_AGE_MS, OFFICIAL_COLLECTIONS, parseCapacityReference, parseQuotePage, quoteIssue, referenceIssue, verifyQuoteDetail } from './pricing';
+import { createQuotePlan, fetchMineQuote, fetchQuotePage, formatExact, mineCapacityPrice, MAX_QUOTE_AGE_MS, minerReferenceIssue, OFFICIAL_COLLECTIONS, parseCapacityReference, parseQuotePage, quoteIssue, referenceIssue, verifyQuoteDetail } from './pricing';
 
 const now = Date.now();
 const seller = '0x1111111111111111111111111111111111111111';
@@ -26,6 +26,11 @@ function page(rows = [row()]) { return { rows, page: 1, pageSize: 30, totalPages
 function reference() { return parseCapacityReference({ tokenSymbol: 'BEM', tokenDecimals: 8, marketStats: { dailyCapacityPriceWei: '8226495726495726495' }, asOf: new Date(now - 1000).toISOString(), sourceBlock: '124098316', viewId: 'holder-view' }, now); }
 function detail() { const item = row(); return { asset: { ...item }, orders: { asksAndOnchainBids: [], signedAsks: [{ askHash: askId, maker: seller, status: 'open', priceWei: item.bestAsk.priceWei, buyerCostWei: item.bestAsk.buyerCostWei }] } }; }
 function quote() { return verifyQuoteDetail(parseQuotePage(page(), now).rows[0], detail()); }
+function unlistedQuote(estimated24hAtomic = '28512000') {
+  const item = { ...row(), bestAsk: null, mining: { ...row().mining, estimated24hAtomic } };
+  return verifyQuoteDetail(parseQuotePage({ ...page(), rows: [item] }, now).rows[0],
+    { asset: item, orders: { asksAndOnchainBids: [], signedAsks: [] } });
+}
 
 test('Firsto price, buyer total, bid proceeds and BEM decimals remain independent exact integers', () => {
   const result = parseQuotePage(page(), now).rows[0];
@@ -97,6 +102,43 @@ test('an expired or absent ask is never replaced with listingReference', () => {
   assert.match(quoteIssue(result, now)!, /过期/);
   result.ask = null; assert.match(quoteIssue(result, now)!, /没有有效卖单/);
   assert.ok(result.listingReference);
+});
+
+test('only an explicit unlisted-reference plan may use a fully checked miner without inventing an ask price', () => {
+  const target = unlistedQuote('100000000');
+  const smallReference = { ...reference(), dailyCapacityPriceWei: '1001' };
+  assert.equal(target.detailChecked, true);
+  assert.equal(minerReferenceIssue(target, now), null);
+  assert.match(quoteIssue(target, now)!, /没有有效卖单/);
+  assert.equal(mineCapacityPrice(target), null);
+  assert.throws(() => createQuotePlan(target, smallReference, 0, '61', now), /没有有效卖单/);
+  const plan = createQuotePlan(target, smallReference, 0, '61', now, { allowUnlistedReference: true });
+  assert.deepEqual(plan.target, { collection: target.collection, tokenId: target.tokenId, series: target.series,
+    askId: null, askPriceWei: null, firstoBuyerCostWei: null });
+  assert.equal(plan.flexiblePurchase.referencePriceWei, '1001');
+  assert.equal(plan.funding.priceCapWei, '1001');
+  assert.equal(plan.funding.targetRaiseWei, '1100');
+  assert.equal(plan.funding.pricePerShareWei, '11');
+});
+
+test('unlisted opt-in still rejects expired asks, incomplete sources and mixed miner identity', () => {
+  const opts = { allowUnlistedReference: true }, target = unlistedQuote();
+  const expiredAsk = quote(); expiredAsk.ask!.expiresAt = now - 1;
+  assert.throws(() => createQuotePlan(expiredAsk, reference(), 1000, '61', now, opts), /卖单已过期/);
+  const stale = { ...target, source: { ...target.source, observedAt: now - MAX_QUOTE_AGE_MS - 1 } };
+  assert.throws(() => createQuotePlan(stale, reference(), 1000, '61', now, opts), /超过 5 分钟/);
+  const item = { ...row(), bestAsk: null };
+  const missing = { ...page(), rows: [item], sourceFreshness: { ...freshness } as Record<string, number> };
+  delete missing.sourceFreshness['blockfeed:bsc-tapeout-markets-shadow-v1:circuit-orders'];
+  const incomplete = verifyQuoteDetail(parseQuotePage(missing, now).rows[0],
+    { asset: item, orders: { asksAndOnchainBids: [], signedAsks: [] } });
+  assert.match(minerReferenceIssue(incomplete, now)!, /缺少报价来源/);
+  assert.throws(() => createQuotePlan(incomplete, reference(), 1000, '61', now, opts), /缺少报价来源/);
+  assert.throws(() => createQuotePlan({ ...target, detailChecked: false }, reference(), 1000, '61', now, opts), /核对/);
+  assert.throws(() => verifyQuoteDetail(target, { asset: { ...item, owner: exchange },
+    orders: { asksAndOnchainBids: [], signedAsks: [] } }), /持有人已变化/);
+  assert.throws(() => verifyQuoteDetail(target, { asset: { ...item, collection: exchange },
+    orders: { asksAndOnchainBids: [], signedAsks: [] } }), /资产身份不一致/);
 });
 
 test('reference requires positive precise data with a real asOf time and correct token units', () => {

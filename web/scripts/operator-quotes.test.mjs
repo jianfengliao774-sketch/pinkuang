@@ -2,9 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ZeroAddress, getAddress } from 'ethers';
 import { dataFixture, chainFixture, apiFixture, MARKET, other, blockHash, config } from './operator-quotes-fixture.mjs';
+import { parseQuotePage, verifyQuoteDetail } from '../../deploy/src/pricing.ts';
 import { checkMinerOnchain as checkMiner, loadOperatorQuote as loadQuote, loadVerifiedCapacityHint, listOperatorQuotes, listingDailyCapacityPrice, operatorQuoteDraft, operatorQuoteError, parseOperatorImport } from '../lib/operator-quotes.mjs';
 const checkMinerOnchain = (provider, quote) => checkMiner(provider, quote, { config });
 const loadOperatorQuote = input => loadQuote({ config, ...input });
+
+function unlistedFixture() {
+  const data = dataFixture();
+  data.page.rows[0].tokenId = '10042'; data.page.rows[0].bestAsk = null;
+  data.detail.asset.tokenId = '10042'; data.detail.asset.bestAsk = null;
+  data.detail.orders = { signedAsks: [], asksAndOnchainBids: [] };
+  data.quote = verifyQuoteDetail(parseQuotePage(data.page, data.now).rows[0], data.detail);
+  return data;
+}
 
 test('listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic', () => {
   assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.13000');
@@ -89,6 +99,90 @@ test('Firsto listing price/buyer total never replace the independently verified 
   assert.equal(draft.params.targetRaiseWei, '2200000000000000100');
   assert.equal(draft.params.circuits, getAddress(data.quote.collection));
   assert(!Object.hasOwn(draft, 'transaction')); assert.equal(api.requests.length, 3);
+});
+
+test('unlisted #10042 selects fresh verified model metadata without inventing a purchase route or repeating chain reads', async () => {
+  for (const mode of ['createPool', 'createFlexiblePoolChecked']) {
+    const data = unlistedFixture(), rpc = chainFixture(data.quote, { listing: { valid: false, id: 0n, price: 0n } });
+    const api = apiFixture(data);
+    const checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+      provider: rpc.provider, fetcher: api.fetcher, mode });
+    assert.equal(checked.quote.tokenId, '10042'); assert.equal(checked.quote.ask, null);
+    assert.equal(checked.quote.detailChecked, true); assert.equal(checked.quote.estimated24hAtomic, '123456789');
+    assert.equal(checked.chain.taskId, '220'); assert.equal(checked.chain.verifiedWeight, '61');
+    assert.equal(checked.chain.official, null); assert.equal(checked.chain.firsto, null);
+    assert.equal(checked.chain.firstoError, null);
+    assert.equal(api.requests.length, 3, 'One exact-list GET, one detail GET, and one capacity reference GET.');
+    assert.equal(rpc.requests.length, 10, 'The initial verified miner read is reused when there is no order to verify.');
+    assert.deepEqual(rpc.calls, ['ownerOf', 'listingFor', 'minerKey', 'getMiner']);
+    assert(!Object.hasOwn(checked, 'transaction'));
+    assert.throws(() => operatorQuoteDraft(checked, { mode: 'createPool', allowUnlistedReference: true }), /没有.*挂单|没有.*订单/,
+      'An arbitrary caller flag must not grant fixed procurement permission.');
+  }
+});
+
+test('unlisted reference gives only the flexible model-bound budget, and an ask expiry cannot use that exception', async () => {
+  const data = unlistedFixture(), rpc = chainFixture(data.quote, { listing: { valid: false } });
+  const checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+    provider: rpc.provider, fetcher: apiFixture(data).fetcher, mode: 'createFlexiblePoolChecked' });
+  const draft = operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked', extraBps: 1000 });
+  const cap = (BigInt(data.reference.dailyCapacityPriceWei) * BigInt(data.quote.estimated24hAtomic) + 99999999n) / 100000000n;
+  assert.equal(draft.kind, 'createFlexiblePoolChecked'); assert.equal(draft.params.priceCapWei, cap.toString());
+  assert.equal(draft.params.targetRaiseWei, (((cap * 11000n + 999999n) / 1000000n) * 100n).toString());
+  assert.equal(draft.params.circuitId, '10042'); assert.equal(draft.params.directSeller, ZeroAddress);
+  assert.equal(draft.params.directPrice, '0'); assert.equal(draft.expectedTaskId, '220');
+  assert.equal(draft.expectedReferenceWeight, '61'); assert.equal(draft.flexible.targetDailyYieldAtomic, '123456789');
+  assert(!Object.hasOwn(draft, 'transaction'));
+  const expired = structuredClone(checked);
+  expired.quote.ask = { ...dataFixture().quote.ask, expiresAt: Date.now() - 1 };
+  assert.throws(() => operatorQuoteDraft(expired, { mode: 'createFlexiblePoolChecked' }), /过期/);
+  assert.throws(() => operatorQuoteDraft(checked, { mode: 'createFlexiblePoolUnchecked' }));
+});
+
+test('the display-only production path selects an unlisted miner with four read calls and keeps fixed creation blocked', async () => {
+  const data = unlistedFixture(), rpc = chainFixture(data.quote, { listing: { valid: false, id: 0n, price: 0n } });
+  // The strict fixture decodes the same public ABI at its pinned block; the
+  // shipped display reader requests latest without verified-chain headers.
+  const provider = { request: input => rpc.provider.request(input.method === 'eth_call'
+    ? { ...input, params: [input.params[0], '0x64'] } : input) };
+  const api = apiFixture(data);
+  const checked = await loadOperatorQuote({ config: { ...config, displayOnly: true },
+    collection: data.quote.collection, tokenId: data.quote.tokenId, provider, fetcher: api.fetcher });
+  assert.equal(checked.chain.displayOnly, true); assert.equal(checked.chain.official, null);
+  assert.equal(checked.chain.firsto, null); assert.equal(checked.quote.ask, null);
+  assert.equal(rpc.requests.length, 4); assert.equal(api.requests.length, 3);
+  assert(rpc.requests.every(input => input.method === 'eth_call'), 'No simulation, wallet signature or transaction is requested.');
+  assert.throws(() => operatorQuoteDraft(checked), /没有.*挂单|没有.*订单/);
+  assert.equal(operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' }).expectedTaskId, '220');
+});
+
+test('unlisted metadata still rejects changed owners, changed mining conditions and stale public sources', async () => {
+  for (const fault of ['chain-owner', 'detail-owner', 'weight', 'stale', 'future']) {
+    const data = unlistedFixture();
+    const rpc = chainFixture(data.quote, { listing: { valid: false },
+      ...(fault === 'chain-owner' ? { owner: other } : {}), ...(fault === 'weight' ? { miner: { verifWeight: 62n } } : {}) });
+    if (fault === 'detail-owner') data.detail.asset.owner = other;
+    if (fault === 'stale' || fault === 'future')
+      for (const key of Object.keys(data.page.sourceFreshness))
+        data.page.sourceFreshness[key] = Date.now() + (fault === 'stale' ? -300001 : 60000);
+    await assert.rejects(loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+      provider: rpc.provider, fetcher: apiFixture(data).fetcher, mode: 'createFlexiblePoolChecked' }),
+    /已变化|超过|超前/, fault);
+  }
+});
+
+test('unlisted flexible drafts retain freshness, identity-detail and registry gates', async () => {
+  const data = unlistedFixture(), checked = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+    provider: chainFixture(data.quote, { listing: { valid: false } }).provider,
+    fetcher: apiFixture(data).fetcher, mode: 'createFlexiblePoolChecked' });
+  const now = Date.now(), options = { mode: 'createFlexiblePoolChecked' };
+  for (const change of [item => { item.quote.source.observedAt = now - 300001; },
+    item => { item.chain.checkedAt = now - 300001; }, item => { item.reference.observedAt = now - 300001; },
+    item => { item.quote.detailChecked = false; }, item => { item.chain.registry.ready = false; },
+    item => { item.chain.registry.pool = other; }]) {
+    const changed = structuredClone(checked); change(changed);
+    assert.throws(() => operatorQuoteDraft(changed, options, now));
+  }
 });
 
 test('flexible draft uses capacity reference times atomic BEM yield, exact rounding and bound task/weight', async () => {

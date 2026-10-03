@@ -1,5 +1,5 @@
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
-import { OFFICIAL_COLLECTIONS, MAX_QUOTE_AGE_MS, fetchQuotePage, fetchMineQuote, fetchCapacityReference, quoteIssue, createQuotePlan } from '../../deploy/src/pricing.ts';
+import { OFFICIAL_COLLECTIONS, MAX_QUOTE_AGE_MS, fetchQuotePage, fetchMineQuote, fetchCapacityReference, minerReferenceIssue, quoteIssue, createQuotePlan } from '../../deploy/src/pricing.ts';
 import { createReadOnlyHttpProvider } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { QUOTE_BASE } from './quote-base.mjs';
@@ -176,7 +176,10 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
   const results = await Promise.allSettled([fetchMineQuote(collection, tokenId, opts), fetchCapacityReference(opts)]);
   if (results[0].status === 'rejected') throw results[0].reason;
   const quote = results[0].value;
-  requireValue(!quoteIssue(quote), quoteIssue(quote));
+  // An unlisted verified NFT can identify a model for flexible procurement.
+  // Its absent ask never becomes a fixed purchase route or executable price.
+  const issue = quote.ask ? quoteIssue(quote) : minerReferenceIssue(quote);
+  requireValue(!issue, issue);
   matchQuoteToMiner(quote, officialChain);
   let chain = officialChain;
   if (!officialWithinCap && config?.displayOnly === true) {
@@ -186,7 +189,7 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
       catch (error) { firstoError = operatorQuoteError(error); }
     }
     chain = Object.freeze({ ...officialChain, firsto, firstoError });
-  } else if (!officialWithinCap) chain = await checkMinerOnchain(reader, quote, { config, blockTag, officialPriceCapWei });
+  } else if (!officialWithinCap && quote.ask) chain = await checkMinerOnchain(reader, quote, { config, blockTag, officialPriceCapWei });
   return Object.freeze({ quote, chain, reference: results[1].status === 'fulfilled' ? results[1].value : null,
     referenceError: results[1].status === 'rejected' ? operatorQuoteError(results[1].reason) : null });
 }
@@ -212,7 +215,10 @@ function exactFlexibleMetadata(config) {
 /** Only drafts; no signing or broadcasts. Relative deadlines remain operator choices. */
 export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 1000, fundingHours = '24', purchaseHours = '48' } = {}, now = Date.now()) {
   const { quote, chain, reference } = checked;
-  if (quote) requireValue(!quoteIssue(quote, now), quoteIssue(quote, now));
+  if (quote) {
+    const issue = quote.ask ? quoteIssue(quote, now) : minerReferenceIssue(quote, now);
+    requireValue(!issue, issue);
+  }
   else requireValue(mode === 'createPool' && chain?.official, 'Firsto 报价不可用，请重新获取。');
   requireValue(chain && Number.isFinite(chain.checkedAt) && chain.checkedAt <= now + 30000 && now - chain.checkedAt <= 300000, '链上矿机核对已过期，请重新获取。');
   requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间。');
@@ -230,7 +236,8 @@ export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 10
     return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: amounts.targetRaise.toString(), priceCapWei } });
   }
   requireValue(mode === 'createFlexiblePoolChecked' && reference, checked.referenceError || '日产能参考价不可用，请刷新报价。');
-  const plan = createQuotePlan(quote, reference, extraBps, quote.verifiedWeight, now);
+  const plan = createQuotePlan(quote, reference, extraBps, quote.verifiedWeight, now,
+    { allowUnlistedReference: true });
   return Object.freeze({ kind: mode, params: { ...params, targetRaiseWei: plan.funding.targetRaiseWei, priceCapWei: plan.funding.priceCapWei,
     directSeller: ZeroAddress, directPrice: '0' }, flexible: exactFlexibleMetadata(plan.flexiblePurchase),
     expectedTaskId: plan.eligibility.expectedTaskId, expectedReferenceWeight: plan.eligibility.expectedReferenceVerifiedWeight });
