@@ -1,0 +1,19 @@
+Compiling 1 files with Solc 0.8.24
+Solc 0.8.24 finished in 6.49s
+Compiler run successful!
+2026-09-24T09:01:54.948068Z  WARN evm::traces::external: etherscan config not found
+
+Ran 10 tests for test/fork/MiningStartProbe.t.sol:MiningStartProbe
+[PASS] test_Q1_contractHolderArmStartStop_realProofs() (gas: 1798924)
+[PASS] test_Q1_strangerArmStartStopRevert() (gas: 1866686)
+[PASS] test_Q2_invalidMerkleProofRejectedThenValidProofAccepted() (gas: 2543590)
+[PASS] test_Q2_startAfterSixtyFourBlocksReverts() (gas: 1036513)
+[PASS] test_Q2_startAtElevenBlocks_realProofs() (gas: 1768359)
+[PASS] test_Q2_startAtSixtyFourBlocks_realProofs() (gas: 1768336)
+[PASS] test_Q2_startAtTenBlocks_realProofs() (gas: 1768403)
+[PASS] test_Q2_startInArmBlockReverts() (gas: 1036015)
+[PASS] test_Q2_stopCooldownDoesNotExpireByTimestampAlone() (gas: 1001382)
+[PASS] test_Q2_stopCooldownRequiresMoreThan1200Blocks_notSeconds() (gas: 3839728)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 18.45ms (79.18ms CPU time)
+
+Ran 1 test suite in 609.99ms (18.45ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

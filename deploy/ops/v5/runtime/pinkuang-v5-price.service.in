@@ -1,0 +1,19 @@
+[Unit]
+Description=BEMine v5 shared public price cache
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=@PRICE_RUNTIME@
+ExecStart=/usr/bin/node scripts/update-bem-price.mjs --output /var/lib/pinkuang-v5-public/price/bem-price.json
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pinkuang-v5-public/price
+[Install]
+WantedBy=multi-user.target

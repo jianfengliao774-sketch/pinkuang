@@ -1,0 +1,31 @@
+{
+  "checks": [
+    "finalized parent deposit opens its dedicated branded poster; share payload omits member wallet and receipt hash",
+    "budget subscription exact amount -> durable ACK -> one signing permit -> one fake wallet request -> confirmed budget receipt",
+    "ordinary portfolio share does not claim a successful deposit; complete empty-capacity read shows zero output without a fabricated price",
+    "slow previous-project response cannot replace the new project or revive an old transaction preview",
+    "parent yield and public history use the selected parent and do not add child harvest totals",
+    "wallet change clears the confirmation and never triggers another send",
+    "375px: budget controls, wallet dialog visible, no horizontal overflow",
+    "390px: budget controls, wallet dialog visible, no horizontal overflow",
+    "430px: budget controls, wallet dialog visible, no horizontal overflow",
+    "English portfolio controls, capacity, market, confirmation and share dialog contain no untranslated Chinese",
+    "funded operator portfolio exposes the real budget queue rather than a manual child-address stub",
+    "real capacity adapter plus mock RPC/API displays exact retained-miner daily output and excludes both sold and awaiting-settlement miners",
+    "quote API failure removes the previous reference instead of showing stale capacity or a fabricated zero",
+    "dedicated social landing redirects only to the same-site parent project and preserves allowlisted attribution"
+  ],
+  "output": "C:/Users/Administrator/Documents/流片上链条/outputs/pinkuang-rewrite-handoff-20260928/verified-portfolio-browser-check",
+  "passed": 14,
+  "script": "web/scripts/portfolio-browser-check.mjs",
+  "verifiedAt": "2026-09-28T03:07:08.278Z",
+  "testScope": "Offline Chromium fixtures, no real wallet signatures or chain broadcasts",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3200,
+    "handler": "ThreadingHTTPServer",
+    "request_queue_size": 128,
+    "requestLogging": false
+  },
+  "exitCode": 0
+}

@@ -1,0 +1,66 @@
+name: Reviewed v4 product release
+
+on:
+  push:
+    branches: [codex/v4-product-launch]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reviewed-v4-product-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'jianfengliao774-sketch/pinkuang'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            deploy/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: deploy
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.2
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - run: npm run artifacts:check
+        working-directory: deploy
+      - run: npm run build:fresh
+        working-directory: deploy
+      - name: Build from the actual reviewed mainnet manifest
+        run: node deploy/ops/v4/build-reviewed-product-ci.mjs --out "$RUNNER_TEMP/reviewed-v4-product"
+      - name: Attest actual release archives and their source-bound summary
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            ${{ runner.temp }}/reviewed-v4-product/frontend.tar.gz
+            ${{ runner.temp }}/reviewed-v4-product/backend.tar.gz
+            ${{ runner.temp }}/reviewed-v4-product/build-summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-v4-product-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/reviewed-v4-product/frontend.tar.gz
+            ${{ runner.temp }}/reviewed-v4-product/backend.tar.gz
+            ${{ runner.temp }}/reviewed-v4-product/build-summary.json
+            ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error

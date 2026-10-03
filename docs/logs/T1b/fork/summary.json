@@ -1,0 +1,54 @@
+{
+  "task": "T1b",
+  "stage": "fork",
+  "startedAt": "2026-09-24T09:38:38.960Z",
+  "status": "passed",
+  "sourceCommit": "12f5b2840f20e0711e42d040cde784de719ab228",
+  "ci": null,
+  "forkBlock": 123728000,
+  "chainId": 56,
+  "buildRoot": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\tapeout-fork-BtxR4b",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-fmt",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-build-sizes",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0
+    },
+    {
+      "name": "forge-test",
+      "args": [
+        "test",
+        "--match-path",
+        "test/fork/**",
+        "--fork-url",
+        "bsc",
+        "--fork-block-number",
+        "123728000",
+        "-vv"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "finishedAt": "2026-09-24T09:39:03.040Z"
+}

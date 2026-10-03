@@ -1,0 +1,45 @@
+{
+  "observedAt": "2026-10-03T12:27:00.260595+00:00",
+  "testedSourceHead": "18fa7b99268491235e39a6fcd562e557e83fde2f",
+  "deployedRuntimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "deploySuite": {
+    "testCount": 1068,
+    "passCount": 1067,
+    "failCount": 0,
+    "skipCount": 1,
+    "exitCode": 0
+  },
+  "activationOps": {
+    "testCount": 6,
+    "passCount": 6,
+    "exitCode": 0
+  },
+  "production": {
+    "sixUnitsActive": true,
+    "nRestarts": 0,
+    "indexComplete": true,
+    "purchaseHeartbeatCurrent": true,
+    "miningHeartbeatCurrent": true,
+    "oldFinancialUnitsDisabled": true,
+    "priceJsonFresh": true,
+    "recentWorkerOrPriceErrors": 0
+  },
+  "financialMainnetActionsSent": false,
+  "forcedGraphProofs": 0,
+  "findings": [],
+  "limitations": [
+    "Fresh graph has zero projects; production purchase/mining/exit execution is not live-tested."
+  ],
+  "linuxFixture": {
+    "testCount": 1,
+    "passCount": 1,
+    "failCount": 0,
+    "skipCount": 0,
+    "exitCode": 0,
+    "nodeVersion": "24.20.0",
+    "verifiedFixtureSha256": "5025a50bfd22542a0ec294521aa8ba1d86e0b1ccc9a651c8a44bee8d475c2342",
+    "verifiedDeployedModuleSha256": "4684d8a3f579f351323e14e133e3cf488e1ab19847cd0a35fcb83302911e2c8e",
+    "tempDataCleaned": true
+  },
+  "combinedPassCoverage": 1068
+}

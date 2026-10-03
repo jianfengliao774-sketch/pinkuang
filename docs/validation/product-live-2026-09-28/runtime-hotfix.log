@@ -1,0 +1,12 @@
+{"indexCatchup": {"complete": false, "indexedThrough": 124465435, "observedSafeHead": 124465534, "unknownReason": "index_not_caught_up"}, "elapsedSeconds": 2, "limitSeconds": 1200}
+{"publicQuote": {"status": "ok", "chainId": 56, "priceUsdt": 49.98260949165652, "updatedAt": "2026-09-28T05:04:01.102Z", "blockNumber": 124465536, "blockTimestamp": "2026-09-28T05:04:00.000Z"}}
+{"indexCycleObservation": {"samples": 1, "verifiedSamples": 1, "distinctIndexedBlocks": 1, "incompleteOrUnavailable": 0, "http503": 0}}
+{"indexCycleObservation": {"samples": 2, "verifiedSamples": 1, "distinctIndexedBlocks": 1, "incompleteOrUnavailable": 1, "http503": 0}}
+{"indexCycleObservation": {"samples": 3, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 1, "http503": 0}}
+{"indexCycleObservation": {"samples": 4, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 2, "http503": 0}}
+{"indexCycleObservation": {"samples": 5, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 3, "http503": 0}}
+{"indexCycleObservation": {"samples": 6, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 4, "http503": 0}}
+{"indexCycleObservation": {"samples": 7, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 5, "http503": 0}}
+{"indexCycleObservation": {"samples": 8, "verifiedSamples": 2, "distinctIndexedBlocks": 2, "incompleteOrUnavailable": 6, "http503": 0}}
+{"indexCycleObservation": {"samples": 9, "verifiedSamples": 3, "distinctIndexedBlocks": 3, "incompleteOrUnavailable": 6, "http503": 0}}
+{"activated": true, "runtimeReleaseId": "v2-20260928-c90c255", "productCurrentPreserved": true, "databasesPreserved": true, "legacyUnchanged": true, "priceRoute": "/bemine-v2/data/bem-price.json"}

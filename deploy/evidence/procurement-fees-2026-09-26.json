@@ -1,0 +1,64 @@
+{
+  "checkedAt": "2026-09-26T07:18:23.700Z",
+  "chainId": 56,
+  "block": 124099541,
+  "official": {
+    "address": "0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f",
+    "feeBps": "100",
+    "protocolWallet": "0x571d447f4f24688eC35Ccf07f1D6993655F6aF15",
+    "listing": {
+      "listingId": "17768",
+      "seller": "0x6A8bc064cb995A14B42A35c77cf48a79831b43Ae",
+      "collection": "0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C",
+      "tokenId": "16522",
+      "priceWei": "41000000000000000",
+      "feeBps": "100",
+      "valid": true
+    }
+  },
+  "firsto": {
+    "router": "0x36DF3423472E03490f6440E7AF485BE7649B3564",
+    "signedV2": "0x33423244F9a5bF81b12B1a018aF6F4e079B97f29",
+    "v2DefaultTakerFeeBps": "100",
+    "feeEpoch": "1",
+    "epochFeeBps": "100",
+    "signedV1": "0x81dE876Ab97C65F156D896A24a76D48C015E6b6E",
+    "v1TakerFeeBps": "50"
+  },
+  "codeHashes": {
+    "0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f": "0xed6b710a769987f50494d713f278817992e3266e45898a990be878efc2fcbbce",
+    "0x36DF3423472E03490f6440E7AF485BE7649B3564": "0x81521c2f9f83bf5a25a6c6d3a7a8d4cec93583d205bc453e0e4aa99c4ea51334",
+    "0x33423244F9a5bF81b12B1a018aF6F4e079B97f29": "0xba136f70efd54699acdcbfbbbbcc6671debaa0bc7f88d67e135b6c585db938d3",
+    "0x81dE876Ab97C65F156D896A24a76D48C015E6b6E": "0xba136f70efd54699acdcbfbbbbcc6671debaa0bc7f88d67e135b6c585db938d3"
+  },
+  "simulations": [
+    {
+      "label": "official_exact_ask",
+      "valueWei": "41000000000000000",
+      "result": "failed_or_unavailable",
+      "error": "missing revert data",
+      "revertData": null
+    },
+    {
+      "label": "official_ask_plus_one_percent",
+      "valueWei": "41410000000000000",
+      "result": "failed_or_unavailable",
+      "error": "missing revert data",
+      "revertData": null
+    },
+    {
+      "label": "firsto_router_exact_ask",
+      "valueWei": "41000000000000000",
+      "result": "failed_or_unavailable",
+      "error": "missing revert data",
+      "revertData": null
+    },
+    {
+      "label": "firsto_router_ask_plus_one_percent",
+      "valueWei": "41410000000000000",
+      "result": "failed_or_unavailable",
+      "error": "missing revert data",
+      "revertData": null
+    }
+  ]
+}

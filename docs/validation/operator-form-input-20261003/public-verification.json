@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-03T15:24:48.828683+00:00",
+  "observationPoint": "Deployment server 144.126.242.139 via external https://bemine.cc.cd DNS/TLS; not loopback",
+  "scope": "Read-only public HTTPS representative static routes and metadata; no Firsto quote, paid RPC, wallet, or service modification",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200,
+      "location": null,
+      "bytes": 36144,
+      "sha256": "1bf8d0e30f71d87bbfcf814f390c2b96590b742e3d92e34816e0e825977007a5",
+      "cacheControl": "no-store",
+      "expectedHtmlSha256": "1bf8d0e30f71d87bbfcf814f390c2b96590b742e3d92e34816e0e825977007a5",
+      "passed": true
+    },
+    {
+      "path": "/preview.html",
+      "status": 200,
+      "location": null,
+      "bytes": 35578,
+      "sha256": "e7864a51879c516173e0c5d19b3f12be461918d1de50a9f072d9f0ce5f54b6f1",
+      "cacheControl": "no-store",
+      "expectedHtmlSha256": "e7864a51879c516173e0c5d19b3f12be461918d1de50a9f072d9f0ce5f54b6f1",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/?verify=operator-form-fix",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?verify=operator-form-fix",
+      "bytes": 180,
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/preview.html?verify=operator-form-fix",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?verify=operator-form-fix",
+      "bytes": 180,
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc",
+      "cacheControl": "no-store",
+      "passed": true
+    },
+    {
+      "path": "/bemine-v5/fresh-product-release.json",
+      "status": 200,
+      "location": null,
+      "bytes": 1841,
+      "sha256": "49159290ab2d93218ab25b2981bad73c054a94984cc8760324343a4bbc372b75",
+      "cacheControl": "no-cache",
+      "release": {
+        "frontendSourceHead": "ff6c2efe504dddde22439c5aad51a492f870ca1e",
+        "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+        "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+        "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+        "contentSha256": "2bc203c0af678543a316b18b5151c399a1ef6cac9a19ae8526c96056df76a396"
+      },
+      "expectedReleaseManifestSha256": "49159290ab2d93218ab25b2981bad73c054a94984cc8760324343a4bbc372b75",
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "failures": [],
+  "publishedAtReceipt": "2026-10-03T15:22:59.765008+00:00",
+  "graphProbe": "Not repeated: frontend-only publication already checked readiness; unnecessary RPC proof refresh avoided",
+  "macObservation": "Not retried this round: preceding publication validation observed command-line TLS EOF/SSL_ERROR_SYSCALL from Mac, while browser and external server-origin reads worked; this result explicitly uses server observation point."
+}

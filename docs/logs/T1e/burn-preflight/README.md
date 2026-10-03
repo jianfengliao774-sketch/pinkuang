@@ -1,0 +1,15 @@
+# Burn implementation preflight
+
+These are independent development checks before the root agent's complete T1e validation. They do not replace the final source-bound whole-suite logs or remote CI.
+
+- `unit.log`: 23 tests passed, including a 256-run partial-pull budget-conservation fuzz test. Tests use real Factory/BeaconProxy funding, acquisition, approved sale and Closed entry points, with explicitly mocked swap endpoints.
+- `fork-first-run.log`: the actual fixed-block swap and excessive-minimum rollback passed. The prefunded-Router case initially failed because its `vm.prank(OPERATOR)` was consumed by a nested slot0 quote read during argument evaluation; this was a test-harness defect, corrected by quoting before the prank. No production behavior was changed for this failure.
+- `refund-fork-trace.log`: the corrected prefunded case passes against real BSC Router, WBNB, BEM and the actual BeaconProxy at block 123728000. WBNB.withdraw returns 200000000000000 wei through BeaconProxy fallback (1214 gas) / PoolVault.receive (270 gas). Vault spend is zero, its full budget is restored, 242631 BEM atoms are newly acquired and burned, and Router retains 400000000000000 wei. Existing BEM/WBNB/member BNB/reward accounting remain unchanged. Native balances and wallet impersonation are local fork fixtures; protocol bytecode/storage/ERC20 balances are not replaced.
+- `slither-before-annotations.log`: preserves the original balance-snapshot findings and strict zero-output comparison warning, plus the root wrapper's unused-return finding.
+- `slither-after-annotations.log`: Burn's historical balance checks have individual explanations and narrow detector suppressions justified by the Vault's outer nonReentrant guard, including tests with genuinely authorized callback callers. Low/Info findings remain visible. This run reports a separate PoolFunds.finalizeFailure uninitialized-local warning introduced by the root's concurrent code split; that was reported to its owner for explicit initialization before final validation.
+
+All real-fork checks use public Blast RPC, block 123728000, one test thread, 50 compute units/second, up to 10 RPC retries and 2000 ms initial backoff. No keys or mainnet transactions are used. These tests do not involve a synthetic JSON-RPC server or modified chain cache. The trace's optional explorer-label lookup warnings do not change fork execution results.
+
+Reviewed production route: only WBNB -> BEM with fee 10000, fixed Router and recipient Vault; Router receives no native value. Only per-call wrapped input is approved, approval is cleared, actual WBNB remainder is unwrapped with a narrowly authorized receive callback, and only the new BEM balance delta is transferred to the burn sink. No refundETH, sweep, arbitrary target/path or arbitrary recipient exists.
+
+After the root explicitly initialized PoolFunds.reason to zero, a final Slither --fail-medium run exited 0: 62 contracts, 101 detectors, 44 remaining Low/Info findings. Its unfiltered raw output is slither-final-pass.log. No High/Medium finding remains in this checked snapshot.

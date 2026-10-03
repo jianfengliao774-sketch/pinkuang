@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "installedAt": "2026-10-03T02:48:34.102121+00:00",
+  "sourceHead": "788cd0d705ba053615b5f5a8c319a6eeb752a1a7",
+  "baseSourceHead": "dea3a78b51352df45771ce6d54043b874e70383e",
+  "runtime": "/srv/pinkuang-v5/releases/v5-backend-788cd0d705ba",
+  "contractArtifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "verifiedBlockNumber": 125407028,
+  "operationalReady": true,
+  "changedModules": {
+    "server/firsto-ask-publisher-store.mjs": "4684d8a3f579f351323e14e133e3cf488e1ab19847cd0a35fcb83302911e2c8e",
+    "server/firsto-ask-publisher.mjs": "10895f8c2a7d4686b5eae8cba706c990ac0181ade8212239281933fdc09ac2a6",
+    "server/journal-store.mjs": "12cce3e8a9ee6a1a6bc54809c9ed872fce5f65cade5ad4015084c5913a4bbea1",
+    "server/journal-api.mjs": "e51dd8ec0831c267e0bb5de7633c916bb3192ab470ce3fc315d2ea513f98294f"
+  },
+  "nginxSha256": "eaef9a090b21b02d32b4a101aed25f72aa95b6e8e391c072ca39636838c244b0",
+  "nginxLimitsSha256": "11f693443319c0a9561ab78d9f7e9a27ad4b990ed78011c0764ab3afd7db283d",
+  "nodeVersion": "v24.20.0",
+  "testCounts": {
+    "backend": 78,
+    "display": 9
+  },
+  "apiReadRpcHost": "bsc-dataseed.bnbchain.org",
+  "paidLogRpcUnchanged": true,
+  "restartedUnits": [
+    "pinkuang-product-v5"
+  ],
+  "contractsChanged": false,
+  "chainTransactionsSent": false
+}

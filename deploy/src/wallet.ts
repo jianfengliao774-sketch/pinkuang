@@ -1,0 +1,80 @@
+import { formatEther, type Eip1193Provider } from 'ethers';
+
+export type WalletProvider = Eip1193Provider & {
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
+};
+export type WalletOption = { id: string; name: string; provider: WalletProvider };
+export type WalletState = { address: string; chainId: number; balance: string };
+
+declare global { interface Window { ethereum?: WalletProvider; $onekey?: { ethereum?: WalletProvider } } }
+
+export function discoverWallets(onChange: (options: WalletOption[]) => void) {
+  const wallets = new Map<string, WalletOption>();
+  const update = () => onChange([...wallets.values()].sort((a, b) => Number(b.id === 'onekey') - Number(a.id === 'onekey')));
+  const add = (id: string, name: string, provider: WalletProvider) => {
+    if (typeof provider?.request !== 'function') return;
+    if (id !== 'onekey' && wallets.get('onekey')?.provider === provider) return;
+    if (wallets.get(id)?.provider === provider && wallets.get(id)?.name === name) return;
+    for (const [key, option] of wallets) {
+      if (option.provider === provider && key !== id) wallets.delete(key);
+    }
+    wallets.set(id, { id, name, provider });
+    update();
+  };
+  const scanInjected = () => {
+    // OneKey's own namespace remains stable when another extension wins window.ethereum.
+    const oneKey = window.$onekey?.ethereum;
+    if (oneKey) add('onekey', 'OneKey 扩展钱包', oneKey);
+    const injected = window.ethereum;
+    if (injected && ![...wallets.values()].some(option => option.provider === injected)) {
+      add('injected', '浏览器钱包', injected);
+    }
+  };
+  const announce = (event: Event) => {
+    const detail = (event as CustomEvent<{ info?: { uuid?: string; name?: string; rdns?: string }; provider?: WalletProvider }>).detail;
+    const { info, provider } = detail || {};
+    if (!provider || !info?.uuid || !info.name) return;
+    const oneKey = info.rdns === 'so.onekey.app.wallet';
+    // EIP-6963 names are self-reported. Never replace OneKey's direct provider
+    // with a different provider that merely claims the same rdns.
+    if (oneKey && window.$onekey?.ethereum && window.$onekey.ethereum !== provider) return;
+    add(oneKey ? 'onekey' : info.uuid, oneKey ? 'OneKey 扩展钱包' : info.name, provider);
+  };
+  window.addEventListener('eip6963:announceProvider', announce);
+  window.addEventListener('ethereum#initialized', scanInjected);
+  window.addEventListener('focus', scanInjected);
+  scanInjected();
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  update();
+  return () => {
+    window.removeEventListener('eip6963:announceProvider', announce);
+    window.removeEventListener('ethereum#initialized', scanInjected);
+    window.removeEventListener('focus', scanInjected);
+  };
+}
+
+export async function readWallet(wallet: WalletProvider): Promise<WalletState | null> {
+  const accounts = await wallet.request({ method: 'eth_accounts' }) as string[];
+  if (!accounts.length) return null;
+  const [chainId, balance] = await Promise.all([
+    wallet.request({ method: 'eth_chainId' }),
+    wallet.request({ method: 'eth_getBalance', params: [accounts[0], 'latest'] }),
+  ]);
+  return { address: accounts[0], chainId: Number(chainId), balance: formatEther(BigInt(balance as string)) };
+}
+
+export async function switchToBsc(wallet: WalletProvider) {
+  try { await wallet.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] }); }
+  catch (error) {
+    if (Number((error as { code?: number }).code) !== 4902) throw error;
+    await wallet.request({ method: 'wallet_addEthereumChain', params: [{ chainId: '0x38', chainName: 'BNB Smart Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.bnbchain.org'], blockExplorerUrls: ['https://bscscan.com'] }] });
+    await wallet.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] });
+  }
+}
+
+export function messageOf(error: unknown): string {
+  const item = error as { code?: number | string; shortMessage?: string; message?: string };
+  if (item.code === 4001 || item.code === 'ACTION_REJECTED') return '你已取消钱包请求，可以准备好后重试。';
+  return (item.shortMessage || item.message || '操作未完成，请重试。').slice(0,500);
+}

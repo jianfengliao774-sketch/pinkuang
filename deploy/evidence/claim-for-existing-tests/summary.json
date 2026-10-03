@@ -1,0 +1,78 @@
+{
+  "recordedAt": "2026-09-26T09:03:43.063853+00:00",
+  "nativeForge": "deploy/node_modules/@foundry-rs/forge-darwin-arm64/bin/forge",
+  "solc": "0.8.24",
+  "profile": "ci",
+  "nonfork": {
+    "exitCode": 0,
+    "unitPassed": 17,
+    "invariantAssertionsPassed": 8,
+    "invariantRuns": 128,
+    "invariantDepth": 64,
+    "failed": 0,
+    "log": "nonfork.log",
+    "args": [
+      "test",
+      "--root",
+      "contracts",
+      "--out",
+      "/tmp/pinkuang-claim-existing-out",
+      "--cache-path",
+      "/tmp/pinkuang-claim-existing-cache",
+      "--match-contract",
+      "PoolRewardsTest|PoolRewardsInvariantTest|PoolRewardsNoExpiryInvariantTest|PoolTransfersInvariantTest|PoolTransfersNoExpiryInvariantTest",
+      "--no-match-path",
+      "test/fork/**",
+      "-vv"
+    ]
+  },
+  "fork": {
+    "exitCode": 0,
+    "passed": 6,
+    "failed": 0,
+    "chainId": 56,
+    "block": 123728000,
+    "log": "fork-final.log",
+    "args": [
+      "test",
+      "--root",
+      "contracts",
+      "--out",
+      "/tmp/pinkuang-claim-rewards-fork-out",
+      "--cache-path",
+      "/tmp/pinkuang-claim-rewards-fork-cache",
+      "--match-path",
+      "test/fork/PoolRewardsFork.t.sol",
+      "--fork-url",
+      "https://bsc-mainnet.public.blastapi.io",
+      "--fork-block-number",
+      "123728000",
+      "--threads",
+      "1",
+      "--compute-units-per-second",
+      "50",
+      "--fork-retries",
+      "10",
+      "--fork-retry-backoff",
+      "2000",
+      "-vv"
+    ]
+  },
+  "earlierFailure": {
+    "exitCode": 1,
+    "log": "fork.log",
+    "reason": "Same-second fork test initially exceeded the compiler stack limit; checks were extracted into a private helper without changing compiler settings or removing assertions."
+  },
+  "testSourceSha256": {
+    "contracts/test/unit/PoolRewards.t.sol": "c895758b72e60f5f6f4910c01d2c46a6add043d416360213eb4807e4faf30370",
+    "contracts/test/invariant/PoolRewardsInvariant.t.sol": "40e1dce1927fd27e835daed565cb3ef8e58ce1c4f59b65cec32a0fd51261f37f",
+    "contracts/test/invariant/PoolTransfersInvariant.t.sol": "f0e1c77cd44c795c30f2e22b6bba32646d9c91ad2001ecd2e13b1be35529a338",
+    "contracts/test/fork/PoolRewardsFork.t.sol": "0ea173dc149ca7dffe92b8df1102128f0d470f50ed1766677e379217711a47e9"
+  },
+  "notes": [
+    "Only the four existing test files were edited; business Solidity and PermissionlessClaims.t.sol were not edited by this subtask.",
+    "Tests cover immediate repeated claims after new booked income, unchanged last-success time/accounting on empty claims, and Closed/Mining-failure independence.",
+    "The frozen LegacyRewardAccounting fixture intentionally retains historical cooldown to construct old-version migration states. Mining protocol stop cooldown and sale proposal cooldown remain separate and unchanged.",
+    "BSC fork interactions are local simulation using a read-only pinned state. No real wallet or transaction broadcast was used."
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "task": "T2",
+  "stage": "fork",
+  "startedAt": "2026-09-28T01:18:31.462Z",
+  "status": "passed",
+  "sourceCommit": "5f160c579e9d3d382df199cb29dc1573f5ae992e",
+  "ci": null,
+  "forkBlock": 123728000,
+  "chainId": 56,
+  "rpcPolicy": {
+    "threads": 1,
+    "computeUnitsPerSecond": 50,
+    "retries": 10,
+    "initialBackoffMs": 2000
+  },
+  "buildRoot": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\",
+  "node": "v24.19.0",
+  "profile": "ci",
+  "results": [
+    {
+      "name": "toolchain",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null
+    },
+    {
+      "name": "forge-fmt",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "fmt",
+        "--check"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null
+    },
+    {
+      "name": "forge-build-sizes",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "build",
+        "--sizes",
+        "--force"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null
+    },
+    {
+      "name": "forge-test",
+      "executable": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pinkuang-deploy-release-20260927\\deploy\\node_modules\\@foundry-rs\\forge-win32-amd64\\bin\\forge.exe",
+      "args": [
+        "test",
+        "--match-path",
+        "test/fork/**",
+        "--fork-url",
+        "bsc",
+        "--fork-block-number",
+        "123728000",
+        "--threads",
+        "1",
+        "--compute-units-per-second",
+        "50",
+        "--fork-retries",
+        "10",
+        "--fork-retry-backoff",
+        "2000",
+        "-vv"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "runnerError": null
+    }
+  ],
+  "finishedAt": "2026-09-28T01:19:48.671Z"
+}

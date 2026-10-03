@@ -1,0 +1,45 @@
+✔ header scan uses at most eight concurrent reads and commits all 100 ordered headers atomically (236.3892ms)
+✔ missing, wrong-number, disconnected and changed final headers never partially commit (155.2276ms)
+✔ failed parallel batch drains reads and a broken next batch preserves the committed anchor (63.3313ms)
+✔ bounded confirmed indexing, exact balances, historical positions and reorg rollback (86.7051ms)
+✔ new buyer-fee event is indexed while old OrderFilled history still replays (58.0625ms)
+✔ Firsto detail preserves order and fee evidence without double counting the Purchased cost (4.0853ms)
+✔ one wallet subscribes 20+80 then another buys 40+60 without duplicate positions or people (59.2088ms)
+✔ competing final-share fills index only the winner and replace it after a reorg (63.9475ms)
+✔ wrong chain/binding or mismatched logs fail closed without advancing durable cursor (55.8521ms)
+✔ HTTP returns source block, bounded pages and 503 until verified (165.9868ms)
+✔ listener startup fails cleanly when the port is occupied (51.439ms)
+✔ counter mismatch detects a late start block or incomplete event history (56.3316ms)
+✔ snapshot is exact beneficial ownership; sellers retain locked shares and sold-out owners are excluded (13.4007ms)
+✔ custody-market ownership, missing snapshot, mismatched total and transfers in frozen round fail closed (0.601ms)
+✔ competing proposals retain shared snapshot and actual deadline; early execution stops all round reminders (0.3715ms)
+✔ discounted sale requires 60 shares and majority addresses; passing never means listed (0.1999ms)
+✔ pinned contract verification detects missing proposals, hidden no-votes, ownership mismatch and unindexed listing (1.2254ms)
+✔ notification page verifies source pin, prior reorg anchor and canonical final header even for empty pages (0.7279ms)
+✔ budget discovery counts parent once, preserves former-member rights and rolls child wrapping back on reorg (40.5737ms)
+✔ portfolio bindings and omitted child history keep data unavailable (16.4693ms)
+✔ four global log reads overlap, then discovered pool and portfolio reads preserve complete history (8.024ms)
+✔ a failed global log read drains the other three before sync unlocks and never commits partial history (2.9447ms)
+✔ budget notifications address parent holders and independently verify proposal-block balances (12.0892ms)
+✔ an unexecuted round past its deadline may transfer while prior snapshot notification keeps original owners (4.2032ms)
+✔ missing archive data, wrong historical balance, missed votes and changed proposal blocks suppress notification (6.4893ms)
+✔ production configuration keeps HTTPS and loopback requirements (1.4337ms)
+✔ separate RPC routes headers/calls to primary and only logs to its verified logs endpoint (170.1933ms)
+✔ an explicitly extended logs deadline accepts a valid response beyond the primary 12-second deadline (12650.3157ms)
+Chain index unavailable: sync_failed
+Chain index unavailable: sync_failed
+✔ logs rate limit remains a failure, backs off instead of retrying each second, and stops cleanly (4285.9606ms)
+Chain index unavailable: wrong_chain
+✔ a logs endpoint on another chain cannot advance the index or return empty success (46.6166ms)
+Chain index unavailable: sync_failed
+✔ primary RPC stays at 12 seconds with an extended same-URL logs deadline and close is idempotent (12016.2767ms)
+Chain index unavailable: sync_failed
+✔ HTTP 429 Retry-After cannot trap the index in a hidden long retry or advance data (17.0473ms)
+ℹ tests 32
+ℹ suites 0
+ℹ pass 32
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29450.5717

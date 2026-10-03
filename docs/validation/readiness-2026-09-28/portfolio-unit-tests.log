@@ -1,0 +1,47 @@
+✔ complete fixed-block pagination includes more than 100 children and sums exact atomic units (567.9726ms)
+✔ sold and completed-but-not-settled children contribute no capacity and are not fetched (31.6619ms)
+✔ unknown or missing final child, duplicate NFT identity, ownership change and reorg never become a partial total or zero (1170.9348ms)
+✔ a verified empty portfolio has zero output but no fabricated price per daily BEM (19.4696ms)
+✔ abandoned and stale reads return unavailable, and unsafe numeric price input is rejected (21.9193ms)
+✔ navigation abort while quote reads are pending drains the started batch without publishing stale capacity (41.8273ms)
+✔ every portfolio caption has English text and dynamic Chinese errors cannot leak into the English page (4.139ms)
+(node:20772) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/AppData/Local/Temp/pinkuang-deploy-release-20260927/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\Administrator\AppData\Local\Temp\pinkuang-deploy-release-20260927\web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ portfolio invitations use the configured release path and a dedicated static poster landing (2.6327ms)
+✔ only a finalized matching portfolio receipt can claim successful participation (0.5452ms)
+✔ full, expired, unknown and closed portfolios never solicit subscriptions, and personal data is absent (0.6095ms)
+✔ portfolio links reject unknown origins, duplicate fields and redirect-like parameters (5.5576ms)
+✔ existing single-miner artwork sharing also preserves the new release base without changing old paths (1.1978ms)
+✔ portfolio X copy stays within weighted character limits including the shortened URL (1.5249ms)
+(node:24656) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/AppData/Local/Temp/pinkuang-deploy-release-20260927/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\Administrator\AppData\Local\Temp\pinkuang-deploy-release-20260927\web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ only the explicitly trusted HTTPS deployment base is shareable (1.3768ms)
+✔ project links use only the pool address and an allowlisted attribution source (1.3166ms)
+✔ success requires matching deposit intent, successful receipt and explicit finality (5.5453ms)
+✔ share intents encode bilingual text and the project URL without parameter injection (0.9476ms)
+✔ share slogans stay stable and rotate only through the selected safe variants (16.6156ms)
+✔ X copy remains within weighted 280-character limit including its shortened URL (10.1414ms)
+✔ selected poster matches all share landing URLs while projectUrl remains a direct link (1.0652ms)
+✔ share payload never includes wallet, investment, receipt hash or untrusted optional metadata (0.2924ms)
+✔ full, active, sold and refunding projects never solicit new subscriptions (1.2015ms)
+✔ missing trusted configuration and demonstration-only identifiers produce no formal share (0.6755ms)
+✔ confirmed subscription does not invent live availability when the latest read is unknown (0.491ms)
+(node:26632) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/Administrator/AppData/Local/Temp/pinkuang-deploy-release-20260927/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to \\?\C:\Users\Administrator\AppData\Local\Temp\pinkuang-deploy-release-20260927\web\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ every artwork preserves the same verified project and attribution through its static landing (3.6956ms)
+✔ landing cannot redirect to an injected URL, wallet, factory or arbitrary project (0.248ms)
+✔ invitation builder only wraps trusted direct project links and allowlisted artwork (1.0182ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2212.2641

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "chainId": 56,
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "shareMarket": "0x6082bfBCC99a4818174230C3351B05faeA18B024",
+  "lens": "0x0ba8fB239a6D798D3E52fCeeAF198cE3aAC0C3e1",
+  "beacon": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+  "timelock": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+  "kind": "integrated-v2",
+  "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+  "portfolioMarket": "0x043680f37CC8902C2f58bA099d7C43eC7fa7E313",
+  "portfolioBeacon": "0x8BFF2080B0B04CfDaCBeb05696b07a0cC480c1Ae",
+  "portfolioImplementation": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+  "portfolioFactoryImplementation": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+  "deployment": {
+    "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+    "blockNumber": 125476240,
+    "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e"
+  },
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "verifiedAt": "2026-10-03T11:34:44.442Z",
+  "verifiedBlockNumber": 125476869,
+  "codehash": {
+    "factory": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+    "shareMarket": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+    "lens": "0x7d702b38082382e2e716dae7c1716cf5387b223447011ba05ac65193fec4ae8c",
+    "beacon": "0x9807ae174cee0b2ae55eccecf525e97b859811dee4fad78cf9a0c7d306611bde",
+    "timelock": "0x49f6ff6240d0de44c0382ef477753ee69f8e8a7bb3e8db1133ba8d7db243d622",
+    "portfolioFactory": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+    "portfolioMarket": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+    "portfolioBeacon": "0x7b73c0d92de5892d3c807c5142f5865a8dc1a5ccaebbcfce2f2e60b595771824",
+    "portfolioImplementation": "0x7bef73eb1c26d4f6e3da943bf7ec11fbe8ea11a2e9a83daf40077d201051dd7c",
+    "portfolioFactoryImplementation": "0xb61f54ff4a60547b87434c0a4dbb6e5c5a0cb37a670dfa9e6c446ab82ae697be"
+  },
+  "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+  "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+  "freshAuthority": {
+    "address": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "codehash": "0x34845ff4b079ec7b4cc33c7f1f95a3e0e18a0b50f23c2022bf0ed1d0b2575ee8",
+    "deploymentTxHash": "0x8969a2dab6884f22eed17f99a327c8a127cf020b56325b04f424bc0a69f30110",
+    "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+    "administratorTwo": "0xeD2FCBe59EBe1754a3676aeb9CcfBA20f193FcbB",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619"
+  },
+  "verifiedBlockHash": "0x3e28df19d2ea7c434d00370cdf49f63d6dc7463da275dcb1c86406bd8a3590f5"
+}

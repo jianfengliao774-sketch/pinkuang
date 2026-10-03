@@ -1,0 +1,24 @@
+{
+  "web": {
+    "tests": 1031,
+    "pass": 1031,
+    "fail": 0,
+    "catalogCheck": true,
+    "bemPriceCheck": true,
+    "reviewPolicyCheck": true
+  },
+  "pricing": {
+    "tests": 18,
+    "pass": 18,
+    "fail": 0
+  },
+  "purchaseBoundaries": {
+    "tests": 3,
+    "pass": 3,
+    "fail": 0
+  },
+  "deployTypescript": true,
+  "independentBoundaryReview": true,
+  "walletRequests": 0,
+  "chainBroadcasts": 0
+}

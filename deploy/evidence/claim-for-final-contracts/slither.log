@@ -1,0 +1,222 @@
+'forge clean' running (wd: /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/contracts)
+'forge config --json' running
+'forge build --build-info --skip ./test/** ./script/** --force' running (wd: /Users/liaojianfeng/Documents/ChatGPT/计算/pinkuang/contracts)
+INFO:Detectors:
+Detector: missing-zero-check
+PoolBeacon.constructor(address,address).implementation_ (src/PoolBeacon.sol#19) lacks a zero-check on :
+		- OFFICIAL_FACTORY = _boundFactory(implementation_) (src/PoolBeacon.sol#23)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-zero-address-validation
+INFO:Detectors:
+Detector: calls-loop
+FlexiblePurchase._allocateEntireSurplus(PoolVaultState.VaultStorage,uint256) (src/libraries/FlexiblePurchase.sol#252-279) has external calls inside a loop: shares = IERC20(address(this)).balanceOf(member) (src/libraries/FlexiblePurchase.sol#260)
+	Calls stack containing the loop:
+		FlexiblePurchase.buy(PoolVaultState.VaultStorage,uint256,bool)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+INFO:Detectors:
+Detector: reentrancy-benign
+Reentrancy in AtomicDeployment._deploy(AtomicDeployment.Config) (src/AtomicDeployment.sol#105-141):
+	External calls:
+	- factory = PoolFactory(address(new ERC1967Proxy(config.factoryImplementation,))) (src/AtomicDeployment.sol#111)
+	- factory.initializeDeployment(config.ownerMultisig,config.operator,config.treasury,address(timelock),address(beacon),config.marketImplementation) (src/AtomicDeployment.sol#113-120)
+	State variables written after the call(s):
+	- deployment = result (src/AtomicDeployment.sol#123)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+INFO:Detectors:
+Detector: reentrancy-events
+Reentrancy in AtomicDeployment._deploy(AtomicDeployment.Config) (src/AtomicDeployment.sol#105-141):
+	External calls:
+	- factory = PoolFactory(address(new ERC1967Proxy(config.factoryImplementation,))) (src/AtomicDeployment.sol#111)
+	- factory.initializeDeployment(config.ownerMultisig,config.operator,config.treasury,address(timelock),address(beacon),config.marketImplementation) (src/AtomicDeployment.sol#113-120)
+	Event emitted after the call(s):
+	- DeploymentCompleted(result.factory,result.beacon,result.shareMarket,result.timelock,config.ownerMultisig,config.operator,config.treasury) (src/AtomicDeployment.sol#124-132)
+	- ImplementationsRecorded(config.vaultImplementation,config.vaultImplementation.codehash,config.factoryImplementation,config.factoryImplementation.codehash,config.marketImplementation,config.marketImplementation.codehash) (src/AtomicDeployment.sol#133-140)
+Reentrancy in SaleSettlement._handover(PoolSaleState.SaleStorage,address,uint256,uint256) (src/libraries/SaleSettlement.sol#73-85):
+	External calls:
+	- nft.safeTransferFrom(address(this),buyer,circuitId) (src/libraries/SaleSettlement.sol#81)
+	Event emitted after the call(s):
+	- SaleCompleted(s.saleProceeds,fee,0,s.saleProceeds - fee) (src/libraries/SaleSettlement.sol#84)
+Reentrancy in PurchaseValidation._settleSellerRewards(address,uint256,address,bytes32,bytes32) (src/libraries/PurchaseValidation.sol#78-99):
+	External calls:
+	- ITapeoutMining(MINING).claim(key) (src/libraries/PurchaseValidation.sol#84-87)
+	Event emitted after the call(s):
+	- RewardSettledBeforeTransfer(circuits,circuitId,seller,afterBalance - beforeBalance,tradeId) (src/libraries/PurchaseValidation.sol#98)
+Reentrancy in RewardAccounting.account(PoolRewardState.RewardStorage,address,address) (src/libraries/RewardAccounting.sol#33-58):
+	External calls:
+	- token.safeTransfer(treasury,fee) (src/libraries/RewardAccounting.sol#53)
+	Event emitted after the call(s):
+	- Harvested(gross,fee,0,net) (src/libraries/RewardAccounting.sol#57)
+Reentrancy in FlexiblePurchase.buy(PoolVaultState.VaultStorage,uint256,bool) (src/libraries/FlexiblePurchase.sol#95-137):
+	External calls:
+	- (seller,price,key) = PurchaseValidation.prepareMarketPurchase(s.params.circuits,circuitId,s.params.priceCap,listingId) (src/libraries/FlexiblePurchase.sol#121-122)
+	- ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId,SafeCast.toUint96(price)) (src/libraries/FlexiblePurchase.sol#129)
+	External calls sending eth:
+	- ICircuitMarket(CIRCUIT_MARKET).buy{value: price}(listingId,SafeCast.toUint96(price)) (src/libraries/FlexiblePurchase.sol#129)
+	Event emitted after the call(s):
+	- AlternativeMinerSelected(selection.referenceCircuitId,circuitId,listingId) (src/libraries/FlexiblePurchase.sol#135)
+	- FlexibleSurplusAllocated(surplus,lastMember,rounding) (src/libraries/FlexiblePurchase.sol#278)
+		- _allocateEntireSurplus(s,s.totalRaised - price) (src/libraries/FlexiblePurchase.sol#134)
+	- PurchaseSurplusSettled(member,shares,amount) (src/libraries/FlexiblePurchase.sol#272)
+		- _allocateEntireSurplus(s,s.totalRaised - price) (src/libraries/FlexiblePurchase.sol#134)
+	- Purchased(cost,path,listingId) (src/libraries/PoolFunds.sol#64)
+		- _finish(s,price,0,listingId,key) (src/libraries/FlexiblePurchase.sol#130)
+Reentrancy in RewardAccounting.claim(PoolRewardState.RewardStorage,address,uint256,address) (src/libraries/RewardAccounting.sol#65-80):
+	External calls:
+	- IERC20(bem).safeTransfer(user,amount) (src/libraries/RewardAccounting.sol#78)
+	Event emitted after the call(s):
+	- BemClaimed(user,amount) (src/libraries/RewardAccounting.sol#79)
+Reentrancy in MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-97):
+	External calls:
+	- ITapeoutMining(MINING).claim(key) (src/libraries/MiningOperations.sol#75-81)
+	Event emitted after the call(s):
+	- MiningClaimFailed(key,reason) (src/libraries/MiningOperations.sol#80)
+Reentrancy in AtomicDeployment.deploySingleOwner(AtomicDeployment.Config) (src/AtomicDeployment.sol#87-98):
+	External calls:
+	- result = _deploy(config) (src/AtomicDeployment.sol#96)
+		- factory = PoolFactory(address(new ERC1967Proxy(config.factoryImplementation,))) (src/AtomicDeployment.sol#111)
+		- factory.initializeDeployment(config.ownerMultisig,config.operator,config.treasury,address(timelock),address(beacon),config.marketImplementation) (src/AtomicDeployment.sol#113-120)
+	Event emitted after the call(s):
+	- SingleOwnerDeployment(config.ownerMultisig,result.factory) (src/AtomicDeployment.sol#97)
+Reentrancy in PoolFactory.initializeDeployment(address,address,address,address,address,address) (src/PoolFactory.sol#75-89):
+	External calls:
+	- market = address(new ERC1967Proxy(marketImplementation,abi.encodeCall(IShareMarket.initialize,(address(this),timelock_)))) (src/PoolFactory.sol#85-87)
+	Event emitted after the call(s):
+	- ShareMarketRegistered(market) (src/PoolFactory.sol#191)
+		- _registerShareMarket(_factoryStorage(),market) (src/PoolFactory.sol#88)
+Reentrancy in FlexiblePurchase.sell(PoolVaultState.VaultStorage) (src/libraries/FlexiblePurchase.sol#140-153):
+	External calls:
+	- key = PurchaseValidation.prepareDirectPurchase(s.params.circuits,s.params.circuitId,seller,price,s.params.priceCap) (src/libraries/FlexiblePurchase.sol#145-147)
+	- IERC721(s.params.circuits).safeTransferFrom(seller,address(this),s.params.circuitId) (src/libraries/FlexiblePurchase.sol#149)
+	Event emitted after the call(s):
+	- Purchased(cost,path,listingId) (src/libraries/PoolFunds.sol#64)
+		- _finish(s,price,1,0,key) (src/libraries/FlexiblePurchase.sol#150)
+Reentrancy in PoolFunds.withdraw(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#85-93):
+	External calls:
+	- (success,None) = msg.sender.call{value: amount}() (src/libraries/PoolFunds.sol#90)
+	Event emitted after the call(s):
+	- BnbWithdrawn(msg.sender,amount) (src/libraries/PoolFunds.sol#92)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+INFO:Detectors:
+Detector: timestamp
+PoolFactory._validateParams(IPoolVault.PoolParams) (src/PoolFactory.sol#230-242) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params.fundingDeadline <= block.timestamp || params.purchaseDeadline <= params.fundingDeadline (src/PoolFactory.sol#237)
+PoolVault.initialize(address,IPoolVault.PoolParams,address) (src/PoolVault.sol#64-83) uses timestamp for comparisons
+	Dangerous comparisons:
+	- params_.fundingDeadline <= block.timestamp || params_.purchaseDeadline <= params_.fundingDeadline (src/PoolVault.sol#71)
+PoolVault.deposit(uint8) (src/PoolVault.sol#85-105) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.fundingDeadline (src/PoolVault.sol#89)
+PoolVault.completeSale() (src/PoolVault.sol#296-306) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= sale.expiresAt (src/PoolVault.sol#300)
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#532-572) uses timestamp for comparisons
+	Dangerous comparisons:
+	- previousCount != currentCount (src/PoolVault.sol#571)
+PoolVault.getPastShares(address,uint48) (src/PoolVault.sol#574-577) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#575)
+PoolVault.getPastMemberCount(uint48) (src/PoolVault.sol#579-582) uses timestamp for comparisons
+	Dangerous comparisons:
+	- timestamp >= clock() (src/PoolVault.sol#580)
+ShareMarket.fill(uint256,uint256) (src/ShareMarket.sol#68-90) uses timestamp for comparisons
+	Dangerous comparisons:
+	- s.orderExpiries[orderId] == 0 || block.timestamp >= s.orderExpiries[orderId] (src/ShareMarket.sol#72)
+ShareMarket.expire(uint256) (src/ShareMarket.sol#100-105) uses timestamp for comparisons
+	Dangerous comparisons:
+	- s.orderExpiries[orderId] != 0 && block.timestamp < s.orderExpiries[orderId] (src/ShareMarket.sol#103)
+FlexiblePurchase.configure(PoolVaultState.VaultStorage,IPoolVault.FlexiblePurchaseConfig,uint256) (src/libraries/FlexiblePurchase.sol#35-71) uses timestamp for comparisons
+	Dangerous comparisons:
+	- s.state != IPoolVault.State.Funding || supply != 0 || s.params.directSeller != address(0) || s.params.directPrice != 0 || config.minVerifiedWeight == 0 || config.referencePriceWei == 0 || config.targetDailyYieldAtomic == 0 || config.referenceObservedAt == 0 || config.referenceObservedAt > block.timestamp || config.referenceBlock > block.number || config.referenceDigest == bytes32(0) (src/libraries/FlexiblePurchase.sol#46-50)
+FlexiblePurchase._requireWindow(PoolVaultState.VaultStorage) (src/libraries/FlexiblePurchase.sol#155-158) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.params.purchaseDeadline (src/libraries/FlexiblePurchase.sol#157)
+PoolFunds.finalizeFailure(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#25-46) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.params.fundingDeadline (src/libraries/PoolFunds.sol#28)
+	- block.timestamp < s.params.purchaseDeadline (src/libraries/PoolFunds.sol#30)
+RewardAccounting._validateLegacy(PoolRewardState.RewardStorage,uint32) (src/libraries/RewardAccounting.sol#141-156) uses timestamp for comparisons
+	Dangerous comparisons:
+	- unpaid != 0 && (epoch < first || epoch > current) (src/libraries/RewardAccounting.sol#151)
+	- current > 7 (src/libraries/RewardAccounting.sol#144)
+RewardAccounting._legacyScaled(PoolRewardState.RewardStorage,PoolRewardState.RewardUser,uint256,uint32,uint256) (src/libraries/RewardAccounting.sol#158-183) uses timestamp for comparisons
+	Dangerous comparisons:
+	- epoch <= cutoverEpoch (src/libraries/RewardAccounting.sol#167)
+	- slot.epoch == epoch (src/libraries/RewardAccounting.sol#174)
+	- right > cutoverAcc (src/libraries/RewardAccounting.sol#176)
+	- left < u.debtAcc (src/libraries/RewardAccounting.sol#180)
+	- right > left (src/libraries/RewardAccounting.sol#181)
+	- cutoverEpoch > 7 (src/libraries/RewardAccounting.sol#166)
+	- epoch == 0 (src/libraries/RewardAccounting.sol#179)
+SaleGovernance.propose(PoolSaleState.SaleStorage,Checkpoints.Trace208,SaleGovernance.ProposalInput) (src/libraries/SaleGovernance.sol#53-94) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < uint256(input.activatedAt) + PROPOSE_INTERVAL (src/libraries/SaleGovernance.sol#58)
+	- ! active.executed && block.timestamp < active.endsAt (src/libraries/SaleGovernance.sol#66)
+	- block.timestamp < uint256(active.endsAt) + PROPOSE_INTERVAL - VOTE_DURATION (src/libraries/SaleGovernance.sol#69)
+	- last != 0 && block.timestamp < last + PROPOSE_INTERVAL (src/libraries/SaleGovernance.sol#72)
+	- snapshotTs <= input.activatedAt (src/libraries/SaleGovernance.sol#75)
+SaleGovernance.vote(PoolSaleState.SaleStorage,mapping(address => Checkpoints.Trace208),uint256,bool) (src/libraries/SaleGovernance.sol#96-115) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= p.endsAt (src/libraries/SaleGovernance.sol#104)
+SaleGovernance.tradingFrozen(PoolSaleState.SaleStorage) (src/libraries/SaleGovernance.sol#128-131) uses timestamp for comparisons
+	Dangerous comparisons:
+	- s.activeProposalId != 0 && ! p.executed && block.timestamp < p.endsAt (src/libraries/SaleGovernance.sol#130)
+SaleGovernance.execute(PoolSaleState.SaleStorage,uint256,uint256) (src/libraries/SaleGovernance.sol#134-145) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= p.endsAt (src/libraries/SaleGovernance.sol#137)
+SaleGovernance.cancel(PoolSaleState.SaleStorage) (src/libraries/SaleGovernance.sol#148-157) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < s.expiresAt (src/libraries/SaleGovernance.sol#151)
+SaleSettlement._prepare(PoolSaleState.SaleStorage,address,uint256,address,uint256,address) (src/libraries/SaleSettlement.sol#44-71) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= s.expiresAt (src/libraries/SaleSettlement.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: assembly
+PoolFactory._factoryStorage() (src/PoolFactory.sol#244-247) uses assembly
+	- INLINE ASM (src/PoolFactory.sol#246)
+PoolRewardState._rewardStorage() (src/PoolRewardState.sol#59-63) uses assembly
+	- INLINE ASM (src/PoolRewardState.sol#60-62)
+PoolSaleState._saleStorage() (src/PoolSaleState.sol#58-62) uses assembly
+	- INLINE ASM (src/PoolSaleState.sol#59-61)
+PoolVaultState._vaultStorage() (src/PoolVaultState.sol#42-46) uses assembly
+	- INLINE ASM (src/PoolVaultState.sol#43-45)
+ShareMarket._marketStorage() (src/ShareMarket.sol#182-186) uses assembly
+	- INLINE ASM (src/ShareMarket.sol#183-185)
+FlexiblePurchase._selection() (src/libraries/FlexiblePurchase.sol#281-284) uses assembly
+	- INLINE ASM (src/libraries/FlexiblePurchase.sol#283)
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) uses assembly
+	- INLINE ASM (src/libraries/MiningOperations.sol#53)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+INFO:Detectors:
+Detector: cyclomatic-complexity
+PoolVault._update(address,address,uint256) (src/PoolVault.sol#532-572) has a high cyclomatic complexity (14).
+MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57) has a high cyclomatic complexity (15).
+MiningOperations.claimReward(address,uint256,bool) (src/libraries/MiningOperations.sol#60-97) has a high cyclomatic complexity (17).
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cyclomatic-complexity
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in ShareMarket.withdrawBnb() (src/ShareMarket.sol#117-126):
+	- (success,None) = msg.sender.call{value: amount}() (src/ShareMarket.sol#123)
+Low level call in MiningOperations.execute(address,uint256,bytes) (src/libraries/MiningOperations.sol#28-57):
+	- (success,result) = MINING.call(data) (src/libraries/MiningOperations.sol#52)
+Low level call in PoolFunds.withdraw(PoolVaultState.VaultStorage) (src/libraries/PoolFunds.sol#85-93):
+	- (success,None) = msg.sender.call{value: amount}() (src/libraries/PoolFunds.sol#90)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: missing-inheritance
+PoolFactory (src/PoolFactory.sol#20-248) should inherit from IShareMarketFactory (src/interfaces/IShareMarket.sol#52-56)
+PoolVault (src/PoolVault.sol#26-699) should inherit from IShareMarketPool (src/interfaces/IShareMarket.sol#58-65)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-inheritance
+INFO:Detectors:
+Detector: naming-convention
+Function IFactoryBoundVault.OFFICIAL_FACTORY() (src/AtomicDeployment.sol#11) is not in mixedCase
+Function IBeaconVaultImplementation.OFFICIAL_FACTORY() (src/PoolBeacon.sol#8) is not in mixedCase
+Variable PoolBeacon.OFFICIAL_FACTORY (src/PoolBeacon.sol#17) is not in mixedCase
+Function PoolVault.CLOCK_MODE() (src/PoolVault.sol#588-590) is not in mixedCase
+Variable PoolVault.OFFICIAL_FACTORY (src/PoolVault.sol#55) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Detectors:
+Detector: unindexed-event-address
+Event AtomicDeployment.ImplementationsRecorded(address,bytes32,address,bytes32,address,bytes32) (src/AtomicDeployment.sol#60-67) has address parameters but no indexed parameters
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unindexed-event-address-parameters
+INFO:Slither:. analyzed (71 contracts with 101 detectors), 55 result(s) found

@@ -1,0 +1,454 @@
+{
+  "schemaVersion": 1,
+  "completedAt": "2026-09-28T03:09:54.806936+00:00",
+  "result": "all requested test files passed after isolated dependency/fixture repairs",
+  "uniquePassed": 369,
+  "unresolvedFailures": 0,
+  "duplicatePassingTestsAcrossBatches": 14,
+  "countsAreNodeReportedTests": true,
+  "scope": {
+    "patterns": [
+      "deploy/scripts/*.test.mjs",
+      "deploy/server/*.test.mjs",
+      "deploy/server/chain-index/*.test.mjs",
+      "deploy/server/notifications/*.test.mjs",
+      "web/server/live-api.test.mjs"
+    ],
+    "files": 43
+  },
+  "coverage": [
+    {
+      "file": "deploy/scripts/artifacts.test.mjs",
+      "sha256": "bd89047e071934849359055b8566bf69df3984b2fb1219dfaa3ac6cef2e8cbd4",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/audit-purchase-boundaries.test.mjs",
+      "sha256": "e4f0c8764229db35e6f56ffba8cb598fd3fa51920d32e575efbd4d962fde59c3",
+      "passedIn": [
+        "supplemental"
+      ]
+    },
+    {
+      "file": "deploy/scripts/budget-acquisition.test.mjs",
+      "sha256": "1ec73c84e33eeea6b0cc2a696674c95e05c23e10b89f998de8aa3b0cbfb67945",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/budget-multicall-read.test.mjs",
+      "sha256": "f134bbdcb99ccd136bfed74c6b7de70dd2715bb4bb90bbeb1c27e4cd22af8ec4",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/budget-official-discovery.test.mjs",
+      "sha256": "8520567bf1ba7f70648c67417a752b5e1493370920303ca7d025d9c9ae3a7df0",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/configure-notification-bot.test.mjs",
+      "sha256": "8cf2a2ec1ea6dbf6aed64f03aab1c37dd12934cd77f9694c472174e0f2af1593",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/firsto-keeper.test.mjs",
+      "sha256": "c26edacd9a4e2685b626a8f09668e4acbb3973e644ac5afd3b7def3fc87835cc",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/firsto-purchase.test.mjs",
+      "sha256": "8eaf4ed9d0c094ecc762f174960bc8025928ab9c8bb50420eeb6708a2fffc596",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/foundry.test.mjs",
+      "sha256": "8d05f6988eac5383c95ee055b10680342eefdc5454b9094440f7c594a29ff7b2",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/legacy-pool-preflight.test.mjs",
+      "sha256": "7fc882a0e040d4c26a36ff8c41cc893829d074dca8b28257442b349f5e1132cd",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/mining-keeper.test.mjs",
+      "sha256": "76d2486bf5b880e007b4e1699c3555fa267ffea37d189333f4f06473b102163d",
+      "passedIn": [
+        "supplemental"
+      ]
+    },
+    {
+      "file": "deploy/scripts/mining-supervisor.test.mjs",
+      "sha256": "d4ae76a3af02b59d7222f6bb24811c7be6ae45fd265f2b537db44072de4558ae",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/official-market-discovery.test.mjs",
+      "sha256": "dc632ef8641648792ef556e541680c55da2ef7a00c7034f23443c0ac3fc7376b",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/package-release.test.mjs",
+      "sha256": "c5bbb1a0e2b4ee10ec035db1555c77abb121939b0605c2f78f1979def7bb1228",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/purchase-keeper.test.mjs",
+      "sha256": "7b90e6b3e13f90feed36cd34329c32a9f374f985525cb8a4391502e495f0fe38",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/purchase-recovery.integration.test.mjs",
+      "sha256": "f2b98f7c91b35d9ac0df2619480889fa8b50a56d32bb6b11774442c2ce03d51c",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/treasury-collector.test.mjs",
+      "sha256": "00f0c20f04bdc555ffa16ba214b62d668d12e00d35b78949e2cc33452c607b39",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/scripts/walletconnect.test.mjs",
+      "sha256": "99f17b5ffb52e13afb064b126d5832d3d0714082f10ac1d121290a474d23378b",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/server/artifact-digest.test.mjs",
+      "sha256": "51ef813be54ed0484e6ecb400bdb2008e3c938d3e22cc255c222c0824b4ad35b",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/budget-candidates.test.mjs",
+      "sha256": "9299f9400c38b5da8933ae8a005df0635a6030d6b5d44528b90433398c3f4cc4",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/server/chain-index/indexer.test.mjs",
+      "sha256": "bbb75ca4ed8b2a4098c71744c188438d94b045897dfa11875c4ce78efda8b158",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/chain-index/notifications.test.mjs",
+      "sha256": "da580d83b0e82e136471736e81dfa463d17fd4f63f6aa0b8a8b493d81dbb0985",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/chain-index/portfolio-index.test.mjs",
+      "sha256": "1de5332a07b635b9054cd08c20e38ee0442182b695eafc5beffd64e8cfa43667",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/chain-index/portfolio-notifications.test.mjs",
+      "sha256": "0abc4a52b746f4c05c959dbf3933a7f2b88b86fb59721c0c672d81e9bea4a9b8",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/chain-index/server.test.mjs",
+      "sha256": "8e992fe1f6111d9b721ce0959b43062aadb599c4ae57fc3f34360c931f556fef",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/deployment-archive.test.mjs",
+      "sha256": "e0e4b3611255c239004735c705b66d61a83bf2acb8c2a725367ec6c7eb19ee6f",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/firsto-proxy.test.mjs",
+      "sha256": "11063c6af34e8671394f235ad8d6f8b6e311be5b123b2243117f36e22aa58824",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/firsto-sale-preflight.test.mjs",
+      "sha256": "fb02e67b700456afeb2f33fa1cb4fc586ccdc0fa04d29045e131546644314f8e",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/initialization-proof.test.mjs",
+      "sha256": "8879e80bde41b2f78255d8e442e9c73bbedc36d5f59129b076a4dad308ea4e68",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/journal-api.test.mjs",
+      "sha256": "813d0ae0ffc34ac2a08910e879ba782d6c6eddb18a4233b7dde9469f9e99700f",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/journal-budget-candidates.test.mjs",
+      "sha256": "5c23c0dd0ebec69c6847a20458d597d24036f6bdb71f3ba2ffb4220bf83a0d7e",
+      "passedIn": [
+        "initial"
+      ]
+    },
+    {
+      "file": "deploy/server/journal-official-candidates.test.mjs",
+      "sha256": "ea181dbdb28c7ae1c2f470fe566fb4a5477cd69be1971ea2665b372a39af643e",
+      "passedIn": [
+        "initial",
+        "supplemental"
+      ]
+    },
+    {
+      "file": "deploy/server/live-data-proxy.test.mjs",
+      "sha256": "68b31a9b9f316ea8bc3acc19bddee122853bd36d6bd7757005bb1e153c45963c",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/notification-integration.test.mjs",
+      "sha256": "8df841f456c8d30041d56345b0562cd23c9c0ad6858f90d81d4f06d1af9a235a",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/notifications/binding.test.mjs",
+      "sha256": "9a4d7105cf9b318ecf4ed1616826fff7537598293c97498941ab0ad31b5915f4",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/notifications/config.test.mjs",
+      "sha256": "db12eb31430e6f0034d43da2a690e2a37911653aa6c033355997a41012f1f35a",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/notifications/delivery.test.mjs",
+      "sha256": "b681e55dbf1eab4ef4963efc4aad63415a6dc9f4a4204084613e86293c5155ff",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/notifications/runtime.test.mjs",
+      "sha256": "63ddbbb1e8a1a773e34001e228890ee93aecf4a88d17c57975cf1a4f4d35cb60",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/portfolio-intent.test.mjs",
+      "sha256": "f3111c4f5533f4481bd9f25e03003413adbdde15b21698ddf7b6fe8610d79e3f",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/product-graph-upgrade.test.mjs",
+      "sha256": "601374a244d65f94acf39d78c4a14e64c99c403e214ac6dc5bdee7d12b50e396",
+      "passedIn": [
+        "upgrade-proof"
+      ]
+    },
+    {
+      "file": "deploy/server/product-graph.test.mjs",
+      "sha256": "696a1de317efcbc15b90aa51ecfe087a96f35539f70046b65caef127217a36bf",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "deploy/server/product-journal.test.mjs",
+      "sha256": "a8b238d266aa0fc9ce0e541be814e28691e0cc0cd7939ca3bff59931bac87e14",
+      "passedIn": [
+        "remaining-server"
+      ]
+    },
+    {
+      "file": "web/server/live-api.test.mjs",
+      "sha256": "d9dc1d9dc4011c685f588f699efed0cfa74d5dd258b8395df00e71c94fe5f700",
+      "passedIn": [
+        "initial"
+      ]
+    }
+  ],
+  "batches": [
+    {
+      "id": "initial",
+      "log": "linux-budget-delta-tests.log",
+      "files": [
+        "deploy/scripts/artifacts.test.mjs",
+        "deploy/scripts/audit-purchase-boundaries.test.mjs",
+        "deploy/scripts/budget-acquisition.test.mjs",
+        "deploy/scripts/budget-multicall-read.test.mjs",
+        "deploy/scripts/budget-official-discovery.test.mjs",
+        "deploy/scripts/configure-notification-bot.test.mjs",
+        "deploy/scripts/firsto-keeper.test.mjs",
+        "deploy/scripts/firsto-purchase.test.mjs",
+        "deploy/scripts/foundry.test.mjs",
+        "deploy/scripts/legacy-pool-preflight.test.mjs",
+        "deploy/scripts/mining-keeper.test.mjs",
+        "deploy/scripts/mining-supervisor.test.mjs",
+        "deploy/scripts/official-market-discovery.test.mjs",
+        "deploy/scripts/package-release.test.mjs",
+        "deploy/scripts/purchase-keeper.test.mjs",
+        "deploy/scripts/purchase-recovery.integration.test.mjs",
+        "deploy/scripts/treasury-collector.test.mjs",
+        "deploy/scripts/walletconnect.test.mjs",
+        "deploy/server/budget-candidates.test.mjs",
+        "deploy/server/journal-budget-candidates.test.mjs",
+        "deploy/server/journal-official-candidates.test.mjs",
+        "web/server/live-api.test.mjs"
+      ],
+      "pass": 199,
+      "fail": 2,
+      "exitCode": 1,
+      "failures": [
+        {
+          "file": "deploy/scripts/audit-purchase-boundaries.test.mjs",
+          "reason": "isolated snapshot omitted tsx dependency; file did not load"
+        },
+        {
+          "file": "deploy/scripts/mining-keeper.test.mjs",
+          "reason": "isolated snapshot omitted contracts/test/utils/MiningStartFixtures.sol; file did not load"
+        }
+      ],
+      "logSha256": "80a945a6b4bd710ea9bb0db68935a9135392cb32f4c2c88ec2fa65901a828154"
+    },
+    {
+      "id": "supplemental",
+      "log": "linux-budget-supplemental-tests.log",
+      "files": [
+        "deploy/scripts/audit-purchase-boundaries.test.mjs",
+        "deploy/scripts/mining-keeper.test.mjs",
+        "deploy/server/journal-official-candidates.test.mjs"
+      ],
+      "pass": 23,
+      "fail": 0,
+      "exitCode": 0,
+      "note": "Exact missing test fixtures and tsx installed only in isolated directory; 3 audit + 5 mining + 15 official HTTP tests. Official HTTP includes 14 repeated and 1 newly added async test.",
+      "logSha256": "5b17e31ccca8b49850175e67276c58a3824d1543e70883bd6b79d34d8241023f"
+    },
+    {
+      "id": "remaining-server",
+      "log": "linux-budget-remaining-server-tests.log",
+      "files": [
+        "deploy/server/artifact-digest.test.mjs",
+        "deploy/server/deployment-archive.test.mjs",
+        "deploy/server/firsto-proxy.test.mjs",
+        "deploy/server/firsto-sale-preflight.test.mjs",
+        "deploy/server/initialization-proof.test.mjs",
+        "deploy/server/journal-api.test.mjs",
+        "deploy/server/live-data-proxy.test.mjs",
+        "deploy/server/notification-integration.test.mjs",
+        "deploy/server/portfolio-intent.test.mjs",
+        "deploy/server/product-graph-upgrade.test.mjs",
+        "deploy/server/product-graph.test.mjs",
+        "deploy/server/product-journal.test.mjs",
+        "deploy/server/chain-index/indexer.test.mjs",
+        "deploy/server/chain-index/notifications.test.mjs",
+        "deploy/server/chain-index/portfolio-index.test.mjs",
+        "deploy/server/chain-index/portfolio-notifications.test.mjs",
+        "deploy/server/chain-index/server.test.mjs",
+        "deploy/server/notifications/binding.test.mjs",
+        "deploy/server/notifications/config.test.mjs",
+        "deploy/server/notifications/delivery.test.mjs",
+        "deploy/server/notifications/runtime.test.mjs"
+      ],
+      "pass": 145,
+      "fail": 1,
+      "exitCode": 1,
+      "failures": [
+        {
+          "file": "deploy/server/product-graph-upgrade.test.mjs",
+          "reason": "isolated snapshot omitted scripts/fixtures/legacy-deployment-artifacts.json.gz; file did not load"
+        }
+      ],
+      "logSha256": "580632495985fe3d2ce8f4d7cc57261045e7e5683942fcd661e362eed9e6d519"
+    },
+    {
+      "id": "upgrade-proof",
+      "log": "linux-budget-upgrade-tests.log",
+      "files": [
+        "deploy/server/product-graph-upgrade.test.mjs"
+      ],
+      "pass": 16,
+      "fail": 0,
+      "exitCode": 0,
+      "note": "Exact repository legacy gzip test fixture copied to isolated snapshot; all 16 upgrade proof tests passed.",
+      "logSha256": "0d8e57685244bb84584f283d604a367be910d9577a657b6d105c477318521be0"
+    }
+  ],
+  "sourceSnapshot": {
+    "file": "tested-source-sha256.json",
+    "sha256": "36caf4bb83cd729e53f93e7c0f011d519a1be413f4b7254eafc535900a4aaab7",
+    "remoteFilesComparedWithFinalCheckout": 259,
+    "mismatches": [],
+    "postInitialChange": {
+      "file": "deploy/server/journal-official-candidates.test.mjs",
+      "initialSha256": "d95532fd694c6be226e458e4ff5c17d7cd12f63c895a620c0327e3c9e80b686e",
+      "finalSha256": "ea181dbdb28c7ae1c2f470fe566fb4a5477cd69be1971ea2665b372a39af643e",
+      "change": "One additional async-route test; uploaded and all 15 cases rerun in supplemental batch"
+    }
+  },
+  "safety": {
+    "productionServicesChanged": false,
+    "productionSecretsRead": false,
+    "onChainTransactionsSent": false,
+    "realNotificationsSent": false,
+    "testChain": "local loopback Anvil only"
+  },
+  "notIncluded": [
+    "deploy/src TypeScript test suite (root agent owns its separate report)",
+    "web frontend unit/browser/build tests (root and frontend agents own their separate reports)",
+    "mainnet deployment or real-wallet transaction acceptance"
+  ]
+}

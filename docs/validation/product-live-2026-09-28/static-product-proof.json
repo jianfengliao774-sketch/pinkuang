@@ -1,0 +1,203 @@
+{
+  "checkedAtUtc": "2026-09-28T05:35:46.732714+00:00",
+  "readOnly": true,
+  "scope": "static-release-integrity-and-preserved-services",
+  "healthEvaluated": false,
+  "browserRenderingEvaluated": false,
+  "transactionsSent": 0,
+  "checks": {
+    "current:manifestSha256": true,
+    "current:sourceHead": true,
+    "current:chainAndBase": true,
+    "current:completeFileInventory": true,
+    "current:allFilesHashAndPermissions": true,
+    "current:296Files": true,
+    "current:unchangedContractManifest": true,
+    "previous:manifestSha256": true,
+    "previous:sourceHead": true,
+    "previous:chainAndBase": true,
+    "previous:completeFileInventory": true,
+    "previous:allFilesHashAndPermissions": true,
+    "previous:unchangedContractManifest": true,
+    "currentPointsTo2c2fe82": true,
+    "previousReleasePreserved": true,
+    "preparedTargets": true,
+    "protectedFile:/etc/nginx/sites-available/bem2075": true,
+    "protectedFile:/etc/nginx/snippets/bemine-v2.conf": true,
+    "protectedFile:/etc/systemd/system/pinkuang-deploy-v2.service": true,
+    "protectedFile:/etc/systemd/system/pinkuang-index-v2.service": true,
+    "protectedFile:/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json": true,
+    "serviceUnchanged:bem2075-site.service": true,
+    "serviceUnchanged:bemine-price.service": true,
+    "serviceUnchanged:pinkuang-deploy-v2.service": true,
+    "runtimeStillC90:pinkuang-deploy-v2.service": true,
+    "serviceUnchanged:pinkuang-deploy.service": true,
+    "serviceUnchanged:pinkuang-index-v2.service": true,
+    "runtimeStillC90:pinkuang-index-v2.service": true,
+    "serviceUnchanged:pinkuang-index.service": true,
+    "serviceUnchanged:sparkdraw-bot.service": true,
+    "serviceUnchanged:sparkdraw-keeper.service": true,
+    "eightServicesCompared": true,
+    "legacyLink:/srv/crowdfund/current": true,
+    "legacyLink:/srv/pinkuang-deploy/current": true,
+    "legacyLink:/var/www/bemine-preview/current": true,
+    "databaseInode:/var/lib/pinkuang-deploy-v2/journal.sqlite": true,
+    "databaseMode:/var/lib/pinkuang-deploy-v2/journal.sqlite": true,
+    "databaseInode:/var/lib/pinkuang-index-v2/index.sqlite": true,
+    "databaseMode:/var/lib/pinkuang-index-v2/index.sqlite": true,
+    "wholeProtectedSurfaceUnchanged": true,
+    "publicHash:https://tapeout.cc.cd/bemine-v2/": true,
+    "publicHash:https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json": true,
+    "unauthenticated401:https://tapeout.cc.cd/bemine-v2/api/journal/build": true,
+    "unauthenticated401:https://tapeout.cc.cd/pinkuang-deploy-v2/api/journal/build": true,
+    "publicPrice200": true
+  },
+  "failures": [],
+  "releases": {
+    "current": {
+      "path": "/var/www/bemine-v2/releases/v2-product-20260928-2c2fe82",
+      "sourceHead": "2c2fe8272cae4b66dae5c976fcc19a72787b1d02",
+      "manifestSha256": "3b3d6e206ed646d08341532c173aba18ce2282c938e03d02c4bd335788a48621",
+      "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+      "fileCount": 296
+    },
+    "previous": {
+      "path": "/var/www/bemine-v2/releases/v2-product-20260928-7b5176a",
+      "sourceHead": "7b5176a769cf330ecebb609fbcacc5dd64a4306f",
+      "manifestSha256": "c8f59d8717681bed3c12493464a6bf68e0804e60685d5b354d66d9b0de71381c",
+      "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+      "fileCount": 296
+    }
+  },
+  "currentTarget": "/var/www/bemine-v2/releases/v2-product-20260928-2c2fe82",
+  "databasePermissions": {
+    "/var/lib/pinkuang-deploy-v2/journal.sqlite": {
+      "mode": "0o600",
+      "contentsRead": false
+    },
+    "/var/lib/pinkuang-index-v2/index.sqlite": {
+      "mode": "0o600",
+      "contentsRead": false
+    }
+  },
+  "protected": {
+    "files": {
+      "/etc/nginx/sites-available/bem2075": "054eefc62c23d977c4c255159f12f94085d9199c2ea7174eedb2041989c6bfe6",
+      "/etc/nginx/snippets/bemine-v2.conf": "76c6915dcd39330d0215192dba47c861bfba0001156092137ff71df831524c15",
+      "/etc/systemd/system/pinkuang-deploy-v2.service": "3b09107c211e19b98f857c24cf3cfdf36d6d3f9c7bde1d715086ba234da80fcc",
+      "/etc/systemd/system/pinkuang-index-v2.service": "2ea19df4ab01bfbb7475f50a7eb1ac28f708098c51465cc90c573a1e5ad73deb",
+      "/var/lib/pinkuang-deploy-v2/trusted-product-deployment.json": "39f567de5a23661db1bcd31638b536598cb58f5bb738a1b7a101e97ea54dfdf5"
+    },
+    "services": {
+      "bem2075-site.service": {
+        "MainPID": "138055",
+        "User": "app",
+        "Group": "app",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "9050895f39f24c67b8d1d692e9674bc7"
+      },
+      "bemine-price.service": {
+        "MainPID": "293719",
+        "User": "www-data",
+        "Group": "www-data",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "efb4c109c79b459c96548a37f960642f"
+      },
+      "pinkuang-deploy-v2.service": {
+        "MainPID": "348407",
+        "User": "pinkuang-v2",
+        "Group": "pinkuang-v2",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "9135169a33c542c793d57d066ceda5b8"
+      },
+      "pinkuang-deploy.service": {
+        "MainPID": "349525",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "b75af4827d29417f9a82e850c8681e66"
+      },
+      "pinkuang-index-v2.service": {
+        "MainPID": "348409",
+        "User": "pinkuang-v2",
+        "Group": "pinkuang-v2",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "26053b631979411bae7d1323f461c18c"
+      },
+      "pinkuang-index.service": {
+        "MainPID": "349511",
+        "User": "pinkuang-deploy",
+        "Group": "pinkuang-deploy",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "bf7d997d221f4234bcb66fd368229e6b"
+      },
+      "sparkdraw-bot.service": {
+        "MainPID": "276573",
+        "User": "sparkdraw-bot",
+        "Group": "sparkdraw-bot",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "1450d93a809a4498b9f92907fb250c34"
+      },
+      "sparkdraw-keeper.service": {
+        "MainPID": "126362",
+        "User": "sparkdraw-keeper",
+        "Group": "sparkdraw-keeper",
+        "LoadState": "loaded",
+        "ActiveState": "active",
+        "SubState": "running",
+        "InvocationID": "fbed717f34db4d378cbdfb567b6b6f6f"
+      }
+    },
+    "links": {
+      "/srv/crowdfund/current": "/srv/crowdfund/releases/chouj-20260912-compact-wallet",
+      "/srv/pinkuang-deploy/current": "/srv/pinkuang-deploy/releases/pinkuang-community-20260928T0530Z",
+      "/var/www/bemine-preview/current": "/var/www/bemine-preview/releases/bemine-notify-20260927T1605Z-r2"
+    },
+    "databaseIds": {
+      "/var/lib/pinkuang-deploy-v2/journal.sqlite": [
+        64769,
+        2651054
+      ],
+      "/var/lib/pinkuang-index-v2/index.sqlite": [
+        64769,
+        2651053
+      ]
+    }
+  },
+  "http": {
+    "https://tapeout.cc.cd/bemine-v2/": {
+      "status": 200,
+      "sha256": "be2e5e98dcfeb40369fe9425119a0ac47ea6795a2f548922bcd74d864720a68c"
+    },
+    "https://tapeout.cc.cd/bemine-v2/data/frontend-manifest.json": {
+      "status": 200,
+      "sha256": "5bf6596502e966de526e899c31d4bc71ef2a9a176e365bf75c0603a12c1b10ae"
+    },
+    "https://tapeout.cc.cd/bemine-v2/api/journal/build": {
+      "status": 401
+    },
+    "https://tapeout.cc.cd/pinkuang-deploy-v2/api/journal/build": {
+      "status": 401
+    },
+    "https://tapeout.cc.cd/bemine-v2/data/bem-price.json": {
+      "status": 200,
+      "quoteStatus": "ok",
+      "updatedAt": "2026-09-28T05:35:46.605Z"
+    }
+  },
+  "passed": true
+}

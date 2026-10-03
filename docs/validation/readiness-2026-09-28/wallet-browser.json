@@ -1,0 +1,23 @@
+{
+  "passed": 6,
+  "checks": [
+    "two wallets are listed; chosen provider only, one request, pending reopen and exact provider event binding",
+    "reject: no automatic second permission request or stale connection",
+    "already-pending: no automatic second permission request or stale connection",
+    "cancelled: no automatic second permission request or stale connection",
+    "connecting during deployment verification remains bound when the read-only load starts",
+    "mobile browser without injection shows seven wallet icons and copy URL, no fake QR connection"
+  ],
+  "output": "C:/Users/Administrator/Documents/流片上链条/outputs/pinkuang-rewrite-handoff-20260928/verified-wallet-connect-browser-check",
+  "script": "web/scripts/wallet-connect-browser-check.mjs",
+  "verifiedAt": "2026-09-28T03:07:08.227Z",
+  "testScope": "Offline Chromium fixtures, no real wallet signatures or chain broadcasts",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3200,
+    "handler": "ThreadingHTTPServer",
+    "request_queue_size": 128,
+    "requestLogging": false
+  },
+  "exitCode": 0
+}

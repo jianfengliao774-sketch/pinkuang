@@ -1,0 +1,21 @@
+# 管理员钱包提交等待修复
+
+基于正式分支 `efad448cb82e5c5bf3f46a35c9d6b0541c6a4f92`，独立于未发布的批量采购候选。
+
+正式站使用 `displayOnly` 提交路径，原代码没有交易模拟或 Gas 估算。钱包弹窗之前仍串行等待交易记录登录、实时代付状态和钱包节点的 nonce 读取。实时状态经过公共服务与独立签名服务的重复角色读取；它属于恢复查询，不必在管理员签名之前阻塞操作。
+
+修复移除签名前的代付状态 GET。管理员操作只通过已配置的本站只读 RPC 读取一次最新 nonce，读取期限 8 秒；不使用钱包节点读取 nonce，不模拟交易。随后请求精确操作的 EIP-712 签名，复用或恢复本站登录会话，再提交给独立 Gas 服务。钱包签名本身不设丢弃期限，避免钱包请求仍未结束时开启第二次签名。服务器既有权限、nonce、持久交易锁和合约执行条件保持。
+
+提交进度按读取、管理员签名、登录签名及 Gas 服务提交分别显示。弹窗可收起；收起保留实际提交锁，双击及迟到回调不会重复发送。只读状态查询与代付 HTTP 分别设置 8 秒和 30 秒期限。代付超时不视为失败或成功；创建意图保留用于后台核对。明确 HTTP 拒绝不会注册已发布项目。成功或失败回执必须同时对应完整创建 calldata、管理员 nonce、交易身份和区块，防止把共享 journal 的旧交易当成本次创建。
+
+验证：997 项前端测试全部通过，另通过 catalog、BEM 价格和 review policy 检查。用实际 JSX 回调验证进度收起、互斥和迟到事件；用真实 EIP-712 库验证 nonce/签名一致性、慢读取不会触发迟到签名、签名先于慢登录。覆盖旧确认交易、相同 nonce 但不同截止时间、POST 结果不明与 409 的发布回归。
+
+只读实测：现网 Authority `0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c` 的管理员 nonce 查询 HTTP 200，单次 521 ms；发布核查再次读取为 476 ms。这些是单次测量，不是钱包响应速度保证。未请求真实钱包签名，未发送链上交易。
+
+生产构建通过并于北京时间 2026-10-04 00:42:44 发布到 `https://bemine.cc.cd/`。线上前端源码为 `a4e1e32a0dd4b12c0e8df53e0364e5b2d120d174`，运行服务仍为 `23b48e6adb2a19810eb287a67add5f40b4fb94b9`；原合约、Factory、Authority 和 Gas 钱包保持。发布采用静态目录原子切换，保留 198 个旧内容寻址资源供已打开的标签页使用，六个业务服务进程未改变。
+
+独立公网核查：根首页 HTTP 200 且内容与构建产物逐字一致；发布清单 SHA256 与服务器回执一致；首页引用的 13 个脚本均与构建文件一致。旧版本浏览器入口继续 308 跳转根网址，内部 API 路径保持。浏览器实际加载了 7 个项目、2 台已管理矿机，未出现读取错误。
+
+首次发布预检查的 product graph GET 超过客户端 20 秒期限，切换尚未开始；后续缓存完成核验，读取得到 current、stale=false、operationalReady=true、userExitReady=true，再进行发布。该冷启动读取不在新版 displayOnly 签名前路径内；提交后的服务器权限与新鲜状态检查保持。
+
+构建与发布证据见 [build-summary.json](operator-submit-fast-20261004/build-summary.json)、[publication.json](operator-submit-fast-20261004/publication.json) 和 [public-verification.json](operator-submit-fast-20261004/public-verification.json)。修复代码及证据同步到 [PR 40](https://github.com/jianfengliao774-sketch/pinkuang/pull/40)。

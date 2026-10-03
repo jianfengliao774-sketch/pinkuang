@@ -1,0 +1,40 @@
+[Unit]
+Description=BEMine v5 fresh formal deployment console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pinkuang-v4
+Group=pinkuang-v4
+SupplementaryGroups=pinkuang-v4-relay
+WorkingDirectory=/srv/pinkuang-deploy-v5/current
+ExecStart=/usr/bin/node server/index.mjs
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=4217
+Environment=DEPLOYMENT_JOURNAL_ORIGIN=https://tapeout.cc.cd
+Environment=DEPLOYMENT_JOURNAL_DB=/var/lib/pinkuang-deploy-v5/journal.sqlite
+EnvironmentFile=/etc/pinkuang-v4/product-read-rpc.env
+# No v5 product index exists before genesis. Never read the v4 index as v5 data.
+Environment=BEMINE_INDEX_URL=http://127.0.0.1:4224
+Environment=BEMINE_NOTIFICATIONS_ENABLED=0
+Environment=AUTHORITY_RELAY_ENABLED=0
+Environment=AUTHORITY_RELAY_PUBLIC_ENABLED=0
+Environment=AUTHORITY_RELAY_SOCKET=/run/pinkuang-v4-relay/authority.sock
+LoadCredential=authority-ipc-hmac:/etc/pinkuang-v4/authority-ipc-hmac
+Environment=BEMINE_FRESH_CONSOLE_PRE_GENESIS=1
+Environment=BEMINE_FRESH_STAGE2_HOLD=0
+Environment=BEMINE_EXPECTED_GAS_WALLET=0xA285d1933e32b5990625aC1F5BEa205Cf2606619
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pinkuang-deploy-v5
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

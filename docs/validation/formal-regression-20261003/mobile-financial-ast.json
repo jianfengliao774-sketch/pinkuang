@@ -1,0 +1,91 @@
+{
+  "base": "551d8935ee9ead15d04ff0f813f5028cb34fd692",
+  "next": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
+  "file": "web/components/LivePlatform.jsx",
+  "checkedFunctions": [
+    {
+      "name": "openAction",
+      "unchanged": true
+    },
+    {
+      "name": "capacityCell",
+      "unchanged": true
+    },
+    {
+      "name": "readAdditionalOrderCapacity",
+      "unchanged": true
+    },
+    {
+      "name": "selectWallet",
+      "unchanged": true
+    },
+    {
+      "name": "connectJournal",
+      "unchanged": true
+    },
+    {
+      "name": "inspectPending",
+      "unchanged": true
+    },
+    {
+      "name": "prepare",
+      "unchanged": true
+    },
+    {
+      "name": "handleResult",
+      "unchanged": true
+    },
+    {
+      "name": "submitFreshAuthority",
+      "unchanged": true
+    },
+    {
+      "name": "sendFreshAuthority",
+      "unchanged": true
+    },
+    {
+      "name": "sendPortfolio",
+      "unchanged": true
+    },
+    {
+      "name": "sendBudgetQueueStep",
+      "unchanged": true
+    },
+    {
+      "name": "connectBudgetQueue",
+      "unchanged": true
+    },
+    {
+      "name": "submit",
+      "unchanged": true
+    },
+    {
+      "name": "sendGovernanceAction",
+      "unchanged": true
+    },
+    {
+      "name": "sendAdminAction",
+      "unchanged": true
+    },
+    {
+      "name": "recover",
+      "unchanged": true
+    },
+    {
+      "name": "clearUnsent",
+      "unchanged": true
+    },
+    {
+      "name": "cancelPending",
+      "unchanged": true
+    },
+    {
+      "name": "retryLegacyPending",
+      "unchanged": true
+    }
+  ],
+  "disabledOnClickMultisetUnchanged": true,
+  "disabledOnClickPairsBefore": 47,
+  "disabledOnClickPairsAfter": 47,
+  "differences": []
+}

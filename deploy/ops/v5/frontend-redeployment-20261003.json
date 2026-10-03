@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "scope": "frontend-only redeployment of current merged mobile and regression source",
+  "publishedAt": "2026-10-03T14:19:20.067992+00:00",
+  "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "previousFrontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "archiveSha256": "da65f0ae824649e9b84bdc9e6e4c07b51720b2ca0f9366a362f93eb0ea738d1d",
+  "archiveBytes": 16753487,
+  "contentSha256": "6c8e2f375cbb6671f7fa0b11c08e9676777580d2d39c53fc8bae9a93e3103831",
+  "buildContentSha256": "3a5c883eb73eadf811cb84f5aa7f802971c42393b513eafcf3be2201fe24aeb4",
+  "buildFileCount": 317,
+  "buildReleaseManifestSha256": "8de13ae44d5f7e580a882ad54012fbf83d1a2d123c6c054cfa10c90eb6b963ac",
+  "releaseManifestSha256": "f84f11e23a417fcf3daf7aa14577f3f3875373ccef7d52462bfd1be5f1fce868",
+  "rootHtmlSha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
+  "fileCount": 462,
+  "runtimeRestarted": false,
+  "serviceProcessesUnchanged": true,
+  "publicManifestVerified": true,
+  "rootMatchesV5": true,
+  "status": "published",
+  "recordedAt": "2026-10-03T14:24:56.684189+00:00",
+  "publicUrl": "https://bemine.cc.cd/",
+  "v5Url": "https://bemine.cc.cd/bemine-v5/",
+  "retainedImmutableChunkCount": 144,
+  "services": {
+    "pinkuang-index-v5": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "0"
+    },
+    "pinkuang-product-v5": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "0"
+    },
+    "pinkuang-v5-purchase": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "0"
+    },
+    "pinkuang-v5-mining": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "1"
+    },
+    "pinkuang-v5-signer": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "0"
+    },
+    "pinkuang-v5-price": {
+      "ActiveState": "active",
+      "SubState": "running",
+      "NRestarts": "0"
+    }
+  },
+  "sourceTimeline": {
+    "mobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
+    "mobileSourceUpdatedAt": "2026-10-03T20:15:46+08:00",
+    "lastFrontendCodeCommit": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+    "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00",
+    "lastMergedCodeFirstPublishedAt": "2026-10-03T20:57:10.816816+08:00",
+    "builtSourceIncludesDocumentationCommitAt": "2026-10-03T21:05:58+08:00",
+    "webSourceIdenticalToLastFrontendCodeCommit": true
+  },
+  "verification": {
+    "freshProductionBuildPassed": true,
+    "abiCheckPassed": true,
+    "priorFullTestsReusedBecauseWebSourceIdentical": true,
+    "priorFullWebTests": 976,
+    "priorBackendCombinedPassingCoverage": 1068,
+    "priorContractTests": 572,
+    "priorInvariantCalls": 2304000,
+    "mainnetFinancialFlowsTested": false,
+    "publicHttps": {
+      "schemaVersion": 1,
+      "verifiedAt": "2026-10-03T14:23:21.174162+00:00",
+      "scope": "Public HTTPS read-only; no direct paid RPC; no wallet or financial transaction",
+      "endpoints": {
+        "root": {
+          "url": "https://bemine.cc.cd/",
+          "status": 200,
+          "bytes": 36144,
+          "sha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
+          "elapsedSeconds": 1.938,
+          "cacheControl": "no-store",
+          "contentType": "text/html; charset=utf-8"
+        },
+        "v5": {
+          "url": "https://bemine.cc.cd/bemine-v5/",
+          "status": 200,
+          "bytes": 36144,
+          "sha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
+          "elapsedSeconds": 1.87,
+          "cacheControl": "no-store",
+          "contentType": "text/html; charset=utf-8"
+        },
+        "release": {
+          "url": "https://bemine.cc.cd/bemine-v5/fresh-product-release.json",
+          "status": 200,
+          "bytes": 1935,
+          "sha256": "f84f11e23a417fcf3daf7aa14577f3f3875373ccef7d52462bfd1be5f1fce868",
+          "elapsedSeconds": 1.388,
+          "cacheControl": "no-cache",
+          "contentType": "application/json"
+        },
+        "frontendManifest": {
+          "url": "https://bemine.cc.cd/bemine-v5/data/frontend-manifest.v5.json",
+          "status": 200,
+          "bytes": 2799,
+          "sha256": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97",
+          "elapsedSeconds": 1.421,
+          "cacheControl": "no-cache",
+          "contentType": "application/json"
+        },
+        "price": {
+          "url": "https://bemine.cc.cd/bemine-v5/data/bem-price.json",
+          "status": 200,
+          "bytes": 608,
+          "sha256": "086e91b0b378836eb2d3cac53f228fb2cacad04cc97edb206e83e49de5fae921",
+          "elapsedSeconds": 1.485,
+          "cacheControl": "no-store",
+          "contentType": "application/json"
+        },
+        "retainedChunk": {
+          "url": "https://bemine.cc.cd/bemine-v5/_next/static/-mp2teUopnTUGEOxdDW2A/_buildManifest.js",
+          "status": 200,
+          "bytes": 1016,
+          "sha256": "f8e812ab36a157d8e6cbe79c97ced24a624b193a933949e3aa6a2351ead98a76",
+          "elapsedSeconds": 1.623,
+          "cacheControl": "public, max-age=31536000, immutable",
+          "contentType": "application/javascript; charset=utf-8"
+        }
+      },
+      "checks": {
+        "rootMatchesV5": true,
+        "rootHtmlMatchesReceipt": true,
+        "releaseShaMatchesReceipt": true,
+        "sourceHeadMatches": true,
+        "runtimeSourceMatches": true,
+        "contentShaMatches": true,
+        "artifactDigestMatches": true,
+        "factoryMatches": true,
+        "manifestArtifactMatches": true,
+        "retainedChunkAvailable": true,
+        "priceStatusOk": true,
+        "priceTimestampFresh": true,
+        "priceRefreshEvery15Seconds": true
+      },
+      "failures": [],
+      "releaseSummary": {
+        "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+        "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+        "contentSha256": "6c8e2f375cbb6671f7fa0b11c08e9676777580d2d39c53fc8bae9a93e3103831",
+        "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+        "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+        "publishedAtReceipt": "2026-10-03T14:19:20.067992+00:00",
+        "retainedImmutableChunkCount": 144
+      },
+      "frontendManifestSummary": {
+        "schemaVersion": 1,
+        "chainId": 56,
+        "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+        "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9"
+      },
+      "priceSummary": {
+        "status": "ok",
+        "priceUsdt": 35.83052227008461,
+        "quoteCurrency": "USDT",
+        "source": "PancakeSwap V3",
+        "updatedAt": "2026-10-03T14:23:15.082Z",
+        "blockNumber": 125499671,
+        "blockTimestamp": "2026-10-03T14:23:14.000Z",
+        "refreshSeconds": 15,
+        "ageSecondsAtVerification": 6.092
+      },
+      "passed": true
+    },
+    "browser": {
+      "checkedAt": "2026-10-03T14:24:00.348Z",
+      "url": "https://bemine.cc.cd/#home",
+      "desktop": {
+        "bodyOverflow": "visible",
+        "scrollWidth": 1280,
+        "width": 1280
+      },
+      "mobile": {
+        "viewport": [
+          375,
+          812
+        ],
+        "documentWidth": 375,
+        "scrollWidth": 375,
+        "navigationOpened": true,
+        "navigationClosedAfterSelection": true,
+        "bodyOverflowAfterMenuClosed": "visible",
+        "projectDataLoaded": true
+      },
+      "consoleWarningsAndErrors": [],
+      "walletConnected": false,
+      "financialTransactionsPerformed": false
+    }
+  },
+  "priorFullValidationReport": "../../../docs/validation/formal-regression-20261003.md",
+  "publicationNotes": [
+    "Only static frontend files were republished; runtime, contracts, credentials and graph identity were not changed.",
+    "The first pre-publication graph read exceeded the publisher timeout while refreshing a cold proof cache. It ended before the release switch; a normal retry succeeded.",
+    "All six runtime service process identities and restart counters were unchanged across this publication. Mining has one historical restart, which preceded the publication.",
+    "The current independent graph has no projects; a zero count is its actual empty state, not a failed read.",
+    "Retained old immutable chunks allow existing browser tabs to finish loading."
+  ]
+}

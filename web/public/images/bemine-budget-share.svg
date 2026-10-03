@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#203f36"/><stop offset="1" stop-color="#142e28"/></linearGradient><pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#d9bd87" stroke-opacity=".07"/></pattern></defs>
+<rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#grid)"/>
+<g fill="none" stroke="#d9bd87" stroke-width="4"><path d="M60 69h22v15H71v18h22v15H60zm38 0h22v48H98v-15h11V84H98zM82 84h16l12 9-12 9H82"/></g>
+<g font-family="Noto Sans CJK SC,Microsoft YaHei,Arial,sans-serif"><text x="143" y="100" fill="#fffdf4" font-size="38" font-weight="700">拼矿 <tspan font-size="28" fill="#ddc38e">BEMine</tspan></text>
+<text x="62" y="207" fill="#dbc28f" font-size="16" letter-spacing="4">MULTI-MINER PORTFOLIO</text>
+<text x="60" y="286" fill="#fffdf4" font-size="50" font-weight="700">多台矿机，一个共同项目。</text>
+<text x="62" y="342" fill="#dfd5ba" font-size="23">Multiple miners. One shared project.</text>
+<rect x="62" y="397" width="220" height="54" rx="27" fill="#d9bd87"/><text x="172" y="432" text-anchor="middle" fill="#203f36" font-size="23" font-weight="700">100 份 / shares</text>
+<text x="62" y="500" fill="#f1e8d3" font-size="22">共同持有 · 逐台决策 · 链上可查</text><text x="62" y="536" fill="#b8c6bc" font-size="17">Shared ownership · Individual miner votes · On-chain records</text>
+<text x="62" y="594" fill="#d9bd87" font-size="16">BEMine · Multi-miner portfolios</text></g>
+<g transform="translate(823 236)" fill="none" stroke="#d9bd87"><path d="M0 5L110-59 222 5V134L110 198 0 134Z" opacity=".18" stroke-width="2"/><path d="M-48 90H20M202 90H270M110-96V-37M110 181V240" opacity=".35" stroke-width="2"/>
+<g stroke-width="3" fill="#264d40"><rect x="59" y="-12" width="102" height="94" rx="14"/><rect x="0" y="89" width="102" height="94" rx="14"/><rect x="120" y="89" width="102" height="94" rx="14"/></g>
+<g stroke-width="2"><path d="M91 17h38v37H91zM84 11v49M137 11v49M90 6v-10m10 10v-10m10 10v-10m10 10v-10m10 10v-10M31 118h38v37H31zM151 118h38v37h-38zM28 109v55M77 109v55M148 109v55M197 109v55"/><path d="M110 83v15M110 97H51v10m59-10h61v10" opacity=".7"/></g>
+<circle cx="110" cy="97" r="6" fill="#d9bd87"/></g>
+</svg>

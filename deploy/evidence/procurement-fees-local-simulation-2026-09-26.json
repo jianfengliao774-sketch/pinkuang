@@ -1,0 +1,16 @@
+{
+  "status": "unavailable",
+  "block": 124099541,
+  "noTransactionsBroadcast": true,
+  "attempts": [
+    {
+      "provider": "bsc-dataseed.bnbchain.org",
+      "error": "missing trie node while initializing local fork"
+    },
+    {
+      "provider": "bsc-rpc.publicnode.com",
+      "error": "archive requests require a personal token"
+    }
+  ],
+  "conclusion": "No successful local Firsto purchase simulation. Do not claim end-to-end Firsto settlement validated."
+}

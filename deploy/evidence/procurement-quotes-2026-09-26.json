@@ -1,0 +1,58 @@
+{
+  "source": "https://api-tapeout.firsto.ai/v1/circuits?category=official_mining&page=1&pageSize=30",
+  "sourceBlock": "124099106",
+  "sourceFreshness": {
+    "circuit_collections:0x68224f668083c29e9800be2a646d42d18cedf7e2": 1790406909162,
+    "official_circuit_mining:0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46": 1790406908438,
+    "circuit_signed_ask_exchange:0x81de876ab97c65f156d896a24a76d48c015e6b6e": 1790406913349,
+    "circuit_signed_ask_exchange:0x33423244f9a5bf81b12b1a018af6f4e079b97f29": 1790406913358,
+    "circuit_batch_ask_exchange:0x3f58c9cbce933c76158b2a29b0d612c46546dc43": 1790406913370,
+    "circuit_collection_discovery:0x68224f668083c29e9800be2a646d42d18cedf7e2": 1790406867066,
+    "circuit_netlist_enrichment:0x68224f668083c29e9800be2a646d42d18cedf7e2": 1790406871963,
+    "circuit_container_state:0xe3fbc3a12ebafc234f0618fc9f7a9be7535ac8f2": 1790406468652,
+    "blockfeed:bsc-tapeout-markets-shadow-v1:circuit-orders": 1790406936000,
+    "blockfeed:bsc-tapeout-markets-shadow-v1:circuit-capacity-bids": 1790406936000
+  },
+  "examples": [
+    {
+      "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+      "tokenId": "16480",
+      "series": "TapeOut",
+      "status": "verified",
+      "taskId": "220",
+      "verifiedWeight": "61",
+      "estimated24hAtomic": "28512000",
+      "venue": "firsto",
+      "orderId": "0xa0eef48dd2bd4115cdfb775fc17c53de9648c5203805ec87c09a220c81cfcdcc",
+      "priceWei": "2355000000000000000",
+      "buyerCostWei": "2378550000000000000",
+      "feeBps": 100,
+      "schemaVersion": "2"
+    },
+    {
+      "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+      "tokenId": "16522",
+      "series": "TapeOut",
+      "status": "verified",
+      "taskId": "4",
+      "verifiedWeight": "1",
+      "estimated24hAtomic": "432000",
+      "venue": "official",
+      "orderId": "official:0x6feebbebc07bcb90bd1ac8b0cf9baa4f0ff2b46f:17768",
+      "priceWei": "41000000000000000",
+      "buyerCostWei": "41410000000000000",
+      "feeBps": null,
+      "schemaVersion": null
+    }
+  ],
+  "frontendSourceHashes": {
+    "official": {
+      "url": "https://tapeout.net/assets/CircuitMarket-BTz8BcLl.js",
+      "sha256": "e62865b84d3f9815dd6eeb6ed14943dbd949af660fda737b81a74b6aa2ab3bee"
+    },
+    "firsto": {
+      "url": "https://tapeout.firsto.ai/assets/index-DEbR7oA_.js",
+      "sha256": "4d95f0ba58c37f7f81d4b3187508871a723ed773f538c4a6082ffd0412da45fa"
+    }
+  }
+}

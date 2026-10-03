@@ -1,0 +1,235 @@
+.portfolio-panel{padding:26px;margin:24px 0}.portfolio-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.portfolio-heading h2{display:flex;align-items:center;gap:10px}.portfolio-heading p,.portfolio-detail p,.portfolio-create p{color:var(--muted);line-height:1.7}.portfolio-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin:20px 0}.portfolio-card{appearance:none;text-align:left;border:1px solid var(--border,#ddd);border-radius:12px;background:var(--surface,#fff);color:inherit;padding:20px;display:grid;gap:12px;cursor:pointer}.portfolio-card.selected{border-color:var(--gold,#ad9257)}.portfolio-card>span{display:flex;align-items:center;gap:5px}.portfolio-card dl{margin:0;display:grid;gap:8px}.portfolio-card dl div{display:flex;justify-content:space-between;gap:10px}.portfolio-card dd{margin:0;font-variant-numeric:tabular-nums}.portfolio-card dt{color:var(--muted)}.portfolio-error{background:#fff0eb;color:#923926;border-radius:8px;padding:15px}.portfolio-detail{border-top:1px solid var(--border,#ddd);padding-top:24px}.portfolio-actions{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:18px 0}.portfolio-actions label{display:grid;gap:7px;min-width:160px;flex:1}.portfolio-actions input,.portfolio-actions select{padding:11px;border:1px solid var(--border,#ddd);border-radius:8px;color:inherit;background:var(--surface,#fff);min-width:0;width:100%;box-sizing:border-box}.portfolio-child-table{overflow-x:auto}.portfolio-child-table table{width:100%;border-collapse:collapse}.portfolio-child-table td,.portfolio-child-table th{text-align:left;padding:13px 10px;border-bottom:1px solid var(--border,#ddd);white-space:nowrap}.portfolio-child-table td button+button{margin-left:8px}.portfolio-panel details{margin:22px 0;padding:18px;border:1px solid var(--border,#ddd);border-radius:10px}.portfolio-panel summary{cursor:pointer;font-weight:600}.portfolio-confirm{position:fixed;inset:0;background:#14292399;z-index:90;display:grid;place-items:center;padding:24px}.portfolio-confirm>div{background:var(--surface,#fff);color:var(--ink,#233931);border-radius:16px;padding:28px;max-width:560px;width:100%;max-height:80vh;overflow:auto;overflow-wrap:anywhere}.portfolio-governance{padding:18px;border-radius:10px;background:var(--surface,#f5f5ed);margin-top:22px}@media(max-width:700px){.portfolio-panel{padding:18px}.portfolio-heading{display:block}.portfolio-heading>.btn{margin-top:10px}.portfolio-actions{align-items:stretch}.portfolio-actions .btn{width:100%}.portfolio-confirm{padding:14px}.portfolio-confirm>div{padding:20px;box-sizing:border-box}}
+
+.portfolio-create{margin:22px 0;padding:20px;border:1px solid var(--border,#ddd);border-radius:10px;background:var(--surface,#fff);scroll-margin-top:24px}.portfolio-create h3{margin:0 0 10px}
+
+@media (max-width: 760px) {
+  .live-platform .portfolio-panel {
+    min-width: 0;
+    margin: 16px 0;
+    padding: 14px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .live-platform .portfolio-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+  }
+
+  .live-platform .portfolio-heading > div {
+    min-width: 0;
+  }
+
+  .live-platform .portfolio-panel > .portfolio-heading {
+    grid-template-areas: "title refresh" "copy copy";
+    align-items: center;
+  }
+
+  .live-platform .portfolio-panel > .portfolio-heading > div:first-child {
+    display: contents;
+  }
+
+  .live-platform .portfolio-panel > .portfolio-heading h2 {
+    grid-area: title;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .live-platform .portfolio-panel > .portfolio-heading p {
+    grid-area: copy;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .live-platform .portfolio-panel > .portfolio-heading > .btn {
+    grid-area: refresh;
+    justify-self: end;
+    align-self: center;
+  }
+
+  .live-platform .portfolio-heading h2 {
+    gap: 6px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .live-platform .portfolio-heading h2 svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
+
+  .live-platform .portfolio-heading > .btn {
+    min-height: 44px;
+    max-width: 100%;
+    margin-top: 0;
+    gap: 5px;
+    padding: 8px 10px;
+    font-size: 13px;
+    white-space: normal;
+  }
+
+  .live-platform .portfolio-panel p {
+    margin: 8px 0;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .portfolio-panel h3,
+  .live-platform .portfolio-panel summary {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .live-platform .portfolio-cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin: 12px 0;
+  }
+
+  .live-platform .portfolio-card {
+    min-width: 0;
+    gap: 8px;
+    padding: 12px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .portfolio-card.selected {
+    border-color: var(--brand-gold);
+  }
+
+  .live-platform .portfolio-card > strong {
+    min-width: 0;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .live-platform .portfolio-card > span {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .live-platform .portfolio-card > span:last-child {
+    color: var(--blue);
+    font-size: 13px;
+  }
+
+  .live-platform .portfolio-card dl {
+    gap: 8px;
+  }
+
+  .live-platform .portfolio-card dl > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .live-platform .portfolio-card dt {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .portfolio-card dd {
+    min-width: 0;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .portfolio-detail {
+    padding-top: 14px;
+  }
+
+  .live-platform .portfolio-detail > .portfolio-heading > a {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    min-height: 44px;
+    color: var(--blue);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .portfolio-actions {
+    align-items: stretch;
+    gap: 8px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+
+  .live-platform .portfolio-actions label {
+    min-width: 0;
+    flex: 1 1 160px;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .live-platform .portfolio-actions input,
+  .live-platform .portfolio-actions select {
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+
+  .live-platform .portfolio-actions .btn {
+    width: auto;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    white-space: normal;
+  }
+
+  .live-platform .portfolio-child-table th {
+    font-size: 12px;
+  }
+
+  .live-platform .portfolio-child-table td {
+    font-size: 14px;
+  }
+
+  .live-platform .portfolio-child-table .btn {
+    min-height: 44px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+
+  .live-platform .portfolio-panel details {
+    margin: 12px 0;
+    padding: 12px;
+  }
+
+  .live-platform .portfolio-create,
+  .live-platform .portfolio-governance {
+    margin-top: 14px;
+    padding: 12px;
+  }
+
+  .live-platform .portfolio-error {
+    padding: 12px;
+    border: 1px solid var(--border);
+    background: var(--soft);
+    color: var(--ink);
+    font-size: 12px;
+  }
+}

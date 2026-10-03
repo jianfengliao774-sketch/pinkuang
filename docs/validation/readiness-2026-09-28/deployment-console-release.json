@@ -1,0 +1,22 @@
+{
+  "activated": true,
+  "deploymentConsoleOnly": true,
+  "url": "https://tapeout.cc.cd/pinkuang-deploy-v2/",
+  "releaseId": "v2-20260928-f64b366",
+  "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+  "legacyUnchanged": true,
+  "productEnabled": false,
+  "indexEnabled": false,
+  "notificationsEnabled": false,
+  "walletSignatures": 0,
+  "cookiePath": "/pinkuang-deploy-v2/api/journal",
+  "cookieRuntimeVerified": false,
+  "checkedAtUtc": "2026-09-28T03:19:07.792464+00:00",
+  "sourceHead": "f64b36644a8de8fdfdbe1c72073a5c947a7f2d1d",
+  "contractSourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+  "transactions": 0,
+  "manifestSha256": "5c32b55fe75e9c3253b12681ea3a352427ccd1e0e2c42f46f6206453656331b6",
+  "firstActivationRolledBack": true,
+  "rollbackReason": "First public probe reached old nginx worker and received HTTP 404; bounded exact-hash convergence added.",
+  "liveBrowserAccessibility": "Tool timed out; real wallet acceptance remains pending."
+}
