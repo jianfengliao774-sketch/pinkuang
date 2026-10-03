@@ -66,7 +66,7 @@ contract WholeMinerConcurrencyTest is SaleTestBase {
         vm.prank(ALICE);
         IPoolVault(address(winner)).buyFromMarket(listingId);
         vm.prank(BOB);
-        vm.expectRevert(IPoolVault.InvalidListing.selector);
+        vm.expectRevert(IPoolVault.TargetOwnerChanged.selector);
         IPoolVault(address(loser)).buyFromMarket(listingId);
 
         assertEq(nft.ownerOf(rewardId), address(winner));
@@ -82,8 +82,8 @@ contract WholeMinerConcurrencyTest is SaleTestBase {
         defaultParams.circuitId = ++rewardId;
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
-        target = _createPool(defaultParams);
         nft.mint(REWARD_SELLER, rewardId);
+        target = _createPool(defaultParams);
         mining.configure(address(nft), rewardId, 0, 0);
         _deposit(target, ALICE, 100);
         vm.prank(REWARD_SELLER);

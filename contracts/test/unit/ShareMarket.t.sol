@@ -478,6 +478,7 @@ contract ShareMarketTest is ShareTransferTestBase {
 
     function test_fundingPoolCannotListShares() public {
         ++defaultParams.circuitId;
+        nft.mint(REWARD_SELLER, defaultParams.circuitId);
         IPoolVault fresh = IPoolVault(address(_createPool(defaultParams)));
         vm.prank(ALICE);
         vm.expectRevert(IShareMarket.WrongState.selector);

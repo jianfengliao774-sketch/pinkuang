@@ -37,6 +37,19 @@ interface IFundingVault is IPoolVault, IERC20 {
     function clock() external view returns (uint48);
 }
 
+/// @dev Funding-only fixtures supply an existing NFT owner before creation. Purchase tests replace this getter with real ERC721 mocks.
+contract FundingTargetOwnerFixture {
+    address private immutable referenceOwner;
+
+    constructor(address owner_) {
+        referenceOwner = owner_;
+    }
+
+    function ownerOf(uint256) external view returns (address) {
+        return referenceOwner;
+    }
+}
+
 abstract contract FundingTestBase is Test {
     address internal constant OWNER = address(0x0111);
     address internal constant OPERATOR = address(0x0222);
@@ -55,6 +68,9 @@ abstract contract FundingTestBase is Test {
 
     function setUp() public virtual {
         vm.warp(1_800_000_000);
+        address fixture = address(new FundingTargetOwnerFixture(_initialReferenceOwner()));
+        if (Addresses.TAPEOUT_CIRCUITS.code.length == 0) vm.etch(Addresses.TAPEOUT_CIRCUITS, fixture.code);
+        if (Addresses.BEHEMOTH_CIRCUITS.code.length == 0) vm.etch(Addresses.BEHEMOTH_CIRCUITS, fixture.code);
         _deployFactory();
         defaultParams = IPoolVault.PoolParams({
             circuits: Addresses.TAPEOUT_CIRCUITS,
@@ -67,6 +83,10 @@ abstract contract FundingTestBase is Test {
             purchaseDeadline: uint64(block.timestamp + 10 days)
         });
         pool = _createPool(defaultParams);
+    }
+
+    function _initialReferenceOwner() internal virtual returns (address) {
+        return address(0x5E11E2);
     }
 
     /// @dev Parameter variants for the same NFT use separate real deployments; never erase a registry reservation.

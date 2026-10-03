@@ -12,7 +12,6 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
 
     function test_soleSubscriberCanPurchaseClaimRewardsAndCompleteWholeSale() public {
         _useFreshPool();
-        nft.mint(REWARD_SELLER, rewardId);
         mining.configure(address(nft), rewardId, 0, 0);
         key = mining.minerKey(address(nft), rewardId);
         _deposit(pool, ALICE, 100);
@@ -185,13 +184,13 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
         defaultParams.circuitId = ++rewardId;
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
+        nft.mint(REWARD_SELLER, rewardId);
         pool = _createPool(defaultParams);
         _useSalePool();
     }
 
     function _activateSplitPool() private {
         _useFreshPool();
-        nft.mint(REWARD_SELLER, rewardId);
         mining.configure(address(nft), rewardId, 0, 0);
         key = mining.minerKey(address(nft), rewardId);
 

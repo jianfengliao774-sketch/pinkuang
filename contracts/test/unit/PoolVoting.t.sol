@@ -731,6 +731,7 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_fundingFundedAndRefundingPoolsCannotProposeOrVote() public {
         defaultParams.circuitId = ++rewardId;
+        nft.mint(REWARD_SELLER, rewardId);
         IFundingVault candidate = _createPool(defaultParams);
         PoolVault candidateVoting = PoolVault(payable(address(candidate)));
         _assertWrongState(candidateVoting);

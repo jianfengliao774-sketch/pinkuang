@@ -12,6 +12,7 @@ import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {PurchaseMockNft} from "../utils/PurchaseMocks.sol";
 
 /// @dev Configuration fixture only. This is not a multisig authorization implementation.
 contract DeploymentMultisigFixture {
@@ -59,6 +60,9 @@ contract AtomicDeploymentTest is Test {
 
     function setUp() public {
         vm.warp(1_800_000_000);
+        PurchaseMockNft nft = new PurchaseMockNft();
+        vm.etch(_params().circuits, address(nft).code);
+        PurchaseMockNft(_params().circuits).mint(OPERATOR, _params().circuitId);
         coordinator = new AtomicDeployment();
         config.ownerMultisig = address(new DeploymentMultisigFixture(2, _owners(3)));
         config.operator = OPERATOR;

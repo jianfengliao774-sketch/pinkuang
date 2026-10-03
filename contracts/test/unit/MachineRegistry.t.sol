@@ -10,8 +10,26 @@ import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
 import {Addresses} from "../../script/Addresses.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PurchaseMockNft} from "../utils/PurchaseMocks.sol";
 
-contract MachineRegistryTest is FundingTestBase {
+abstract contract MachineRegistryNftFixture is FundingTestBase {
+    function _setUpNftOwners() internal {
+        PurchaseMockNft nft = new PurchaseMockNft();
+        vm.etch(Addresses.TAPEOUT_CIRCUITS, address(nft).code);
+        vm.etch(Addresses.BEHEMOTH_CIRCUITS, address(nft).code);
+        for (uint256 id = 16210; id <= 16211; ++id) {
+            PurchaseMockNft(Addresses.TAPEOUT_CIRCUITS).mint(_initialReferenceOwner(), id);
+            PurchaseMockNft(Addresses.BEHEMOTH_CIRCUITS).mint(_initialReferenceOwner(), id);
+        }
+    }
+}
+
+contract MachineRegistryTest is MachineRegistryNftFixture {
+    function setUp() public override {
+        _setUpNftOwners();
+        super.setUp();
+    }
+
     function _expectReserved() private {
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -106,13 +124,14 @@ contract MachineRegistryTest is FundingTestBase {
     }
 }
 
-contract MachineRegistryMigrationTest is FundingTestBase {
+contract MachineRegistryMigrationTest is MachineRegistryNftFixture {
     // Exact Vault and Selection namespaces; only this historical-state fixture writes them directly.
     bytes32 private constant VAULT_SLOT = 0x91bfb6bda130bea719738fb057a72863be36ca25095a844c93b1e775e47e6d00;
     bytes32 private constant SELECTION_SLOT = 0xabb161195ab2dca5bb4a3b74cf71ac027f503287a65da4d00c8f2426b582f100;
 
     function setUp() public override {
         vm.warp(1_800_000_000);
+        _setUpNftOwners();
         _deployLegacyFactory();
         defaultParams = IPoolVault.PoolParams({
             circuits: Addresses.TAPEOUT_CIRCUITS,

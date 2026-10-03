@@ -22,6 +22,16 @@ interface IPoolVault {
         uint64 purchaseDeadline;
     }
 
+    /// @notice Explicit, two-current-administrator authorization for an old pool's historical owner.
+    struct TargetOwnerAuthorization {
+        address originalOwner;
+        address authority;
+        address administratorOne;
+        address administratorTwo;
+        uint256 nonce;
+        uint256 deadline;
+    }
+
     /// @notice Immutable opt-in purchase terms. Price/yield fields are disclosed references, not an oracle.
     struct FlexiblePurchaseConfig {
         uint128 minVerifiedWeight;
@@ -51,6 +61,11 @@ interface IPoolVault {
     error Unauthorized();
     error InvalidParameters();
     error DepositPaused();
+    error TargetOwnerNotConfigured();
+    error TargetOwnerAlreadyConfigured();
+    error TargetOwnerChanged();
+    error TargetOwnerUnavailable();
+    error InvalidTargetOwnerAuthorization();
     error FutureLookup();
     error NotOwnerAfterBuy();
     error FinalRewardSettlementFailed();
@@ -157,6 +172,11 @@ interface IPoolVault {
     function deposit(uint8 shares) external payable;
     function withdrawDeposit() external;
     function finalizeFailure() external;
+    function targetOwnerVersion() external pure returns (uint8);
+    function targetOwner() external view returns (address originalOwner, bool configured, uint256 nonce);
+    /// @dev Canonical abi.encode(TargetOwnerAuthorization, bytes signatureOne, bytes signatureTwo).
+    function configureTargetOwner(bytes calldata authorization) external;
+    function syncTargetAvailability() external returns (bool refunded);
     function withdrawBnb() external;
     function setDepositPaused(bool paused) external;
     function buyFromMarket(uint256 listingId) external;

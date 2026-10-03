@@ -11,6 +11,8 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {PoolTimelock} from "../../src/PoolTimelock.sol";
 import {PoolBeacon} from "../../src/PoolBeacon.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {Addresses} from "../../script/Addresses.sol";
+import {PurchaseMockNft} from "../utils/PurchaseMocks.sol";
 
 /// @dev Adds only a pure version getter; reuses the inherited initializer and needs no second initialization.
 /// Existing pool storage preservation is exercised by the real timelock governance tests below.
@@ -53,6 +55,13 @@ contract PoolGovernanceTest is Test {
 
     function setUp() public {
         vm.warp(1_000_000);
+        PurchaseMockNft nft = new PurchaseMockNft();
+        vm.etch(Addresses.TAPEOUT_CIRCUITS, address(nft).code);
+        vm.etch(Addresses.BEHEMOTH_CIRCUITS, address(nft).code);
+        for (uint256 id = 400; id <= 401; ++id) {
+            PurchaseMockNft(Addresses.TAPEOUT_CIRCUITS).mint(STRANGER, id);
+            PurchaseMockNft(Addresses.BEHEMOTH_CIRCUITS).mint(STRANGER, id);
+        }
         timelock = new PoolTimelock(MULTISIG);
         address predictedFactory = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         vaultImplementation = new PoolVault(predictedFactory);

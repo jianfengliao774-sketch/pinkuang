@@ -173,9 +173,9 @@ abstract contract SaleTestBase is ShareTransferTestBase {
         defaultParams.directPrice = directPrice;
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
+        nft.mint(ALICE, rewardId);
         pool = _createPool(defaultParams);
         _useSalePool();
-        nft.mint(ALICE, rewardId);
         mining.configure(address(nft), rewardId, 0, 0);
         key = mining.minerKey(address(nft), rewardId);
         _deposit(pool, ALICE, 2);

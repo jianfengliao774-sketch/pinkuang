@@ -40,6 +40,7 @@ abstract contract ShareTransferTestBase is RewardsTestBase {
         defaultParams.circuitId = ++rewardId;
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
+        nft.mint(REWARD_SELLER, rewardId);
         pool = _createPool(defaultParams);
         _activate();
     }

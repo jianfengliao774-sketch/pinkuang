@@ -69,9 +69,9 @@ contract PoolPurchaseTest is FundingTestBase {
         IPoolVault.PoolParams memory p = defaultParams;
         p.directSeller = seller;
         p.directPrice = price;
+        if (nft.ownerOf(ID) != seller) nft.forceTransfer(seller, ID);
         pool = _createPool(p);
         purchase = IPurchaseActions(address(pool));
-        if (nft.ownerOf(ID) != seller) nft.forceTransfer(seller, ID);
         vm.prank(seller);
         nft.approve(address(pool), ID);
         _fundPool();

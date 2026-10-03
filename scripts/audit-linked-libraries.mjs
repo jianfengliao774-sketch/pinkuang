@@ -103,6 +103,18 @@ function reviewLibraryAst(name, artifact) {
     additionalNamespace = { namespace: `erc7201:${namespace}`, slot, definition: 'src/PurchaseSelectionState.sol:PurchaseSelectionState.SelectionStorage',
       note: 'Inherited by PoolVault; fields and nested config are extracted by OpenZeppelin storage validation, not inferred from library AST.' };
   }
+  if (name === 'TargetOwner') {
+    const namespace = 'tapeout.storage.TargetOwner';
+    const namespaceSeed = (BigInt(keccak(Buffer.from(namespace))) - 1n).toString(16).padStart(64, '0');
+    const slot = `0x${(BigInt(keccak(Buffer.from(namespaceSeed, 'hex'))) & ~255n).toString(16).padStart(64, '0')}`;
+    assert.equal(state.find(node => node.name === 'STORAGE')?.value?.value?.toLowerCase(), slot,
+      'TargetOwner namespace does not match ERC-7201 derivation.');
+    assert(library.nodes.filter(node => node.nodeType === 'FunctionDefinition')
+      .every(node => ['internal', 'private'].includes(node.visibility)), 'TargetOwner must remain internal-only.');
+    additionalNamespace = { namespace: `erc7201:${namespace}`, slot,
+      definition: 'src/TargetOwnerState.sol:TargetOwnerState.TargetOwnerStorage',
+      note: 'Internal-only helper inlined into PoolFunds, FlexiblePurchase and Vault; no new external linked address.' };
+  }
   for (const part of ['bytecode', 'deployedBytecode']) {
     vaultLinks(artifact[part], `${name} ${part}`, nestedLibraries[name] ?? []);
   }
@@ -159,6 +171,20 @@ export default function auditLinkedLibraries(root, logRoot) {
   sourceEvidence(projectRoot, 'src/PoolFactory.sol', freshFactory.metadata);
   const vaultSource = sourceEvidence(projectRoot, 'src/PoolVault.sol', vault.metadata);
   const selectionSource = sourceEvidence(projectRoot, 'src/PurchaseSelectionState.sol', vault.metadata);
+  const targetOwner = readArtifact(projectRoot, 'TargetOwner');
+  const targetOwnerSource = sourceEvidence(projectRoot, 'src/libraries/TargetOwner.sol', targetOwner.metadata);
+  sourceEvidence(projectRoot, 'src/libraries/TargetOwner.sol', vault.metadata);
+  sourceEvidence(projectRoot, 'src/libraries/TargetOwner.sol', readArtifact(projectRoot, 'PoolFunds').metadata);
+  sourceEvidence(projectRoot, 'src/libraries/TargetOwner.sol', readArtifact(projectRoot, 'FlexiblePurchase').metadata);
+  const targetOwnerState = sourceEvidence(projectRoot, 'src/TargetOwnerState.sol', vault.metadata);
+  const vaultDefinition = vault.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'PoolVault');
+  for (const name of ['deposit', 'withdrawDeposit', 'finalizeFailure', 'configureTargetOwner',
+    'syncTargetAvailability', 'withdrawBnb', 'buyFromMarket', 'buyAlternativeFromMarket', 'buyFromFirsto', 'sellToPool']) {
+    const entry = vaultDefinition?.nodes.find(node => node.nodeType === 'FunctionDefinition' && node.name === name);
+    assert(entry?.modifiers?.some(node => node.modifierName?.name === 'nonReentrant'),
+      `PoolVault.${name} must retain its nonReentrant boundary.`);
+  }
   const executor = readArtifact(projectRoot, 'FirstoSaleExecutor');
   const executorSource = sourceEvidence(projectRoot, 'src/FirstoSaleExecutor.sol', vault.metadata);
   const executorDefinition = executor.artifact.ast.nodes.find(node => node.nodeType === 'ContractDefinition' && node.name === 'FirstoSaleExecutor');
@@ -283,6 +309,9 @@ export default function auditLinkedLibraries(root, logRoot) {
     vault: { source: vaultSource, selectionSource, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
       runtimeBytecodeTemplate: templateEvidence(vault.artifact.deployedBytecode, 'PoolVault'),
       creationLinks, runtimeLinks }, libraries,
+    targetOwner: { source: targetOwnerSource, state: targetOwnerState,
+      artifactPath: targetOwner.path, astReview: reviewLibraryAst('TargetOwner', targetOwner.artifact),
+      guardedVaultEntryPoints: true, externalLinkNameAdded: false },
     firstoExecutor: { source: executorSource, artifactPath: executor.path, constructorOnly: true, fixedExchange: true },
     firstoSaleLinking: { source: sourceEvidence(projectRoot, 'src/libraries/FirstoSale.sol', firstoSale.metadata),
       artifactPath: firstoSale.path, callSites: Object.fromEntries(Object.entries(firstoCallSites)

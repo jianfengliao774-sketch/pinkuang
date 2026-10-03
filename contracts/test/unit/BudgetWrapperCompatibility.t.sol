@@ -45,12 +45,13 @@ contract BudgetWrapperCompatibilityTest is FundingTestBase {
         bem = PurchaseMockBem(Addresses.BEM);
         mining = PurchaseMockMining(payable(Addresses.MINING));
         market = PurchaseMockMarket(Addresses.CIRCUIT_MARKET);
+        nft.mint(SELLER, defaultParams.circuitId);
         holder = new BudgetHolderProbe();
         vm.deal(address(this), 20 ether);
     }
 
     function _list(uint256 id, uint96 price) private returns (uint256 listingId) {
-        nft.mint(SELLER, id);
+        assertEq(nft.ownerOf(id), SELLER);
         mining.configure(address(nft), id, 1_000, 100);
         vm.prank(SELLER);
         nft.approve(address(market), id);
@@ -63,6 +64,7 @@ contract BudgetWrapperCompatibilityTest is FundingTestBase {
 
         IPoolVault.PoolParams memory secondParams = defaultParams;
         secondParams.circuitId += 1;
+        nft.mint(SELLER, secondParams.circuitId);
         IFundingVault second = _createPool(secondParams);
         uint256 secondListing = _list(secondParams.circuitId, 5.5 ether);
         holder.fundAndBuy{value: secondParams.targetRaise}(second, secondListing);
@@ -85,6 +87,7 @@ contract BudgetWrapperCompatibilityTest is FundingTestBase {
         holder.fundAndBuy{value: defaultParams.targetRaise}(pool, firstListing);
         IPoolVault.PoolParams memory secondParams = defaultParams;
         secondParams.circuitId += 1;
+        nft.mint(SELLER, secondParams.circuitId);
         IFundingVault second = _createPool(secondParams);
         uint256 secondListing = _list(secondParams.circuitId, 5.5 ether);
         market.setBuyFault(4);

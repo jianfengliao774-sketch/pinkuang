@@ -50,6 +50,7 @@ contract AuditShareRecipientTest is ShareTransferTestBase {
 
     function testFuzz_subscriptionCannotMintToPoolOrFactory(bool toFactory) public {
         defaultParams.circuitId += 1;
+        nft.mint(REWARD_SELLER, defaultParams.circuitId);
         IFundingVault funding = _createPool(defaultParams);
         address recipient = toFactory ? address(poolFactory) : address(funding);
         uint256 price = funding.unitPriceWei();
