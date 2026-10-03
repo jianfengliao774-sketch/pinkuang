@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "status": "published",
+  "recordedAt": "2026-10-03T12:16:30.392119+00:00",
+  "publicUrl": "https://bemine.cc.cd/",
+  "v5Url": "https://bemine.cc.cd/bemine-v5/",
+  "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-latest/",
+  "chainId": 56,
+  "deploymentKind": "new independent formal graph; legacy assets retained",
+  "wholeMachineSaleCoolingDays": 3,
+  "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "frontendSourceHead": "551d8935ee9ead15d04ff0f813f5028cb34fd692",
+  "roles": {
+    "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+    "administratorTwo": "0xed2fcbe59ebe1754a3676aeb9ccfba20f193fcbb",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619"
+  },
+  "contracts": {
+    "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "AtomicDeployment": "0x04d1b32B67C1420380f77a6a24Dd2a9Ed6f78158",
+    "BudgetPortfolioFactory": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+    "BudgetPortfolioVault": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+    "FirstoSale": "0x6b80f98020c5BB4106A86Bca4378E5CBBb200C21",
+    "FlexiblePurchase": "0x413B4AA7E4C1B77C39e5897FcF6a8090Bb513446",
+    "FreshPoolFactory": "0xE277615D720555839D48DBA6BBDbb4eB6bd16bbA",
+    "MiningOperations": "0x99A5F0f6E780D147EcCC053EDBE1BDB7d93d561e",
+    "PoolFunds": "0xE838e303B63b55238daC250Acd0A1dC049365114",
+    "PoolVault": "0x9C359621a531629A43565166f87Db7D3Ae78310d",
+    "PurchaseValidation": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74",
+    "RewardAccounting": "0x86645E27b55cA9fFf0bE5DD9B8dc066E19251823",
+    "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+    "SaleSettlement": "0x5550e1d8936C96318A74f812318D3DBfc3244dcB",
+    "ShareCheckpoints": "0xcc32d834457aBFc23c310CFcbAEb3267799B8A70",
+    "ShareMarket": "0x764840f48cA242E4ac5E2Bb359e4B08ba529FE4E",
+    "beacon": "0x326Ef311677d4e2952B7C83D7fc28EF9088d94a9",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "lens": "0x0ba8fB239a6D798D3E52fCeeAF198cE3aAC0C3e1",
+    "portfolioBeacon": "0x8BFF2080B0B04CfDaCBeb05696b07a0cC480c1Ae",
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "portfolioFactoryImplementation": "0x4DB0b69FF98275241083176Fb32c44115Ae2e23E",
+    "portfolioShareMarket": "0x043680f37CC8902C2f58bA099d7C43eC7fa7E313",
+    "portfolioVaultImplementation": "0xFDd25551830a93E5bFfdF2836E0065aF0a93f6f9",
+    "shareMarket": "0x6082bfBCC99a4818174230C3351B05faeA18B024",
+    "timelock": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97"
+  },
+  "publishedAt": {
+    "runtimeAndNewGraph": "2026-10-03T11:59:30.105248+00:00",
+    "frontendPricePrecision": "2026-10-03T12:13:51.499974+00:00"
+  },
+  "runtimeArchive": {
+    "sha256": "86c8fd4c806e1d0785d1619e9d678ac841fa3f247bcb7d7661f04af296e6a88d",
+    "bytes": 1611118
+  },
+  "frontendArchive": {
+    "sha256": "ec81432f2d991081606bb6bd925dad74ef17203d75b2aab0bfdd3b5b2db85b7a",
+    "bytes": 16747709,
+    "fileCount": 318,
+    "contentSha256": "d676b4ccd31d9189ef590f6ba51b456f0caba6a4b768b072dd66eb59fa91c21e",
+    "releaseManifestSha256": "b4d12b50a8e64033d44230ca06dbbbcaa6bfb4e69c131e2b5e52c94762c8c48f"
+  },
+  "verification": {
+    "bootstrapTransactions": 16,
+    "authorityTransactions": 7,
+    "independentGraphBlock": 125477297,
+    "cutoverGraphBlock": 125480449,
+    "indexedThroughAtCutover": 125480488,
+    "operationalReadyAtPublication": true,
+    "frontendUpdateRuntimeRestarted": false,
+    "rootMatchesV5": true,
+    "rootHtmlSha256": "f3c632a17450b6ec4cdb386f1d6bcf97c818d257dd8340d8c973808b681befda",
+    "publicRoutesPassed": true,
+    "oldV4Paused": true,
+    "coinPriceDecimalPlaces": 2,
+    "browserDataLoaded": true,
+    "fullWebTestsBeforePrecisionChange": 971,
+    "runtimePackagingChecks": 29,
+    "cutoverInstallerChecks": 6,
+    "financialMainnetFlowsTested": false
+  },
+  "evidence": {
+    "frontendManifest": "latest-20261003/frontend-manifest.json",
+    "authorityActivation": "latest-20261003/fresh-activation.json",
+    "bootstrapReceipts": "latest-20261003/bootstrap-receipts.json",
+    "independentGraph": "latest-20261003/live-graph-verification.json"
+  },
+  "legacyPreservation": {
+    "oldContractsUnchanged": true,
+    "oldV4AndTestSitesPaused": true,
+    "twoTestMinerRecoveryRecordsRetained": true,
+    "oldStateAndSignerJournalsBackedUp": true,
+    "oldWorkersReactivated": false
+  },
+  "backendManifestSha256": "a855e808dd58ae6c5dc1d5ebe8bfe9ba6047cb08562c8545784890d5683a8cce",
+  "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338"
+}

@@ -48,3 +48,11 @@ prepare the new graph's trusted runtime, index, API, signer, purchase and mining
 services and republish https://bemine.cc.cd/ against the new graph. A console
 publication alone is not a completed on-chain deployment or product cutover.
 Keep old contracts and asset recovery records intact.
+
+## Deployment completed and production published
+
+On 2026-10-03 the designated deployer completed the fresh 16-step bootstrap and
+7-step Authority activation. The production website at https://bemine.cc.cd/
+now serves that graph. The current publication identity and verification are in
+[`latest-product-publication-20261003.json`](latest-product-publication-20261003.json).
+The earlier v5 graph and retired test contracts remain preserved.

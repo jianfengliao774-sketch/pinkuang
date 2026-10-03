@@ -1,5 +1,9 @@
 # TapeOut 合伙拼矿机
 
+当前正式站：[https://bemine.cc.cd/](https://bemine.cc.cd/)。2026-10-03 已切换到最新独立合约图，整机出售冷却为 3 天；旧合约资产保留。当前发布身份、代码提交与验证证据见 [正式发布记录](deploy/ops/v5/README.md#current-production-publication--2026-10-03)。本分支 `codex/formal-three-day-sale-20261002` 为该正式版本的源码与部署记录。
+
+以下整合计划和早期工程说明保留作历史背景；涉及当前部署状态时，以上述正式发布记录为准。
+
 当前任务：**整合三台电脑、两个仓库的合约、实际业务前端、通知与部署工作台**。当前分支为 `codex/contracts-v2-integration`；两仓默认 main 仍不是最新产品。来源、用户已确认规则、前端功能检查和待验收项以[统一交接说明](docs/INTEGRATION_HANDOFF.md)为入口。此前报告仅对其记录的提交成立；本次整合尚不表示主网已更新。
 
 整机出售采用用户确认的严格结清方式：买家在本站调用矿池的 `completeFirstoSale`，矿池先归集 BEM，再在同一笔交易内调用固定 Firsto V2 合约成交；原生 Firsto 页面直购暂不开放。交易需核对提案、价格、来源费用 epoch 与最终 NFT/BNB 去向。单机、多机项目分开记账，并在完整部署中一起创建。

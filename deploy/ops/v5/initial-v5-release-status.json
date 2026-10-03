@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "status": "published",
+  "checkedAt": "2026-10-02T23:39:31.795860+00:00",
+  "websitePublished": true,
+  "servicesInstalled": true,
+  "runtimeSourceHead": "dea3a78b51352df45771ce6d54043b874e70383e",
+  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "intendedPublicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "indexManifestSha256": "0146db72cb3e179b81a3fd2b753dd44027d8527d804bf370a2d19290e2371979",
+  "archives": {
+    "runtime.tgz": "a6ca74e9e21ebfb0b13335497d9749ffe80d8952f4573cb85e826fa5acc01bc9",
+    "static.tgz": "0c427a7c2e710a60103e8ec4fad9fc8ff138d2326610dba441e33d2422bf6a05"
+  },
+  "validation": {
+    "graphBlock": 125317258,
+    "bootstrapTransactions": 16,
+    "authorityTransactions": 7,
+    "focusedTests": 37,
+    "runtimeTests": 131,
+    "indexAndRelayTests": 41,
+    "packagingAndLayoutTests": 6,
+    "staticAssetsMissing": 0,
+    "liveGraphBlock": 125380223,
+    "indexCompleteAtBlock": 125381838,
+    "legacyGasNonce": 8,
+    "publicAssetsVerified": 23,
+    "workerReadiness": true,
+    "financialMainnetFlowsTested": false
+  },
+  "operationalReadyAtPublication": true,
+  "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "publicationReceipt": "publication-receipt.json",
+  "liveActivationProof": "live-activation-proof.json"
+}

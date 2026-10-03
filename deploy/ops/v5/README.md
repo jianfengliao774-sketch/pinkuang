@@ -2,6 +2,25 @@
 
 User selected a new independent formal graph on BNB mainnet. Existing v4 assets and the full-test graph stay in their original contracts. This branch does not upgrade, migrate, or overwrite either live product.
 
+## Current production publication — 2026-10-03
+
+The latest independently deployed graph is now live at **https://bemine.cc.cd/**.
+The `2026-10-03` fresh deployment supersedes the earlier v5 graph and the
+unexecuted upgrade option described below. Current addresses, source pins,
+release hashes and read-only verification are recorded in
+[`latest-product-publication-20261003.json`](latest-product-publication-20261003.json).
+The user's deployment and activation receipts were independently verified before
+website cutover. The existing runtime uses server display caches, an incremental
+chain index, and the verified purchase/mining workers. Legacy contracts and asset
+recovery records remain intact; older public sites stay paused.
+
+Current deploy entry: https://tapeout.cc.cd/pinkuang-deploy-latest/.
+Whole-machine sale cooling remains **3 days**. Publication readiness does not
+claim a new mainnet financial transaction was exercised by the deployment agent.
+
+The dated release, upgrade and review entries below are historical evidence for
+their stated graph/source and must not be used as the latest deployment identity.
+
 ## Existing public roles
 
 Verified against the current formal Authority and original deployment receipt on 2026-10-02:
