@@ -26,6 +26,15 @@ checks, and 6 cutover tests passed. See the [regression report](../../../docs/va
 for evidence and local-versus-mainnet verification boundaries. Runtime and
 contracts were not changed by this frontend publication.
 
+The current frontend was rebuilt from `df46fb0b7e48` and republished on
+**2026-10-03 at 22:19:20 CST**. The latest frontend code change remains
+`25d2503c9d3c` at **20:54:06 CST**; `df46fb0` adds documentation and has identical
+`web/` source. The fresh production build and ABI checks passed; earlier full
+regression results apply to that unchanged source. Public HTTPS release hashes,
+desktop data loading, 375 × 812 mobile layout, navigation and scroll restoration
+were checked. All six runtime process identities stayed unchanged. See the
+[frontend republication evidence](frontend-redeployment-20261003.json).
+
 The dated release, upgrade and review entries below are historical evidence for
 their stated graph/source and must not be used as the latest deployment identity.
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "published",
-  "recordedAt": "2026-10-03T13:04:30.742796+00:00",
+  "recordedAt": "2026-10-03T14:24:56.684189+00:00",
   "publicUrl": "https://bemine.cc.cd/",
   "v5Url": "https://bemine.cc.cd/bemine-v5/",
   "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-latest/",
@@ -11,7 +11,7 @@
   "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
   "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
-  "frontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
   "roles": {
     "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
     "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
@@ -49,22 +49,23 @@
   "publishedAt": {
     "runtimeAndNewGraph": "2026-10-03T11:59:30.105248+00:00",
     "frontendPricePrecision": "2026-10-03T12:13:51.499974+00:00",
-    "frontendRegressionFixes": "2026-10-03T12:57:10.816816+00:00"
+    "frontendRegressionFixes": "2026-10-03T12:57:10.816816+00:00",
+    "frontendRedeployment": "2026-10-03T14:19:20.067992+00:00"
   },
   "runtimeArchive": {
     "sha256": "86c8fd4c806e1d0785d1619e9d678ac841fa3f247bcb7d7661f04af296e6a88d",
     "bytes": 1611118
   },
   "frontendArchive": {
-    "sha256": "0067e0ab0e20937e5287b8eb795f50386315a29d4998a01c12bc76d645372344",
-    "bytes": 16753683,
+    "sha256": "da65f0ae824649e9b84bdc9e6e4c07b51720b2ca0f9366a362f93eb0ea738d1d",
+    "bytes": 16753487,
     "packagedFileCount": 318,
     "buildFileCount": 317,
-    "buildContentSha256": "efcf5b16730e9dfcdd2e7c7109d7f568aefeab1c5d6ef3efed422d0a9ae045ef",
-    "publishedFileCount": 444,
-    "contentSha256": "8727ac98f610a8febc05821a025c94cf706063a884a55495356ec0396fa84b55",
-    "releaseManifestSha256": "a4eeddcab27277419f38d4273540f3366115a193209152b42540dd780b10ad02",
-    "retainedImmutableChunkCount": 126
+    "buildContentSha256": "3a5c883eb73eadf811cb84f5aa7f802971c42393b513eafcf3be2201fe24aeb4",
+    "publishedFileCount": 462,
+    "contentSha256": "6c8e2f375cbb6671f7fa0b11c08e9676777580d2d39c53fc8bae9a93e3103831",
+    "releaseManifestSha256": "f84f11e23a417fcf3daf7aa14577f3f3875373ccef7d52462bfd1be5f1fce868",
+    "retainedImmutableChunkCount": 144
   },
   "verification": {
     "bootstrapTransactions": 16,
@@ -75,7 +76,7 @@
     "operationalReadyAtPublication": true,
     "frontendUpdateRuntimeRestarted": false,
     "rootMatchesV5": true,
-    "rootHtmlSha256": "32777e71ffeb1073ab262440d458ab86081138b6eedcecd5eeeef25c2d6c3ddd",
+    "rootHtmlSha256": "cbb3dd4fa741455d191c9084efba4c5ba6eeef02e81355e0469b77f2ed1df64e",
     "publicRoutesPassed": true,
     "oldV4Paused": true,
     "coinPriceDecimalPlaces": 2,
@@ -94,14 +95,19 @@
       812
     ],
     "serviceProcessesUnchanged": true,
-    "publicReleaseMatchesReceipt": true
+    "publicReleaseMatchesReceipt": true,
+    "freshProductionBuildAndAbiPassed": true,
+    "priorFullTestsReusedBecauseWebSourceIdentical": true,
+    "mobileNavigationAndScrollPassed": true,
+    "browserConsoleWarningErrorCount": 0
   },
   "evidence": {
     "frontendManifest": "latest-20261003/frontend-manifest.json",
     "authorityActivation": "latest-20261003/fresh-activation.json",
     "bootstrapReceipts": "latest-20261003/bootstrap-receipts.json",
     "independentGraph": "latest-20261003/live-graph-verification.json",
-    "regressionReport": "../../../docs/validation/formal-regression-20261003.md"
+    "regressionReport": "../../../docs/validation/formal-regression-20261003.md",
+    "frontendRedeployment": "frontend-redeployment-20261003.json"
   },
   "legacyPreservation": {
     "oldContractsUnchanged": true,
@@ -112,5 +118,7 @@
   },
   "backendManifestSha256": "a855e808dd58ae6c5dc1d5ebe8bfe9ba6047cb08562c8545784890d5683a8cce",
   "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338",
-  "mergedMobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e"
+  "mergedMobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
+  "lastFrontendCodeHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
+  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00"
 }
