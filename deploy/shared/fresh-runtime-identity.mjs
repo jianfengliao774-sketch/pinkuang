@@ -37,10 +37,15 @@ export function freshGraphIdentity(graph) {
   need(graph?.freshFactoryVerified===true && graph.freshAuthority && HASH.test(graph.artifactDigest),
     'A fully verified fresh Authority graph is required.');
   const a=graph.addresses, f=graph.freshAuthority;
+  const upgrade=graph.targetOwnerUpgrade;
+  if (upgrade) need(upgrade.version===1 && HASH.test(upgrade.catalogDigest)
+    && HASH.test(upgrade.candidateArtifactDigest) && HASH.test(upgrade.operationId),
+    'Target-owner readiness requires a verified upgrade identity.');
   return {chainId:56,artifactDigest:graph.artifactDigest.toLowerCase(),factory:getAddress(a.factory),
     market:getAddress(a.shareMarket),portfolioFactory:getAddress(a.portfolioFactory),
     portfolioMarket:getAddress(a.portfolioShareMarket),authority:getAddress(f.address),
-    authorityCodehash:f.codehash.toLowerCase(),gasWallet:getAddress(f.gasWallet)};
+    authorityCodehash:f.codehash.toLowerCase(),gasWallet:getAddress(f.gasWallet),
+    ...(upgrade ? {targetOwnerUpgradeDigest:upgrade.catalogDigest.toLowerCase()} : {})};
 }
 export function assertFreshIdentity(actual, expected) {
   need(actual?.chainId===56,'Readiness chain differs.');

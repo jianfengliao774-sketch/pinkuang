@@ -36,12 +36,20 @@ test('fresh purchase and mining forward preserved policy and native-sale evidenc
     salePolicyArtifactPath: '/srv/reviewed/sale-policy-artifacts.json',
     nativeSaleCatalogPath: '/srv/reviewed/native-sale-catalog.json',
     nativeSaleArtifactPath: '/srv/reviewed/native-sale-artifacts.json',
+    targetOwnerCatalogPath: '/srv/reviewed/target-owner-catalog.json',
+    targetOwnerArtifactPath: '/srv/reviewed/target-owner-artifacts.json',
+    trustedTargetOwnerCatalogDigest: '0x'+'a'.repeat(64),
+    trustedTargetOwnerArtifactDigest: '0x'+'b'.repeat(64),
   };
   const configuredEnv = { ...env,
     BEMINE_SALE_POLICY_CATALOG_PATH: paths.salePolicyCatalogPath,
     BEMINE_SALE_POLICY_ARTIFACT_PATH: paths.salePolicyArtifactPath,
     BEMINE_NATIVE_SALE_CATALOG_PATH: paths.nativeSaleCatalogPath,
     BEMINE_NATIVE_SALE_ARTIFACT_PATH: paths.nativeSaleArtifactPath,
+    BEMINE_TARGET_OWNER_CATALOG_PATH: paths.targetOwnerCatalogPath,
+    BEMINE_TARGET_OWNER_ARTIFACT_PATH: paths.targetOwnerArtifactPath,
+    BEMINE_TARGET_OWNER_CATALOG_DIGEST: paths.trustedTargetOwnerCatalogDigest,
+    BEMINE_TARGET_OWNER_ARTIFACT_DIGEST: paths.trustedTargetOwnerArtifactDigest,
   };
   const mining = parseMiningArguments(['--factory', factory, '--authority', authority,
     '--journal-dir', journal, '--fresh-graph', '--send']);

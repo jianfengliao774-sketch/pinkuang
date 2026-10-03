@@ -265,9 +265,9 @@ test('actual graph routing selects the new Factory artifact for both runtime and
   const verifier=source.slice(source.indexOf('export async function verifyProductGraph')).replace('export async function','async function');
   const verify=new Function('Interface','getAddress','keccak256','toUtf8Bytes','AbiCoder','settleReads',
     'verifyFreshAuthority','verifyFreshNativeSale','verifyFreshSalePolicy','verifyFreshFactoryReuse',
-    'factoryReuseRuntimeMatches','SHARE_FEE_UPGRADE_KIND',prefix+verifier+'\nreturn verifyProductGraph;')(
+    'factoryReuseRuntimeMatches','SHARE_FEE_UPGRADE_KIND','verifyTargetOwnerUpgrade',prefix+verifier+'\nreturn verifyProductGraph;')(
       Interface,getAddress,keccak256,toUtf8Bytes,AbiCoder,settleReads,async()=>({current:{coreOwner:f.addresses.timelock}}),async()=>null,async()=>null,
-      verifyFreshFactoryReuse,factoryReuseRuntimeMatches,'unused');
+      verifyFreshFactoryReuse,factoryReuseRuntimeMatches,'unused',async()=>null);
   const graph=await verify(f.provider,f.addresses.factory,f.trusted,f.block);
   assert.equal(graph.addresses.PoolFactory,implementation);assert.equal(graph.addresses.FreshPoolFactory,implementation);
   assert.equal(graph.codehash.PoolFactory,keccak256(runtime));assert.equal(graph.codehash.FreshPoolFactory,keccak256(runtime));

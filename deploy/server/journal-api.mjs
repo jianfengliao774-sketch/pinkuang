@@ -972,6 +972,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   freshActivationEvidencePath, expectedGasWallet,
   salePolicyCatalogPath, salePolicyArtifactPath,
   nativeSaleCatalogPath, nativeSaleArtifactPath,
+  targetOwnerCatalogPath, targetOwnerArtifactPath, trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest,
   firstoAskPublisher = null, firstoAskPublisherDependencies,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
   freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
@@ -1009,7 +1010,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
     integratedUpgradeEvidencePath,integratedUpgradeEvidence,integratedUpgradeArtifactPath,
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
     productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath,
-    nativeSaleCatalogPath,nativeSaleArtifactPath});
+    nativeSaleCatalogPath,nativeSaleArtifactPath,
+    targetOwnerCatalogPath,targetOwnerArtifactPath,trustedTargetOwnerCatalogDigest,trustedTargetOwnerArtifactDigest});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
   if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
@@ -2086,6 +2088,10 @@ export function journalConfiguration(env = process.env) {
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
     nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
+    targetOwnerCatalogPath: env.BEMINE_TARGET_OWNER_CATALOG_PATH,
+    targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
+    trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
+    trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
     expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

@@ -97,6 +97,11 @@ export function authorityIpcConfiguration(env = process.env) {
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
     nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
+    genesisManifestPath: env.BEMINE_GENESIS_MANIFEST_PATH,
+    targetOwnerCatalogPath: env.BEMINE_TARGET_OWNER_CATALOG_PATH,
+    targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
+    trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
+    trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH, freshProductRequired: env.BEMINE_FRESH_PRODUCT_ENABLED === '1' };
 }
 
@@ -284,6 +289,10 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
     productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
     salePolicyCatalogPath: config.salePolicyCatalogPath, salePolicyArtifactPath: config.salePolicyArtifactPath,
     nativeSaleCatalogPath: config.nativeSaleCatalogPath, nativeSaleArtifactPath: config.nativeSaleArtifactPath,
+    genesisManifestPath: config.genesisManifestPath,
+    targetOwnerCatalogPath: config.targetOwnerCatalogPath, targetOwnerArtifactPath: config.targetOwnerArtifactPath,
+    trustedTargetOwnerCatalogDigest: config.trustedTargetOwnerCatalogDigest,
+    trustedTargetOwnerArtifactDigest: config.trustedTargetOwnerArtifactDigest,
   });
   if (!dependencies.verifyAdministrator && !trusted?.freshAuthority)
     throw new Error('Authority IPC requires reviewed fresh Authority evidence.');

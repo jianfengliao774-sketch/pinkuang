@@ -39,6 +39,26 @@ test('fresh graph+two worker processes+canonical fresh index admit only the exac
  const f=fixture();assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
 });
 
+
+test('target-owner upgraded readiness binds both workers to the independently reviewed catalog',async()=>{
+ const f=fixture(),upgrade={version:1,catalogDigest:h(701),candidateArtifactDigest:h(702),operationId:h(703)};
+ f.graph.targetOwnerUpgrade=upgrade;
+ f.trusted.targetOwnerUpgrade={catalogDigest:upgrade.catalogDigest};
+ await assert.rejects(f.gate()(f.provider,f.graph,f.block),/identity differs: targetOwnerUpgradeDigest/);
+ const identity=freshGraphIdentity(f.graph);
+ assert.equal(identity.targetOwnerUpgradeDigest,h(701));
+ f.machine.identity=identity;
+ f.machine.workers.purchase.identity=identity;f.machine.workers.mining.identity=identity;
+ assert.deepEqual(await f.gate()(f.provider,f.graph,f.block),{ready:true,indexedThrough:120,checkedAt:stamp});
+ assert.throws(()=>validateFreshWorker(f.pulse('purchase'),{role:'purchase',sourceHead,identity,unit:f.unit,now:stamp}),/targetOwnerUpgradeDigest/);
+ for(const change of [g=>delete g.targetOwnerUpgrade.catalogDigest,g=>g.targetOwnerUpgrade.version=2,
+  g=>g.targetOwnerUpgrade.operationId='0x1234']){
+  const graph=structuredClone(f.graph);change(graph);assert.throws(()=>freshGraphIdentity(graph),/verified upgrade identity/);
+ }
+ f.trusted.targetOwnerUpgrade.catalogDigest=h(999);
+ await assert.rejects(f.gate()(f.provider,f.graph,f.block),/independently pinned runtime catalog/);
+});
+
 test('index ahead of the pinned graph still rejects and exposes only fixed predicate facts',async()=>{
  const f=fixture();f.source.indexedThrough=121;f.source.observedSafeHead=121;f.source.indexedBlockHash=h(121);
  await assert.rejects(f.gate()(f.provider,f.graph,f.block),error=>{
