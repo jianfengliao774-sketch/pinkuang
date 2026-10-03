@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {amount,viewPool,parseProductRoute,sumKnown,exportActivityCsv,explorerTransaction,
  canOpenFundingAction,currentDetailActionReady} from '../lib/live-view.mjs';
-import { currentPositionsActionReady, currentMarketOrderActionReady } from '../lib/live-view.mjs';
+import { currentPositionsActionReady, currentMarketOrderActionReady, fundingTargetStatus } from '../lib/live-view.mjs';
 test('display preserves large integer digits and distinguishes unavailable from zero',()=>{
  assert.equal(amount(null),'—');assert.equal(amount(0n),'0.00000');assert.equal(amount(1n),'<0.00001');
  assert.equal(amount(900719925474099312345000000000000001n,18,18),'900,719,925,474,099,312.345000000000000001');
@@ -36,6 +36,39 @@ test('a cached or unverified Funding detail cannot invite wallet connection or s
    {productFamily:'fresh-v4',operationalReady:true,stale:true},
    {productFamily:'fresh-v4',operationalReady:true,transactionReady:false}])
    assert.equal(canOpenFundingAction({...ready,config}),false);
+});
+test('formal Funding CTA requires a current indexed fixed target or an explicit flexible exemption',()=>{
+ const pool='0x0000000000000000000000000000000000000101';
+ const owner='0x0000000000000000000000000000000000000201';
+ const next='0x0000000000000000000000000000000000000202';
+ const proof={status:'available',purchaseMode:'fixed',originalOwner:owner,currentOwner:owner,
+   observedBlock:101,observedBlockHash:`0x${'a'.repeat(64)}`,
+   creationBlock:100,creationBlockHash:`0x${'b'.repeat(64)}`,chainState:0n};
+ const detail={pool,state:0n,status:'Funding',trusted:true,depositPaused:false,remaining:5,targetAvailability:proof};
+ const ready={client:{},config:{displayOnly:true,status:'ready',indexBaseUrl:'https://example.test/api/chain-index'},source:{},
+   cachedPage:false,loading:false,busy:false,loadedRoute:`detail/${pool}`,routePool:pool,detailPool:pool,
+   loadedAccount:'0xB',account:'0xB',detail};
+ assert.equal(fundingTargetStatus(detail),'available');
+ assert.equal(canOpenFundingAction(ready),true);
+ for(const change of [null,{...proof,status:'unknown'},
+   {...proof,status:'unavailable',currentOwner:next},
+   {...proof,status:'available',currentOwner:next},
+   {...proof,status:'available',observedBlockHash:null}]) {
+   const changed={...detail,targetAvailability:change};
+   assert.equal(canOpenFundingAction({...ready,detail:changed}),false);
+ }
+ const sold={...detail,targetAvailability:{...proof,status:'unavailable',currentOwner:next}};
+ assert.equal(fundingTargetStatus(sold),'unavailable');
+ const flexible={...detail,targetAvailability:{...proof,status:'not_applicable',purchaseMode:'flexible',
+   originalOwner:null,currentOwner:null}};
+  assert.equal(fundingTargetStatus(flexible),'not_applicable');
+  assert.equal(canOpenFundingAction({...ready,detail:flexible}),true);
+ assert.equal(canOpenFundingAction({...ready,detail:{...flexible,targetAvailability:{...flexible.targetAvailability,
+   observedBlockHash:null}}}),false);
+ assert.equal(canOpenFundingAction({...ready,config:{},detail:{...detail,targetAvailability:null}}),true,
+   'legacy configurations are not retroactively forced to supply a new backend field');
+ assert.equal(viewPool({...detail,params:null,totalSupply:10n}).status,'Funding');
+ assert.deepEqual(viewPool({...detail,params:null,totalSupply:10n}).targetAvailability,proof);
 });
 test('all detail action previews require current page and operational v4 graph',()=>{
  const base={client:{},config:{productFamily:'fresh-v4',operationalReady:true,stale:false},

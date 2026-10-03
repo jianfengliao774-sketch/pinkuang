@@ -50,7 +50,7 @@ import {
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
-import { projectDirectory, projectMatchesStatus } from '../lib/project-directory.mjs';
+import { projectDirectory, projectDirectoryCategory, projectMatchesStatus } from '../lib/project-directory.mjs';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
@@ -125,6 +125,7 @@ import {
   currentPositionsActionReady,
   currentMarketOrderActionReady,
   canOpenFundingAction,
+  fundingTargetStatus,
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -2184,6 +2185,15 @@ export default function LivePlatform() {
         await connectJournal({ inspect: false, onState: progress });
       }
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
+      if (target.kind === 'deposit' && config.fundingTargetGuard === true) {
+        // Recheck after the preview: the intended NFT may have been sold while this dialog was open.
+        const checked = await prepareProductAction({ provider: wallet, config, account: owner,
+          pool: confirmed.pool, kind: 'deposit', quantity: confirmed.quantity,
+          expectedPool: confirmed.pool, expectedAccount: owner });
+        if (!current() || checked.transaction.to.toLowerCase() !== confirmed.transaction.to.toLowerCase()
+          || checked.transaction.data !== confirmed.transaction.data || checked.transaction.value !== confirmed.transaction.value)
+          throw new Error(L('认购状态或金额已变化，请重新预览。', 'Subscription state or amount changed. Preview again.'));
+      }
       // Member calls hand the exact preview to the wallet immediately; the
       // journal remains only for operations that actually require that service.
       const result = await (member ? sendMemberWalletTransaction : sendProductTransaction)({
@@ -2567,11 +2577,16 @@ export default function LivePlatform() {
     const summary = catalog && filter === 'all';
     const displayRows = rows.map(p => {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+          const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
+          const fundingBnbClaim = holdings && p.kind !== 'portfolio' && p.status === 'Funding'
+            ? claimState(p, 'BNB', positionsReadSource) : null;
           const identity = <><Chip pool={p}/><span>
             <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
             {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
             {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
             {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
+            {targetStatus === 'unavailable' && <small className="live-order-state">{L('指定矿机已转移，已停止开放认购', 'The designated miner was transferred; subscriptions are closed')}</small>}
+            {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机归属未确认，请刷新核对', 'Miner ownership is unconfirmed; refresh to check')}</small>}
           </span></>;
           const cells = {
             miner: <button className="asset-cell" onClick={() => openDetails(p)}>
@@ -2589,6 +2604,15 @@ export default function LivePlatform() {
               ? displayPreciseAmount(currentPoolCapacityPrice(p))
               : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
             actions: <div className="live-pool-row-actions">
+              {holdings && p.kind !== 'portfolio' && p.status === 'Funding' && p.shares > 0n && <button className="btn secondary"
+                disabled={!positionsActionReadyFor('withdrawDeposit') || busy || !!pending}
+                onClick={() => openAction('withdrawDeposit', p)}>{L('撤回认购', 'Withdraw subscription')}</button>}
+              {fundingBnbClaim && (p.shares > 0n || fundingBnbClaim.canClaim) && <button className="btn secondary"
+                  disabled={!positionsActionReadyFor('withdrawBnb') || busy || !!pending
+                    || !fundingBnbClaim.canClaim}
+                  onClick={() => openAction('withdrawBnb', p)}>
+                  {L(fundingBnbClaim.labelZh, fundingBnbClaim.labelEn)}
+                </button>}
               {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                 onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   <span className="live-desktop-copy">{L('挂单出售', 'List shares')}</span><span className="live-mobile-copy">{L('挂单', 'List')}</span>
@@ -2922,9 +2946,9 @@ export default function LivePlatform() {
               {poolTable(rows, false, false, {loading:updating, failed, ready, total:directory.all.length},id)}
             </section>;
           })}
-          {directory.rows.some(row => !['Funding','Funded','Active','Listed'].includes(row.status)) && <section className="live-directory-group" data-project-category="other">
+          {directory.rows.some(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))) && <section className="live-directory-group" data-project-category="other">
             <h2>{L('其他项目','Other projects')}</h2>
-            {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed'].includes(row.status)),false,false,null,'other')}
+            {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))),false,false,null,'other')}
           </section>}
         </div> : poolTable(directory.rows, false, filter === 'Funding', {loading:updating, failed, ready, total:directory.all.length})}
         {canLoadMore && <div className="live-more"><Button secondary disabled={updating || failed || busy || !!pending}
@@ -3148,6 +3172,7 @@ export default function LivePlatform() {
     account, wallet, loading: marketOrdersLoading, error: marketOrdersError, order });
   const marketOrderNeedsConnection = !wallet || !account;
   const marketOrderConnectReady = marketTab === 'shares' && !!client && config?.status === 'ready';
+  const detailTargetStatus = config?.indexBaseUrl ? fundingTargetStatus(detail) : 'not_applicable';
 
   return (
     <div
@@ -3469,6 +3494,7 @@ export default function LivePlatform() {
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
                   <StateBadge state={detail.status} L={L} />
+                  {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('指定矿机已转移', 'Target transferred')}</span>}
                   {refreshButton}
                   <button
                     className="text-button detail-record"
@@ -3518,6 +3544,18 @@ export default function LivePlatform() {
                             : '—'} BEM
                         </span>
                       </div>
+                      {detailTargetStatus === 'unavailable' && detail.status === 'Funding' && <p className="subtle-note" role="status">
+                        {L('指定矿机已转移，已停止开放认购。已有认购可在募集期内撤回；如有已入账 BNB，可单独领取。',
+                          'The designated miner was transferred, so subscriptions are closed. Existing subscriptions can be withdrawn during funding; any booked BNB can be claimed separately.')}
+                      </p>}
+                      {detailTargetStatus === 'unavailable' && detail.status === 'Funded' && <p className="subtle-note" role="status">
+                        {L('指定矿机已转移。现行合约需等待购机期限到期后，才可核对并开启退款；目前不会自动退款。',
+                          'The designated miner was transferred. Under the current contract, the purchase deadline must pass before a refund can be checked and opened; refunds do not start automatically.')}
+                      </p>}
+                      {detailTargetStatus === 'unknown' && ['Funding', 'Funded'].includes(detail.status) && <p className="subtle-note" role="status">
+                        {L('指定矿机链上归属尚未确认，请刷新重试。确认前暂不开放认购。',
+                          'On-chain ownership of the designated miner is unconfirmed. Refresh to retry; subscriptions remain closed until confirmed.')}
+                      </p>}
                     </section>
                     <div className="tabs detail-tabs">
                       {[

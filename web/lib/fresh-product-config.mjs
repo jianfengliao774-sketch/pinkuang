@@ -82,7 +82,8 @@ export async function loadFreshDisplayConfig({ fetcher = globalThis.fetch,
     freshFactoryVerified: false, freshAuthority: pinnedManifest.freshAuthority,
     origin, basePath: base, manifestUrl,
     productGraphUrl: `${origin}${base}/api/journal/product-graph`,
-    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
+    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href,
+    fundingTargetGuard: base === '/bemine-v5' });
 }
 
 /** /bemine-v4/ uses a separate static manifest and the v4-only API namespace. */
@@ -122,5 +123,6 @@ export async function loadFreshLiveConfig({ fetcher = globalThis.fetch,
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
     freshAuthority: graph.freshAuthority, freshFactoryVerified: true,
     origin, basePath: base, manifestUrl,
-    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
+    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href,
+    fundingTargetGuard: base === '/bemine-v5' });
 }

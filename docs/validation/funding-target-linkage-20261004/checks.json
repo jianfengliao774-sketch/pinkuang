@@ -1,0 +1,162 @@
+{
+  "checkedAt": "2026-10-03T23:07:46.300697+00:00",
+  "frontendSourceHead": "07041f708b4a1e56a06ab4a15e3b443754ded7e9",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "contractUpgradeApplied": false,
+  "webTests": 1089,
+  "chainIndexTests": 141,
+  "indexPublisherTests": 6,
+  "staticPublisherRollbackSmokePassed": true,
+  "poolCount": 7,
+  "fundingCount": 5,
+  "activeCount": 2,
+  "targetStatuses": [
+    {
+      "pool": "0xaeBAcD37BCA6Cb3c7C5E5C6cd8Ac7AaeFCf6261B",
+      "chainState": {
+        "$bemineBigInt": "0"
+      },
+      "targetAvailability": {
+        "status": "available",
+        "purchaseMode": "fixed",
+        "originalOwner": "0xbaf6ee5cfc7471996c410dffe596a0948d3b4a6c",
+        "currentOwner": "0xbaf6ee5cfc7471996c410dffe596a0948d3b4a6c",
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125516575,
+        "creationBlockHash": "0x5c9e727751bf90384342b0c11c9e21f40b440ad8c49f20d78544c5f70744a8cb",
+        "chainState": {
+          "$bemineBigInt": "0"
+        },
+        "creationOwnerProof": "block_end_owner_and_ordered_transfers",
+        "reason": "owner_unchanged"
+      }
+    },
+    {
+      "pool": "0x596B02C8f63F57911eD8c04Fb2Cb0C402DaD3A0D",
+      "chainState": {
+        "$bemineBigInt": "0"
+      },
+      "targetAvailability": {
+        "status": "available",
+        "purchaseMode": "fixed",
+        "originalOwner": "0x921c8361f6081866a1c55fa972f62b1f4930e55b",
+        "currentOwner": "0x921c8361f6081866a1c55fa972f62b1f4930e55b",
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125516336,
+        "creationBlockHash": "0xe6d6224068c41bdf38c963a7777a0a4a04adade10aac0841618319a26bb04583",
+        "chainState": {
+          "$bemineBigInt": "0"
+        },
+        "creationOwnerProof": "block_end_owner_and_ordered_transfers",
+        "reason": "owner_unchanged"
+      }
+    },
+    {
+      "pool": "0x382D8aF76A8225a0F776fE4C72831A8008d23Ec2",
+      "chainState": {
+        "$bemineBigInt": "0"
+      },
+      "targetAvailability": {
+        "status": "available",
+        "purchaseMode": "fixed",
+        "originalOwner": "0xc88172fcff7d7a7ca8389348499efee121e2b24b",
+        "currentOwner": "0xc88172fcff7d7a7ca8389348499efee121e2b24b",
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125516077,
+        "creationBlockHash": "0x92814cc9298107dc8d2e45c71a54bdb91b67bd3185c42ffa0619119afb2ff377",
+        "chainState": {
+          "$bemineBigInt": "0"
+        },
+        "creationOwnerProof": "block_end_owner_and_ordered_transfers",
+        "reason": "owner_unchanged"
+      }
+    },
+    {
+      "pool": "0x858D23a23a42A56B84154ee16De2c7eFDFD32170",
+      "chainState": {
+        "$bemineBigInt": "0"
+      },
+      "targetAvailability": {
+        "status": "available",
+        "purchaseMode": "fixed",
+        "originalOwner": "0x642fab3b5557031a67bf611db19f64205f7fd3a1",
+        "currentOwner": "0x642fab3b5557031a67bf611db19f64205f7fd3a1",
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125515816,
+        "creationBlockHash": "0xaa4a418c6078c968cb2fe1b0c4cee96213fd0a2ba7b42e5085a74c2fda71364b",
+        "chainState": {
+          "$bemineBigInt": "0"
+        },
+        "creationOwnerProof": "block_end_owner_and_ordered_transfers",
+        "reason": "owner_unchanged"
+      }
+    },
+    {
+      "pool": "0x9De435eA3fE77CFF1555fF76F747E19BCdc3Ce20",
+      "chainState": {
+        "$bemineBigInt": "0"
+      },
+      "targetAvailability": {
+        "status": "available",
+        "purchaseMode": "fixed",
+        "originalOwner": "0x642fab3b5557031a67bf611db19f64205f7fd3a1",
+        "currentOwner": "0x642fab3b5557031a67bf611db19f64205f7fd3a1",
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125515172,
+        "creationBlockHash": "0x80d765390d328e55d6bb70cddfe36faf8d51bfa32f32617d1ad0dfc2d1156e12",
+        "chainState": {
+          "$bemineBigInt": "0"
+        },
+        "creationOwnerProof": "block_end_owner_and_ordered_transfers",
+        "reason": "owner_unchanged"
+      }
+    },
+    {
+      "pool": "0x84756683C70F4666aAF6E7b26015bA60f503b67B",
+      "chainState": {
+        "$bemineBigInt": "2"
+      },
+      "targetAvailability": {
+        "status": "not_applicable",
+        "purchaseMode": null,
+        "originalOwner": null,
+        "currentOwner": null,
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125511502,
+        "creationBlockHash": null,
+        "chainState": {
+          "$bemineBigInt": "2"
+        },
+        "creationOwnerProof": null,
+        "reason": "pool_not_funding"
+      }
+    },
+    {
+      "pool": "0xCBdDf7B35074a28dC89afB7f53f8713DABB8520c",
+      "chainState": {
+        "$bemineBigInt": "2"
+      },
+      "targetAvailability": {
+        "status": "not_applicable",
+        "purchaseMode": null,
+        "originalOwner": null,
+        "currentOwner": null,
+        "observedBlock": 125569555,
+        "observedBlockHash": "0x0682a4ca7c71702dd865f1dd74a8f24120e63d7d0b3612afe3d1970250933c44",
+        "creationBlock": 125510350,
+        "creationBlockHash": null,
+        "chainState": {
+          "$bemineBigInt": "2"
+        },
+        "creationOwnerProof": null,
+        "reason": "pool_not_funding"
+      }
+    }
+  ]
+}

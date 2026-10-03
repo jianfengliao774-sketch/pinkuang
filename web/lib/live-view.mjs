@@ -1,4 +1,4 @@
-import { getAddress } from 'ethers';
+import { getAddress, ZeroAddress } from 'ethers';
 import { displayAmount } from './amount-display.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
 import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
@@ -7,6 +7,38 @@ export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', '
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
 /** Formatting never feeds back into transaction amounts. */
 export const amount = displayAmount;
+const sameAddress = (left, right) => typeof left === 'string' && typeof right === 'string'
+  && left.toLowerCase() === right.toLowerCase();
+const validAddress = value => {
+  try { const result = getAddress(value); return result === ZeroAddress ? null : result; }
+  catch { return null; }
+};
+const validBlockHash = value => /^0x[\da-f]{64}$/i.test(value ?? '');
+const stateNumber = value => typeof value === 'bigint' && value >= 0n && value <= 5n ? Number(value)
+  : typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 5 ? value : null;
+
+/** Display decision from the same-origin indexed owner proof; it never changes contract state. */
+export function fundingTargetStatus(row) {
+  const expectedState = row?.status === 'Funding' ? 0 : row?.status === 'Funded' ? 1 : null;
+  if (expectedState === null || row?.kind === 'portfolio') return 'not_applicable';
+  const proof = row?.targetAvailability;
+  if (!proof || stateNumber(row.state) !== expectedState || stateNumber(proof.chainState) !== expectedState
+    || !Number.isSafeInteger(proof.creationBlock) || proof.creationBlock < 0
+    || !Number.isSafeInteger(proof.observedBlock) || proof.observedBlock < proof.creationBlock
+    || !validBlockHash(proof.creationBlockHash) || !validBlockHash(proof.observedBlockHash))
+    return 'unknown';
+  if (proof?.purchaseMode === 'flexible')
+    return proof.status === 'not_applicable' ? 'not_applicable' : 'unknown';
+  if (proof?.purchaseMode !== 'fixed' || !['available', 'unavailable'].includes(proof.status))
+    return 'unknown';
+  const pool = validAddress(row.pool), original = validAddress(proof.originalOwner);
+  const current = validAddress(proof.currentOwner);
+  if (!pool || !original || !current || sameAddress(current, pool))
+    return 'unknown';
+  if (proof.status === 'available' && sameAddress(current, original)) return 'available';
+  if (proof.status === 'unavailable' && !sameAddress(current, original)) return 'unavailable';
+  return 'unknown';
+}
 /** Open a preview from the loaded page; the contract applies its own rules. */
 export function currentActionSourceReady({ client, config, source, action, targetType='pool' }) {
   if (config?.displayOnly === true) return !!client && config.status === 'ready'
@@ -45,6 +77,7 @@ export function currentMarketOrderActionReady({ route, marketTab, readIdentity, 
 /** Subscription also needs current pool eligibility; action preparation rechecks the chain. */
 export function canOpenFundingAction({ detail, ...context }) {
   return currentDetailActionReady({ ...context, action: 'deposit' })
+    && (!context.config?.indexBaseUrl || ['available', 'not_applicable'].includes(fundingTargetStatus(detail)))
     && (context.config?.displayOnly === true || detail?.trusted === true) && detail.depositPaused === false
     && typeof detail.remaining === 'number' && Number.isFinite(detail.remaining)
     && detail.remaining > 0;

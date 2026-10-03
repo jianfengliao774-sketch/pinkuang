@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-10-03T23:33:25.986Z",
+  "status": 200,
+  "indexedBlock": 125572979,
+  "poolCount": 7,
+  "publicCount": 7,
+  "fundingCount": 5,
+  "owners": [
+    {
+      "pool": "0xaeBAcD37BCA6Cb3c7C5E5C6cd8Ac7AaeFCf6261B",
+      "status": "Funding",
+      "target": "available",
+      "reason": "owner_unchanged"
+    },
+    {
+      "pool": "0x596B02C8f63F57911eD8c04Fb2Cb0C402DaD3A0D",
+      "status": "Funding",
+      "target": "available",
+      "reason": "owner_unchanged"
+    },
+    {
+      "pool": "0x382D8aF76A8225a0F776fE4C72831A8008d23Ec2",
+      "status": "Funding",
+      "target": "available",
+      "reason": "owner_unchanged"
+    },
+    {
+      "pool": "0x858D23a23a42A56B84154ee16De2c7eFDFD32170",
+      "status": "Funding",
+      "target": "available",
+      "reason": "owner_unchanged"
+    },
+    {
+      "pool": "0x9De435eA3fE77CFF1555fF76F747E19BCdc3Ce20",
+      "status": "Funding",
+      "target": "available",
+      "reason": "owner_unchanged"
+    },
+    {
+      "pool": "0x84756683C70F4666aAF6E7b26015bA60f503b67B",
+      "status": "Active",
+      "target": "not_applicable",
+      "reason": "pool_not_funding"
+    },
+    {
+      "pool": "0xCBdDf7B35074a28dC89afB7f53f8713DABB8520c",
+      "status": "Active",
+      "target": "not_applicable",
+      "reason": "pool_not_funding"
+    }
+  ]
+}
