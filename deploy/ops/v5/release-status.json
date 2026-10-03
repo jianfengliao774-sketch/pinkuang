@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "status": "published",
-  "checkedAt": "2026-10-03T12:16:30.392119+00:00",
+  "checkedAt": "2026-10-03T13:04:30.742796+00:00",
   "websitePublished": true,
   "servicesInstalled": true,
   "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
-  "frontendSourceHead": "551d8935ee9ead15d04ff0f813f5028cb34fd692",
+  "frontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
   "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
   "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
@@ -16,5 +16,6 @@
   "publicationReceipt": "latest-product-publication-20261003.json",
   "liveActivationProof": "latest-20261003/live-graph-verification.json",
   "previousReleaseStatus": "initial-v5-release-status.json",
-  "financialMainnetFlowsTested": false
+  "financialMainnetFlowsTested": false,
+  "regressionReport": "../../../docs/validation/formal-regression-20261003.md"
 }

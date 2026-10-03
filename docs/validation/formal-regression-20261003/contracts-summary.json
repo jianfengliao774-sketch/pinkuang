@@ -1,0 +1,164 @@
+{
+  "sourceHead": "18fa7b99268491235e39a6fcd562e557e83fde2f",
+  "deployedArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "formalAnvil": {
+    "exitCode": 0,
+    "bootstrapTransactions": 16,
+    "activationTransactions": 7,
+    "runtimeChecks": 24,
+    "productionTransactions": 0,
+    "assertions": [
+      "16 bootstrap and 7 activation receipts",
+      "runtime/code/library links and immutable getter bindings",
+      "all final owner/operator/treasury roles",
+      "timelock authorization and 48h minimum delay retained",
+      "proposal fails before 3 days and succeeds at exact 3-day boundary; 24h vote and 7d listing expiry retained",
+      "signed low-price review required",
+      "Firsto route atomic settlement and NFT delivery",
+      "member BNB withdrawal and signed Authority fee withdrawal",
+      "all 23 transactions submitted within the artifact-bound conservative gas plan"
+    ]
+  },
+  "foundry": {
+    "status": "passed",
+    "exitCode": 0,
+    "command": "node scripts/run-forge.mjs test --root contracts --no-match-path 'test/fork/**' -vv",
+    "suites": 55,
+    "passed": 572,
+    "failed": 0,
+    "skipped": 0,
+    "total": 572,
+    "elapsedSeconds": 1084.78,
+    "cpuSeconds": 6712.45,
+    "forkTestsExcluded": true,
+    "invariantCount": 18,
+    "invariantCalls": 2304000,
+    "invariantReverts": 0,
+    "invariants": [
+      {
+        "test": "invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_actualBalancesMatchIndependentGrossNetAndLiabilities",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_fundingUsesRealBnbAndRefundsRemainSolvent",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_shareSupplyAndCurrentMemberIndexAgree",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_bnbEqualsIndependentCreditsReservesAndForcedFunds",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_ownershipRemainsFrozenAfterAtMostOneCompletedSale",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_accumulatorAndHistoricalEpochLiabilitiesMatchOracle",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_actualBalancesMatchIndependentGrossNetAndLiabilities",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_effectiveSharesLocksAndOriginalPurchaseSurplusRemainCorrect",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_rawIncomeAndHistoricalHoldingsConserveEveryBemUnit",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_paidBnbEqualsIndependentCreditsAndWithdrawals",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_realOrdersLockExactlyTheirRemainingBeneficialShares",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_noDuplicateVotesOrReassignedHistoricalWeight",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      },
+      {
+        "test": "invariant_snapshotOwnershipSurvivesArbitraryShareMovesAndProposalReplacement",
+        "runs": 256,
+        "calls": 128000,
+        "reverts": 0
+      }
+    ],
+    "logSha256": "53ef35ec98aaff4f1d7a68a7ef758decf8d8ef533bd4870ce2e542d477b6da65"
+  },
+  "limitations": [
+    "Protocol contracts replaced only with local fault-injection fixtures; this is not a live official-protocol or mainnet financial test.",
+    "Full local suite uses default Foundry fuzz/invariant settings; additional paid fork suite not requested or run.",
+    "Automatic worker transaction reconciliation tests are covered by separate backend agent; this Anvil rehearsal buys via the public PoolVault entry point."
+  ],
+  "completedAt": "2026-10-03T12:41:11.366127+00:00",
+  "criticalBehavior": {
+    "saleCooldown": "Proposal rejects at activatedAt + 259199 s and succeeds at activatedAt + 259200 s; checked on real locally deployed artifact.",
+    "sharesDuringVoting": "Existing orders cannot fill and ordinary transfers cannot move balances while an unexecuted active proposal has now < endsAt. Existing order cancellation unlocks shares without moving ownership or voting rights.",
+    "sharesAfterVotingExpired": "If the pool remains Active and voting deadline expired without sale execution, share trading resumes; rejection of stale votes and proposal cooldown is separately tested.",
+    "sharesDuringWholeSaleListed": "Existing order fills and ordinary transfers are rejected; orders remain cancellable.",
+    "sharesAfterClosedSale": "Closed market fills reject; ordinary shares remain frozen permanently and old owner entitlement remains claimable. Closed market-fill case uses explicit terminal-state fixture; completed-sale permanence is also tested via real sale entry points.",
+    "purchaseAndSaleRaces": "Same-block competing share fills and whole-machine purchases/sales conserve funds; losing buyers do not get shares or pay successful competing sale.",
+    "local100HolderPurchaseExecutionGas": 6039941
+  }
+}

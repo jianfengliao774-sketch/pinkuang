@@ -18,6 +18,14 @@ Current deploy entry: https://tapeout.cc.cd/pinkuang-deploy-latest/.
 Whole-machine sale cooling remains **3 days**. Publication readiness does not
 claim a new mainnet financial transaction was exercised by the deployment agent.
 
+
+The frontend regression release `25d2503c9d3c` preserves the current mobile
+layouts and fixes transient quote loss and unused detail-governance reads.
+976 web checks, 1068 backend checks (including a Linux supplement), 572 contract
+checks, and 6 cutover tests passed. See the [regression report](../../../docs/validation/formal-regression-20261003.md)
+for evidence and local-versus-mainnet verification boundaries. Runtime and
+contracts were not changed by this frontend publication.
+
 The dated release, upgrade and review entries below are historical evidence for
 their stated graph/source and must not be used as the latest deployment identity.
 

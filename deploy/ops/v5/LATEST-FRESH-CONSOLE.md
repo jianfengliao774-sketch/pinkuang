@@ -56,3 +56,10 @@ On 2026-10-03 the designated deployer completed the fresh 16-step bootstrap and
 now serves that graph. The current publication identity and verification are in
 [`latest-product-publication-20261003.json`](latest-product-publication-20261003.json).
 The earlier v5 graph and retired test contracts remain preserved.
+
+The frontend regression release `25d2503c9d3c` preserves the current mobile
+layouts and fixes transient quote loss and unused detail-governance reads.
+976 web checks, 1068 backend checks (including a Linux supplement), 572 contract
+checks, and 6 cutover tests passed. See the [regression report](../../../docs/validation/formal-regression-20261003.md)
+for evidence and local-versus-mainnet verification boundaries. Runtime and
+contracts were not changed by this frontend publication.

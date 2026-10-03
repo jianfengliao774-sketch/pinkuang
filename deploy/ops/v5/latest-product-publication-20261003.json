@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "published",
-  "recordedAt": "2026-10-03T12:16:30.392119+00:00",
+  "recordedAt": "2026-10-03T13:04:30.742796+00:00",
   "publicUrl": "https://bemine.cc.cd/",
   "v5Url": "https://bemine.cc.cd/bemine-v5/",
   "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-latest/",
@@ -11,7 +11,7 @@
   "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
   "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
-  "frontendSourceHead": "551d8935ee9ead15d04ff0f813f5028cb34fd692",
+  "frontendSourceHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
   "roles": {
     "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
     "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
@@ -48,18 +48,23 @@
   },
   "publishedAt": {
     "runtimeAndNewGraph": "2026-10-03T11:59:30.105248+00:00",
-    "frontendPricePrecision": "2026-10-03T12:13:51.499974+00:00"
+    "frontendPricePrecision": "2026-10-03T12:13:51.499974+00:00",
+    "frontendRegressionFixes": "2026-10-03T12:57:10.816816+00:00"
   },
   "runtimeArchive": {
     "sha256": "86c8fd4c806e1d0785d1619e9d678ac841fa3f247bcb7d7661f04af296e6a88d",
     "bytes": 1611118
   },
   "frontendArchive": {
-    "sha256": "ec81432f2d991081606bb6bd925dad74ef17203d75b2aab0bfdd3b5b2db85b7a",
-    "bytes": 16747709,
-    "fileCount": 318,
-    "contentSha256": "d676b4ccd31d9189ef590f6ba51b456f0caba6a4b768b072dd66eb59fa91c21e",
-    "releaseManifestSha256": "b4d12b50a8e64033d44230ca06dbbbcaa6bfb4e69c131e2b5e52c94762c8c48f"
+    "sha256": "0067e0ab0e20937e5287b8eb795f50386315a29d4998a01c12bc76d645372344",
+    "bytes": 16753683,
+    "packagedFileCount": 318,
+    "buildFileCount": 317,
+    "buildContentSha256": "efcf5b16730e9dfcdd2e7c7109d7f568aefeab1c5d6ef3efed422d0a9ae045ef",
+    "publishedFileCount": 444,
+    "contentSha256": "8727ac98f610a8febc05821a025c94cf706063a884a55495356ec0396fa84b55",
+    "releaseManifestSha256": "a4eeddcab27277419f38d4273540f3366115a193209152b42540dd780b10ad02",
+    "retainedImmutableChunkCount": 126
   },
   "verification": {
     "bootstrapTransactions": 16,
@@ -70,7 +75,7 @@
     "operationalReadyAtPublication": true,
     "frontendUpdateRuntimeRestarted": false,
     "rootMatchesV5": true,
-    "rootHtmlSha256": "f3c632a17450b6ec4cdb386f1d6bcf97c818d257dd8340d8c973808b681befda",
+    "rootHtmlSha256": "32777e71ffeb1073ab262440d458ab86081138b6eedcecd5eeeef25c2d6c3ddd",
     "publicRoutesPassed": true,
     "oldV4Paused": true,
     "coinPriceDecimalPlaces": 2,
@@ -78,13 +83,25 @@
     "fullWebTestsBeforePrecisionChange": 971,
     "runtimePackagingChecks": 29,
     "cutoverInstallerChecks": 6,
-    "financialMainnetFlowsTested": false
+    "financialMainnetFlowsTested": false,
+    "fullWebTestsAfterRegressionFixes": 976,
+    "backendCombinedPassingCoverage": 1068,
+    "contractTestsPassed": 572,
+    "invariantCalls": 2304000,
+    "mobileLayoutsPreserved": true,
+    "mobileViewportChecked": [
+      375,
+      812
+    ],
+    "serviceProcessesUnchanged": true,
+    "publicReleaseMatchesReceipt": true
   },
   "evidence": {
     "frontendManifest": "latest-20261003/frontend-manifest.json",
     "authorityActivation": "latest-20261003/fresh-activation.json",
     "bootstrapReceipts": "latest-20261003/bootstrap-receipts.json",
-    "independentGraph": "latest-20261003/live-graph-verification.json"
+    "independentGraph": "latest-20261003/live-graph-verification.json",
+    "regressionReport": "../../../docs/validation/formal-regression-20261003.md"
   },
   "legacyPreservation": {
     "oldContractsUnchanged": true,
@@ -94,5 +111,6 @@
     "oldWorkersReactivated": false
   },
   "backendManifestSha256": "a855e808dd58ae6c5dc1d5ebe8bfe9ba6047cb08562c8545784890d5683a8cce",
-  "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338"
+  "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338",
+  "mergedMobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e"
 }

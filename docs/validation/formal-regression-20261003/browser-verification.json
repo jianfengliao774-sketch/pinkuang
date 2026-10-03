@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-10-03T13:04:30.742796+00:00",
+  "url": "https://bemine.cc.cd/#home",
+  "desktopViewport": {
+    "width": 1280,
+    "height": 720,
+    "scrollHeight": 2264,
+    "scrollFrom": 0,
+    "scrollTo": 720,
+    "scrollWidth": 1280
+  },
+  "mobileViewport": {
+    "width": 375,
+    "height": 812,
+    "homeScrollHeight": 3586,
+    "scrollWidth": 375,
+    "scrollPassed": true,
+    "projectNavigationPassed": true,
+    "navigationCloseRestoredBodyOverflow": true,
+    "viewportResetBeforeCompletion": true,
+    "recordsNavigationPassed": true
+  },
+  "routesReviewed": [
+    "home",
+    "overview",
+    "pools",
+    "market",
+    "rewards",
+    "governance",
+    "records"
+  ],
+  "consoleWarningsAndErrors": [],
+  "coinPriceExample": "36.81 USDT",
+  "coinPriceDecimals": 2,
+  "approximationSymbolShown": false,
+  "freshGraphProjectCount": 0,
+  "financialWalletActionsSent": false,
+  "recordsLoadCompletedAfterDesktopReset": true
+}
