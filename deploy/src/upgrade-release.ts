@@ -30,6 +30,9 @@ export type UpgradeReleaseInputs = {
   origin?: string;
   fetcher?: typeof fetch;
 };
+export type FreshUpgradeReleaseInputs = Omit<UpgradeReleaseInputs, 'plan' | 'bootstrapPlan'> & {
+  plan: { operationId: string };
+};
 
 /** An unverified release is never enough to authorize a Timelock signature. */
 export const initialUpgradeExecutionRelease: UpgradeExecutionRelease = blocked(
@@ -58,6 +61,16 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 
 /** Checks the separately hosted signing package against the currently active v5 genesis. */
 export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs): Promise<UpgradeExecutionRelease> {
+  return checkExecutionRelease(input, 'legacy');
+}
+
+/** Active v5 already has its Authority and Timelock roles; no new bootstrap is needed. */
+export async function checkFreshActiveUpgradeExecutionRelease(input: FreshUpgradeReleaseInputs): Promise<UpgradeExecutionRelease> {
+  return checkExecutionRelease(input, 'fresh-active');
+}
+
+async function checkExecutionRelease(input: UpgradeReleaseInputs | FreshUpgradeReleaseInputs,
+  mode: 'legacy' | 'fresh-active'): Promise<UpgradeExecutionRelease> {
   try {
     insist((input.origin ?? globalThis.location?.origin) === UPGRADE_ORIGIN,
       '只允许从 bemine.cc.cd 的正式升级入口发起签名。');
@@ -119,7 +132,8 @@ export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs):
       || same(graph.reviewedUpgradeOperationId, input.plan.operationId),
     '生产端登记的代码升级批次与本页计划不同。');
     insist(graph.reviewedBootstrapOperationId == null
-      || same(graph.reviewedBootstrapOperationId, input.bootstrapPlan.operationId),
+      || mode === 'legacy' && 'bootstrapPlan' in input
+        && same(graph.reviewedBootstrapOperationId, input.bootstrapPlan.operationId),
     '生产端登记的硬件钱包授权计划与本页计划不同。');
     insist(Number.isSafeInteger(graph.snapshotAgeMs) && graph.snapshotAgeMs >= 0
       && graph.snapshotAgeMs <= 20_000 && Number.isSafeInteger(graph.verifiedBlockNumber)
@@ -141,6 +155,15 @@ export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs):
     for (const key of ANCHORS) insist(same(manifest[key], genesis[key])
       && same(manifest.codehash?.[key], genesis.codehash[key]),
     `生产端旧合约 ${key} 地址或代码哈希不同。`);
+    if (mode === 'fresh-active') {
+      insist(same(manifest.authority, genesis.authority) && same(manifest.gasWallet, genesis.gasWallet)
+        && manifest.freshAuthority && genesis.freshAuthority,
+      '正式 v5 已启用的 Authority 或 Gas 地址不同。');
+      for (const key of ['address', 'codehash', 'deploymentTxHash', 'administratorOne', 'administratorTwo', 'gasWallet']) {
+        insist(same(manifest.freshAuthority[key], genesis.freshAuthority[key]),
+          `正式 v5 已启用的 Authority ${key} 与固定清单不同。`);
+      }
+    }
 
     // A separate wallet RPC confirms the live canonical block before a signature.
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -172,5 +195,10 @@ export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs):
 /** Call again immediately before requesting the wallet signature. */
 export async function requireUpgradeExecutionRelease(input: UpgradeReleaseInputs): Promise<void> {
   const result = await checkUpgradeExecutionRelease(input);
+  if (!result.ready) throw new Error(result.reason);
+}
+
+export async function requireFreshActiveUpgradeExecutionRelease(input: FreshUpgradeReleaseInputs): Promise<void> {
+  const result = await checkFreshActiveUpgradeExecutionRelease(input);
   if (!result.ready) throw new Error(result.reason);
 }

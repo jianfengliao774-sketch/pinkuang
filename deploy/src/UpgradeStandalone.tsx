@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { getAddress } from 'ethers';
 import trustedGenesisManifest from '../../web/public/data/frontend-manifest.json';
 import { artifactDigest, validateArtifacts, type ArtifactBundle, type DeploymentSnapshot } from './deployment';
-import UpgradeConsole from './UpgradeConsole';
+import FreshActiveUpgradeConsole from './FreshActiveUpgradeConsole';
 import { assertTrustedGenesis } from './upgrade-ui';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 import './styles.css';
@@ -147,10 +147,10 @@ function UpgradeStandalone() {
   }
 
   return <main className="upgrade-standalone">
-    <header><div><h1>拼矿合约升级审查</h1><p>独立静态入口 · BSC 主网 · 每笔交易由连接的钱包确认</p></div>
+    <header><div><h1>拼矿正式合约升级</h1><p>正式 v5 · BSC 主网 · 每笔交易由连接的钱包确认</p></div>
       <a href="https://bemine.cc.cd/">返回拼矿主页</a></header>
     <section className="card upgrade-entry">
-      <h2>核对本机文件与连接的钱包</h2>
+      <h2>当前正式部署与钱包</h2>
       <p>本页内嵌已发布的旧版合约清单，并对本站提供的旧记录与旧产物逐字节核验。所有文件只在浏览器本机读取；链上状态仍须在下方第一步重新核验。</p>
       <div className="upgrade-entry-status">已发布旧图摘要：<span className="mono">{trustedGenesisManifest.artifactDigest}</span></div>
       <div className="upgrade-entry-status">候选编译产物：<span className="mono">{candidate ? artifactDigest(candidate) : candidateError || '读取中…'}</span></div>
@@ -169,7 +169,7 @@ function UpgradeStandalone() {
           {recordError && <p role="alert" className="upgrade-entry-error">{recordError}</p>}
         </div>
         <div id="upgrade-wallets"><label>连接当前步骤的钱包</label>
-          <p>暂停旧版建池及授权阶段需连接旧 owner；新合约部署和时间锁操作按下方步骤切换到指定硬件钱包。本站不接收私钥。</p>
+          <p>部署新实现时连接部署钱包；提交升级提案时连接拥有当前 Timelock 提案权限的钱包。现有管理员与 Gas 钱包沿用。本站不接收私钥。</p>
           {wallets.length ? wallets.map(option => <button key={option.id} onClick={() => void connect(option)}>
             连接 {option.name}</button>) : <p className="upgrade-entry-status">未发现浏览器钱包；请先打开支持硬件钱包的扩展。</p>}
           {walletState && <p className="upgrade-entry-status">当前账户 <span className="mono">{walletState.address}</span> · {walletState.chainId === 56 ? 'BSC 主网' : `当前链 ${walletState.chainId}`}</p>}
@@ -178,7 +178,7 @@ function UpgradeStandalone() {
         </div>
       </div>
     </section>
-    {candidate ? <UpgradeConsole wallet={selected?.provider || null} account={walletState?.address || null}
+    {candidate ? <FreshActiveUpgradeConsole wallet={selected?.provider || null} account={walletState?.address || null}
       chainId={walletState?.chainId || null} currentBundle={candidate} currentRecord={record}
       initialGenesisBundle={genesisBundle}
       onConnect={() => document.getElementById('upgrade-wallets')?.scrollIntoView({ behavior: 'smooth' })}/>

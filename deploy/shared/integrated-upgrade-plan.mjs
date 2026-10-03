@@ -268,6 +268,15 @@ function upgradeImmutable(name,old,deployed) {
     : name === 'BudgetPortfolioVault' ? old.portfolioFactory
       : ['PoolFactory','ShareMarket','BudgetPortfolioFactory'].includes(name) ? deployed : null;
 }
+
+/** Pure reviewed bytecode helpers shared by the independently scoped fresh-v5 upgrader. */
+export const reviewedUpgradeBytecode = Object.freeze({
+  trustedGenesisAddresses: checkTrustedGenesis,
+  genesisRuntime,
+  expectedRuntime,
+  spliceLinks,
+  historicalTreasuries,
+});
 function slotAddress(raw) {
   requireThat(/^0x0{24}[\da-f]{40}$/i.test(raw), 'Invalid implementation slot encoding.');
   return getAddress(`0x${raw.slice(-40)}`);

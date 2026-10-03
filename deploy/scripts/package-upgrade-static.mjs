@@ -76,7 +76,7 @@ export function verifyUpgradeBuild() {
 }
 
 function committedSourceHead() {
-  const paths = ['src', 'upgrade.html', 'vite.config.ts', 'public/deployment-artifacts.json',
+  const paths = ['src', 'shared', 'upgrade.html', 'vite.config.ts', 'public/deployment-artifacts.json',
     'public/upgrade-genesis', 'scripts/package-upgrade-static.mjs', 'scripts/build-artifacts.mjs',
     '../web/public/data/frontend-manifest.json', '../contracts/src', '../contracts/foundry.toml'];
   const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', ...paths],

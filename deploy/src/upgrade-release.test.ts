@@ -8,7 +8,8 @@ import freshCandidate from '../public/deployment-artifacts.json';
 import genesisBundle from '../public/upgrade-genesis/genesis-artifacts.json';
 import { artifactDigest, type ArtifactBundle } from './deployment';
 import { checkUpgradeExecutionRelease, initialUpgradeExecutionRelease,
-  requireUpgradeExecutionRelease, type UpgradeReleaseInputs } from './upgrade-release';
+  requireUpgradeExecutionRelease, checkFreshActiveUpgradeExecutionRelease,
+  requireFreshActiveUpgradeExecutionRelease, type UpgradeReleaseInputs } from './upgrade-release';
 import type { WalletProvider } from './wallet';
 import type { IntegratedProposerBootstrapPlan, IntegratedUpgradePlan } from '../shared/integrated-upgrade-plan.mjs';
 
@@ -134,4 +135,28 @@ test('chain stage, graph age and independent wallet canonical checks are require
   badWallet.input.wallet={request:async ({method}: {method:string}) => method==='eth_chainId' ? '0x1'
     : method==='eth_blockNumber' ? `0x${(graphBlock+20).toString(16)}` : {number:`0x${graphBlock.toString(16)}`,hash:blockHash}} as WalletProvider;
   assert.match((await checkUpgradeExecutionRelease(badWallet.input)).reason,/钱包 RPC/);
+});
+
+test('active v5 preserves its pinned Authority and uses existing proposer roles without a bootstrap', async () => {
+  const f = fixture();
+  const { bootstrapPlan: _unused, ...active } = f.input;
+  assert.equal((await checkFreshActiveUpgradeExecutionRelease(active)).ready, true);
+  await requireFreshActiveUpgradeExecutionRelease(active);
+  assert.ok(f.walletReads.every(method => !method.includes('sign') && !method.includes('send')));
+
+  for (const key of ['address', 'codehash', 'deploymentTxHash', 'administratorOne', 'administratorTwo', 'gasWallet']) {
+    const changed = fixture();
+    changed.graph.manifest = structuredClone(trustedGenesisManifest);
+    changed.graph.manifest.freshAuthority[key] = key === 'codehash' || key === 'deploymentTxHash'
+      ? `0x${'f'.repeat(64)}` : `0x${'f'.repeat(40)}`;
+    changed.responses.get(graphUrl)!.body = JSON.stringify(changed.graph);
+    const { bootstrapPlan: _ignored, ...input } = changed.input;
+    assert.match((await checkFreshActiveUpgradeExecutionRelease(input)).reason, /Authority/);
+    assert.deepEqual(changed.walletReads, []);
+  }
+  const conflicting = fixture();
+  conflicting.graph.reviewedBootstrapOperationId = bootstrapId;
+  conflicting.responses.get(graphUrl)!.body = JSON.stringify(conflicting.graph);
+  const { bootstrapPlan: _ignored, ...input } = conflicting.input;
+  assert.match((await checkFreshActiveUpgradeExecutionRelease(input)).reason, /硬件钱包授权计划/);
 });
