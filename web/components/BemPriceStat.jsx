@@ -21,8 +21,9 @@ export default function BemPriceStat({variant='home'}){
     const response=await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH||''}/data/bem-price.json`,{cache:'no-store',signal:request.signal});
     if(!response.ok)throw new Error('UNAVAILABLE');
     const data=await response.json();
-    if(!stopped){setQuote(validBemQuote(data)?data:null);setNow(Date.now());}
-   }catch{if(!stopped){setQuote(null);setNow(Date.now());}}
+    // Failed refreshes keep the prior quote's original timestamp and expiry.
+    if(!stopped){setQuote(previous=>validBemQuote(data)?data:previous);setNow(Date.now());}
+   }catch{if(!stopped)setNow(Date.now());}
    finally{clearTimeout(timeout);controller.signal.removeEventListener('abort',cancel);busy=false;if(!stopped)setLoading(false);}
   }
   refresh();
