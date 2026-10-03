@@ -57,9 +57,13 @@ Only after the reviewed upgraded runtime is finalized may a frontend expose the 
 
 - Clean Solidity 0.8.24 build, optimizer runs 1, Shanghai, non-viaIR.
 - 578/578 unit tests, including 30 target-owner cases; 6/6 audit tests.
-- 18/18 invariant tests in a bounded 32-run, 32-depth local pass.
+- 18/18 invariant tests using the CI profile: 128 runs, depth 64, 8,192 calls per invariant, zero unexpected reverts. The earlier bounded 32-run/32-depth pass also passed.
 - 14/14 offline Node tests for typed signatures, creation-owner review evidence and the minimal upgrade plan.
 - OpenZeppelin validation: all 26 checks pass, including delivered T1a–T1e storage baselines, inherited/namespaced layout compatibility, three compatible upgrade fixtures and rejection of the deliberately incompatible layout. The new internal-library AST/link audit passes without an external link-name addition.
 - Runtime templates: PoolVault 24,286 bytes; PoolFunds 9,172; FlexiblePurchase 13,365. All are below the EIP-170 limit of 24,576 bytes. The Factory runtime is not a replacement in this plan.
 
 These are local tests and compilation evidence, not a real-chain fork, deployment receipt, current runtime proof or activation. Existing production artifacts and manifests were not replaced.
+
+The real compiled candidate bundle also passed the scoped planner against the preserved formal genesis bundle (`0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927`) and formal activation manifest. Candidate digest: `0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5`. The [small offline evidence summary](../evidence/funding-target-owner-upgrade-candidate-20261004.json) records all three live-verification flags as false and does not publish synthetic example addresses as deployment facts. The candidate was compiled from contract-source commit `f7a73b21aa7f471e05e559d8cf5dcc2f4252f738`; this documentation/evidence update does not alter compiler inputs.
+
+Local raw evidence (outside the repository): `/private/tmp/bemine-target-owner-final-unit.log`, `/private/tmp/bemine-target-owner-audit.log`, `/private/tmp/bemine-target-owner-invariants-ci.log`, `/private/tmp/bemine-target-owner-node-tests.log`, and `/private/tmp/bemine-funding-owner-upgrade-validation/upgrade-summary.json`. The candidate bundle and full unsigned synthetic-address example plan are under `/private/tmp/bemine-funding-owner-candidate-20261004/`; neither is a deployment record.
