@@ -97,6 +97,25 @@ as `/etc/systemd/system/pinkuang-index-v5.service.d/20-read-throughput.conf`.
 passed during packaging; the 6 packaging/layout checks overlap the frontend
 run. Current activation evidence does not imply independent audit approval.
 
+## Contract-upgrade review entry — 2026-10-03 18:40 CST
+
+The isolated, same-origin upgrade review and wallet-signing entry is published
+at [bemine.cc.cd/pinkuang-upgrade-v5](https://bemine.cc.cd/pinkuang-upgrade-v5/).
+It is served from the existing BEMine host; the homepage and current v5 app
+were left in place. The deployed static release was built from source commit
+`d57184739859ac7249ab2bd2dd6a542612fc4507`; its candidate bundle digest is
+`0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927` and its
+genesis digest is
+`0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502`.
+The public route returned HTTP 200 and all six served-file hashes matched the
+release manifest on verification.
+
+**The contract upgrade has not been signed, scheduled, or executed.** This
+release only provides the review/signing page; an administrator must review
+and sign with the authorized wallet, then the on-chain 48-hour timelock must
+complete. The production app must not be switched to the new implementation
+before that process is complete.
+
 ## Public security-review handoff - 2026-10-03
 
 The complete source snapshot and mainnet evidence are available in the dedicated
