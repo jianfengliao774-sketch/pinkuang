@@ -231,7 +231,7 @@ test('the real result dialog exposes address and directory actions only after co
 });
 
 async function actualAdminCreation({ result = { status: 'pending', hash: hash(20) }, rejectSign, rejectRelay,
-  afterSign } = {}) {
+  afterSign, rewardBlocked = false } = {}) {
   const f = fixture(), source = (await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
   const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
@@ -241,6 +241,7 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
     operatorServiceReady: true, wallet: { request: () => assert.fail('Tests cannot request real wallet actions.') },
     account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
     epoch: { current: 0 }, submissionLock: { current: null }, publishingProjectRef,
+    rewardSendingBlocked: () => rewardBlocked,
     same: (a, b) => a?.toLowerCase() === b?.toLowerCase(), L: zh => zh, textError: error => error.message,
     requireCurrentProductStage: async () => { calls.push('stage'); },
     prepareAuthoritySubmission: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
@@ -266,6 +267,14 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
     + '\nreturn sendAdminAction;')(...Object.values(context));
   return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, state, context };
 }
+
+test('unresolved reward transaction blocks admin creation before signing or relaying', async () => {
+  const f = await actualAdminCreation({ rewardBlocked: true });
+  await assert.rejects(f.send, /运营权限或交易状态已变化/);
+  assert.deepEqual(f.calls, []);
+  assert.equal(f.state.job, null);
+  assert.equal(f.state.busy, false);
+});
 
 test('actual admin creation registers exact creation intent and pending feedback, never success from a relay hash', async () => {
   const f = await actualAdminCreation();

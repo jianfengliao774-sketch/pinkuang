@@ -13,6 +13,9 @@ import { startDisplayUpdates } from '../lib/display-updates.mjs';
 import { startReceiptDisplayCatchup } from '../lib/receipt-display-refresh.mjs';
 import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
 import { directMemberTransaction, readMemberReceipt, readMemberTransactions, saveMemberTransactions, sendMemberWalletTransaction } from '../lib/member-wallet-transactions.mjs';
+import { buildRewardCollectionPlan, readRewardBalances, runRewardCollection } from '../lib/reward-collection.mjs';
+import { saveRewardCollectionRecovery, readRewardCollectionRecovery, clearRewardCollectionRecovery, readRecoveryTransaction, withRewardCollectionLock } from '../lib/reward-collection-session.mjs';
+import RewardCollectionStatus from './RewardCollectionStatus';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZeroAddress, getAddress, isAddress } from "ethers";
 import {
@@ -102,6 +105,7 @@ import {
   cancelPendingNonce,
   retryLegacyEnvelope,
   abandonPrepared,
+  requireWallet,
   requireCurrentProductStage,
 } from "../lib/live-transactions.mjs";
 import { prepareProductAction } from "../lib/live-actions.mjs";
@@ -323,6 +327,11 @@ export default function LivePlatform() {
   const [statsSource, setStatsSource] = useState(null);
   const [notificationClaim, setNotificationClaim] = useState(null);
   const [memberTransactions, setMemberTransactions] = useState([]);
+  const [rewardCollection, setRewardCollection] = useState(null);
+  const [rewardRecovery, setRewardRecovery] = useState(null);
+  const [rewardRecoveryHash, setRewardRecoveryHash] = useState('');
+  const rewardRecoveryRef = useRef(null), rewardStop = useRef(false);
+  const rewardIdentity = useRef(null), rewardMounted = useRef(true);
   const [transactionResults, setTransactionResults] = useState([]);
   const [publishingProject, setPublishingProjectState] = useState(null);
   const publishingProjectRef = useRef(null);
@@ -443,6 +452,11 @@ export default function LivePlatform() {
       ? { ...boot, ...boot.manifest, journalBase: boot.journalBase || "/api/journal",
         ...(walletChecking ? { walletSessionReady: false, operationalReady: false, transactionReady: false, userExitReady: false } : {}) }
       : null, [boot, walletChecking]);
+  rewardIdentity.current = { config, account, wallet };
+  useEffect(() => {
+    rewardMounted.current = true;
+    return () => { rewardMounted.current = false; rewardStop.current = true; };
+  }, []);
   receiptDisplayState.current = {
     route: route.route, marketTab,
     source: loadedRoute === route.route + (route.pool ? `/${route.pool}` : '') ? source : null,
@@ -748,7 +762,22 @@ export default function LivePlatform() {
     setMemberTransactions(account && config?.displayOnly ? readMemberTransactions(config, account) : []);
   }, [account, config?.factory, config?.portfolioFactory, config?.displayOnly]);
   useEffect(() => {
-    if (!account || !config?.displayOnly || !client?.provider || !memberTransactions.some(r => r.status === 'pending')) return;
+    rewardStop.current = true;
+    setRewardCollection(null); setRewardRecoveryHash('');
+    const restore = () => {
+      let saved = null;
+      if (account && config?.displayOnly) try { saved = readRewardCollectionRecovery(config, account); }
+      catch (problem) { saved = { status: 'invalid', error: textError(problem) }; }
+      rewardRecoveryRef.current = saved; setRewardRecovery(saved);
+    };
+    restore();
+    const changed = event => { if (event.key?.startsWith('bemine-single-reward-collection:')) restore(); };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, [account, config?.factory, config?.portfolioFactory, config?.artifactDigest, config?.displayOnly]);
+  useEffect(() => {
+    if (!account || !config?.displayOnly || !client?.provider || rewardCollection?.status === 'running'
+      || !memberTransactions.some(r => r.status === 'pending')) return;
     const context = walletEpoch.current, provider = client.provider;
     let cancelled = false, reading = false;
     const check = async () => {
@@ -780,7 +809,7 @@ export default function LivePlatform() {
     void check();
     const timer = setInterval(check, 2_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [account, config, client, memberTransactions]);
+  }, [account, config, client, memberTransactions, rewardCollection?.status]);
   useEffect(() => {
     if (!client || !account || !config?.displayOnly) return;
     return startReceiptDisplayCatchup(memberTransactions, {
@@ -880,6 +909,10 @@ export default function LivePlatform() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
   const openAction = (kind, pool, extra = {}) => {
+    if (submissionLock.current) return;
+    if (rewardSendingBlocked()) {
+      setError(L('请先在收益中心核对一键操作的待确认交易。', 'Check the pending reward transaction in Rewards first.')); return;
+    }
     if (busy || (loading && kind !== 'deposit' && !['overview', 'rewards', 'market'].includes(route.route))
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
@@ -1900,7 +1933,7 @@ export default function LivePlatform() {
     }
   }
   async function sendFreshAuthority(kind, args) {
-    if (busy || submissionLock.current || !isOperator || !wallet || !account)
+    if (busy || submissionLock.current || rewardSendingBlocked() || !isOperator || !wallet || !account)
       throw new Error('管理员权限或交易状态已变化，请重新读取。');
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
     submissionLock.current = ticket; setBusy(true); setError('');
@@ -1917,7 +1950,7 @@ export default function LivePlatform() {
     }
   }
   async function sendPortfolio(confirmed, input) {
-    if (busy || submissionLock.current || !wallet || !account) throw new Error('请等待当前操作完成。');
+    if (busy || submissionLock.current || rewardSendingBlocked() || !wallet || !account) throw new Error('请等待当前操作完成。');
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
     submissionLock.current = ticket; setBusy(true); setError('');
     const current = () => revision === walletEpoch.current && page === routeIdentity.current;
@@ -1950,7 +1983,7 @@ export default function LivePlatform() {
     }
   }
   async function sendBudgetQueueStep(confirmed, input) {
-    if (busy || submissionLock.current || !wallet || !account || pending) throw Object.assign(new Error(L('请先完成或核对当前操作。', 'Complete or verify the current operation first.')), { beforeWalletSubmission: true });
+    if (busy || submissionLock.current || rewardSendingBlocked() || !wallet || !account || pending) throw Object.assign(new Error(L('请先完成或核对当前操作。', 'Complete or verify the current operation first.')), { beforeWalletSubmission: true });
     if (!budgetPurchaseQueueSupported(config)) throw Object.assign(new Error(L('当前合约阶段不支持连续采购队列。', 'The current contract stage does not support this purchase queue.')), { beforeWalletSubmission: true });
     const ticket = {}, revision = walletEpoch.current, page = routeIdentity.current;
     let enteredSender = false;
@@ -1996,8 +2029,145 @@ export default function LivePlatform() {
       if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); }
     }
   }
+  function rewardSendingBlocked() {
+    if (!account || !config?.displayOnly) return false;
+    try { return !!readRewardCollectionRecovery(config, account); }
+    catch { return true; }
+  }
+  function rememberRewardRecord(record, ownedConfig, owner) {
+    record = { ...record, ...(typeof record.blockNumber === 'bigint' ? { blockNumber: record.blockNumber.toString() } : {}) };
+    const saved = readMemberTransactions(ownedConfig, owner);
+    const previous = saved.find(item => item.hash === record.hash);
+    const next = [...saved.filter(item => item.hash !== record.hash), { ...previous, ...record,
+      ...(record.status === 'confirmed' ? { confirmedAt: Date.now() } : {}) }];
+    saveMemberTransactions(ownedConfig, owner, next);
+    if (rewardMounted.current && same(rewardIdentity.current.account, owner) && rewardIdentity.current.config === ownedConfig)
+      setMemberTransactions(next);
+  }
+  async function collectRewards(mode = 'collect-and-claim') {
+    if (busy || submissionLock.current || pending || rewardSendingBlocked() || activeModal.current
+      || !positionsActionReadyFor('claim') || !positionsActionReadyFor('harvest')
+      || !config?.displayOnly || !wallet || !account || !client?.provider) return;
+    const ownedConfig = config, owner = account, provider = wallet, readProvider = client.provider;
+    // Pending hashes are checked before a new run, including after a reload.
+    if (readMemberTransactions(ownedConfig, owner).some(record => record.status === 'pending')) {
+      setError(L('请先在钱包或最近交易中核对尚未确认的交易，再开始一键操作。',
+        'Resolve your pending wallet transactions before starting.')); return;
+    }
+    const ticket = {}, context = walletEpoch.current, page = routeIdentity.current;
+    let plan;
+    try { plan = buildRewardCollectionPlan({ positions, account: owner, config: ownedConfig }); }
+    catch (problem) { setError(textError(problem)); return; }
+    submissionLock.current = ticket; rewardStop.current = false;
+    setBusy(true); setError(''); setMessage('');
+    setRewardCollection({ status: 'running', mode, account: owner, hasMore: !!positionCursor });
+    const contextCurrent = () => rewardMounted.current && context === walletEpoch.current && page === routeIdentity.current
+      && rewardIdentity.current.config === ownedConfig && rewardIdentity.current.wallet === provider
+      && same(rewardIdentity.current.account, owner);
+    const current = () => !rewardStop.current && contextCurrent();
+    let currentRewardIntent = null;
+    const recovery = job => {
+      saveRewardCollectionRecovery(ownedConfig, owner, job);
+      currentRewardIntent = job;
+      if (contextCurrent()) { rewardRecoveryRef.current = job; setRewardRecovery(job); }
+    };
+    const clearRecovery = () => {
+      clearRewardCollectionRecovery(ownedConfig, owner, undefined, currentRewardIntent);
+      if (contextCurrent()) { rewardRecoveryRef.current = null; setRewardRecovery(null); }
+    };
+    try {
+      const result = await withRewardCollectionLock(ownedConfig, owner, () => runRewardCollection({ plan, mode, isCurrent: current,
+        readBalances: ({ pool, minBlockNumber }) => readRewardBalances({ provider: readProvider,
+          pool, account: owner, factory: plan.factory, minBlockNumber }),
+        send: async ({ pool, kind, balances }) => {
+          if (!current()) throw Object.assign(new Error('页面或钱包已改变。'), { beforeWalletSubmission: true });
+          // These two wallet-local reads bind the next call to the selected
+          // account and BSC; they do not query paid remote application data.
+          try { await requireWallet(provider, owner); }
+          catch (problem) { throw Object.assign(problem, { beforeWalletSubmission: true }); }
+          let checked;
+          try { checked = await prepareProductAction({ provider, config: ownedConfig, account: owner, pool, kind }); }
+          catch (problem) { throw Object.assign(problem, { beforeWalletSubmission: true }); }
+          if (!directMemberTransaction(ownedConfig, checked.transaction, { kind: checked.kind }))
+            throw Object.assign(new Error('当前部署不支持一键操作。'), { beforeWalletSubmission: true });
+          if (!current()) throw Object.assign(new Error('页面或钱包已改变。'), { beforeWalletSubmission: true });
+          // Persist the exact intent before the wallet opens. A lost response
+          // cannot unlock another send, even after the page is reloaded.
+          const job = { account: owner, factory: plan.factory, pool, kind, status: 'submitting', hash: null,
+            data: checked.transaction.data, value: '0', notBeforeBlock: balances.blockNumber.toString() };
+          recovery(job);
+          try {
+            const sent = await sendMemberWalletTransaction({ provider, config: ownedConfig,
+              transaction: checked.transaction, action: { kind: checked.kind } });
+            recovery({ ...job, status: 'pending', hash: sent.hash });
+            rememberRewardRecord(sent.record, ownedConfig, owner);
+            return sent;
+          } catch (problem) {
+            const rejection = problem?.code === 4001 || problem?.code === 'ACTION_REJECTED'
+              || problem?.data?.originalError?.code === 4001;
+            if (rejection || problem.beforeWalletSubmission === true) clearRecovery();
+            if (rejection) throw Object.assign(new Error(textError(problem), { cause: problem }), { code: 4001 });
+            throw problem;
+          }
+        },
+        waitReceipt: async ({ hash, pool }) => {
+          const record = { hash, account: owner, target: pool };
+          const deadline = Date.now() + 90_000;
+          let attempt = 0;
+          while (Date.now() < deadline && contextCurrent()) {
+            const receipt = await readMemberReceipt(readProvider, record);
+            if (receipt.status !== 'pending') return receipt;
+            if (rewardStop.current) return { status: 'pending' };
+            await new Promise(resolve => setTimeout(resolve, Math.min(2_000 + attempt++ * 1_000, 8_000)));
+          }
+          return { status: 'pending' };
+        },
+        onProgress: progress => {
+          if (contextCurrent()) setRewardCollection(previous => ({ ...previous, progress }));
+        },
+        onRecord: record => {
+          if (!record.hash) return;
+          rememberRewardRecord({ ...record, account: owner, target: record.pool,
+            action: record.kind, data: abi.PoolVault.encodeFunctionData(record.kind), value: '0' }, ownedConfig, owner);
+          if (['confirmed', 'failed'].includes(record.status)) clearRecovery();
+        },
+      }));
+      if (contextCurrent()) setRewardCollection(previous => ({ ...previous,
+        status: result.status === 'completed' ? 'completed' : 'stopped',
+        result: result.reason === 'wallet_changed' && rewardStop.current ? { ...result, reason: 'user_stopped' } : result }));
+    } catch (problem) {
+      if (contextCurrent()) setRewardCollection(previous => ({ ...previous, status: 'stopped',
+        result: { status: 'stopped', reason: 'error', error: textError(problem), steps: [] } }));
+    } finally {
+      if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); }
+      if (contextCurrent()) setRefresh(value => value + 1);
+    }
+  }
+  async function verifyRewardRecovery() {
+    const job = rewardRecoveryRef.current;
+    if (busy || submissionLock.current || !job || job.status === 'invalid' || !client?.provider) return;
+    const ticket = {}, context = walletEpoch.current, ownedConfig = config, owner = account;
+    submissionLock.current = ticket; setBusy(true); setError('');
+    try {
+      await withRewardCollectionLock(ownedConfig, owner, async () => {
+        const result = await readRecoveryTransaction({ provider: client.provider, job, hash: job.hash || rewardRecoveryHash.trim() });
+        if (!rewardMounted.current || context !== walletEpoch.current || rewardIdentity.current.config !== ownedConfig) return;
+        if (result.status === 'pending') { setError(L('该交易尚未确认，请稍后核对。', 'The transaction is still pending. Check again later.')); return; }
+        const hash = job.hash || rewardRecoveryHash.trim();
+        rememberRewardRecord({ ...result, hash, account: owner, target: job.pool, action: job.kind,
+          data: abi.PoolVault.encodeFunctionData(job.kind), value: '0' }, ownedConfig, owner);
+        clearRewardCollectionRecovery(ownedConfig, owner, undefined, job);
+        rewardRecoveryRef.current = null; setRewardRecovery(null); setRewardRecoveryHash('');
+        setRewardCollection({ status: 'stopped', account: owner, result: { status: 'stopped',
+          reason: 'verified', error: result.status === 'failed' ? L('该交易已回滚。可重新开始并领取已有余额。', 'The transaction reverted. You may start again.')
+            : L('该交易已确认。可重新开始，领取前会读取最新余额。', 'The transaction is confirmed. You may start again with current balances.'), steps: [] } });
+        setRefresh(value => value + 1);
+      });
+    } catch (problem) { if (context === walletEpoch.current) setError(textError(problem)); }
+    finally { if (submissionLock.current === ticket) { submissionLock.current = null; setBusy(false); } }
+  }
   async function submit() {
-    if (busy || submissionLock.current || !prepared || prepared.forModal !== modal) return;
+    if (busy || submissionLock.current || rewardSendingBlocked() || !prepared || prepared.forModal !== modal) return;
     const ticket = {};
     submissionLock.current = ticket;
     setBusy(true);
@@ -2045,7 +2215,7 @@ export default function LivePlatform() {
   }
   async function sendGovernanceAction(pool, action) {
     const requestEpoch = walletEpoch.current, revision = epoch.current;
-    if (busy || submissionLock.current || pending) throw new Error(L("请先核对当前交易。", "Resolve the current transaction first."));
+    if (busy || submissionLock.current || rewardSendingBlocked() || pending) throw new Error(L("请先核对当前交易。", "Resolve the current transaction first."));
     const ticket = {};
     submissionLock.current = ticket;
     setBusy(true); setError("");
@@ -2073,7 +2243,7 @@ export default function LivePlatform() {
   }
   async function sendAdminAction(preview, { onState } = {}) {
     const requestEpoch = walletEpoch.current, revision = epoch.current;
-    if (busy || submissionLock.current || pending || !isOperator || !operatorServiceReady) throw new Error(L("运营权限或交易状态已变化，请重新读取。", "Operator permissions or transaction state changed."));
+    if (busy || submissionLock.current || rewardSendingBlocked() || pending || !isOperator || !operatorServiceReady) throw new Error(L("运营权限或交易状态已变化，请重新读取。", "Operator permissions or transaction state changed."));
     const ticket = {};
     submissionLock.current = ticket;
     setBusy(true); setError("");
@@ -3740,9 +3910,39 @@ export default function LivePlatform() {
                 <BemPriceStat variant="metric"/>
               </div>
               <section className="panel">
-                <div className="section-head">
+                <div className="section-head" style={{ flexWrap: 'wrap', gap: 12 }}>
                   <h2>{L("逐池领取", "Claim from each pool")}</h2>
+                  {config?.displayOnly && <div className="live-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <Button disabled={busy || !!pending || !!rewardRecovery || !positions.length
+                      || !positionsActionReadyFor('harvest') || !positionsActionReadyFor('claim')}
+                      onClick={() => void collectRewards('collect-and-claim')}>{L('一键归集并领取', 'Collect and claim')}</Button>
+                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
+                      || !positionsActionReadyFor('harvest')}
+                      onClick={() => void collectRewards('collect-only')}>{L('一键归集', 'Collect all loaded')}</Button>
+                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
+                      || !positionsActionReadyFor('claim')}
+                      onClick={() => void collectRewards('claim-only')}>{L('一键领取', 'Claim all loaded')}</Button>
+                  </div>}
                 </div>
+                {config?.displayOnly && <p className="inline-note" style={{ margin: '0 24px 20px' }}>{L(
+                  '处理下方已加载的单矿机，每笔交易需钱包确认并支付 Gas；余额为零的领取自动跳过。市场款项和多矿机项目单独领取。',
+                  'Processes the loaded single-miner pools below. Confirm each transaction and pay Gas; zero claims are skipped. Market proceeds and portfolios are claimed separately.')}
+                  {!!positionCursor && <> {L('还有未加载矿机，请先加载更多。', 'More pools are not loaded. Load more first.')}</>}
+                </p>}
+                {(rewardCollection || rewardRecovery) && <RewardCollectionStatus locale={locale}
+                  run={{ ...(rewardCollection || { status: 'stopped', account, result: { reason: 'unknown', steps: [] } }),
+                    recovery: rewardRecovery, ...(rewardRecovery?.status === 'invalid' ? { result: { reason: 'error', error: rewardRecovery.error } } : {}) }}
+                  onStop={() => { rewardStop.current = true; }}
+                  onVerify={!busy && rewardRecovery ? verifyRewardRecovery : undefined}
+                  onDismiss={!busy && !rewardRecovery ? () => setRewardCollection(null) : undefined}/>}
+                {rewardRecovery && !rewardRecovery.hash && rewardRecovery.status !== 'invalid' && !busy &&
+                  <div style={{ margin: '0 24px 20px' }}>
+                    <label>{L('从钱包交易记录复制本次交易哈希', 'Copy this transaction hash from wallet history')}
+                      <input value={rewardRecoveryHash} onChange={event => setRewardRecoveryHash(event.target.value)}
+                        placeholder="0x…" autoComplete="off" spellCheck={false}/></label>
+                    <Button secondary disabled={!/^0x[\da-f]{64}$/i.test(rewardRecoveryHash.trim())}
+                      onClick={() => void verifyRewardRecovery()}>{L('核对交易', 'Check transaction')}</Button>
+                  </div>}
                 {claimTable()}
                 {moreButton(positionCursor, "positions")}
               </section>
