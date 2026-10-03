@@ -33,7 +33,7 @@ function moduleFixture(loader = async () => page(1), { loadSelected, draftBuilde
     listingDailyCapacityPrice, operatorQuoteError: error => error.message,
     operatorQuoteDraft: (...args) => draftBuilder ? draftBuilder(...args) : assert.fail('No transaction draft requested'),
     loadVerifiedCapacityHint: () => assert.fail('No selected-capacity fallback requested'),
-    loadOperatorQuote: async input => { selectedReads++; return loadSelected ? loadSelected(input) : { chain: { collection: input.collection, tokenId: input.tokenId,
+    loadOperatorQuote: async input => { selectedReads++; assert.equal(input.forCreation, true, 'The picker must reject an occupied NFT before paid discovery requests.'); return loadSelected ? loadSelected(input) : { chain: { collection: input.collection, tokenId: input.tokenId,
       registry: null, official: { id: '1', priceWei: '10000000000000000' } }, quote: {
       collection: input.collection, tokenId: input.tokenId, series: input.collection === other ? 'Behemoth' : 'TapeOut',
       status: 'verified', estimated24hAtomic: '100000000',

@@ -136,12 +136,20 @@ test('direct administrator display and creation use fixed configuration without 
   assert.equal(status.status, 'configured'); assert.equal(status.isOperator, true);
   assert.equal(status.creationPaused, null); assert.equal(status.machineRegistry.ready, null);
   assert.equal(status.blockHash, null);
-  const result = await prepareAdminAction({ provider: noRpc, config, account, kind: 'createPool', params: base });
+  const seen = [], registry = new Interface(['function machinePool(address,uint256) view returns(address)']);
+  const provider = { request: async ({ method, params }) => {
+    assert.equal(method, 'eth_call'); assert.equal(params[0].to, factory); assert.equal(params[1], 'latest');
+    const parsed = registry.parseTransaction(params[0]); seen.push(parsed.name);
+    assert.equal(parsed.args[0], base.circuits); assert.equal(parsed.args[1], 7n);
+    return registry.encodeFunctionResult('machinePool', [ZeroAddress]);
+  } };
+  const result = await prepareAdminAction({ provider, config, account, kind: 'createPool', params: base });
   assert.equal(result.checkedBlock, null); assert.equal(result.direct, true);
   const parsed = abi.PoolFactory.parseTransaction(result.transaction);
   assert.equal(parsed.name, 'createPool'); assert.equal(parsed.args[0].targetRaise, 11000n);
-  const repeated = await prepareAdminAction({ provider: noRpc, config, account, ...result.request });
+  const repeated = await prepareAdminAction({ provider, config, account, ...result.request });
   assert.deepEqual(repeated.transaction, result.transaction);
+  assert.deepEqual(seen, ['machinePool', 'machinePool']);
   await assert.rejects(prepareAdminAction({ provider: noRpc, config, account: addr(10), kind: 'createPool', params: base }), /运营钱包/);
   await assert.rejects(prepareAdminAction({ provider: noRpc, config, account, kind: 'createPool', params: { ...base, targetRaiseWei: '11001' } }), /100 份/);
 });
@@ -164,13 +172,57 @@ test('direct administrator reclaim reads only the exact miner parameters and rec
   assert.equal(abi.PoolVault.parseTransaction(explicitListing.transaction).args[0], 3n);
 });
 
-test('direct administrator signing reads nonce once and retains exact local EIP-712 signature validation', async () => {
+test('direct fixed, flexible and budget-child previews reject an occupied miner with one exact reservation read', async () => {
+  for (const kind of ['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool']) {
+    let reads = 0;
+    const provider = { request: async ({ method, params }) => {
+      reads++; assert.equal(method, 'eth_call'); assert.equal(params[0].to, factory); assert.equal(params[1], 'latest');
+      const call = abi.PoolFactory.parseTransaction(params[0]);
+      assert.equal(call.name, 'machinePool'); assert.equal(call.args[0], base.circuits); assert.equal(call.args[1], 7223n);
+      return abi.PoolFactory.encodeFunctionResult('machinePool', [pool]);
+    } };
+    await assert.rejects(prepareAdminAction({ provider, config, account, kind, subscriber: other,
+      params: { ...base, circuitId: '7223' } }), error => error.code === 'MachineAlreadyReserved' && error.pool === pool);
+    assert.equal(reads, 1, 'No simulation, ownership graph, listing or Firsto read is needed to reject a duplicate.');
+  }
+});
+
+test('direct preview reuse is short-lived and bound to the exact Factory and NFT; a released reservation can be reused', async () => {
+  const available = { factory, collection: base.circuits, tokenId: '7', pool: ZeroAddress,
+    blockTag: 'latest', checkedAt: Date.now() };
+  const reused = await prepareAdminAction({ provider: noRpc, config, account, kind: 'createPool', params: base,
+    machineReservation: available });
+  assert.equal(abi.PoolFactory.parseTransaction(reused.transaction).name, 'createPool');
+  for (const change of [{ factory: other }, { collection: OFFICIAL_COLLECTIONS[1] }, { tokenId: '8' },
+    { checkedAt: Date.now() - 15001 }, { checkedAt: Date.now() + 60000 }, { blockTag: '0x64' }, { pool }]) {
+    let reads = 0;
+    const provider = { request: async ({ method, params }) => {
+      reads++; assert.equal(method, 'eth_call'); assert.equal(params[1], 'latest');
+      return abi.PoolFactory.encodeFunctionResult('machinePool', [ZeroAddress]);
+    } };
+    const fresh = await prepareAdminAction({ provider, config, account, kind: 'createPool', params: base,
+      machineReservation: { ...available, ...change } });
+    assert.equal(abi.PoolFactory.parseTransaction(fresh.transaction).name, 'createPool'); assert.equal(reads, 1);
+  }
+  await assert.rejects(prepareAdminAction({ provider: { request: async () => { throw Error('reader unavailable'); } },
+    config, account, kind: 'createPool', params: base }), /reader unavailable/);
+});
+
+test('direct administrator signing reads nonce and exact reservation once and validates the signature', async () => {
   const authorityAbi = new Interface(['function nonces(address) view returns(uint256)']);
+  const registryAbi = new Interface(['function machinePool(address,uint256) view returns(address)']);
   const seen = [];
   const readProvider = { request: async ({ method, params }) => {
     seen.push(method);
     assert.equal(method, 'eth_call');
-      assert.equal(params[1], 'latest'); assert.equal(params[0].to, authority);
+      assert.equal(params[1], 'latest');
+      if (params[0].to === factory) {
+        const parsed = registryAbi.parseTransaction(params[0]);
+        assert.equal(parsed.name, 'machinePool'); assert.equal(parsed.args[0], base.circuits);
+        assert.equal(parsed.args[1], 7n);
+        return registryAbi.encodeFunctionResult('machinePool', [ZeroAddress]);
+      }
+      assert.equal(params[0].to, authority);
       const parsed = authorityAbi.parseTransaction(params[0]); assert.equal(parsed.name, 'nonces'); assert.equal(parsed.args[0], account);
       return authorityAbi.encodeFunctionResult(parsed.fragment, [9n]);
   } };
@@ -183,35 +235,69 @@ test('direct administrator signing reads nonce once and retains exact local EIP-
   const data = abi.PoolFactory.encodeFunctionData('createPool', [{ ...base, circuitId: 7n, targetRaise: 11000n,
     priceCap: 10000n, directSeller: ZeroAddress, directPrice: 0n, fundingDeadline: 1800001000n, purchaseDeadline: 1800002000n }]);
   const command = await signAuthorityAction({ provider, readProvider, config, account, kind: 'executeApprovedOperation', args: { target: factory, data } });
-  assert.deepEqual(seen, ['eth_call', 'eth_signTypedData_v4']); assert.equal(command.nonce, '9');
+  assert.deepEqual(seen, ['eth_call', 'eth_call', 'eth_signTypedData_v4']); assert.equal(command.nonce, '9');
   assert.equal(command.expectedCodehash, config.freshAuthority.codehash);
   const wrongSignerProvider = { request: async ({ method, params }) => {
     assert.equal(method, 'eth_signTypedData_v4');
     const payload = JSON.parse(params[1]), { EIP712Domain, ...types } = payload.types;
     return administrator.signTypedData(payload.domain, types, payload.message);
   } };
-  const otherReader = { request: async () => authorityAbi.encodeFunctionResult('nonces', [9n]) };
+  const otherReader = { request: async ({ params }) => params[0].to === factory
+    ? registryAbi.encodeFunctionResult('machinePool', [ZeroAddress]) : authorityAbi.encodeFunctionResult('nonces', [9n]) };
   await assert.rejects(signAuthorityAction({ provider: wrongSignerProvider, readProvider: otherReader, config, account: other,
     kind: 'executeApprovedOperation', args: { target: factory, data } }), /钱包签名与当前管理员地址不一致/);
 });
 
-test('direct miner quote uses four business getters and skips registry and repeated verification', async () => {
+test('direct miner quote adds only exact reservation to four business getters and skips full verification', async () => {
   const data = dataFixture(), f = chainFixture(data.quote);
   const provider = { request: input => {
     assert.equal(input.method, 'eth_call');
+    if (getAddress(input.params[0].to) === factory) return abi.PoolFactory.encodeFunctionResult('machinePool', [ZeroAddress]);
     return f.provider.request({ ...input, params: [input.params[0], '0x64'] });
   } };
-  const checked = await readOfficialMinerOnchain(provider, data.quote.collection, data.quote.tokenId, { config });
+  const checked = await readOfficialMinerOnchain(provider, data.quote.collection, data.quote.tokenId, { config, checkReservation: true });
   assert.deepEqual(f.calls.sort(), ['getMiner', 'listingFor', 'minerKey', 'ownerOf']);
-  assert.equal(checked.registry, null); assert.equal(checked.blockHash, null); assert.equal(checked.displayOnly, true);
+  assert.equal(checked.registry.pool, ZeroAddress); assert.equal(checked.registry.factory, factory);
+  assert.equal(checked.registry.collection, getAddress(data.quote.collection)); assert.equal(checked.registry.tokenId, data.quote.tokenId);
+  assert.equal(checked.registry.ready, null); assert.equal(checked.blockHash, null); assert.equal(checked.displayOnly, true);
   assert.equal(operatorQuoteDraft({ chain: checked, quote: null }, { extraBps: 1000 }).params.priceCapWei, f.listing.price.toString());
   f.calls.length = 0;
-  const result = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, config, provider });
+  const result = await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, config, provider, forCreation: true });
   assert(result.chain.official); assert.equal(f.calls.length, 4);
   const unlisted = chainFixture(data.quote, { listing: { valid: false } }), api = apiFixture(data);
   const unlistedProvider = { request: input => {
+    if (getAddress(input.params[0].to) === factory) return abi.PoolFactory.encodeFunctionResult('machinePool', [ZeroAddress]);
     assert.equal(input.method, 'eth_call'); return unlisted.provider.request({ ...input, params: [input.params[0], '0x64'] });
   } };
-  await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, config, provider: unlistedProvider, fetcher: api.fetcher });
+  await loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId, config, provider: unlistedProvider, forCreation: true, fetcher: api.fetcher });
   assert.equal(unlisted.calls.length, 4, 'the Firsto branch reuses the already read miner');
+});
+
+test('an existing reserved project can still auto-purchase its NFT without a creation reservation read or Firsto GET', async () => {
+  const data = dataFixture(), f = chainFixture(data.quote, { registryPool: pool });
+  let paramsReads = 0, reservationReads = 0;
+  const provider = { request: input => {
+    assert.equal(input.method, 'eth_call'); assert.equal(input.params[1], 'latest');
+    const target = getAddress(input.params[0].to);
+    if (target === factory) {
+      reservationReads++; return abi.PoolFactory.encodeFunctionResult('machinePool', [pool]);
+    }
+    if (target === pool) {
+      paramsReads++; assert.equal(abi.PoolVault.parseTransaction(input.params[0]).name, 'params');
+      return abi.PoolVault.encodeFunctionResult('params', [[data.quote.collection, BigInt(data.quote.tokenId),
+        f.listing.price * 110n / 100n, f.listing.price, ZeroAddress, 0n, 1800001000n, 1800002000n]]);
+    }
+    return f.provider.request({ ...input, params: [input.params[0], '0x64'] });
+  } };
+  const general = await readOfficialMinerOnchain(provider, data.quote.collection, data.quote.tokenId, { config });
+  assert.equal(general.registry, null); assert.equal(reservationReads, 0); assert.equal(f.requests.length, 4);
+  const explicit = await readOfficialMinerOnchain(provider, data.quote.collection, data.quote.tokenId,
+    { config, checkReservation: true });
+  assert.equal(explicit.registry.pool, pool, 'A general read reports the reservation without rejecting an existing project.');
+  reservationReads = 0; f.requests.length = 0;
+  const result = await prepareAdminAction({ provider, config, account, kind: 'autoPurchase', pool });
+  assert.equal(result.kind, 'buyFromMarket'); assert.equal(result.transaction.to, pool);
+  assert.equal(abi.PoolVault.parseTransaction(result.transaction).args[0], 45n);
+  assert.equal(paramsReads, 1); assert.equal(f.requests.length, 4); assert.equal(reservationReads, 0,
+    'Procurement reads only params and the four exact NFT/listing/mining getters, with no creation-only lookup.');
 });

@@ -324,7 +324,13 @@ export default function LivePlatform() {
   const [notificationClaim, setNotificationClaim] = useState(null);
   const [memberTransactions, setMemberTransactions] = useState([]);
   const [transactionResults, setTransactionResults] = useState([]);
-  const [publishingProject, setPublishingProject] = useState(null);
+  const [publishingProject, setPublishingProjectState] = useState(null);
+  const publishingProjectRef = useRef(null);
+  const [creationResetKey, setCreationResetKey] = useState(0);
+  function setPublishingProject(job) {
+    publishingProjectRef.current = job;
+    setPublishingProjectState(job);
+  }
   const publishedProjects = useRef([]);
   const publishedPortfolios = useRef([]);
   const shownTransactionResults = useRef(new Set());
@@ -414,7 +420,8 @@ export default function LivePlatform() {
     setOrders([]); setOrderCursor(null); setActivity([]); setActivityCursor(null);
     setGovernance(null); setGovernanceProof(null); setYieldData(null); setMarketCredit(null); setNotificationClaim(null);
     setTransactionResults([]);
-    setPublishingProject(null); publishedProjects.current = []; publishedPortfolios.current = [];
+    // A wallet/display change cannot prove an in-flight creation failed.
+    publishedProjects.current = []; publishedPortfolios.current = [];
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
@@ -1786,10 +1793,12 @@ export default function LivePlatform() {
     const finish = result => {
       if (!current()) return;
       showTransactionResult(result);
+      if (result.status === 'confirmed') setCreationResetKey(value => value + 1);
       setOperatorRefresh(value => value + 1); setRefresh(value => value + 1);
     };
     const poll = async () => {
       if (cancelled) return;
+      if (job.submitting) { timer = setTimeout(poll, 3000); return; }
       try {
         if (!job.result) {
           const status = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
@@ -1839,6 +1848,10 @@ export default function LivePlatform() {
     try {
     if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account || !operatorServiceReady)
       throw new Error('当前钱包没有新合约管理员权限。');
+    const creating = creationTransaction || kind === 'executeApprovedOperation'
+      && [config.factory, config.portfolioFactory].some(target => target && same(target, args.target));
+    if (creating && publishingProjectRef.current && !publishingProjectRef.current.result)
+      throw new Error('上一笔项目发布正在确认，请先核对结果，请勿重复创建。');
     await requireCurrentProductStage(config);
     if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
     // The relay's durable journal/nonce checks serialize submissions. Its live
@@ -1851,19 +1864,29 @@ export default function LivePlatform() {
     // A network error after submission is ambiguous. The relay journal is the
     // source of truth; never resend the same signed command automatically.
     let result;
+    const publication = creation ? { intent: creation, hash: null, initialStatus: null, submitting: true,
+      account, config, client, startedAt: Date.now() } : null;
+    // Keep this lock before entering the POST, including a hashless timeout.
+    // A ref also covers a repeated callback before React has rendered the job.
+    if (publication) setPublishingProject(publication);
     try { enteredRelay = true; onState?.({ status: 'submitting-authority' }); result = await submitAuthorityAction(config, account, command); }
     catch (problem) {
       // A status GET describes the latest shared Gas journal, which may still
       // be an older command. It cannot prove that this POST was accepted.
-      if ([400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus))
+      if ([400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {
+        if (publication && publishingProjectRef.current === publication) setPublishingProject(null);
         throw Object.assign(problem, { beforeWalletSubmission: true });
-      if (creation && current()) setPublishingProject({ intent: creation, hash: null,
-        initialStatus: null, account, config, client, startedAt: Date.now() });
+      }
+      if (publication && publishingProjectRef.current === publication) {
+        publication.submitting = false; setPublishingProject({ ...publication });
+      }
       throw Object.assign(new Error('签名已发送，代付结果暂未返回；请核对状态后再操作。'), { cause: problem });
     }
+    if (publication && publishingProjectRef.current === publication) {
+      publication.hash = result.hash ?? null; publication.initialStatus = result; publication.submitting = false;
+      setPublishingProject({ ...publication });
+    }
     if (current()) {
-      if (creation) setPublishingProject({ intent: creation, hash: result.hash ?? null,
-        initialStatus: result, account, config, client, startedAt: Date.now() });
       if (creation && !['confirmed', 'failed'].includes(result.status)) showTransactionResult(result, { creationPending: true });
       setMessage(result.hash ? `Gas 钱包交易已提交：${result.hash}。请等待链上确认。`
         : '管理员签名已提交，请在运营工作台核对代付状态。');
@@ -3882,12 +3905,15 @@ export default function LivePlatform() {
             {operatorTab === 'publish' && <>
             {isOperator && <LiveOperator key={`${config?.factory}:${account}:${walletRevision}`} config={config} wallet={wallet} readProvider={client?.provider} account={account} refreshKey={refresh}
               operator={operator} disabled={busy || !!pending || !operatorServiceReady} onSend={sendAdminAction}
+              creationPending={!!publishingProject && !publishingProject.result} creationResetKey={creationResetKey}
+              creationPendingReason={publishingProject && !same(publishingProject.account, account)
+                ? `请切回钱包 ${publishingProject.account} 核对上一笔项目发布结果。` : undefined}
               disabledReason={!operatorServiceReady ? L('交易服务恢复中，暂不能预览或签名；恢复后会自动启用。', 'Transaction services are recovering; previews and signatures will resume after verification.')
                 : pending ? L('请先核对上一笔交易结果。', 'Verify the previous transaction first.') : undefined}
               gasFeeWei={transactionGasWei}
               onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
-              disabled={busy || !!pending || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio} marketTransactions={memberTransactions}
+              disabled={busy || !!pending || !!publishingProject && !publishingProject.result || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio} marketTransactions={memberTransactions}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
               onSendQueue={budgetPurchaseQueueSupported(config) ? sendBudgetQueueStep : undefined} onAuthenticateQueue={connectBudgetQueue} onShare={pool => setModal({ type: 'portfolio-share', pool })}
               onBuyChild={pool => openAction('completeFirstoSale', { pool })} refreshKey={refresh}/>

@@ -20,7 +20,7 @@ function handlers({ prepared, prepareError, onSend, preview, autoSelection = nul
     priceCap: '0.004', fundingHours: '24', purchaseHours: '48' }, preview: preview ?? null, feedback: null,
     busy: false, error: '', progress: '', submissionHidden: false, sendCalls: [] };
   const context = { context: { current: createUiContext() }, previewRead: { current: null }, submission: { current: null }, form: state.form,
-    mode: 'createPool', pool: '', listingId: '', imported: '', key: 'factory:account', autoSelection, direct: true,
+    mode: 'createPool', pool: '', listingId: '', imported: '', key: 'factory:account', autoSelection, direct: true, creationPending: false,
     config: { productFamily: 'fresh-v4', displayOnly: true }, account: 'account', readProvider: { name: 'display' },
     wallet: { request: () => assert.fail('Draft feedback cannot request wallet transactions.') },
     formatEther, parseEther, operatorCreateInput, creationBlocked: false, errorText: error => error.message, preview: state.preview,

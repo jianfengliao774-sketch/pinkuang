@@ -14,6 +14,7 @@ import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
 import { requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
+import { requireMachineAvailable } from '../shared/machine-reservation.mjs';
 import { saleReferencePublisherConfiguration, createSaleReferencePublisher } from './sale-reference-publisher.mjs';
 import { firstoExpiryKeeperConfiguration, createFirstoListingExpiryKeeper } from './firsto-listing-expiry-keeper.mjs';
 import { readOnlyRpcFallbackUrl } from '../shared/read-only-rpc-fallback.mjs';
@@ -88,9 +89,16 @@ function privatePath(path, directory = false) {
     throw new Error('Authority relay journal must be a private regular file.');
 }
 
+function machineSourceHead(value) {
+  if (value !== undefined && (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)))
+    throw new Error('Fresh machine source pin must be a lowercase forty-character commit.');
+  return value;
+}
+
 export function authorityRelayConfiguration(env = process.env) {
   if (env.AUTHORITY_RELAY_ENABLED !== '1') return null;
   if (env.AUTHORITY_REQUIRE_FRESH_READINESS !== '1') throw new Error('Fresh relay requires machine readiness verification.');
+  const workerSourceHead = machineSourceHead(env.BEMINE_FRESH_MACHINE_SOURCE_HEAD);
   const layout = freshRuntimeLayout(env);
   const origin = env.DEPLOYMENT_JOURNAL_ORIGIN, rpcUrl = env.DEPLOYMENT_JOURNAL_RPC_URL;
   if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://'))
@@ -117,6 +125,7 @@ export function authorityRelayConfiguration(env = process.env) {
   }
   return { origin, rpcUrl, readFallbackRpcUrl: readOnlyRpcFallbackUrl(rpcUrl, env),
     journal, maxGasWei, maxGasPrice, expectedGasWallet, requireMachineReadiness:true,
+    machineSourceHead: workerSourceHead,
     saleReferencePublisher:saleReferencePublisherConfiguration(env,{journal}),
     firstoExpiryKeeper:firstoExpiryKeeperConfiguration(env,{journal,expectedGasWallet}),
     salePolicyCatalogPath: env.BEMINE_SALE_POLICY_CATALOG_PATH,
@@ -179,6 +188,12 @@ async function checkExactOperation(command, trusted, graph, readReclaimState) {
   try { decoded = iface.parseTransaction({ data }); }
   catch { fail(400, 'Creation calldata is not in the reviewed Factory ABI.'); }
   if (!decoded || !allowed.has(decoded.name)) fail(400, 'Unsupported creation operation.');
+  if (allowed === allowedCoreCreation) {
+    if (iface.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== data.toLowerCase())
+      fail(400, 'Creation calldata is not canonical.');
+    const params = decoded.args[0];
+    return { factory: target, collection: params.circuits, tokenId: params.circuitId };
+  }
 }
 
 async function checkAction(command, prepared, graph, trusted, readReclaimState) {
@@ -194,12 +209,13 @@ async function checkAction(command, prepared, graph, trusted, readReclaimState) 
     if (command.args.markets.length + command.args.pools.length > 24)
       fail(400, 'Too many fee sources in one transaction.');
   }
-  await checkExactOperation(command, trusted, graph, readReclaimState);
+  return checkExactOperation(command, trusted, graph, readReclaimState);
 }
 
 /** Gas-wallet transactions are never enabled by merely serving the deployment page. */
 export function createAuthorityRelayService(config, dependencies = {}) {
   if (!config) return null;
+  const workerSourceHead = machineSourceHead(config.machineSourceHead);
   privatePath(config.journal);
   const trusted = dependencies.trusted ?? productGraphConfiguration({
     recordPath: config.recordPath, bundlePath: config.bundlePath,
@@ -291,8 +307,12 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     return {...graph,blockHash:block.hash};
   }
 
+  // A signer-only release can keep the independently reviewed worker release.
+  // Without an explicit pin, readiness still requires this signer's own release.
   const machineReadiness = config.requireMachineReadiness
-    ? (dependencies.machineReadiness ?? createFreshMachineReadiness({provider,verifyGraph:freshGraph})) : null;
+    ? (dependencies.machineReadiness ?? (dependencies.createMachineReadiness ?? createFreshMachineReadiness)({
+      provider,verifyGraph:freshGraph,sourceHead:workerSourceHead,
+    })) : null;
 
   function rate(account) {
     const stamp = Date.now(), key = account.toLowerCase();
@@ -333,7 +353,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     catch { fail(400, 'Invalid or unsupported administrator action.'); }
     if (!prepared.signer || !same(prepared.signer, account)) fail(403, 'Session wallet did not sign this action.');
     const graph = await freshGraph();
-    await checkAction(command, prepared, graph, trusted, readReclaimState);
+    const reservation = await checkAction(command, prepared, graph, trusted, readReclaimState);
     const authority = trusted.freshAuthority.authority.address;
     const { core, budget, first, second, gasWallet, nonce, code } = await readAuthorityState(authority, account);
     if (!same(core, graph.addresses.factory) || !same(budget, graph.addresses.portfolioFactory)
@@ -346,6 +366,15 @@ export function createAuthorityRelayService(config, dependencies = {}) {
       const releaseJournal = lockJournal(config.journal);
       let releaseWallet;
       try {
+        // Check the latest state inside the serialized submit lane: the graph's
+        // pinned block may predate a project that was published moments ago.
+        if (reservation) {
+          try { await requireMachineAvailable(provider, { ...reservation, blockTag: 'latest' }); }
+          catch (error) {
+            if (error?.code === 'MachineAlreadyReserved') fail(409, error.message);
+            fail(503, 'Current machine reservation could not be verified.');
+          }
+        }
         const signer = new Wallet(loadCredential(), provider);
         if (!same(signer.address, gasWallet)) fail(409, 'Configured Gas credential does not match the reviewed wallet.');
         if (!existsSync(config.journal)) writeJournal(config.journal, readJournal(config.journal,
