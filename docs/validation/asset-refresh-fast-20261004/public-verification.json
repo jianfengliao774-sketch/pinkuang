@@ -1,0 +1,79 @@
+{
+  "verifiedAt": "2026-10-03T17:12:02.519Z",
+  "publicOrigin": "https://bemine.cc.cd",
+  "frontendSourceHead": "11951418ea92dbab6bdb8c453814340346d651f2",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "releaseManifestSha256": "5be9c883bf7fbc17ed973affa94617819e03440ac01ce1957c4d08d8d4ba5145",
+  "rootHtmlSha256": "0520afe00d1d1e1b3ccefd51b37a96ad904238650e188fb89a40266bfad48f0f",
+  "manifestMatchesBuild": true,
+  "rootStatus": 200,
+  "versionEntryStatus": 308,
+  "rootMatchesBuild": true,
+  "verifiedScripts": [
+    {
+      "path": "/bemine-v5/_next/static/chunks/26873907-6fe6a446a5ee1852.js",
+      "sha256": "af6187e364caf1751fab5109fae902d00511f1d3f5a651ff8e71a58f55579d0f"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/9818-2966f307cd310f26.js",
+      "sha256": "051cbdc6742204b5d0e02eb79cec737bfb2e913044b3b8c00c8d0daaa49b9687"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/main-app-4576e2521811cd20.js",
+      "sha256": "29cec26dc43c7fe4e6a5205d300c669440c150d3f82f5fda5ac81ebc38b19be7"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/3173-b91bf619663b74b7.js",
+      "sha256": "7750bce65dadcd1c62e9c2828a6a5f179b208d1f0192e8b50ee511f98c4250cd"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/4937-ad624447608c88d5.js",
+      "sha256": "ae782ae98d6980fdb249de0d372e75d508c07731d7d61ccf88de7b1c8f270019"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/5082-b586dcb5a3fe4b46.js",
+      "sha256": "327ead77063769e01e50ac28ed285231ef3277fb83d20c8330738189512d18b2"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/1913-253a107c447c2819.js",
+      "sha256": "3283ac095a484303fb95a8aad1bc0af4ea558ba34556cbea70bdab1c12464eef"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/5058-7412ad67942b43bc.js",
+      "sha256": "510028c7ad431ca4c35c9cf60af77177f63ccbcdbf5821ed5da32de5d19e8c95"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/7756-c2719e4cab4478fb.js",
+      "sha256": "d19f466b7cb9df16a0c242c40fe42e10182a16d45c12a37e69f281567620456d"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/391-082d56290f42e965.js",
+      "sha256": "2c9a34faf26c8a36073a57f7876da7faea9a6c07426ece5028f913b3f7c25bfe"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/app/page-7d5690dcf43515af.js",
+      "sha256": "a089048d6e0aa70c97bd063d17ea30ec4f03b3ace07c46c29aba2b0150b80ccc"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/webpack-4e2223dcd546dc42.js",
+      "sha256": "9b197b901e12697d37b62c34eea4127685d3e5e8f701237bed401d15ce4ea5c4"
+    }
+  ],
+  "materializedPosition": {
+    "pool": "0xCBdDf7B35074a28dC89afB7f53f8713DABB8520c",
+    "state": 2,
+    "shares": "51",
+    "totalSupply": "100",
+    "purchaseCostWei": "35350000000000000",
+    "cacheOrigin": "server",
+    "indexedThrough": 125522129,
+    "cacheAgeMs": 10564,
+    "elapsedMs": 166
+  },
+  "chainRpcIssued": false,
+  "walletRequests": 0
+}

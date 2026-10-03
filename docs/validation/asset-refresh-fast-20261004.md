@@ -13,3 +13,9 @@
 本次只发布前端静态文件。Factory、Authority、Gas 钱包、合约字节码、服务器后台同步频率和六个业务服务保持现状；没有请求真实钱包签名或发送链上交易。
 
 验证：1022 项前端与 API 回归测试全部通过，catalog、BEM price 与 review policy 检查通过。执行真实 JSX effects/callbacks，覆盖旧 Funded/51 份缓存被新 Active/51 份替换、隐藏/输入弹窗暂停、结果与待确认提示不阻止缓存刷新、切换钱包隔离、两处预算项目共用在途读取、定时刷新与 SSE 联合去重、推送脏事件保留、失败 120 秒退避、连续 SSE 超过两分钟不重读治理和成员链上数据，以及不可用报价五分钟退避、慢报价在途合并和单行手动重试。
+
+生产构建通过，于北京时间 2026-10-04 01:11:33 发布到 `https://bemine.cc.cd/`。前端源码 `11951418ea92dbab6bdb8c453814340346d651f2`，运行服务仍为 `23b48e6adb2a19810eb287a67add5f40b4fb94b9`。静态文件采用原子目录切换，保留 215 个旧内容寻址资源；六个业务服务的进程身份与重启计数保持。
+
+独立公网核查：根首页 HTTP 200，首页及所引用的 13 个脚本逐字匹配构建文件，公开发布清单匹配服务器回执，正式合约 manifest 未变，版本浏览器入口继续 308 跳转根网址。再次从公开物化持仓接口读取 #16803，state=2/Active、51/100 份、已购机成本 0.03535 BNB，接口单次 166 ms、缓存旧约 10.6 秒。实际浏览器详情页已显示“挖矿中”和 0.03535 BNB。浏览器未连接钱包，钱包持仓通过物化接口及本地真实组件测试验证。
+
+发布证据：[build-summary.json](asset-refresh-fast-20261004/build-summary.json)、[publication.json](asset-refresh-fast-20261004/publication.json)、[public-verification.json](asset-refresh-fast-20261004/public-verification.json)。修复及证据同步 [PR 41](https://github.com/jianfengliao774-sketch/pinkuang/pull/41)，基于已部署的 PR 40 源码分支，不覆盖测试分支。
