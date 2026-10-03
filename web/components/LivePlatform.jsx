@@ -8,6 +8,7 @@ import { publishedProjectIntent, readPublishedProject, readPublishedPoolDisplay,
 import ActivityOperation from './ActivityOperation';
 import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, pageDisplayKey, readDisplaySnapshot, readPoolDisplaySnapshot, writeDisplaySnapshot, writePoolDisplaySnapshots } from '../lib/display-snapshot.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
+import { automaticDisplayRefreshDue, canReuseDisplayRead, displayRefreshPageKey, displayRefreshPaused } from '../lib/display-refresh-policy.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
 import { startReceiptDisplayCatchup } from '../lib/receipt-display-refresh.mjs';
 import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
@@ -89,6 +90,7 @@ import { readDeploymentAccount } from '../lib/deployment-account.mjs';
 import pinnedGenesis from '../public/data/frontend-manifest.json' with { type: 'json' };
 import { readShareDailyCapacityPrice, shareDailyCapacityPriceWei, poolDailyCapacityPriceWei } from "../lib/share-daily-capacity.mjs";
 import { readCapacityDisplay, writeCapacityDisplay } from "../lib/capacity-display-cache.mjs";
+import { capacityRequestKey, createCapacityRequestCache } from "../lib/capacity-request-cache.mjs";
 import { createLiveDataClient } from "../lib/live-data.mjs";
 import { readCurrentPoolMembers } from "../lib/live-members.mjs";
 import {
@@ -299,7 +301,6 @@ export default function LivePlatform() {
   const [orderCapacity, setOrderCapacity] = useState({});
   const [poolCapacity, setPoolCapacity] = useState({});
   const [capacityNow, setCapacityNow] = useState(0);
-  const [poolQuoteRevision, setPoolQuoteRevision] = useState(0);
   const [loadedAccount, setLoadedAccount] = useState(null);
   const [marketOrderIdentity, setMarketOrderIdentity] = useState('');
   const [positionsAccount, setPositionsAccount] = useState(null);
@@ -391,9 +392,12 @@ export default function LivePlatform() {
     walletEpoch = useRef(0),
     activeModal = useRef(null);
   const lastPageRefresh = useRef(new Map());
+  const displayRefreshPage = useRef(null);
+  displayRefreshPage.current = displayRefreshPageKey(route, account);
   const fastSnapshotRetries = useRef(new Map());
   const portfolioRead = useRef({ busy: false, failed: false });
-  const capacityDisplay = useRef({ pools: {}, orders: {} });
+  const capacityRequests = useRef(null), poolCapacityEpoch = useRef(0);
+  if (!capacityRequests.current) capacityRequests.current = createCapacityRequestCache();
   const refreshState = useRef(null);
   const receiptDisplayState = useRef(null);
   const invalidateDisplayOnReorg = (service, problem) => {
@@ -414,9 +418,8 @@ export default function LivePlatform() {
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
-  capacityDisplay.current = { pools: poolCapacity, orders: orderCapacity };
   refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading,
-    busy, modal: !!modal || !!transactionResult, pending: !!pending,
+    busy, inputModal: !!modal, modal: !!modal || !!transactionResult, pending: !!pending,
     failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
   useEffect(() => {
@@ -492,10 +495,15 @@ export default function LivePlatform() {
     return startDisplayUpdates(boot, {
       isPaused: () => {
         const state = refreshState.current;
-        return state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy
-          || ['overview', 'records', 'rewards'].includes(routeIdentity.current.route) && recordsPageRef.current > 0;
+        return displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy,
+          pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(routeIdentity.current.route) && recordsPageRef.current > 0 })
+          || !automaticDisplayRefreshDue({ lastAttempt: lastPageRefresh.current.get(displayRefreshPage.current),
+            now: Date.now(), failed: state.failed || portfolioRead.current.failed });
       },
-      onUpdate: () => setRefresh(value => value + 1),
+      onUpdate: () => {
+        lastPageRefresh.current.set(displayRefreshPage.current, Date.now());
+        setReceiptDisplayRefresh(value => value + 1);
+      },
     });
   }, [client, boot]);
 
@@ -774,7 +782,7 @@ export default function LivePlatform() {
         const state = refreshState.current;
         return { ...receiptDisplayState.current, portfolioSource: portfolioRead.current.source,
           visible: document.visibilityState === 'visible',
-          busy: state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy,
+          busy: displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy }),
           pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(route.route) && recordsPageRef.current > 0 };
       },
       // This separate generation updates materialized GETs. Governance,
@@ -910,8 +918,14 @@ export default function LivePlatform() {
           { timeZone: "Asia/Shanghai", hour12: false },
         );
   const actionLabel = (kind) => L(...(actionNames[kind] || [kind, kind]));
+  const poolCapacityInput = row => ({ manifest: client?.manifest, factory: config?.factory,
+    pool: row?.pool, pricePerUnitWei: row?.unitPriceWei, displayOnly: config?.displayOnly,
+    params: row?.params, allowUnownedTarget: ['Funding', 'Funded'].includes(row?.status) });
+  const orderCapacityInput = order => ({ manifest: client?.manifest, factory: config?.factory,
+    pool: order?.pool, pricePerUnitWei: order?.pricePerUnitWei, displayOnly: config?.displayOnly });
   const capacityCell = (order) => {
-    const capacity = orderCapacity[order.pool?.toLowerCase()];
+    const saved = orderCapacity[order.pool?.toLowerCase()];
+    const capacity = saved?.requestKey === capacityRequestKey(orderCapacityInput(order)) ? saved : null;
     if (capacity?.available && capacity.validUntil > capacityNow) return <>
       <strong>{amount(shareDailyCapacityPriceWei(order.pricePerUnitWei, capacity.estimated24hAtomic))}</strong>
       <small>Firsto · {new Date(capacity.observedAt).toLocaleString(locale === "en" ? "en-GB" : "zh-CN")}</small>
@@ -924,26 +938,28 @@ export default function LivePlatform() {
   const accountNeeded = ["overview", "rewards"].includes(route.route);
 
   useEffect(() => {
-    if (!client || refreshIntervalMs(route.route) === null) return;
-    const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+    if (!client || refreshIntervalMs(route.route, { displayOnly: config?.displayOnly }) === null) return;
+    const page = displayRefreshPageKey(route, account);
     lastPageRefresh.current.set(page, Date.now());
     const check = () => {
       if (['overview', 'records', 'rewards'].includes(route.route) && recordsPage > 0) return;
       const state = refreshState.current;
       const now = Date.now();
       if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
+        displayOnly: config?.displayOnly,
         visible: document.visibilityState === 'visible',
-        busy: state.loading || state.busy || state.modal || state.pending || portfolioRead.current.busy,
+        busy: displayRefreshPaused(state, { displayOnly: config?.displayOnly, portfolioBusy: portfolioRead.current.busy }),
         failed: state.failed || portfolioRead.current.failed })) return;
       lastPageRefresh.current.set(page, now);
-      setRefresh(value => value + 1);
+      if (config?.displayOnly) setReceiptDisplayRefresh(value => value + 1);
+      else setRefresh(value => value + 1);
     };
     const timer = setInterval(check, 5_000);
     window.addEventListener('focus', check);
     document.addEventListener('visibilitychange', check);
     return () => { clearInterval(timer); window.removeEventListener('focus', check);
       document.removeEventListener('visibilitychange', check); };
-  }, [client, route.route, route.pool, account, recordsPage]);
+  }, [client, route.route, route.pool, account, recordsPage, config?.displayOnly]);
 
   useEffect(() => {
     if (!client || config?.displayOnly) return;
@@ -1011,7 +1027,7 @@ export default function LivePlatform() {
         setGovernanceProof({ pool: route.pool, account: account || ZeroAddress, source: result.governance.source }); }
       setLoadedAccount(account);
     };
-    if (config?.displayOnly && recent(saved) && cached && saved.refresh === displayRefreshKey) {
+    if (config?.displayOnly && cached && canReuseDisplayRead(saved, displayRefreshKey)) {
       showResult(cached);
       setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
       setCachedPage(false); setLoading(false); setRevalidating(false);
@@ -1111,7 +1127,7 @@ export default function LivePlatform() {
     } else {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
-    if (config?.displayOnly && cached && memory?.refresh === displayRefreshKey && Date.now() - memory.savedAt < 120_000) {
+    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setPositionsReadLoading(false);
       return () => { cancelled = true; ++positionsReadEpoch.current; };
     }
@@ -1159,7 +1175,7 @@ export default function LivePlatform() {
     } else {
       setOrders([]); setOrderCursor(null);
     }
-    if (config?.displayOnly && cached && memory?.refresh === displayRefreshKey && Date.now() - memory.savedAt < 120_000) {
+    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
       setMarketOrdersLoading(false);
       return () => { cancelled = true; ++marketOrdersEpoch.current; };
@@ -1210,7 +1226,7 @@ export default function LivePlatform() {
     } else {
       setActivity([]); setActivityCursor(null);
     }
-    if (config?.displayOnly && cached && memory?.refresh === displayRefreshKey && Date.now() - memory.savedAt < 120_000) {
+    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setActivityReadLoading(false);
       return () => { cancelled = true; ++activityReadEpoch.current; };
     }
@@ -1243,7 +1259,7 @@ export default function LivePlatform() {
       : readPageSnapshot(displayStorage(), client.manifest, 'stats');
     setStats(cached?.data ?? null);
     setStatsSource(cached?.source ?? null);
-    if (config?.displayOnly && cached && memory?.refresh === displayRefreshKey && Date.now() - memory.savedAt < 120_000)
+    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey))
       return () => { cancelled = true; };
     retryReadRound(() => (client.readDisplayStats ?? client.readStats)(), { isCurrent: () => !cancelled })
       .then(result => {
@@ -1259,14 +1275,14 @@ export default function LivePlatform() {
     return () => { cancelled = true; };
   }, [client, route.route, displayRefreshKey]);
 
-  function readCachedSection(key, reader) {
+  function readCachedSection(key, reader, { refreshToken = refresh } = {}) {
     if (!config?.displayOnly) return reader();
     let cache = readCache.current.get(client);
     if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
     const saved = cache.get(key);
-    if (saved?.refresh === displayRefreshKey && Date.now() - saved.savedAt < 120_000)
+    if (saved?.refresh === refreshToken && Date.now() - saved.savedAt < 120_000)
       return saved.promise ?? Promise.resolve(saved.result);
-    const entry = { savedAt: Date.now(), refresh: displayRefreshKey };
+    const entry = { savedAt: Date.now(), refresh: refreshToken };
     entry.promise = Promise.resolve().then(reader).then(result => {
       entry.result = result; delete entry.promise; return result;
     }, error => { if (cache.get(key) === entry) cache.delete(key); throw error; });
@@ -1278,68 +1294,85 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
     let cancelled = false;
-    ++activityReadEpoch.current;
     const pool = route.pool;
     const owner = account || ZeroAddress;
     const governanceKey = `pool-governance:${pool.toLowerCase()}:${owner.toLowerCase()}`;
-    const activityKey = `pool-activity:${pool.toLowerCase()}`;
+    const governanceToken = `${refresh}:${detail.status}`;
     const entries = readCache.current.get(client);
-    const reusable = key => {
-      const saved = entries?.get(key);
-      return config?.displayOnly && saved?.refresh === displayRefreshKey && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
-    };
-    const currentGovernance = reusable(governanceKey);
-    const currentActivity = reusable(activityKey);
+    const saved = entries?.get(governanceKey);
+    // A display GET or SSE event must not turn a price card into a new chain
+    // read. A listed-state transition and an explicit refresh still do.
+    const currentGovernance = config?.displayOnly && saved
+      && (saved.refresh === governanceToken || saved.refresh === refresh && saved.result?.displayOnly === true
+        && Number(saved.result.data?.state) === ['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding'].indexOf(detail.status))
+      && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
     const governanceCache = currentGovernance ?? readPageSnapshot(displayStorage(), client.manifest, governanceKey);
-    const activityCache = currentActivity ?? readPageSnapshot(displayStorage(), client.manifest, activityKey);
-    const remember = (key, result) => {
+    const remember = result => {
       let cache = readCache.current.get(client);
       if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
-      cache.set(key, { savedAt: Date.now(), refresh: displayRefreshKey, result });
-      writeDisplaySnapshot(displayStorage(), client.manifest, key, result);
+      cache.set(governanceKey, { savedAt: Date.now(), refresh: governanceToken, result });
+      writeDisplaySnapshot(displayStorage(), client.manifest, governanceKey, result);
     };
     if (governanceCache) { setGovernance(governanceCache.data);
       setGovernanceProof({ pool, account: owner, source: governanceCache.source }); }
     else { setGovernance(null); setGovernanceProof(null); }
+    // Only the listed miner's price card consumes governance outside the vote tab.
+    if (!currentGovernance && detail.status === 'Listed' && detailTab !== 'vote') void readCachedSection(governanceKey,
+      () => client.readGovernance({ pool, account: owner }), { refreshToken: governanceToken })
+      .then(result => { if (!cancelled) { setGovernance(result.data);
+        setGovernanceProof({ pool, account: owner, source: result.source });
+        remember(result); } })
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error);
+        if (!governanceCache) { setGovernance(null); setGovernanceProof(null); } } });
+    return () => { cancelled = true; };
+  }, [client, config?.displayOnly, account, route.route, route.pool, detail?.status, detailTab, loading, refresh]);
+
+  useEffect(() => {
+    if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
+    let cancelled = false;
+    ++activityReadEpoch.current;
+    const pool = route.pool;
+    const activityKey = `pool-activity:${pool.toLowerCase()}`;
+    const saved = readCache.current.get(client)?.get(activityKey);
+    const currentActivity = config?.displayOnly && saved?.refresh === displayRefreshKey
+      && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
+    const activityCache = currentActivity ?? readPageSnapshot(displayStorage(), client.manifest, activityKey);
     setActivityReadError(''); setActivityReadLoading(!currentActivity);
     if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor);
       setActivityReadSource(activityCache.source);
       setActivityTotals({ totalCount: activityCache.totalCount, overviewTotalCount: activityCache.overviewTotalCount }); }
     else { setActivity([]); setActivityCursor(null); setActivityReadSource(null);
       setActivityTotals({ totalCount: null, overviewTotalCount: null }); }
-    // Only the listed miner's price card consumes governance outside the vote tab.
-    if (!currentGovernance && detail.status === 'Listed' && detailTab !== 'vote') void readCachedSection(governanceKey, () => client.readGovernance({ pool, account: owner }))
-      .then(result => { if (!cancelled) { setGovernance(result.data);
-        setGovernanceProof({ pool, account: owner, source: result.source });
-        remember(governanceKey, result); } })
-      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error);
-        if (!governanceCache) { setGovernance(null); setGovernanceProof(null); } } });
-    if (!currentActivity) void readCachedSection(activityKey, () => client.readActivity({ pool }))
+    if (!currentActivity) void readCachedSection(activityKey, () => client.readActivity({ pool }), { refreshToken: displayRefreshKey })
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
           setActivityReadSource(result.source);
           setActivityTotals({ totalCount: result.totalCount, overviewTotalCount: result.overviewTotalCount });
-          remember(activityKey, result); }
+          let cache = readCache.current.get(client);
+          if (!cache) { cache = new Map(); readCache.current.set(client, cache); }
+          cache.set(activityKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
+          writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
       .finally(() => { if (!cancelled) setActivityReadLoading(false); });
     return () => { cancelled = true; ++activityReadEpoch.current; };
-  }, [client, config?.displayOnly, account, route.route, route.pool, detail, detailTab, loading, displayRefreshKey]);
+  }, [client, config?.displayOnly, account, route.route, route.pool, !!detail, loading, displayRefreshKey]);
 
   useEffect(() => { setRecordsPage(0); }, [client, route.route, route.pool, account]);
 
   useEffect(() => {
-    if (!["market", "pools", "detail"].includes(route.route)) return;
+    if (!["market", "pools", "detail", "overview"].includes(route.route)) return;
     setCapacityNow(Date.now());
     const timer = setInterval(() => setCapacityNow(Date.now()), 15_000);
     return () => clearInterval(timer);
   }, [route.route]);
 
   useEffect(() => {
+    const revision = ++poolCapacityEpoch.current;
     let cancelled = false;
     if (!client || !config) { setPoolCapacity({}); return; }
     setPoolCapacity(previous => Object.fromEntries(Object.entries(previous)
-      .filter(([, quote]) => quote?.validUntil > Date.now())));
+      .filter(([, quote]) => quote?.validUntil > Date.now() || quote?.retryAt > Date.now())));
     if (loading || !['pools', 'detail', 'overview', 'market'].includes(route.route)) return;
     const rows = route.route === 'detail' ? (detail ? [detail] : [])
       : route.route === 'pools' ? pools
@@ -1354,38 +1387,28 @@ export default function LivePlatform() {
         const row = uniqueRows[next++];
         if (!row?.trusted || !row.params || row.unitPriceWei === null) continue;
         const key = row.pool.toLowerCase();
-        const previous = capacityDisplay.current.pools[key];
-        if (previous?.available && previous.validUntil > Date.now()
-          && previous.forPriceWei === row.unitPriceWei.toString()) continue;
-        const saved = readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
-        if (saved && !cancelled) {
-          setPoolCapacity(previous => ({ ...previous, [key]: saved }));
-          // A valid identity- and price-bound display quote can be reused until
-          // its stated expiry; page refreshes need not re-spend the shared quota.
-          if (saved.validUntil > Date.now() + 30_000) continue;
+        const input = poolCapacityInput(row), requestKey = capacityRequestKey(input);
+        if (!requestKey) continue;
+        const cached = capacityRequests.current.peek(input);
+        if (cached) {
+          setPoolCapacity(previous => ({ ...previous, [key]: cached }));
+          continue;
         }
-        setPoolCapacity(previous => ({ ...previous, [key]: { ...previous[key], loading: true } }));
-        const quote = await readShareDailyCapacityPrice(provider, {
-          factory: config.factory, pool: row.pool, pricePerUnitWei: row.unitPriceWei,
-          displayOnly: config.displayOnly, params: row.params,
-          allowUnownedTarget: ['Funding', 'Funded'].includes(row.status),
-        });
-        if (!cancelled) {
-          const displayed = { ...quote, forPriceWei: row.unitPriceWei.toString() };
-          if (quote.available) writeCapacityDisplay(displayStorage(), client.manifest, displayed);
-          setPoolCapacity(previous => !quote.available && previous[key]?.available
-            && previous[key].validUntil > Date.now() ? previous : { ...previous, [key]: displayed });
-        }
+        setPoolCapacity(previous => ({ ...previous, [key]: {
+          ...(previous[key]?.requestKey === requestKey ? previous[key] : {}), loading: true, requestKey } }));
+        const displayed = await readPoolCapacityQuote(row, false, provider);
+        if (!cancelled && poolCapacityEpoch.current === revision)
+          setPoolCapacity(previous => ({ ...previous, [key]: displayed }));
       }
     };
     void Promise.all(Array.from({ length: Math.min(6, uniqueRows.length) }, worker));
-    return () => { cancelled = true; };
-  }, [client, route.route, marketTab, pools, positions, detail, boot, refresh, loading, poolQuoteRevision]);
+    return () => { cancelled = true; poolCapacityEpoch.current++; };
+  }, [client, route.route, marketTab, pools, positions, detail, boot, refresh, loading]);
 
   useEffect(() => {
     const revision = ++capacityEpoch.current;
     setOrderCapacity(previous => Object.fromEntries(Object.entries(previous)
-      .filter(([, quote]) => quote?.validUntil > Date.now())));
+      .filter(([, quote]) => quote?.validUntil > Date.now() || quote?.retryAt > Date.now())));
     if (!client || route.route !== "market" || marketTab === "whole" || !orders.length || !config) return;
     const provider = createReadOnlyHttpProvider(config);
     const firstByPool = new Map();
@@ -1395,32 +1418,56 @@ export default function LivePlatform() {
     }
     // Limit automatic lookups against the shared Firsto quota. Others are explicit.
     void Promise.all([...firstByPool].slice(0, 2).map(async ([key, order]) => {
-      const cached = capacityDisplay.current.orders[key];
-      if (cached?.available && cached.validUntil > Date.now()
-        && cached.forPriceWei === order.pricePerUnitWei.toString()) return;
-      setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
-      const result = await readShareDailyCapacityPrice(provider, {
-        factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
-        displayOnly: config.displayOnly,
-      });
+      const input = orderCapacityInput(order), requestKey = capacityRequestKey(input);
+      if (!requestKey) return;
+      const cached = capacityRequests.current.peek(input);
+      if (cached) { setOrderCapacity(previous => ({ ...previous, [key]: cached })); return; }
+      setOrderCapacity(previous => ({ ...previous, [key]: { loading: true, requestKey } }));
+      const result = await readOrderCapacityQuote(order, false, provider);
       if (capacityEpoch.current !== revision) return;
       setCapacityNow(Date.now());
-      setOrderCapacity(previous => ({ ...previous,
-        [key]: { ...result, forPriceWei: order.pricePerUnitWei.toString() } }));
+      setOrderCapacity(previous => ({ ...previous, [key]: result }));
     }));
     return () => { capacityEpoch.current++; };
   }, [client, route.route, marketTab, orders, boot]);
 
+  async function readPoolCapacityQuote(row, force, provider) {
+    const input = poolCapacityInput(row);
+    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
+    const result = await capacityRequests.current.read(input,
+      () => readShareDailyCapacityPrice(provider, input), { force, savedQuote });
+    if (result.available) writeCapacityDisplay(displayStorage(), client.manifest, result);
+    return result;
+  }
+
+  async function readOrderCapacityQuote(order, force, provider) {
+    const input = orderCapacityInput(order);
+    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, order.pool, order.pricePerUnitWei);
+    const result = await capacityRequests.current.read(input,
+      () => readShareDailyCapacityPrice(provider, input), { force, savedQuote });
+    if (result.available) writeCapacityDisplay(displayStorage(), client.manifest, result);
+    return result;
+  }
+
+  async function readAdditionalPoolCapacity(row) {
+    if (!config || !client || !row?.trusted || !row.params) return;
+    const key = row.pool.toLowerCase(), requestKey = capacityRequestKey(poolCapacityInput(row));
+    if (!requestKey || poolCapacity[key]?.requestKey === requestKey && poolCapacity[key]?.loading) return;
+    const revision = poolCapacityEpoch.current;
+    setPoolCapacity(previous => ({ ...previous, [key]: { loading: true, requestKey } }));
+    const result = await readPoolCapacityQuote(row, true, createReadOnlyHttpProvider(config));
+    if (poolCapacityEpoch.current !== revision) return;
+    setCapacityNow(Date.now());
+    setPoolCapacity(previous => ({ ...previous, [key]: result }));
+  }
+
   async function readAdditionalOrderCapacity(order) {
     if (!config || !client || !order?.pool) return;
-    const key = order.pool.toLowerCase();
-    if (orderCapacity[key]?.loading) return;
+    const key = order.pool.toLowerCase(), requestKey = capacityRequestKey(orderCapacityInput(order));
+    if (!requestKey || orderCapacity[key]?.requestKey === requestKey && orderCapacity[key]?.loading) return;
     const revision = capacityEpoch.current;
-    setOrderCapacity(previous => ({ ...previous, [key]: { loading: true } }));
-    const result = await readShareDailyCapacityPrice(createReadOnlyHttpProvider(config), {
-      factory: config.factory, pool: order.pool, pricePerUnitWei: order.pricePerUnitWei,
-      displayOnly: config.displayOnly,
-    });
+    setOrderCapacity(previous => ({ ...previous, [key]: { loading: true, requestKey } }));
+    const result = await readOrderCapacityQuote(order, true, createReadOnlyHttpProvider(config));
     if (capacityEpoch.current !== revision) return;
     setCapacityNow(Date.now());
     setOrderCapacity(previous => ({ ...previous, [key]: result }));
@@ -2210,7 +2257,7 @@ export default function LivePlatform() {
   useEffect(() => {
     if (route.route === 'detail' && detailTab === 'members' && detail?.pool && client && !loading)
       void readMembers();
-  }, [client, route.route, detail?.pool, detailTab, source?.indexedThrough, loading, refresh]);
+  }, [client, route.route, detail?.pool, detailTab, config?.displayOnly ? null : source?.indexedThrough, loading, refresh]);
   const heading = (title, subtitle, action, mobileSubtitle) => (
     <div className="page-heading">
       <div>
@@ -2223,14 +2270,16 @@ export default function LivePlatform() {
   );
   const refreshButton = (
     <div className="live-actions">
-    {(boot.status === 'loading' || loading || revalidating || readRetry) &&
+    {(boot.status === 'loading' || refreshState.current.loading || readRetry) &&
       <small role="status" data-read-status="updating">{L('更新中…', 'Updating…')}</small>}
     <Button
       secondary
       onClick={() => {
         if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
-        const page = JSON.stringify([route.route, route.pool?.toLowerCase() || '', account?.toLowerCase() || '']);
+        if (refreshState.current.loading || portfolioRead.current.busy || submissionLock.current) return;
+        const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
+        if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) { setReceiptDisplayRefresh(v => v + 1); return; }
         setRefresh(v => v + 1);
         if (boot.displayOnly) return;
         // Refresh page data immediately; only rebootstrap the page if the
@@ -2256,7 +2305,7 @@ export default function LivePlatform() {
           })
           .catch(error => { if (current()) setError(textError(error)); });
       }}
-      disabled={loading || busy || !!modal || !!pending || boot.status === "loading"}
+      disabled={refreshState.current.loading || busy || !!modal || !boot.displayOnly && !!pending || boot.status === "loading"}
     >
       <RefreshCw size={16} />
       {L("刷新", "Refresh")}
@@ -2268,13 +2317,13 @@ export default function LivePlatform() {
     poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
   const currentPoolQuote = p => {
     const quote = p && poolCapacity[p.pool.toLowerCase()];
-    return quote?.available && quote.validUntil > capacityNow
+    return quote?.requestKey === capacityRequestKey(poolCapacityInput(p)) && quote.available && quote.validUntil > capacityNow
       && quote.collection.toLowerCase() === p.params?.circuits?.toLowerCase()
       && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
   };
   const currentPoolMetadata = p => {
     const quote = p && poolCapacity[p.pool.toLowerCase()];
-    return quote?.metadataAvailable && quote.validUntil > capacityNow
+    return quote?.requestKey === capacityRequestKey(poolCapacityInput(p)) && quote.metadataAvailable && quote.validUntil > capacityNow
       && quote.collection?.toLowerCase() === p.params?.circuits?.toLowerCase()
       && quote.tokenId === p.params?.circuitId?.toString() ? quote : null;
   };
@@ -2285,7 +2334,7 @@ export default function LivePlatform() {
   };
   const poolQuotePlaceholder = p => !["pools", "detail"].includes(route.route) ? "—" : poolCapacity[p.pool.toLowerCase()]?.loading
     ? L("读取中…", "Loading…")
-    : <button className="text-button" onClick={() => setPoolQuoteRevision(value => value + 1)}>
+    : <button className="text-button" onClick={() => void readAdditionalPoolCapacity(p)}>
       {L("重新读取", "Retry")}
     </button>;
   const shareProject = (p) => ({

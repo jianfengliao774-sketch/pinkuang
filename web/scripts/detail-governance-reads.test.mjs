@@ -16,6 +16,7 @@ const callbackEnd = platform.indexOf('  const pageSource =', callbackStart);
 assert(cacheStart >= 0 && effectEnd > cacheStart && callbackStart >= 0 && callbackEnd > callbackStart);
 const contextNames = ['useEffect', 'client', 'config', 'route', 'detail', 'loading', 'account', 'ZeroAddress',
   'activityReadEpoch', 'readCache', 'displayRefreshKey', 'displayStorage', 'readPageSnapshot', 'writeDisplaySnapshot',
+  'Date',
   'invalidateDisplayOnReorg', 'textError', 'setGovernance', 'setGovernanceProof', 'setActivityReadError',
   'setActivityReadLoading', 'setActivity', 'setActivityCursor', 'setActivityReadSource', 'setActivityTotals',
   'detailTab', 'LiveGovernance', 'currentPoolQuote', 'wallet', 'refresh', 'busy', 'pending', 'connect',
@@ -43,7 +44,8 @@ const config = { factory, shareMarket, stage: 'fresh-active', displayOnly: true,
 function detailSections({ status = 'Active', tab = 'asset', account = owner } = {}) {
   const state = {}, reads = { governance: [], activity: [] }, writes = [];
   const readCache = { current: new WeakMap() }, effects = [];
-  let previous, context, renderGovernance;
+  const previous = [];
+  let context, renderGovernance, effectIndex = 0, clockNow = 1_800_000_000_000;
   const data = { pool, account: account || ZeroAddress, salePrice: 40_000_000_000_000_000n };
   const result = { data, source: { readMode: 'current', stale: false } };
   const client = { manifest: {}, provider: {},
@@ -54,14 +56,16 @@ function detailSections({ status = 'Active', tab = 'asset', account = owner } = 
   context = { client, config, route: { route: 'detail', pool }, detail: { pool, status, shares: 50n },
     detailTab: tab, loading: false, account, ZeroAddress, activityReadEpoch: { current: 0 }, readCache,
     displayRefreshKey: 0, refresh: 0, displayStorage: () => null, readPageSnapshot: () => null,
+    Date: { now: () => clockNow },
     writeDisplaySnapshot: (...args) => writes.push(args), invalidateDisplayOnReorg: () => {}, textError: e => e.message,
     LiveGovernance: () => null, currentPoolQuote: () => null, wallet: null, busy: false, pending: null,
     connect: () => assert.fail('No wallet connection is needed for display reads'),
     sendGovernanceAction: () => assert.fail('No transaction is sent by display reads'),
     same: (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase(),
     useEffect(fn, deps) {
-      if (!previous || deps.some((dep, index) => !Object.is(dep, previous.deps[index]))) {
-        effects.push(() => { previous?.cleanup?.(); previous = { deps, cleanup: fn() }; });
+      const at = effectIndex++, prior = previous[at];
+      if (!prior || deps.some((dep, index) => !Object.is(dep, prior.deps[index]))) {
+        effects.push(() => { prior?.cleanup?.(); previous[at] = { deps, cleanup: fn() }; });
       }
     },
   };
@@ -74,14 +78,15 @@ function detailSections({ status = 'Active', tab = 'asset', account = owner } = 
     };
   }
   const render = updates => {
-    Object.assign(context, updates); renderGovernance = probe(context);
+    Object.assign(context, updates); effectIndex = 0; renderGovernance = probe(context);
     while (effects.length) effects.shift()();
   };
   const settle = async () => { for (let i = 0; i < 4; i++) await turn(); };
   render();
   return { state, reads, writes, context, result, render, settle,
+    advance: duration => { clockNow += duration; },
     childProps: () => renderGovernance().props.children.props,
-    cache: () => readCache.current.get(client), dispose: () => previous?.cleanup?.() };
+    cache: () => readCache.current.get(client), dispose: () => previous.forEach(entry => entry?.cleanup?.()) };
 }
 
 test('ordinary Funding, Funded and Active detail tabs do not request unused governance snapshots', async () => {
@@ -125,6 +130,23 @@ test('a refreshed Active detail becoming Listed triggers the needed sale-price r
   } finally { ui.dispose(); }
 });
 
+test('many display generations past the old two-minute TTL refresh activity without rereading listed governance', async () => {
+  const ui = detailSections({ status: 'Listed' });
+  try {
+    await ui.settle(); assert.equal(ui.reads.governance.length, 1); assert.equal(ui.reads.activity.length, 1);
+    ui.advance(121_000);
+    for (const generation of ['0:1', '0:2', '0:3']) {
+      ui.render({ detail: { ...ui.context.detail }, displayRefreshKey: generation });
+      await ui.settle();
+    }
+    assert.equal(ui.reads.activity.length, 4, 'The visible activity GET follows the display generation.');
+    assert.equal(ui.reads.governance.length, 1, 'The old governance TTL cannot cause an SSE-triggered eth_call.');
+    ui.render({ refresh: 1 }); await ui.settle();
+    assert.equal(ui.reads.governance.length, 2, 'An explicit refresh still rereads the Listed price.');
+    assert.equal(ui.reads.activity.length, 4);
+  } finally { ui.dispose(); }
+});
+
 test('the actual vote component owns its read and its real parent callback supplies the Listed price cache', async () => {
   const ui = detailSections({ status: 'Listed', tab: 'vote' });
   const slots = [], effects = [], childReads = []; let position = 0;
@@ -141,7 +163,7 @@ test('the actual vote component owns its read and its real parent callback suppl
     },
   };
   const snapshot = { pool, account: owner, factory, shareMarket, stage: config.stage, displayOnly: true,
-    testProfile: false, state: 2n, timestamp: 1_700_000_000n, activatedAt: 1_600_000_000n, shares: 50n,
+    testProfile: false, state: 3n, timestamp: 1_700_000_000n, activatedAt: 1_600_000_000n, shares: 50n,
     snapshotShares: 0n, purchaseCost: 40_400_000_000_000_000n, candidates: [], activeProposalId: 0n,
     listedProposalId: 0n, salePrice: ui.result.data.salePrice, saleReference: { available: false } };
   const child = { exports: {} };
