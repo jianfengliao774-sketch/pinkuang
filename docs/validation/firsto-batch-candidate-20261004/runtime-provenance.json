@@ -1,0 +1,104 @@
+{
+  "checkedAt": "2026-10-03T15:38:42.731569+00:00",
+  "officialSource": "https://tapeout.firsto.ai/assets/index-CCV82TiP.js",
+  "bundleSha256": "107b7394a02126d9fa208e637b0082b927197339b66cf73ec0c79468cee553a0",
+  "address": "0x3F58C9cbce933c76158B2A29B0d612c46546Dc43",
+  "advertisedRuntimeKeccak256": "0x0a44a1aa18057cf5345eea9e1c58e4d40b0ff9c3da52c0f6eb8032320e7f23fb",
+  "observedRuntimeKeccak256": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+  "observedCodeBytes": 11524,
+  "observation": "Free public RPC fixed-block eth_getCode; no paid RPC and no transaction. Latest-bound observation repeated at explicit block 0x77b2733.",
+  "sourceProvenance": "Unresolved: no verified batch Solidity source or expected runtime artifact, and API/server RuntimeCodeHash generation convention is absent from downloaded bundle. Announced RuntimeCodeHash differs from observed raw-runtime Keccak; this alone cannot assert different code/version. Do not replace configured pin with unknown-provenance observed raw hash.",
+  "metadataCid": "QmXzeTkjb2GkUiKpdG61qyGGTMqCdk7PMJ1kN7iQ1gpkCv",
+  "verifiedSelectors": {
+    "factory()": "0xc45a0155",
+    "paused()": "0x5c975abb",
+    "defaultTakerFeeBps()": "0x42b2790f",
+    "feeEpoch()": "0x9f97e3c0",
+    "feeBpsAtEpoch(uint256)": "0x780caf3b",
+    "BATCH_ASK_SCHEMA_VERSION()": "0x21cc8afb",
+    "invalidateLeafWords(uint256,uint256[],uint256[])": "0xa9ec6c17",
+    "cancelBatch(uint256)": "0x0a24cf5f",
+    "batchCancelled(address,uint256)": "0xd9b85d30",
+    "hashBatchAsk((address,bytes32,uint256,uint64,address,uint16,uint256,uint16))": "0xc275eafb",
+    "hashAskLeaf((address,address,uint256,uint128,address,uint16,uint256,uint256,uint256,uint16))": "0x57c2ce24",
+    "isAskLeafInvalidated(address,uint256,uint256)": "0xaa4945ea"
+  },
+  "selectorBoundary": "All listed readgetterselectors response-tested at fixedblock0x77b2466 with publicRPC against observed unverified runtime; this confirmswiresemantics only, notsourceprovenance. invalidateLeafWords/cancelBatch notsent.",
+  "strippedMetadataKeccak256": "0x48b6944a2bb4c4c70de2aeb8069f2dad21e0999b09c39351cb1d17ce139219a5",
+  "metadataMismatch": "Both raw full runtime and metadata-stripped runtime Keccak differ from announced RuntimeCodeHash. This excludes only that tested metadata-stripping comparison, not unknown API normalization conventions.",
+  "officialSourceSearch": "Current officialbundle has no github/sourcecode/repo link. Targeted search CircuitBatchAskExchange, exactdomain, exacthash finds no primarysource repository.",
+  "knownRuntimeMetadataRemovalHash": "0x48b6944a2bb4c4c70de2aeb8069f2dad21e0999b09c39351cb1d17ce139219a5",
+  "currentOrderStatus": "Public index nowhas5181alreadythirdpartysold tx73f1e94a...ff2ae/block125506635; usehistoricalfixtureonly",
+  "erc1271Boundary": "Observedbytecodecontainsoptimized0x1626ba7emagicconstant(0x0b135d3f<<1)butnocorrespondingverifiedsource. OfficialfrontendbundledoesnotconfirmERC1271implementation. ECDSAsample independentlyrecoversmaker.",
+  "runtimeBlock": {
+    "number": "0x77b2733",
+    "hash": "0xbd5db61807ef295d4da4f4c00b39137d63b928fa05a9eeaf7caa4d3d9a98d427",
+    "timestamp": "0x6ac12493"
+  },
+  "runtimeHashRepeated": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+  "archiveBoundary": "Historical getCode at 0x77b144a and getter at prefill block returned missing trie node; old getter block code read also missing trie node. Therefore no historical state/fork proof can be claimed from this node.",
+  "announcedHashSemanticsBoundary": {
+    "scope": "Inspection restricted to downloaded official bundle and local prior evidence, no new online requests.",
+    "exactConclusion": "The official bundle only compares API /health circuit.batchMarket.circuitBatchAskExchangeRuntimeCodeHash to the configured literal using strict string equality. It does not compute this batch hash from eth_getCode. API/server hash-generation convention is absent, so the announced RuntimeCodeHash differing from observed raw runtime keccak cannot alone prove different code/version.",
+    "normalizationBoundary": "No strip-metadata, immutable substitution, self-address zeroing, or other bytecode hash normalization is present in the relevant frontend chain. However, API/server computation is unknown; absence in this frontend is not evidence that the backend uses no normalization.",
+    "apiChain": "https://api-tapeout.firsto.ai -> Gi(/health) via D_ -> q($) stores health in W -> W.circuit.batchMarket becomes Al -> WD(Al,Pe) compares configured hashes.",
+    "knownValueTransform": "Configuration parser trims hash strings only; WD applies strict === to hash fields. Address helper trims/lowercases only address fields.",
+    "soleEthGetCode": "Exactly one literal eth_getCode occurs at character offset 988281; gD(wallet account) classifies EOA/contract/delegated account and probes receiver acceptance. It is unrelated to batch contract hash.",
+    "localRawHashFact": "Our independently computed raw-runtime Keccak at fixed block 0x77b2733 is 0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0; metadata-stripped raw-runtime hash also differs. This is only a hash-value comparison with the announced constant until computation provenance is established.",
+    "productionPolicy": "Maintain closed activation gate and existing strict candidate pin; do not replace announced value with observed unknown-provenance hash.",
+    "sourceFile": "/private/tmp/firsto-index-CCV82TiP.js",
+    "sourceSha256": "107b7394a02126d9fa208e637b0082b927197339b66cf73ec0c79468cee553a0",
+    "positions": {
+      "apiBase": 146981,
+      "apiHealthFunction": 148518,
+      "healthFetchSetW": 1101659,
+      "batchHealthConsumer": 1090079,
+      "batchHealthEqualityFunction": 1008868,
+      "configParserHashField": 1005908,
+      "configuredHashLiteral": 1010909,
+      "onlyEthGetCodeWalletFunction": 988201
+    },
+    "excerpts": {
+      "apiBase": {
+        "characterOffsetZeroBased": 146981,
+        "utf8ByteOffsetZeroBased": 146981,
+        "text": "const ip=\"https://api-tapeout.firsto.ai\".trim(),_1=\"https://stream-api-tapeout.firsto.ai\".trim(),ql=ip?\"live\":\"fixture\",$s=(ip==null?void 0:ip.replace(/\\/$/,\"\"))??\"\",sx=(_1==null?void 0:_1.replace(/\\/$/,\"\"))||$s;class ei extends Error{constructor(t,n,i){const s=(n===403||n===429)&&(i!=null&&i.code)?` [${i.code}]`:\"\";super(`${t}${s}`),this.status=n,this.payload=i,this.name=\"ApiRequestError\"}}async function Gi(e,t,n=!1){if(!$s)throw new Error(\"VITE_API_BASE_URL is not configured\");return(!(t!=null&&t.method)||t.metho"
+      },
+      "apiHealthFunction": {
+        "characterOffsetZeroBased": 148518,
+        "utf8ByteOffsetZeroBased": 148518,
+        "text": "function D_(e){return Gi(\"/health\",{signal:e},!0)}function Mk(e,t,n){return Gi(`/v1/book/${encodeURIComponent(e)}/${t}`,{signal:n})}function Ok(e,t,n){return Gi(`/v1/market/${encodeURIComponent(e)}/${t}/overview?limit=30`,{signal:n})}function F_(e,t,n,i){const s=new URLSearchParams({limit:\"30\",before:n});return Gi(`/v1/market/${encodeURIComponent(e)}/${t}/trades?${s}`,{signal:i})}function H_(e,t,n){return Gi(`/v1/market/${encodeURIComponent(e)}/${t}/holders`,{signal:n})}function z_(e,t,n){if(!sx)throw new Error(\"VI"
+      },
+      "healthFetchSetW": {
+        "characterOffsetZeroBased": 1101659,
+        "utf8ByteOffsetZeroBased": 1127741,
+        "text": "D_(x.signal).then($=>{if(!A)return;const D=L1($,M);q($),se(D.ready?null:D.reasons[0]??t(\"API 身份验证失败\",\"API identity validation failed\")),oe($.ourVenue),ae($.ourVenueAddress)}).catch($=>{!A||$.name===\"AbortError\"||se($ instanceof Error?$.message:t(\"无法加载 API 健康状态\",\"Unable to load API health\"))}).finally(()=>{T=!1}))};C();const N=window.setInterval(C,vF);return()=>{A=!1,x.abort(),window.clearInterval(N)}},[n,Ge,t]),f.useEffect(()=>{if(n||!HD())return;let x=!0;return pD().then(A=>{x&&A&&(Me(A),at(T=>T+1))}).catch(()=>{}"
+      },
+      "batchHealthConsumer": {
+        "characterOffsetZeroBased": 1090079,
+        "utf8ByteOffsetZeroBased": 1115683,
+        "text": "Al=(Ee=W==null?void 0:W.circuit)==null?void 0:Ee.batchMarket,Nl=WD(Al,Pe),ts=typeof zs==\"object\"&&gf(zs,\"circuit_buy\"),tr=typeof zs==\"object\"&&gf(zs,\"circuit_list\"),ra=La&&Pe.batchMarketActionsEnabled&&Nl&&!!Pe.batchBuyRouterAddress&&!!Pe.circuitBatchAskExchangeAddress&&!!Pe.circuitOfficialRouterAddress&&!!Bl&&!!gr&&Pe.circuitBatchAskFeeBps!==null&&Number.isSafeInteger(ia)&&ia>=0&&ia<=200&&Pe.circuitBatchAskFeeEpoch!==null&&/^[1-9][0-9]*$/.test(Pe.circuitBatchAskFeeEpoch),jl=ra&&ts,Rn=ra&&tr,I0=(yt=W==null?void 0:W"
+      },
+      "batchHealthEqualityFunction": {
+        "characterOffsetZeroBased": 1008868,
+        "utf8ByteOffsetZeroBased": 1034050,
+        "text": "function WD(e,t){const n=(i,s)=>!!(i&&s&&i.trim().toLowerCase()===s.trim().toLowerCase());return(e==null?void 0:e.phase)===\"active\"&&n(e.batchBuyRouter,t.batchBuyRouterAddress)&&(e.batchBuyRouterVersion===2||e.batchBuyRouterVersion===3)&&e.batchBuyRouterRuntimeCodeHash===t.batchBuyRouterRuntimeCodeHash&&n(e.transistorBatchSellRouter,t.transistorBatchSellRouterAddress)&&e.transistorBatchSellRouterVersion===2&&e.transistorBatchSellRouterRuntimeCodeHash===t.transistorBatchSellRouterRuntimeCodeHash&&n(e.circuitBatchAskExchange,t.circuitBatchAskExchangeAddress)&&e.circuitBatchAskExchangeVersion===1&&e.circuitBatchAskExchangeRuntimeCodeHash===t.circuitBatchAskExchangeRuntimeCodeHash&&String(e.circuitBatchAskFeeBps)===t.circuitBatchAskFeeBps&&e.circuitBatchAskFeeEpoch===t.circuitBatchAskFeeEpoch}const Pe=$D({VITE_CIRCUIT_MARKET_ENABLED:\"true\",VITE_POD_ENABLED:\"true\",VITE_CIRCUIT_CONTAINER_OPEN_ENABLED:\"false\",VITE_PROTOCOL_ANALYTICS_ENABLED:\"true\",VITE_CIRCUIT_ACTIONS_ENABLED:\"true\",VITE_CIRCUIT_EXECUTION_ENABLED:\"true\",VITE_CIRCUIT_EXCHANGE_ADDRESS:\"0xb17D0f8487123774F430d3B5708c7bb4143b68"
+      },
+      "configParserHashField": {
+        "characterOffsetZeroBased": 1005908,
+        "utf8ByteOffsetZeroBased": 1031090,
+        "text": "circuitBatchAskExchangeRuntimeCodeHash:((S=e.VITE_CIRCUIT_BATCH_ASK_EXCHANGE_RUNTIME_CODE_HASH)==null?void 0:S.trim())||null,circuitBatchAskFeeBps:((j=e.VITE_CIRCUIT_BATCH_ASK_FEE_BPS)==null?void 0:j.trim())||null,circuitBatchAskFeeEpoch:((L=e.VITE_CIRCUIT_BATCH_ASK_FEE_EPOCH)==null?void 0:L.trim())||null,circuitCapacityBidsEnabled:((R=e.VITE_CIRCUIT_CAPACITY_BIDS_ENABLED)==null?void 0:R.trim().toLowerCase())===\"true\",circuitCapacityBidActionsEnabled:((U=e.VITE_CIRCUIT_CAPACITY_BID_ACTIONS_ENABLED)==null?void 0:U.t"
+      },
+      "configuredHashLiteral": {
+        "characterOffsetZeroBased": 1010909,
+        "utf8ByteOffsetZeroBased": 1036091,
+        "text": "VITE_CIRCUIT_BATCH_ASK_EXCHANGE_RUNTIME_CODE_HASH:\"0x0a44a1aa18057cf5345eea9e1c58e4d40b0ff9c3da52c0f6eb8032320e7f23fb\",VITE_CIRCUIT_BATCH_ASK_FEE_BPS:\"100\",VITE_CIRCUIT_BATCH_ASK_FEE_EPOCH:\"1\",VITE_CIRCUIT_CAPACITY_BIDS_ENABLED:\"true\",VITE_CIRCUIT_CAPACITY_BID_ACTIONS_ENABLED:\"true\",VITE_CIRCUIT_CAPACITY_BID_EXCHANGE_ADDRESS:\"0x9273d46b77B67Ba9B24177C25EC25fcbADf27040\",VITE_CIRCUIT_CAPACITY_BID_RUNTIME_CODE_HASH:\"0xba136f70efd54699acdcbfbbbbcc6671debaa0bc7f88d67e135b6c585db938d3\",VITE_CIRCUIT_CAPACITY_BID_IMPLEMENT"
+      },
+      "onlyEthGetCodeWalletFunction": {
+        "characterOffsetZeroBased": 988201,
+        "utf8ByteOffsetZeroBased": 1013133,
+        "text": "async function gD(e){const t=Yi();await ur(t);const n=P(e.trim()),i=await bx(t,\"eth_getCode\",[n,\"latest\"]);if(!/^0x(?:[0-9a-fA-F]{2})*$/.test(i))throw new Error(\"Wallet returned invalid account code\");const s=i.toLowerCase();if(s===\"0x\")return{accountType:\"eoa\",receivesBnb:!0,receivesErc721:!0,receivesErc1155:!0};if(!rD.test(s))return{accountType:\"contract\",receivesBnb:!1,receivesErc721:!1,receivesErc1155:!1};const a=We({abi:P2,functionName:\"onERC721Received\",args:[n,n,0n,\"0x\"]}),o=We({abi:P2,functionName:\"onERC115"
+      }
+    }
+  }
+}

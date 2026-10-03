@@ -1,0 +1,42 @@
+{
+  "source": "Confirmed historical public mainnet transaction; not currently executable listing",
+  "transactionHash": "0x73f1e94ac9736937f323aeb9228e3e25af58d60ec4764549ea81aeccffaff2ae",
+  "blockNumber": "125506635",
+  "blockHash": "0xe7e985fa0056c1c4b5245d7fc71d9869f15f431447f745502b0bb9614398d4b2",
+  "router": "0x8b18af20165c3168c17f4f5a9250414e5df81d59",
+  "buyer": "0xccbf9ccec952f09f48fd5d3143c3210c78eead4a",
+  "assetRecipient": "0xcCbF9CCEc952F09f48FD5D3143C3210c78eEAD4A",
+  "routerDeadline": "1791040884",
+  "routerPaymentWei": "1387515052800000000",
+  "routerItemCount": 1,
+  "route": 4,
+  "itemPaymentWei": "1387515052800000000",
+  "batch": {
+    "maker": "0xc0f78ED17FbfE0737cb8863658414B6Ad71690Ee",
+    "merkleRoot": "0x5a23c69e0ed3c5003fe13515c246131e48a35e80efd816499a293ac44cf526f4",
+    "batchNonce": "51939345424450335059231712094048785691860111569030802050811607960725786164819",
+    "expiry": "1793627133",
+    "payoutRecipient": "0xc0f78ED17FbfE0737cb8863658414B6Ad71690Ee",
+    "feeBps": "100",
+    "feeEpoch": "1",
+    "schemaVersion": "1"
+  },
+  "leaf": {
+    "maker": "0xc0f78ED17FbfE0737cb8863658414B6Ad71690Ee",
+    "collection": "0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C",
+    "tokenId": "5181",
+    "price": "1373777280000000000",
+    "payoutRecipient": "0xc0f78ED17FbfE0737cb8863658414B6Ad71690Ee",
+    "feeBps": "100",
+    "feeEpoch": "1",
+    "batchNonce": "51939345424450335059231712094048785691860111569030802050811607960725786164819",
+    "leafIndex": "0",
+    "schemaVersion": "1"
+  },
+  "merkleProof": [],
+  "signature": "0xd30fd48dbb6f84e9144bc25d2ed19869f6c6b1a9a8a2144cf341e9eae24954f251e957b85d68d27eab6463f78bf8ea9b8c6766fba37659b41994ea15275b55081b",
+  "batchHash": "0xab09e1749a642c928066ebae251fcfb3fc3bb6ef5942037651b2d7fe519157b3",
+  "leafHash": "0x5a23c69e0ed3c5003fe13515c246131e48a35e80efd816499a293ac44cf526f4",
+  "recoveredMaker": "0xc0f78ED17FbfE0737cb8863658414B6Ad71690Ee",
+  "runtimeTrust": "unresolved advertised/runtime mismatch; fixture proves historical public order only"
+}

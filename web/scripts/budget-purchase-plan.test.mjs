@@ -4,7 +4,9 @@ import { ZeroAddress, getAddress } from 'ethers';
 import { selectBudgetCandidates,discoverBudgetPurchasePlan,validateBudgetQueue,prepareBudgetQueueStep,beginBudgetQueueStep,
   applyBudgetQueueResult,nextBudgetQueueItem,budgetQueuePreviewMatches,reconcileBudgetQueue,
   restoreBudgetQueueBeforeSubmission,budgetPurchaseQueueSupported } from '../lib/budget-purchase-plan.mjs';
-import { parseFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { parseFirstoSignedAsk, parseFirstoPurchaseOrder, encodeFirstoBudgetOrder, decodeFirstoBudgetOrder } from '../../deploy/src/firsto-purchase.mjs';
+import { batchSource } from '../../deploy/scripts/fixtures/firsto-batch-order.mjs';
+import { budgetApprovalDigest } from '../../deploy/shared/budget-queue.mjs';
 import { signedSource,now as sourceNow } from '../../deploy/scripts/fixtures/firsto-order.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,6 +34,24 @@ function fixture(candidates=[candidate(1),candidate(2)]){
 function final(phase,overrides={}){return{status:'confirmed',finalized:true,account,target:phase==='create'?factory:parent,
   factory:phase==='create'?factory:portfolioFactory,action:phase==='create'?'createBudgetChildPool':'buyOfficial',hash:H,nonce:4,poolAddress:child,
   receipt:{transactionHash:H,status:1},...overrides};}
+
+test('budget batch preview preserves the approved wrapper through the existing Authority ABI',async()=>{
+  const f=fixture(),source=await batchSource({price:'200'});
+  const order=parseFirstoPurchaseOrder(source,{collection:C,tokenId:'7',owner:source.account,now:sourceNow});
+  const wrapped=encodeFirstoBudgetOrder(order),plan={...await f.discover(),approved:true};
+  plan.items=[{collection:C,tokenId:'7',verifiedWeight:'10',venue:'firsto',maxCostWei:order.grossWei,
+    targetRaiseWei:'300',encodedOrder:wrapped,status:'created',child}];
+  plan.approvalDigest=budgetApprovalDigest(plan);
+  const display={...config,status:'ready',displayOnly:true};
+  const prepared=await prepareBudgetQueueStep({config:display,provider:{request:()=>assert.fail('No RPC in frozen-byte preview')},
+    account,parent,plan,index:0});
+  const call=abi.BudgetPortfolioVault.parseTransaction(prepared.transaction);
+  assert.equal(call.name,'buyFirsto');assert.equal(call.args[0],child);assert.equal(call.args[1],wrapped);
+  assert.equal(decodeFirstoBudgetOrder(call.args[1]).kind,1);
+  assert.equal(prepared.procurement.frozenOrder,wrapped);assert.equal(prepared.procurement.firstoKind,1);
+  const changed=structuredClone(plan);changed.items[0].encodedOrder=order.encodedOrder;
+  assert.throws(()=>validateBudgetQueue(changed),/approval changed/);
+});
 
 test('genesis and incomplete fresh Authority configuration cannot discover or submit a budget child purchase',async()=>{
   const f=fixture();let reads=0;

@@ -144,6 +144,9 @@ export function validateArtifacts(artifacts) {
   for (const name of libraryNames) assert.deepEqual(dependencies(artifacts[name]), name === 'FlexiblePurchase' ? ['PoolFunds', 'PurchaseValidation'] : name === 'FirstoSale'
     ? nativeSale ? ['MiningOperations','PoolFunds','RewardAccounting','SaleGovernance','SaleSettlement'] : ['SaleSettlement'] : [], `${name} has an unexpected external-library dependency.`);
   assert.deepEqual(dependencies(artifacts.PoolVault), libraryNames.filter(name => name !== 'PurchaseValidation').sort(), 'PoolVault direct links differ from the reviewed dependency graph.');
+  const budgetBatchEnvelope = artifacts.FlexiblePurchase.abi.some(entry => entry.type === 'function' && entry.name === 'unwrapBudgetFirsto');
+  assert.deepEqual(dependencies(artifacts.BudgetPortfolioVault), budgetBatchEnvelope
+    ? ['FlexiblePurchase', 'SaleGovernance'] : ['SaleGovernance'], 'BudgetPortfolioVault purchase helper links differ from its reviewed version.');
   linkedDeploymentOrder(artifacts);
 }
 

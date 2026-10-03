@@ -145,13 +145,16 @@ function linksFor(artifact, property) {
 function assertArtifacts(upgradeBundle) {
   for (const name of integratedUpgradeDeploymentOrder) {
     const artifact = upgradeBundle?.artifacts?.[name];
+    const expectedLinks = name === 'BudgetPortfolioVault'
+      && upgradeBundle.artifacts.FlexiblePurchase.abi.some(entry => entry.type === 'function' && entry.name === 'unwrapBudgetFirsto')
+      ? ['FlexiblePurchase', 'SaleGovernance'] : linkPolicy[name];
     requireThat(artifact?.contractName === name && artifact.bytecode?.startsWith('0x')
       && artifact.deployedBytecode?.startsWith('0x'), `Missing reviewed artifact: ${name}.`);
     for (const field of ['linkReferences', 'deployedLinkReferences']) {
-      requireThat(linksFor(artifact,field).join(',') === [...linkPolicy[name]].sort().join(','),
+      requireThat(linksFor(artifact,field).join(',') === [...expectedLinks].sort().join(','),
         `Unexpected ${name} ${field} graph.`);
     }
-    const fakeLinks = Object.fromEntries(linkPolicy[name].map(dep => [dep,`0x${'1'.repeat(40)}`]));
+    const fakeLinks = Object.fromEntries(expectedLinks.map(dep => [dep,`0x${'1'.repeat(40)}`]));
     spliceLinks(artifact.bytecode,artifact.linkReferences,fakeLinks);
     spliceLinks(artifact.deployedBytecode,artifact.deployedLinkReferences,fakeLinks);
     requireThat((artifact.deployedBytecode.length - 2) / 2 <= 24576, `${name} exceeds EIP-170 size.`);

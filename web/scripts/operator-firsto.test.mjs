@@ -5,6 +5,9 @@ import { abi, ARTIFACT_DIGEST } from '../lib/chain-client.mjs';
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from '../lib/live-admin.mjs';
 import { loadOperatorQuote, operatorQuoteDraft, readMachineRegistry } from '../lib/operator-quotes.mjs';
 import { operatorFirstoFixture } from './operator-firsto-fixture.mjs';
+import { parseFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
+import { batchSource } from '../../deploy/scripts/fixtures/firsto-batch-order.mjs';
+import { now as firstoNow } from '../../deploy/scripts/fixtures/firsto-order.mjs';
 
 const quote = f => loadOperatorQuote({ collection: f.data.quote.collection, tokenId: '7', config: f.config,
   provider: f.provider, fetcher: f.api.fetcher });
@@ -41,7 +44,25 @@ test('new registry plus signed Firsto order produces a fixed draft with fee-incl
   assert(f.calls.every(call => !/send|sign|wallet_/.test(call.method)));
 });
 
-test('old deployment, incomplete migration and batch ask never enable Firsto procurement', async () => {
+test('direct batch preview freezes the explicit route and exact leaf bytes without sending', async () => {
+  const f = await operatorFirstoFixture(), source = await batchSource();
+  const order = parseFirstoPurchaseOrder(source, { collection: source.execution.collection,
+    tokenId: '7', owner: source.account, now: firstoNow });
+  const config = { ...f.config, displayOnly: true, freshAuthority: { administratorOne: f.account } };
+  const input = { provider: f.provider, config, account: f.account, kind: 'buyFromFirsto',
+    pool: f.pool, firstoKind: order.kind, firstoOrder: order.encodedOrder };
+  const preview = await prepareAdminAction(input);
+  const parsed = abi.PoolVault.parseTransaction(preview.transaction);
+  assert.equal(parsed.args[0], 1n); assert.equal(parsed.args[1], order.encodedOrder);
+  assert.equal(preview.request.firstoKind, 1); assert.equal(preview.request.firstoOrder, order.encodedOrder);
+  const repeated = await prepareAdminAction({ provider: f.provider, config, account: f.account, ...preview.request });
+  assert.equal(repeated.transaction.data, preview.transaction.data);
+  await assert.rejects(prepareAdminAction({ ...input, firstoKind: 0 }));
+  await assert.rejects(prepareAdminAction({ ...input, firstoKind: 2 }), /采购路由/);
+  assert(f.calls.every(call => !/send|sign|wallet_/.test(call.method)));
+});
+
+test('old deployment, incomplete migration and mislabeled batch orders never enable Firsto procurement', async () => {
   for (const options of [{ old: true }, { ready: false }]) {
     const f = await operatorFirstoFixture(options), checked = await quote(f);
     assert.equal(checked.chain.firsto, null);
@@ -53,8 +74,8 @@ test('old deployment, incomplete migration and batch ask never enable Firsto pro
   f.data.row.bestAsk.execution.kind = 'circuit_batch_ask';
   f.data.page.sourceFreshness[`circuit_batch_ask_exchange:${f.source.execution.exchange.toLowerCase()}`] = Date.now();
   const checked = await quote(f);
-  assert.equal(checked.chain.firsto, null); assert.match(checked.chain.firstoError, /批量/);
-  assert.throws(() => operatorQuoteDraft(checked), /批量/);
+  assert.equal(checked.chain.firsto, null); assert.match(checked.chain.firstoError, /市场地址不受支持/);
+  assert.throws(() => operatorQuoteDraft(checked), /市场地址不受支持/);
   assert.equal(operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' }).kind, 'createFlexiblePoolChecked',
     'Batch metadata remains a flexible model reference, never a batch purchase authorization');
 });

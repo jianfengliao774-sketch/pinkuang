@@ -10,6 +10,7 @@ import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {TransferableBemRewards} from "./libraries/TransferableBemRewards.sol";
 import {SaleReviewPolicy} from "./libraries/SaleReviewPolicy.sol";
 import {SaleGovernance} from "./libraries/SaleGovernance.sol";
+import {FlexiblePurchase} from "./libraries/FlexiblePurchase.sol";
 import {BudgetGovernanceState} from "./BudgetGovernanceState.sol";
 
 interface IBudgetLegacyFactory {
@@ -41,8 +42,8 @@ interface IBudgetLegacySaleMarket {
 /// @notice A 100-share project that atomically buys separate, existing single-NFT pools.
 /// @dev Every child keeps its NFT and existing source/sale protections. This project
 /// holds all child shares; unclaimed BEM follows project shares when they move.
-/// @dev Its only linked library is SaleGovernance; its four linked call sites and the guarded
-///      child-sale execution path are audited in scripts/audit-linked-libraries.mjs.
+/// @dev SaleGovernance handles guarded child sales. FlexiblePurchase executes the exact
+///      prevalidated child purchase under this contract's outer nonReentrant lock.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, BudgetGovernanceState {
@@ -240,11 +241,9 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     function buyFirsto(address child, bytes calldata encodedOrder) external nonReentrant {
         _requireOperatorPurchase();
         (IBudgetChild pool, IPoolVault.PoolParams memory params) = _prepareChild(child);
-        // This entry point holds nonReentrant across every child call and the final budget update.
-        // slither-disable-next-line reentrancy-eth
-        pool.deposit{value: params.targetRaise}(100);
-        // slither-disable-next-line reentrancy-eth
-        pool.buyFromFirsto(0, encodedOrder);
+        // _prepareChild binds this registered designated child and exact amount. The outer
+        // nonReentrant spans both linked-helper child calls and final budget/custody accounting.
+        FlexiblePurchase.buyBudgetFirsto(child, params.targetRaise, encodedOrder);
         _finishChild(pool, params, false);
     }
 

@@ -1,0 +1,1272 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-03T16:13:09.091Z",
+  "ok": true,
+  "vault": {
+    "source": {
+      "path": "contracts/src/PoolVault.sol",
+      "sourceSha256": "39295d0e63de70749cf7e359b80648b0f58d16a8d4d2674539575471076a6306",
+      "compilerMetadataKeccak256": "0x470e677ad3f2f969b7f1fc4f851636b44211e06ed470fd6dc12456b05053cca2"
+    },
+    "selectionSource": {
+      "path": "contracts/src/PurchaseSelectionState.sol",
+      "sourceSha256": "9046f05ec3f27e800dec5d5ce14e559f1e73032a84af0a3518f747a04c347bfc",
+      "compilerMetadataKeccak256": "0x4a7b895dba7427c16fb37a0c54d8034ef38984b0e891129bd768e83229cdb176"
+    },
+    "artifactPath": "contracts/out/PoolVault.sol/PoolVault.json",
+    "artifactSha256": "c3a204b54712d4a6527af9078617cb4cd43afe2e62910a8b3b9b426c6e61e6aa",
+    "runtimeBytecodeTemplate": {
+      "sha256": "91f4cf7f9e0c8da7657d64bf3963ae7566a24539b0a23cd8a30265b5d815952a",
+      "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+      "byteLength": 24490,
+      "isDeployedCodeHash": false
+    },
+    "creationLinks": [
+      {
+        "source": "src/libraries/FirstoSale.sol",
+        "name": "FirstoSale",
+        "positions": [
+          {
+            "start": 1856,
+            "length": 20
+          },
+          {
+            "start": 5895,
+            "length": 20
+          },
+          {
+            "start": 6308,
+            "length": 20
+          },
+          {
+            "start": 6861,
+            "length": 20
+          },
+          {
+            "start": 7032,
+            "length": 20
+          },
+          {
+            "start": 8498,
+            "length": 20
+          },
+          {
+            "start": 9965,
+            "length": 20
+          },
+          {
+            "start": 10390,
+            "length": 20
+          },
+          {
+            "start": 11384,
+            "length": 20
+          },
+          {
+            "start": 12631,
+            "length": 20
+          },
+          {
+            "start": 14321,
+            "length": 20
+          },
+          {
+            "start": 14534,
+            "length": 20
+          },
+          {
+            "start": 16457,
+            "length": 20
+          },
+          {
+            "start": 16744,
+            "length": 20
+          },
+          {
+            "start": 17215,
+            "length": 20
+          },
+          {
+            "start": 18599,
+            "length": 20
+          },
+          {
+            "start": 19180,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$78b5405af2dc39a4f0857c6fb07d01a5b7$__"
+      },
+      {
+        "source": "src/libraries/FlexiblePurchase.sol",
+        "name": "FlexiblePurchase",
+        "positions": [
+          {
+            "start": 6129,
+            "length": 20
+          },
+          {
+            "start": 7458,
+            "length": 20
+          },
+          {
+            "start": 8813,
+            "length": 20
+          },
+          {
+            "start": 9890,
+            "length": 20
+          },
+          {
+            "start": 10158,
+            "length": 20
+          },
+          {
+            "start": 12508,
+            "length": 20
+          },
+          {
+            "start": 13523,
+            "length": 20
+          },
+          {
+            "start": 15115,
+            "length": 20
+          },
+          {
+            "start": 16905,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b195d2bd8baf3ceff66b9a06774754aabb$__"
+      },
+      {
+        "source": "src/libraries/MiningOperations.sol",
+        "name": "MiningOperations",
+        "positions": [
+          {
+            "start": 11799,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+      },
+      {
+        "source": "src/libraries/PoolFunds.sol",
+        "name": "PoolFunds",
+        "positions": [
+          {
+            "start": 7356,
+            "length": 20
+          },
+          {
+            "start": 8064,
+            "length": 20
+          },
+          {
+            "start": 12942,
+            "length": 20
+          },
+          {
+            "start": 13056,
+            "length": 20
+          },
+          {
+            "start": 17540,
+            "length": 20
+          },
+          {
+            "start": 18051,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+      },
+      {
+        "source": "src/libraries/RewardAccounting.sol",
+        "name": "RewardAccounting",
+        "positions": [
+          {
+            "start": 8939,
+            "length": 20
+          },
+          {
+            "start": 9307,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+      },
+      {
+        "source": "src/libraries/SaleGovernance.sol",
+        "name": "SaleGovernance",
+        "positions": [
+          {
+            "start": 7694,
+            "length": 20
+          },
+          {
+            "start": 10576,
+            "length": 20
+          },
+          {
+            "start": 10710,
+            "length": 20
+          },
+          {
+            "start": 13998,
+            "length": 20
+          },
+          {
+            "start": 14471,
+            "length": 20
+          },
+          {
+            "start": 18425,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+      },
+      {
+        "source": "src/libraries/SaleSettlement.sol",
+        "name": "SaleSettlement",
+        "positions": [
+          {
+            "start": 8226,
+            "length": 20
+          },
+          {
+            "start": 11209,
+            "length": 20
+          },
+          {
+            "start": 13783,
+            "length": 20
+          },
+          {
+            "start": 17655,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$ef481e6d5f233a2eaf0b44fa36c9423d5b$__"
+      },
+      {
+        "source": "src/libraries/ShareCheckpoints.sol",
+        "name": "ShareCheckpoints",
+        "positions": [
+          {
+            "start": 19454,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$3b9cb3bf55748b5c493715a4e15268fc92$__"
+      }
+    ],
+    "runtimeLinks": [
+      {
+        "source": "src/libraries/FirstoSale.sol",
+        "name": "FirstoSale",
+        "positions": [
+          {
+            "start": 1470,
+            "length": 20
+          },
+          {
+            "start": 5509,
+            "length": 20
+          },
+          {
+            "start": 5922,
+            "length": 20
+          },
+          {
+            "start": 6475,
+            "length": 20
+          },
+          {
+            "start": 6646,
+            "length": 20
+          },
+          {
+            "start": 8112,
+            "length": 20
+          },
+          {
+            "start": 9579,
+            "length": 20
+          },
+          {
+            "start": 10004,
+            "length": 20
+          },
+          {
+            "start": 10998,
+            "length": 20
+          },
+          {
+            "start": 12245,
+            "length": 20
+          },
+          {
+            "start": 13935,
+            "length": 20
+          },
+          {
+            "start": 14148,
+            "length": 20
+          },
+          {
+            "start": 16071,
+            "length": 20
+          },
+          {
+            "start": 16358,
+            "length": 20
+          },
+          {
+            "start": 16829,
+            "length": 20
+          },
+          {
+            "start": 18213,
+            "length": 20
+          },
+          {
+            "start": 18794,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$78b5405af2dc39a4f0857c6fb07d01a5b7$__"
+      },
+      {
+        "source": "src/libraries/FlexiblePurchase.sol",
+        "name": "FlexiblePurchase",
+        "positions": [
+          {
+            "start": 5743,
+            "length": 20
+          },
+          {
+            "start": 7072,
+            "length": 20
+          },
+          {
+            "start": 8427,
+            "length": 20
+          },
+          {
+            "start": 9504,
+            "length": 20
+          },
+          {
+            "start": 9772,
+            "length": 20
+          },
+          {
+            "start": 12122,
+            "length": 20
+          },
+          {
+            "start": 13137,
+            "length": 20
+          },
+          {
+            "start": 14729,
+            "length": 20
+          },
+          {
+            "start": 16519,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b195d2bd8baf3ceff66b9a06774754aabb$__"
+      },
+      {
+        "source": "src/libraries/MiningOperations.sol",
+        "name": "MiningOperations",
+        "positions": [
+          {
+            "start": 11413,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+      },
+      {
+        "source": "src/libraries/PoolFunds.sol",
+        "name": "PoolFunds",
+        "positions": [
+          {
+            "start": 6970,
+            "length": 20
+          },
+          {
+            "start": 7678,
+            "length": 20
+          },
+          {
+            "start": 12556,
+            "length": 20
+          },
+          {
+            "start": 12670,
+            "length": 20
+          },
+          {
+            "start": 17154,
+            "length": 20
+          },
+          {
+            "start": 17665,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+      },
+      {
+        "source": "src/libraries/RewardAccounting.sol",
+        "name": "RewardAccounting",
+        "positions": [
+          {
+            "start": 8553,
+            "length": 20
+          },
+          {
+            "start": 8921,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+      },
+      {
+        "source": "src/libraries/SaleGovernance.sol",
+        "name": "SaleGovernance",
+        "positions": [
+          {
+            "start": 7308,
+            "length": 20
+          },
+          {
+            "start": 10190,
+            "length": 20
+          },
+          {
+            "start": 10324,
+            "length": 20
+          },
+          {
+            "start": 13612,
+            "length": 20
+          },
+          {
+            "start": 14085,
+            "length": 20
+          },
+          {
+            "start": 18039,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+      },
+      {
+        "source": "src/libraries/SaleSettlement.sol",
+        "name": "SaleSettlement",
+        "positions": [
+          {
+            "start": 7840,
+            "length": 20
+          },
+          {
+            "start": 10823,
+            "length": 20
+          },
+          {
+            "start": 13397,
+            "length": 20
+          },
+          {
+            "start": 17269,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$ef481e6d5f233a2eaf0b44fa36c9423d5b$__"
+      },
+      {
+        "source": "src/libraries/ShareCheckpoints.sol",
+        "name": "ShareCheckpoints",
+        "positions": [
+          {
+            "start": 19068,
+            "length": 20
+          }
+        ],
+        "placeholder": "__$3b9cb3bf55748b5c493715a4e15268fc92$__"
+      }
+    ]
+  },
+  "libraries": [
+    {
+      "name": "FirstoSale",
+      "source": {
+        "path": "contracts/src/libraries/FirstoSale.sol",
+        "sourceSha256": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+        "compilerMetadataKeccak256": "0xa9f7dad0f237ebccbf7846d3e321f706a5092ca7d5ea304e633d76be2e2bc6f5"
+      },
+      "artifactPath": "contracts/out/FirstoSale.sol/FirstoSale.json",
+      "artifactSha256": "a64d4650769c034be3734d40b471d41fe236484bd029d96deb2c89bdad2ebde6",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "11c91652144276348a449fb159b5dbb9cc66ab206137d6d577c53bf029f480ac",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 18260,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [
+        {
+          "source": "src/libraries/MiningOperations.sol",
+          "name": "MiningOperations",
+          "positions": [
+            {
+              "start": 10059,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+        },
+        {
+          "source": "src/libraries/PoolFunds.sol",
+          "name": "PoolFunds",
+          "positions": [
+            {
+              "start": 4230,
+              "length": 20
+            },
+            {
+              "start": 4465,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+        },
+        {
+          "source": "src/libraries/RewardAccounting.sol",
+          "name": "RewardAccounting",
+          "positions": [
+            {
+              "start": 3684,
+              "length": 20
+            },
+            {
+              "start": 3928,
+              "length": 20
+            },
+            {
+              "start": 6629,
+              "length": 20
+            },
+            {
+              "start": 10154,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+        },
+        {
+          "source": "src/libraries/SaleGovernance.sol",
+          "name": "SaleGovernance",
+          "positions": [
+            {
+              "start": 3089,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+        },
+        {
+          "source": "src/libraries/SaleSettlement.sol",
+          "name": "SaleSettlement",
+          "positions": [
+            {
+              "start": 6534,
+              "length": 20
+            },
+            {
+              "start": 7518,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$ef481e6d5f233a2eaf0b44fa36c9423d5b$__"
+        }
+      ],
+      "runtimeLinks": [
+        {
+          "source": "src/libraries/MiningOperations.sol",
+          "name": "MiningOperations",
+          "positions": [
+            {
+              "start": 10006,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$b21bce0635ec5bd4fd1d1f4f08011370b6$__"
+        },
+        {
+          "source": "src/libraries/PoolFunds.sol",
+          "name": "PoolFunds",
+          "positions": [
+            {
+              "start": 4177,
+              "length": 20
+            },
+            {
+              "start": 4412,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+        },
+        {
+          "source": "src/libraries/RewardAccounting.sol",
+          "name": "RewardAccounting",
+          "positions": [
+            {
+              "start": 3631,
+              "length": 20
+            },
+            {
+              "start": 3875,
+              "length": 20
+            },
+            {
+              "start": 6576,
+              "length": 20
+            },
+            {
+              "start": 10101,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$1e192caa221dcd85c9b1000f9d343685b2$__"
+        },
+        {
+          "source": "src/libraries/SaleGovernance.sol",
+          "name": "SaleGovernance",
+          "positions": [
+            {
+              "start": 3036,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+        },
+        {
+          "source": "src/libraries/SaleSettlement.sol",
+          "name": "SaleSettlement",
+          "positions": [
+            {
+              "start": 6481,
+              "length": 20
+            },
+            {
+              "start": 7465,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$ef481e6d5f233a2eaf0b44fa36c9423d5b$__"
+        }
+      ],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "FlexiblePurchase",
+      "source": {
+        "path": "contracts/src/libraries/FlexiblePurchase.sol",
+        "sourceSha256": "0d1cbbbfd47e99e5d52fd280ef8d47d95c8871e02269b49ba95124f435df0a0a",
+        "compilerMetadataKeccak256": "0x0ac9017e202ea6a56fea0347bdf149ce43f970935f41ce2440b654c6c85b717d"
+      },
+      "artifactPath": "contracts/out/FlexiblePurchase.sol/FlexiblePurchase.json",
+      "artifactSha256": "ddf878d3284a062f23215efd1c407edda8649c89dcc8bf70db7ddd8637b4da38",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "8bc90d87dfbda2db9a7316698e8e24db3739c84c6e46d87ec25f92d5adf4ce7a",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 18554,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [
+        {
+          "source": "src/libraries/PoolFunds.sol",
+          "name": "PoolFunds",
+          "positions": [
+            {
+              "start": 10296,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+        },
+        {
+          "source": "src/libraries/PurchaseValidation.sol",
+          "name": "PurchaseValidation",
+          "positions": [
+            {
+              "start": 3264,
+              "length": 20
+            },
+            {
+              "start": 4549,
+              "length": 20
+            },
+            {
+              "start": 5243,
+              "length": 20
+            },
+            {
+              "start": 10109,
+              "length": 20
+            },
+            {
+              "start": 12410,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+        }
+      ],
+      "runtimeLinks": [
+        {
+          "source": "src/libraries/PoolFunds.sol",
+          "name": "PoolFunds",
+          "positions": [
+            {
+              "start": 10243,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$bca84b0a969f34bc1db86f131b8a9cc179$__"
+        },
+        {
+          "source": "src/libraries/PurchaseValidation.sol",
+          "name": "PurchaseValidation",
+          "positions": [
+            {
+              "start": 3211,
+              "length": 20
+            },
+            {
+              "start": 4496,
+              "length": 20
+            },
+            {
+              "start": 5190,
+              "length": 20
+            },
+            {
+              "start": 10056,
+              "length": 20
+            },
+            {
+              "start": 12357,
+              "length": 20
+            }
+          ],
+          "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+        }
+      ],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "additionalNamespace": {
+          "namespace": "erc7201:tapeout.storage.FlexiblePurchase",
+          "slot": "0xabb161195ab2dca5bb4a3b74cf71ac027f503287a65da4d00c8f2426b582f100",
+          "definition": "src/PurchaseSelectionState.sol:PurchaseSelectionState.SelectionStorage",
+          "note": "Inherited by PoolVault; fields and nested config are extracted by OpenZeppelin storage validation, not inferred from library AST."
+        },
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "MiningOperations",
+      "source": {
+        "path": "contracts/src/libraries/MiningOperations.sol",
+        "sourceSha256": "3cfec5709ad73515b7c4ede7540af5b909f403699761b1878dc7cff575041ce2",
+        "compilerMetadataKeccak256": "0x5b07bccf415b44c5547bce2a7ee6d45658b7c24cf5afa546187bdc2f78a14b10"
+      },
+      "artifactPath": "contracts/out/MiningOperations.sol/MiningOperations.json",
+      "artifactSha256": "3aa6b02f823dfe724225788245082a4ac7dfa6228778fe0fca460a2a8f2013cb",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "14632a4af1d7e21143f79ccd0f92cd2727de3686fe6984c1214e1be62e48c775",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 5993,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [
+          {
+            "target": "MINING",
+            "address": "0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46",
+            "sourceLocation": "2642:11:176"
+          }
+        ],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "PoolFunds",
+      "source": {
+        "path": "contracts/src/libraries/PoolFunds.sol",
+        "sourceSha256": "9840d881d7bf096b4faee54cac3aade90a7f4cb90dce6202d94cfbc288afd44f",
+        "compilerMetadataKeccak256": "0x351cf865038c63bbeb8e76350f765d23da6fd169bffb6f2d747a88824eaa05ba"
+      },
+      "artifactPath": "contracts/out/PoolFunds.sol/PoolFunds.json",
+      "artifactSha256": "79075bf6116b1d3f61eb0ebafe31695b906b2f9f29cb8c21793164ed86f9a676",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "3f1be7b5b36b697a1dc683209622df8a5c1a824b5e5bde42d33b8382790b37e3",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 3842,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [
+          {
+            "target": "msg.sender",
+            "purpose": "Original caller pulls its already-cleared BNB credit under Vault nonReentrant.",
+            "sourceLocation": "5494:15:177"
+          }
+        ],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "PurchaseValidation",
+      "source": {
+        "path": "contracts/src/libraries/PurchaseValidation.sol",
+        "sourceSha256": "b63c5915861056edbedf95887ca954a319b7ba6a65df6cf9315fe03875ab8bae",
+        "compilerMetadataKeccak256": "0x9ffdfc0f0f2b630a0ac21a782a31e8725bfa9ee0ca7bf1a045d1e9485c1d5744"
+      },
+      "artifactPath": "contracts/out/PurchaseValidation.sol/PurchaseValidation.json",
+      "artifactSha256": "da5123d1aba9911dc76321adb2c4b88d3a90c3ceccdc9594cf801081deb9fa97",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "617f84eb917ce237543a3221e9e9b23bbf4e2fca4fd44da6cd35a48bff12b1f8",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 5069,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "RewardAccounting",
+      "source": {
+        "path": "contracts/src/libraries/RewardAccounting.sol",
+        "sourceSha256": "0538ce9d4e66d5b834bd18977ccb8aaae78d86ff2e3f0c0b0512120a44b096e1",
+        "compilerMetadataKeccak256": "0x98038babb518b78ea31704a0d07779738c053dc817f121645435e6f6af4a5208"
+      },
+      "artifactPath": "contracts/out/RewardAccounting.sol/RewardAccounting.json",
+      "artifactSha256": "228c601f2e7dbe4f7735591983e9bc02b9cd2cf3172275ce3a5285c163820087",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "5cff76854cffb66599557f815977a122de60c2160e9a1c6b11df8f382d7703a8",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 4851,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "SaleGovernance",
+      "source": {
+        "path": "contracts/src/libraries/SaleGovernance.sol",
+        "sourceSha256": "1ec104d118f8b7a3ee2221e3ea46c2a9e21311eb9f3bf1f22604b87f96cce2f1",
+        "compilerMetadataKeccak256": "0x61000821f95d57746c6004e46b962f2dcf7c82b7bf6168a17414debcbba27254"
+      },
+      "artifactPath": "contracts/out/SaleGovernance.sol/SaleGovernance.json",
+      "artifactSha256": "d8294b8ed543bf76b37f14d639e2777e78b738423761ade97f4201db65b5386c",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "e90dab3174e219888f3bb377e0191223ccc7696f18f514600cbf3bae961139bd",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 6535,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "SaleSettlement",
+      "source": {
+        "path": "contracts/src/libraries/SaleSettlement.sol",
+        "sourceSha256": "f951d8a7ff40f268cbe3596947690d4882967c2f5ceacbc79768f41de78ab4d8",
+        "compilerMetadataKeccak256": "0x84e5c37bf0d4d736660b7152f6a7de9fda2e8f178755b3f429984ce9044312f5"
+      },
+      "artifactPath": "contracts/out/SaleSettlement.sol/SaleSettlement.json",
+      "artifactSha256": "e852142d15d04c0b36ca25b53a741ebc5dd8ecb1a2c45dd9ac27d5a23a4ce7f6",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "c6ee334d09f5409d4b0e10577ea7f207ad03f5d36a973028d2d38229e98c11f9",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 4205,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    },
+    {
+      "name": "ShareCheckpoints",
+      "source": {
+        "path": "contracts/src/libraries/ShareCheckpoints.sol",
+        "sourceSha256": "29ba22ed281267e34fbeb9795bbcd10b4c0efd57acb7a623f1938bdd0232af18",
+        "compilerMetadataKeccak256": "0x6d6da862e0f131e1c0e5d1b8610eee12d164a47291b81eeb1114c0d96c9c7eb0"
+      },
+      "artifactPath": "contracts/out/ShareCheckpoints.sol/ShareCheckpoints.json",
+      "artifactSha256": "8214c23f33da210a8e4035fab16bc4fe67c0d76018182a12b21c8433a9fce149",
+      "compilerVersion": "0.8.24+commit.e11b9ed9",
+      "runtimeBytecodeTemplate": {
+        "sha256": "c73ce52a099f22a0831761719cc8bb8d1e2187822918e59d258d98f50eee4d3f",
+        "hashDefinition": "SHA-256 of the exact UTF-8 artifact bytecode.object string, including 0x and any placeholders.",
+        "byteLength": 1466,
+        "isDeployedCodeHash": false
+      },
+      "creationLinks": [],
+      "runtimeLinks": [],
+      "astReview": {
+        "compilerAstChecked": true,
+        "inheritance": [],
+        "ordinaryStorageFields": 0,
+        "mutableStateDeclarations": 0,
+        "explicitDelegatecallOrCallcode": false,
+        "selfdestruct": false,
+        "rawCalls": [],
+        "scope": "Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests."
+      }
+    }
+  ],
+  "firstoExecutor": {
+    "source": {
+      "path": "contracts/src/FirstoSaleExecutor.sol",
+      "sourceSha256": "d4769acd60b8ab3e479e5feeaa3b692e3ae0a2345255649a5bfa432c7a2ba4c0",
+      "compilerMetadataKeccak256": "0x6849872cbc4403b52a1ae3d2614e6c29b654bdd0859d8e9283ac1adcf60709aa"
+    },
+    "artifactPath": "contracts/out/FirstoSaleExecutor.sol/FirstoSaleExecutor.json",
+    "constructorOnly": true,
+    "fixedExchange": true
+  },
+  "firstoSaleLinking": {
+    "source": {
+      "path": "contracts/src/libraries/FirstoSale.sol",
+      "sourceSha256": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+      "compilerMetadataKeccak256": "0xa9f7dad0f237ebccbf7846d3e321f706a5092ca7d5ea304e633d76be2e2bc6f5"
+    },
+    "artifactPath": "contracts/out/FirstoSale.sol/FirstoSale.json",
+    "callSites": {
+      "MiningOperations": [
+        "claimReward"
+      ],
+      "PoolFunds": [
+        "materializePurchase"
+      ],
+      "RewardAccounting": [
+        "account",
+        "settle"
+      ],
+      "SaleGovernance": [
+        "tradingFrozen"
+      ],
+      "SaleSettlement": [
+        "completeNative",
+        "prepareFirsto"
+      ]
+    },
+    "note": "Only the pinned external library functions are reachable from FirstoSale; exact linked template addresses are verified by deployment evidence."
+  },
+  "context": {
+    "factoryLinking": {
+      "PoolFactory": {
+        "source": {
+          "path": "contracts/src/PoolFactory.sol",
+          "sourceSha256": "466fcda12585c7eeea2afde0cdd5263a9377b4b5635b44173700033272d52ab8",
+          "compilerMetadataKeccak256": "0x3d1774e475de5be190e5cb03c1c89f05fd42bc0d57827e37ea131a992177598f"
+        },
+        "creationLinks": [
+          {
+            "source": "src/libraries/PurchaseValidation.sol",
+            "name": "PurchaseValidation",
+            "positions": [
+              {
+                "start": 5026,
+                "length": 20
+              },
+              {
+                "start": 9737,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+          }
+        ],
+        "runtimeLinks": [
+          {
+            "source": "src/libraries/PurchaseValidation.sol",
+            "name": "PurchaseValidation",
+            "positions": [
+              {
+                "start": 4770,
+                "length": 20
+              },
+              {
+                "start": 9481,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+          }
+        ],
+        "callSites": [
+          {
+            "name": "liveMachineReservation",
+            "stateMutability": "view",
+            "library": "PurchaseValidation"
+          },
+          {
+            "name": "validatePoolParams",
+            "stateMutability": "view",
+            "library": "PurchaseValidation"
+          }
+        ],
+        "note": "Only two external PurchaseValidation calls are present; both target compiler-resolved external view functions."
+      },
+      "FreshPoolFactory": {
+        "source": {
+          "path": "contracts/src/FreshPoolFactory.sol",
+          "sourceSha256": "d6aa760de68697849f303c60de9aeeb895bf06e37a87903172ba00c51e1b2451",
+          "compilerMetadataKeccak256": "0x8fee28bd933a714f0bc72d218619b342d959bf189d0ee8ce8dae90bf1396e356"
+        },
+        "creationLinks": [
+          {
+            "source": "src/libraries/PurchaseValidation.sol",
+            "name": "PurchaseValidation",
+            "positions": [
+              {
+                "start": 4780,
+                "length": 20
+              },
+              {
+                "start": 8810,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+          }
+        ],
+        "runtimeLinks": [
+          {
+            "source": "src/libraries/PurchaseValidation.sol",
+            "name": "PurchaseValidation",
+            "positions": [
+              {
+                "start": 4524,
+                "length": 20
+              },
+              {
+                "start": 8554,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$71703a57f98db698db2a7e3df812221c10$__"
+          }
+        ],
+        "base": "PoolFactory",
+        "note": "FreshPoolFactory inherits the exact reviewed PoolFactory call surface."
+      },
+      "BudgetPortfolioVault": {
+        "source": {
+          "path": "contracts/src/BudgetPortfolioVault.sol",
+          "sourceSha256": "b71a5fe6e165970ca2fd1cacda20bdc724855e54d8433b41a3c6ce688fc8f346",
+          "compilerMetadataKeccak256": "0xeef87467c9e96c653489165897433dc81ac8bb9bd4efe62730e27886188c110e"
+        },
+        "creationLinks": [
+          {
+            "source": "src/libraries/FlexiblePurchase.sol",
+            "name": "FlexiblePurchase",
+            "positions": [
+              {
+                "start": 10704,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$b195d2bd8baf3ceff66b9a06774754aabb$__"
+          },
+          {
+            "source": "src/libraries/SaleGovernance.sol",
+            "name": "SaleGovernance",
+            "positions": [
+              {
+                "start": 8392,
+                "length": 20
+              },
+              {
+                "start": 9663,
+                "length": 20
+              },
+              {
+                "start": 10139,
+                "length": 20
+              },
+              {
+                "start": 10368,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+          }
+        ],
+        "runtimeLinks": [
+          {
+            "source": "src/libraries/FlexiblePurchase.sol",
+            "name": "FlexiblePurchase",
+            "positions": [
+              {
+                "start": 10282,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$b195d2bd8baf3ceff66b9a06774754aabb$__"
+          },
+          {
+            "source": "src/libraries/SaleGovernance.sol",
+            "name": "SaleGovernance",
+            "positions": [
+              {
+                "start": 7970,
+                "length": 20
+              },
+              {
+                "start": 9241,
+                "length": 20
+              },
+              {
+                "start": 9717,
+                "length": 20
+              },
+              {
+                "start": 9946,
+                "length": 20
+              }
+            ],
+            "placeholder": "__$64c3d9780591e57674880eb05068e31670$__"
+          }
+        ],
+        "callSites": [
+          {
+            "name": "budgetReviewPolicy",
+            "stateMutability": "nonpayable",
+            "library": "SaleGovernance"
+          },
+          {
+            "name": "requirePortfolioReviewable",
+            "stateMutability": "pure",
+            "library": "SaleGovernance"
+          },
+          {
+            "name": "requirePortfolioSaleApproved",
+            "stateMutability": "pure",
+            "library": "SaleGovernance"
+          },
+          {
+            "name": "executeBudgetChildSale",
+            "stateMutability": "nonpayable",
+            "library": "SaleGovernance"
+          },
+          {
+            "name": "buyBudgetFirsto",
+            "stateMutability": "nonpayable",
+            "library": "FlexiblePurchase",
+            "authorization": "_requireOperatorPurchase + _prepareChild before call; _finishChild afterwards; outer nonReentrant"
+          }
+        ],
+        "childSaleNonReentrant": true,
+        "note": "SaleGovernance and FlexiblePurchase are storage-free; child sale and purchase writes run under BudgetPortfolioVault.nonReentrant. Purchase authorizes and binds the child before the helper, then reconciles ownership and funds."
+      }
+    },
+    "execution": "Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.",
+    "reentrancy": "Vault owns the nonReentrant purchase/payment entry points. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.",
+    "upgradeValidationException": "PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory narrowly annotates external-library-linking after the two view-only PurchaseValidation call sites are pinned above. BudgetPortfolioVault SaleGovernance and FlexiblePurchase call sites, guarded child-sale execution and purchase authorization/call/reconciliation sequence are pinned above. Storage validation is not skipped; immutable factory values are verified separately.",
+    "limitations": "Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code."
+  }
+}

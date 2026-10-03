@@ -74,6 +74,9 @@ function assertCandidate(input) {
   'Candidate code does not match the independently pinned upgrade digest.');
   for(const name of freshUpgradeDeploymentOrder) {
     const artifact=input.upgradeBundle.artifacts?.[name];
+    const expectedLinks=name==='BudgetPortfolioVault'
+      && input.upgradeBundle.artifacts.FlexiblePurchase.abi.some(entry=>entry.type==='function' && entry.name==='unwrapBudgetFirsto')
+      ? ['FlexiblePurchase','SaleGovernance'] : links[name];
     insist(artifact?.contractName===name && artifact.bytecode?.startsWith('0x')
       && artifact.deployedBytecode?.startsWith('0x') && (artifact.deployedBytecode.length-2)/2<=24576,
     `Missing or oversized reviewed candidate ${name}.`);
@@ -83,7 +86,7 @@ function assertCandidate(input) {
         insist(source===`src/libraries/${dep}.sol` && Array.isArray(locations) && locations.length>0,
           `Unexpected ${name} ${field} graph.`); found.push(dep);
       }
-      insist([...new Set(found)].sort().join(',')===[...links[name]].sort().join(','),`Unexpected ${name} ${field} dependencies.`);
+      insist([...new Set(found)].sort().join(',')===[...expectedLinks].sort().join(','),`Unexpected ${name} ${field} dependencies.`);
     }
   }
 }
