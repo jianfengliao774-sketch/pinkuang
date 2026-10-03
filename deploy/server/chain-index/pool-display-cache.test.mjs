@@ -10,27 +10,43 @@ import { createChainIndexServer } from './api.mjs';
 const address=n=>'0x'+String(n).padStart(40,'0');
 const factory=address(1),lens=address(2),pool=address(3),account=address(4),market=address(5);
 const blockHash='0x'+'ab'.repeat(32);
+const creationBlockHash='0x'+'05'.repeat(32);
 const collection='0xb1024b89886b9a34aa4ff5f31c411d708b20a14c';
 const binding=new Interface(['function lens() view returns(address)','function factory() view returns(address)','function VERSION() view returns(uint256)']);
+const targetOwnerAbi=new Interface(['function ownerOf(uint256) view returns(address)']);
+const targetModeAbi=new Interface(['function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)']);
 function fixture() {
-  let fork=false,failed=false,calls=0,time=1000000,tokenId=12962n,state=2n;
+  let fork=false,failed=false,calls=0,time=1000000,tokenId=12962n,state=2n,currentOwner=account,targetFailed=false;
+  const targetCalls=[];
   const source={complete:true,unknownReason:null,chainId:56,factory,market,startBlock:1,confirmations:12,
     indexedThrough:10,indexedTimestamp:1000,observedSafeHead:10,indexedBlockHash:blockHash,
     checkedAt:new Date(time).toISOString(),registeredPoolCount:'1'};
-  const directory={source,pools:[{address:pool}],orders:[],stats:{scope:'confirmed_indexed_history',registeredPoolCount:'1'}};
-  const index={factory,market,snapshotTrusted:true,_header:()=>({hash:fork?'0x'+'cd'.repeat(32):blockHash}),
+  const directory={source,pools:[{address:pool,createdBlock:5,collection,circuitId:'12962'}],orders:[],stats:{scope:'confirmed_indexed_history',registeredPoolCount:'1'}};
+  const index={factory,market,snapshotTrusted:true,_header:block=>({hash:fork?'0x'+'cd'.repeat(32):block===5?creationBlockHash:source.indexedBlockHash}),
     verifiedDisplaySnapshot:()=>index.snapshotTrusted?directory:null,status:()=>source,syncing:false,
-    db:{prepare:query=>query.startsWith('SELECT address')?{all:()=>[{address:pool}]}:{iterate:()=>[{args:JSON.stringify({user:account})}],get:()=>null}}};
-  const provider={getBlock:async()=>{calls++;return {hash:fork?'0x'+'cd'.repeat(32):blockHash,timestamp:1000};},
+    db:{prepare:query=>query.startsWith('SELECT address')?{all:()=>[{address:pool}]}:query.includes("kind='factory'")
+      ?{iterate:()=>[{block_number:5,tx_index:1,log_index:3,args:JSON.stringify({pool,circuits:collection,circuitId:'12962'})}]}
+      :{iterate:()=>[{args:JSON.stringify({user:account})}],get:()=>null}}};
+  const provider={getBlock:async block=>{calls++;return {hash:fork?'0x'+'cd'.repeat(32):block===5?creationBlockHash:source.indexedBlockHash,timestamp:1000};},
+    getLogs:async()=>{calls++;targetCalls.push('transfers');return [];},
     send:async(method,params)=>{
       calls++;if(failed) throw new Error('offline');if(method==='eth_chainId') return '0x38';
-      assert.equal(method,'eth_call');assert.equal(params[1],'0xa');
+      assert.equal(method,'eth_call');
+      if(params[0].to===collection) {
+        targetCalls.push('owner:'+params[1]);if(targetFailed)throw new Error('owner unavailable');
+        return targetOwnerAbi.encodeFunctionResult('ownerOf',[params[1]==='0x5'?account:currentOwner]);
+      }
+      if(params[0].to===pool) {
+        targetCalls.push('mode');return targetModeAbi.encodeFunctionResult('flexiblePurchase',
+          [false,tokenId,[0n,0n,0n,0n,0n,0n,'0x'+'00'.repeat(32)]]);
+      }
+      assert.equal(params[1],'0x'+source.indexedThrough.toString(16));
       const request=params[0],iface=request.to===market?abi.ShareMarket:request.to===lens && request.data.startsWith(abi.PoolLens.getFunction('positions').selector)?abi.PoolLens:binding;
       const call=iface.parseTransaction(request);let value;
       if(call.name==='lens')value=lens;else if(call.name==='factory')value=factory;else if(call.name==='VERSION')value=1n;
       else if(call.name==='bnbOwed')value=13n;else {
         const own=call.args[1].toLowerCase()===account;
-        value={blockNumber:10n,timestamp:1000n,totalPools:1n,nextCursor:1n,registryCountValid:true,pools:[{
+        value={blockNumber:BigInt(source.indexedThrough),timestamp:1000n,totalPools:1n,nextCursor:1n,registryCountValid:true,pools:[{
           pool,status:{validMask:(1n<<17n)-1n,errorMask:0n,trustError:0n},
           params:{circuits:collection,circuitId:tokenId,targetRaise:111100000000000000n,priceCap:101000000000000000n,
             directSeller:ZeroAddress,directPrice:0n,fundingDeadline:2000n,purchaseDeadline:3000n},
@@ -41,6 +57,9 @@ function fixture() {
       return iface.encodeFunctionResult(call.name,[value]);
     }};
   return {index,provider,now:()=>time,get calls(){return calls;},fork:()=>{fork=true;},fail:()=>{failed=true;},advance:n=>{time+=n;},
+    targetCalls,setOwner:value=>{currentOwner=value;},failTarget:()=>{targetFailed=true;},
+    nextBlock:()=>{source.indexedThrough++;source.observedSafeHead=source.indexedThrough;
+      source.indexedBlockHash='0x'+source.indexedThrough.toString(16).padStart(64,'0');},
     setToken:value=>{tokenId=BigInt(value);},setState:value=>{state=BigInt(value);}};
 }
 
@@ -134,4 +153,49 @@ test('a late quote for an earlier miner set cannot overwrite the current aggrega
     await cache.quoteRunning;
     assert.equal(cache.snapshot().stats.currentlyActivePoolCount,'0');assert.equal(cache.snapshot().stats.estimatedDailyBemAtomic,'0');
   } finally {resolveQuote?.({});await cache.close();}
+});
+
+test('owner transfer availability is persisted on public and wallet rows, updates revision and adds zero HTTP RPC',async()=>{
+  const f=fixture(),dir=mkdtempSync(join(tmpdir(),'pool-target-display-')),path=join(dir,'cache.json');f.setState(0);
+  const cache=new PoolDisplayCache(f.index,f.provider,{lens,path,now:f.now});let reopened,server;
+  try {
+    await cache.refresh();const before=cache.revision();
+    assert.equal(cache.snapshot().rows[pool].targetAvailability.status,'available');
+    await cache.refresh();assert.equal(f.targetCalls.filter(name=>name==='owner:0xa').length,1,'same-tip display refresh reuses ownership');
+    f.nextBlock();f.setOwner(address(9));await cache.refresh();const saved=cache.snapshot();
+    assert.notEqual(cache.revision(),before,'the ownership result is part of the public display revision');
+    assert.equal(saved.rows[pool].targetAvailability.status,'unavailable');assert.equal(saved.rows[pool].state,0n);
+    assert.equal(saved.accountRows[account][pool].targetAvailability.status,'unavailable');
+    assert.equal(saved.accountRows[account][pool].shares,50n,'positions and contributor funds remain visible');
+    assert.deepEqual(saved.directory,[pool],'historical directory membership is preserved');
+    reopened=new PoolDisplayCache(f.index,f.provider,{lens,path,now:f.now});f.targetCalls.length=0;await reopened.refresh();
+    assert.deepEqual(f.targetCalls,['owner:0xb'],'restart reuses proved original owner and mode');
+    server=createChainIndexServer(f.index,{displayCache:reopened});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`,rpcBefore=f.calls;
+    for(const route of ['/v1/display/pools',`/v1/display/pools/${pool}`,`/v1/display/pools/${pool}?account=${account}`,
+      `/v1/display/positions/${account}`]) {
+      const response=await fetch(base+route);assert.equal(response.status,200);
+      const body=JSON.parse(await response.text(),cacheDecode),item=body.data.item??body.data.items[0];
+      assert.equal(item.targetAvailability.status,'unavailable');assert.equal(item.state,0n);
+    }
+    assert.equal(f.calls,rpcBefore);
+    f.nextBlock();f.failTarget();await reopened.refresh();assert.equal(reopened.snapshot().rows[pool].targetAvailability.status,'unknown');
+    assert.equal(reopened.snapshot().rows[pool].state,0n,'unknown evidence never pretends cancellation or a refund');
+  } finally {await cache.close();await reopened?.close();if(server)await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});}
+});
+
+test('target history uses its independently supplied verified transport while ordinary display calls retain their provider',async()=>{
+  const f=fixture();f.setState(0);
+  const displayProvider={...f.provider,getLogs:()=>assert.fail('ordinary display RPC must not fetch target Transfer history'),
+    send:(method,params)=>{
+      assert(![collection,pool].includes(params[0]?.to),'target owner/mode reads must use the target transport');
+      return f.provider.send(method,params);
+    }};
+  const cache=new PoolDisplayCache(f.index,displayProvider,{lens,now:f.now,targetProvider:f.provider});
+  try {
+    await cache.refresh();assert.equal(cache.snapshot().rows[pool].targetAvailability.status,'available');
+    assert.deepEqual(f.targetCalls,['mode','transfers','owner:0x5','owner:0xa']);
+    await cache.refresh();assert.deepEqual(f.targetCalls,['mode','transfers','owner:0x5','owner:0xa'],
+      'same-tip materialization adds no target history or current owner requests');
+  } finally {await cache.close();}
 });

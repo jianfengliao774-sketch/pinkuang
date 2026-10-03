@@ -1,4 +1,4 @@
-import { POOL_STATES } from './live-view.mjs';
+import { POOL_STATES, fundingTargetStatus } from './live-view.mjs';
 
 /** Display projection only. Detail routes must obtain their own current action proof. */
 export function portfolioDirectoryRow(row) {
@@ -10,8 +10,14 @@ export function portfolioDirectoryRow(row) {
     purchaseCost: row.spentWei };
 }
 
+export function projectDirectoryCategory(row) {
+  return fundingTargetStatus(row) === 'unavailable' ? 'unavailable' : row.status;
+}
+
 export function projectMatchesStatus(row, filter) {
-  return filter === 'all' || row.status === filter || filter === 'Funding' && row.status === 'Funded';
+  if (filter === 'all') return true;
+  const category = projectDirectoryCategory(row);
+  return category === filter || filter === 'Funding' && category === 'Funded';
 }
 
 function compareKnown(a, b) {

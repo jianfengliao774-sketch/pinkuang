@@ -158,9 +158,14 @@ export async function startChainIndex(config) {
       throw error;
     }
   }
-  async function checkedLogs(source, filter) {
+  async function validateLogTip(source, blockNumber) {
     if (source !== primary) {
-      const key = `${source === logs ? 'primary' : 'fallback'}:${filter.toBlock}`;
+      // The canonical hash belongs in the cache key: a replacement block at
+      // the same height must not reuse proof of an endpoint on the old fork.
+      const canonical = await primary.getBlock(blockNumber);
+      if (!canonical?.hash || canonical.number !== blockNumber)
+        throw new Error('Canonical RPC block is unavailable.');
+      const key = `${source === logs ? 'primary' : 'fallback'}:${blockNumber}:${canonical.hash.toLowerCase()}`;
       if (!verifiedTips.has(key)) {
         // A spare endpoint must not gate healthy primary reads. Verify its
         // identity only when this endpoint actually serves an event range.
@@ -168,16 +173,42 @@ export async function startChainIndex(config) {
           if (!/^0x[0-9a-f]+$/i.test(id) || BigInt(id) !== 56n)
             throw new Error('RPC is not BSC mainnet (56).');
         }));
-        const proof = verifiedChains.get(source).then(() => Promise.all([primary.getBlock(filter.toBlock), source.getBlock(filter.toBlock)])).then(([canonical, served]) => {
-          if (!canonical?.hash || !served?.hash || canonical.number !== filter.toBlock
-            || served.number !== filter.toBlock || canonical.hash.toLowerCase() !== served.hash.toLowerCase())
+        const proof = verifiedChains.get(source).then(() => source.getBlock(blockNumber)).then(served => {
+          if (!served?.hash || served.number !== blockNumber || canonical.hash.toLowerCase() !== served.hash.toLowerCase())
             throw new Error('Logs RPC is behind or differs from the canonical chain.');
         });
         verifiedTips.set(key, proof);
       }
       await verifiedTips.get(key);
     }
+  }
+  async function checkedLogs(source, filter) {
+    await validateLogTip(source, filter.toBlock);
     return source.getLogs(filter);
+  }
+  async function sendHistorical(method, params) {
+    // Private baseline getters only. Latest/pending reads and every ordinary
+    // display/current-owner call remain on the primary send/call methods.
+    if (method !== 'eth_call' || !Array.isArray(params) || params.length !== 2
+      || !/^0x(?:0|[1-9a-f][\da-f]*)$/i.test(params[1] ?? '')
+      || !Number.isSafeInteger(Number(BigInt(params[1]))))
+      throw new Error('Historical target reads require one explicit block-pinned eth_call.');
+    const blockNumber = Number(BigInt(params[1]));
+    const read = async source => {
+      const result = await source.send(method, params);
+      // Both target baseline getters return complete nonempty ABI words. A
+      // public node's pruned-state 0x result is unavailable, not a zero owner.
+      if (typeof result !== 'string' || !/^0x(?:[\da-f]{64})+$/i.test(result))
+        throw new Error('Historical target state is unavailable.');
+      return result;
+    };
+    let unavailable;
+    try { return await read(primary); } catch (error) { unavailable = error; }
+    for (const source of [...new Set([logs, fallbackLogs].filter(source => source && source !== primary))]) {
+      try { await validateLogTip(source, blockNumber); return await read(source); }
+      catch (error) { unavailable = error; }
+    }
+    throw unavailable;
   }
   const provider = Object.freeze({
     send: (method, params) => observedRead(method === 'eth_chainId' ? method : 'other', async () => {
@@ -191,6 +222,7 @@ export async function startChainIndex(config) {
       }
       return primary.send(method, params);
     }),
+    sendHistorical: (method, params) => observedRead('eth_call', () => sendHistorical(method, params)),
     call: (...args) => observedRead('eth_call', () => primary.call(...args)),
     getBlock: (...args) => observedRead('eth_getBlockByNumber', () => primary.getBlock(...args)),
     getCode: (...args) => observedRead('eth_getCode', () => primary.getCode(...args)),
@@ -210,7 +242,7 @@ export async function startChainIndex(config) {
   let displayTimer;
   try {
     index = new ChainIndex(provider, config);
-    if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,path:join(dirname(config.dbPath),'pool-display-cache.json'),
+    if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,targetProvider:provider,path:join(dirname(config.dbPath),'pool-display-cache.json'),
       quoteLoader:config.overviewQuoteLoader ?? overviewQuoteLoader(),onUpdate:()=>displayEvents?.publish()});
     if (config.portfolioFactory && config.portfolioMarket) portfolioReads = new PortfolioDisplayReads(index, primary, {
       path: config.dbPath === ':memory:' ? undefined : join(dirname(config.dbPath), 'portfolio-display-cache.json'),

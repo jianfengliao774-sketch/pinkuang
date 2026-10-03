@@ -180,9 +180,13 @@ test('sync failure diagnostics identify a bounded RPC method without leaking pro
 const binding = new Interface(['function shareMarket() view returns(address)', 'function factory() view returns(address)',
   'function poolCount() view returns(uint256)', 'function nextOrderId() view returns(uint256)']);
 const hex = number => `0x${number.toString(16).padStart(64, '0')}`;
-function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', chainIdFailure = false, firstLogsDelayMs = 0, latestNumber = 4 } = {}) {
+const targetAbi = new Interface(['function ownerOf(uint256) view returns(address)']);
+const primaryTargetOwner = '0x0000000000000000000000000000000000000007';
+const archiveTargetOwner = '0x0000000000000000000000000000000000000008';
+const targetRequest = block => [{to:'0x0000000000000000000000000000000000000009',data:targetAbi.encodeFunctionData('ownerOf',[11n])},block];
+function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, logsFork = false, chainId = '0x38', chainIdFailure = false, firstLogsDelayMs = 0, latestNumber = 4, archiveFailure = false } = {}) {
   const calls = [];
-  let delayed = false;
+  let delayed = false, forkOffset = logsFork ? 100 : 0;
   const server = createServer(async (request, response) => {
     let body = ''; for await (const part of request) body += part;
     const input = JSON.parse(body), list = Array.isArray(input) ? input : [input];
@@ -191,9 +195,14 @@ function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, log
       if (payload.method === 'eth_chainId') result = chainId;
       else if (payload.method === 'eth_getLogs') {
         assert(logs, 'logs must never reach the header RPC'); result = [];
+      } else if (payload.method === 'eth_call' && payload.params[0].data.startsWith(targetAbi.getFunction('ownerOf').selector)) {
+        if (payload.params[1] === '0x1' && archiveFailure === 'error')
+          return {jsonrpc:'2.0',id:payload.id,error:{code:-32000,message:'historical state unavailable'}};
+        result = payload.params[1] === '0x1' && archiveFailure === 'missing' ? '0x'
+          : targetAbi.encodeFunctionResult('ownerOf',[logs ? archiveTargetOwner : primaryTargetOwner]);
       } else if (payload.method === 'eth_getBlockByNumber' && logs) {
         const number = Number(BigInt(payload.params[0]));
-        result = logsBehind ? null : { number: toQuantity(number), hash: hex(number + (logsFork ? 100 : 0)),
+        result = logsBehind ? null : { number: toQuantity(number), hash: hex(number + forkOffset),
           parentHash: hex(number - 1), timestamp: toQuantity(1_800_000_000 + number),
           nonce: '0x0000000000000000', difficulty: '0x0', gasLimit: '0x1c9c380', gasUsed: '0x0',
           extraData: '0x', miner: ZeroAddress, transactions: [] };
@@ -201,7 +210,7 @@ function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, log
         assert.equal(logs, false, 'header/call/code request reached the logs-only RPC');
         if (payload.method === 'eth_getBlockByNumber') {
           const number = payload.params[0] === 'latest' ? latestNumber : Number(BigInt(payload.params[0]));
-          result = { number: toQuantity(number), hash: hex(number), parentHash: hex(number - 1),
+          result = { number: toQuantity(number), hash: hex(number + forkOffset), parentHash: hex(number - 1),
             timestamp: toQuantity(1_800_000_000 + number), nonce: '0x0000000000000000', difficulty: '0x0',
             gasLimit: '0x1c9c380', gasUsed: '0x0', extraData: '0x', miner: ZeroAddress, transactions: [] };
         } else if (payload.method === 'eth_getCode') result = '0x6001';
@@ -224,7 +233,7 @@ function rpcFixture({ logs = false, logsFailure = false, logsBehind = false, log
       response.writeHead(429, { 'Retry-After': '90' }); response.end('rate limited');
     } else { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(Array.isArray(input) ? replies : replies[0])); }
   });
-  return { server, calls };
+  return { server, calls, setFork: offset => { forkOffset = offset; } };
 }
 async function until(check, ms = 2_000) {
   const deadline = performance.now() + ms;
@@ -404,4 +413,74 @@ test('a fallback on a different chain cannot rescue failed logs or advance the c
     assert.equal(service.index.indexedThrough, 0);
     assert.equal(fallback.calls.filter(row => row.method === 'eth_getLogs').length, 0);
   } finally { await service?.close(); await stop(primary.server); await stop(logs.server); await stop(fallback.server); }
+});
+
+test('only explicit historical target calls fall back to the verified archive while current calls stay primary', async () => {
+  for(const archiveFailure of ['error','missing']) {
+    const primary=rpcFixture({archiveFailure}),logs=rpcFixture({logs:true});let service;
+    try {
+      const rpc=await listen(primary.server),logsRpc=await listen(logs.server);
+      service=await startChainIndex({...config(rpc),logsRpc});await until(()=>service.index.status().complete);
+      const result=await service.index.provider.sendHistorical('eth_call',targetRequest('0x1'));
+      assert.equal(targetAbi.decodeFunctionResult('ownerOf',result)[0].toLowerCase(),archiveTargetOwner);
+      await service.index.provider.sendHistorical('eth_call',targetRequest('0x1'));
+      assert.equal(logs.calls.filter(call=>call.method==='eth_getBlockByNumber'&&call.params[0]==='0x1').length,1,
+        'same endpoint/block/hash shares its archive identity proof');
+      const current=await service.index.provider.send('eth_call',targetRequest('0x2'));
+      assert.equal(targetAbi.decodeFunctionResult('ownerOf',current)[0].toLowerCase(),primaryTargetOwner);
+      assert(logs.calls.filter(call=>call.method==='eth_call').every(call=>call.params[1]==='0x1'));
+      const before=logs.calls.length;
+      await assert.rejects(service.index.provider.sendHistorical('eth_call',targetRequest('latest')),/explicit block-pinned/);
+      await assert.rejects(service.index.provider.sendHistorical('eth_sendRawTransaction',['0x1234']),/explicit block-pinned/);
+      assert.equal(logs.calls.length,before,'unbounded or transaction methods cannot reach the archive');
+    } finally {await service?.close();await stop(primary.server);await stop(logs.server);}
+  }
+});
+
+test('an archive on the wrong chain or fork cannot provide a historical owner', async () => {
+  for(const bad of [{chainId:'0x1'},{logsFork:true},{logsBehind:true}]) {
+    const primary=rpcFixture({archiveFailure:'error'}),logs=rpcFixture({logs:true,...bad});let service;
+    try {
+      const rpc=await listen(primary.server),logsRpc=await listen(logs.server);
+      service=await startChainIndex({...config(rpc),logsRpc});
+      await until(()=>service.index.status().unknownReason!==null);
+      await assert.rejects(service.index.provider.sendHistorical('eth_call',targetRequest('0x1')));
+      assert.equal(logs.calls.filter(call=>call.method==='eth_call').length,0,
+        'identity and canonical historical block must pass before paying for archive state');
+    } finally {await service?.close();await stop(primary.server);await stop(logs.server);}
+  }
+});
+
+test('missing archive state can use only an independently verified historical fallback', async () => {
+  for(const fallbackChain of ['0x38','0x1']) {
+    const primary=rpcFixture({archiveFailure:'missing'}),logs=rpcFixture({logs:true,archiveFailure:'error'}),
+      fallback=rpcFixture({logs:true,chainId:fallbackChain});let service;
+    try {
+      const rpc=await listen(primary.server),logsRpc=await listen(logs.server),fallbackLogsRpc=await listen(fallback.server);
+      service=await startChainIndex({...config(rpc),logsRpc,fallbackLogsRpc});await until(()=>service.index.status().complete);
+      if(fallbackChain==='0x38') {
+        const result=await service.index.provider.sendHistorical('eth_call',targetRequest('0x1'));
+        assert.equal(targetAbi.decodeFunctionResult('ownerOf',result)[0].toLowerCase(),archiveTargetOwner);
+        assert(fallback.calls.some(call=>call.method==='eth_call'&&call.params[1]==='0x1'));
+      } else {
+        await assert.rejects(service.index.provider.sendHistorical('eth_call',targetRequest('0x1')));
+        assert.equal(fallback.calls.filter(call=>call.method==='eth_call').length,0);
+      }
+    } finally {await service?.close();await stop(primary.server);await stop(logs.server);await stop(fallback.server);}
+  }
+});
+
+test('a same-height historical reorg cannot reuse a cached proof for an archive on the earlier fork', async () => {
+  const primary=rpcFixture({archiveFailure:'error'}),logs=rpcFixture({logs:true});let service;
+  try {
+    const rpc=await listen(primary.server),logsRpc=await listen(logs.server);
+    service=await startChainIndex({...config(rpc),logsRpc});await until(()=>service.index.status().complete);
+    await service.index.provider.sendHistorical('eth_call',targetRequest('0x1'));
+    const before=logs.calls.filter(call=>call.method==='eth_call').length;
+    primary.setFork(100);
+    await assert.rejects(service.index.provider.sendHistorical('eth_call',targetRequest('0x1')),/canonical chain/);
+    assert.equal(logs.calls.filter(call=>call.method==='eth_call').length,before);
+    assert.equal(logs.calls.filter(call=>call.method==='eth_getBlockByNumber'&&call.params[0]==='0x1').length,2,
+      'canonical hash change forces another peer-header proof before archive state');
+  } finally {await service?.close();await stop(primary.server);await stop(logs.server);}
 });

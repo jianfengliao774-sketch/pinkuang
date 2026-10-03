@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import { createHash } from 'node:crypto';
 import { MiningOverviewStats } from './overview-stats.mjs';
+import { TargetAvailabilityTracker } from './target-availability.mjs';
 
 const artifacts = JSON.parse(readFileSync(new URL('../../public/deployment-artifacts.json', import.meta.url)));
 const lensAbi = new Interface(artifacts.artifacts.PoolLens.abi);
@@ -27,14 +28,17 @@ function decodeRow(raw) {
 
 /** Full on-chain display state is produced in the background, never on an HTTP request. */
 export class PoolDisplayCache {
-  constructor(index, provider, { lens, path, now = Date.now, quoteLoader = null, onUpdate = null } = {}) {
+  constructor(index, provider, { lens, path, now = Date.now, quoteLoader = null, onUpdate = null,
+    targetProvider = provider, targetAvailabilityTimeoutMs = 6000 } = {}) {
     this.index=index; this.provider=provider; this.lens=getAddress(lens); this.path=path; this.now=now;
     this.value=null; this.running=null; this.stopped=false;
     this.miningOverview=new MiningOverviewStats({quoteLoader,now});
+    this.targetAvailability=new TargetAvailabilityTracker(index,targetProvider,{timeoutMs:targetAvailabilityTimeoutMs});
     this.quoteRunning=null; this.onUpdate=onUpdate;
     try { const saved=JSON.parse(readFileSync(path,'utf8'),cacheDecode);
       if (saved.schemaVersion===1 && same(saved.source.factory,index.factory) && same(saved.source.market,index.market)
-        && same(saved.lens,this.lens)) {this.value=saved;this.miningOverview.restore(saved.miningQuotes);}
+        && same(saved.lens,this.lens)) {this.value=saved;this.miningOverview.restore(saved.miningQuotes);
+          this.targetAvailability.restore(saved.targetAvailabilityCache);}
     } catch { /* The first background pass seeds a missing or corrupt cache. */ }
   }
   async call(to, iface, name, args, block) {
@@ -81,6 +85,8 @@ export class PoolDisplayCache {
       return result;
     };
     const publicRows=await readRows(ZeroAddress);
+    const availability=await this.targetAvailability.capture(publicRows,directory.pools,source);
+    publicRows.forEach(row=>{row.targetAvailability=availability.get(row.pool.toLowerCase());});
     publicRows.forEach(row=>{ personal.forEach(name=>{row[name]=null;});rows[row.pool.toLowerCase()]=row; });
     const miningStats=this.miningOverview.snapshot(publicRows);
     let next=0;
@@ -89,6 +95,7 @@ export class PoolDisplayCache {
       while(next<accountList.length && !this.stopped) {
         const account=accountList[next++];
         const list=await readRows(account);
+        list.forEach(row=>{row.targetAvailability=availability.get(row.pool.toLowerCase());});
         accountRows[account]=Object.fromEntries(list.map(row=>[row.pool.toLowerCase(),row]));
         marketOwed[account]=(await this.call(this.index.market,marketAbi,'bnbOwed',[account],block))[0];
       }
@@ -111,6 +118,7 @@ export class PoolDisplayCache {
     const value={schemaVersion:1,lens:this.lens,source:{...source,checkedAt:new Date(this.now()).toISOString()},
       savedAt:this.now(),directory:directory.pools.map(row=>row.address),rows,accountRows,marketOwed,
       accountsComplete:accounts.size<=200,orders:directory.orders===null?null:orders,
+      targetAvailabilityCache:this.targetAvailability.persisted(),
       stats:directory.stats ? {...directory.stats,...miningStats} : null};
     this.save(value);
     // Quote HTTP work cannot hold up pool, wallet balance or order materialization.
