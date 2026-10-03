@@ -1,6 +1,7 @@
 import { Interface, ZeroAddress, getAddress, keccak256, verifyTypedData } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { authorityTypedAction } from '../../deploy/shared/authority-typed.mjs';
+import { boundedReadPreview } from './bounded-read-preview.mjs';
 
 const need = (condition, message) => { if (!condition) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -69,8 +70,11 @@ export function approvedPortfolioPurchase(config, prepared) {
   return { kind: 'buyBudgetFirsto', args: { ...args, encodedOrder: parsed.args[1] } };
 }
 
-/** Read a single canonical block before asking the connected admin wallet to sign. */
-export async function signAuthorityAction({ provider, config, account, kind, args, validitySeconds = 600 }) {
+const emit = (callback, status) => { try { callback?.({ status }); } catch { /* UI cannot alter submission. */ } };
+
+/** Read only the required nonce through the site's reader; the wallet signs the exact command. */
+export async function signAuthorityAction({ provider, readProvider, config, account, kind, args,
+  validitySeconds = 600, readTimeoutMs = 8000, isCurrent = () => true, onState }) {
   need(config?.stage === 'fresh-active' && config?.status === 'ready', '新合约尚未启用。');
   const signer = getAddress(account), authority = getAddress(config.authority ?? config.manifest?.authority);
   need(authority !== ZeroAddress && Number.isInteger(validitySeconds) && validitySeconds > 0 && validitySeconds <= 900,
@@ -79,14 +83,19 @@ export async function signAuthorityAction({ provider, config, account, kind, arg
   if (config.displayOnly === true) {
     const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
     need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
-    const nonce = authorityAbi.decodeFunctionResult('nonces', await rpc('eth_call', [{ to: authority,
-      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest']))[0];
+    emit(onState, 'preparing-authority');
+    const nonce = await boundedReadPreview(async ({ provider: reader }) =>
+      authorityAbi.decodeFunctionResult('nonces', await reader.request({ method: 'eth_call', params: [{ to: authority,
+        data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] }))[0],
+    { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent });
     const deadline = (BigInt(Math.floor(Date.now() / 1000)) + BigInt(validitySeconds)).toString();
     const signed = authorityAction(authority, kind, args, nonce, deadline);
     const payload = { types: { EIP712Domain: [
       { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
       { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
     ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message };
+    need(isCurrent(), '页面或钱包已改变，请重新预览。');
+    emit(onState, 'awaiting-admin-signature');
     const signature = await rpc('eth_signTypedData_v4', [signer, JSON.stringify(payload)]);
     need(same(verifyTypedData(signed.domain, signed.types, signed.message, signature), signer),
       '钱包签名与当前管理员地址不一致。');
@@ -124,20 +133,33 @@ export async function signAuthorityAction({ provider, config, account, kind, arg
     nonce: nonce.toString(), deadline, signature };
 }
 
+/** Session/status reconciliation must not postpone the administrator's wallet prompt.
+ * Authentication is still required before any relay POST. No transaction is broadcast here. */
+export async function prepareAuthoritySubmission({ authenticate, ...input }) {
+  need(typeof authenticate === 'function', '管理员代付需要本站登录会话。');
+  const command = await signAuthorityAction(input);
+  need((input.isCurrent ?? (() => true))(), '页面或钱包已改变，请重新预览。');
+  emit(input.onState, 'authenticating');
+  await authenticate({ onState: input.onState });
+  need((input.isCurrent ?? (() => true))(), '页面或钱包已改变；尚未提交签名。');
+  return command;
+}
+
 export async function submitAuthorityAction(config, account, command) {
   const base = (config.journalBase ?? '/api/journal').replace(/\/$/, '');
   const response = await fetch(`${base}/authority-relay`, { method: 'POST', credentials: 'same-origin',
     cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pinkuang-Account': getAddress(account) },
-    body: JSON.stringify({ command }) });
+    body: JSON.stringify({ command }), signal: AbortSignal.timeout(30_000) });
   const result = await response.json().catch(() => null);
-  need(response.ok && result, result?.error || `管理员代付服务暂不可用（HTTP ${response.status}）。`);
+  if (!response.ok || !result) throw Object.assign(new Error(result?.error
+    || `管理员代付服务暂不可用（HTTP ${response.status}）。`), { httpStatus: response.status });
   return result;
 }
 
 export async function authorityActionStatus(config, account) {
   const base = (config.journalBase ?? '/api/journal').replace(/\/$/, '');
   const response = await fetch(`${base}/authority-relay/status`, { credentials: 'same-origin', cache: 'no-store',
-    headers: { 'X-Pinkuang-Account': getAddress(account) } });
+    headers: { 'X-Pinkuang-Account': getAddress(account) }, signal: AbortSignal.timeout(8000) });
   const result = await response.json().catch(() => null);
   need(response.ok && result, result?.error || `管理员交易状态暂不可用（HTTP ${response.status}）。`);
   return result;

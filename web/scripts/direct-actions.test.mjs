@@ -167,28 +167,31 @@ test('direct administrator reclaim reads only the exact miner parameters and rec
 test('direct administrator signing reads nonce once and retains exact local EIP-712 signature validation', async () => {
   const authorityAbi = new Interface(['function nonces(address) view returns(uint256)']);
   const seen = [];
-  const provider = { request: async ({ method, params }) => {
+  const readProvider = { request: async ({ method, params }) => {
     seen.push(method);
-    if (method === 'eth_call') {
+    assert.equal(method, 'eth_call');
       assert.equal(params[1], 'latest'); assert.equal(params[0].to, authority);
       const parsed = authorityAbi.parseTransaction(params[0]); assert.equal(parsed.name, 'nonces'); assert.equal(parsed.args[0], account);
       return authorityAbi.encodeFunctionResult(parsed.fragment, [9n]);
-    }
+  } };
+  const provider = { request: async ({ method, params }) => {
+    seen.push(method);
     assert.equal(method, 'eth_signTypedData_v4'); assert.equal(params[0], account);
     const payload = JSON.parse(params[1]); const { EIP712Domain, ...types } = payload.types;
     return administrator.signTypedData(payload.domain, types, payload.message);
   } };
   const data = abi.PoolFactory.encodeFunctionData('createPool', [{ ...base, circuitId: 7n, targetRaise: 11000n,
     priceCap: 10000n, directSeller: ZeroAddress, directPrice: 0n, fundingDeadline: 1800001000n, purchaseDeadline: 1800002000n }]);
-  const command = await signAuthorityAction({ provider, config, account, kind: 'executeApprovedOperation', args: { target: factory, data } });
+  const command = await signAuthorityAction({ provider, readProvider, config, account, kind: 'executeApprovedOperation', args: { target: factory, data } });
   assert.deepEqual(seen, ['eth_call', 'eth_signTypedData_v4']); assert.equal(command.nonce, '9');
   assert.equal(command.expectedCodehash, config.freshAuthority.codehash);
   const wrongSignerProvider = { request: async ({ method, params }) => {
-    if (method === 'eth_call') return authorityAbi.encodeFunctionResult('nonces', [9n]);
+    assert.equal(method, 'eth_signTypedData_v4');
     const payload = JSON.parse(params[1]), { EIP712Domain, ...types } = payload.types;
     return administrator.signTypedData(payload.domain, types, payload.message);
   } };
-  await assert.rejects(signAuthorityAction({ provider: wrongSignerProvider, config, account: other,
+  const otherReader = { request: async () => authorityAbi.encodeFunctionResult('nonces', [9n]) };
+  await assert.rejects(signAuthorityAction({ provider: wrongSignerProvider, readProvider: otherReader, config, account: other,
     kind: 'executeApprovedOperation', args: { target: factory, data } }), /钱包签名与当前管理员地址不一致/);
 });
 

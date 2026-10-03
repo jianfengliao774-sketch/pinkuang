@@ -50,13 +50,19 @@ export async function readPublishedProject({ provider, intent, status, hash = st
     && /^0x[\da-f]+$/i.test(receipt.blockNumber ?? '') && Array.isArray(receipt.logs), '项目发布交易回执身份不一致。');
   const successful = receipt.status === '0x1';
   need(successful || receipt.status === '0x0', '项目发布回执状态不可用。');
+  // The relay status is the latest shared journal entry. A different creation
+  // may use this same administrator nonce and emit the same public event fields;
+  // the mined transaction must carry this preview's complete Factory calldata.
+  const tx = await provider.request({ method: 'eth_getTransactionByHash', params: [hash] });
+  const call = abi.PlatformAuthority.parseTransaction({ data: tx?.input ?? tx?.data });
+  need(same(tx?.hash, hash) && same(tx.to, intent.authority) && same(tx.from, intent.gasWallet)
+    && same(tx.blockHash, receipt.blockHash)
+    && /^0x[\da-f]+$/i.test(tx.blockNumber ?? '') && BigInt(tx.blockNumber) === BigInt(receipt.blockNumber)
+    && call?.name === 'executeApprovedOperation' && same(call.args[0], intent.factory)
+    && same(call.args[1], intent.callData) && call.args[2] === BigInt(intent.nonce),
+  '项目发布交易不属于本次签名内容。');
   if (!successful) {
     need(status.status === 'failed' && receipt.logs.length === 0, '项目发布失败状态与回执不一致。');
-    const tx = await provider.request({ method: 'eth_getTransactionByHash', params: [hash] });
-    const call = abi.PlatformAuthority.parseTransaction({ data: tx?.input ?? tx?.data });
-    need(same(tx?.hash, hash) && same(tx.to, intent.authority) && same(tx.from, intent.gasWallet)
-      && call?.name === 'executeApprovedOperation' && same(call.args[0], intent.factory)
-      && same(call.args[1], intent.callData) && call.args.at(-3) === BigInt(intent.nonce), '失败回执不属于本次项目发布。');
     return { status: 'failed', finalized: true, hash, action: intent.action, receipt: { ...receipt, status: 0 } };
   }
   need(status.status === 'confirmed', '项目发布尚未确认。');

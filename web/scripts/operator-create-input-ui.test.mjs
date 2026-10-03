@@ -10,6 +10,7 @@ import * as quotes from '../lib/operator-quotes.mjs';
 import { dataFixture } from './operator-quotes-fixture.mjs';
 
 const require = createRequire(import.meta.url), turn = () => new Promise(resolve => setImmediate(resolve));
+const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const address = number => `0x${number.toString(16).padStart(40, '0')}`;
 const collection = '0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', account = address(1);
 await loadBindings();
@@ -60,6 +61,51 @@ function fixture(overrides = {}) {
 function fill(ui, { id = '16736', target = '0.005', cap = '0.004' } = {}) {
   ui.input('矿机编号', id); ui.input('募集总额', target); ui.input('购机价格上限', cap);
 }
+
+test('actual submission dialog follows parent signature phases and can stay collapsed without enabling a second send', async () => {
+  const pending = deferred(), calls = []; let report;
+  const ui = fixture({ onSend: (preview, options) => { calls.push(preview); report = options.onState; return pending.promise; } });
+  fill(ui); ui.button('预览创建矿池').onClick(); await ui.settle();
+  const send = ui.button('发送到钱包确认').onClick; send(); send(); await ui.settle();
+  assert.equal(calls.length, 1, 'Two clicks before React rerenders still send one request.');
+  const dialog = () => elements(ui.tree).find(node => node.type === Dialog);
+  assert.equal(dialog().props.title, '正在提交请求');
+  assert(!text(dialog()).includes('请在钱包中'), 'A read phase cannot claim a wallet signature prompt is open.');
+  report({ status: 'preparing-authority' }); ui.render(); assert.equal(dialog().props.title, '正在准备管理员操作');
+  report({ status: 'awaiting-admin-signature' }); ui.render(); assert.equal(dialog().props.title, '等待管理员签名');
+  assert.match(text(dialog()), /请在钱包中确认本次管理员签名/);
+  dialog().props.onClose(); ui.render();
+  assert.equal(dialog(), undefined); assert.equal(ui.button('预览创建矿池').disabled, true);
+  assert.match(text(ui.tree), /等待管理员签名/);
+  report({ status: 'authenticating' }); ui.render(); assert.equal(dialog(), undefined);
+  assert.match(text(ui.tree), /正在恢复登录/);
+  report({ status: 'awaiting-login-signature' }); ui.render(); assert.equal(dialog(), undefined);
+  assert.match(text(ui.tree), /等待钱包登录签名/);
+  report({ status: 'submitting-authority' }); ui.render(); assert.equal(dialog(), undefined);
+  assert.match(text(ui.tree), /正在提交给 Gas 服务/);
+  assert(!text(ui.tree).includes('钱包发送交易'), 'The administrator signs; the Gas service sends the transaction.');
+  ui.button('查看提交进度').onClick(); ui.render(); assert.equal(dialog().props.title, '正在发送已签名请求');
+  ui.button('收起').onClick(); ui.render(); report({ status: 'pending' }); ui.render();
+  assert.equal(dialog(), undefined); assert.match(text(ui.tree), /交易已提交/);
+  pending.resolve({ status: 'pending', hash: 'submitted' }); await ui.settle();
+  assert.equal(dialog(), undefined); assert(!text(ui.tree).includes('查看提交进度'));
+  assert.equal(ui.button('预览创建矿池').disabled, false);
+  report({ status: 'awaiting-admin-signature' }); ui.render();
+  assert.equal(dialog(), undefined, 'A late progress event cannot reopen a completed submission.');
+});
+
+test('a collapsed submit still reports a parent failure and clears the busy state without submitting again', async () => {
+  const pending = deferred(); let sends = 0, report;
+  const ui = fixture({ onSend: (_preview, options) => { sends++; report = options.onState; return pending.promise; } });
+  fill(ui); ui.button('预览创建矿池').onClick(); await ui.settle();
+  ui.button('发送到钱包确认').onClick(); await ui.settle(); ui.button('收起').onClick(); ui.render();
+  pending.reject(Error('本次管理员签名被取消')); await ui.settle();
+  const dialog = elements(ui.tree).find(node => node.type === Dialog);
+  assert.equal(dialog.props.title, '本次操作未完成'); assert.match(text(dialog), /签名被取消/);
+  assert(!text(dialog).includes('成功')); assert.equal(ui.button('预览创建矿池').disabled, false); assert.equal(sends, 1);
+  report({ status: 'submitting-authority' }); ui.render();
+  assert.equal(elements(ui.tree).find(node => node.type === Dialog).props.title, '本次操作未完成');
+});
 
 test('actual empty form shows each missing field, disables preview, and even a stale click never enters preview reads', async () => {
   const ui = fixture();
