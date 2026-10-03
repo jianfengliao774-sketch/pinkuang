@@ -90,10 +90,16 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
       const result = await loadOperatorQuote({ collection: row.collection, tokenId: row.tokenId, config, mode, signal: abort.signal });
       if (sequence === request.current.sequence) {
         setSelected(result);
+        // Correct an older directory row with the freshly checked quote. Other
+        // candidates keep their identities, prices and pagination unchanged.
+        if (result.quote) setPage(current => current ? { ...current, rows: current.rows.map(item =>
+          item.collection.toLowerCase() === result.quote.collection.toLowerCase() && item.tokenId === result.quote.tokenId
+            ? result.quote : item) } : current);
         if (!result.quote) void loadVerifiedCapacityHint(result.chain, { signal: abort.signal })
           .then(hint => { if (sequence === request.current.sequence) setCapacityHint(hint); })
           .catch(problem => { if (sequence === request.current.sequence) setCapacityError(operatorQuoteError(problem)); });
         if (result.reference) setMarketReference(result.reference);
+        else if (result.referenceError) setMarketReferenceError(result.referenceError);
         else void fetchCapacityReference({ signal: abort.signal, baseUrl: QUOTE_BASE })
           .then(reference => { if (sequence === request.current.sequence) setMarketReference(reference); })
           .catch(problem => { if (sequence === request.current.sequence) setMarketReferenceError(operatorQuoteError(problem)); });
@@ -140,7 +146,11 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
       : !direct && !selected.chain.registry.ready ? '矿机唯一性登记尚未完成。'
         : mode === 'createPool' && !executableAsk ? batchAsk
           ? '该矿机挂的是 Firsto 批量订单，当前矿池合约不支持采购，不能用于指定矿机建池。'
-          : selected.chain.firstoError || '当前没有可执行的官网挂单或 Firsto 单笔签名订单。'
+          : selected.chain.firstoError || (selected.quote?.ask
+            ? quoteIssue(selected.quote) || '当前没有可执行的官网挂单或 Firsto 单笔签名订单。'
+            : '这台矿机当前未挂单，不能用于指定购机；可切换“单台矿机灵活替代”作为型号与产能参考。')
+          : mode === 'createFlexiblePoolChecked' && (!selected.reference || referenceIssue(selected.reference))
+            ? selected.referenceError || '有效的全市场参考价暂不可用，请重新选择矿机。'
           : busy ? '正在读取矿机数据，请稍候。'
             : disabled ? '当前操作尚未结束，请先完成或关闭正在进行的操作。' : null;
   return <section className="operator-quotes" aria-label="自动获取矿机报价">
@@ -156,7 +166,7 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
     {error && <p className="live-notice error" role="alert">{error}</p>}
     {busy && <p role="status">{direct ? '正在读取矿机数据…' : '正在读取并核对矿机数据…'}</p>}
     {page && <><div className="operator-quote-table"><table><thead><tr><th>矿机</th><th>市场挂单价</th><th>预计日产出</th><th>挂单日产能价<small>BNB / (BEM / 天)</small></th><th>Firsto 同类参考价<small>BNB / (BEM / 天)</small></th><th>报价来源</th><th/></tr></thead><tbody>
-      {page.rows.map(row => <tr key={`${row.collection}:${row.tokenId}`}><td>{row.series} #{row.tokenId}<small>Firsto 状态：{firstoStatus[row.status] || row.status || '未知'}{!direct && ' · 以链上复核为准'}</small></td><td>{amount(row.ask?.priceWei)} BNB</td><td>{amount(row.estimated24hAtomic, 8)} BEM</td><td>{listingDailyCapacityPrice(row.ask?.priceWei, row.estimated24hAtomic) ?? '—'}</td><td>{row.listingReference ? amount(row.listingReference.dailyCapacityPriceWei) : '—'}</td><td>{row.ask?.venue === 'official' ? direct ? '官网挂单' : 'Firsto 索引 · 官网待链上核验' : row.ask ? row.ask.kind === 'signed_ask' ? direct ? 'Firsto 签名挂单' : 'Firsto · 待链上核验' : 'Firsto 批量 · 仅供参考' : '未挂单'}</td><td><button className="btn secondary" disabled={blocked} onClick={() => void choose(row)}>{direct ? '选择矿机' : '链上核对并选择'}</button></td></tr>)}
+      {page.rows.map(row => <tr key={`${row.collection}:${row.tokenId}`}><td>{row.series} #{row.tokenId}<small>Firsto 状态：{firstoStatus[row.status] || row.status || '未知'}{!direct && ' · 以链上复核为准'}</small></td><td>{amount(row.ask?.priceWei)} BNB</td><td>{amount(row.estimated24hAtomic, 8)} BEM</td><td>{listingDailyCapacityPrice(row.ask?.priceWei, row.estimated24hAtomic) ?? '—'}</td><td>{row.listingReference ? amount(row.listingReference.dailyCapacityPriceWei) : '—'}</td><td>{row.ask?.venue === 'official' ? direct ? '官网挂单' : 'Firsto 索引 · 官网待链上核验' : row.ask ? row.ask.kind === 'signed_ask' ? direct ? 'Firsto 签名挂单' : 'Firsto · 待链上核验' : 'Firsto 批量 · 仅供参考' : '未挂单 · 仅作参考'}</td><td><button className="btn secondary" disabled={blocked} onClick={() => void choose(row)}>{!row.ask && direct ? mode === 'createPool' ? '查看矿机' : '选择参考矿机' : direct ? '选择矿机' : '链上核对并选择'}</button></td></tr>)}
     </tbody></table></div><p className="subtle-note">挂单日产能价＝当前列表挂单价 ÷ 预计日产出；同类参考价来自 Firsto 的 listingReference，不能当成这台矿机的可成交价格。{direct ? '选择后按实际官网挂单或 Firsto 订单生成方案。' : '选中后仍以官网链上挂单或已核验 Firsto 订单为准。'}</p>{!page.rows.length && <><p>{direct ? 'Firsto 列表未找到这个编号的可用挂单；可以直接查询官网挂单。' : 'Firsto 列表未找到这个编号的可用挂单；官网链上挂单仍可直接核对。'}</p>{/^\d+$/.test(query.trim()) && series && <button type="button" className="btn secondary" disabled={blocked} onClick={() => void choose({ collection: OFFICIAL_COLLECTIONS[series], tokenId: query.trim(), series })}>直查官网链上矿机</button>}</>}
       <div className="operator-tabs"><button className="btn secondary" disabled={blocked || page.page <= 1} onClick={() => void load(page.page - 1)}>上一页</button><span>第 {page.page} / {Math.max(page.totalPages, 1)} 页</span><button className="btn secondary" disabled={blocked || page.page >= page.totalPages} onClick={() => void load(page.page + 1)}>下一页</button></div></>}
     {selected && <div className="operator-quote-selected"><h4><CheckCircle2 size={18}/>{Object.entries(OFFICIAL_COLLECTIONS).find(([, address]) => address.toLowerCase() === selected.chain.collection.toLowerCase())?.[0]} #{selected.chain.tokenId} · {direct ? '矿机资料已读取' : '矿机链上核对通过'}</h4>
@@ -168,12 +178,12 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
       {selected.chain.official ? <p>官网优先：可采购官网挂单 #{selected.chain.official.id}，链上价格 {displayAmount(selected.chain.official.priceWei)} BNB。此价格用于指定矿机方案的购机上限。</p>
         : selected.chain.firsto ? <><p>官网暂无可用挂单；{direct ? '已读取' : '已核验'} Firsto 单笔签名订单：卖价 {displayAmount(selected.chain.firsto.priceWei)} BNB + 来源手续费 {displayAmount(selected.chain.firsto.feeWei)} BNB。</p><p><strong>矿池总支出 {displayAmount(selected.chain.firsto.grossWei)} BNB</strong>；指定矿机方案的购机上限已包含该手续费。</p></>
         : batchAsk ? <><p className="operator-quote-warning">Firsto 确有这台矿机的批量挂单，卖价 {displayAmount(marketAsk.priceWei)} BNB。当前矿池合约不支持采购该批量订单，不能用于“指定单台矿机”建池。</p><p className="subtle-note">如只以其型号与产能作为参考，可在上方选择“单台矿机灵活替代”；募集后仍需采购符合条件的官网挂单或 Firsto 单笔签名订单，未购成按合约退款。</p></>
-          : <p className="operator-quote-warning">{referenceOnlyAsk ? `${selectedVenue}已返回这台矿机的挂单，但当前没有可执行的采购路线。` : '当前没有可执行的官网挂单或 Firsto 单笔签名订单。'}可作为灵活购机的型号与产能参考；募集后仍须找到符合条件的可执行挂单，未购成按合约退款。</p>}
+          : <p className="operator-quote-warning">{referenceOnlyAsk ? `${selectedVenue}已返回这台矿机的挂单，但当前没有可执行的采购路线。` : '这台矿机当前未挂单，不能用于指定购机。'}可在上方选择“单台矿机灵活替代”，作为型号与产能参考；募集后仍须找到符合条件的可执行挂单，未购成按合约退款。</p>}
       {selected.chain.firstoError && !batchAsk && <p className="operator-quote-warning">{selected.chain.firstoError}</p>}
       {mode === 'createFlexiblePoolChecked' && <p className="subtle-note">灵活购机仍按日产能参考计算购机上限；实际成交含费总价必须低于该上限。</p>}
       <label>额外募集预算（%）<input aria-label="额外募集预算百分比" inputMode="decimal" value={extra} disabled={blocked} onChange={event => setExtra(event.target.value)}/></label>
       <p className="subtle-note">预算默认 10%，可以调整；募集和购机时长在下方确认。只有点击预览、核对方案后才会请求钱包交易。</p>
-      <button className="btn" disabled={blocked || duplicate || !direct && (!selected.chain.registry?.supported || !selected.chain.registry.ready) || (mode === 'createPool' && !selected.chain.official && !selected.chain.firsto)} aria-describedby={applyBlockedReason ? 'operator-quote-apply-reason' : undefined} onClick={apply}>填入建池表单<ArrowRight size={16}/></button>
+      <button className="btn" disabled={blocked || Boolean(applyBlockedReason)} aria-describedby={applyBlockedReason ? 'operator-quote-apply-reason' : undefined} onClick={apply}>填入建池表单<ArrowRight size={16}/></button>
       {applyBlockedReason && <p id="operator-quote-apply-reason" className="subtle-note">无法填入：{applyBlockedReason}</p>}
     </div>}
   </section>;

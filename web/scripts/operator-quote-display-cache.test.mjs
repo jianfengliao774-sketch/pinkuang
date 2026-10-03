@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { transform, loadBindings } from 'next/dist/build/swc/index.js';
 import { listingDailyCapacityPrice } from '../lib/operator-quotes.mjs';
-import { quoteIssue } from '../../deploy/src/pricing.ts';
+import { quoteIssue, minerReferenceIssue, referenceIssue } from '../../deploy/src/pricing.ts';
 
 // Run the shipped JSX and its cache, with fixture-only public reads and hook lifecycles.
 const require = createRequire(import.meta.url), turn = () => new Promise(resolve => setImmediate(resolve));
@@ -20,7 +20,7 @@ const row = id => ({ collection: address, tokenId: String(id), series: 'TapeOut'
   estimated24hAtomic: '100000000', ask: { priceWei: '10000000000000000', venue: 'official' } });
 const page = id => ({ rows: [row(id)], page: 1, totalPages: 1, total: 1, viewId: `view-${id}` });
 
-function moduleFixture(loader = async () => page(1), { loadSelected } = {}) {
+function moduleFixture(loader = async () => page(1), { loadSelected, draftBuilder, fetchReference } = {}) {
   let active, selectedReads = 0;
   const hooks = {
     useState(value) { const i = active.position++; if (!active.slots[i]) active.slots[i] = { value: typeof value === 'function' ? value() : value };
@@ -30,18 +30,22 @@ function moduleFixture(loader = async () => page(1), { loadSelected } = {}) {
       if (!old || deps.some((dep, at) => dep !== old.deps[at])) active.effects.push(() => { old?.cleanup?.(); active.slots[i] = { deps, cleanup: fn() }; }); },
   };
   const quotes = { listOperatorQuotes: loader, QUOTE_BASE: '/fixture-quotes', QUOTE_SOURCE: 'https://example.test/quotes',
-    listingDailyCapacityPrice, operatorQuoteError: error => error.message, operatorQuoteDraft: () => assert.fail('No transaction draft requested'),
+    listingDailyCapacityPrice, operatorQuoteError: error => error.message,
+    operatorQuoteDraft: (...args) => draftBuilder ? draftBuilder(...args) : assert.fail('No transaction draft requested'),
     loadVerifiedCapacityHint: () => assert.fail('No selected-capacity fallback requested'),
     loadOperatorQuote: async input => { selectedReads++; return loadSelected ? loadSelected(input) : { chain: { collection: input.collection, tokenId: input.tokenId,
-      registry: null, official: { id: '1', priceWei: '10000000000000000' } }, quote: { estimated24hAtomic: '100000000',
-      issues: [], ask: { priceWei: '10000000000000000', status: 'open', expiresAt: Date.now() + 60000 },
+      registry: null, official: { id: '1', priceWei: '10000000000000000' } }, quote: {
+      collection: input.collection, tokenId: input.tokenId, series: input.collection === other ? 'Behemoth' : 'TapeOut',
+      status: 'verified', estimated24hAtomic: '100000000',
+      issues: [], ask: { priceWei: '10000000000000000', venue: 'official', kind: 'official', status: 'open', expiresAt: Date.now() + 60000 },
       source: { observedAt: Date.now() } }, reference: { dailyCapacityPriceWei: '10000000000000000', observedAt: Date.now() } }; },
   };
   const exports = { exports: {} };
   new Function('require', 'module', 'exports', code)(name => name === 'react' ? hooks
     : name === '../lib/operator-quotes.mjs' ? quotes
       : name === '../../deploy/src/pricing.ts' ? { OFFICIAL_COLLECTIONS: { TapeOut: address, Behemoth: other },
-        quoteIssue, referenceIssue: () => null, fetchCapacityReference: () => assert.fail('No selected reference fallback requested') }
+        quoteIssue, minerReferenceIssue, referenceIssue,
+        fetchCapacityReference: (...args) => fetchReference ? fetchReference(...args) : assert.fail('No selected reference fallback requested') }
         : require(name), exports, exports.exports);
   const Component = exports.exports.default;
   function host(props) {
@@ -127,7 +131,8 @@ test('known miner ID selects exact official identity directly without relying on
 const batchSelection = () => ({ chain: { collection: address, tokenId: '5181', official: null, firsto: null,
   registry: { supported: true, ready: true, pool: `0x${'00'.repeat(20)}` },
   firstoError: '仅支持 Firsto 单笔签名挂单；批量挂单尚未开放。' },
-  quote: { estimated24hAtomic: '18490000', issues: [], source: { observedAt: Date.now() },
+  quote: { collection: address, tokenId: '5181', series: 'TapeOut', status: 'verified',
+    estimated24hAtomic: '18490000', issues: [], source: { observedAt: Date.now() },
     ask: { priceWei: '1373777280000000000', buyerCostWei: '1387515052800000000', venue: 'firsto',
       kind: 'circuit_batch_ask', status: 'open', expiresAt: Date.now() + 60000 } },
   reference: { dailyCapacityPriceWei: '7500000000000000000', observedAt: Date.now() } });
@@ -194,4 +199,89 @@ test('expired batch reference is not presented as the current miner listing pric
   assert.doesNotMatch(text(ui.tree), /7\.42984/);
   assert.equal(button(ui, '填入建池表单').disabled, true);
   ui.unmount();
+});
+
+const unlistedSelection = () => ({
+  chain: { collection: address, tokenId: '10042', official: null, firsto: null, firstoError: null,
+    eligible: true, taskId: '220', verifiedWeight: '61', checkedAt: Date.now(), displayOnly: true, registry: null },
+  quote: { collection: address, tokenId: '10042', series: 'TapeOut', status: 'verified', owner: other,
+    taskId: '220', verifiedWeight: '61', unverifiedWeight: '0', estimated24hAtomic: '123456789',
+    ask: null, detailChecked: true, issues: [], source: { observedAt: Date.now() } },
+  reference: { dailyCapacityPriceWei: '3000000000000000001', observedAt: Date.now() }, referenceError: null,
+});
+const unlistedPage = () => ({ ...page(10042), rows: [{ ...row(10042), ask: null }], totalPages: 2 });
+
+test('viewing unlisted #10042 shows its model and daily yield without an error or fixed procurement permission', async () => {
+  const f = moduleFixture(unlistedPage, { loadSelected: unlistedSelection }), ui = f.host(props);
+  await ui.settle(); assert.match(text(ui.tree), /未挂单 · 仅作参考/);
+  button(ui, '查看矿机').onClick(); await ui.settle();
+  assert.match(text(ui.tree), /TapeOut #10042 · 矿机资料已读取/);
+  assert.match(text(ui.tree), /预计日产出：1\.23457 BEM \/ 天/);
+  assert.match(text(ui.tree), /这台矿机当前未挂单，不能用于指定购机/);
+  assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false);
+  assert.equal(button(ui, '填入建池表单').disabled, true);
+  assert.equal(f.selectedReads(), 1); ui.unmount();
+});
+
+test('a fresh unlisted reference may fill only the flexible form and retains the checked metadata', async () => {
+  let applied, draftOptions;
+  const selected = unlistedSelection();
+  const f = moduleFixture(unlistedPage, { loadSelected: () => selected,
+    draftBuilder: (checked, options) => { assert.equal(checked, selected); draftOptions = options;
+      return { kind: options.mode, params: { circuitId: '10042' } }; } });
+  const ui = f.host({ ...props, mode: 'createFlexiblePoolChecked', onApply: result => { applied = result; } });
+  await ui.settle(); button(ui, '选择参考矿机').onClick(); await ui.settle();
+  const apply = button(ui, '填入建池表单'); assert.equal(apply.disabled, false);
+  assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false);
+  apply.onClick(); await ui.settle();
+  assert.equal(applied.checked, selected); assert.equal(applied.draft.kind, 'createFlexiblePoolChecked');
+  assert.equal(draftOptions.mode, 'createFlexiblePoolChecked'); assert.equal(draftOptions.extraBps, 1000);
+  ui.render(props); await ui.settle();
+  assert.equal(elements(ui.tree).some(item => item.props?.className === 'operator-quote-selected'), false,
+    'A flexible selection is retired when switching back to fixed procurement.');
+  ui.unmount();
+});
+
+test('fresh selected metadata replaces only the same NFT directory row and removes its obsolete signed ask', async () => {
+  const old = { ...row(10042), ask: { priceWei: '999000000000000000000', venue: 'firsto', kind: 'signed_ask' } };
+  const untouched = row(10043);
+  const f = moduleFixture(async () => ({ ...unlistedPage(), rows: [old, untouched] }), { loadSelected: unlistedSelection });
+  const ui = f.host(props); await ui.settle();
+  assert.match(text(ui.tree), /Firsto 签名挂单/); assert.match(text(ui.tree), /999\.00000 BNB/);
+  button(ui, '选择矿机').onClick(); await ui.settle();
+  const rows = elements(ui.tree).filter(item => item.type === 'tr');
+  const selectedRow = rows.find(item => /TapeOut #10042/.test(text(item)));
+  const otherRow = rows.find(item => /TapeOut #10043/.test(text(item)));
+  const selectedCells = elements(selectedRow).filter(item => item.type === 'td');
+  assert.equal(text(selectedCells[1]), '— BNB'); assert.match(text(selectedCells[2]), /1\.23457 BEM/);
+  assert.equal(text(selectedCells[5]), '未挂单 · 仅作参考');
+  assert.match(text(otherRow), /0\.01000 BNB/); assert.match(text(otherRow), /官网挂单/);
+  assert.doesNotMatch(text(ui.tree), /999\.00000 BNB|Firsto 签名挂单/);
+  assert.match(text(ui.tree), /第 1 \/ 2 页/);
+  assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false);
+  assert.equal(button(ui, '填入建池表单').disabled, true); ui.unmount();
+});
+
+test('a stale market reference cannot enable flexible unlisted creation', async () => {
+  const selected = unlistedSelection(); selected.reference.observedAt = Date.now() - 300001;
+  const f = moduleFixture(unlistedPage, { loadSelected: () => selected });
+  const ui = f.host({ ...props, mode: 'createFlexiblePoolChecked' }); await ui.settle();
+  button(ui, '选择参考矿机').onClick(); await ui.settle();
+  const apply = button(ui, '填入建池表单'); assert.equal(apply.disabled, true);
+  const reason = elements(ui.tree).find(item => item.props?.id === apply['aria-describedby']);
+  assert.match(text(reason), /有效的全市场参考价暂不可用/);
+  assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false); ui.unmount();
+});
+
+test('failed capacity reference remains visible without immediately repeating the paid GET', async () => {
+  let referenceReads = 0;
+  const selected = unlistedSelection(); selected.reference = null; selected.referenceError = 'Firsto HTTP 503';
+  const f = moduleFixture(unlistedPage, { loadSelected: () => selected,
+    fetchReference: async () => { referenceReads++; return unlistedSelection().reference; } });
+  const ui = f.host({ ...props, mode: 'createFlexiblePoolChecked' }); await ui.settle();
+  button(ui, '选择参考矿机').onClick(); await ui.settle();
+  assert.equal(referenceReads, 0, 'loadOperatorQuote already attempted the reference request.');
+  assert.equal(button(ui, '填入建池表单').disabled, true);
+  assert.match(text(ui.tree), /Firsto HTTP 503/);
+  assert.equal(elements(ui.tree).some(item => item.props?.role === 'alert'), false); ui.unmount();
 });
