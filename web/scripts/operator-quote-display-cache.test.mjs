@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { transform, loadBindings } from 'next/dist/build/swc/index.js';
+import { listingDailyCapacityPrice } from '../lib/operator-quotes.mjs';
+import { quoteIssue } from '../../deploy/src/pricing.ts';
 
 // Run the shipped JSX and its cache, with fixture-only public reads and hook lifecycles.
 const require = createRequire(import.meta.url), turn = () => new Promise(resolve => setImmediate(resolve));
@@ -18,7 +20,7 @@ const row = id => ({ collection: address, tokenId: String(id), series: 'TapeOut'
   estimated24hAtomic: '100000000', ask: { priceWei: '10000000000000000', venue: 'official' } });
 const page = id => ({ rows: [row(id)], page: 1, totalPages: 1, total: 1, viewId: `view-${id}` });
 
-function moduleFixture(loader = async () => page(1)) {
+function moduleFixture(loader = async () => page(1), { loadSelected } = {}) {
   let active, selectedReads = 0;
   const hooks = {
     useState(value) { const i = active.position++; if (!active.slots[i]) active.slots[i] = { value: typeof value === 'function' ? value() : value };
@@ -28,17 +30,18 @@ function moduleFixture(loader = async () => page(1)) {
       if (!old || deps.some((dep, at) => dep !== old.deps[at])) active.effects.push(() => { old?.cleanup?.(); active.slots[i] = { deps, cleanup: fn() }; }); },
   };
   const quotes = { listOperatorQuotes: loader, QUOTE_BASE: '/fixture-quotes', QUOTE_SOURCE: 'https://example.test/quotes',
-    listingDailyCapacityPrice: () => '0.01000', operatorQuoteError: error => error.message, operatorQuoteDraft: () => assert.fail('No transaction draft requested'),
+    listingDailyCapacityPrice, operatorQuoteError: error => error.message, operatorQuoteDraft: () => assert.fail('No transaction draft requested'),
     loadVerifiedCapacityHint: () => assert.fail('No selected-capacity fallback requested'),
-    loadOperatorQuote: async input => { selectedReads++; return { chain: { collection: input.collection, tokenId: input.tokenId,
+    loadOperatorQuote: async input => { selectedReads++; return loadSelected ? loadSelected(input) : { chain: { collection: input.collection, tokenId: input.tokenId,
       registry: null, official: { id: '1', priceWei: '10000000000000000' } }, quote: { estimated24hAtomic: '100000000',
+      issues: [], ask: { priceWei: '10000000000000000', status: 'open', expiresAt: Date.now() + 60000 },
       source: { observedAt: Date.now() } }, reference: { dailyCapacityPriceWei: '10000000000000000', observedAt: Date.now() } }; },
   };
   const exports = { exports: {} };
   new Function('require', 'module', 'exports', code)(name => name === 'react' ? hooks
     : name === '../lib/operator-quotes.mjs' ? quotes
       : name === '../../deploy/src/pricing.ts' ? { OFFICIAL_COLLECTIONS: { TapeOut: address, Behemoth: other },
-        referenceIssue: () => null, fetchCapacityReference: () => assert.fail('No selected reference fallback requested') }
+        quoteIssue, referenceIssue: () => null, fetchCapacityReference: () => assert.fail('No selected reference fallback requested') }
         : require(name), exports, exports.exports);
   const Component = exports.exports.default;
   function host(props) {
@@ -115,5 +118,80 @@ test('known miner ID selects exact official identity directly without relying on
   assert.match(text(ui.tree), /TapeOut #16736/);
   assert.doesNotMatch(text(ui.tree), /列表未找到/);
   assert.equal(button(ui, '填入建池表单').disabled, false);
+  ui.unmount();
+});
+
+// Same public price/yield combination as the reported #5181 batch listing.
+// The injected selection represents a successful identity/freshness check;
+// no mocked batch order is ever made into an executable purchase route.
+const batchSelection = () => ({ chain: { collection: address, tokenId: '5181', official: null, firsto: null,
+  registry: { supported: true, ready: true, pool: `0x${'00'.repeat(20)}` },
+  firstoError: '仅支持 Firsto 单笔签名挂单；批量挂单尚未开放。' },
+  quote: { estimated24hAtomic: '18490000', issues: [], source: { observedAt: Date.now() },
+    ask: { priceWei: '1373777280000000000', buyerCostWei: '1387515052800000000', venue: 'firsto',
+      kind: 'circuit_batch_ask', status: 'open', expiresAt: Date.now() + 60000 } },
+  reference: { dailyCapacityPriceWei: '7500000000000000000', observedAt: Date.now() } });
+
+test('selected batch ask retains its own daily price and explains why fixed creation is unavailable', async () => {
+  const f = moduleFixture(undefined, { loadSelected: batchSelection }), ui = f.host(props);
+  await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
+  assert.match(text(ui.tree), /Firsto挂单日产能价：7\.42984 BNB \/ \(BEM \/ 天\)（挂牌参考/);
+  assert.match(text(ui.tree), /全市场参考日产能价：7\.50000 BNB/);
+  assert.match(text(ui.tree), /Firsto 确有这台矿机的批量挂单/);
+  assert.match(text(ui.tree), /上方选择“单台矿机灵活替代”/);
+  assert.doesNotMatch(text(ui.tree), /当前没有本项目可采购的官网挂单/);
+  const apply = button(ui, '填入建池表单');
+  assert.equal(apply.disabled, true);
+  const reason = elements(ui.tree).find(item => item.props?.id === apply['aria-describedby']);
+  assert.match(text(reason), /Firsto 批量订单.*当前矿池合约不支持采购/);
+  ui.unmount();
+});
+
+test('batch reference does not replace an available official purchase price or disable its fixed draft', async () => {
+  const selected = batchSelection(); selected.chain.official = { id: '45', priceWei: '40000000000000000' };
+  selected.chain.firstoError = null;
+  const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
+  await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
+  assert.match(text(ui.tree), /官网挂单日产能价：0\.21633 BNB/);
+  assert.doesNotMatch(text(ui.tree), /挂牌参考，尚无可执行采购路线|不能用于“指定单台矿机”/);
+  assert.equal(button(ui, '填入建池表单').disabled, false);
+  ui.unmount();
+});
+
+test('official index reference keeps its actual market label when the chain has no executable listing', async () => {
+  const selected = batchSelection(); selected.quote.ask.venue = 'official'; selected.chain.firstoError = null;
+  const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
+  await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
+  assert.match(text(ui.tree), /官网挂单日产能价：7\.42984 BNB/);
+  assert.match(text(ui.tree), /官网已返回这台矿机的挂单，但当前没有可执行的采购路线/);
+  assert.doesNotMatch(text(ui.tree), /Firsto挂单日产能价|Firsto 确有这台矿机的批量挂单/);
+  assert.equal(button(ui, '填入建池表单').disabled, true);
+  ui.unmount();
+});
+
+test('flexible reference remains available for batch metadata while unfinished registry retains its real reason', async () => {
+  const flexibleProps = { ...props, mode: 'createFlexiblePoolChecked' };
+  const allowed = moduleFixture(undefined, { loadSelected: batchSelection }), ui = allowed.host(flexibleProps);
+  await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
+  assert.equal(button(ui, '填入建池表单').disabled, false);
+  assert.match(text(ui.tree), /当前矿池合约不支持采购该批量订单/);
+  ui.unmount();
+  const selected = batchSelection(); selected.chain.registry.ready = false;
+  const blocked = moduleFixture(undefined, { loadSelected: () => selected });
+  const blockedUi = blocked.host({ ...flexibleProps, config: { ...props.config, displayOnly: false } });
+  await blockedUi.settle(); button(blockedUi, '链上核对并选择').onClick(); await blockedUi.settle();
+  const apply = button(blockedUi, '填入建池表单'); assert.equal(apply.disabled, true);
+  const reason = elements(blockedUi.tree).find(item => item.props?.id === apply['aria-describedby']);
+  assert.match(text(reason), /矿机唯一性登记尚未完成/);
+  blockedUi.unmount();
+});
+
+test('expired batch reference is not presented as the current miner listing price', async () => {
+  const selected = batchSelection(); selected.quote.ask.expiresAt = Date.now() - 1;
+  const f = moduleFixture(undefined, { loadSelected: () => selected }), ui = f.host(props);
+  await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
+  assert.match(text(ui.tree), /当前市场挂单日产能价：—/);
+  assert.doesNotMatch(text(ui.tree), /7\.42984/);
+  assert.equal(button(ui, '填入建池表单').disabled, true);
   ui.unmount();
 });

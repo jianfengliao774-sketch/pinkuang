@@ -28,6 +28,19 @@ test('wrong venue, batch, chain, exchange, recipient, hashes, prices and unsafe 
   }
 });
 
+test('closed, unrelated, batch and unknown orders report the actual blocking condition', async () => {
+  const source = await signedSource();
+  const closed = structuredClone(source); closed.status = 'cancelled';
+  closed.execution.kind = 'circuit_batch_ask';
+  assert.throws(() => parse(closed), /挂单已关闭或不可用/);
+  const unrelated = structuredClone(source); unrelated.venue = 'official';
+  assert.throws(() => parse(unrelated), /不属于 Firsto 签名市场/);
+  const batch = structuredClone(source); batch.execution.kind = 'circuit_batch_ask';
+  assert.throws(() => parse(batch), /有 Firsto 批量挂单.*当前合约不支持批量采购/);
+  const unknown = structuredClone(source); unknown.execution.kind = 'unknown';
+  assert.throws(() => parse(unknown), /不支持此 Firsto 挂单类型/);
+});
+
 test('inner order decoder rejects padding, trailing bytes and aliases before journal acceptance',async()=>{
   const order=parse(await signedSource());
   assert.throws(()=>decodeFirstoOrder(`${order.encodedOrder}00`));

@@ -66,7 +66,10 @@ export function decodeFirstoOrder(encodedOrder) {
 /** An indexer can supply an order, never an arbitrary destination, recipient or transaction payload. */
 export function parseFirstoSignedAsk(source, { collection, tokenId, owner, now = Date.now() } = {}) {
   const e = source?.execution;
-  need(source?.status === 'open' && source.venue === 'firsto' && e?.kind === 'signed_ask', '仅支持 Firsto 单笔签名挂单；批量挂单尚未开放。');
+  need(source?.status === 'open', 'Firsto 挂单已关闭或不可用，请重新获取报价。');
+  need(source.venue === 'firsto', '该挂单不属于 Firsto 签名市场。');
+  need(e?.kind !== 'circuit_batch_ask', '该矿机有 Firsto 批量挂单，但当前合约不支持批量采购。');
+  need(e?.kind === 'signed_ask', '当前合约不支持此 Firsto 挂单类型。');
   need(e.chainId === 56 && same(e.exchange,FIRSTO_SIGNED_EXCHANGE), 'Firsto 交易网络或市场地址不受支持。');
   need(typeof e.schemaVersion === 'string' && typeof e.feeBps === 'number' && Number.isSafeInteger(e.feeBps), 'Firsto 协议字段格式无效。');
   for (const key of ['tokenId','nonce','priceWei','expiry','feeEpoch']) integer(e[key], key === 'priceWei' ? 128 : key === 'expiry' ? 64 : 256);

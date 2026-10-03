@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-03T14:54:17.353625+00:00",
+  "scope": "Read-only existing server cache/detail; no paid RPC or transaction; signatures omitted",
+  "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+  "tokenId": "5181",
+  "candidateListRead": {
+    "attempts": 1,
+    "status": 502
+  },
+  "detailRead": {
+    "attempts": 1,
+    "status": 200,
+    "cache": "HIT",
+    "fetchedAt": "2026-10-03T14:52:08.174Z"
+  },
+  "orders": {
+    "asksAndOnchainBidsCount": 0,
+    "signedAsksCount": 1,
+    "signedBidsCount": 0
+  },
+  "openAsk": {
+    "status": "open",
+    "executionKind": "circuit_batch_ask",
+    "chainId": 56,
+    "exchange": "0x3f58c9cbce933c76158b2a29b0d612c46546dc43",
+    "maker": "0xc0f78ed17fbfe0737cb8863658414b6ad71690ee",
+    "schemaVersion": "1",
+    "priceWei": "1373777280000000000",
+    "buyerCostWei": "1387515052800000000",
+    "feeBps": 100,
+    "feeEpoch": "1",
+    "expiry": "1793627133",
+    "leafIndex": "0",
+    "merkleProofCount": 0,
+    "signatureByteLength": 65,
+    "signatureSha256": "b8524d300147590a11eea2456715e69d676c82193cebc9aa5305320631e48ac7",
+    "leafHash": "0x5a23c69e0ed3c5003fe13515c246131e48a35e80efd816499a293ac44cf526f4",
+    "batchHash": "0xab09e1749a642c928066ebae251fcfb3fc3bb6ef5942037651b2d7fe519157b3"
+  },
+  "causes": {
+    "parser": "deploy/src/firsto-purchase.mjs parseFirstoSignedAsk requires open / firsto / signed_ask, then signed-ask schema 2 and exchange0x33423244F9a5bF81b12B1a018aF6F4e079B97f29",
+    "contract": "contracts/src/libraries/FlexiblePurchase.sol buyFirsto rejects kind!=0 and decodes single signed ask; batch ABI present but execution intentionally disabled",
+    "priceDisplay": "web/components/OperatorQuotePicker.jsx uses chain.official.priceWei ?? chain.firsto.priceWei; batch parsing sets firsto null so display loses valid public ask.priceWei",
+    "createDisabled": "createPool && !chain.official && !chain.firsto"
+  },
+  "boundary": "This evidence shows an open indexed order and format. It is not current on-chain executable authorization; no live on-chain owner/approval/nonce proof was performed."
+}

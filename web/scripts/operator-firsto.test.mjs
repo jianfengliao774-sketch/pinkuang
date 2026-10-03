@@ -54,6 +54,9 @@ test('old deployment, incomplete migration and batch ask never enable Firsto pro
   f.data.page.sourceFreshness[`circuit_batch_ask_exchange:${f.source.execution.exchange.toLowerCase()}`] = Date.now();
   const checked = await quote(f);
   assert.equal(checked.chain.firsto, null); assert.match(checked.chain.firstoError, /批量/);
+  assert.throws(() => operatorQuoteDraft(checked), /批量/);
+  assert.equal(operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' }).kind, 'createFlexiblePoolChecked',
+    'Batch metadata remains a flexible model reference, never a batch purchase authorization');
 });
 
 test('duplicate target displays the existing pool and blocks both fixed and flexible creation before simulation', async () => {
