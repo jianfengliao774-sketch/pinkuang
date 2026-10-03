@@ -71,6 +71,15 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
 
   const referenceFresh = data?.reference && now <= data.reference.observedAt + MAX_QUOTE_AGE_MS;
   const reference = referenceFresh ? data.reference : null;
+  const rows = data?.rows.map(row => {
+    const unavailable = row.unavailable || now >= row.validUntil && text(locale, '报价已过期，请刷新', 'Quote expired. Refresh.');
+    return { ...row, unavailable,
+      venueText: venue(row.venue, locale), quotedAt: time(row.observedAt, locale),
+      sellerPrice: unavailable ? '—' : formatMarketAmount(row.sellerPriceWei),
+      dailyBem: unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8, 5),
+      capacityPrice: unavailable ? text(locale, '暂不可用', 'Unavailable') : formatMarketAmount(row.dailyCapacityPriceWei),
+    };
+  }) ?? [];
   return <section className="firsto-board" aria-label={text(locale, 'Firsto 实时矿机行情', 'Firsto live miner quotes')}>
     <header className="firsto-board-head">
       <div><span className="firsto-board-eyebrow">FIRSTO · BSC MAINNET</span>
@@ -100,18 +109,29 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
         <th>{text(locale, '预计日产BEM', 'Expected daily BEM')}<small>BEM / {text(locale, '天', 'day')}</small></th>
         <th>{text(locale, '日产能价', 'Price per daily BEM')}<small>BNB / (BEM / {text(locale, '天', 'day')})</small></th>
         <th>{text(locale, '报价时间 / 来源', 'Quote time / source')}</th>
-      </tr></thead><tbody>{data.rows.map(row => {
-        const unavailable = row.unavailable || now >= row.validUntil && text(locale, '报价已过期，请刷新', 'Quote expired. Refresh.');
-        return <tr key={row.key}>
-          <td><strong>{row.series} #{row.tokenId}</strong><small>T{row.taskId ?? '—'} · {venue(row.venue, locale)}</small></td>
-          <td>{unavailable ? '—' : formatMarketAmount(row.sellerPriceWei)}</td>
-          <td>{unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8, 5)}</td>
-          <td className="firsto-board-unit">{unavailable ? text(locale, '暂不可用', 'Unavailable') :
-            <strong>{formatMarketAmount(row.dailyCapacityPriceWei)}</strong>}</td>
-          <td><time>{time(row.observedAt, locale)}</time><small>#{row.sourceBlock} · <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看网站', 'Open website')} ↗</a></small>
-            {unavailable && <em>{unavailable}</em>}</td>
-        </tr>;
-      })}</tbody></table></div>
+      </tr></thead><tbody>{rows.map(row => <tr key={row.key}>
+        <td><strong>{row.series} #{row.tokenId}</strong><small>T{row.taskId ?? '—'} · {row.venueText}</small></td>
+        <td>{row.sellerPrice}</td>
+        <td>{row.dailyBem}</td>
+        <td className="firsto-board-unit">{row.unavailable ? row.capacityPrice : <strong>{row.capacityPrice}</strong>}</td>
+        <td><time>{row.quotedAt}</time><small>#{row.sourceBlock} · <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看网站', 'Open website')} ↗</a></small>
+          {row.unavailable && <em>{row.unavailable}</em>}</td>
+      </tr>)}</tbody></table></div>
+      <div className="firsto-board-mobile-cards">{rows.map(row => <article className="firsto-board-mobile-card" key={row.key}>
+        <header><strong>{row.series} #{row.tokenId}</strong><span>Task {row.taskId ?? '—'} · {row.venueText}</span></header>
+        <dl className="firsto-board-mobile-metrics">
+          <div><dt>{text(locale, '卖家挂单价', 'Seller ask')}</dt><dd><strong>{row.sellerPrice}</strong><small>BNB</small></dd></div>
+          <div><dt>{text(locale, '预计日产BEM', 'Expected daily BEM')}</dt><dd><strong>{row.dailyBem}</strong><small>BEM / {text(locale, '天', 'day')}</small></dd></div>
+          <div><dt>{text(locale, '日产能价', 'Price per daily BEM')}</dt><dd className="firsto-board-mobile-capacity"><strong>{row.capacityPrice}</strong><small>BNB / (BEM / {text(locale, '天', 'day')})</small></dd></div>
+        </dl>
+        {row.unavailable && <p className="firsto-board-mobile-unavailable" role="status">{row.unavailable}</p>}
+        <details className="firsto-board-mobile-source">
+          <summary>{text(locale, '报价来源', 'Quote source')}</summary>
+          <dl><div><dt>{text(locale, '报价时间', 'Quote time')}</dt><dd><time>{row.quotedAt}</time></dd></div>
+            <div><dt>{text(locale, '来源区块', 'Source block')}</dt><dd>#{row.sourceBlock}</dd></div></dl>
+          <a href={FIRSTO_MARKET_SOURCE} target="_blank" rel="noopener noreferrer">{text(locale, '查看网站', 'Open website')} <ExternalLink size={14}/></a>
+        </details>
+      </article>)}</div>
       {!data.rows.length && <p className="firsto-board-status">{text(locale, '当前没有通过官方身份检查的矿机报价。', 'No official miner quote passed identity checks.')}</p>}
       <footer className="firsto-board-foot">
         <p>{text(locale,
