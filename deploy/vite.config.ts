@@ -81,7 +81,9 @@ export default defineConfig(({ mode }) => {
   return { define: { __DEPLOYMENT_ARTIFACT_DIGEST__: JSON.stringify(digest) },
     // Fresh releases copy only their reviewed public files after bundling.
     // Vite's normal publicDir also contains retired upgrade genesis records.
-    publicDir: freshDeployment ? false : undefined,
+    // Do not copy the deployment console's other public data into either
+    // isolated release. Upgrade mode stages only its pinned public JSON files.
+    publicDir: freshDeployment || standaloneUpgrade ? false : undefined,
     plugins: [react(), ...(standaloneUpgrade ? [] : runtimePlugins)], base: './', build: {
     chunkSizeWarningLimit: 800,
     outDir: standaloneUpgrade ? 'dist-upgrade' : 'dist',

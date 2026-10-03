@@ -246,6 +246,7 @@ contract PoolVault is
         return SaleGovernance.propose(
             _saleStorage(),
             s.memberHistory,
+            s.factory,
             SaleGovernance.ProposalInput(
                 FirstoSale.prepareProposal(_saleStorage(), s.activatedAt), balanceOf(msg.sender), price, refPrice, refAt
             )

@@ -285,7 +285,8 @@ test('additional sale candidates, votes and reference disclosure follow the audi
   const vote=await prepare(mock({proposals}),{kind:'vote',proposalId:'2',support:true});
   assert.deepEqual([...abi.PoolVault.parseTransaction(vote.transaction).args],[2n,true]);
   await assert.rejects(prepare(mock({proposals}),{kind:'vote',proposalId:'3',support:true}));
-  assert.equal((await prepare(mock({proposals}),{kind:'executeSale',proposalId:'2'})).kind,'executeSale');
+  assert.equal((await prepare(mock({proposals, reviewStatus:3n, reviewPrice:900n}),
+    {kind:'executeSale',proposalId:'2'})).kind,'executeSale');
 });
 
 test('share purchase binds the displayed seller and exact unit price',async()=>{

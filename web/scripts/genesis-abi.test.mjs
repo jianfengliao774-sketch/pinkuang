@@ -11,7 +11,7 @@ test('genesis ABI is extracted from independently pinned original deployment art
   const path = new URL('../../deploy/public/upgrade-genesis/genesis-artifacts.json', import.meta.url);
   const bytes = readFileSync(path);
   assert.equal(createHash('sha256').update(bytes).digest('hex'),
-    '22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b');
+    'b24082514df9d7a37f57af0e8c0cf644d42446c95b88eb1961837ea76a08bebc');
   const bundle = JSON.parse(bytes.toString('utf8'));
   assert.equal(genesisContracts.artifactDigest, genesisManifest.artifactDigest);
   // The fresh Factory ABI must not retain constants for unrelated old deployments.
@@ -24,8 +24,12 @@ test('genesis ABI is extracted from independently pinned original deployment art
       const current = abi[name].getFunction(fragment.format('sighash'));
       assert.equal(current?.format('sighash'), fragment.format('sighash'),
         `${name}.${fragment.name} cannot be called by the transitional frontend`);
-      assert.deepEqual(current?.outputs.map(output => output.format('sighash')),
-        fragment.outputs.map(output => output.format('sighash')),
+      const currentOutputs = current?.outputs.map(output => output.format('sighash')) ?? [];
+      const genesisOutputs = fragment.outputs.map(output => output.format('sighash'));
+      assert.ok(currentOutputs.length >= genesisOutputs.length,
+        `${name}.${fragment.name} removed return data used by the transitional frontend`);
+      assert.deepEqual(currentOutputs.slice(0, genesisOutputs.length),
+        genesisOutputs,
         `${name}.${fragment.name} return values cannot be decoded by the transitional frontend`);
     }
   }

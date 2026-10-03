@@ -293,6 +293,8 @@ contract PoolLensTest is ShareTransferTestBase {
 
     function _proposePrice(uint256 price) private returns (uint256 id) {
         vm.warp(uint256(vault.activatedAt()) + 7 days);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), uint128(price), uint64(block.timestamp), keccak256("lens-review"));
         vm.prank(ALICE);
         id = pool.propose(price, 123 ether, uint64(block.timestamp));
     }

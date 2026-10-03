@@ -115,7 +115,7 @@ function provider(options = {}) {
     }
     else if (name === 'saleReview') {
       if (options.reviewReadError) throw new Error('review unavailable');
-      value = [options.reviewStatus ?? 0n, options.reviewPrice ?? 0n];
+      value = [options.reviewStatus ?? 3n, options.reviewPrice ?? options.governance?.proposal?.price ?? proposal.price];
     }
     else throw new Error(`unexpected call ${name}`);
     return iface.encodeFunctionResult(name, ['saleReference', 'saleReview', 'childInfo'].includes(name) ? value : [value]);
@@ -1022,7 +1022,7 @@ test('fresh direct governance preserves missing Lens fields and required busines
   const directConfig = { ...config, productFamily: 'fresh-v4', displayOnly: true, stage: 'fresh-active' };
   const below = { ...proposal, price: 8000n, yesShares: 51n };
   for (const change of [{ reviewStatus: 1n, reviewPrice: 7999n }, { reviewStatus: 2n, reviewPrice: 8000n },
-    { referenceAt: BigInt(timestamp - 901) }, { reviewReadError: true }]) {
+    { referenceAt: BigInt(timestamp - 901), reviewStatus: 0n }, { reviewReadError: true }]) {
     const rpc = provider({ directLatest: true, governance: { proposal: below, canExecute: true }, ...change });
     const result = await createLiveDataClient(directConfig, { provider: rpc, fetcher: indexFetcher(),
       now: () => now }).readGovernance({ pool, account });
@@ -1040,7 +1040,7 @@ test('fresh direct governance preserves missing Lens fields and required busines
 test('governance ignores the fixed old Lens sale threshold after the dual-majority Vault upgrade', async () => {
   const discounted = { ...proposal, price: 9000n, yesShares: 51n };
   const result = await client({}, { governance: { proposal: discounted, discounted: true,
-    requiredYesShares: 60n, passed: false, canExecute: false } }).readGovernance({ pool, account });
+    requiredYesShares: 60n, passed: false, canExecute: false }, reviewStatus: 3n, reviewPrice: 9000n }).readGovernance({ pool, account });
   assert.equal(result.data.requiredYesShares, 51n);
   assert.equal(result.data.passed, true);
   assert.equal(result.data.discounted, false, 'the current Firsto reference, not purchase cost, sets review need');
@@ -1064,8 +1064,8 @@ test('genesis governance retains its on-chain 60-share discount rule until activ
 
 test('governance never carries Lens canExecute through a missing reference or mismatched review', async () => {
   const below = { ...proposal, price: 8000n, yesShares: 51n };
-  for (const options of [{ referenceAt: BigInt(timestamp - 901) },
-    { referenceDigest: `0x${'00'.repeat(32)}` }, { referenceReadError: true },
+  for (const options of [{ referenceAt: BigInt(timestamp - 901), reviewStatus: 0n },
+    { referenceDigest: `0x${'00'.repeat(32)}`, reviewStatus: 0n }, { referenceReadError: true, reviewStatus: 0n },
     { reviewStatus: 0n }, { reviewStatus: 1n, reviewPrice: 7999n },
     { reviewStatus: 2n, reviewPrice: 8000n }, { reviewReadError: true }]) {
     const result = await client({}, { ...options, governance: { proposal: below, canExecute: true } }).readGovernance({ pool, account });
@@ -1077,6 +1077,10 @@ test('governance never carries Lens canExecute through a missing reference or mi
   assert.equal(approved.data.discounted, true);
   assert.equal(approved.data.reviewApproved, true);
   assert.equal(approved.data.canExecute, true);
+  const quoteUnavailableButPinnedReviewApproved = await client({}, { referenceReadError: true,
+    governance: { proposal: below, canExecute: false }, reviewStatus: 1n, reviewPrice: 8000n })
+    .readGovernance({ pool, account });
+  assert.equal(quoteUnavailableButPinnedReviewApproved.data.canExecute, true);
 });
 
 test('activity pagination validates tuple order and keeps event amounts as exact strings', async () => {

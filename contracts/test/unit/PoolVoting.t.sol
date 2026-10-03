@@ -24,6 +24,14 @@ contract PoolVotingTest is ShareTransferTestBase {
         uint64 refAt,
         uint64 endsAt
     );
+    event SaleReviewPolicySnapshotted(
+        address indexed pool,
+        uint256 indexed proposalId,
+        uint8 status,
+        uint128 referencePrice,
+        uint64 referenceAt,
+        bytes32 referenceDigest
+    );
     event SaleSnapshotRecorded(uint256 indexed proposalId, uint48 snapshotTs, uint256 members, uint256 shares);
     event Voted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
 
@@ -48,11 +56,18 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(voting.nextProposalId(), 1);
 
         vm.warp(uint256(acquired) + 3 days);
+        uint64 referenceAt = uint64(block.timestamp);
+        bytes32 referenceDigest = keccak256("test-review-reference");
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), 5 ether, referenceAt, referenceDigest);
+        vm.expectEmit(true, true, false, true, address(shareMarket));
+        emit SaleReviewPolicySnapshotted(address(pool), 1, 3, 5 ether, referenceAt, referenceDigest);
         vm.expectEmit(true, true, false, true, address(pool));
         emit SaleProposed(1, ALICE, 5 ether, 6 ether, 1, uint64(block.timestamp + 1 days));
         vm.expectEmit(true, false, false, true, address(pool));
         emit SaleSnapshotRecorded(1, uint48(block.timestamp), 3, 100);
-        uint256 id = _propose(ALICE);
+        vm.prank(ALICE);
+        uint256 id = voting.propose(5 ether, 6 ether, 1);
         PoolSaleState.Proposal memory p = voting.getProposal(id);
         assertEq(id, 1);
         assertEq(voting.nextProposalId(), 2);
@@ -156,6 +171,7 @@ contract PoolVotingTest is ShareTransferTestBase {
     function test_twoPassedCandidatesCannotExecuteTwice() public {
         _ready();
         uint256 purchaseCost = voting.purchaseCost();
+        _setReviewReference(uint128(purchaseCost));
         vm.prank(ALICE);
         uint256 first = voting.propose(purchaseCost, 0, 0);
         vm.prank(BOB);
@@ -177,6 +193,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _transfer(BOB, CAROL, 15); // 49 / 11 / 40 beneficial shares.
         _ready();
         uint256 purchaseCost = voting.purchaseCost();
+        _setReviewReference(uint128(purchaseCost));
         vm.prank(BOB);
         uint256 opener = voting.propose(purchaseCost, 0, 0);
         vm.prank(ALICE);
@@ -421,6 +438,7 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_salePriceAtFirstoLimitCanBeApprovedAndListed() public {
         _ready();
+        _setReviewReference(type(uint128).max);
         vm.prank(ALICE);
         uint256 id = voting.propose(type(uint128).max, 0, 0);
         _vote(BOB, id, true);
@@ -434,6 +452,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _transfer(BOB, CAROL, 15); // 49/11/40; two of three addresses hold 60 shares.
         _ready();
         uint256 discountedPrice = voting.purchaseCost() - 1;
+        _setReviewReference(uint128(discountedPrice));
         vm.prank(ALICE);
         uint256 id = voting.propose(discountedPrice, 0, 0);
         _vote(ALICE, id, true);
@@ -447,6 +466,7 @@ contract PoolVotingTest is ShareTransferTestBase {
     function test_saleAtActualCostUsesDoubleMajority() public {
         _ready();
         uint256 purchaseCost = voting.purchaseCost();
+        _setReviewReference(uint128(purchaseCost));
         vm.prank(ALICE);
         uint256 id = voting.propose(purchaseCost, type(uint256).max, type(uint64).max);
         _vote(BOB, id, true);
@@ -458,12 +478,11 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_belowEightyPercentFreshReferenceRequiresPlatformApproval() public {
         _ready();
+        _setReviewReference(6 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
-        vm.prank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
         vm.prank(OPERATOR);
@@ -479,14 +498,13 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_eightyPercentBoundaryExecutesWithoutReview() public {
         _ready();
+        _setReviewReference(5 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
-        vm.prank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         (uint8 status,) = shareMarket.saleReview(address(pool), id);
-        assertEq(status, 0);
+        assertEq(status, 3);
         assertEq(voting.saleReviewThresholdBps(), 8000);
         voting.executeSale(id);
         assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
@@ -494,12 +512,11 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_oneWeiBelowEightyPercentNeedsReviewButBoundaryNeedsNone() public {
         _ready();
+        _setReviewReference(5 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether - 1, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
-        vm.prank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
         vm.prank(OPERATOR);
@@ -508,19 +525,20 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertEq(voting.salePrice(), 4 ether - 1);
     }
 
-    function test_rejectionCannotBlockSaleAtCurrentEightyPercentBoundary() public {
+    function test_rejectedDiscountedSaleStaysBlockedAfterReferenceFalls() public {
         _ready();
+        _setReviewReference(6 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
         _vote(CAROL, id, true);
         vm.startPrank(OPERATOR);
-        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("firsto-reference"));
         shareMarket.reviewSale(address(pool), id, 4 ether, false);
         shareMarket.setSaleReference(address(pool), 5 ether, uint64(block.timestamp), keccak256("updated-reference"));
         vm.stopPrank();
+        vm.expectRevert(bytes4(keccak256("SaleNotApproved()")));
         voting.executeSale(id);
-        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Listed));
+        assertEq(uint256(voting.state()), uint256(IPoolVault.State.Active));
     }
 
     function test_futureReviewCannotRejectOrPreApproveAnOrdinaryPool() public {
@@ -537,8 +555,9 @@ contract PoolVotingTest is ShareTransferTestBase {
         vm.prank(ALICE);
         uint256 actualId = voting.propose(4 ether, 0, 0);
         assertEq(actualId, futureId);
-        (uint8 status,) = shareMarket.saleReview(address(pool), actualId);
+        (uint8 status, uint128 pinnedPrice) = shareMarket.saleReview(address(pool), actualId);
         assertEq(status, 0);
+        assertEq(pinnedPrice, 4 ether, "proposal creation pins a review-required snapshot");
     }
 
     function test_reviewMustNameCurrentUnexecutedProposalAtItsActualPrice() public {
@@ -558,6 +577,7 @@ contract PoolVotingTest is ShareTransferTestBase {
 
     function test_platformCanFinallyRejectBelowEightyPercentProposal() public {
         _ready();
+        _setReviewReference(6 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(BOB, id, true);
@@ -576,6 +596,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         _transfer(BOB, ALICE, 26);
         _transfer(CAROL, ALICE, 25);
         _ready();
+        _setReviewReference(6 ether);
         vm.prank(ALICE);
         uint256 id = voting.propose(4 ether, 0, 0);
         _vote(ALICE, id, true);
@@ -620,6 +641,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         assertFalse(voting.shareTradingAllowed());
         // A majority member adds an alternative while the minority's low-price
         // candidate is still open, with the same ownership snapshot and deadline.
+        _setReviewReference(uint128(purchaseCost));
         vm.prank(BOB);
         uint256 majorityId = voting.propose(purchaseCost, 0, 0);
         assertEq(majorityId, minority.length + 1);
@@ -644,6 +666,7 @@ contract PoolVotingTest is ShareTransferTestBase {
         yesShares = uint8(bound(yesShares, 51, 59));
         _transfer(BOB, CAROL, 26 - (yesShares - 49));
         _ready();
+        _setReviewReference(1);
         vm.prank(ALICE);
         // The platform reference is checked at execution, not taken from the proposal.
         uint256 id = voting.propose(1, type(uint256).max, type(uint64).max);
@@ -771,7 +794,13 @@ contract PoolVotingTest is ShareTransferTestBase {
         voting.executeSale(proposalId);
     }
 
+    function _setReviewReference(uint128 price) internal {
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(address(pool), price, uint64(block.timestamp), keccak256("test-review-reference"));
+    }
+
     function _propose(address proposer) internal returns (uint256 id) {
+        _setReviewReference(6 ether);
         vm.prank(proposer);
         id = voting.propose(5 ether, 6 ether, 1);
     }

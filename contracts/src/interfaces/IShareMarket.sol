@@ -53,6 +53,15 @@ interface IShareMarket {
     function bnbOwed(address user) external view returns (uint256);
     function totalBnbOwed() external view returns (uint256);
     function buyerFeeBps() external view returns (uint16);
+    function saleReference(address pool)
+        external
+        view
+        returns (uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest);
+    function saleReviewReference(address pool)
+        external
+        view
+        returns (uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest);
+    function snapshotSaleReviewPolicy(address pool, uint256 proposalId) external;
 }
 
 interface IShareMarketFactory {

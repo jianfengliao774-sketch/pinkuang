@@ -81,6 +81,8 @@ function fixture(options = {}) {
       if (name === 'getProposal') return iface.encodeFunctionResult(name, [proposals[Number(parsed.args[0] - 1n)]]);
       if (name === 'proposals') return iface.encodeFunctionResult(name, Object.values(childProposals[Number(parsed.args[0] - 1n)]));
       if (name === 'childInfo') return iface.encodeFunctionResult(name, [collection, 13043n, 1000n, true, false]);
+      const reviewProposal=parsed.name==='childSaleReview'
+        ? childProposals[Number(parsed.args[0] - 1n)] : null;
       const values = {
         isPool: state.foreign !== true, OFFICIAL_FACTORY: tx.to === portfolio ? manifest.portfolioFactory : manifest.factory,
         legacyFactory: manifest.factory, factory: manifest.factory, shareMarket: manifest.shareMarket,
@@ -89,9 +91,11 @@ function fixture(options = {}) {
         nextProposalId: state.nextId ?? BigInt((tx.to === portfolio ? childProposals : proposals).length + 1),
         designatedSubscriber: state.subscriber ?? ZeroAddress,
         params: [collection, 13043n, 10000n, 9000n, ZeroAddress, 0n, timestamp + 1000n, timestamp + 2000n],
-        childSaleReview: state.reviewStatus ?? 0n,
+        childSaleReview: [state.reviewStatus ?? 0n, reviewProposal?.child ?? child,
+          state.reviewPrice ?? reviewProposal?.price ?? 0n, reviewProposal?.executed ?? false, state.reviewPolicy ?? 0n],
       };
       assert(name in values, `unexpected read ${name}`);
+      if (name === 'childSaleReview') return iface.encodeFunctionResult(name, values[name]);
       return iface.encodeFunctionResult(name, [values[name]]);
     } finally { activeCalls--; }
   };
@@ -132,7 +136,8 @@ test('current round requests preserve exact prices, proposer, miner and double-m
 test('review requests distinguish an ordinary discount from the actual deployed review threshold', async () => {
   for (const [threshold, price, required] of [[8000n, 79999n, true], [8000n, 80000n, false],
     [8000n, 80001n, false], [8000n, 99000n, false], [undefined, 99000n, true]]) {
-    const f = fixture({ saleReviewThresholdBps: threshold, referencePrice: 100000n });
+    const f = fixture({ saleReviewThresholdBps: threshold, referencePrice: 100000n,
+      reviewStatus: required ? 0n : 3n, reviewPrice: price });
     f.proposals[0].price = price;
     const args = { ...f.args, config: { ...f.args.config, displayOnly: true } };
     const page = await readSaleReviewRequests(args), item = page.items[0];
@@ -146,25 +151,26 @@ test('review requests distinguish an ordinary discount from the actual deployed 
   }
 });
 
-test('budget review requests keep the stricter child rule in a mixed deployment', async () => {
-  for (const [parent, childRule, required] of [[8000n, 8000n, false], [8000n, undefined, true],
-    [undefined, 8000n, true]]) {
+test('budget review requests follow the pinned child policy, not a later market quote or threshold', async () => {
+  for (const [parent, childRule, policy, required] of [[8000n, 8000n, 2n, true], [8000n, undefined, 2n, true],
+    [undefined, 8000n, 1n, false]]) {
     const f = fixture({ scope: 'portfolio', saleReviewThresholdBps: parent, childReviewThresholdBps: childRule,
-      referencePrice: 100000n });
+      reviewPolicy: policy, referencePrice: 100000n });
     f.childProposals[0].price = 90000n;
     const item = (await readSaleReviewRequests(f.args)).items[0];
-    assert.equal(item.saleReviewThresholdBps, required ? 10000n : 8000n);
+    assert.equal(item.saleReviewThresholdBps, parent === 8000n && childRule === 8000n ? 8000n : 10000n);
     assert.equal(item.reviewRequired, required); assert.equal(item.canReview, required);
     assert.equal(f.calls.filter(c => c.method === 'eth_call'
       && c.params[0].data === thresholdView.encodeFunctionData('saleReviewThresholdBps')).length, 2);
   }
 });
 
-test('review status and terminal round states are distinct, missing reads never become pending', async () => {
+test('pinned review status and terminal round states are distinct, missing reads never become pending', async () => {
   for (const [options, status, canReview] of [
     [{ reviewStatus: 1n }, 'approved', true], [{ reviewStatus: 2n }, 'rejected', false],
-    [{ reviewStatus: 2n, referencePrice: 10n }, 'no-review', false],
-    [{ referencePrice: 10n }, 'no-review', false], [{ referenceFails: true }, 'reference-missing', false],
+    [{ reviewStatus: 2n, referencePrice: 10n }, 'rejected', false],
+    [{ reviewStatus: 3n }, 'no-review', false], [{}, 'pending', true],
+    [{ referenceFails: true }, 'pending', true],
     [{ reviewFails: true }, 'review-unavailable', false], [{ reviewStatus: 1n, reviewPrice: 1n }, 'review-unavailable', false],
     [{ poolState: 3n }, 'executed', false],
   ]) {

@@ -72,6 +72,10 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
   nativeSaleCatalogPath, nativeSaleCatalog, nativeSaleArtifactPath, nativeSaleArtifact }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
+  // Keep the exact deployment record for independently reviewed upgrade plans.
+  // The normalized copy below adds a PoolFactory compatibility alias for legacy
+  // graph readers, but that alias must not change the signed plan's evidence digest.
+  const genesisEvidenceRecord = record;
   if (record?.schemaVersion === 2) {
     check(genesisRecord || genesisRecordPath,'Upgrade requires an independently configured local genesis record.');
     check(genesisBundle || genesisBundlePath,'Upgrade requires the preserved local genesis artifact bundle.');
@@ -125,13 +129,13 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
     const candidate=integratedUpgradeArtifact ?? load(integratedUpgradeArtifactPath);
     const manifest=genesisManifest ?? load(genesisManifestPath);
     const candidateDigest=digest(candidate);
-    const plan=buildIntegratedUpgradePlan({genesisRecord:record,genesisBundle:bundle,
+    const plan=buildIntegratedUpgradePlan({genesisRecord:genesisEvidenceRecord,genesisBundle:bundle,
       trustedGenesisManifest:manifest,upgradeBundle:candidate,trustedUpgradeArtifactDigest:candidateDigest,
       replacements:evidence?.plan?.replacements,salt:evidence?.plan?.salt,
       delaySeconds:evidence?.plan?.delaySeconds});
     check(evidenceDigest(plan)===evidenceDigest(evidence.plan),
       'Integrated upgrade plan differs from the reviewed server evidence.');
-    const bootstrap=buildIntegratedProposerBootstrapPlan({genesisRecord:record,genesisBundle:bundle,
+    const bootstrap=buildIntegratedProposerBootstrapPlan({genesisRecord:genesisEvidenceRecord,genesisBundle:bundle,
       trustedGenesisManifest:manifest,hardwareWallet:evidence?.bootstrapPlan?.hardwareWallet,
       salt:evidence?.bootstrapPlan?.salt,delaySeconds:evidence?.bootstrapPlan?.delaySeconds});
     check(evidenceDigest(bootstrap)===evidenceDigest(evidence.bootstrapPlan),
@@ -141,7 +145,7 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
       'Integrated code execution hash is malformed.');
     let rolePlan=null,authority=null;
     if (evidence.rolePlan) {
-      rolePlan=buildIntegratedRoleMigrationPlan({genesisRecord:record,codePlan:plan,bootstrapPlan:bootstrap,
+      rolePlan=buildIntegratedRoleMigrationPlan({genesisRecord:genesisEvidenceRecord,codePlan:plan,bootstrapPlan:bootstrap,
         authorityAddress:evidence.rolePlan.authorityAddress,hardwareWallet:evidence.rolePlan.hardwareWallet,
         salt:evidence.rolePlan.salt,delaySeconds:evidence.rolePlan.delaySeconds});
       check(evidenceDigest(rolePlan)===evidenceDigest(evidence.rolePlan),

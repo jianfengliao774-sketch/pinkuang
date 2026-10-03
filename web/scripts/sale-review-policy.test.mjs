@@ -38,15 +38,18 @@ test('mixed parent and child versions retain the stricter execution rule', () =>
   }
 });
 
-test('discount remains a fact while only the actual review requirement controls execution', () => {
+test('execution follows the proposal review snapshot while public Firsto quotes remain display-only', () => {
   const input = { proposal: { price: 80n, endsAt: 20n, executed: false }, passed: true, state: 2n,
-    timestamp: 10n, reference: { available: true, priceWei: 100n }, review: { status: 2n, priceWei: 80n } };
+    timestamp: 10n, reference: { available: true, priceWei: 100n }, review: { status: 3n, priceWei: 80n } };
   const current = saleExecutionGate({ ...input, saleReviewThresholdBps: 8000n });
   assert.equal(current.discounted, true); assert.equal(current.reviewRequired, false); assert.equal(current.canExecute, true);
-  assert.equal(saleExecutionGate(input).canExecute, false);
+  assert.equal(saleExecutionGate(input).canExecute, true,
+    'the exact pinned auto-approval is sufficient without a separately displayed threshold read');
   const below = { ...input, proposal: { ...input.proposal, price: 79n }, saleReviewThresholdBps: 8000n };
-  assert.equal(saleExecutionGate(below).canExecute, false);
+  assert.equal(saleExecutionGate({ ...below, review: { status: 0n, priceWei: 79n } }).canExecute, false);
   assert.equal(saleExecutionGate({ ...below, review: { status: 1n, priceWei: 80n } }).canExecute, false);
   assert.equal(saleExecutionGate({ ...below, review: { status: 1n, priceWei: 79n } }).canExecute, true);
-  assert.equal(saleExecutionGate({ ...input, reference: { available: false } }).reviewRequired, null);
+  const latePublicQuote = saleExecutionGate({ ...input, reference: { available: false } });
+  assert.equal(latePublicQuote.reviewRequired, false);
+  assert.equal(latePublicQuote.canExecute, true);
 });

@@ -9,6 +9,7 @@ import {IPoolVault} from "./interfaces/IPoolVault.sol";
 import {ITapeoutMining} from "./interfaces/ITapeoutMining.sol";
 import {TransferableBemRewards} from "./libraries/TransferableBemRewards.sol";
 import {SaleReviewPolicy} from "./libraries/SaleReviewPolicy.sol";
+import {SaleGovernance} from "./libraries/SaleGovernance.sol";
 import {BudgetGovernanceState} from "./BudgetGovernanceState.sol";
 
 interface IBudgetLegacyFactory {
@@ -33,14 +34,6 @@ interface IBudgetPortfolioFactoryRoles {
     function shareMarket() external view returns (address);
 }
 
-interface IBudgetSaleReference {
-    function saleReference(address pool)
-        external
-        view
-        returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
-    function approveBudgetChildSale(address pool, uint256 proposalId, uint256 projectProposalId) external;
-}
-
 interface IBudgetLegacySaleMarket {
     function shareMarket() external view returns (address);
 }
@@ -48,7 +41,10 @@ interface IBudgetLegacySaleMarket {
 /// @notice A 100-share project that atomically buys separate, existing single-NFT pools.
 /// @dev Every child keeps its NFT and existing source/sale protections. This project
 /// holds all child shares; unclaimed BEM follows project shares when they move.
+/// @dev Its only linked library is SaleGovernance; its four linked call sites and the guarded
+///      child-sale execution path are audited in scripts/audit-linked-libraries.mjs.
 /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, BudgetGovernanceState {
     using SafeERC20 for IERC20;
     using TransferableBemRewards for TransferableBemRewards.Ledger;
@@ -133,6 +129,7 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
     event ChildSaleSettled(address indexed child, uint256 netProceeds);
     event ChildSaleExpired(uint256 indexed proposalId);
     event ChildSaleReviewed(uint256 indexed proposalId, bool approved, address indexed operator);
+    event ChildSaleReviewPolicySnapshotted(uint256 indexed proposalId, uint8 policy, uint128 referencePrice);
 
     address public legacyFactory;
     address public treasury;
@@ -434,7 +431,11 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
                 || block.timestamp < uint256(IBudgetChild(child).activatedAt()) + 3 days
         ) revert InvalidProposal();
         proposalId = nextProposalId++;
+        uint8 policy = SaleGovernance.budgetReviewPolicy(
+            IBudgetLegacySaleMarket(legacyFactory).shareMarket(), child, price, proposalId
+        );
         proposals[proposalId] = SaleProposal(child, price, referencePrice, referenceAt, endsAt, voters, 0, 0, false);
+        g.saleReviewPolicies[proposalId] = policy;
         if (opener == 0 || block.timestamp >= proposals[opener].endsAt) activeProposalId = proposalId;
         g.lastProposed[msg.sender] = uint64(block.timestamp);
         emit ChildSaleProposed(proposalId, child, price, endsAt);
@@ -461,17 +462,27 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         if (msg.sender != IBudgetPortfolioFactoryRoles(OFFICIAL_FACTORY).operator()) revert Unauthorized();
         SaleProposal storage p = proposals[proposalId];
         BudgetGovernanceStorage storage g = _budgetGovernanceStorage();
-        if (!_currentSaleCandidate(proposalId) || p.executed || g.saleReviews[proposalId] == 2) {
-            revert InvalidProposal();
-        }
-        // At exactly 80% of the current reference, voting alone is sufficient.
-        if (!SaleReviewPolicy.requiresReview(p.price, _freshChildMarketPrice(p.child))) revert InvalidProposal();
+        uint8 reviewStatus = g.saleReviews[proposalId];
+        if (!_currentSaleCandidate(proposalId) || p.executed) revert InvalidProposal();
+        // Review authority is pinned to the signed quote captured at proposal creation.
+        SaleGovernance.requirePortfolioReviewable(g.saleReviewPolicies[proposalId], reviewStatus);
         g.saleReviews[proposalId] = approved ? 1 : 2;
         emit ChildSaleReviewed(proposalId, approved, msg.sender);
     }
 
-    function childSaleReview(uint256 proposalId) external view returns (uint8) {
-        return _budgetGovernanceStorage().saleReviews[proposalId];
+    function childSaleReview(uint256 proposalId)
+        external
+        view
+        returns (uint8 status, address child, uint256 price, bool executed, uint8 policy)
+    {
+        SaleProposal storage proposal = proposals[proposalId];
+        return (
+            _budgetGovernanceStorage().saleReviews[proposalId],
+            proposal.child,
+            proposal.price,
+            proposal.executed,
+            _budgetGovernanceStorage().saleReviewPolicies[proposalId]
+        );
     }
 
     function executeChildSale(uint256 proposalId) external nonReentrant {
@@ -480,35 +491,23 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             state != IPoolVault.State.Active || !_currentSaleCandidate(proposalId) || block.timestamp >= p.endsAt
                 || p.executed
         ) revert InvalidProposal();
-        bool discount = SaleReviewPolicy.requiresReview(p.price, _freshChildMarketPrice(p.child));
-        if (discount && _budgetGovernanceStorage().saleReviews[proposalId] != 1) {
-            revert ProposalNotPassed();
-        }
+        BudgetGovernanceStorage storage g = _budgetGovernanceStorage();
+        uint8 reviewStatus = g.saleReviews[proposalId];
+        uint8 policy = g.saleReviewPolicies[proposalId];
+        SaleGovernance.requirePortfolioSaleApproved(policy, reviewStatus);
         if (uint256(p.yesMembers) * 2 <= p.memberCount || uint256(p.yesShares) * 2 <= TOTAL_SHARES) {
             revert ProposalNotPassed();
         }
         p.executed = true;
         activeProposalId = proposalId;
-        IBudgetChild pool = IBudgetChild(p.child);
-        uint256 childProposal = pool.propose(p.price, p.referencePrice, p.referenceAt);
-        pool.vote(childProposal, true);
-        if (discount) {
-            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket())
-                .approveBudgetChildSale(p.child, childProposal, proposalId);
-        }
-        pool.executeSale(childProposal);
-        emit ChildSaleApproved(proposalId, p.child);
-    }
-
-    function _freshChildMarketPrice(address child) private view returns (uint128 marketPrice) {
-        uint64 observedAt;
-        bytes32 digest;
-        (marketPrice, observedAt, digest) =
-            IBudgetSaleReference(IBudgetLegacySaleMarket(legacyFactory).shareMarket()).saleReference(child);
-        if (
-            marketPrice == 0 || digest == bytes32(0) || observedAt > block.timestamp
-                || block.timestamp - observedAt > 15 minutes
-        ) revert ProposalNotPassed();
+        SaleGovernance.executeBudgetChildSale(
+            p.child,
+            IBudgetLegacySaleMarket(legacyFactory).shareMarket(),
+            proposalId,
+            p.price,
+            p.referencePrice,
+            p.referenceAt
+        );
     }
 
     function settleChildSale() external nonReentrant returns (uint256 net) {
@@ -635,6 +634,13 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
             address market = IBudgetPortfolioFactoryRoles(OFFICIAL_FACTORY).shareMarket();
             if (market == address(0) || to == market) revert WrongState();
             if (value == 0 || value > fromBefore - lockedShares[from]) revert InsufficientUnlockedShares();
+            // Orders secure their share units and the BEM entitlement attached
+            // to them. Only ShareMarket settlement may move shares while either
+            // endpoint has an open order; ordinary transfers cannot route the
+            // unlocked remainder through a helper to strip rewards from a lock.
+            if (msg.sender != market && (lockedShares[from] != 0 || lockedShares[to] != 0)) {
+                revert RewardsLocked();
+            }
             _settleBnb(from, fromBefore);
             if (to != from) _settleBnb(to, toBefore);
             // The ledger moves only outstanding BEM; the returned moved amount is diagnostic.

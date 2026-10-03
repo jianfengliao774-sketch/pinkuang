@@ -37,20 +37,19 @@ export function saleReferenceState([priceWei, observedAt, sourceDigest], timesta
 
 export async function readSaleReview(request, market, pool, proposalId, blockNumber) {
   const [status, priceWei] = await view(request, market, 'saleReview', [pool, proposalId], blockNumber);
-  if (status > 2n) throw new Error('Firsto 出售审核状态无效。');
+  if (status > 3n) throw new Error('Firsto 出售审核状态无效。');
   return Object.freeze({ status, priceWei });
 }
 
-/** A vote can pass while the listing is still blocked by a missing reference or review. */
+/** The contract pins review approval when a proposal opens; public quotes are display-only. */
 export function saleExecutionGate({ proposal, passed, state, timestamp, reference, review,
   saleReviewThresholdBps = DEFAULT_SALE_REVIEW_THRESHOLD_BPS }) {
   saleReviewThresholdBps = normalizeSaleReviewThresholdBps(saleReviewThresholdBps);
   const open = state === 2n && !proposal.executed && timestamp < proposal.endsAt && passed === true;
-  if (!reference?.available) return Object.freeze({ discounted: null, reviewRequired: null,
-    reviewApproved: false, canExecute: false, saleReviewThresholdBps });
-  const discounted = proposal.price < reference.priceWei;
-  const reviewRequired = requiresSaleReview(proposal.price, reference.priceWei, saleReviewThresholdBps);
-  const reviewApproved = !reviewRequired || review?.status === 1n && review.priceWei === proposal.price;
+  const discounted = reference?.available === true ? proposal.price < reference.priceWei : null;
+  const reviewRequired = review?.status !== 3n;
+  const reviewApproved = (review?.status === 1n || review?.status === 3n)
+    && review.priceWei === proposal.price;
   return Object.freeze({ discounted, reviewRequired, reviewApproved, saleReviewThresholdBps,
     canExecute: open && reviewApproved });
 }

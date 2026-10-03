@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from 'node:fs';
+import { readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validate as validateCompilerOutput, solcInputOutputDecoder, getContractVersion,
@@ -24,9 +24,141 @@ if (!sources.some(path => path.endsWith('.sol'))) {
 // same validation engine used by openzeppelin-foundry-upgrades, with real references.
 const buildInfo = prepareUpgradeBuildInfo(root);
 const results = [];
+const validationBuildInfoRoot = resolve(root, 'contracts/out/upgrade-validation-build-info');
+rmSync(validationBuildInfoRoot, { recursive: true, force: true });
+mkdirSync(validationBuildInfoRoot, { recursive: true });
 const sha256 = value => createHash('sha256').update(value).digest('hex');
+
+function contractFromBuild(info, fullyQualifiedName) {
+  const colon = fullyQualifiedName.lastIndexOf(':');
+  const source = fullyQualifiedName.slice(0, colon);
+  const name = fullyQualifiedName.slice(colon + 1);
+  return info.output.contracts?.[source]?.[name];
+}
+
+function sourceMatchesWorkingTree(info, fullyQualifiedName) {
+  if (!fullyQualifiedName) return true;
+  const colon = fullyQualifiedName.lastIndexOf(':');
+  const source = fullyQualifiedName.slice(0, colon);
+  const currentPath = join(root, 'contracts', source);
+  try {
+    return info.input.sources?.[source]?.content === readFileSync(currentPath, 'utf8');
+  } catch {
+    return false;
+  }
+}
+
+function stripCbor(bytecode) {
+  if (typeof bytecode !== 'string' || bytecode.length < 4 || !/^[\da-f]{4}$/i.test(bytecode.slice(-4))) return bytecode;
+  const trailerLength = Number.parseInt(bytecode.slice(-4), 16);
+  const trailerHexLength = trailerLength * 2 + 4;
+  return Number.isSafeInteger(trailerLength) && trailerHexLength < bytecode.length
+    ? bytecode.slice(0, -trailerHexLength) : bytecode;
+}
+
+function withoutAstIds(value) {
+  if (Array.isArray(value)) return value.map(withoutAstIds);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'astId')
+    .map(([key, item]) => [key, withoutAstIds(item)]));
+}
+
+function canonicalStorageLayout(layout) {
+  const typeLabel = value => layout?.types?.[value]?.label ?? value;
+  const normalize = value => {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'astId').map(([key, item]) => {
+      if (['type', 'base', 'key', 'value'].includes(key) && typeof item === 'string') return [key, typeLabel(item)];
+      return [key, normalize(item)];
+    }));
+  };
+  const types = Object.values(layout?.types ?? {}).map(normalize)
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return { storage: normalize(layout?.storage ?? []), namespaces: normalize(layout?.namespaces ?? {}), types };
+}
+
+function equivalentContract(left, right, label) {
+  assert.deepEqual(left.abi, right.abi, `Duplicate build-info ABI differs: ${label}`);
+  assert.deepEqual(canonicalStorageLayout(left.storageLayout), canonicalStorageLayout(right.storageLayout),
+    `Duplicate build-info storage differs: ${label}`);
+  assert.deepEqual(left.evm?.bytecode?.linkReferences, right.evm?.bytecode?.linkReferences,
+    `Duplicate build-info creation links differ: ${label}`);
+  assert.deepEqual(left.evm?.deployedBytecode?.linkReferences, right.evm?.deployedBytecode?.linkReferences,
+    `Duplicate build-info runtime links differ: ${label}`);
+  const immutableLocations = refs => Object.values(refs ?? {}).flat().map(({ start, length }) => `${start}:${length}`).sort();
+  assert.deepEqual(immutableLocations(left.evm?.deployedBytecode?.immutableReferences),
+    immutableLocations(right.evm?.deployedBytecode?.immutableReferences),
+  `Duplicate build-info immutable locations differ: ${label}`);
+  assert.equal(stripCbor(left.evm?.bytecode?.object), stripCbor(right.evm?.bytecode?.object),
+    `Duplicate build-info creation logic differs: ${label}`);
+  assert.equal(stripCbor(left.evm?.deployedBytecode?.object), stripCbor(right.evm?.deployedBytecode?.object),
+    `Duplicate build-info runtime logic differs: ${label}`);
+}
+
+function equivalentValidatedContract(left, right, label) {
+  assert.deepEqual(canonicalStorageLayout(left.layout), canonicalStorageLayout(right.layout),
+    `Duplicate validated storage differs: ${label}`);
+  assert.deepEqual(left.linkReferences, right.linkReferences, `Duplicate validated links differ: ${label}`);
+  assert.deepEqual(left.inherit, right.inherit, `Duplicate validated inheritance differs: ${label}`);
+  assert.deepEqual(left.methods, right.methods, `Duplicate validated methods differ: ${label}`);
+  assert.equal(left.version?.withoutMetadata, right.version?.withoutMetadata,
+    `Duplicate validated bytecode differs outside metadata: ${label}`);
+}
+
+const compilerInfos = readdirSync(buildInfo).filter(file => file.endsWith('.json')).sort().map(file => ({
+  file, info: JSON.parse(readFileSync(join(buildInfo, file), 'utf8')),
+}));
+
+function buildInfoFor(contract, reference) {
+  // Foundry can leave several compiler jobs containing the same FQN. They may
+  // have identical bytecode/storage while carrying different NatSpec safety
+  // annotations. Never let a stale annotation-free job shadow the source on
+  // disk; choose only jobs whose target and reference source match this tree.
+  const matches = compilerInfos.filter(({ info }) => contractFromBuild(info, contract)
+    && sourceMatchesWorkingTree(info, contract)
+    && (!reference || (contractFromBuild(info, reference) && sourceMatchesWorkingTree(info, reference))));
+  if (matches.length === 0) throw new Error(`No single compiler build contains ${contract}${reference ? ` and ${reference}` : ''}.`);
+  for (const { info } of matches.slice(1)) {
+    equivalentContract(contractFromBuild(matches[0].info, contract), contractFromBuild(info, contract), contract);
+    if (reference) equivalentContract(contractFromBuild(matches[0].info, reference), contractFromBuild(info, reference), reference);
+  }
+  return matches[0];
+}
+
+function deduplicatedCompilations() {
+  const required = [
+    'src/ShareMarket.sol:ShareMarket',
+    'src/BudgetPortfolioFactory.sol:BudgetPortfolioFactory',
+    'src/BudgetPortfolioVault.sol:BudgetPortfolioVault',
+    'src/PoolFactory.sol:PoolFactory',
+    'src/PoolVault.sol:PoolVault',
+  ];
+  const decoded = compilerInfos.map(({ info, file }) => ({
+    info, file,
+    data: validateCompilerOutput(info.output, solcInputOutputDecoder(info.input, info.output), info.solcVersion, info.input),
+  }));
+  for (const fullyQualifiedName of required) {
+    const matches = decoded.filter(({ info, data }) => data[fullyQualifiedName]
+      && sourceMatchesWorkingTree(info, fullyQualifiedName));
+    assert(matches.length > 0, `No current-worktree compiler layout found for ${fullyQualifiedName}`);
+    for (const candidate of matches.slice(1)) {
+      equivalentValidatedContract(matches[0].data[fullyQualifiedName], candidate.data[fullyQualifiedName], fullyQualifiedName);
+    }
+  }
+  const complete = decoded.filter(({ info, data }) => required.every(fullyQualifiedName => data[fullyQualifiedName]
+    && sourceMatchesWorkingTree(info, fullyQualifiedName)));
+  assert(complete.length > 0, 'No single current-worktree compiler job contains all delivered storage targets.');
+  return [complete[0]];
+}
+
 async function validate(contract, reference, negative = false) {
-  const report = await validateUpgradeSafety(buildInfo, contract, reference, { requireReference: Boolean(reference) });
+  const selected = buildInfoFor(contract, reference);
+  const targetDirectory = join(validationBuildInfoRoot,
+    `${String(results.length).padStart(2, '0')}-${contract.replace(/[^a-z\d]+/gi, '-')}`);
+  mkdirSync(targetDirectory, { recursive: true });
+  copyFileSync(join(buildInfo, selected.file), join(targetDirectory, selected.file));
+  const report = await validateUpgradeSafety(targetDirectory, contract, reference, { requireReference: Boolean(reference) });
   console.log(`\nValidation target: ${contract}${reference ? ` against ${reference}` : ' (initial implementation)'}`);
   console.log(report.explain(false));
   if (report.numTotal !== 1) throw new Error(`Expected exactly one report for ${contract}`);
@@ -59,17 +191,13 @@ function requireNamespacedLayout(layout, name) {
 }
 
 function validateDeliveredBaselines() {
-  const compilations = readdirSync(buildInfo).filter(file => file.endsWith('.json')).map(file => {
-    const info = JSON.parse(readFileSync(join(buildInfo, file), 'utf8'));
-    return { info, data: validateCompilerOutput(info.output, solcInputOutputDecoder(info.input, info.output),
-      info.solcVersion, info.input) };
-  });
+  const compilations = deduplicatedCompilations();
   const marketContract = 'src/ShareMarket.sol:ShareMarket';
   const markets = compilations.filter(({ data }) => data[marketContract]);
   assert.equal(markets.length, 1, 'Expected exactly one compiled ShareMarket layout');
   const marketLayout = getStorageLayout(markets[0].data, getContractVersion(markets[0].data, marketContract));
-  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 9, 'Unexpected market field count');
-  console.log('ShareMarket: nine business fields and nonempty inherited namespaces extracted.');
+  assert.equal(requireNamespacedLayout(marketLayout, 'ShareMarket'), 10, 'Unexpected market field count');
+  console.log('ShareMarket: ten business fields and nonempty inherited namespaces extracted.');
   const budgetName = 'src/BudgetPortfolioVault.sol:BudgetPortfolioVault';
   const budgetCompilations = compilations.filter(({ data }) => data[budgetName]);
   assert.equal(budgetCompilations.length, 1, 'Expected exactly one compiled BudgetPortfolioVault layout');
@@ -77,7 +205,7 @@ function validateDeliveredBaselines() {
   const budgetTiming = budgetLayout.namespaces?.['erc7201:tapeout.storage.BudgetGovernance'];
   assert.deepEqual(budgetTiming?.map(field => [field.label, field.type]), [
     ['nextRoundAt', 't_uint64'], ['saleReviews', 't_mapping(t_uint256,t_uint8)'],
-    ['lastProposed', 't_mapping(t_address,t_uint64)']],
+    ['lastProposed', 't_mapping(t_address,t_uint64)'], ['saleReviewPolicies', 't_mapping(t_uint256,t_uint8)']],
     'Budget governance timing must remain in its isolated namespace');
   for (const [name, fieldCount] of [['BudgetPortfolioFactory', 9], ['BudgetPortfolioVault', 30]]) {
     const contract = `src/${name}.sol:${name}`;
@@ -116,10 +244,14 @@ function validateDeliveredBaselines() {
     const current = getStorageLayout(data, getContractVersion(data, contract));
     if (name === 'PoolVault') {
       const firsto = current.namespaces?.['erc7201:tapeout.storage.FirstoSale'];
-      assert.deepEqual(firsto?.map(field => field.label), ['orderHash', 'expectedProceeds', 'active', 'received'],
+      assert.deepEqual(firsto?.map(field => field.label), [
+        'orderHash', 'expectedProceeds', 'active', 'received', 'nativeOrderHash', 'nativeProposalId',
+        'nativeFeeBps', 'nativeActive', 'nativeFeeEpoch', 'nextDelistingId', 'activeDelistingId',
+        'delistingProposals', 'delistingVotes', 'reopenEpoch', 'reopenedForEpoch',
+      ],
         'Missing isolated Firsto sale authorization namespace');
-      assert.deepEqual(firsto.map(field => field.type), ['t_bytes32', 't_uint256', 't_bool', 't_bool'],
-        'Unexpected Firsto sale authorization storage types');
+      assert.deepEqual(firsto.slice(0, 4).map(field => field.type), ['t_bytes32', 't_uint256', 't_bool', 't_bool'],
+        'Historic Firsto sale authorization fields moved or changed type');
       const selection = current.namespaces?.['erc7201:tapeout.storage.FlexiblePurchase'];
       assert.equal(selection?.length, 6, 'Missing actual extracted flexible purchase namespace');
       assert.deepEqual(selection.map(field => field.label), ['enabled', 'referenceCircuitId', 'config', 'modelInitialized', 'taskId', 'referenceVerifiedWeight'],
@@ -186,12 +318,14 @@ function validateDeliveredBaselines() {
 
 let ok = false;
 try {
+  // Linked-library exceptions are permitted only after the independent AST
+  // audit pins each library, call site, mutability and guard.
+  auditLinkedLibraries(root, logRoot);
   await validate('src/PoolFactory.sol:PoolFactory');
   await validate('src/PoolVault.sol:PoolVault');
   await validate('src/ShareMarket.sol:ShareMarket');
   await validate('src/BudgetPortfolioFactory.sol:BudgetPortfolioFactory');
   await validate('src/BudgetPortfolioVault.sol:BudgetPortfolioVault');
-  auditLinkedLibraries(root, logRoot);
   validateDeliveredBaselines();
   await validate('test/unit/PoolGovernance.t.sol:PoolFactoryV2Fixture', 'src/PoolFactory.sol:PoolFactory');
   await validate('test/unit/PoolGovernance.t.sol:PoolVaultV2Fixture', 'src/PoolVault.sol:PoolVault');

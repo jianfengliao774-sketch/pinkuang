@@ -88,6 +88,10 @@ contract PoolSaleHandler is Test {
         uint256 proposer;
         while (shares[proposer] == 0) ++proposer;
         price = bound(priceSeed, 1, 20 ether);
+        vm.prank(operator);
+        shareMarket.setSaleReference(
+            address(vault), uint128(price), uint64(block.timestamp), keccak256("test-firsto-reference")
+        );
         vm.prank(actors[proposer]);
         uint256 id = vault.propose(price, 0, 0);
         for (uint256 i; i < 6; ++i) {
@@ -95,10 +99,6 @@ contract PoolSaleHandler is Test {
             vm.prank(actors[i]);
             vault.vote(id, true);
         }
-        vm.prank(operator);
-        shareMarket.setSaleReference(
-            address(vault), uint128(price), uint64(block.timestamp), keccak256("test-firsto-reference")
-        );
         sale.executeSale(id);
         deadline = block.timestamp + 7 days;
         phase = IPoolVault.State.Listed;

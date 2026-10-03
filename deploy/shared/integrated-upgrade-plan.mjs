@@ -16,7 +16,7 @@ const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 const oldRuntimeNames = Object.freeze([
   'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation',
   'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints',
-  'FirstoSale', 'AtomicDeployment', 'PoolVault', 'PoolFactory', 'ShareMarket',
+  'FirstoSale', 'AtomicDeployment', 'PoolVault', 'FreshPoolFactory', 'ShareMarket',
   'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'factory', 'shareMarket',
   'lens', 'beacon', 'timelock', 'portfolioFactory', 'portfolioShareMarket', 'portfolioBeacon',
 ]);
@@ -27,10 +27,11 @@ const oldAlias = Object.freeze({
 });
 const linkPolicy = Object.freeze({
   PoolFunds: [], FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'],
-  SaleSettlement: [], FirstoSale: ['SaleSettlement'], SaleGovernance: [],
+  SaleSettlement: [], FirstoSale: ['MiningOperations', 'PoolFunds', 'RewardAccounting',
+    'SaleGovernance', 'SaleSettlement'], SaleGovernance: [],
   PoolVault: ['FirstoSale', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds',
     'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'],
-  PoolFactory: [], ShareMarket: [], BudgetPortfolioVault: [], BudgetPortfolioFactory: [],
+  PoolFactory: ['PurchaseValidation'], ShareMarket: [], BudgetPortfolioVault: ['SaleGovernance'], BudgetPortfolioFactory: [],
 });
 const factoryAbi = new Interface(['function upgradeToAndCall(address,bytes)', 'function lens() view returns(address)',
   'function owner() view returns(address)', 'function timelock() view returns(address)',
@@ -256,7 +257,7 @@ function genesisRuntime(name,record,bundle) {
   const old = record.addresses, artifact = bundle?.artifacts?.[oldAlias[name] ?? name];
   requireThat(artifact && artifact.deployedBytecode,`Missing trusted genesis artifact: ${name}.`);
   const immutable = ({AtomicDeployment:record.account,PoolVault:old.factory,
-    BudgetPortfolioVault:old.portfolioFactory,PoolFactory:old.PoolFactory,
+    BudgetPortfolioVault:old.portfolioFactory,FreshPoolFactory:old.FreshPoolFactory,
     ShareMarket:old.ShareMarket,BudgetPortfolioFactory:old.BudgetPortfolioFactory,
     lens:old.factory,beacon:old.factory,portfolioBeacon:old.portfolioFactory,
   })[name] ?? null;
@@ -307,7 +308,7 @@ async function genesisAt(provider,{genesisRecord,genesisBundle,trustedGenesisMan
       `Genesis runtime changed: ${name}.`);
   }
   for (const [proxy,implementation] of [
-    ['factory','PoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
+    ['factory','FreshPoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
     ['portfolioShareMarket','ShareMarket'],
   ]) {
     const slot = await provider.getStorage(old[proxy],IMPLEMENTATION_SLOT,block.number);
@@ -600,7 +601,7 @@ export async function validateIntegratedUpgradeResultAgainstChain(provider,plan,
   checked(await call(provider,old.timelock,doneAbi,'isOperationDone',[plan.operationId],tag) === true,
     'Timelock operation is not done.');
   for (const [proxy,implementation] of [
-    ['factory','PoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
+    ['factory','FreshPoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
     ['portfolioShareMarket','ShareMarket'],
   ]) {
     const slot = await provider.getStorage(old[proxy],IMPLEMENTATION_SLOT,finalized.number);
@@ -726,7 +727,7 @@ async function postCodeGraphAt(provider,codePlan,input,block,expectedPaused=true
     `Reviewed replacement runtime changed: ${name}.`);
   }
   for (const [proxy,name] of [
-    ['factory','PoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
+    ['factory','FreshPoolFactory'],['shareMarket','ShareMarket'],['portfolioFactory','BudgetPortfolioFactory'],
     ['portfolioShareMarket','ShareMarket'],
   ]) checked(same(slotAddress(await provider.getStorage(old[proxy],IMPLEMENTATION_SLOT,block.number)),
     codePlan.replacements[name]),`Current ${proxy} implementation differs from completed batch.`);

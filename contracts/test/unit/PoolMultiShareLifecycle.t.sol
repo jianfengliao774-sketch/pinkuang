@@ -160,6 +160,7 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
 
         _readyForSale();
         uint256 discountPrice = REWARD_PRICE - 0.1 ether;
+        _publishSaleReference(discountPrice);
         vm.prank(ALICE);
         uint256 proposalId = saleVault.propose(discountPrice, 0, 0);
         vm.prank(ALICE);
@@ -168,7 +169,6 @@ contract PoolMultiShareLifecycleTest is SaleTestBase {
         assertEq(saleVault.getProposal(proposalId).yesCount, 1);
         assertEq(saleVault.getProposal(proposalId).yesShares, 100);
         assertTrue(saleVault.proposalPassed(proposalId));
-        _publishSaleReference(discountPrice);
         sale.executeSale(proposalId);
         lastPassedSaleProposal = proposalId;
         _complete(NFT_BUYER, discountPrice);

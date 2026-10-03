@@ -28,6 +28,9 @@ interface IRegisteredMachinePool {
 }
 
 /// @notice Creates independently funded BNB pools. Daily administration and upgrade authority are separate.
+/// @dev The only linked library calls are the two read-only PurchaseValidation helpers audited in
+///      scripts/audit-linked-libraries.mjs; all creation and registry state changes remain in this contract.
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract PoolFactory is
     OwnableUpgradeable,
     UUPSUpgradeable,

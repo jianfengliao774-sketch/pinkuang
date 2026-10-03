@@ -11,8 +11,8 @@ import './styles.css';
 declare const __DEPLOYMENT_ARTIFACT_DIGEST__: string;
 
 const MAX_JSON_BYTES = 8_000_000;
-const GENESIS_RECORD_SHA256 = '39f567de5a23661db1bcd31638b536598cb58f5bb738a1b7a101e97ea54dfdf5';
-const GENESIS_ARTIFACT_SHA256 = '22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b';
+const GENESIS_RECORD_SHA256 = 'c586195408f65730ff8409126a7aea95dc48b9af62daba36f2201065c1c53ae0';
+const GENESIS_ARTIFACT_SHA256 = 'b24082514df9d7a37f57af0e8c0cf644d42446c95b88eb1961837ea76a08bebc';
 const same = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
 async function pinnedJson<T>(name: string, expectedSha256: string, signal: AbortSignal): Promise<T> {
@@ -148,7 +148,7 @@ function UpgradeStandalone() {
 
   return <main className="upgrade-standalone">
     <header><div><h1>拼矿合约升级审查</h1><p>独立静态入口 · BSC 主网 · 每笔交易由连接的钱包确认</p></div>
-      <a href="https://tapeout.cc.cd/bemine-v2/">返回拼矿主页</a></header>
+      <a href="https://bemine.cc.cd/">返回拼矿主页</a></header>
     <section className="card upgrade-entry">
       <h2>核对本机文件与连接的钱包</h2>
       <p>本页内嵌已发布的旧版合约清单，并对本站提供的旧记录与旧产物逐字节核验。所有文件只在浏览器本机读取；链上状态仍须在下方第一步重新核验。</p>

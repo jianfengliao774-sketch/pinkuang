@@ -8,6 +8,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IPoolVault} from "./interfaces/IPoolVault.sol";
 import {IShareMarket, IShareMarketFactory, IShareMarketPool} from "./interfaces/IShareMarket.sol";
 import {PoolSaleState} from "./PoolSaleState.sol";
+import {SaleReviewPolicy} from "./libraries/SaleReviewPolicy.sol";
 
 interface IReviewedPool {
     function getProposal(uint256 proposalId) external view returns (PoolSaleState.Proposal memory);
@@ -26,21 +27,10 @@ interface IRegisteredPortfolioFactory {
 
 interface IReviewedPortfolio {
     function OFFICIAL_FACTORY() external view returns (address);
-    function childSaleReview(uint256 proposalId) external view returns (uint8);
-    function proposals(uint256 proposalId)
+    function childSaleReview(uint256 proposalId)
         external
         view
-        returns (
-            address child,
-            uint256 price,
-            uint256 referencePrice,
-            uint64 referenceAt,
-            uint64 endsAt,
-            uint16 memberCount,
-            uint16 yesMembers,
-            uint16 yesShares,
-            bool executed
-        );
+        returns (uint8 status, address child, uint256 price, bool executed, uint8 policy);
 }
 
 interface IAutomaticSaleReferenceAuthority {
@@ -51,6 +41,14 @@ interface IAutomaticSaleReferenceAuthority {
 /// @notice BNB orders for integer shares, locked in each seller's PoolVault account.
 /// @dev No ERC-20 custody or daily administration. Upgrades require the fixed Factory timelock.
 contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarket {
+    struct BudgetChildSaleContext {
+        address child;
+        uint256 price;
+        bool executed;
+        uint8 policy;
+        uint8 reviewStatus;
+    }
+
     // feeBps is the legacy seller fee. A separate getter marks the upgraded
     // buyer-fee implementation so callers cannot send a buyer fee to an old proxy.
     uint16 public constant feeBps = 100;
@@ -70,8 +68,11 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         uint256 totalBnbOwed;
         // Zero-expiry legacy orders can be cancelled but cannot be filled after upgrade.
         mapping(uint256 => uint64) orderExpiries;
+        // Untrusted automatic Firsto display data; never use this for sale review.
         mapping(address => SaleReference) saleReferences;
         mapping(address => mapping(uint256 => SaleReview)) saleReviews;
+        // Written only through the administrator-attested Authority path.
+        mapping(address => SaleReference) saleReviewReferences;
     }
 
     /// @custom:storage-location erc7201:tapeout.storage.ShareMarket.BudgetFactories
@@ -93,9 +94,21 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
 
     error InvalidSaleReference();
     event SaleReferenceUpdated(address indexed pool, uint256 marketPriceWei, uint64 observedAt, bytes32 sourceDigest);
+    event SaleReviewReferenceUpdated(
+        address indexed pool, uint256 marketPriceWei, uint64 observedAt, bytes32 sourceDigest
+    );
     event SaleReviewed(
         address indexed pool, uint256 indexed proposalId, uint128 priceWei, bool approved, address indexed operator
     );
+    event SaleReviewPolicySnapshotted(
+        address indexed pool,
+        uint256 indexed proposalId,
+        uint8 status,
+        uint128 referencePrice,
+        uint64 referenceAt,
+        bytes32 referenceDigest
+    );
+    event BudgetChildSaleReviewBound(address indexed pool, uint256 indexed proposalId, bool reviewRequired);
     event BudgetFactoryTrustChanged(address indexed budgetFactory, bool trusted);
 
     // keccak256(abi.encode(uint256(keccak256("tapeout.storage.ShareMarket")) - 1)) & ~bytes32(uint256(0xff))
@@ -281,7 +294,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (msg.sender != saleReferencePublisher()) revert Unauthorized();
         MarketStorage storage s = _marketStorage();
         if (observedAt < s.saleReferences[pool].observedAt) revert InvalidSaleReference();
-        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest);
+        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest, false);
     }
 
     /// @notice Operator attests Firsto reference daily price × verified daily BEM for one miner.
@@ -289,7 +302,8 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
     function setSaleReference(address pool, uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest) external {
         MarketStorage storage s = _marketStorage();
         if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
-        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest);
+        if (observedAt < s.saleReviewReferences[pool].observedAt) revert InvalidSaleReference();
+        _setSaleReference(s, pool, marketPriceWei, observedAt, sourceDigest, true);
     }
 
     function _setSaleReference(
@@ -297,14 +311,26 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         address pool,
         uint128 marketPriceWei,
         uint64 observedAt,
-        bytes32 sourceDigest
+        bytes32 sourceDigest,
+        bool administratorAttested
     ) private {
         if (
             !IShareMarketFactory(s.factory).isPool(pool) || marketPriceWei == 0 || sourceDigest == bytes32(0)
                 || observedAt > block.timestamp || block.timestamp - observedAt > 5 minutes
         ) revert InvalidSaleReference();
-        s.saleReferences[pool] = SaleReference(marketPriceWei, observedAt, sourceDigest);
-        emit SaleReferenceUpdated(pool, marketPriceWei, observedAt, sourceDigest);
+        SaleReference memory quote = SaleReference(marketPriceWei, observedAt, sourceDigest);
+        if (administratorAttested) {
+            s.saleReviewReferences[pool] = quote;
+            emit SaleReviewReferenceUpdated(pool, marketPriceWei, observedAt, sourceDigest);
+            // Do not let a delayed signed attestation make the public display quote older.
+            if (observedAt >= s.saleReferences[pool].observedAt) {
+                s.saleReferences[pool] = quote;
+                emit SaleReferenceUpdated(pool, marketPriceWei, observedAt, sourceDigest);
+            }
+        } else {
+            s.saleReferences[pool] = quote;
+            emit SaleReferenceUpdated(pool, marketPriceWei, observedAt, sourceDigest);
+        }
     }
 
     function saleReference(address pool)
@@ -316,6 +342,44 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         return (quote.marketPriceWei, quote.observedAt, quote.sourceDigest);
     }
 
+    /// @notice Fresh price attested through the two-administrator Authority flow.
+    /// @dev Automatic Gas-wallet publications intentionally cannot modify this quote.
+    function saleReviewReference(address pool)
+        external
+        view
+        returns (uint128 marketPriceWei, uint64 observedAt, bytes32 sourceDigest)
+    {
+        SaleReference storage quote = _marketStorage().saleReviewReferences[pool];
+        return (quote.marketPriceWei, quote.observedAt, quote.sourceDigest);
+    }
+
+    /// @notice Pins whether this proposal may use fresh admin-attested reference pricing.
+    /// @dev Status 3 is auto-approved at/above the 80% bound. Status 0 with a
+    ///      nonzero price records a fail-closed snapshot requiring review;
+    ///      pre-upgrade proposals retain status 0 with a zero price.
+    function snapshotSaleReviewPolicy(address pool, uint256 proposalId) external {
+        MarketStorage storage s = _marketStorage();
+        if (msg.sender != pool || !IShareMarketFactory(s.factory).isPool(pool)) revert InvalidSaleReference();
+        if (s.saleReviews[pool][proposalId].priceWei != 0) revert InvalidSaleReference();
+
+        PoolSaleState.Proposal memory proposal = IReviewedPool(pool).getProposal(proposalId);
+        if (proposal.price == 0 || proposal.price > type(uint128).max) revert InvalidSaleReference();
+        _requireCurrentProposal(pool, proposalId, uint128(proposal.price));
+        SaleReference memory referenceQuote = s.saleReviewReferences[pool];
+        bool fresh = referenceQuote.marketPriceWei != 0 && referenceQuote.sourceDigest != bytes32(0)
+            && referenceQuote.observedAt <= block.timestamp && block.timestamp - referenceQuote.observedAt <= 15 minutes;
+        uint8 status = fresh && !SaleReviewPolicy.requiresReview(proposal.price, referenceQuote.marketPriceWei) ? 3 : 0;
+        s.saleReviews[pool][proposalId] = SaleReview(uint128(proposal.price), status);
+        emit SaleReviewPolicySnapshotted(
+            pool,
+            proposalId,
+            status,
+            fresh ? referenceQuote.marketPriceWei : 0,
+            fresh ? referenceQuote.observedAt : 0,
+            fresh ? referenceQuote.sourceDigest : bytes32(0)
+        );
+    }
+
     /// @notice Records human review for the price bound to a current sale proposal.
     /// @dev The vault implementation defines the discount that requires review.
     /// @dev Rejection is final only for an existing, current proposal. Neither
@@ -325,7 +389,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         if (msg.sender != IShareMarketFactory(s.factory).operator()) revert Unauthorized();
         if (
             !IShareMarketFactory(s.factory).isPool(pool) || proposalId == 0 || priceWei == 0
-                || s.saleReviews[pool][proposalId].status == 2
+                || s.saleReviews[pool][proposalId].status == 2 || s.saleReviews[pool][proposalId].status == 3
         ) {
             revert InvalidSaleReference();
         }
@@ -334,8 +398,7 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
         emit SaleReviewed(pool, proposalId, priceWei, approved, msg.sender);
     }
 
-    /// @notice A registered budget project carries its one signed project review into
-    /// the child's newly created proposal in the same execution transaction.
+    /// @notice A registered budget project binds its voted quote snapshot to its child proposal.
     function approveBudgetChildSale(address pool, uint256 proposalId, uint256 projectProposalId) external {
         MarketStorage storage s = _marketStorage();
         if (
@@ -344,22 +407,40 @@ contract ShareMarket is UUPSUpgradeable, ReentrancyGuardUpgradeable, IShareMarke
                 || s.saleReviews[pool][proposalId].status == 2
         ) revert InvalidSaleReference();
         if (msg.sender.code.length == 0) revert InvalidSaleReference();
-        address budgetFactory = IReviewedPortfolio(msg.sender).OFFICIAL_FACTORY();
+        BudgetChildSaleContext memory context = _budgetChildSaleContext(s.factory, msg.sender, projectProposalId);
+        if (context.child != pool || !context.executed || context.price == 0 || context.price > type(uint128).max) {
+            revert InvalidSaleReference();
+        }
+        if (IReviewedPool(pool).getProposal(proposalId).proposer != msg.sender) revert InvalidSaleReference();
+        _requireCurrentProposal(pool, proposalId, uint128(context.price));
+        bool reviewRequired = context.policy == 0 || context.policy == 2;
+        if (context.policy > 2) revert InvalidSaleReference();
+        if (reviewRequired && context.reviewStatus != 1) {
+            revert InvalidSaleReference();
+        }
+        if (reviewRequired) {
+            s.saleReviews[pool][proposalId] = SaleReview(uint128(context.price), 1);
+            emit SaleReviewed(pool, proposalId, uint128(context.price), true, msg.sender);
+        } else {
+            s.saleReviews[pool][proposalId] = SaleReview(uint128(context.price), 3);
+        }
+        emit BudgetChildSaleReviewBound(pool, proposalId, reviewRequired);
+    }
+
+    function _budgetChildSaleContext(address legacyFactory, address portfolio, uint256 projectProposalId)
+        private
+        view
+        returns (BudgetChildSaleContext memory context)
+    {
+        address budgetFactory = IReviewedPortfolio(portfolio).OFFICIAL_FACTORY();
         if (
             !_budgetFactoryStorage().trusted[budgetFactory]
-                || !IRegisteredPortfolioFactory(budgetFactory).isPool(msg.sender)
-                || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != s.factory
-                || IReviewedPortfolio(msg.sender).childSaleReview(projectProposalId) != 1
+                || !IRegisteredPortfolioFactory(budgetFactory).isPool(portfolio)
+                || IRegisteredPortfolioFactory(budgetFactory).legacyFactory() != legacyFactory
         ) revert InvalidSaleReference();
-        // The review and child proposal bind the price; intermediate vote snapshots
-        // are intentionally irrelevant to this exact child/price/execution check.
-        // slither-disable-next-line unused-return
-        (address child, uint256 price,,,,,,, bool executed) =
-            IReviewedPortfolio(msg.sender).proposals(projectProposalId);
-        if (child != pool || !executed || price == 0 || price > type(uint128).max) revert InvalidSaleReference();
-        _requireCurrentProposal(pool, proposalId, uint128(price));
-        s.saleReviews[pool][proposalId] = SaleReview(uint128(price), 1);
-        emit SaleReviewed(pool, proposalId, uint128(price), true, msg.sender);
+        (context.reviewStatus, context.child, context.price, context.executed, context.policy) =
+            IReviewedPortfolio(portfolio).childSaleReview(projectProposalId);
+        if (context.reviewStatus > 1) revert InvalidSaleReference();
     }
 
     function _requireCurrentProposal(address pool, uint256 proposalId, uint128 priceWei) private view {

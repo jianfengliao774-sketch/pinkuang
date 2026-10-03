@@ -13,6 +13,7 @@ contract PoolSaleTest is SaleTestBase {
 
     function test_executeRequiresCurrentPassingProposalAndRecordsSevenDayListing() public {
         _readyForSale();
+        _publishSaleReference(SALE_PRICE);
         vm.prank(ALICE);
         uint256 id = saleVault.propose(SALE_PRICE, 0, 0);
         vm.expectRevert(IPoolVault.InvalidProposal.selector);
@@ -25,7 +26,6 @@ contract PoolSaleTest is SaleTestBase {
         sale.executeSale(id);
         vm.prank(BOB);
         saleVault.vote(id, true);
-        _publishSaleReference(SALE_PRICE);
         vm.expectEmit(true, false, false, true, address(pool));
         emit SaleListed(id, 0, SALE_PRICE, uint64(block.timestamp + 7 days));
         vm.prank(NFT_BUYER); // Execution is permissionless once the vote passes.

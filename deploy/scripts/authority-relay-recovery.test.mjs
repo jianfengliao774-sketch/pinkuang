@@ -20,7 +20,7 @@ test('private v4 recovery entrypoint has a complete source import closure and st
     'scripts/authority-relay-recovery.mjs', 'scripts/authority-relay.mjs',
     'scripts/budget-multicall-read.mjs', 'scripts/keeper-credential.mjs',
     'scripts/official-market-discovery.mjs', 'scripts/purchase-keeper.mjs',
-    'shared/authority-typed.mjs', 'shared/original-gas-wallet.mjs',
+    'shared/authority-typed.mjs', 'shared/fresh-runtime-identity.mjs', 'shared/original-gas-wallet.mjs',
     'src/firsto-purchase.mjs',
   ];
   const seen = new Set();

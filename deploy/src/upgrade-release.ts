@@ -3,11 +3,13 @@ import { artifactDigest, validateArtifacts, type ArtifactBundle } from './deploy
 import type { IntegratedProposerBootstrapPlan, IntegratedUpgradePlan } from '../shared/integrated-upgrade-plan.mjs';
 import type { WalletProvider } from './wallet';
 
-const ORIGIN = 'https://tapeout.cc.cd';
-const GENESIS_MANIFEST_SHA256 = '5bf6596502e966de526e899c31d4bc71ef2a9a176e365bf75c0603a12c1b10ae';
-// Exact bytes from the separately reviewed /bemine-v2 static export.
-const PRODUCT_HOME_SHA256 = 'e152a7eceb5d6e6b1418626f722d2c8a36e17aaa26229b6c96e912040086069b';
-const PRODUCT_APP_SHA256 = '6b4f68e294d43409decdeabed27b896643c7855bc5f9a2c799eddb0b62d52a8d';
+const UPGRADE_ORIGIN = 'https://bemine.cc.cd';
+const PRODUCT_ORIGIN = 'https://bemine.cc.cd';
+const PRODUCT_BASE = '/bemine-v5';
+const PRODUCT_MANIFEST_SHA256 = '0697a2d36e1056192c357c4cc82dc3e68f4993e79776ebe9257f59772dd950df';
+const PRODUCT_HOME_SHA256 = '7ac16fe9100938cbf7711722bf21dbbb0e51c2e3b2bb00201ae66cd2f6ddcd4b';
+const PRODUCT_APP_SHA256 = '0a59a3aa45bbcbaa87e4245a7566b31b84289146ad9b457472a16e07cd87dc70';
+const PRODUCT_RELEASE_SHA256 = '0be7a34dbf9c7d52a4bb172b582523ae29cbf191d04eacd48f22634e4e5923d2';
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ANCHORS = ['factory', 'shareMarket', 'lens', 'beacon', 'timelock', 'portfolioFactory',
   'portfolioMarket', 'portfolioBeacon', 'portfolioImplementation', 'portfolioFactoryImplementation'] as const;
@@ -31,7 +33,7 @@ export type UpgradeReleaseInputs = {
 
 /** An unverified release is never enough to authorize a Timelock signature. */
 export const initialUpgradeExecutionRelease: UpgradeExecutionRelease = blocked(
-  '正在核验生产部署台、产品页面及当前 BSC 图；升级批次暂不可用。');
+  '正在核验正式 v5 网站、独立升级包及 BSC 当前链图；暂不可签署升级批次。');
 
 async function read(fetcher: typeof fetch, url: string, expectedType: RegExp, maxBytes: number,
   init: RequestInit = {}): Promise<Uint8Array<ArrayBuffer>> {
@@ -39,12 +41,11 @@ async function read(fetcher: typeof fetch, url: string, expectedType: RegExp, ma
     signal: AbortSignal.timeout(15_000), ...init });
   insist(response.ok && !response.redirected && (!response.url || response.url === url)
     && expectedType.test(response.headers.get('content-type') || ''),
-  `生产发布证据不可用：${new URL(url).pathname}（HTTP ${response.status}）。`);
+  `正式发布证据不可用：${new URL(url).pathname}（HTTP ${response.status}）。`);
   const announced = Number(response.headers.get('content-length'));
-  insist(!Number.isFinite(announced) || announced <= maxBytes,
-    '生产发布证据超过大小限制。');
+  insist(!Number.isFinite(announced) || announced <= maxBytes, '正式发布证据超过大小限制。');
   const bytes = new Uint8Array(await response.arrayBuffer());
-  insist(bytes.byteLength > 0 && bytes.byteLength <= maxBytes, '生产发布证据为空或超过大小限制。');
+  insist(bytes.byteLength > 0 && bytes.byteLength <= maxBytes, '正式发布证据为空或超过大小限制。');
   return bytes;
 }
 
@@ -55,72 +56,80 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
     byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** Checks live production bytes, server-reviewed plan IDs and a recent finalized chain graph. */
+/** Checks the separately hosted signing package against the currently active v5 genesis. */
 export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs): Promise<UpgradeExecutionRelease> {
   try {
-    insist((input.origin ?? globalThis.location?.origin) === ORIGIN,
-      '只允许在正式 HTTPS 升级入口核验升级发布。');
+    insist((input.origin ?? globalThis.location?.origin) === UPGRADE_ORIGIN,
+      '只允许从 bemine.cc.cd 的正式升级入口发起签名。');
     insist(HASH.test(input.candidateDigest) && same(artifactDigest(input.candidateBundle), input.candidateDigest)
       && !same(input.candidateDigest, trustedGenesisManifest.artifactDigest),
-    '本页候选产物与已发布旧图不匹配。');
+    '升级页候选产物与已部署的 v5 旧图不匹配。');
     const fetcher = input.fetcher ?? fetch;
-    const graphUrl = `${ORIGIN}/pinkuang-deploy-v2/api/journal/product-graph`;
-    const runtimeUrl = `${ORIGIN}/pinkuang-deploy-v2/deployment-artifacts.json`;
-    const manifestUrl = `${ORIGIN}/bemine-v2/data/frontend-manifest.json`;
-    const productUrl = `${ORIGIN}/bemine-v2/`;
-    const [graphBytes, runtimeBytes, manifestBytes, htmlBytes] = await Promise.all([
+    const graphUrl = `${PRODUCT_ORIGIN}${PRODUCT_BASE}/api/journal/product-graph`;
+    const manifestUrl = `${PRODUCT_ORIGIN}${PRODUCT_BASE}/data/frontend-manifest.v5.json`;
+    const productUrl = `${PRODUCT_ORIGIN}${PRODUCT_BASE}/`;
+    const releaseUrl = `${PRODUCT_ORIGIN}${PRODUCT_BASE}/fresh-product-release.json`;
+    const runtimeUrl = `${UPGRADE_ORIGIN}/pinkuang-upgrade-v5/deployment-artifacts.json`;
+    const [graphBytes, runtimeBytes, manifestBytes, htmlBytes, releaseBytes] = await Promise.all([
       read(fetcher, graphUrl, /\bapplication\/json\b/i, 1_000_000),
       read(fetcher, runtimeUrl, /\bapplication\/json\b/i, 8_000_000),
       read(fetcher, manifestUrl, /\bapplication\/json\b/i, 20_000),
       read(fetcher, productUrl, /\btext\/html\b/i, 1_000_000),
+      read(fetcher, releaseUrl, /\bapplication\/json\b/i, 20_000),
     ]);
-    insist(await sha256(manifestBytes) === GENESIS_MANIFEST_SHA256
+    insist(await sha256(manifestBytes) === PRODUCT_MANIFEST_SHA256
       && JSON.stringify(JSON.parse(decoded(manifestBytes))) === JSON.stringify(trustedGenesisManifest),
-    '当前产品站的旧图清单与已发布信任锚不符。');
+    '正式 v5 合约清单与本页固定的主网旧图不符。');
+    const release = JSON.parse(decoded(releaseBytes)) as Record<string, any>;
+    insist(await sha256(releaseBytes) === PRODUCT_RELEASE_SHA256
+      && release.kind === 'fresh-v5-product-static-candidate' && release.chainId === 56
+      && release.basePath === PRODUCT_BASE && release.publicOrigin === PRODUCT_ORIGIN
+      && release.publicUrl === `${PRODUCT_ORIGIN}${PRODUCT_BASE}/`
+      && same(release.artifactDigest, trustedGenesisManifest.artifactDigest),
+    '正式 v5 网站发布记录与固定的生产版本不符。');
+
     const servedBundle = JSON.parse(decoded(runtimeBytes)) as ArtifactBundle;
     validateArtifacts(servedBundle);
     insist(same(artifactDigest(servedBundle), input.candidateDigest),
-      '当前部署台仍未提供本页候选合约产物。');
-
+      '独立升级入口提供的字节码与本机已核验的候选产物不同。');
     insist(await sha256(htmlBytes) === PRODUCT_HOME_SHA256,
-      '当前产品首页不是已审阅的静态发布字节。');
+      'bemine.cc.cd 当前首页不是已核验的 v5 正式页面。');
     const html = decoded(htmlBytes);
     const pageScripts = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)]
-      .map(match => new URL(match[1], ORIGIN))
-      .filter(url => url.origin === ORIGIN
-        && /^\/bemine-v2\/_next\/static\/chunks\/app\/page-[\w-]+\.js$/.test(url.pathname)
+      .map(match => new URL(match[1], PRODUCT_ORIGIN))
+      .filter(url => url.origin === PRODUCT_ORIGIN
+        && /^\/bemine-v5\/_next\/static\/chunks\/app\/page-[\w-]+\.js$/.test(url.pathname)
         && !url.search && !url.hash);
-    insist(pageScripts.length === 1, '当前产品首页没有唯一的正式应用脚本。');
+    insist(pageScripts.length === 1, '正式 v5 首页没有唯一的主应用脚本。');
     const productJsBytes = await read(fetcher, pageScripts[0].href,
       /\b(?:application|text)\/javascript\b/i, 2_000_000);
     insist(await sha256(productJsBytes) === PRODUCT_APP_SHA256,
-      '当前产品应用脚本不是已审阅的静态发布字节。');
-    const productJs = decoded(productJsBytes);
-    insist(productJs.includes(input.candidateDigest.toLowerCase()),
-      '当前产品应用脚本尚未包含候选产物摘要。');
+      '正式 v5 应用脚本与已审阅的网站发布字节不符。');
 
     const graph = JSON.parse(decoded(graphBytes)) as Record<string, any>;
-    const genesis = trustedGenesisManifest;
-    insist(graph.status === 'verified' && graph.chainId === 56 && graph.stage === 'genesis'
+    const genesis = trustedGenesisManifest as Record<string, any>;
+    insist(graph.status === 'verified' && graph.chainId === 56 && graph.stage === 'fresh-active'
       && graph.operationId == null,
-    '当前产品图并非已核验的 Stage0 旧图。');
+    '当前 BSC 产品图不处于已核验且未更改的 v5 激活状态。');
     insist(same(graph.artifactDigest, genesis.artifactDigest)
       && same(graph.genesisArtifactDigest, genesis.artifactDigest)
-      && same(graph.upgradeArtifactDigest, input.candidateDigest),
-    '当前产品图的新旧产物摘要与本页不符。');
-    insist(same(graph.reviewedUpgradeOperationId, input.plan.operationId)
-      && same(graph.reviewedBootstrapOperationId, input.bootstrapPlan.operationId),
-    '生产端已审批次或硬件钱包授权计划与本机计划不同。');
+      && (graph.upgradeArtifactDigest == null || same(graph.upgradeArtifactDigest, input.candidateDigest)),
+    '当前产品图的新旧合约摘要与本页计划不符。');
+    insist(graph.reviewedUpgradeOperationId == null
+      || same(graph.reviewedUpgradeOperationId, input.plan.operationId),
+    '生产端登记的代码升级批次与本页计划不同。');
+    insist(graph.reviewedBootstrapOperationId == null
+      || same(graph.reviewedBootstrapOperationId, input.bootstrapPlan.operationId),
+    '生产端登记的硬件钱包授权计划与本页计划不同。');
     insist(Number.isSafeInteger(graph.snapshotAgeMs) && graph.snapshotAgeMs >= 0
       && graph.snapshotAgeMs <= 20_000 && Number.isSafeInteger(graph.verifiedBlockNumber)
       && graph.verifiedBlockNumber >= genesis.deployment.blockNumber
       && HASH.test(graph.verifiedBlockHash),
     '当前产品图缺少近期最终确认区块证明。');
-    insist(graph.stageActivationBlock === genesis.deployment.blockNumber
-      && same(graph.stageActivationHash, genesis.deployment.blockHash)
-      && same(graph.factory, genesis.factory)
-      && same(graph.portfolioFactory, genesis.portfolioFactory),
-    '当前产品图的旧版激活区块或 Factory 已变化。');
+    insist(graph.stageActivationBlock === genesis.verifiedBlockNumber
+      && same(graph.stageActivationHash, genesis.verifiedBlockHash)
+      && same(graph.factory, genesis.factory) && same(graph.portfolioFactory, genesis.portfolioFactory),
+    '当前产品图的激活区块或 Factory 与已发布 v5 旧图不同。');
     const manifest = graph.manifest;
     insist(manifest && manifest.chainId === 56 && manifest.kind === 'integrated-v2'
       && same(manifest.artifactDigest, genesis.artifactDigest)
@@ -128,13 +137,12 @@ export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs):
       && same(manifest.deployment?.txHash, genesis.deployment.txHash)
       && manifest.deployment?.blockNumber === genesis.deployment.blockNumber
       && same(manifest.deployment?.blockHash, genesis.deployment.blockHash),
-    '生产端旧版合约清单与本页信任锚不同。');
+    '生产端 v5 合约图与本页固定的部署记录不符。');
     for (const key of ANCHORS) insist(same(manifest[key], genesis[key])
       && same(manifest.codehash?.[key], genesis.codehash[key]),
-    `生产端旧版合约 ${key} 地址或代码哈希不同。`);
+    `生产端旧合约 ${key} 地址或代码哈希不同。`);
 
-    // The connected wallet's read-only RPC is independent of the product
-    // runtime. It checks both canonical identity and how old its proof is.
+    // A separate wallet RPC confirms the live canonical block before a signature.
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const walletReads = Promise.all([
       input.wallet.request({ method: 'eth_chainId' }),
@@ -153,11 +161,11 @@ export async function checkUpgradeExecutionRelease(input: UpgradeReleaseInputs):
       && latest - graph.verifiedBlockNumber <= 132
       && typeof block?.number === 'string' && Number.parseInt(block.number, 16) === graph.verifiedBlockNumber
       && same(block.hash, graph.verifiedBlockHash),
-    '钱包 RPC 的当前规范链与生产图证明不同或已过期。');
-    return { ready: true, reason: '生产双图发布和当前链状态已核验。',
+    '钱包 RPC 的当前规范链与正式产品图证明不同或已过期。');
+    return { ready: true, reason: '正式 v5 网站、主网旧图与独立升级产物已核验。',
       verifiedBlockNumber: graph.verifiedBlockNumber };
   } catch (problem) {
-    return blocked(problem instanceof Error ? problem.message : '生产升级发布核验失败。');
+    return blocked(problem instanceof Error ? problem.message : '正式升级发布核验失败。');
   }
 }
 

@@ -11,22 +11,20 @@ import { freshAuthorityBrowserFixture } from './fresh-authority-browser-fixture.
 const addr=n=>getAddress(`0x${n.toString(16).padStart(40,'0')}`), hash=n=>`0x${n.toString(16).padStart(64,'0')}`;
 const account=addr(1),factory=addr(2),pool=addr(3),market=addr(4);
 const config={status:'ready',chainId:56,factory,shareMarket:market,journalBase:'/api/journal',origin:'https://bemine.example'};
-test('genesis stage accepts old selectors but rejects candidate-only Factory methods', () => {
+test('genesis stage accepts original selectors but never authorizes candidate-only review helpers as transactions', () => {
   const base = { ...config, factory: pinnedGenesis.factory, shareMarket: pinnedGenesis.shareMarket,
     manifest: pinnedGenesis, stage: 'genesis', artifactDigest: pinnedGenesis.artifactDigest };
   const oldCall = { from: account, to: pool, chainId: '0x38', value: '0',
     data: abi.PoolVault.encodeFunctionData('claim') };
   assert.equal(validateProductTransactionStage(base, oldCall, 'claim').action.kind, 'claim');
-  const params = { circuits: addr(88), circuitId: 1n, targetRaise: 100n, priceCap: 100n,
-    directSeller: addr(89), directPrice: 0n, fundingDeadline: 1000n, purchaseDeadline: 2000n };
-  const newCall = { from: account, to: pinnedGenesis.factory, chainId: '0x38', value: '0',
-    data: abi.PoolFactory.encodeFunctionData('createBudgetChildPool', [params, account]) };
-  assert.throws(() => validateProductTransactionStage(base, newCall, 'createBudgetChildPool'));
+  const newCall = { from: account, to: pinnedGenesis.shareMarket, chainId: '0x38', value: '0',
+    data: abi.ShareMarket.encodeFunctionData('snapshotSaleReviewPolicy', [pool, 1n]) };
+  assert.throws(() => validateProductTransactionStage(base, newCall, 'snapshotSaleReviewPolicy'));
   const upgraded = { ...base, stage: 'code-upgraded', artifactDigest: ARTIFACT_DIGEST,
     manifest: { ...pinnedGenesis, artifactDigest: ARTIFACT_DIGEST } };
-  assert.throws(() => validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool'));
+  assert.throws(() => validateProductTransactionStage(upgraded, newCall, 'snapshotSaleReviewPolicy'));
   upgraded.operationalReady = true;
-  assert.equal(validateProductTransactionStage(upgraded, newCall, 'createBudgetChildPool').action.kind, 'createBudgetChildPool');
+  assert.throws(() => validateProductTransactionStage(upgraded, newCall, 'snapshotSaleReviewPolicy'));
   assert.throws(() => validateProductTransactionStage({ ...upgraded, artifactDigest: pinnedGenesis.artifactDigest }, oldCall, 'claim'));
 });
 

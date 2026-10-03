@@ -8,6 +8,8 @@ abstract contract BudgetGovernanceState {
         uint64 nextRoundAt;
         mapping(uint256 => uint8) saleReviews;
         mapping(address => uint64) lastProposed;
+        // Appended decision snapshot: 0 legacy/fail closed, 1 no review, 2 review required.
+        mapping(uint256 => uint8) saleReviewPolicies;
     }
 
     function _budgetGovernanceStorage() internal pure returns (BudgetGovernanceStorage storage s) {

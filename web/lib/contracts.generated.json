@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "chainId": "56",
-  "artifactDigest": "0x9523dd920e91dcab4358eceddff660d65357bfe1fe3bf6f3e7823cbc94af2502",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "abis": {
     "PoolFactory": [
       {
@@ -6044,6 +6044,31 @@
           {
             "indexed": true,
             "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "bool",
+            "name": "reviewRequired",
+            "type": "bool"
+          }
+        ],
+        "name": "BudgetChildSaleReviewBound",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
             "name": "budgetFactory",
             "type": "address"
           },
@@ -6248,6 +6273,80 @@
           }
         ],
         "name": "SaleReferenceUpdated",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint8",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint128",
+            "name": "referencePrice",
+            "type": "uint128"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint64",
+            "name": "referenceAt",
+            "type": "uint64"
+          },
+          {
+            "indexed": false,
+            "internalType": "bytes32",
+            "name": "referenceDigest",
+            "type": "bytes32"
+          }
+        ],
+        "name": "SaleReviewPolicySnapshotted",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "marketPriceWei",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint64",
+            "name": "observedAt",
+            "type": "uint64"
+          },
+          {
+            "indexed": false,
+            "internalType": "bytes32",
+            "name": "sourceDigest",
+            "type": "bytes32"
+          }
+        ],
+        "name": "SaleReviewReferenceUpdated",
         "type": "event"
       },
       {
@@ -6772,6 +6871,35 @@
         "inputs": [
           {
             "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          }
+        ],
+        "name": "saleReviewReference",
+        "outputs": [
+          {
+            "internalType": "uint128",
+            "name": "marketPriceWei",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint64",
+            "name": "observedAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "sourceDigest",
+            "type": "bytes32"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
             "name": "budgetFactory",
             "type": "address"
           },
@@ -6810,6 +6938,24 @@
           }
         ],
         "name": "setSaleReference",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "pool",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          }
+        ],
+        "name": "snapshotSaleReviewPolicy",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
@@ -8022,6 +8168,31 @@
           },
           {
             "indexed": false,
+            "internalType": "uint8",
+            "name": "policy",
+            "type": "uint8"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint128",
+            "name": "referencePrice",
+            "type": "uint128"
+          }
+        ],
+        "name": "ChildSaleReviewPolicySnapshotted",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "uint256",
+            "name": "proposalId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
             "internalType": "bool",
             "name": "approved",
             "type": "bool"
@@ -8536,7 +8707,27 @@
         "outputs": [
           {
             "internalType": "uint8",
-            "name": "",
+            "name": "status",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "child",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "price",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "executed",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "policy",
             "type": "uint8"
           }
         ],

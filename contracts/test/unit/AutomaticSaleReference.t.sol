@@ -7,6 +7,7 @@ import {ShareMarket} from "../../src/ShareMarket.sol";
 import {PoolFactory} from "../../src/PoolFactory.sol";
 import {IShareMarket} from "../../src/interfaces/IShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
 
 contract AutomaticReferenceBudgetRegistry {
     address public immutable timelock;
@@ -42,9 +43,8 @@ contract AutomaticSaleReferenceTest is ShareTransferTestBase {
     function setUp() public override {
         super.setUp();
         budgetRegistry = new AutomaticReferenceBudgetRegistry(address(timelock));
-        authority = new PlatformAuthority(
-            address(poolFactory), address(budgetRegistry), FIRST_ADMIN, SECOND_ADMIN, GAS_WALLET
-        );
+        authority =
+            new PlatformAuthority(address(poolFactory), address(budgetRegistry), FIRST_ADMIN, SECOND_ADMIN, GAS_WALLET);
         vm.prank(OWNER);
         poolFactory.setOperator(address(authority));
     }
@@ -65,6 +65,38 @@ contract AutomaticSaleReferenceTest is ShareTransferTestBase {
         assertEq(authority.nonces(FIRST_ADMIN), 0);
         assertEq(authority.nonces(SECOND_ADMIN), 0);
         assertEq(shareMarket.totalBnbOwed(), 0);
+    }
+
+    function test_gasDisplayQuoteCannotReplaceAdministratorAttestedReviewQuote() public {
+        vm.prank(address(authority));
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), DIGEST);
+
+        _publish(1 ether, uint64(block.timestamp), keccak256("automatic-display-update"));
+
+        (uint128 displayPrice,,) = shareMarket.saleReference(address(pool));
+        (uint128 reviewPrice,,) = shareMarket.saleReviewReference(address(pool));
+        assertEq(displayPrice, 1 ether);
+        assertEq(reviewPrice, 6 ether, "automatic publisher cannot change the review baseline");
+    }
+
+    function test_automaticDisplayQuoteCannotAutoApproveOrRewriteProposalReviewSnapshot() public {
+        _publish(5 ether, uint64(block.timestamp), DIGEST);
+        PoolVault vault = PoolVault(payable(address(pool)));
+        vm.warp(uint256(vault.activatedAt()) + 3 days);
+        vm.prank(ALICE);
+        uint256 id = vault.propose(4 ether, 0, 0);
+        (uint8 status, uint128 pinnedPrice) = shareMarket.saleReview(address(pool), id);
+        assertEq(status, 0, "unattested display prices require manual review");
+        assertEq(pinnedPrice, 4 ether);
+
+        vm.prank(address(authority));
+        shareMarket.setSaleReference(address(pool), 6 ether, uint64(block.timestamp), keccak256("late-attestation"));
+        vm.prank(address(pool));
+        vm.expectRevert(ShareMarket.InvalidSaleReference.selector);
+        shareMarket.snapshotSaleReviewPolicy(address(pool), id);
+        (status, pinnedPrice) = shareMarket.saleReview(address(pool), id);
+        assertEq(status, 0);
+        assertEq(pinnedPrice, 4 ether, "a later quote cannot rewrite the opening snapshot");
     }
 
     function test_unrelatedWalletsIncludingAdministratorsCannotUsePublisherEntry() public {
@@ -113,10 +145,16 @@ contract AutomaticSaleReferenceTest is ShareTransferTestBase {
     function test_uint128MaximumIsAcceptedAndOversizedAbiValueCannotWrite() public {
         _publish(type(uint128).max, uint64(block.timestamp), DIGEST);
         vm.prank(GAS_WALLET);
-        (bool ok,) = address(shareMarket).call(abi.encodeWithSignature(
-            "publishSaleReference(address,uint128,uint64,bytes32)",
-            address(pool), uint256(type(uint128).max) + 1, uint64(block.timestamp), DIGEST
-        ));
+        (bool ok,) = address(shareMarket)
+            .call(
+                abi.encodeWithSignature(
+                    "publishSaleReference(address,uint128,uint64,bytes32)",
+                    address(pool),
+                    uint256(type(uint128).max) + 1,
+                    uint64(block.timestamp),
+                    DIGEST
+                )
+            );
         assertFalse(ok);
         (uint128 price,,) = shareMarket.saleReference(address(pool));
         assertEq(price, type(uint128).max);

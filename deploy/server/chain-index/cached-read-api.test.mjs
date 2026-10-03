@@ -57,7 +57,7 @@ function fixture({ proposals = false, children = false, saleReviewThresholdBps, 
         : typeof member[call.name] === 'boolean' ? false : 0n];
       else if (call.name === 'proposals') value = [child, price, referencePrice, 900n, 2000n, 2n, 2n, 60n, false];
       else if (call.name === 'saleReference') value = [referencePrice, 900n, hash];
-      else if (call.name === 'childSaleReview') value = [reviewStatus];
+      else if (call.name === 'childSaleReview') value = [reviewStatus, child, price, false, 0n];
       else if (call.name === 'hasVoted') value = [call.args[1].toLowerCase() === account];
       else if (call.name === 'childAt') value = [child];
       else if (call.name === 'childInfo') value = [collection, 123n, 8000n, true, false];

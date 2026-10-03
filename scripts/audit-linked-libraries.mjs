@@ -10,7 +10,10 @@ const sha256 = value => createHash('sha256').update(value).digest('hex');
 const keccak = value => `0x${Buffer.from(keccak256(value)).toString('hex')}`;
 const expectedLibraries = ['FirstoSale', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'];
 const directVaultLibraries = expectedLibraries.filter(name => name !== 'PurchaseValidation');
-const nestedLibraries = { FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'], FirstoSale: ['SaleSettlement'] };
+const nestedLibraries = {
+  FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'],
+  FirstoSale: ['MiningOperations', 'PoolFunds', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement'],
+};
 const mining = '0x7e2e0dc66a3bd9103e69b766afa62d9f7b697b46';
 
 function readArtifact(root, name) {
@@ -147,6 +150,13 @@ export default function auditLinkedLibraries(root, logRoot) {
   const projectRoot = resolve(root);
   const evidenceRoot = resolve(logRoot);
   const vault = readArtifact(projectRoot, 'PoolVault');
+  const factory = readArtifact(projectRoot, 'PoolFactory');
+  const freshFactory = readArtifact(projectRoot, 'FreshPoolFactory');
+  const budgetVault = readArtifact(projectRoot, 'BudgetPortfolioVault');
+  const factorySource = sourceEvidence(projectRoot, 'src/PoolFactory.sol', factory.metadata);
+  const freshFactorySource = sourceEvidence(projectRoot, 'src/FreshPoolFactory.sol', freshFactory.metadata);
+  const budgetVaultSource = sourceEvidence(projectRoot, 'src/BudgetPortfolioVault.sol', budgetVault.metadata);
+  sourceEvidence(projectRoot, 'src/PoolFactory.sol', freshFactory.metadata);
   const vaultSource = sourceEvidence(projectRoot, 'src/PoolVault.sol', vault.metadata);
   const selectionSource = sourceEvidence(projectRoot, 'src/PurchaseSelectionState.sol', vault.metadata);
   const executor = readArtifact(projectRoot, 'FirstoSaleExecutor');
@@ -171,6 +181,62 @@ export default function auditLinkedLibraries(root, logRoot) {
     '0x33423244f9a5bf81b12b1a018af6f4e079b97f29', 'Executor Firsto target must be fixed.');
   const creationLinks = vaultLinks(vault.artifact.bytecode, 'PoolVault creation bytecode');
   const runtimeLinks = vaultLinks(vault.artifact.deployedBytecode, 'PoolVault runtime bytecode');
+  const poolFactoryCreationLinks = vaultLinks(factory.artifact.bytecode, 'PoolFactory creation bytecode', ['PurchaseValidation']);
+  const poolFactoryRuntimeLinks = vaultLinks(factory.artifact.deployedBytecode, 'PoolFactory runtime bytecode', ['PurchaseValidation']);
+  const freshFactoryCreationLinks = vaultLinks(freshFactory.artifact.bytecode, 'FreshPoolFactory creation bytecode', ['PurchaseValidation']);
+  const freshFactoryRuntimeLinks = vaultLinks(freshFactory.artifact.deployedBytecode, 'FreshPoolFactory runtime bytecode', ['PurchaseValidation']);
+  const budgetVaultCreationLinks = vaultLinks(budgetVault.artifact.bytecode,
+    'BudgetPortfolioVault creation bytecode', ['SaleGovernance']);
+  const budgetVaultRuntimeLinks = vaultLinks(budgetVault.artifact.deployedBytecode,
+    'BudgetPortfolioVault runtime bytecode', ['SaleGovernance']);
+  const validationLibrary = readArtifact(projectRoot, 'PurchaseValidation');
+  const libraryDefinition = validationLibrary.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'PurchaseValidation');
+  assert(libraryDefinition, 'Missing PurchaseValidation library AST.');
+  const helperByName = new Map(libraryDefinition.nodes
+    .filter(node => node.nodeType === 'FunctionDefinition').map(node => [node.name, node]));
+  const factoryDefinition = factory.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'PoolFactory');
+  assert(factoryDefinition, 'Missing PoolFactory AST.');
+  const libraryCalls = [...walkAst(factoryDefinition)].filter(node => node.nodeType === 'MemberAccess'
+    && node.expression?.nodeType === 'Identifier' && node.expression.name === 'PurchaseValidation');
+  assert.deepEqual(libraryCalls.map(node => node.memberName).sort(),
+    ['liveMachineReservation', 'validatePoolParams'], 'PoolFactory library call surface changed.');
+  const factoryCallSites = libraryCalls.map(node => {
+    const helper = helperByName.get(node.memberName);
+    assert(helper && helper.stateMutability === 'view'
+      && helper.visibility === 'external', `PoolFactory linked helper is not a reviewed external view: ${node.memberName}`);
+    return { name: node.memberName, stateMutability: helper.stateMutability, library: 'PurchaseValidation' };
+  });
+  const freshFactoryDefinition = freshFactory.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'FreshPoolFactory');
+  assert(freshFactoryDefinition && freshFactoryDefinition.baseContracts.length === 1
+    && freshFactoryDefinition.baseContracts[0].baseName.name === 'PoolFactory',
+  'FreshPoolFactory must inherit the reviewed PoolFactory implementation.');
+  const saleGovernance = readArtifact(projectRoot, 'SaleGovernance');
+  const saleGovernanceDefinition = saleGovernance.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'SaleGovernance');
+  assert(saleGovernanceDefinition, 'Missing SaleGovernance library AST.');
+  const saleFunctions = new Map(saleGovernanceDefinition.nodes
+    .filter(node => node.nodeType === 'FunctionDefinition').map(node => [node.name, node]));
+  const budgetVaultDefinition = budgetVault.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'BudgetPortfolioVault');
+  assert(budgetVaultDefinition, 'Missing BudgetPortfolioVault AST.');
+  const budgetLibraryCalls = [...walkAst(budgetVaultDefinition)].filter(node => node.nodeType === 'MemberAccess'
+    && node.expression?.nodeType === 'Identifier' && node.expression.name === 'SaleGovernance');
+  assert.deepEqual(budgetLibraryCalls.map(node => node.memberName).sort(),
+    ['budgetReviewPolicy', 'executeBudgetChildSale', 'requirePortfolioReviewable', 'requirePortfolioSaleApproved'],
+  'BudgetPortfolioVault SaleGovernance call surface changed.');
+  const budgetCallSites = budgetLibraryCalls.map(node => {
+    const helper = saleFunctions.get(node.memberName);
+    assert(helper && helper.visibility === 'external',
+      `BudgetPortfolioVault linked helper is not an external SaleGovernance function: ${node.memberName}`);
+    return { name: node.memberName, stateMutability: helper.stateMutability, library: 'SaleGovernance' };
+  });
+  const executeChildSale = budgetVaultDefinition.nodes
+    .find(node => node.nodeType === 'FunctionDefinition' && node.name === 'executeChildSale');
+  assert(executeChildSale?.modifiers?.some(node => node.modifierName?.name === 'nonReentrant'),
+    'BudgetPortfolioVault linked child-sale execution must remain nonReentrant.');
   const libraries = expectedLibraries.map(name => {
     const compiled = readArtifact(projectRoot, name);
     const source = sourceEvidence(projectRoot, `src/libraries/${name}.sol`, compiled.metadata);
@@ -183,20 +249,65 @@ export default function auditLinkedLibraries(root, logRoot) {
       runtimeLinks: vaultLinks(compiled.artifact.deployedBytecode, `${name} runtime bytecode`, nestedLibraries[name] ?? []),
       astReview: reviewLibraryAst(name, compiled.artifact) };
   });
+  const firstoSale = readArtifact(projectRoot, 'FirstoSale');
+  const firstoSaleDefinition = firstoSale.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'FirstoSale');
+  assert(firstoSaleDefinition, 'Missing FirstoSale library AST.');
+  const expectedFirstoCalls = {
+    MiningOperations: ['claimReward'],
+    PoolFunds: ['materializePurchase'],
+    RewardAccounting: ['account', 'settle'],
+    SaleGovernance: ['tradingFrozen'],
+    SaleSettlement: ['completeNative', 'prepareFirsto'],
+  };
+  const firstoCallSites = Object.fromEntries(Object.keys(expectedFirstoCalls).map(name => [name, []]));
+  for (const node of walkAst(firstoSaleDefinition)) {
+    if (node.nodeType !== 'MemberAccess' || node.expression?.nodeType !== 'Identifier'
+      || !Object.hasOwn(expectedFirstoCalls, node.expression.name)) continue;
+    firstoCallSites[node.expression.name].push(node.memberName);
+  }
+  for (const [libraryName, names] of Object.entries(expectedFirstoCalls)) {
+    assert.deepEqual([...new Set(firstoCallSites[libraryName])].sort(), names,
+      `FirstoSale linked ${libraryName} call surface changed.`);
+    const library = readArtifact(projectRoot, libraryName);
+    const definition = library.artifact.ast.nodes
+      .find(node => node.nodeType === 'ContractDefinition' && node.name === libraryName);
+    const externalFunctions = new Map(definition.nodes.filter(node => node.nodeType === 'FunctionDefinition')
+      .map(node => [node.name, node]));
+    for (const name of names) {
+      assert.equal(externalFunctions.get(name)?.visibility, 'external',
+        `FirstoSale linked ${libraryName}.${name} must stay externally linked.`);
+    }
+  }
   const audit = { schemaVersion: 1, generatedAt: new Date().toISOString(), ok: true,
     vault: { source: vaultSource, selectionSource, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
       runtimeBytecodeTemplate: templateEvidence(vault.artifact.deployedBytecode, 'PoolVault'),
       creationLinks, runtimeLinks }, libraries,
     firstoExecutor: { source: executorSource, artifactPath: executor.path, constructorOnly: true, fixedExchange: true },
+    firstoSaleLinking: { source: sourceEvidence(projectRoot, 'src/libraries/FirstoSale.sol', firstoSale.metadata),
+      artifactPath: firstoSale.path, callSites: Object.fromEntries(Object.entries(firstoCallSites)
+        .map(([name, calls]) => [name, [...new Set(calls)].sort()])),
+      note: 'Only the pinned external library functions are reachable from FirstoSale; exact linked template addresses are verified by deployment evidence.' },
     context: {
+      factoryLinking: {
+        PoolFactory: { source: factorySource, creationLinks: poolFactoryCreationLinks,
+          runtimeLinks: poolFactoryRuntimeLinks, callSites: factoryCallSites,
+          note: 'Only two external PurchaseValidation calls are present; both target compiler-resolved external view functions.' },
+        FreshPoolFactory: { source: freshFactorySource, creationLinks: freshFactoryCreationLinks,
+          runtimeLinks: freshFactoryRuntimeLinks, base: 'PoolFactory',
+          note: 'FreshPoolFactory inherits the exact reviewed PoolFactory call surface.' },
+        BudgetPortfolioVault: { source: budgetVaultSource, creationLinks: budgetVaultCreationLinks,
+          runtimeLinks: budgetVaultRuntimeLinks, callSites: budgetCallSites, childSaleNonReentrant: true,
+          note: 'SaleGovernance is storage-free; child sale writes are called only under BudgetPortfolioVault.nonReentrant.' },
+      },
       execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
       reentrancy: 'Vault owns the nonReentrant purchase/payment entry points. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.',
-      upgradeValidationException: 'PoolVault narrowly annotates its locking constructor, OFFICIAL_FACTORY immutable, and external-library-linking; storage validation is not skipped. Storage compatibility does not verify the immutable factory value.',
+      upgradeValidationException: 'PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory narrowly annotates external-library-linking after the two view-only PurchaseValidation call sites are pinned above. BudgetPortfolioVault SaleGovernance call sites and nonReentrant child sale path are pinned above. Storage validation is not skipped; immutable factory values are verified separately.',
       limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(join(evidenceRoot, 'library-link-audit.json'), JSON.stringify(audit, null, 2) + '\n');
-  console.log(`PASS: PoolVault links ${directVaultLibraries.length} direct and ${expectedLibraries.length} total reviewed libraries; recursive links, source hashes, unlinked templates and scoped AST gates recorded.`);
+  console.log(`PASS: PoolFactory and FreshPoolFactory link only the two audited PurchaseValidation view helpers; PoolVault links ${directVaultLibraries.length} direct and ${expectedLibraries.length} total reviewed libraries; source hashes, templates and scoped AST gates recorded.`);
   return audit;
 }

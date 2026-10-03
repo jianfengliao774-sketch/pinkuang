@@ -10,9 +10,9 @@ const DEPLOY = fileURLToPath(new URL('../', import.meta.url));
 const DIST = join(DEPLOY, 'dist-upgrade');
 const GENESIS_RECORD = 'upgrade-genesis/genesis-record.json';
 const GENESIS_ARTIFACTS = 'upgrade-genesis/genesis-artifacts.json';
-const GENESIS_RECORD_SHA256 = '39f567de5a23661db1bcd31638b536598cb58f5bb738a1b7a101e97ea54dfdf5';
-const GENESIS_ARTIFACT_SHA256 = '22e4fb90b537c3f2bfb864ee43e7be5005dfa864640be641a476adb7681b867b';
-const GENESIS_MANIFEST_SHA256 = '5bf6596502e966de526e899c31d4bc71ef2a9a176e365bf75c0603a12c1b10ae';
+const GENESIS_RECORD_SHA256 = 'c586195408f65730ff8409126a7aea95dc48b9af62daba36f2201065c1c53ae0';
+const GENESIS_ARTIFACT_SHA256 = 'b24082514df9d7a37f57af0e8c0cf644d42446c95b88eb1961837ea76a08bebc';
+const GENESIS_MANIFEST_SHA256 = '0697a2d36e1056192c357c4cc82dc3e68f4993e79776ebe9257f59772dd950df';
 const sha256 = data => createHash('sha256').update(data).digest('hex');
 
 function collect(root, name = '', files = new Map()) {
@@ -105,7 +105,7 @@ export function packageUpgradeStatic(outDir) {
     writeFileSync(target, bytes, { flag: 'wx', mode: 0o644 });
   }
   const manifest = {
-    schemaVersion: 1, kind: 'pinkuang-upgrade-static', basePath: '/pinkuang-upgrade-v2',
+    schemaVersion: 1, kind: 'pinkuang-upgrade-static', basePath: '/pinkuang-upgrade-v5',
     sourceHead, chainId: 56, candidateArtifactDigest: verified.candidateDigest,
     genesisArtifactDigest: verified.genesisDigest,
     genesisManifestSha256: verified.genesisManifestSha256,

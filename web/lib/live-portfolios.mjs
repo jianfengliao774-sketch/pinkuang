@@ -8,7 +8,7 @@ import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/first
 import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
 import { saleReferenceState, DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold,
-  normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps, requiresSaleReview } from './sale-governance-gate.mjs';
+  normalizeSaleReviewThresholdBps, effectiveSaleReviewThresholdBps } from './sale-governance-gate.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
 import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
 
@@ -66,12 +66,14 @@ function childSaleExecutionGate({ candidate, openerExecuted, state, timestamp, s
   const { saleReference: reference, saleReview: review } = candidate;
   const saleReviewThresholdBps = normalizeSaleReviewThresholdBps(candidate.saleReviewThresholdBps);
   const discounted = reference?.available ? candidate.price < reference.priceWei : null;
-  const reviewRequired = reference?.available ? requiresSaleReview(candidate.price, reference.priceWei, saleReviewThresholdBps) : null;
-  const reviewApproved = review?.available === true && review.status === 1n;
+  const reviewPolicy = candidate.saleReviewPolicy;
+  const reviewRequired = reviewPolicy !== 1n;
+  const reviewApproved = review?.available === true && review.status !== 2n
+    && (reviewPolicy === 1n || review.status === 1n);
   let executionBlockReason = null;
-  if (!reference?.available) executionBlockReason = reference?.reason || 'Firsto 市场参考价不可用，暂不能挂牌。';
-  else if (reviewRequired && !review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
-  else if (reviewRequired && review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
+  if (reviewPolicy === undefined || reviewPolicy > 2n) executionBlockReason = '出售审核快照不可用，暂不能挂牌。';
+  else if (!review?.available) executionBlockReason = review?.reason || '平台审核状态不可用，暂不能挂牌。';
+  else if (review.status === 2n) executionBlockReason = '平台已驳回这项子矿机出售提案。';
   else if (reviewRequired && !reviewApproved) executionBlockReason = '低于 Firsto 市场参考价的审核门槛，尚待平台审核通过。';
   return { passed, discounted, reviewRequired, reviewApproved, saleReviewThresholdBps,
     canExecute: open && passed && executionBlockReason === null, executionBlockReason };
@@ -351,7 +353,8 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
           const cost = context.stage === 'genesis'
             ? (await read(target, contract, 'childInfo', [p.child]))[2] : null;
           requireValue(cost === null || cost > 0n, '创世子矿机购机成本未通过链上核验。');
-          let saleReference = null, saleReview = null, saleReviewThresholdBps = row.saleReviewThresholdBps;
+          let saleReference = null, saleReview = null, saleReviewPolicy = null;
+          let saleReviewThresholdBps = row.saleReviewThresholdBps;
           if (context.stage !== 'genesis') {
             const [referenceResult, reviewResult, childThresholdResult] = await Promise.allSettled([
               read(manifest.shareMarket, abi.ShareMarket, 'saleReference', [p.child]),
@@ -364,15 +367,23 @@ export async function readPortfolio(context, pool, account = ZeroAddress, { incl
               ? saleReferenceState(referenceResult.value, timestamp)
               : Object.freeze({ available: false, reason: 'Firsto 市场参考价暂不可读取。' });
             const reviewStatus = reviewResult.status === 'fulfilled' ? reviewResult.value[0] : null;
-            saleReview = reviewStatus !== null && reviewStatus <= 2n
-              ? Object.freeze({ available: true, status: reviewStatus })
+            const reviewChild = reviewResult.status === 'fulfilled' ? reviewResult.value[1] : null;
+            const reviewPrice = reviewResult.status === 'fulfilled' ? reviewResult.value[2] : null;
+            const reviewExecuted = reviewResult.status === 'fulfilled' ? reviewResult.value[3] : null;
+            const rawPolicy = reviewResult.status === 'fulfilled' ? reviewResult.value[4] : null;
+            const reviewMatchesProposal = reviewChild !== null && same(reviewChild, p.child)
+              && reviewPrice === p.price && reviewExecuted === p.executed;
+            const validSnapshot = reviewMatchesProposal && reviewStatus <= 2n && rawPolicy <= 2n;
+            saleReviewPolicy = validSnapshot ? rawPolicy : null;
+            saleReview = validSnapshot
+              ? Object.freeze({ available: true, status: reviewStatus, policy: rawPolicy, priceWei: reviewPrice })
               : Object.freeze({ available: false, status: null, reason: '平台审核状态暂不可读取。' });
           }
           return { id, child: address(p.child), price: p.price, referencePrice: p.referencePrice,
             referenceAt: p.referenceAt, endsAt: p.endsAt, memberCount: p.memberCount, yesMembers: p.yesMembers,
             yesShares: p.yesShares, executed: p.executed, hasVoted: voted[0],
             threshold: cost !== null && p.price < cost ? 60n : 51n, saleReference, saleReview,
-            saleReviewThresholdBps };
+            saleReviewPolicy, saleReviewThresholdBps };
         });
     }));
     row.proposals = entries.filter(candidate => candidate.endsAt === entries[0].endsAt)

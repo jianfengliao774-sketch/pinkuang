@@ -3,7 +3,7 @@ import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 import { readControlledFirstoSale } from './firsto-sale.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState,
-  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold, requiresSaleReview } from './sale-governance-gate.mjs';
+  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold } from './sale-governance-gate.mjs';
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { fetchLiveJson } from './live-config.mjs';
@@ -173,16 +173,14 @@ async function readGovernanceSnapshotUncached(provider, { factory: configuredFac
         proposal.yesShares >= requiredYesShares && proposal.yesCount >= requiredYesCount
       ), 'Sale proposal vote state is inconsistent.');
     let saleReview = null;
-    if (saleReference?.available && requiresSaleReview(proposal.price, saleReference.priceWei, saleReviewThresholdBps)) {
-      try {
-        if (displayOnly) {
-          const [status, priceWei] = await result(market, directViews, 'saleReview', [pool, id]);
-          requireGovernance(status <= 2n, 'Firsto 出售审核状态无效。');
-          saleReview = Object.freeze({ status, priceWei });
-        } else saleReview = await readSaleReview(request, market, pool, id, number);
-      }
-      catch { /* A failed review read must never enable execution. */ }
+    try {
+      if (displayOnly) {
+        const [status, priceWei] = await result(market, directViews, 'saleReview', [pool, id]);
+        requireGovernance(status <= 3n, 'Firsto 出售审核状态无效。');
+        saleReview = Object.freeze({ status, priceWei });
+      } else saleReview = await readSaleReview(request, market, pool, id, number);
     }
+    catch { /* A failed review read must never enable execution. */ }
     const gate = stage === 'genesis'
       ? { discounted: purchaseDiscount, reviewRequired: false, reviewApproved: null,
         canExecute: passed && state === 2n && !proposal.executed && timestamp < proposal.endsAt }

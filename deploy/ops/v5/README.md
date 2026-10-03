@@ -66,7 +66,7 @@ and removes only the v5 nginx include; it does not reopen any old site.
 
 ## Release status — 2026-10-03 07:39 CST
 
-**Published:** https://bemine.cc.cd/bemine-v5/ . The root URL redirects here.
+**Published:** `https://bemine.cc.cd/` and `https://bemine.cc.cd/bemine-v5/` both serve the same v5 homepage directly. Verified 2026-10-03 by comparing the two HTTP response bodies (SHA-256 `7ac16fe9100938cbf7711722bf21dbbb0e51c2e3b2bb00201ae66cd2f6ddcd4b`).
 The website and backend use `dea3a78b51352df45771ce6d54043b874e70383e`;
 this activation adds operational scripts and evidence without replacing the
 reviewed business build or redeploying any contract.

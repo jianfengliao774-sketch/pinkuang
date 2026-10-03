@@ -11,6 +11,7 @@ contract AuditGovernance is SaleTestBase {
     function test_oldFormatOpenProposalCannotBeVotedOrExecuted() public {
         _installOldSnapshotFixture();
         _readyForSale();
+        _publishSaleReference(SALE_PRICE);
         vm.prank(ALICE);
         uint256 id = saleVault.propose(SALE_PRICE, 0, 0);
         _recordOldSnapshot(id);
@@ -32,13 +33,13 @@ contract AuditGovernance is SaleTestBase {
     function test_oldFormatListedProposalCannotCompleteAfterUpgradeAndCanExpire() public {
         _installOldSnapshotFixture();
         _readyForSale();
+        _publishSaleReference(SALE_PRICE);
         vm.prank(ALICE);
         uint256 id = saleVault.propose(SALE_PRICE, 0, 0);
         vm.prank(ALICE);
         saleVault.vote(id, true);
         vm.prank(BOB);
         saleVault.vote(id, true);
-        _publishSaleReference(SALE_PRICE);
         saleVault.executeSale(id);
         uint64 expiry = saleVault.expiresAt();
         _recordOldSnapshot(id);

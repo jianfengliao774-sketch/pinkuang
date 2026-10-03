@@ -5,9 +5,10 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {PoolSaleState} from "../PoolSaleState.sol";
 import {SaleReviewPolicy} from "./SaleReviewPolicy.sol";
+import {IPoolVault} from "../interfaces/IPoolVault.sol";
 
 interface IFirstoSaleReference {
-    function saleReference(address pool)
+    function saleReviewReference(address pool)
         external
         view
         returns (uint128 priceWei, uint64 observedAt, bytes32 sourceDigest);
@@ -16,6 +17,14 @@ interface IFirstoSaleReference {
 
 interface ISaleReferenceFactory {
     function shareMarket() external view returns (address);
+}
+
+interface ISaleReviewSnapshot {
+    function snapshotSaleReviewPolicy(address pool, uint256 proposalId) external;
+}
+
+interface IBudgetSaleMarket {
+    function approveBudgetChildSale(address pool, uint256 proposalId, uint256 projectProposalId) external;
 }
 
 /// @notice Beneficial-owner voting, executed in the PoolVault storage context.
@@ -63,10 +72,13 @@ library SaleGovernance {
     event Voted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
     event SaleListed(uint256 indexed proposalId, uint256 listingId, uint256 price, uint64 expiresAt);
     event SaleExpired(uint256 indexed proposalId);
+    event ChildSaleReviewPolicySnapshotted(uint256 indexed proposalId, uint8 policy, uint128 referencePrice);
+    event ChildSaleApproved(uint256 indexed proposalId, address indexed child);
 
     function propose(
         PoolSaleState.SaleStorage storage s,
         Checkpoints.Trace208 storage counts,
+        address factory,
         ProposalInput memory input
     ) external returns (uint256 proposalId) {
         if (block.timestamp < uint256(input.activatedAt) + PROPOSE_INTERVAL) {
@@ -76,6 +88,8 @@ library SaleGovernance {
         // Firsto's signed ask stores its price as uint128. Reject an unfillable
         // proposal before it can freeze shares or become a seven-day listing.
         if (input.price == 0 || input.price > type(uint128).max) revert InvalidSalePrice();
+        proposalId = s.nextProposalId;
+        if (proposalId == 0) proposalId = 1;
         uint256 activeId = s.activeProposalId;
         uint48 snapshotTs = 0;
         uint64 endsAt = 0;
@@ -109,8 +123,6 @@ library SaleGovernance {
             snapshotMemberCount = counts.upperLookupRecent(snapshotTs);
         }
         if (snapshotTs <= input.activatedAt) revert DeadlineNotReached();
-        proposalId = s.nextProposalId;
-        if (proposalId == 0) proposalId = 1;
         s.nextProposalId = proposalId + 1;
         if (!joiningRound) s.activeProposalId = proposalId;
         s.lastProposed[msg.sender] = SafeCast.toUint64(block.timestamp);
@@ -124,6 +136,11 @@ library SaleGovernance {
         p.refPrice = input.refPrice;
         p.snapshotMemberCount = snapshotMemberCount;
         p.snapshotTotalShares = TOTAL_SHARES;
+
+        // Keep the historical getProposal tuple unchanged. The market stores
+        // the review decision in its own namespaced storage instead.
+        address market = ISaleReferenceFactory(factory).shareMarket();
+        ISaleReviewSnapshot(market).snapshotSaleReviewPolicy(address(this), proposalId);
 
         emit SaleProposed(proposalId, msg.sender, p.price, p.refPrice, p.refAt, p.endsAt);
         emit SaleSnapshotRecorded(proposalId, snapshotTs, snapshotMemberCount, TOTAL_SHARES);
@@ -175,11 +192,12 @@ library SaleGovernance {
         if (block.timestamp >= p.endsAt) revert DeadlinePassed();
         if (!_passed(p, purchaseCost)) revert ProposalNotPassed();
         address market = ISaleReferenceFactory(factory).shareMarket();
-        uint256 marketPrice = _marketPrice(market);
-        if (SaleReviewPolicy.requiresReview(p.price, marketPrice)) {
-            (uint8 status, uint128 approvedPrice) = IFirstoSaleReference(market).saleReview(address(this), proposalId);
-            if (status != 1 || approvedPrice != p.price) revert SaleNotApproved();
-        }
+        (uint8 status, uint128 approvedPrice) = IFirstoSaleReference(market).saleReview(address(this), proposalId);
+        if (status == 2) revert SaleNotApproved();
+        // Only a fresh, operator-attested quote captured when this proposal
+        // opened can auto-pass review. Missing/stale/discounted quotes and all
+        // pre-upgrade proposals require an explicit operator approval.
+        if ((status != 3 && status != 1) || approvedPrice != p.price) revert SaleNotApproved();
         p.executed = true;
         s.listedProposalId = proposalId;
         s.listedAt = SafeCast.toUint64(block.timestamp);
@@ -206,14 +224,60 @@ library SaleGovernance {
         return p.yesCount * 2 > p.snapshotMemberCount && p.yesShares * 2 > p.snapshotTotalShares;
     }
 
-    function _marketPrice(address market) private view returns (uint256 price) {
-        uint64 observedAt;
-        bytes32 digest;
-        (price, observedAt, digest) = IFirstoSaleReference(market).saleReference(address(this));
+    function _marketQuote(address market) private view returns (uint128 price, uint64 observedAt, bytes32 digest) {
+        (price, observedAt, digest) = IFirstoSaleReference(market).saleReviewReference(address(this));
         if (
             price == 0 || digest == bytes32(0) || observedAt > block.timestamp
                 || block.timestamp - observedAt > 15 minutes
-        ) revert SaleNotApproved();
+        ) return (0, 0, bytes32(0));
+    }
+
+    /// @notice Captures the same operator-attested review rule for an official portfolio child.
+    function budgetReviewPolicy(address market, address child, uint256 price, uint256 proposalId)
+        external
+        returns (uint8 policy)
+    {
+        uint128 referencePrice;
+        (referencePrice,,) = _marketQuote(market, child);
+        policy = referencePrice == 0 ? 0 : (SaleReviewPolicy.requiresReview(price, referencePrice) ? 2 : 1);
+        emit ChildSaleReviewPolicySnapshotted(proposalId, policy, referencePrice);
+    }
+
+    function executeBudgetChildSale(
+        address child,
+        address market,
+        uint256 projectProposalId,
+        uint256 price,
+        uint256 referencePrice,
+        uint64 referenceAt
+    ) external {
+        uint256 childProposalId = IPoolVault(child).propose(price, referencePrice, referenceAt);
+        IPoolVault(child).vote(childProposalId, true);
+        IBudgetSaleMarket(market).approveBudgetChildSale(child, childProposalId, projectProposalId);
+        IPoolVault(child).executeSale(childProposalId);
+        emit ChildSaleApproved(projectProposalId, child);
+    }
+
+    function requirePortfolioReviewable(uint8 policy, uint8 reviewStatus) external pure {
+        if (policy == 1 || reviewStatus == 2) revert InvalidProposal();
+    }
+
+    function requirePortfolioSaleApproved(uint8 policy, uint8 reviewStatus) external pure {
+        if (policy > 2 || reviewStatus == 2 || ((policy == 0 || policy == 2) && reviewStatus != 1)) {
+            revert ProposalNotPassed();
+        }
+    }
+
+    function _marketQuote(address market, address pool)
+        private
+        view
+        returns (uint128 price, uint64 observedAt, bytes32 digest)
+    {
+        (price, observedAt, digest) = IFirstoSaleReference(market).saleReviewReference(pool);
+        if (
+            price == 0 || digest == bytes32(0) || observedAt > block.timestamp
+                || block.timestamp - observedAt > 15 minutes
+        ) return (0, 0, bytes32(0));
     }
 
     /// @dev Refuse proposals created by the former timestamp-1 implementation after an upgrade.

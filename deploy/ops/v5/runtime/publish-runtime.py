@@ -64,7 +64,7 @@ old_root = 'location = / { return 308 /bemine-v4/; }'
 assert before.count(old_root) == 1
 anchor = 'include /etc/nginx/snippets/bemine-retired-paused.conf;'
 assert before.count(anchor) == 1
-after = before.replace(old_root, 'location = / { return 308 /bemine-v5/; }').replace(
+after = before.replace(old_root, 'location = / { rewrite ^ /bemine-v5/ last; }').replace(
     anchor, anchor + '\n    include /etc/nginx/snippets/bemine-v5-product.conf;')
 stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 backup = Path('/root/bemine-v5-publish-' + stamp)
@@ -82,6 +82,7 @@ try:
     run('systemctl', 'reload', 'nginx')
     checks = {}
     for host, path, expected in [
+        ('bemine.cc.cd', '/', 200),
         ('bemine.cc.cd', '/bemine-v5/', 200),
         ('bemine.cc.cd', '/bemine-v5/fresh-product-release.json', 200),
         ('bemine.cc.cd', '/bemine-v5/api/chain-index/v1/display/stats', 200),
@@ -105,7 +106,7 @@ try:
     receipt = {
         'schemaVersion': 1, 'status': 'published', 'checkedAt': datetime.now(timezone.utc).isoformat(),
         'websitePublished': True, 'servicesInstalled': True,
-        'publicUrl': 'https://bemine.cc.cd/bemine-v5/', 'runtimeSourceHead': SOURCE,
+        'publicUrl': 'https://bemine.cc.cd/', 'runtimeSourceHead': SOURCE,
         'factory': graph['factory'], 'authority': graph['freshAuthority']['address'],
         'artifactDigest': graph['artifactDigest'], 'operationalReady': True,
         'index': index, 'httpChecks': checks, 'units': UNITS,

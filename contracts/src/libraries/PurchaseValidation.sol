@@ -17,9 +17,7 @@ interface IReservedMachineState {
 library PurchaseValidation {
     /// @notice Preserve a reservation unless a closed pool has handed the NFT to another owner.
     /// @dev Shared read-only custody logic keeps the Factory below the runtime code-size limit.
-    function liveMachineReservation(address circuits, uint256 circuitId, address pool)
-        external view returns (address)
-    {
+    function liveMachineReservation(address circuits, uint256 circuitId, address pool) external view returns (address) {
         if (pool == address(0) || IReservedMachineState(pool).state() != IPoolVault.State.Closed) return pool;
         try IERC721(circuits).ownerOf(circuitId) returns (address owner) {
             if (owner != address(0) && owner != pool) return address(0);
@@ -30,9 +28,12 @@ library PurchaseValidation {
     }
 
     /// @dev Same creation checks for both Factory implementations, with protocol constants supplied by the caller.
-    function validatePoolParams(IPoolVault.PoolParams calldata params, address tapeoutCircuits,
-        address behemothCircuits, uint256 totalShares) external view
-    {
+    function validatePoolParams(
+        IPoolVault.PoolParams calldata params,
+        address tapeoutCircuits,
+        address behemothCircuits,
+        uint256 totalShares
+    ) external view {
         if (params.circuits != tapeoutCircuits && params.circuits != behemothCircuits) {
             revert IPoolVault.WrongCircuit();
         }

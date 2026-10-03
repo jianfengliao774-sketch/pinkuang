@@ -3,7 +3,7 @@ import { abi, uint, readPoolSnapshot, decodePoolRow, hasPosition, assetKey } fro
 import { insist, hash, liveAddress, validateManifest, fetchLiveJson, createReadOnlyHttpProvider, MANIFEST_KEYS, GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { isRetryableReadError, settleReadRound } from './read-retry.mjs';
 import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceState,
-  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold, requiresSaleReview } from './sale-governance-gate.mjs';
+  DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold } from './sale-governance-gate.mjs';
 import { readMiningOverviewStats } from './mining-overview.mjs';
 import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
 
@@ -792,17 +792,15 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
       } catch (error) { result.saleReference = Object.freeze({ available: false,
         reason: error?.shortMessage || error?.message || 'Firsto 市场参考价暂不可读取。' });
         result.saleReviewThresholdBps = await threshold; }
-      if (result.saleReference.available && requiresSaleReview(p.price, result.saleReference.priceWei, result.saleReviewThresholdBps)) {
-        try {
-          if (displayReads) {
-            const [status, priceWei] = await call(manifest.shareMarket, governanceViews, 'saleReview', [pool, result.activeProposalId], block);
-            insist(status <= 2n, 'governance_mismatch', 'Firsto 出售审核状态无效。');
-            result.saleReview = Object.freeze({ status, priceWei });
-          } else result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
-            result.activeProposalId, block);
-        }
-        catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
+      try {
+        if (displayReads) {
+          const [status, priceWei] = await call(manifest.shareMarket, governanceViews, 'saleReview', [pool, result.activeProposalId], block);
+          insist(status <= 3n, 'governance_mismatch', 'Firsto 出售审核状态无效。');
+          result.saleReview = Object.freeze({ status, priceWei });
+        } else result.saleReview = await readSaleReview(request, manifest.shareMarket, pool,
+          result.activeProposalId, block);
       }
+      catch { /* Missing review capability or RPC failure leaves execution blocked. */ }
       const gate = saleExecutionGate({ proposal: p, passed, state: result.state,
         timestamp, reference: result.saleReference, review: result.saleReview,
         saleReviewThresholdBps: result.saleReviewThresholdBps });

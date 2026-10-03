@@ -39,7 +39,7 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
   purchased = 10n, listedId = 0n, salePrice = 0n, expiresAt = 0n,
   factoryBinding = factory, alreadyVoted = false, oldSale = false, firsto = {},
   referencePrice = 8n, referenceAt = timestamp - 100n, referenceDigest = digest,
-  reviewStatus = 0n, reviewPrice = 0n, referenceReadError = false, reviewReadError = false,
+  reviewStatus = 3n, reviewPrice = null, referenceReadError = false, reviewReadError = false,
   genesis = false, displayOnly = false, saleReviewThresholdBps, nativeSale = false, cancellation } = {}) {
   const external = firstoProvider({ account }, firsto).provider;
   return { request: async ({ method, params = [] }) => {
@@ -75,7 +75,8 @@ function rpc({ chain = '0x38', timestamp = 1700000100n, state = 2n,
       }
       if (parsed?.name === 'saleReview') {
         if (reviewReadError) throw new Error('review unavailable');
-        return saleViews.encodeFunctionResult('saleReview', [reviewStatus, reviewPrice]);
+        const price = reviewPrice ?? proposals[Number(parsed.args[1] - 1n)]?.price ?? 0n;
+        return saleViews.encodeFunctionResult('saleReview', [reviewStatus, price]);
       }
       return abi.ShareMarket.encodeFunctionResult('factory', [factoryBinding]);
     }
@@ -207,10 +208,11 @@ function directRpc(options = {}) {
 const directOptions = { factory, pool, account, shareMarket: market, stage: 'fresh-active',
   displayOnly: true, now: () => 1700000100000 };
 
-test('direct governance reads one deployed review rule and preview carries the actual requirement', async () => {
+test('direct governance reads one deployed review rule and preview carries the pinned requirement', async () => {
   for (const [saleReviewThresholdBps, price, required] of [[8000n, 79n, true], [8000n, 80n, false],
     [8000n, 81n, false], [undefined, 99n, true]]) {
     const f = directRpc({ saleReviewThresholdBps, referencePrice: 100n,
+      reviewStatus: required ? 0n : 3n,
       proposals: [proposal({ price, yesCount: 2n, yesShares: 51n })] });
     const snapshot = await readGovernanceSnapshot(f.provider, directOptions), candidate = snapshot.candidates[0];
     assert.equal(snapshot.saleReviewThresholdBps, saleReviewThresholdBps ?? 10000n);
@@ -355,9 +357,9 @@ test('enumerates competing prices in one frozen round and permits voting for eit
   assert.throws(() => governanceAction(snap, account, { kind: 'executeSale', proposalId: '1' }), /threshold/);
 });
 
-test('execution requires a fresh Firsto reference and exact platform review below that reference', async () => {
+test('execution follows the pinned review decision; later Firsto quotes only affect display', async () => {
   const input = { referencePrice: 10n };
-  const pending = await readGovernanceSnapshot(rpc(input), { factory, pool, account, stage: 'fresh-active' });
+  const pending = await readGovernanceSnapshot(rpc({ ...input, reviewStatus: 0n }), { factory, pool, account, stage: 'fresh-active' });
   assert.equal(pending.candidates[1].passed, true);
   assert.equal(pending.candidates[1].discounted, true);
   assert.equal(pending.candidates[1].canExecute, false);
@@ -369,12 +371,17 @@ test('execution requires a fresh Firsto reference and exact platform review belo
   assert.equal(governanceAction(approved, account, { kind: 'executeSale', proposalId: '2' }).quote.marketReferenceWei, 10n);
 
   for (const change of [{ reviewStatus: 1n, reviewPrice: 8n }, { reviewStatus: 2n, reviewPrice: 9n },
-    { referenceAt: 1699999199n, reviewStatus: 1n, reviewPrice: 9n },
-    { referenceDigest: `0x${'00'.repeat(32)}`, reviewStatus: 1n, reviewPrice: 9n },
-    { referenceReadError: true }, { reviewReadError: true }]) {
+    { reviewReadError: true }]) {
     const blocked = await readGovernanceSnapshot(rpc({ ...input, ...change }), { factory, pool, account, stage: 'fresh-active' });
     assert.equal(blocked.candidates[1].canExecute, false);
     assert.throws(() => governanceAction(blocked, account, { kind: 'executeSale', proposalId: '2' }), /reference or required platform review/);
+  }
+  for (const change of [{ referenceAt: 1699999199n }, { referenceDigest: `0x${'00'.repeat(32)}` },
+    { referenceReadError: true }]) {
+    const staleDisplayQuote = await readGovernanceSnapshot(rpc({ ...input, ...change, reviewStatus: 3n }),
+      { factory, pool, account, stage: 'fresh-active' });
+    assert.equal(staleDisplayQuote.candidates[1].reviewApproved, true);
+    assert.equal(staleDisplayQuote.candidates[1].canExecute, true);
   }
 });
 

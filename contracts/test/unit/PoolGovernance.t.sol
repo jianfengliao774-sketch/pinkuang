@@ -28,7 +28,9 @@ contract PoolVaultV2Fixture is PoolVault {
 
 /// @dev Adds only a pure version getter; reuses the inherited initializer and needs no second initialization.
 /// Factory registry and governance storage preservation are exercised by the timelock tests below.
+/// @dev Inherits the same two reviewed, view-only PurchaseValidation links as PoolFactory.
 /// @custom:oz-upgrades-unsafe-allow missing-initializer
+/// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract PoolFactoryV2Fixture is PoolFactory {
     function version() external pure returns (uint256) {
         return 2;

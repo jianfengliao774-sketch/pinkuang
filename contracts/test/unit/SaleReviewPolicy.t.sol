@@ -29,8 +29,7 @@ contract SaleReviewPolicyTest is Test {
 
     function testFuzz_matchesExactCrossMultiplication(uint128 price, uint128 referencePrice) public pure {
         assertEq(
-            SaleReviewPolicy.requiresReview(price, referencePrice),
-            uint256(price) * 5 < uint256(referencePrice) * 4
+            SaleReviewPolicy.requiresReview(price, referencePrice), uint256(price) * 5 < uint256(referencePrice) * 4
         );
     }
 }

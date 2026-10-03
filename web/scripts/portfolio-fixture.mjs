@@ -48,6 +48,12 @@ export function portfolioFixture(options={}) {
     const parsed=contract.parseTransaction(tx);if(!parsed)throw new Error('Unknown portfolio ABI');
     if(tx.from){simulations.push({transaction:tx,parsed});if(state.simulationFails)throw new Error('simulation reverted');return contract.encodeFunctionResult(parsed.fragment,parsed.fragment.outputs.map(output=>output.type==='address'?address(13):13n));}
     const member=parsed.args.length>0&&parsed.args[0]&&typeof parsed.args[0]==='string'&&same(parsed.args[0],base.account);
+    const proposalValue=(['proposals','childSaleReview'].includes(parsed.name)&&state.proposals
+      ? state.proposals[Number(parsed.args[0]-(state.activeProposalId??0n))]:null)??state.proposal??{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
+      endsAt:BigInt(source().indexedTimestamp)+86400n,memberCount:2n,yesMembers:2n,yesShares:59n,executed:false};
+    const proposalId=parsed.name==='childSaleReview'?String(parsed.args[0]):null;
+    const reviewStatus=(state.reviewStatuses?.[proposalId]??state.reviewStatus??0n);
+    const reviewPolicy=(state.reviewPolicies?.[proposalId]??state.reviewPolicy??0n);
     const values={legacyFactory:manifest.factory,shareMarket:extra.portfolioMarket,beacon:extra.portfolioBeacon,operator:base.account,
       implementation:extra.portfolioImplementation,owner:manifest.timelock,timelock:manifest.timelock,factory:extra.portfolioFactory,OFFICIAL_FACTORY:extra.portfolioFactory,
       isPool:state.foreign!==true,portfolioCount:2n,state:state.poolState??(same(tx.to,PORTFOLIOS[1])?2n:0n),budgetWei:5000000000000000n,
@@ -60,17 +66,16 @@ export function portfolioFixture(options={}) {
       claimableBem:member?100n:0n,bnbOwed:member?(state.bnbOwed??7n):0n,refundSettled:state.refundSettled??false,saleDebt:member?(state.saleDebt??5n):0n,lockedShares:member?(state.lockedShares??0n):0n,
       feeBps:100n,buyerFeeBps:state.buyerFeeBps??100n,orderExpiresAt:BigInt(source().indexedTimestamp)+86400n,
       orders:{seller:FIXTURE_OTHER_ACCOUNT,pool:PORTFOLIOS[0],remaining:5n,pricePerUnit:100n,active:true},
-      proposals:(parsed.name==='proposals'&&state.proposals
-        ? state.proposals[Number(parsed.args[0]-(state.activeProposalId??0n))]:null)??state.proposal??{child:address(0x951),price:100n,referencePrice:100n,referenceAt:1n,
-        endsAt:BigInt(source().indexedTimestamp)+86400n,memberCount:2n,yesMembers:2n,yesShares:59n,executed:false},
+      proposals:proposalValue,
       hasVoted:false,childInfo:{collection:state.childCollection??address(0x952),tokenId:1n,purchaseCost:state.childCost??150n,
         official:true,sold:state.childSold??false},
-      childSaleReview:(parsed.name==='childSaleReview'?state.reviewStatuses?.[String(parsed.args[0])]:null)??state.reviewStatus??0n,
+      childSaleReview:{status:reviewStatus,child:proposalValue.child,price:proposalValue.price,
+        executed:proposalValue.executed,policy:reviewPolicy},
     };
     if(parsed.name==='childSaleReview'&&(state.stage==='genesis'||state.reviewReadError))
       throw new Error('child sale review unavailable');
     if(!(parsed.name in values))throw new Error(`Unknown portfolio fixture read ${parsed.name}`);
-    if(parsed.name==='proposals'||parsed.name==='childInfo')
+    if(parsed.name==='proposals'||parsed.name==='childInfo'||parsed.name==='childSaleReview')
       return contract.encodeFunctionResult(parsed.fragment,
         parsed.fragment.outputs.map(output=>values[parsed.name][output.name]));
     return contract.encodeFunctionResult(parsed.fragment,[values[parsed.name]]);

@@ -2,7 +2,7 @@ import { getAddress, ZeroAddress, toQuantity } from 'ethers';
 import { abi, uint } from './chain-client.mjs';
 import { hash, insist, liveAddress, validateManifest } from './live-config.mjs';
 import { displayIndexSource, fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource } from './live-data.mjs';
-import { saleReferenceState, readSaleReviewThreshold, effectiveSaleReviewThresholdBps, requiresSaleReview } from './sale-governance-gate.mjs';
+import { saleReferenceState, readSaleReviewThreshold, effectiveSaleReviewThresholdBps } from './sale-governance-gate.mjs';
 import { createDisplayReadCache, displayConfigIdentity, displayProviderIdentity } from './display-read-cache.mjs';
 
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -120,18 +120,20 @@ async function context(config, provider, source, signal) {
   } catch (error) { await queue.drain(); throw error; }
 }
 
-function reviewState({ state, openerExecuted, executed, endsAt, timestamp, reference, review, priceWei, saleReviewThresholdBps }) {
+function reviewState({ kind, state, openerExecuted, executed, endsAt, timestamp, reference, review,
+  priceWei, saleReviewThresholdBps }) {
   const discounted = reference.available ? priceWei < reference.priceWei : null;
-  const reviewRequired = reference.available ? requiresSaleReview(priceWei, reference.priceWei, saleReviewThresholdBps) : null;
+  const reviewRequired = kind === 'portfolio' ? review?.policy !== 1n : review?.status !== 3n;
   const open = state === 2n && !openerExecuted && !executed && timestamp < endsAt;
   let status;
   if (openerExecuted || executed || state === 3n || state === 4n) status = 'executed';
   else if (!open) status = 'expired';
-  else if (!reference.available) status = 'reference-missing';
-  else if (reviewRequired === false) status = 'no-review';
   else if (review?.status === 2n) status = 'rejected';
+  else if (kind === 'portfolio' && review?.policy === 1n) status = 'no-review';
+  else if (kind === 'pool' && review?.status === 3n && review.priceWei === priceWei) status = 'no-review';
   else if (review?.status === 1n && review.priceWei === priceWei) status = 'approved';
-  else if (!review || review.status === 1n && review.priceWei !== priceWei) status = 'review-unavailable';
+  else if (!review || review.status === 1n && review.priceWei !== priceWei
+    || kind === 'portfolio' && review.policy === undefined) status = 'review-unavailable';
   else status = 'pending';
   return { status, discounted, reviewRequired, saleReviewThresholdBps, canReview: open && reviewRequired === true
     && (status === 'pending' || status === 'approved') };
@@ -145,7 +147,7 @@ function row(context, kind, project, pool, id, p, opener, state, reference, revi
     && yesCount <= members && p.yesShares <= 100n, '提案价格或投票数据不一致。');
   if (kind === 'pool') check(p.snapshotTotalShares === 100n && p.snapshotTs + 86400n === p.endsAt,
     '单机提案的快照格式不受支持。');
-  const gate = reviewState({ state, openerExecuted: opener.executed, executed: p.executed,
+  const gate = reviewState({ kind, state, openerExecuted: opener.executed, executed: p.executed,
     endsAt: p.endsAt, timestamp, reference, review, priceWei: p.price, saleReviewThresholdBps });
   return { key: `${kind}:${project.toLowerCase()}:${id}`, kind, project, pool, proposalId: id,
     priceWei: p.price, referencePriceWei: reference.priceWei ?? null,
@@ -219,7 +221,14 @@ async function projectRequests(ctx, kind, project, options, selectedId) {
         isPool ? saleReviewThresholdBps : ctx.saleReviewThreshold(pool),
       ]);
       let review = null;
-      if (reviewResult && reviewResult[0] <= 2n) review = { status: reviewResult[0], priceWei: isPool ? reviewResult[1] : p.price };
+      const reviewMax = isPool ? 3n : 2n;
+      if (reviewResult && reviewResult[0] <= reviewMax) {
+        if (isPool) review = { status: reviewResult[0], priceWei: reviewResult[1] };
+        else if (same(reviewResult[1], pool) && reviewResult[2] === p.price
+          && reviewResult[3] === p.executed && reviewResult[4] <= 2n) {
+          review = { status: reviewResult[0], priceWei: reviewResult[2], policy: reviewResult[4] };
+        }
+      }
       const child = isPool ? identity : { collection: liveAddress(childResult.collection), tokenId: childResult.tokenId };
       return row(ctx, kind, project, pool, id, p, opener, state, reference, review, child,
         effectiveSaleReviewThresholdBps(saleReviewThresholdBps, childThreshold));
