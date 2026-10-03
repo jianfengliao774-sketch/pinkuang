@@ -1,0 +1,14 @@
+{
+  "verifiedAt": "2026-10-03T18:06:07.375Z",
+  "endpoint": "https://bemine.cc.cd/bemine-v5/api/rpc",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+  "tokenId": "7223",
+  "blockTag": "latest",
+  "pool": "0x84756683C70F4666aAF6E7b26015bA60f503b67B",
+  "occupied": true,
+  "exactRegistryReadCount": 1,
+  "sharedGuardRejectedOccupiedMiner": true,
+  "walletRequests": 0,
+  "transactionsSubmitted": 0
+}

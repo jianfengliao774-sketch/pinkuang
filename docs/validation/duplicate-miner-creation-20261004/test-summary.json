@@ -1,0 +1,35 @@
+{
+  "web": {
+    "passed": 1047,
+    "failed": 0,
+    "skipped": 0,
+    "log": "web-test.log"
+  },
+  "backend_full": {
+    "typescriptPassed": 145,
+    "nodePassed": 931,
+    "failed": 0,
+    "skipped": 1,
+    "log": "deploy-test.log"
+  },
+  "backend_final_readiness_and_relay": {
+    "passed": 74,
+    "failed": 0,
+    "log": "relay-final-test.log"
+  },
+  "contract_reservation": {
+    "passed": 20,
+    "failed": 0,
+    "suites": 4,
+    "forkRpc": false
+  },
+  "frontend_targeted": {
+    "passed": 107,
+    "failed": 0
+  },
+  "deployFreshBuild": {
+    "passed": true,
+    "log": "deploy-build.log"
+  },
+  "noWalletOrTransactionTest": true
+}
