@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { loadBindings, transform } from 'next/dist/build/swc/index.js';
 import { formatEther, parseEther } from 'ethers';
 import { createUiContext } from '../lib/ui-context.mjs';
+import { operatorCreateInput } from '../lib/operator-create-input.mjs';
 import * as scroll from '../lib/dialog-scroll-lock.mjs';
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
@@ -15,14 +16,14 @@ const collection = '0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C';
 const source = (await readFile(new URL('../components/LiveOperator.jsx', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
 
 function handlers({ prepared, prepareError, onSend, preview, autoSelection = null } = {}) {
-  const state = { form: { circuits: collection, circuitId: '16736', targetRaise: '0.004444444444444444',
+  const state = { form: { circuits: collection, circuitId: '16736', targetRaise: '0.0044444444444445',
     priceCap: '0.004', fundingHours: '24', purchaseHours: '48' }, preview: preview ?? null, feedback: null,
     busy: false, error: '', progress: '', sendCalls: [] };
   const context = { context: { current: createUiContext() }, previewRead: { current: null }, form: state.form,
-    mode: 'createPool', pool: '', listingId: '', key: 'factory:account', autoSelection, direct: true,
+    mode: 'createPool', pool: '', listingId: '', imported: '', key: 'factory:account', autoSelection, direct: true,
     config: { productFamily: 'fresh-v4', displayOnly: true }, account: 'account', readProvider: { name: 'display' },
     wallet: { request: () => assert.fail('Draft feedback cannot request wallet transactions.') },
-    formatEther, parseEther, errorText: error => error.message, preview: state.preview,
+    formatEther, parseEther, operatorCreateInput, creationBlocked: false, errorText: error => error.message, preview: state.preview,
     recheckSelection: async () => autoSelection.draft,
     parseOperatorImport: () => assert.fail('Manual imports are not used by this fixture.'),
     boundedReadPreview: async (fn, options) => { assert.equal(options.provider.name, 'display');
@@ -59,7 +60,7 @@ test('actual preview callback shows progress until the read completes and read f
   const prepared = { kind: 'createPool', transaction: { data: 'exact' }, request: { kind: 'createPool', params: {} } };
   pending.resolve(prepared); await reading;
   assert.equal(f.state.feedback, null); assert.equal(f.state.preview.transaction, prepared.transaction); assert.equal(f.state.busy, false);
-  assert.equal(f.state.prepareInput.params.targetRaiseWei, '4444444444444444');
+  assert.equal(f.state.prepareInput.params.targetRaiseWei, '4444444444444500');
   const failed = handlers({ prepareError: Error('报价无法读取') }); await failed.prepare();
   assert.equal(failed.state.feedback.kind, 'preview-error'); assert.match(failed.state.feedback.message, /报价无法读取/);
   assert.equal(failed.state.preview, null); assert.equal(failed.state.busy, false); assert.equal(failed.state.sendCalls.length, 0);

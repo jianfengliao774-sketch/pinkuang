@@ -1,15 +1,16 @@
 'use client';
 import { displayAmount, displayGasFee } from '../lib/amount-display.mjs';
 import { useEffect, useRef, useState } from 'react';
-import { formatEther, parseEther } from 'ethers';
+import { formatEther } from 'ethers';
 import { Plus, ShieldCheck, ArrowRight, RefreshCw } from 'lucide-react';
 import { prepareAdminAction } from '../lib/live-admin.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
+import { operatorCreateInput } from '../lib/operator-create-input.mjs';
 import OperatorQuotePicker from './OperatorQuotePicker';
 import OperatorDialog from './OperatorDialog';
-import { loadOperatorQuote, operatorQuoteDraft, operatorQuoteError, parseOperatorImport } from '../lib/operator-quotes.mjs';
+import { loadOperatorQuote, operatorQuoteDraft, operatorQuoteError } from '../lib/operator-quotes.mjs';
 import '../app/live-operator.css';
 
 const collections = [
@@ -46,13 +47,14 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   useEffect(() => () => { context.current.invalidate(); previewRead.current?.abort(); }, []);
   const direct = config?.displayOnly === true;
   const frozen = busy || disabled || !operator?.isOperator;
-  const creationBlocked = frozen || !!preview || !direct && (operator?.creationPaused || !operator?.machineRegistry?.supported || !operator.machineRegistry.ready);
+  const creationInput = operatorCreateInput({ form, mode, imported, autoSelection });
+  const creationBlocked = frozen || !!preview || !creationInput.valid || !direct && (operator?.creationPaused || !operator?.machineRegistry?.supported || !operator.machineRegistry.ready);
   const creationReason = busy ? progress || '正在核对，请稍候…'
     : disabled ? disabledReason || '请先核对当前交易状态，再创建项目。'
       : !operator?.isOperator ? direct ? '请连接本次部署配置的管理员钱包。' : '请先完成运营权限核验。'
         : preview ? '请在确认窗口完成操作，或返回修改。'
           : !direct && operator.creationPaused ? '链上已暂停建池。'
-            : !direct && (!operator.machineRegistry?.supported || !operator.machineRegistry.ready) ? '矿机登记尚未就绪，暂不能创建。' : '';
+            : !direct && (!operator.machineRegistry?.supported || !operator.machineRegistry.ready) ? '矿机登记尚未就绪，暂不能创建。' : creationInput.reason;
   const change = (name, value) => { context.current.invalidate(); setPreview(null); setFeedback(null); setError('');
     if (!['fundingHours', 'purchaseHours'].includes(name)) setAutoSelection(null);
     setForm(current => ({ ...current, [name]: value })); };
@@ -71,7 +73,10 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   }
   async function recheckSelection(selection = autoSelection, optionsForRead = {}) {
     if (!selection) return null;
-    const options = { mode, extraBps: selection.extraBps, fundingHours: form.fundingHours, purchaseHours: form.purchaseHours };
+    const local = operatorCreateInput({ form, mode, autoSelection: selection });
+    if (!local.valid) throw new Error(local.reason);
+    const options = { mode, extraBps: selection.extraBps, fundingHours: local.input.params.fundingHours,
+      purchaseHours: local.input.params.purchaseHours };
     const original = operatorQuoteDraft(selection.checked, options);
     if (direct) return original;
     const checked = await loadOperatorQuote({ collection: selection.checked.chain.collection,
@@ -86,6 +91,9 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   }
 
   async function prepare(kind = mode, miningAction) {
+    const creation = ['createPool', 'createFlexiblePoolChecked'].includes(kind)
+      ? operatorCreateInput({ form, mode: kind, imported, autoSelection }) : null;
+    if (creation && (!creation.valid || creationBlocked)) return;
     const ticket = context.current.begin(); setBusy(true); setError(''); setPreview(null);
     setFeedback({ kind: 'preparing', title: '正在生成操作预览', message: '正在核对本次操作，请稍候。此步骤不会发送交易。' });
     const controller = new AbortController(); previewRead.current = controller;
@@ -94,14 +102,8 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       const prepared = await boundedReadPreview(async ({ provider, check, signal }) => {
       let input;
       if (autoSelection && ['createPool', 'createFlexiblePoolChecked'].includes(kind)) input = await recheckSelection(autoSelection, { provider, signal });
-      else if (kind === 'createPool') input = { kind, params: { circuits: form.circuits, circuitId: form.circuitId,
-        targetRaiseWei: parseEther(form.targetRaise).toString(), priceCapWei: parseEther(form.priceCap).toString(),
-        fundingHours: form.fundingHours, purchaseHours: form.purchaseHours } };
-      else if (kind === 'createFlexiblePoolChecked') {
-        const data = parseOperatorImport(imported);
-        input = { kind, params: data.params, flexible: data.flexible,
-          expectedTaskId: data.expectedTaskId, expectedReferenceWeight: data.expectedReferenceWeight };
-      } else input = { kind, pool, listingId, miningAction };
+      else if (creation) input = creation.input;
+      else input = { kind, pool, listingId, miningAction };
       check();
       setProgress(direct ? '正在生成操作预览…' : '正在核对链上条件，完成后显示确认窗口…');
       return prepareAdminAction({ provider, config, account, ...input });
@@ -144,11 +146,11 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       {autoSelection && <p className="live-notice">{direct ? '已自动填入矿机与募集方案。请核对金额和期限。' : '已自动填入矿机与募集方案。请核对金额和期限；预览前会重新读取最新报价。'}</p>}
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
         <label>矿机系列<select value={form.circuits} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuits', event.target.value)}>{collections.map(([name, address]) => <option key={address} value={address}>{name}</option>)}</select></label>
-        <label>矿机编号<input inputMode="numeric" placeholder="可在上方选择后自动填入" value={form.circuitId} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuitId', event.target.value)}/></label>
-        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" title={form.targetRaise?`精确金额 ${form.targetRaise} BNB`:undefined} value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => setFundingFocused(true)} onBlur={finishFundingEdit} onChange={event => change('targetRaise', event.target.value)}/></label>
-        <label>购机价格上限（BNB）<input inputMode="decimal" title={form.priceCap?`精确金额 ${form.priceCap} BNB`:undefined} value={capFocused?form.priceCap:fundingDisplay(form.priceCap)} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={()=>setCapFocused(true)} onBlur={()=>setCapFocused(false)} onChange={event => change('priceCap', event.target.value)}/></label>
-        <label>募集截止（距当前小时）<input inputMode="numeric" value={form.fundingHours} disabled={frozen || !!preview} onChange={event => change('fundingHours', event.target.value)}/></label>
-        <label>购机期限（募集结束后小时）<input inputMode="numeric" value={form.purchaseHours} disabled={frozen || !!preview} onChange={event => change('purchaseHours', event.target.value)}/></label>
+        <label>矿机编号<input inputMode="numeric" placeholder="可在上方选择后自动填入" value={form.circuitId} aria-invalid={!!creationInput.errors.circuitId} aria-describedby={creationInput.errors.circuitId ? 'operator-circuit-id-error' : undefined} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuitId', event.target.value)}/>{creationInput.errors.circuitId && <small id="operator-circuit-id-error" className="operator-input-error">{creationInput.errors.circuitId}</small>}</label>
+        <label>募集总额（BNB）<input inputMode="decimal" placeholder="例如 0.005" title={form.targetRaise?`精确金额 ${form.targetRaise} BNB`:undefined} value={fundingFocused ? form.targetRaise : fundingDisplay(form.targetRaise)} aria-invalid={!!creationInput.errors.targetRaise} aria-describedby={creationInput.errors.targetRaise ? 'operator-target-raise-error' : undefined} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={() => setFundingFocused(true)} onBlur={finishFundingEdit} onChange={event => change('targetRaise', event.target.value)}/>{creationInput.errors.targetRaise && <small id="operator-target-raise-error" className="operator-input-error">{creationInput.errors.targetRaise}</small>}</label>
+        <label>购机价格上限（BNB）<input inputMode="decimal" title={form.priceCap?`精确金额 ${form.priceCap} BNB`:undefined} value={capFocused?form.priceCap:fundingDisplay(form.priceCap)} aria-invalid={!!creationInput.errors.priceCap} aria-describedby={creationInput.errors.priceCap ? 'operator-price-cap-error' : undefined} disabled={frozen || !!preview || mode !== 'createPool'} onFocus={()=>setCapFocused(true)} onBlur={()=>setCapFocused(false)} onChange={event => change('priceCap', event.target.value)}/>{creationInput.errors.priceCap && <small id="operator-price-cap-error" className="operator-input-error">{creationInput.errors.priceCap}</small>}</label>
+        <label>募集截止（距当前小时）<input inputMode="numeric" value={form.fundingHours} aria-invalid={!!creationInput.errors.fundingHours} aria-describedby={creationInput.errors.fundingHours ? 'operator-funding-hours-error' : undefined} disabled={frozen || !!preview} onChange={event => change('fundingHours', event.target.value)}/>{creationInput.errors.fundingHours && <small id="operator-funding-hours-error" className="operator-input-error">{creationInput.errors.fundingHours}</small>}</label>
+        <label>购机期限（募集结束后小时）<input inputMode="numeric" value={form.purchaseHours} aria-invalid={!!creationInput.errors.purchaseHours} aria-describedby={creationInput.errors.purchaseHours ? 'operator-purchase-hours-error' : undefined} disabled={frozen || !!preview} onChange={event => change('purchaseHours', event.target.value)}/>{creationInput.errors.purchaseHours && <small id="operator-purchase-hours-error" className="operator-input-error">{creationInput.errors.purchaseHours}</small>}</label>
       </div>}
       {mode === 'createFlexiblePoolChecked' && <details className="operator-import"><summary>高级：手动导入完整报价</summary><label>已核验矿机报价 JSON<textarea value={imported} disabled={frozen || !!preview} onChange={event => { context.current.invalidate(); setPreview(null); setAutoSelection(null); setError(''); setImported(event.target.value); }} placeholder={'{"params": {...}, "flexible": {...}, "expectedTaskId": "...", "expectedReferenceWeight": "..."}'}/></label><small>通常在上方选择矿机即可自动生成，无需填写 JSON。</small></details>}
       <p className="subtle-note">每池固定 100 份。创建矿池只支付 Gas；募集款在成员认购时进入矿池。</p>
@@ -165,7 +167,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
         <p className="operator-dialog-message" role="status">{feedback.kind === 'preparing' ? progress || feedback.message : feedback.message}</p>
         {feedback.kind === 'filled' && <div className="operator-tabs">
           <button className="btn secondary" onClick={() => setFeedback(null)}>继续编辑</button>
-          <button className="btn" disabled={frozen} onClick={() => void prepare()}>预览创建矿池<ArrowRight size={16}/></button>
+          <button className="btn" disabled={creationBlocked} onClick={() => void prepare()}>预览创建矿池<ArrowRight size={16}/></button>
         </div>}
         {feedback.kind === 'filled' && creationReason && <p className="operator-dialog-message" role="status">{creationReason}</p>}
         {feedback.kind === 'preparing' && <button className="btn secondary" onClick={cancelPreviewRead}>取消核对</button>}
