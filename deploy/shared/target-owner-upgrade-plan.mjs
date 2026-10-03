@@ -4,6 +4,13 @@ import { integratedUpgradeDeploymentData, reviewedUpgradeBytecode } from './inte
 
 export const TARGET_OWNER_UPGRADE_KIND = 'fixed-target-owner-beacon-upgrade-v1';
 export const targetOwnerUpgradeDeploymentOrder = Object.freeze(['PoolFunds', 'FlexiblePurchase', 'PoolVault']);
+export const TARGET_OWNER_REVIEW_KIND = 'fixed-target-owner-review-catalog-v1';
+export const targetOwnerBaselineNames = Object.freeze([
+  'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'PurchaseValidation', 'RewardAccounting',
+  'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints', 'FirstoSale', 'AtomicDeployment', 'PoolVault',
+  'FreshPoolFactory', 'ShareMarket', 'BudgetPortfolioFactory', 'BudgetPortfolioVault', 'factory',
+  'shareMarket', 'lens', 'beacon', 'timelock', 'portfolioFactory', 'portfolioShareMarket', 'portfolioBeacon',
+]);
 const HASH = /^0x[\da-f]{64}$/i;
 const BYTECODE = /^0x(?:[\da-f]{2}|__\$[\da-f]{34}\$__)+$/i;
 const PLACEHOLDER = /^__\$[\da-f]{34}\$__$/i;
@@ -84,17 +91,97 @@ function candidate(input) {
     }
   }
 }
-function checked(input) {
+function baseEvidence(input) {
   // These pins must come from the reviewer's independent approved evidence, never the supplied mutable inputs.
   pinned(evidenceDigest(input.genesisRecord), input.trustedGenesisRecordDigest, 'Genesis record');
   pinned(evidenceDigest(input.trustedGenesisManifest), input.trustedGenesisManifestDigest, 'Genesis manifest');
   const old = reviewedUpgradeBytecode.trustedGenesisAddresses(
     input.genesisRecord, input.genesisBundle, input.trustedGenesisManifest);
   candidate(input);
+  return old;
+}
+
+/** Full current graph is reviewed per node; a new Funds address never rewrites an existing FirstoSale link. */
+export function validateTargetOwnerUpgradeReview(input) {
+  const old = baseEvidence(input), catalog = input.reviewCatalog;
+  pinned(evidenceDigest(catalog), input.trustedReviewCatalogDigest, 'Current review catalog');
+  need(catalog?.schemaVersion === 1 && catalog.kind === TARGET_OWNER_REVIEW_KIND && catalog.chainId === 56
+    && ['formal', 'full-test'].includes(catalog.profile), 'Unsupported current review catalog.');
+  for (const [key, expected] of Object.entries({ genesisRecordDigest: input.trustedGenesisRecordDigest,
+    genesisManifestDigest: input.trustedGenesisManifestDigest, genesisArtifactDigest: buildDigest(input.genesisBundle),
+    candidateArtifactDigest: input.trustedUpgradeArtifactDigest })) need(same(catalog[key], expected), `Review ${key} differs.`);
+  need(Number.isSafeInteger(catalog.anchor?.blockNumber) && catalog.anchor.blockNumber > 0
+    && HASH.test(catalog.anchor?.blockHash ?? ''), 'Current graph anchor is missing.');
+  const formal = ['factory', 'portfolioFactory', 'beacon', 'portfolioBeacon', 'timelock', 'lens', 'shareMarket', 'portfolioShareMarket'];
+  for (const name of formal) need(same(catalog.bindings?.[name], old[name]), `Preserved formal binding differs: ${name}.`);
+  need(same(catalog.bindings?.proposer, input.genesisRecord.input.ownerMultisig), 'Current proposer differs.');
+  address(catalog.deployer, 'reviewed deployer');
+  const active = catalog.authority, manifestActive = input.trustedGenesisManifest.freshAuthority;
+  need(active && HASH.test(active.codehash ?? ''), 'Current Authority review is missing.');
+  for (const name of ['address', 'administratorOne', 'administratorTwo', 'gasWallet']) {
+    address(active[name], `Authority ${name}`);
+    need(manifestActive && same(active[name], manifestActive[name]), `Preserved Authority ${name} differs.`);
+  }
+  need(same(active.codehash, manifestActive.codehash), 'Preserved Authority codehash differs.');
+  need(new Set([active.address, active.administratorOne, active.administratorTwo, active.gasWallet,
+    old.factory, old.portfolioFactory, old.timelock].map(value => value.toLowerCase())).size === 7, 'Authority roles overlap.');
+  const nodeNames = [...targetOwnerBaselineNames, ...(catalog.nodes?.PortfolioShareMarketImplementation ? ['PortfolioShareMarketImplementation'] : [])];
+  need(catalog.nodes && Object.keys(catalog.nodes).sort().join(',') === nodeNames.sort().join(','),
+    'The complete current baseline graph is required.');
+  const aliases = { factory: 'ERC1967Proxy', shareMarket: 'ERC1967Proxy', portfolioFactory: 'ERC1967Proxy',
+    portfolioShareMarket: 'ERC1967Proxy', lens: 'PoolLens', beacon: 'PoolBeacon', portfolioBeacon: 'PoolBeacon', timelock: 'PoolTimelock',
+    PortfolioShareMarketImplementation: 'ShareMarket' };
+  const graph = Object.fromEntries(nodeNames.map(name => [name, address(catalog.nodes[name]?.address, `baseline ${name}`)]));
+  for (const name of formal) need(same(graph[name], old[name]), `Baseline formal address differs: ${name}.`);
+  for (const name of ['PoolFunds', 'FlexiblePurchase', 'PurchaseValidation', 'MiningOperations', 'RewardAccounting', 'ShareCheckpoints'])
+    need(same(graph[name], old[name]), `Unrelated baseline library changed: ${name}.`);
+  need(same(catalog.nodes.FirstoSale.links?.PoolFunds, old.PoolFunds), 'Existing FirstoSale must retain old PoolFunds.');
+  const runtimes = {};
+  for (const name of nodeNames) {
+    const node = catalog.nodes[name], artifact = node.artifact;
+    need(artifact?.contractName === (aliases[name] ?? name) && Array.isArray(artifact.abi)
+      && BYTECODE.test(artifact.deployedBytecode ?? '') && node.links && typeof node.links === 'object'
+      && !Array.isArray(node.links), `Missing complete baseline artifact: ${name}.`);
+    const found = [];
+    for (const [source, references] of Object.entries(artifact.deployedLinkReferences ?? {})) {
+      for (const [dependency, locations] of Object.entries(references)) {
+        need(source === `src/libraries/${dependency}.sol` && Array.isArray(locations) && locations.length > 0,
+          `Malformed baseline link graph: ${name}.`);
+        need(same(node.links[dependency], graph[dependency]), `Baseline per-node link differs: ${name}/${dependency}.`);
+        found.push(dependency);
+      }
+    }
+    need([...new Set(found)].sort().join(',') === Object.keys(node.links).sort().join(','), `Baseline link keys differ: ${name}.`);
+    const immutable = ({ AtomicDeployment: input.genesisRecord.account, PoolVault: old.factory,
+      BudgetPortfolioVault: old.portfolioFactory, FreshPoolFactory: graph.FreshPoolFactory, ShareMarket: graph.ShareMarket,
+      BudgetPortfolioFactory: graph.BudgetPortfolioFactory, lens: old.factory, beacon: old.factory,
+      portfolioBeacon: old.portfolioFactory, PortfolioShareMarketImplementation: graph.PortfolioShareMarketImplementation })[name] ?? null;
+    const hasImmutable = Object.values(artifact.immutableReferences ?? {}).flat().length > 0;
+    need(hasImmutable ? immutable && same(node.immutableAddress, immutable) : node.immutableAddress == null,
+      `Baseline immutable differs: ${name}.`);
+    runtimes[name] = reviewedUpgradeBytecode.expectedRuntime(artifact, node.links, graph[name], hasImmutable ? immutable : null);
+    need(HASH.test(node.codehash ?? '') && same(keccak256(runtimes[name]), node.codehash), `Baseline artifact codehash differs: ${name}.`);
+    if ([...formal, 'PoolFunds', 'FlexiblePurchase', 'PurchaseValidation', 'MiningOperations', 'RewardAccounting', 'ShareCheckpoints', 'AtomicDeployment'].includes(name))
+      need(same(runtimes[name], reviewedUpgradeBytecode.genesisRuntime(name, input.genesisRecord, input.genesisBundle)),
+        `Preserved original genesis runtime differs: ${name}.`);
+  }
+  const implementationNames = catalog.implementations ?? { factory: 'FreshPoolFactory', portfolioFactory: 'BudgetPortfolioFactory',
+    shareMarket: 'ShareMarket', portfolioShareMarket: 'ShareMarket', beacon: 'PoolVault', portfolioBeacon: 'BudgetPortfolioVault' };
+  const expectedPointers = { factory: ['FreshPoolFactory'], portfolioFactory: ['BudgetPortfolioFactory'], shareMarket: ['ShareMarket'],
+    portfolioShareMarket: ['ShareMarket', 'PortfolioShareMarketImplementation'], beacon: ['PoolVault'], portfolioBeacon: ['BudgetPortfolioVault'] };
+  need(Object.keys(implementationNames).sort().join(',') === Object.keys(expectedPointers).sort().join(','), 'Current implementation pointer keys differ.');
+  for (const [name, permitted] of Object.entries(expectedPointers)) need(permitted.includes(implementationNames[name])
+    && graph[implementationNames[name]], `Current implementation alias differs: ${name}.`);
+  return { old, catalog, addresses: graph, runtimes, implementationNames };
+}
+
+function checked(input) {
+  const old = baseEvidence(input);
+  const current = input.reviewCatalog ? validateTargetOwnerUpgradeReview(input).addresses : old;
   need(input.replacements && !Array.isArray(input.replacements)
     && Object.keys(input.replacements).sort().join(',') === [...targetOwnerUpgradeDeploymentOrder].sort().join(','),
   'Exactly PoolFunds, FlexiblePurchase and PoolVault replacement keys are required.');
-  const used = new Set(Object.values(old).filter(value => typeof value === 'string').map(value => value.toLowerCase()));
+  const used = new Set([...Object.values(old), ...Object.values(current)].filter(value => typeof value === 'string').map(value => value.toLowerCase()));
   const replacements = {};
   for (const name of targetOwnerUpgradeDeploymentOrder) {
     replacements[name] = address(input.replacements[name], name);
@@ -103,7 +190,7 @@ function checked(input) {
   }
   need(HASH.test(input.salt ?? '') && BigInt(input.salt) !== 0n, 'A unique nonzero bytes32 salt is required.');
   need(Number.isSafeInteger(input.delaySeconds) && input.delaySeconds >= 172800, 'Delay must be at least 48 hours.');
-  return { old, replacements, addresses: { ...old, ...replacements } };
+  return { old, replacements, addresses: { ...current, ...replacements } };
 }
 function deployment(name, input, graph) {
   need(targetOwnerUpgradeDeploymentOrder.includes(name), 'Unknown target-owner deployment.');
@@ -121,6 +208,23 @@ function deployment(name, input, graph) {
 export function targetOwnerUpgradeDeploymentData(name, input) { return deployment(name, input, checked(input)).data; }
 /** Exact expected runtime including library self-address, links and the existing factory immutable. */
 export function targetOwnerUpgradeExpectedRuntime(name, input) { return deployment(name, input, checked(input)).expectedRuntime; }
+
+/** Prepare only the next dependency deployment. Prior addresses are claims until receipt verification succeeds. */
+export function prepareTargetOwnerUpgradeDeployment(name, input, { deploymentsPrefix = {} } = {}) {
+  const baseline = validateTargetOwnerUpgradeReview(input), index = targetOwnerUpgradeDeploymentOrder.indexOf(name);
+  need(index >= 0, 'Unknown target-owner deployment.');
+  need(Object.keys(deploymentsPrefix).sort().join(',') === targetOwnerUpgradeDeploymentOrder.slice(0, index).sort().join(','),
+    'Only the exact prior deployment prefix is permitted.');
+  const addresses = { ...baseline.addresses }, used = new Set([...Object.values(baseline.old), ...Object.values(addresses)].map(value => value.toLowerCase()));
+  for (const previous of targetOwnerUpgradeDeploymentOrder.slice(0, index)) {
+    const value = deploymentsPrefix[previous], deployed = address(typeof value === 'string' ? value : value?.address, previous);
+    need(!used.has(deployed.toLowerCase()), `Replacement ${previous} reuses a graph address.`); used.add(deployed.toLowerCase()); addresses[previous] = deployed;
+  }
+  const data = integratedUpgradeDeploymentData(name, input.upgradeBundle, addresses);
+  need((data.length - 2) / 2 <= 49152, `${name} initcode exceeds EIP-3860.`);
+  return { name, to: null, value: '0', data, unsigned: true, deployer: address(baseline.catalog.deployer, 'deployer'),
+    baselineVerified: false, replacementDeploymentVerified: false };
+}
 
 /** Offline review artifact only. It does not read RPC, sign, deploy, schedule or execute anything. */
 export function buildTargetOwnerUpgradePlan(input) {
