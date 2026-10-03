@@ -1,0 +1,68 @@
+{
+  "verifiedAt": "2026-10-03T17:33:20.803Z",
+  "publicOrigin": "https://bemine.cc.cd",
+  "frontendSourceHead": "b95203c4f33bf329daa4bd73d32b2bbe9b509511",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "releaseManifestSha256": "43d40adaf16c7892b7b7fd35ff6ceb891fa0e69b4dcdc67d10d205b6fc974f61",
+  "rootHtmlSha256": "62a4e80d578362efb98fcd592588703f0ca720122eb9db2cd1d6ad774ca93635",
+  "manifestMatchesBuild": true,
+  "rootStatus": 200,
+  "versionEntryStatus": 308,
+  "rootMatchesBuild": true,
+  "verifiedScripts": [
+    {
+      "path": "/bemine-v5/_next/static/chunks/26873907-6fe6a446a5ee1852.js",
+      "sha256": "af6187e364caf1751fab5109fae902d00511f1d3f5a651ff8e71a58f55579d0f"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/9818-2966f307cd310f26.js",
+      "sha256": "051cbdc6742204b5d0e02eb79cec737bfb2e913044b3b8c00c8d0daaa49b9687"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/main-app-4576e2521811cd20.js",
+      "sha256": "29cec26dc43c7fe4e6a5205d300c669440c150d3f82f5fda5ac81ebc38b19be7"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/3173-b91bf619663b74b7.js",
+      "sha256": "7750bce65dadcd1c62e9c2828a6a5f179b208d1f0192e8b50ee511f98c4250cd"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/4937-ad624447608c88d5.js",
+      "sha256": "ae782ae98d6980fdb249de0d372e75d508c07731d7d61ccf88de7b1c8f270019"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/5082-b586dcb5a3fe4b46.js",
+      "sha256": "327ead77063769e01e50ac28ed285231ef3277fb83d20c8330738189512d18b2"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/1913-253a107c447c2819.js",
+      "sha256": "3283ac095a484303fb95a8aad1bc0af4ea558ba34556cbea70bdab1c12464eef"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/5058-7412ad67942b43bc.js",
+      "sha256": "510028c7ad431ca4c35c9cf60af77177f63ccbcdbf5821ed5da32de5d19e8c95"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/7756-f4b174325d9b7703.js",
+      "sha256": "30ed505a1131e57c11723b080fb59b473cad7533e9674db6f7670681673c1dcc"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/391-082d56290f42e965.js",
+      "sha256": "2c9a34faf26c8a36073a57f7876da7faea9a6c07426ece5028f913b3f7c25bfe"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/app/page-3d4c1c27c58ac7a7.js",
+      "sha256": "10239d180a22d522730392e1ba57092789a588e4d6a8fe2bfe030db6e6fe13aa"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/webpack-f593cfc1994ccc14.js",
+      "sha256": "280d3b4b780e31ae88c4113557efdb69c01bc89a7e739ea77a576cad853858c9"
+    }
+  ],
+  "chainRpcIssued": false,
+  "walletRequests": 0
+}

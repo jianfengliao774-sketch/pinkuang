@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "scope": "frontend-only unlisted miner reference selection and paid-read deduplication",
+  "publishedAt": "2026-10-03T17:31:53.692152+00:00",
+  "frontendSourceHead": "b95203c4f33bf329daa4bd73d32b2bbe9b509511",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "archiveSha256": "38de81671d9533be7e67544b7970916a76a68aa036f266ae00831b93147827a2",
+  "contentSha256": "cc90fe7dd9c1716bb042bba5e9094eadf4203b93421e6adfbe6f8b9d5a64432b",
+  "releaseManifestSha256": "43d40adaf16c7892b7b7fd35ff6ceb891fa0e69b4dcdc67d10d205b6fc974f61",
+  "rootHtmlSha256": "62a4e80d578362efb98fcd592588703f0ca720122eb9db2cd1d6ad774ca93635",
+  "fileCount": 551,
+  "runtimeRestarted": false,
+  "serviceProcessesUnchanged": true,
+  "publicManifestVerified": true,
+  "rootMatchesV5": true
+}
