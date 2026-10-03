@@ -14,7 +14,9 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 from urllib.request import urlopen
+from urllib.error import URLError
 
 
 def digest(path):
@@ -81,8 +83,17 @@ try:
     run('systemctl', 'daemon-reload')
     run('systemctl', 'start', 'pinkuang-deploy-latest.service')
     run('systemctl', 'is-active', '--quiet', 'pinkuang-deploy-latest.service')
-    with urlopen('http://127.0.0.1:4237/deployment-artifacts.json', timeout=10) as response:
-        assert hashlib.sha256(response.read()).hexdigest() == manifest['files']['dist/deployment-artifacts.json']
+    # Type=simple reports active before Node has imported its modules/listened.
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            with urlopen('http://127.0.0.1:4237/deployment-artifacts.json', timeout=5) as response:
+                assert hashlib.sha256(response.read()).hexdigest() == manifest['files']['dist/deployment-artifacts.json']
+            break
+        except URLError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
     site.write_bytes(before.replace(anchor, anchor + b'    include /etc/nginx/snippets/pinkuang-deploy-latest.conf;\n'))
     run('nginx', '-t')
     run('systemctl', 'reload', 'nginx')
