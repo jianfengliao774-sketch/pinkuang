@@ -1080,6 +1080,13 @@ body:has(.preview-banner) .page-footer {
 }
 .live-language-control > svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .live-platform .live-language-control > .live-language-icon { display: none; }
+@media (min-width: 761px) and (max-width: 1000px) {
+  .live-platform .breadcrumb { min-width: 0; }
+  .live-platform .breadcrumb > span,
+  .live-platform .breadcrumb > svg { display: none; }
+  .live-platform .breadcrumb strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .live-platform .top-actions { flex-shrink: 0; }
+}
 .live-platform .live-pool-directory { overflow: visible; }
 .live-platform .live-catalog-table table { min-width: 0; width: 100%; }
 .live-platform .live-catalog-table th, .live-platform .live-catalog-table td { padding-left: 12px; padding-right: 12px; }
