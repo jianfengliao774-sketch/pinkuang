@@ -41,6 +41,7 @@ import {
   ExternalLink,
   Bell,
   Send,
+  Globe,
 } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
@@ -2745,9 +2746,13 @@ export default function LivePlatform() {
             >
               <option value="zh">简体中文</option>
               <option value="en">English</option>
-            </select><ChevronDown size={14} aria-hidden="true"/></div>
+            </select><Globe className="live-language-icon" size={18} aria-hidden="true"/><ChevronDown className="live-language-chevron" size={14} aria-hidden="true"/></div>
             <Button
               disabled={!walletUiReady || (busy && !connectingId)}
+              aria-label={account
+                ? L(`打开钱包信息：${account}`, `Open wallet details: ${account}`)
+                : L("连接钱包", "Connect wallet")}
+              title={account ? L("钱包信息", "Wallet details") : L("连接钱包", "Connect wallet")}
               onClick={() =>
                 connectingId ? connect() : account ? setModal({ type: "wallet" }) : connect()
               }

@@ -1,6 +1,5 @@
-import {useState} from 'react';
 import { displayAmount, displayDecimal } from '../lib/amount-display.mjs';
-import {Pause,Play,ArrowRight,ArrowUpRight,Layers3,Users,Activity,Wallet,ShieldCheck,Vote,ChevronRight} from 'lucide-react';
+import {ArrowRight,ArrowUpRight,Layers3,Users,Activity,Wallet,ShieldCheck,Vote,ChevronRight} from 'lucide-react';
 import {platformTotals} from '../lib/platform-stats';
 import {useI18n} from '../lib/i18n';
 import HeroScene from './HeroScene';
@@ -10,11 +9,10 @@ import purposeArt from '../lib/purpose-art.json';
 const fmt=(n,d=0)=>n==null?'—':d>0?displayDecimal(n):typeof n==='bigint'?n.toLocaleString('en-US'):Number(n).toLocaleString('en-US',{maximumFractionDigits:0});
 export default function SiteOverview({pools,onExplore,onAccount,onRules,onRecords,live=false,liveStats=null,liveSource=null,stage=null}){
  const {t,locale}=useI18n();
- const [motionPaused,setMotionPaused]=useState(false);
  const L=(zh,en)=>locale==='en'?en:zh;
  const stats=live?{projects:liveStats?.topLevelProjectCount ?? liveStats?.registeredPoolCount,participants:liveStats?.everParticipantAddressCount,managed:liveStats?.currentlyActivePoolCount,daily:liveStats?.estimatedDailyBemAtomic}:platformTotals(pools),groups=[['Funding','募集中','一起出资，开启下一台矿机。'],['Active','挖矿中','共同持有，按份额分享产出。'],['Listed','整机出售中','共同决定，让矿机有序流转。']];
  return <div className="bemine-home">
-  <section className={`bemine-hero${motionPaused?' motion-paused':''}`}>
+  <section className="bemine-hero">
    <HeroScene/><div className="bemine-hero-shade"/>
    <div className="bemine-hero-copy">
     <div className="bemine-hero-kicker"><span/>{t('拼矿 BEMine · 一起参与 TapeOut')}</div>
@@ -23,7 +21,6 @@ export default function SiteOverview({pools,onExplore,onAccount,onRules,onRecord
     <div className="bemine-hero-actions"><button className="btn" onClick={()=>onExplore('募集中')}>{t('寻找我的第一份矿机')}<ArrowRight size={17}/></button><button className="bemine-hero-link" onClick={onRules}>{t('了解如何参与')}<ArrowUpRight size={16}/></button></div>
    </div>
    <small className="bemine-hero-disclaimer">{t('「万份回报」为品牌愿景，不代表收益承诺。实际产出会随矿机及协议状态变化。')}</small>
-   <button className="bemine-motion-toggle" aria-label={t(motionPaused?'播放背景动效':'暂停背景动效')} aria-pressed={motionPaused} onClick={()=>setMotionPaused(v=>!v)}>{motionPaused?<Play size={14}/>:<Pause size={14}/>}<span>{t(motionPaused?'播放动效':'暂停动效')}</span></button>
   </section>
   <section className="bemine-purpose" id="vision"><div className="bemine-section-heading"><div><span className="bemine-kicker">OUR PURPOSE</span><h2>{t('初衷愿景')}</h2></div></div><div className="bemine-vision"><div className="bemine-vision-art"><img src={`${process.env.NEXT_PUBLIC_BASE_PATH||''}/images/${purposeArt.file}`} width={purposeArt.width} height={purposeArt.height} loading="lazy" decoding="async" alt={t('Tapeouters 围绕共同持有的矿机，一起建设生态')}/></div><div className="bemine-vision-copy"><h3>{t('让每一位 Tapeouter，都能享受挖矿的乐趣。')}</h3><p>{t('我们相信，参与 TapeOut 不应只属于少数人。无论投入多少，每一份热爱都值得有一个参与的入口。')}</p><p>{t('BEMine 希望通过共同持有矿机，降低独自购机的资金门槛，让每一位 Tapeouter 在参与生态建设的同时，也有能力享受挖矿的乐趣。')}</p><strong>{t('从一份开始，一起建设，一起成长。')}</strong></div></div></section>
   <section className="bemine-network"><div className="bemine-section-heading"><div><span className="bemine-kicker">TOGETHER IN TAPEOUT</span><h2>{t('每一份参与，都在这里汇聚。')}</h2></div><span className="bemine-data-label">{live?L('平台统计 · 链上记录','Platform statistics · On-chain records'):t('平台统计 · 演示数据')}</span></div><div className="bemine-stat-grid">{[

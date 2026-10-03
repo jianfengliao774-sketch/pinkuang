@@ -1079,6 +1079,7 @@ body:has(.preview-banner) .page-footer {
   padding: 10px 28px 10px 12px;
 }
 .live-language-control > svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.live-platform .live-language-control > .live-language-icon { display: none; }
 .live-platform .live-pool-directory { overflow: visible; }
 .live-platform .live-catalog-table table { min-width: 0; width: 100%; }
 .live-platform .live-catalog-table th, .live-platform .live-catalog-table td { padding-left: 12px; padding-right: 12px; }
@@ -1112,10 +1113,26 @@ body:has(.preview-banner) .page-footer {
   overflow-y: auto; overscroll-behavior: contain;
 }
 @media (max-width: 760px) {
-  .live-platform .topbar { align-items: flex-start; }
-  .live-platform .top-actions { flex-wrap: wrap; }
-  .live-platform .live-language-control { width: 110px; }
-  .live-platform .top-actions .live-language-control .language-switch { padding-left: 8px; padding-right: 25px; }
+  .live-platform .topbar { align-items: center; flex-wrap: nowrap; gap: 6px; }
+  .live-platform .breadcrumb { flex: 0 0 auto; }
+  .live-platform .top-actions { flex-wrap: nowrap; gap: 6px; }
+  .live-platform .top-actions > .btn {
+    flex: 0 0 44px; width: 44px; height: 44px; padding: 0; justify-content: center;
+  }
+  .live-platform .live-wallet-label { display: none; }
+  .live-platform .live-language-control {
+    width: 44px; height: 44px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface);
+  }
+  .live-platform .top-actions .live-language-control .language-switch {
+    position: absolute; inset: 0; width: 100%; height: 100%; padding: 0;
+    opacity: 0; cursor: pointer;
+  }
+  .live-platform .live-language-control > .live-language-icon {
+    display: block; left: 50%; right: auto; transform: translate(-50%, -50%); color: var(--ink);
+  }
+  .live-platform .live-language-chevron { display: none; }
+  .live-platform .live-language-control:focus-within { outline: 2px solid var(--blue); outline-offset: 3px; }
   .live-platform .live-catalog-table table { min-width: 760px; }
   .live-directory-group > h2 { padding: 18px 16px; }
   .live-platform .live-record-pagination { padding: 16px; }
