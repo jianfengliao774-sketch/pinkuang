@@ -31,11 +31,24 @@ const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowe
 const brief = error => error?.shortMessage || error?.message || '预算项目读取未完成。';
 const officialPriceWithFeeCeiling = value => { const price=BigInt(value); return price+(price+99n)/100n; };
 const recentPages = new Map();
+const PAGE_REUSE_MS = 15_000;
+let pendingPageReads = new WeakMap();
 const recentCapacityReferences = new Map();
 const recentMarketCredits = new Map(), recentMarketOrders = new Map();
 let recentHistories = new WeakMap();
-export const clearRecentPortfolioDisplays = () => { recentPages.clear(); clearPortfolioDisplays(); recentMarketCredits.clear(); recentMarketOrders.clear(); recentHistories = new WeakMap(); };
+export const clearRecentPortfolioDisplays = () => { recentPages.clear(); pendingPageReads = new WeakMap(); clearPortfolioDisplays(); recentMarketCredits.clear(); recentMarketOrders.clear(); recentHistories = new WeakMap(); };
 const displayStorage = () => { try { return window.sessionStorage; } catch { return null; } };
+function sharedPageRead(provider, key, read) {
+  if (!provider || typeof provider !== 'object') return read();
+  let pending = pendingPageReads.get(provider);
+  if (!pending) { pending = new Map(); pendingPageReads.set(provider, pending); }
+  if (pending.has(key)) return pending.get(key);
+  const result = Promise.resolve().then(read);
+  pending.set(key, result);
+  const clear = () => { if (pending.get(key) === result) pending.delete(key); };
+  void result.then(clear, clear);
+  return result;
+}
 
 function PortfolioSaleStatus({candidate,stage,locale}){
   const T=text=>portfolioText(locale,text);
@@ -71,8 +84,16 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const inputAmount=(name,value)=>{if(editingAmount===name||!value)return value;try{return fundingAmount(value).display;}catch{return value;}};
   const [dailyReference,setDailyReference]=useState(null),[dailyReferenceError,setDailyReferenceError]=useState(''),[capacitySample,setCapacitySample]=useState(null),[capacityBusy,setCapacityBusy]=useState(false);
   const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null);
-  const identity=`${config?.artifactDigest || ''}:${config?.stage || ''}:${config?.portfolioFactory || ''}:${account || ''}:${mode}:${initialPool || ''}`;
-  const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.portfolioFactory,account?.toLowerCase() || '',['overview','rewards'].includes(mode)?'mine':mode,initialPool?.toLowerCase() || '',config?.displayOnly?displayRefreshKey:null]);
+  // A refresh generation invalidates current action proof, not the last verified
+  // display. Keep that display addressable while the visible page revalidates.
+  const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.productFamily,config?.displayOnly===true,
+    config?.factory?.toLowerCase(),
+    config?.portfolioFactory?.toLowerCase(),config?.portfolioMarket?.toLowerCase(),
+    config?.stageActivationBlock,config?.stageActivationHash,
+    (config?.deployment||config?.manifest?.deployment)?.txHash,
+    (config?.deployment||config?.manifest?.deployment)?.blockHash,
+    account?.toLowerCase() || '',['overview','rewards'].includes(mode)?'mine':mode,initialPool?.toLowerCase() || '']);
+  const identity=`${cacheKey}:${mode}`;
   const marketCreditKey=JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',config?.displayOnly?refreshKey:null]);
   const marketOrderKey=pool=>JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',pool?.toLowerCase(),config?.displayOnly?refreshKey:null]);
   if(context.current.identity!==identity || context.current.provider!==provider || context.current.wallet!==wallet){
@@ -123,15 +144,17 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     if(selectedCurrent&&account&&provider)void loadMarketCredit();
     return()=>{marketReadSequence.current++;};
   },[identity,provider,selectedCurrent?.pool,refreshKey]);
-  useEffect(()=>{const saved=recentPages.get(cacheKey),cached=saved && Date.now()-saved.savedAt<120_000
-      ?displayOnlySnapshot(saved.result,config?.manifest || config,saved.savedAt)
-      :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,
-        config?.productFamily==='fresh-v4'?{maxAgeMs:30*60_000}:{});
+  useEffect(()=>{const saved=recentPages.get(cacheKey),now=Date.now(),age=saved?now-saved.savedAt:null;
+    const maxAgeMs=config?.productFamily==='fresh-v4'?30*60_000:60*60_000;
+    const cached=saved && age>=0 && age<maxAgeMs
+      ?displayOnlySnapshot(saved.result,config?.manifest || config,saved.savedAt,now)
+      :readDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,{maxAgeMs,now});
     const cachedDetail=initialPool?readPortfolioDisplay(config,initialPool,account,Date.now(),config?.displayOnly?refreshKey:0):null;
     setLoadedIdentity(cached || cachedDetail ? identity : '');setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);
     setRows(initialPool && cachedDetail ? [cachedDetail] : cached?.items || []);
     setListingSource(initialPool && cachedDetail ? cachedDetail.displaySource || cached?.source || null : cached?.source || null);
-    const reusable=config?.displayOnly===true && (!!cachedDetail || !!saved && Date.now()-saved.savedAt<120_000 && !!cached);
+    const reusable=config?.displayOnly===true && !initialPool && mode!=='operator' && !!saved && saved.provider===provider
+      && saved.refresh===displayRefreshKey && age>=0 && age<PAGE_REUSE_MS && !!cached;
     const restoredDetail=initialPool ? cachedDetail || cached?.items[0] || null : null;
     if(cachedDetail)setLoadedIdentity(identity);
     setSelected(initialPool?cachedDetail || cached?.items[0] || null:null);setChild(initialPool?(cachedDetail || cached?.items[0])?.children.find(item=>!item.sold)?.pool || '':'');
@@ -174,11 +197,12 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     onRetry:progress=>{if(current(ticket))setReadRetry(progress);}});}
 
   async function load(nextCursor=0){
-    const ticket=++sequence.current,selectedPool=!nextCursor?selectedCurrent?.pool:null;
+    const ticket=++sequence.current,selectedPool=!nextCursor&&mode==='portfolio'?selectedCurrent?.pool:null;
     if(!nextCursor)setSelectedProof(null);
     setLoading(true);setError('');
     try{
-      const result=await retryRead(async()=>{
+      const result=await retryRead(()=>sharedPageRead(provider,
+        JSON.stringify([cacheKey,displayRefreshKey,nextCursor,selectedPool?.toLowerCase() || '']),async()=>{
         if(initialPool){const result=await readPortfolioDisplayRow(config,provider,initialPool,account || ZeroAddress);
           return {items:[result.item],nextCursor:null,operator:result.operator,source:result.source};}
         const [page,detail]=await Promise.all([
@@ -186,7 +210,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
           selectedPool?readPortfolioDisplayRow(config,provider,selectedPool,account || ZeroAddress).then(result=>result.item):Promise.resolve(null),
         ]);
         return {...page,selectedDetail:detail};
-      },ticket);
+      }),ticket);
       if(result===READ_CANCELLED||!current(ticket))return;
       const {selectedDetail,...page}=result;
       if(initialPool&&page.items[0])rememberPortfolioDisplay(config,page.items[0],account,Date.now(),config.displayOnly?refreshKey:0);
@@ -194,7 +218,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       setFreshRead(initialPool ? !!page.items[0] : !!page.source && (page.source.displayOnly === true || page.source.stale !== true));
       if(!nextCursor && (initialPool ? page.items[0] : selectedDetail))
         setSelectedProof({identity,provider,wallet,pool:(initialPool ? page.items[0] : selectedDetail).pool});
-      if(!nextCursor){recentPages.delete(cacheKey);recentPages.set(cacheKey,{savedAt:Date.now(),result:page});
+      if(!nextCursor){recentPages.delete(cacheKey);recentPages.set(cacheKey,{savedAt:Date.now(),provider,refresh:displayRefreshKey,result:page});
         if(recentPages.size>8)recentPages.delete(recentPages.keys().next().value);
         writeDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,page);}
       setRows(previous=>nextCursor? [...previous,...result.items.filter(item=>!previous.some(p=>same(p.pool,item.pool)))]:result.items);
