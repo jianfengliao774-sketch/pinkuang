@@ -17,6 +17,7 @@ STATIC = Path('/var/www/bemine-v5/releases') / RELEASE
 CURRENT = Path('/var/www/bemine-v5/current')
 CONFIG = Path('/etc/nginx/sites-available/bemine-v4-domain')
 SNIPPET = Path('/etc/nginx/snippets/bemine-v5-product.conf')
+LIMITS = Path('/etc/nginx/conf.d/bemine-v5-read-limits.conf')
 FACTORY = '0x4a866e14816d8339a530c6c82300dbbb6544b37c'
 UNITS = ['pinkuang-index-v5', 'pinkuang-product-v5', 'pinkuang-v5-purchase',
          'pinkuang-v5-mining', 'pinkuang-v5-signer', 'pinkuang-v5-price']
@@ -39,6 +40,7 @@ def local_http(host, path):
 assert os.getuid() == 0
 assert not CURRENT.exists() and not CURRENT.is_symlink(), 'Already published; use the update procedure.'
 assert not SNIPPET.exists(), 'Existing snippet must not be overwritten.'
+assert not LIMITS.exists(), 'Existing limits must not be overwritten.'
 manifest = json.loads((STATIC / 'fresh-product-release.json').read_text())
 assert manifest['frontendSourceHead'] == SOURCE and manifest['basePath'] == '/bemine-v5'
 assert manifest['factory'].lower() == FACTORY
@@ -72,6 +74,8 @@ published = False
 try:
     shutil.copyfile(UPLOAD / 'runtime/nginx.conf', SNIPPET)
     SNIPPET.chmod(0o644)
+    shutil.copyfile(UPLOAD / 'runtime/nginx-http-limits.conf', LIMITS)
+    LIMITS.chmod(0o644)
     CURRENT.symlink_to(STATIC, target_is_directory=True)
     CONFIG.write_text(after)
     run('nginx', '-t')
@@ -117,5 +121,7 @@ finally:
             CURRENT.unlink()
         if SNIPPET.exists():
             SNIPPET.unlink()
+        if LIMITS.exists():
+            LIMITS.unlink()
         run('nginx', '-t')
         run('systemctl', 'reload', 'nginx')

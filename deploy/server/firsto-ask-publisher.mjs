@@ -137,7 +137,6 @@ export function createFirstoAskPublisher({ config, provider, factory, verifyDepl
       for (const pool of selected) {
         if (stopped) return;
         try {
-          if (await hasPendingSaleIntent(pool)) { row(pool, 'buyer-pending'); continue; }
           let native;
           try { native = await readNative(provider, pool); }
           catch { row(pool, 'read-unavailable'); continue; }
@@ -151,6 +150,7 @@ export function createFirstoAskPublisher({ config, provider, factory, verifyDepl
             row(pool, native.nativeVersion !== 1 ? 'upgrade-required' : expired ? 'expired' : 'inactive'); continue;
           }
           const ask = canonical(pool, native), key = pool.toLowerCase();
+          if (await hasPendingSaleIntent(pool, ask.ask)) { row(pool, 'buyer-pending'); continue; }
           let saved = journal.pools[key];
           if (saved && saved.askHash.toLowerCase() !== ask.askHash.toLowerCase()) {
             // A different hash on the same nonce must be explicitly resolved;
@@ -179,12 +179,12 @@ export function createFirstoAskPublisher({ config, provider, factory, verifyDepl
           }
           // GET can span a sale or wallet-send. Re-read the one authorized
           // tuple and the local buyer reservation immediately before the POST.
-          if (stopped || await hasPendingSaleIntent(pool)) { row(pool, 'buyer-pending'); continue; }
+          if (stopped || await hasPendingSaleIntent(pool, ask.ask)) { row(pool, 'buyer-pending'); continue; }
           const current = canonical(pool, await readNative(provider, pool));
           if (!current || current.askHash.toLowerCase() !== ask.askHash.toLowerCase()) { row(pool, 'authorization-changed'); continue; }
           // The RPC read may itself span a local wallet-send. This final
           // synchronous database observation precedes our durable HTTP intent.
-          if (stopped || await hasPendingSaleIntent(pool)) { row(pool, 'buyer-pending'); continue; }
+          if (stopped || await hasPendingSaleIntent(pool, ask.ask)) { row(pool, 'buyer-pending'); continue; }
           const attempted = { pool, askHash: ask.askHash, nonce: ask.ask.nonce, envelope: ask.payload,
             phase: 'submitting', attemptedAt: new Date(now()).toISOString() };
           journal.pools[key] = attempted;

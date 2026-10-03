@@ -33,7 +33,10 @@ const OFFICIAL_CACHE_MS = 5_000;
 const OFFICIAL_GRAPH_CACHE_MS = 5_000;
 const SIGNING_GRAPH_CACHE_MS = 5_000;
 const PRODUCT_GRAPH_SNAPSHOT_MS = 45_000;
-const PRODUCT_GRAPH_STALE_MS = 2 * 60_000;
+// Historical display only; this never grants transaction permission. A short
+// RPC outage or an idle site must not erase the last verified deployment.
+const PRODUCT_GRAPH_STALE_MS = 60 * 60_000;
+const PRODUCT_GRAPH_ACTIVE_MS = 2 * 60_000;
 // Keep a fresh display proof warm with margin before the 45-second current
 // window ends, without redoing the full graph every 15 seconds while idle.
 const PRODUCT_GRAPH_REFRESH_MS = 40_000;
@@ -1566,8 +1569,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         userExitReady:stage==='fresh-active' && Boolean(freshProductVerifier),
         manifest};
       if (closed) fail(503, 'Journal is unavailable.');
-      lastVerifiedProductGraphSnapshot={savedAt:now(),body,graph};
-      return body;
+      const readyBody=await operationalBody(body,graph);
+      lastVerifiedProductGraphSnapshot={savedAt:now(),body:readyBody,graph};
+      return readyBody;
     } catch (error) {
       // A transport failure is not evidence that a previously verified graph
       // changed. Keep it for display only, without extending its original age.
@@ -1595,12 +1599,12 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   }
 
   // Keep a recently visited display warm. After a quiet period, the next
-  // visitor must get a new proof before receiving a current graph.
+  // visitor receives a historical display snapshot while a new proof runs.
   const productGraphTimer=productMode && trustedProduct && officialProvider
     ? setInterval(()=>{
       const time=now();
       if(!closed && lastProductGraphReadAt!==null && time>=lastProductGraphReadAt
-        && time-lastProductGraphReadAt<PRODUCT_GRAPH_STALE_MS
+        && time-lastProductGraphReadAt<PRODUCT_GRAPH_ACTIVE_MS
         && (lastProductGraphRefreshAttemptAt===null
           || time-lastProductGraphRefreshAttemptAt>=productGraphRefreshMs))
         startProductGraphRefresh().catch(()=>{});
@@ -1624,13 +1628,13 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const stopNativeAskTracking = nativeAskPublisher
     ? trackFirstoAsks(nativeAskPublisher, { intervalMs: firstoAskPublisher.intervalMs }) : async () => {};
 
-  async function operationalBody(body) {
+  async function operationalBody(body,graph) {
     if (!freshProductVerifier || body.stage !== 'fresh-active') return body;
     try {
       const verifier=typeof freshProductVerifier.prepareIndex==='function'
         ? await freshProductVerifier.prepareIndex() : freshProductVerifier;
       const block=await officialProvider.getBlock('latest');
-      await verifier(officialProvider,lastVerifiedProductGraphSnapshot.graph,block);
+      await verifier(officialProvider,graph,block);
       return {...body,operationalReady:true};
     } catch { return {...body,operationalReady:false}; }
   }
@@ -1671,7 +1675,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         const cached=lastVerifiedProductGraphSnapshot;
         const snapshotAgeMs=cached ? now()-cached.savedAt : Infinity;
         if (snapshotAgeMs>=0 && snapshotAgeMs<PRODUCT_GRAPH_SNAPSHOT_MS)
-          return send(200,{...await operationalBody(cached.body),snapshotAgeMs,readMode:'current',stale:false});
+          return send(200,{...cached.body,snapshotAgeMs,readMode:'current',stale:false});
         if (cached && snapshotAgeMs>=PRODUCT_GRAPH_SNAPSHOT_MS
           && snapshotAgeMs<PRODUCT_GRAPH_STALE_MS) {
           // The response remains display-only even if a prior transient RPC
@@ -1687,7 +1691,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         // Bound only requests that must wait for a new chain proof.
         if (!allowPublicGraph(req)) fail(429, 'Too many product-graph reads; retry shortly.');
         const body=await startProductGraphRefresh();
-        return send(200,{...await operationalBody(body),snapshotAgeMs:0,readMode:'current',stale:false});
+        return send(200,{...body,snapshotAgeMs:0,readMode:'current',stale:false});
       }
       if (method === 'GET' && ['/api/journal/official-candidates','/api/journal/budget-candidates'].includes(path)){
         const response=await discoveryResponse(req,url,path.endsWith('/budget-candidates')?'budget':'official');

@@ -12,7 +12,7 @@ const canonical = value => JSON.stringify(value, function (_key, item) {
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item;
 });
 const same = (a, b) => canonical(a) === canonical(b);
-const productKey=record=>canonical([record.nonce,record.factory.toLowerCase(),record.target.toLowerCase(),record.data.toLowerCase(),record.value,record.submittedAt]);
+export const productKey=record=>canonical([record.nonce,record.factory.toLowerCase(),record.target.toLowerCase(),record.data.toLowerCase(),record.value,record.submittedAt]);
 
 /** Private, durable operation journal. A revision survives archival/deletion. */
 export class JournalStore {

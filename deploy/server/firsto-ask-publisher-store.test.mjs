@@ -4,11 +4,16 @@ import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { Interface } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
 import { readFirstoAskJournal, writeFirstoAskJournal, createPendingFirstoSaleIntentReader,
   writeFirstoAskStatus, readFirstoAskPublisherStatus, acquireFirstoAskJournalLock } from './firsto-ask-publisher-store.mjs';
 
 const address = n => `0x${n.toString(16).padStart(40, '0')}`, factory = address(1), exchange = address(2), pool = address(3);
+const saleAbi = new Interface(['function completeFirstoSale(uint256,uint256,uint16,uint256) payable']);
+const intentFor = (proposal = 1) => ({ version: 2, chainId: 56, factory, target: pool, targetType: 'pool',
+  action: { kind: 'completeFirstoSale' }, nonce: 7, value: '101', submittedAt: 1000,
+  data: saleAbi.encodeFunctionData('completeFirstoSale', [proposal, 100, 100, 1]) });
 const temporary = t => { const dir = mkdtempSync(join(tmpdir(), 'native-ask-state-')); chmodSync(dir, 0o700);
   t.after(() => rmSync(dir, { recursive: true, force: true })); return dir; };
 
@@ -31,22 +36,33 @@ test('API-owned publication lock excludes another worker and reuses the same pri
     finally { next(); }
   });
 
-test('read-only buyer reservation finds exact pending pool intents including absent transaction hashes', t => {
-  const path = join(temporary(t), 'journal.sqlite'), db = new DatabaseSync(path);
-  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY, record TEXT)'); chmodSync(path, 0o600);
-  const put = (owner, value) => db.prepare('INSERT OR REPLACE INTO market VALUES(?,?)').run(owner, JSON.stringify(value));
-  const intent = { version: 2, chainId: 56, factory, target: pool, targetType: 'pool', action: { kind: 'completeFirstoSale' } };
+test('prepared records do not reserve asks; armed unknown sends survive restart and bind to the current proposal', t => {
+  const path = join(temporary(t), 'journal.sqlite'), owner = address(7), intent = intentFor();
+  let store = new JournalStore(path);
   const reader = createPendingFirstoSaleIntentReader(path, { factory });
   try {
-  assert.equal(reader.hasPendingSaleIntent(pool), false);
-  put(address(7), intent); assert.equal(reader.hasPendingSaleIntent(pool), true);
-  assert.equal(reader.hasPendingSaleIntent(address(8)), false);
-  put(address(7), { ...intent, factory: address(8) }); assert.equal(reader.hasPendingSaleIntent(pool), false);
-  put(address(7), { ...intent, action: { kind: 'claim' } }); assert.equal(reader.hasPendingSaleIntent(pool), false);
-  put(address(7), { ...intent, hash: `0x${'ab'.repeat(32)}` }); assert.equal(reader.hasPendingSaleIntent(pool), true);
-  db.prepare('UPDATE market SET record=NULL').run(); assert.equal(reader.hasPendingSaleIntent(pool), false);
-  assert.equal(db.prepare('SELECT count(*) AS n FROM market').get().n, 1, 'the reader never clears or rewrites user journals');
-  } finally { reader.close(); db.close(); }
+    store.putMarket(owner, intent, 0);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '1' }), false);
+    store.close(); store = new JournalStore(path);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '1' }), false, 'restart cannot turn preparation into signing');
+    store.armMarket(owner, 1);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '1' }), true, 'unknown hash stays protected');
+    store.close(); store = new JournalStore(path);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '1' }), true);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '2' }), false, 'old proposal cannot buy a new listing');
+    assert.equal(reader.hasPendingSaleIntent(address(8), { nonce: '1' }), false);
+    assert.deepEqual(store.market(owner).record, intent, 'publication never changes recovery state');
+    store.deleteMarket(owner, 2, { transactionHash: `0x${'ab'.repeat(32)}`, status: 'confirmed', finalized: true });
+    store.putMarket(owner, { ...intentFor(2), nonce: 8 }, 3);
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '2' }), false, 'old signing key does not arm a new preparation');
+    for (const patch of [{ hash: `0x${'cd'.repeat(32)}` }, { recoveryHashes: [`0x${'cd'.repeat(32)}`] },
+      { cancellationRequests: [{ nonce: 8 }] }]) {
+      store.db.prepare('UPDATE market SET record=?').run(JSON.stringify({ ...intentFor(2), nonce: 8, ...patch }));
+      assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '2' }), true);
+    }
+    store.db.prepare('UPDATE market SET record=?').run(JSON.stringify({ ...intentFor(), data: '0x1234', hash: `0x${'cd'.repeat(32)}` }));
+    assert.equal(reader.hasPendingSaleIntent(pool, { nonce: '2' }), true, 'undecodable broadcast remains conservative');
+  } finally { reader.close(); store.close(); }
 });
 
 test('public publication status is bounded, identity-specific and does not turn stale data into freshness', t => {
@@ -64,10 +80,10 @@ test('public publication status is bounded, identity-specific and does not turn 
 
 test('the real finalized journal deletion releases the buyer gate while its immutable result stays archived', t => {
   const path = join(temporary(t), 'journal.sqlite'), db = new DatabaseSync(path);
-  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY,revision INTEGER,record TEXT); CREATE TABLE market_results(account TEXT,hash TEXT,result TEXT,PRIMARY KEY(account,hash))');
+  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY,revision INTEGER,record TEXT); CREATE TABLE market_signing(account TEXT PRIMARY KEY,intent_key TEXT); CREATE TABLE market_results(account TEXT,hash TEXT,result TEXT,PRIMARY KEY(account,hash))');
   chmodSync(path, 0o600);
   const owner = address(7), record = { version: 2, chainId: 56, factory, target: pool, targetType: 'pool',
-    action: { kind: 'completeFirstoSale' }, status: 'complete' };
+    action: { kind: 'completeFirstoSale' }, hash: `0x${'ab'.repeat(32)}`, status: 'complete' };
   db.prepare('INSERT INTO market VALUES(?,?,?)').run(owner, 1, JSON.stringify(record));
   const store = Object.assign(Object.create(JournalStore.prototype), { db });
   const reader = createPendingFirstoSaleIntentReader(path, { factory });

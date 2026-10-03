@@ -3,7 +3,12 @@ import { closeSync, constants, existsSync, fchmodSync, fstatSync, fsyncSync, lst
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { getAddress } from 'ethers';
+import { getAddress, Interface } from 'ethers';
+import { productKey } from './journal-store.mjs';
+
+const saleIntentAbi = new Interface([
+  'function completeFirstoSale(uint256 expectedProposalId,uint256 expectedSalePrice,uint16 expectedFeeBps,uint256 expectedFeeEpoch) payable',
+]);
 
 const MAX_JOURNAL_BYTES = 4 * 1024 * 1024;
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -71,7 +76,7 @@ export function writeFirstoAskJournal(path, value) {
   }
 }
 
-/** Active authenticated intents are conservative reservations, including unknown wallet hashes. */
+/** Only signing-authorized or broadcast intents reserve a listing; unknown sends stay reserved. */
 export function createPendingFirstoSaleIntentReader(path, { factory }) {
   privateFile(path, { mustExist: true });
   const db = new DatabaseSync(path, { readOnly: true });
@@ -81,9 +86,9 @@ export function createPendingFirstoSaleIntentReader(path, { factory }) {
   catch (error) { db.close(); throw error; }
   let closed = false;
   return {
-    hasPendingSaleIntent(pool) {
+    hasPendingSaleIntent(pool, ask) {
       if (closed) throw new Error('Native ask buyer-intent reader is closed.');
-      return hasPendingSaleIntent(pool);
+      return hasPendingSaleIntent(pool, ask);
     },
     close() { if (!closed) { closed = true; db.close(); } },
   };
@@ -91,12 +96,31 @@ export function createPendingFirstoSaleIntentReader(path, { factory }) {
 
 /** Reuse the API-owned open database; the signer never opens or receives it. */
 export function pendingFirstoSaleIntentFromDatabase(db, { factory }) {
-  const query = db.prepare(`SELECT 1 FROM market WHERE record IS NOT NULL
-      AND lower(json_extract(record,'$.factory'))=? AND lower(json_extract(record,'$.target'))=?
-      AND json_extract(record,'$.chainId')=56 AND json_extract(record,'$.targetType')='pool'
-      AND json_extract(record,'$.action.kind')='completeFirstoSale' LIMIT 1`);
+  const query = db.prepare(`SELECT m.record,s.intent_key FROM market m
+      LEFT JOIN market_signing s ON s.account=m.account WHERE m.record IS NOT NULL
+      AND lower(json_extract(m.record,'$.factory'))=? AND lower(json_extract(m.record,'$.target'))=?
+      AND json_extract(m.record,'$.chainId')=56 AND json_extract(m.record,'$.targetType')='pool'
+      AND json_extract(m.record,'$.action.kind')='completeFirstoSale'`);
   const bound = getAddress(factory).toLowerCase();
-  return pool => Boolean(query.get(bound, getAddress(pool).toLowerCase()));
+  return (pool, ask) => query.all(bound, getAddress(pool).toLowerCase()).some(row => {
+    const record = JSON.parse(row.record);
+    // A PUT preparation alone grants no signing permission. An old signing row
+    // for this account must not reserve a different, newly prepared intent.
+    const sent = Boolean(record.hash || record.recoveryHashes?.length || record.cancellationRequests?.length);
+    let armed = false;
+    try { armed = row.intent_key === productKey(record); }
+    catch { return sent || Boolean(row.intent_key); }
+    if (!sent && !armed) return false;
+    if (!ask) return true;
+    try {
+      const decoded = saleIntentAbi.parseTransaction({ data: record.data });
+      // FirstoSale._ask uses listedProposalId as its native ask nonce. Older
+      // calldata cannot buy a new proposal. Preserve the journal for recovery;
+      // never expire an unknown send merely because time has passed.
+      if (!decoded || decoded.name !== 'completeFirstoSale' || BigInt(ask.nonce) <= 0n) return true;
+      return decoded.args.expectedProposalId === BigInt(ask.nonce);
+    } catch { return true; }
+  });
 }
 
 export const firstoAskMessages = {

@@ -253,11 +253,11 @@ test('expired verified graph returns immediately as display-only while one new p
     assert.equal(fresh.readMode,'current');
     assert.equal(fresh.stale,false);
     assert.equal(fresh.verifiedBlockHash,next.hash);
-    clock+=120_000;
+    clock+=60*60_000;
     const aged=await (await fetch(url,{headers:{'x-real-ip':'127.0.0.2'}})).json();
     assert.equal(aged.readMode,'current','a snapshot beyond the stale bound must wait for a new proof');
     assert.equal(verifications,3);
-    rejectGraph=true;clock+=120_000;
+    rejectGraph=true;clock+=60*60_000;
     const missHeaders={'x-real-ip':'198.51.100.42'};
     for(let index=0;index<4;index++)
       assert.equal((await fetch(url,{headers:missHeaders})).status,503,
@@ -272,7 +272,7 @@ test('expired verified graph returns immediately as display-only while one new p
   }
 });
 
-test('recent product visitor gets a warm graph, while a first visitor after idle waits for a new proof', async () => {
+test('recent product visitor gets a warm graph; an idle visitor gets historical data while refresh resumes', async () => {
   const directory=await mkdtemp(join(tmpdir(),'product-graph-timer-api-'));
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const first={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
@@ -323,10 +323,14 @@ test('recent product visitor gets a warm graph, while a first visitor after idle
     await new Promise(resolve=>setTimeout(resolve,220));
     assert.equal(verifications,2,'idle traffic must not trigger another full graph proof');
     const firstAfterIdle=await(await fetch(url)).json();
-    assert.equal(firstAfterIdle.readMode,'current');
-    assert.equal(firstAfterIdle.stale,false);
-    assert.equal(firstAfterIdle.verifiedBlockHash,afterIdle.hash);
-    assert.equal(verifications,3,'the first visitor after idle waits for a new verified graph');
+    assert.equal(firstAfterIdle.readMode,'verified_snapshot');
+    assert.equal(firstAfterIdle.stale,true);
+    assert.equal(firstAfterIdle.verifiedBlockHash,next.hash);
+    assert.equal(firstAfterIdle.transactionReady,false);
+    await new Promise(resolve=>setImmediate(resolve));
+    const refreshed=await(await fetch(url)).json();
+    assert.equal(refreshed.verifiedBlockHash,afterIdle.hash);
+    assert.equal(verifications,3,'idle visitor resumes one background proof');
   }finally{
     await new Promise(resolve=>server.close(resolve));
     await service.close();
@@ -418,7 +422,7 @@ test('a bounded public budget proof cannot consume the site graph refresh slot',
   }
 });
 
-test('a transient RPC outage retains only the original two-minute display snapshot', async () => {
+test('a transient RPC outage retains the original display timestamp within a one-hour bound', async () => {
   const directory=await mkdtemp(join(tmpdir(),'product-graph-transient-api-'));
   const initial=genesisRecord.steps.find(step=>step.id==='initialize');
   const block={number:initial.receipt.blockNumber+100,hash:salt('6'),timestamp:1_700_000_100};
@@ -472,7 +476,12 @@ test('a transient RPC outage retains only the original two-minute display snapsh
     assert.ok(staleReads.every(response=>response.status===200));
     assert.equal(offlineReads,1,'stale display traffic cannot repeatedly start a fast-failing proof');
     clock=1_000_000+2*60_000;
-    assert.equal((await fetch(url)).status,503,'a network outage cannot extend the two-minute bound');
+    const historical=await (await fetch(url)).json();
+    assert.equal(historical.readMode,'verified_snapshot');
+    assert.equal(historical.operationalReady,false);
+    assert.equal(historical.snapshotAgeMs,2*60_000);
+    clock=1_000_000+60*60_000;
+    assert.equal((await fetch(url)).status,503,'a network outage cannot extend the one-hour display bound');
   }finally{
     await new Promise(resolve=>server.close(resolve));
     await service.close();
@@ -517,8 +526,8 @@ test('a temporarily missing reviewed anchor keeps only the bounded display snaps
     assert.equal(retained.readMode,'verified_snapshot');
     assert.equal(retained.transactionReady,false);
     assert.equal(retained.snapshotAgeMs,45_000);
-    clock=1_000_000+2*60_000;
-    assert.equal((await fetch(url)).status,503,'missing RPC data cannot extend the two-minute bound');
+    clock=1_000_000+60*60_000;
+    assert.equal((await fetch(url)).status,503,'missing RPC data cannot extend the display bound');
   }finally{
     await new Promise(resolve=>server.close(resolve));
     await service.close();

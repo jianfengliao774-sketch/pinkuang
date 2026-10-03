@@ -82,7 +82,7 @@ test('expired native listings are marked expired without posting or pretending t
 
 test('an existing unresolved site purchase blocks lookup and publication, including unknown hashes', async () => {
   const f = fixture({ pending: () => true }); await f.publisher.tick();
-  assert.equal(f.row.status, 'buyer-pending'); assert.equal(f.nativeReads, 0); assert.equal(f.calls.length, 0);
+  assert.equal(f.row.status, 'buyer-pending'); assert.equal(f.nativeReads, 1); assert.equal(f.calls.length, 0);
   assert.deepEqual(f.journal.pools, {}); await f.publisher.close();
 });
 
@@ -236,9 +236,9 @@ test('configuration defaults off and only permits the fixed official API and iso
 
 test('API-owned publisher uses its existing private DB and never opens signer state or needs signer credentials', async () => {
   const f = fixture(), db = new DatabaseSync(':memory:');
-  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY,record TEXT)');
+  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY,record TEXT); CREATE TABLE market_signing(account TEXT PRIMARY KEY,intent_key TEXT)');
   db.prepare('INSERT INTO market VALUES(?,?)').run(address(9), JSON.stringify({ factory, target: pool, chainId: 56,
-    targetType: 'pool', action: { kind: 'completeFirstoSale' }, hash: null }));
+    targetType: 'pool', action: { kind: 'completeFirstoSale' }, hash: `0x${'ab'.repeat(32)}` }));
   const worker = createFirstoAskApiWorker({ config: f.config, provider: f.provider, factory, store: { db },
     verifyDeployment: async () => ({ nativeSaleUpgrade: { version: 1 } }), dependencies: f.dependencies,
     publishStatus: (_path, value) => f.statuses.push(structuredClone(value)) });
@@ -251,4 +251,22 @@ test('API-owned publisher uses its existing private DB and never opens signer st
   } finally { await worker.close(); await f.publisher.close(); db.close(); }
   assert.throws(() => createFirstoAskApiWorker({ config: f.config, provider: f.provider, factory,
     verifyDeployment: async () => ({}), store: {} }), /API-owned/);
+});
+
+test('API-owned publication is not blocked by a hashless preparation without signing permission', async () => {
+  const f = fixture(), db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE market(account TEXT PRIMARY KEY,record TEXT); CREATE TABLE market_signing(account TEXT PRIMARY KEY,intent_key TEXT)');
+  const iface = new Interface(['function completeFirstoSale(uint256,uint256,uint16,uint256) payable']);
+  const record = { version: 2, factory, target: pool, chainId: 56, nonce: 3, value: '100', submittedAt: 1000,
+    data: iface.encodeFunctionData('completeFirstoSale', [1, f.native.ask.price, 100, 1]),
+    targetType: 'pool', action: { kind: 'completeFirstoSale' }, hash: null };
+  db.prepare('INSERT INTO market VALUES(?,?)').run(address(9), JSON.stringify(record));
+  const worker = createFirstoAskApiWorker({ config: f.config, provider: f.provider, factory, store: { db },
+    verifyDeployment: async () => ({ nativeSaleUpgrade: { version: 1 } }), dependencies: f.dependencies,
+    publishStatus: (_path, value) => f.statuses.push(structuredClone(value)) });
+  try {
+    await worker.tick(); assert.equal(posts(f).length, 1);
+    assert.equal(worker.snapshot().pools[pool].status, 'publication-accepted');
+    assert.equal(db.prepare('SELECT record FROM market').get().record, JSON.stringify(record));
+  } finally { await worker.close(); await f.publisher.close(); db.close(); }
 });
