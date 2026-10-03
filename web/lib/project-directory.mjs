@@ -26,9 +26,10 @@ function compareKnown(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Parent portfolios are one project with 100 shares, never one project per child. */
+/** Public catalog only; personal positions and exit routes keep the original rows. */
 export function projectDirectory(singlePools, portfolios, { filter = 'all', query = '', sort = 'funded', capacityFor = () => null } = {}) {
-  const all = [...singlePools, ...portfolios.map(portfolioDirectoryRow)];
+  const all = [...singlePools, ...portfolios.map(portfolioDirectoryRow)]
+    .filter(row => projectDirectoryCategory(row) !== 'unavailable');
   const search = query.trim().toLowerCase();
   const rows = all.filter(row => projectMatchesStatus(row, filter)
     && `${row.name} ${row.tokenId ?? ''} ${row.pool} ${row.kind === 'portfolio' ? '多矿机 预算 项目 multi-miner portfolio budget project' : ''}`.toLowerCase().includes(search));

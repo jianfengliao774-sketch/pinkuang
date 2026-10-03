@@ -12,18 +12,20 @@ const transferred = { ...single, state: 0n, targetAvailability: {
   creationBlock: 100, creationBlockHash: `0x${'b'.repeat(64)}`, chainState: 0n,
 } };
 
-test('confirmed transferred fixed target leaves Funding but remains in Overview under its true chain state',()=>{
+test('confirmed transferred fixed target is absent from every public catalog without changing personal records',()=>{
   assert.equal(projectDirectoryCategory(transferred),'unavailable');
   const funding=projectDirectory([transferred],[parent],{filter:'Funding'});
   assert.equal(funding.rows.length,1);assert.equal(funding.rows[0].kind,'portfolio');
   assert.equal(funding.counts.Funding,1);
   const overview=projectDirectory([transferred],[parent],{filter:'all'});
-  assert.equal(overview.rows.length,2);assert.equal(overview.all.find(row=>row.pool===single.pool).status,'Funding');
-  assert.equal(overview.rows.filter(row=>projectDirectoryCategory(row)==='unavailable').length,1);
+  assert.equal(overview.rows.length,1);assert.equal(overview.all.some(row=>row.pool===single.pool),false);
+  assert.equal(transferred.status,'Funding');assert.equal(transferred.state,0n);
+  assert.equal(projectDirectory([transferred],[],{query:single.pool}).rows.length,0);
   const funded={...transferred,status:'Funded',state:1n,
     targetAvailability:{...transferred.targetAvailability,chainState:1n}};
   assert.equal(projectDirectory([funded],[],{filter:'Funding'}).rows.length,0);
-  assert.equal(projectDirectory([funded],[],{filter:'all'}).rows[0].status,'Funded');
+  assert.equal(projectDirectory([funded],[],{filter:'all'}).rows.length,0);
+  assert.equal(funded.status,'Funded');assert.equal(funded.state,1n);
 });
 
 test('unknown, flexible, and inconsistent transfer evidence are not hidden from Funding',()=>{

@@ -1,5 +1,7 @@
 # External target transfer and subscription linkage
 
+Latest public-catalog revision (2026-10-04): confirmed unavailable fixed targets are hidden from every public project catalog, including the project Overview tab, search results and loaded-project counts. Personal positions, existing detail addresses and withdrawal entries retain the real state and balances. This supersedes the earlier public historical-project group described below; no contract state or refund timing changes with this frontend revision.
+
 When an external buyer acquired a fixed fundraising target, the site previously continued to show the project in Funding and build deposit calldata. Invalid sell orders were rejected only when procurement ran; a fully funded pool still had to wait for its purchase deadline before recording refunds.
 
 The read-only index now tracks only Funding/Funded single-miner targets. It reconstructs the owner at the Factory's PoolCreated event from the creation-block end state and ordered ERC721 Transfers. This also covers an external purchase later in the same block. Historical owner and purchase mode are persisted under their canonical block hash. A changed owner, other than the pool itself, makes a fixed project unavailable for new website subscriptions. An opt-in flexible project's reference miner is not treated as a binding target.

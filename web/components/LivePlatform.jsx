@@ -2946,10 +2946,6 @@ export default function LivePlatform() {
               {poolTable(rows, false, false, {loading:updating, failed, ready, total:directory.all.length},id)}
             </section>;
           })}
-          {directory.rows.some(row => projectDirectoryCategory(row) === 'unavailable') && <section className="live-directory-group" data-project-category="unavailable">
-            <h2>{L('不可认购的历史项目','Unavailable historical projects')}</h2>
-            {poolTable(directory.rows.filter(row => projectDirectoryCategory(row) === 'unavailable'),false,false,null,'unavailable')}
-          </section>}
           {directory.rows.some(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))) && <section className="live-directory-group" data-project-category="other">
             <h2>{L('其他项目','Other projects')}</h2>
             {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))),false,false,null,'other')}
