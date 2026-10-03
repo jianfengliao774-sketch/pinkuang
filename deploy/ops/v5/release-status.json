@@ -5,7 +5,7 @@
   "websitePublished": true,
   "servicesInstalled": true,
   "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
-  "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+  "frontendSourceHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
   "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
   "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
@@ -20,10 +20,13 @@
   "regressionReport": "../../../docs/validation/formal-regression-20261003.md",
   "frontendRedeploymentReceipt": "frontend-redeployment-20261003.json",
   "frontendRepublishedAt": "2026-10-03T14:19:20.067992+00:00",
-  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00",
+  "lastFrontendCodeUpdatedAt": "2026-10-03T23:00:23+08:00",
   "canonicalHomepageUrl": "https://bemine.cc.cd/",
   "legacyHomepageEntriesRedirectToCanonical": true,
   "canonicalHomepagePublishedAt": "2026-10-03T14:38:45.661483+00:00",
   "canonicalHomepageReceipt": "canonical-homepage-20261003.json",
-  "allPageUrlsOmitVersionPrefix": true
+  "allPageUrlsOmitVersionPrefix": true,
+  "lastFrontendCodeHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
+  "operatorQuoteRepairReceipt": "operator-quote-repair-20261003.json",
+  "operatorQuoteRepairPublishedAt": "2026-10-03T15:03:14.232081+00:00"
 }

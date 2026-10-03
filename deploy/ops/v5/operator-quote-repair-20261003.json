@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "scope": "frontend-only operator listing price and unsupported-route explanation repair",
+  "publishedAt": "2026-10-03T15:03:14.232081+00:00",
+  "frontendSourceHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "archiveSha256": "a400f61068c83f49bd263705cb27170b848c0c179f67dce5ed7083d4456623d9",
+  "archiveBytes": 16754189,
+  "contentSha256": "dce9301822a11aaefc1c21737938ccdaa577915d8791492bb2f56b599bd0aa76",
+  "buildContentSha256": "4a5f8f3f6485cc4f3f522fe83e1aa45a9c1b9f998af47ff5b125efc3983f9378",
+  "buildFileCount": 317,
+  "buildReleaseManifestSha256": "be5c0df2bd5d729c7a5a9b9f2f14b5a2992eef5bcfaa1e5fefe1f8c37fe2556d",
+  "previousFrontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+  "releaseManifestSha256": "9e96bdbb7a5854c260e7ad9dd1c0d83a5be99dda7ec32a62bb6fcac3ffbc715e",
+  "rootHtmlSha256": "a15061b3d703af72a6859bfd6e16ccd9966901f872b2fc806a0b75afefec45b2",
+  "fileCount": 480,
+  "runtimeRestarted": false,
+  "serviceProcessesUnchanged": true,
+  "publicManifestVerified": true,
+  "rootMatchesV5": true,
+  "retainedImmutableChunkCount": 162,
+  "batchProcurementEnabled": false,
+  "canonicalRootRoutingPreserved": true,
+  "focusedTests": {
+    "passed": 53,
+    "failed": 0
+  },
+  "browserVerification": {
+    "scope": "Local actual-JSX fixture, plus official unauthenticated root page",
+    "fixedBatchPrice": "7.42984",
+    "fixedFillEnabled": false,
+    "flexibleFillEnabled": true,
+    "walletConnected": false
+  },
+  "localCliPublicTlsVerification": "TLS EOF; not treated as an HTTP site failure. Server publisher verified HTTPS root/release bytes and CUA rendered official root.",
+  "independentExternalHttpsVerification": {
+    "passed": true,
+    "checks": 5,
+    "observationPoint": "Deployment server through external domain DNS/TLS",
+    "receipt": "../../../docs/validation/operator-batch-quote-20261003/public-verification.json"
+  }
+}

@@ -11,7 +11,7 @@
   "contractSourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
   "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
   "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
-  "frontendSourceHead": "df46fb0b7e48615f8294bd17a3def4e9ad4547d2",
+  "frontendSourceHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
   "roles": {
     "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
     "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
@@ -57,15 +57,15 @@
     "bytes": 1611118
   },
   "frontendArchive": {
-    "sha256": "da65f0ae824649e9b84bdc9e6e4c07b51720b2ca0f9366a362f93eb0ea738d1d",
-    "bytes": 16753487,
+    "sha256": "a400f61068c83f49bd263705cb27170b848c0c179f67dce5ed7083d4456623d9",
+    "bytes": 16754189,
     "packagedFileCount": 318,
     "buildFileCount": 317,
-    "buildContentSha256": "3a5c883eb73eadf811cb84f5aa7f802971c42393b513eafcf3be2201fe24aeb4",
-    "publishedFileCount": 462,
-    "contentSha256": "6c8e2f375cbb6671f7fa0b11c08e9676777580d2d39c53fc8bae9a93e3103831",
-    "releaseManifestSha256": "f84f11e23a417fcf3daf7aa14577f3f3875373ccef7d52462bfd1be5f1fce868",
-    "retainedImmutableChunkCount": 144
+    "buildContentSha256": "4a5f8f3f6485cc4f3f522fe83e1aa45a9c1b9f998af47ff5b125efc3983f9378",
+    "publishedFileCount": 480,
+    "contentSha256": "dce9301822a11aaefc1c21737938ccdaa577915d8791492bb2f56b599bd0aa76",
+    "releaseManifestSha256": "9e96bdbb7a5854c260e7ad9dd1c0d83a5be99dda7ec32a62bb6fcac3ffbc715e",
+    "retainedImmutableChunkCount": 162
   },
   "verification": {
     "bootstrapTransactions": 16,
@@ -120,10 +120,12 @@
   "backendManifestSha256": "a855e808dd58ae6c5dc1d5ebe8bfe9ba6047cb08562c8545784890d5683a8cce",
   "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338",
   "mergedMobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
-  "lastFrontendCodeHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
-  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00",
+  "lastFrontendCodeHead": "3d3ac1e33114a117b13242eee6906d917f5c6b06",
+  "lastFrontendCodeUpdatedAt": "2026-10-03T23:00:23+08:00",
   "canonicalHomepageUrl": "https://bemine.cc.cd/",
   "legacyHomepageEntriesRedirectToCanonical": true,
   "canonicalHomepagePublishedAt": "2026-10-03T14:38:45.661483+00:00",
-  "allPageUrlsOmitVersionPrefix": true
+  "allPageUrlsOmitVersionPrefix": true,
+  "operatorQuoteRepairReceipt": "operator-quote-repair-20261003.json",
+  "operatorQuoteRepairPublishedAt": "2026-10-03T15:03:14.232081+00:00"
 }
