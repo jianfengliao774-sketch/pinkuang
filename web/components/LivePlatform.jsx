@@ -1270,7 +1270,8 @@ export default function LivePlatform() {
       setActivityTotals({ totalCount: activityCache.totalCount, overviewTotalCount: activityCache.overviewTotalCount }); }
     else { setActivity([]); setActivityCursor(null); setActivityReadSource(null);
       setActivityTotals({ totalCount: null, overviewTotalCount: null }); }
-    if (!currentGovernance && detailTab !== 'vote') void readCachedSection(governanceKey, () => client.readGovernance({ pool, account: owner }))
+    // Only the listed miner's price card consumes governance outside the vote tab.
+    if (!currentGovernance && detail.status === 'Listed' && detailTab !== 'vote') void readCachedSection(governanceKey, () => client.readGovernance({ pool, account: owner }))
       .then(result => { if (!cancelled) { setGovernance(result.data);
         setGovernanceProof({ pool, account: owner, source: result.source });
         remember(governanceKey, result); } })
