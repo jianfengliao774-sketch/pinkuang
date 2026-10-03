@@ -1,0 +1,16 @@
+{
+  "frontendSourceHead": "07041f708b4a1e56a06ab4a15e3b443754ded7e9",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "indexRuntimeSourceHead": "07041f708b4a1e56a06ab4a15e3b443754ded7e9",
+  "archive": {
+    "sha256": "de9158541dfc4c251c28f24ece2add7786ed2bbff4e820eb77c7e24064a62745",
+    "bytes": 16812880
+  },
+  "frontendReleaseManifestSha256": "b6cee3eada744e2f6d74d9c76f2fc738ce422d3b9cd56e58da678473c8fd923d",
+  "packagedFileCount": 319,
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "webTests": 1089,
+  "webPassed": 1089,
+  "contractChanges": false
+}
