@@ -1,0 +1,21 @@
+{
+  "webTests": {
+    "command": "node --test scripts/*.test.mjs server/live-api.test.mjs",
+    "tests": 1078,
+    "pass": 1078,
+    "fail": 0,
+    "skipped": 0,
+    "logSha256": "4ebf31a27147f82bd6198caad1d8e3cd4554e127bb9fefff9493b646eb9ed805"
+  },
+  "checks": [
+    "catalog-check.mjs",
+    "bem-price-check.mjs",
+    "review-policy-check.mjs",
+    "JSX syntax",
+    "git diff --check",
+    "offline static switch and rollback"
+  ],
+  "liveTransactionsSent": 0,
+  "liveRpcUsedInTests": false,
+  "contractChanges": false
+}
