@@ -35,13 +35,13 @@ export default function BemPriceStat({variant='home'}){
  const updated=available?new Date(quote.updatedAt).toLocaleTimeString(locale==='en'?'en-GB':'zh-CN',{hour12:false}):'';
  if(variant==='metric')return <div className={`metric live-price-metric ${styles.price}`}>
   <div className="metric-label">{t('当前币价')}<Coins size={18}/></div>
-  <div className="metric-value">{available?quote.priceUsdt.toFixed(5):'—'}<small>USDT</small></div>
+  <div className="metric-value">{available?quote.priceUsdt.toFixed(2):'—'}<small>USDT</small></div>
   <div className="metric-note">{available?t('每 15 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</div>
   <p className={styles.sources}><span>{t('来源：')}</span><a href={`https://bscscan.com/address/${BEM_POOL}`} target="_blank" rel="noreferrer">PancakeSwap V3</a></p>
  </div>;
  return <div className={`bemine-stat ${styles.price}`}>
   <div><span>{t('当前币价')}</span><Coins size={18}/></div>
-  <strong>{available?quote.priceUsdt.toFixed(5):'—'}<small>USDT</small></strong>
+  <strong>{available?quote.priceUsdt.toFixed(2):'—'}<small>USDT</small></strong>
   <p className={styles.status}>{available?t('每 15 秒更新 · {time}',{time:updated}):t(loading?'正在获取行情':'行情暂不可用')}</p>
   <p className={styles.sources}><span>{t('来源：')}</span><a href={`https://bscscan.com/address/${BEM_POOL}`} target="_blank" rel="noreferrer">PancakeSwap V3</a></p>
  </div>;
