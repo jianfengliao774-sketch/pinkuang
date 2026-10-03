@@ -17,5 +17,18 @@
   ],
   "liveTransactionsSent": 0,
   "liveRpcUsedInTests": false,
-  "contractChanges": false
+  "contractChanges": false,
+  "formalBuild": {
+    "sourceHead": "864482cd6a105eadecf2cdb7657462f346e56c4e",
+    "passed": true,
+    "logSha256": "38ced5723c94fd3c2c804815482bae9da862b263cafb43b19a22fb4563f7ca5b",
+    "verifiedContractArtifact": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927"
+  },
+  "publication": {
+    "passed": true,
+    "url": "https://bemine.cc.cd/#rewards",
+    "publishedAt": "2026-10-03T19:42:06.464180+00:00",
+    "serviceProcessesUnchanged": true,
+    "actualFeatureChunkVerified": "/bemine-v5/_next/static/chunks/app/page-d2544797afb0fca0.js"
+  }
 }
