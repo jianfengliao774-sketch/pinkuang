@@ -3,6 +3,7 @@ import { abi, ARTIFACT_DIGEST } from './chain-client.mjs';
 import genesisContracts from './contracts.genesis.json' with { type: 'json' };
 import { GENESIS_ARTIFACT_DIGEST, PRODUCT_STAGES, fetchLiveJson } from './live-config.mjs';
 import { validateCurrentProductGraph } from './product-config.mjs';
+import { designatedPurchaseEnabled, DESIGNATED_PURCHASE_MODE } from './designated-purchase.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { PORTFOLIO_ACTIONS } from './live-portfolios.mjs';
 import { decodeFirstoOrder } from '../../deploy/src/firsto-purchase.mjs';
@@ -12,7 +13,7 @@ const HASH = /^0x[0-9a-f]{64}$/i;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const ZERO = `0x${'0'.repeat(40)}`;
 const POOL_ACTIONS = new Set(['deposit','withdrawDeposit','finalizeFailure','harvest','claim','withdrawBnb','propose','vote','executeSale','cancelExpired','completeFirstoSale','buyFromMarket','buyAlternativeFromMarket','buyFromFirsto','mine']);
-const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createBudgetChildPool']);
+const FACTORY_ACTIONS = new Set(['createPool','createFlexiblePoolChecked','createDesignatedPoolChecked','createBudgetChildPool']);
 const MARKET_ACTIONS = new Set(['list','fill','cancel','expire','withdrawBnb']);
 const genesisAbi = Object.freeze(Object.fromEntries(Object.entries(genesisContracts.abis)
   .map(([name, fragments]) => [name, new Interface(fragments)])));
@@ -204,6 +205,8 @@ function normalize(config, transaction, action) {
   const kind = typeof action === 'string' ? action : action?.kind;
   requireValue(decoded && allowed.has(decoded.name) && (kind === decoded.name || kind === 'withdraw' && decoded.name === 'withdrawBnb')
     && contract.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() === data.toLowerCase(), '操作名称与允许的交易内容不一致。');
+  if (decoded.name === DESIGNATED_PURCHASE_MODE) requireValue(designatedPurchaseEnabled(config),
+    '当前合约尚未启用指定购机替代规则。');
   const userExit = config.stage === 'fresh-active' && config.userExitReady === true && isFreshUserExit(targetType, decoded.name, value);
   const walletAction = freshWalletActionReady(config, targetType, decoded.name) && isFreshWalletAction(targetType, decoded.name, value);
   requireValue(direct || !config.manifest || (config.transactionReady !== false && (config.stage !== 'fresh-active' || config.operationalReady === true)) || userExit || walletAction,

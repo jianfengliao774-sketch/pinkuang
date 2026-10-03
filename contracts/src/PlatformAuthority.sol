@@ -23,6 +23,12 @@ interface IAuthorityCoreOperations {
         uint32 taskId,
         uint128 weight
     ) external returns (address);
+    function createDesignatedPoolChecked(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.DesignatedPurchaseConfig calldata config,
+        uint32 taskId,
+        uint128 weight
+    ) external returns (address);
 }
 
 interface IAuthorityBudgetOperations {
@@ -101,6 +107,12 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     bytes32 public constant CREATE_POOL_TYPEHASH = keccak256(
         "CreatePool(address factory,string operation,PoolParams params,bool expiryEnabled,address subscriber,FlexibleConfig config,uint32 expectedTaskId,uint128 expectedReferenceWeight,uint256 nonce,uint256 deadline)FlexibleConfig(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)PoolParams(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)"
     );
+    bytes32 public constant DESIGNATED_CONFIG_TYPEHASH = keccak256(
+        "DesignatedConfig(address referenceSeller,uint256 referencePriceWei,uint256 referenceCostWei,uint256 referenceDailyOutputAtomic,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)"
+    );
+    bytes32 public constant CREATE_DESIGNATED_POOL_TYPEHASH = keccak256(
+        "CreateDesignatedPool(address factory,PoolParams params,DesignatedConfig config,uint32 expectedTaskId,uint128 expectedReferenceWeight,uint256 nonce,uint256 deadline)DesignatedConfig(address referenceSeller,uint256 referencePriceWei,uint256 referenceCostWei,uint256 referenceDailyOutputAtomic,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)PoolParams(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)"
+    );
     bytes32 public constant CREATE_PORTFOLIO_TYPEHASH = keccak256(
         "CreatePortfolio(address factory,uint256 budgetWei,uint256 absoluteCapWei,uint256 unitCapWei,uint64 fundingDeadline,uint64 purchaseDeadline,uint256 nonce,uint256 deadline)"
     );
@@ -156,6 +168,11 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
     }
 
     receive() external payable {}
+
+    /// @notice Identifies the distinct, immutable designated-purchase signature format.
+    function designatedPurchaseVersion() external pure returns (uint8) {
+        return 1;
+    }
 
     function setAdministrators(address first, address second) external onlyOwner {
         _setAdministrators(first, second);
@@ -299,7 +316,8 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
                 || selector == IAuthorityCoreOperations.createPoolWithExpiry.selector
                 || selector == IAuthorityCoreOperations.createBudgetChildPool.selector
                 || selector == IAuthorityCoreOperations.createFlexiblePool.selector
-                || selector == IAuthorityCoreOperations.createFlexiblePoolChecked.selector;
+                || selector == IAuthorityCoreOperations.createFlexiblePoolChecked.selector
+                || selector == IAuthorityCoreOperations.createDesignatedPoolChecked.selector;
         } else if (target == budgetFactory) {
             allowed = selector == IAuthorityBudgetOperations.createPortfolio.selector;
         } else if (IAuthorityFactory(coreFactory).isPool(target)) {
@@ -454,6 +472,9 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
             return keccak256(abi.encode(RECLAIM_TYPEHASH, target, workId, nonce, deadline));
         }
 
+        if (selector == IAuthorityCoreOperations.createDesignatedPoolChecked.selector) {
+            return _designatedOperationHash(target, data, nonce, deadline);
+        }
         PoolOperation memory op;
         op.expiryEnabled = true;
         if (selector == IAuthorityCoreOperations.createPool.selector) {
@@ -506,6 +527,44 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
         );
     }
 
+    /// @dev A distinct primary type keeps all legacy CreatePool signatures unchanged.
+    function _designatedOperationHash(address target, bytes calldata data, uint256 nonce, uint256 deadline)
+        private
+        pure
+        returns (bytes32)
+    {
+        (
+            IPoolVault.PoolParams memory params,
+            IPoolVault.DesignatedPurchaseConfig memory config,
+            uint32 expectedTaskId,
+            uint128 expectedReferenceWeight
+        ) = abi.decode(data[4:], (IPoolVault.PoolParams, IPoolVault.DesignatedPurchaseConfig, uint32, uint128));
+        if (
+            keccak256(data)
+                != keccak256(
+                    abi.encodeWithSelector(
+                        IAuthorityCoreOperations.createDesignatedPoolChecked.selector,
+                        params,
+                        config,
+                        expectedTaskId,
+                        expectedReferenceWeight
+                    )
+                )
+        ) revert InvalidAction();
+        return keccak256(
+            abi.encode(
+                CREATE_DESIGNATED_POOL_TYPEHASH,
+                target,
+                _poolParamsHash(params),
+                _designatedConfigHash(config),
+                expectedTaskId,
+                expectedReferenceWeight,
+                nonce,
+                deadline
+            )
+        );
+    }
+
     function _poolParamsHash(IPoolVault.PoolParams memory p) private pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -530,6 +589,21 @@ contract PlatformAuthority is Ownable, EIP712, ReentrancyGuard {
                 c.referencePriceWei,
                 c.targetDailyYieldAtomic,
                 c.extraBps,
+                c.referenceObservedAt,
+                c.referenceBlock,
+                c.referenceDigest
+            )
+        );
+    }
+
+    function _designatedConfigHash(IPoolVault.DesignatedPurchaseConfig memory c) private pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DESIGNATED_CONFIG_TYPEHASH,
+                c.referenceSeller,
+                c.referencePriceWei,
+                c.referenceCostWei,
+                c.referenceDailyOutputAtomic,
                 c.referenceObservedAt,
                 c.referenceBlock,
                 c.referenceDigest

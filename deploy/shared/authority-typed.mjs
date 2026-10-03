@@ -2,12 +2,14 @@ import { Interface, ZeroAddress, getAddress, keccak256 } from 'ethers';
 
 const poolTuple = '(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)';
 const flexibleTuple = '(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
+const designatedTuple = '(address referenceSeller,uint256 referencePriceWei,uint256 referenceCostWei,uint256 referenceDailyOutputAtomic,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
 const core = new Interface([
   `function createPool(${poolTuple} params)`,
   `function createPoolWithExpiry(${poolTuple} params,bool enabled)`,
   `function createBudgetChildPool(${poolTuple} params,address subscriber)`,
   `function createFlexiblePool(${poolTuple} params,${flexibleTuple} config)`,
   `function createFlexiblePoolChecked(${poolTuple} params,${flexibleTuple} config,uint32 taskId,uint128 weight)`,
+  `function createDesignatedPoolChecked(${poolTuple} params,${designatedTuple} config,uint32 taskId,uint128 weight)`,
   'function setDepositPaused(bool paused)',
   'function mine(bytes inner)',
 ]);
@@ -26,6 +28,8 @@ export const AUTHORITY_TYPES = Object.freeze({
   PoolParams: [field('circuits','address'),field('circuitId','uint256'),field('targetRaise','uint256'),field('priceCap','uint256'),field('directSeller','address'),field('directPrice','uint256'),field('fundingDeadline','uint64'),field('purchaseDeadline','uint64')],
   FlexibleConfig: [field('minVerifiedWeight','uint128'),field('referencePriceWei','uint256'),field('targetDailyYieldAtomic','uint256'),field('extraBps','uint16'),field('referenceObservedAt','uint64'),field('referenceBlock','uint64'),field('referenceDigest','bytes32')],
   CreatePool: [field('factory','address'),field('operation','string'),field('params','PoolParams'),field('expiryEnabled','bool'),field('subscriber','address'),field('config','FlexibleConfig'),field('expectedTaskId','uint32'),field('expectedReferenceWeight','uint128'),...common],
+  DesignatedConfig: [field('referenceSeller','address'),field('referencePriceWei','uint256'),field('referenceCostWei','uint256'),field('referenceDailyOutputAtomic','uint256'),field('referenceObservedAt','uint64'),field('referenceBlock','uint64'),field('referenceDigest','bytes32')],
+  CreateDesignatedPool: [field('factory','address'),field('params','PoolParams'),field('config','DesignatedConfig'),field('expectedTaskId','uint32'),field('expectedReferenceWeight','uint128'),...common],
   CreatePortfolio: [field('factory','address'),field('budgetWei','uint256'),field('absoluteCapWei','uint256'),field('unitCapWei','uint256'),field('fundingDeadline','uint64'),field('purchaseDeadline','uint64'),...common],
   DepositPause: [field('pool','address'),field('paused','bool'),...common],
   Reclaim: [field('pool','address'),field('workId','bytes32'),...common],
@@ -36,6 +40,7 @@ const zeroConfig = Object.freeze({ minVerifiedWeight: 0n, referencePriceWei: 0n,
   extraBps: 0n, referenceObservedAt: 0n, referenceBlock: 0n, referenceDigest: '0x' + '00'.repeat(32) });
 const poolNames = AUTHORITY_TYPES.PoolParams.map(item => item.name);
 const configNames = AUTHORITY_TYPES.FlexibleConfig.map(item => item.name);
+const designatedConfigNames = AUTHORITY_TYPES.DesignatedConfig.map(item => item.name);
 const jsonSafe = value => typeof value === 'bigint' ? value.toString()
   : Array.isArray(value) ? value.map(jsonSafe)
     : value && typeof value === 'object'
@@ -91,6 +96,11 @@ export function authorityTypedAction(authority, kind, args, nonce, deadline) {
         throw new Error('Noncanonical reclaim calldata.');
       primaryType = 'Reclaim';
       message = { pool: target, workId: inner.args[0], ...end };
+    } else if (parsed.name === 'createDesignatedPoolChecked') {
+      primaryType = 'CreateDesignatedPool';
+      message = { factory: target, params: pick(parsed.args[0], poolNames),
+        config: pick(parsed.args[1], designatedConfigNames),
+        expectedTaskId: parsed.args[2], expectedReferenceWeight: parsed.args[3], ...end };
     } else if (parsed.name.startsWith('create')) {
       primaryType = 'CreatePool';
       const isFlexible = parsed.name === 'createFlexiblePool' || parsed.name === 'createFlexiblePoolChecked';
@@ -105,7 +115,9 @@ export function authorityTypedAction(authority, kind, args, nonce, deadline) {
     } else throw new Error('Unsupported signed operation.');
   } else throw new Error('Unsupported administrator action.');
   const nested = primaryType === 'CreatePool' ? { PoolParams: AUTHORITY_TYPES.PoolParams,
-    FlexibleConfig: AUTHORITY_TYPES.FlexibleConfig } : {};
+    FlexibleConfig: AUTHORITY_TYPES.FlexibleConfig }
+    : primaryType === 'CreateDesignatedPool' ? { PoolParams: AUTHORITY_TYPES.PoolParams,
+      DesignatedConfig: AUTHORITY_TYPES.DesignatedConfig } : {};
   return { domain, primaryType, types: { [primaryType]: AUTHORITY_TYPES[primaryType], ...nested },
     message: jsonSafe(message) };
 }

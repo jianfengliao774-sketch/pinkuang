@@ -1,7 +1,7 @@
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 
 const abi = new Interface(['function poolCount() view returns(uint256)', 'function creationPaused() view returns(bool)']);
-const creationActions = { factory: new Set(['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool']),
+const creationActions = { factory: new Set(['createPool', 'createFlexiblePoolChecked', 'createDesignatedPoolChecked', 'createBudgetChildPool']),
   portfolioFactory: new Set(['createPortfolio']) };
 
 export function legacyFactoryConfiguration(value) {

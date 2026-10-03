@@ -8,6 +8,7 @@ import { loadBindings, transform } from 'next/dist/build/swc/index.js';
 import { formatEther, parseEther } from 'ethers';
 import { createUiContext } from '../lib/ui-context.mjs';
 import { operatorCreateInput } from '../lib/operator-create-input.mjs';
+import { DESIGNATED_PURCHASE_MODE } from '../lib/designated-purchase.mjs';
 import * as scroll from '../lib/dialog-scroll-lock.mjs';
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
@@ -23,7 +24,8 @@ function handlers({ prepared, prepareError, onSend, preview, autoSelection = nul
     mode: 'createPool', pool: '', listingId: '', imported: '', key: 'factory:account', autoSelection, direct: true, creationPending: false,
     config: { productFamily: 'fresh-v4', displayOnly: true }, account: 'account', readProvider: { name: 'display' },
     wallet: { request: () => assert.fail('Draft feedback cannot request wallet transactions.') },
-    formatEther, parseEther, operatorCreateInput, creationBlocked: false, errorText: error => error.message, preview: state.preview,
+    formatEther, parseEther, operatorCreateInput, DESIGNATED_PURCHASE_MODE,
+    creationBlocked: false, errorText: error => error.message, preview: state.preview,
     recheckSelection: async () => autoSelection.draft,
     parseOperatorImport: () => assert.fail('Manual imports are not used by this fixture.'),
     boundedReadPreview: async (fn, options) => { assert.equal(options.provider.name, 'display');

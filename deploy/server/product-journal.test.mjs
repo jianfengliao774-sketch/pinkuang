@@ -37,6 +37,23 @@ test('signing verifier sends independent graph reads to an RPC that cannot answe
   }finally{provider.destroy();await new Promise(resolve=>server.close(resolve));}
 });
 
+test('designated creation is canonical but Authority-only and Firsto fallback remains keeper-only before any RPC',async()=>{
+  let reads=0;const provider={send:async()=>{reads++;throw Error('Unexpected RPC');}};
+  const params=[collection,7n,120n,110n,addr(0),0n,1000,2000],config=[addr(78),100n,100n,4_579_200n,999,1,hash(7)];
+  const creation=intent('createDesignatedPoolChecked',[params,config,20,10],'0','factory');
+  await assert.rejects(verifyProductIntent(provider,creation,new Set([factory.toLowerCase()])),
+    error=>error.status===403 && /administrator signature/.test(error.message));
+  const source=await signedSource(),order=parseFirstoSignedAsk(source,{collection,tokenId:'7',owner:source.account,now});
+  const fallback=intent('buyAlternativeFromFirsto',[0,order.encodedOrder],'0');
+  await assert.rejects(verifyProductIntent(provider,fallback,new Set([factory.toLowerCase()])),
+    error=>error.status===403 && /isolated purchase keeper/.test(error.message));
+  for(const bad of [intent('buyAlternativeFromFirsto',[1,order.encodedOrder],'0'),
+    intent('buyAlternativeFromFirsto',[0,order.encodedOrder+'00'],'0'),
+    {...creation,data:creation.data+'00'}])
+    await assert.rejects(verifyProductIntent(provider,bad,new Set([factory.toLowerCase()])),error=>error.status===400);
+  assert.equal(reads,0);
+});
+
 test('product signing RPC has a bounded timeout and does not retry HTTP 429', async () => {
   let mode = 'rate', requests = 0;
   const server = createServer((req, res) => {

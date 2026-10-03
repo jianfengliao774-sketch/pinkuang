@@ -1,18 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JsonRpcProvider, getAddress, parseUnits, toBeHex } from 'ethers';
-import { DeploymentEngine, PROTOCOL_ADDRESSES, type ArtifactBundle, type DeploymentInput,
+import { DeploymentEngine, PROTOCOL_ADDRESSES, type DeploymentInput,
   type DeploymentSnapshot, type Eip1193Provider } from './deployment';
-// @ts-expect-error The independent compiler helper is JavaScript.
-import { artifactContentDigest, compileDeploymentArtifacts } from '../scripts/build-artifacts.mjs';
+import { compileCandidateArtifacts } from './candidate-artifacts.test-helper';
 
-(globalThis as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = artifactContentDigest(compileDeploymentArtifacts());
-const bundle: ArtifactBundle = JSON.parse(await readFile(new URL('../public/deployment-artifacts.json', import.meta.url), 'utf8'));
+const { bundle, digest } = compileCandidateArtifacts();
+(globalThis as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = digest;
 let node: ReturnType<typeof spawn>, provider: JsonRpcProvider, accounts: string[];
 before(async () => {
   const listener = createServer();

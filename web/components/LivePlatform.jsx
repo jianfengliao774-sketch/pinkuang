@@ -1,5 +1,6 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
+import { readDesignatedPurchaseTerms } from '../lib/designated-purchase.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
@@ -1626,12 +1627,14 @@ export default function LivePlatform() {
         orderId: target.orderId,
       };
       const result = await prepareProductAction(input);
+      const designatedPurchase = target.kind === 'deposit'
+        ? await readDesignatedPurchaseTerms(client?.provider ?? wallet, config, target.pool.pool) : null;
       if (
         context === walletEpoch.current &&
         revision === epoch.current &&
         activeModal.current === target
       )
-        setPrepared({ ...result, forModal: target });
+        setPrepared({ ...result, designatedPurchase, forModal: target });
     } catch (e) {
       if (context === walletEpoch.current && activeModal.current === target)
         setError(textError(e));
@@ -4198,6 +4201,7 @@ export default function LivePlatform() {
                         <div><span>{L('本次最多可售', 'Available to list')}</span><strong>{modal.pool.availableShares.toString()}</strong></div>
                         <p>{L('已自动选择你的持仓项目，无需填写合约地址。', 'Your holding is selected automatically. No contract address is required.')}</p>
                       </div>}
+                      {prepared?.designatedPurchase && <p className="subtle-note">{prepared.designatedPurchase.terms}</p>}
                       {["deposit", "fill", "list"].includes(modal.kind) && (
                         <label className="field-label">
                           {L("份额数量", "Number of shares")}

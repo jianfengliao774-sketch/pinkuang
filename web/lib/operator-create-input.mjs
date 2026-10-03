@@ -2,12 +2,15 @@ import { formatEther, getAddress, parseEther } from 'ethers';
 import { uint } from './chain-client.mjs';
 import { OFFICIAL_COLLECTIONS } from './live-admin.mjs';
 import { parseOperatorImport } from './operator-quotes.mjs';
+import { DESIGNATED_PURCHASE_MODE } from './designated-purchase.mjs';
 
 const amountPattern = /^(?:\d+(?:\.\d{0,18})?|\.\d{1,18})$/;
 const text = value => typeof value === 'string' ? value.trim() : '';
 
 /** Validate before any preview/read starts. Display rounding never changes these exact Wei values. */
 export function operatorCreateInput({ form, mode = 'createPool', imported = '', autoSelection = null }) {
+  if (mode === DESIGNATED_PURCHASE_MODE && !autoSelection) return { valid: false,
+    errors: { imported: '请先选择矿机并核对指定购机替代基准。' }, reason: '请先选择矿机并核对指定购机替代基准。', input: null };
   const errors = {}, params = {}, importedMode = mode === 'createFlexiblePoolChecked' && !autoSelection;
   let data, values = form;
   if (importedMode) {

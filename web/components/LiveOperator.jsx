@@ -11,6 +11,7 @@ import { operatorCreateInput } from '../lib/operator-create-input.mjs';
 import OperatorQuotePicker from './OperatorQuotePicker';
 import OperatorDialog from './OperatorDialog';
 import { loadOperatorQuote, operatorQuoteDraft, operatorQuoteError } from '../lib/operator-quotes.mjs';
+import { DESIGNATED_PURCHASE_MODE, DESIGNATED_PURCHASE_TERMS, designatedPurchaseEnabled } from '../lib/designated-purchase.mjs';
 import '../app/live-operator.css';
 
 const collections = [
@@ -87,12 +88,16 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     const options = { mode, extraBps: selection.extraBps, fundingHours: local.input.params.fundingHours,
       purchaseHours: local.input.params.purchaseHours };
     const original = operatorQuoteDraft(selection.checked, options);
-    if (direct) return original;
+    if (direct && mode !== DESIGNATED_PURCHASE_MODE) return original;
     const checked = await loadOperatorQuote({ collection: selection.checked.chain.collection,
       tokenId: selection.checked.chain.tokenId, config, mode, forCreation: true, ...optionsForRead });
     const current = operatorQuoteDraft(checked, options);
     if (current.params.targetRaiseWei !== original.params.targetRaiseWei || current.params.priceCapWei !== original.params.priceCapWei
-      || current.expectedTaskId !== original.expectedTaskId || current.expectedReferenceWeight !== original.expectedReferenceWeight) {
+      || current.expectedTaskId !== original.expectedTaskId || current.expectedReferenceWeight !== original.expectedReferenceWeight
+      || mode === DESIGNATED_PURCHASE_MODE && (current.designated.referenceDailyOutputAtomic !== original.designated.referenceDailyOutputAtomic
+        || current.designated.referenceSeller !== original.designated.referenceSeller
+        || current.designated.referencePriceWei !== original.designated.referencePriceWei
+        || current.designated.referenceCostWei !== original.designated.referenceCostWei)) {
       throw new Error('最新报价或矿机条件已变化，请重新选择矿机并核对募集方案。');
     }
     // Keep the exact reviewed reference evidence; never silently replace its digest/timestamp.
@@ -100,7 +105,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   }
 
   async function prepare(kind = mode, miningAction) {
-    const creation = ['createPool', 'createFlexiblePoolChecked'].includes(kind)
+    const creation = ['createPool', 'createFlexiblePoolChecked', DESIGNATED_PURCHASE_MODE].includes(kind)
       ? operatorCreateInput({ form, mode: kind, imported, autoSelection }) : null;
     if (creation && (!creation.valid || creationBlocked)) return;
     const ticket = context.current.begin(); setBusy(true); setError(''); setPreview(null);
@@ -110,7 +115,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     try {
       const prepared = await boundedReadPreview(async ({ provider, check, signal }) => {
       let input;
-      if (autoSelection && ['createPool', 'createFlexiblePoolChecked'].includes(kind)) input = await recheckSelection(autoSelection, { provider, signal });
+      if (autoSelection && ['createPool', 'createFlexiblePoolChecked', DESIGNATED_PURCHASE_MODE].includes(kind)) input = await recheckSelection(autoSelection, { provider, signal });
       else if (creation) input = creation.input;
       else input = { kind, pool, listingId, miningAction };
       check();
@@ -168,9 +173,10 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       <div className="operator-identity"><span>当前运营钱包</span><strong>{account}</strong><span>单矿机工厂合约</span><strong>{config.factory}</strong></div>
       {!direct && !operator.machineRegistry?.supported && <p className="live-notice">当前工厂尚未支持矿机唯一性登记。请等待合约升级后创建新项目；已有项目的读取、退款与提现不受影响。</p>}
       {!direct && operator.machineRegistry?.supported && !operator.machineRegistry.ready && <p className="live-notice error">矿机唯一性登记尚未完成，暂不能创建新项目或从 Firsto 采购。</p>}
-      <div className="operator-tabs"><button className={`btn${mode === 'createPool' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createPool')}>指定单台矿机</button><button className={`btn${mode === 'createFlexiblePoolChecked' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createFlexiblePoolChecked')}>单台矿机灵活替代</button><button className="btn secondary" disabled={frozen} onClick={() => document.getElementById('multi-miner-projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>多矿机同一项目（100 份）↓</button></div>
+      <div className="operator-tabs"><button className={`btn${mode === 'createPool' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createPool')}>指定单台矿机</button><button className={`btn${mode === 'createFlexiblePoolChecked' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createFlexiblePoolChecked')}>单台矿机灵活替代</button>{designatedPurchaseEnabled(config) && <button className={`btn${mode === DESIGNATED_PURCHASE_MODE ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode(DESIGNATED_PURCHASE_MODE)}>指定矿机 · ±10% 替代</button>}<button className="btn secondary" disabled={frozen} onClick={() => document.getElementById('multi-miner-projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>多矿机同一项目（100 份）↓</button></div>
       <p className="subtle-note">当前表单只建单台矿机池。若要用固定 BNB 预算购买多台矿机，请进入下方“多矿机预算项目”；募满后可设置本批最多采购台数。</p>
       {operator.creationPaused && <p className="live-notice error">链上建池已暂停，需要治理权限恢复后才能新建。</p>}
+      {mode === DESIGNATED_PURCHASE_MODE && <p className="subtle-note">{DESIGNATED_PURCHASE_TERMS}</p>}
       <OperatorQuotePicker config={config} mode={mode} disabled={frozen || creationPending || !!preview} refreshKey={refreshKey} onApply={applyQuote}/>
       {autoSelection && <p className="live-notice">{direct ? '已自动填入矿机与募集方案。请核对金额和期限。' : '已自动填入矿机与募集方案。请核对金额和期限；预览前会重新读取最新报价。'}</p>}
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
@@ -207,7 +213,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
         {feedback.kind === 'submitting' && <button className="btn secondary" onClick={() => setSubmissionHidden(true)}>收起</button>}
         {feedback.kind.endsWith('-error') && <button className="btn" onClick={() => setFeedback(null)}>返回修改</button>}
       </OperatorDialog>}
-      {preview && preview.identity === key && <OperatorDialog title="核对后前往钱包" onClose={!busy ? () => { context.current.invalidate(); setPreview(null); } : undefined}><dl><div><dt>操作</dt><dd>{preview.kind === 'buyFromFirsto' ? '从 Firsto 购入原目标矿机' : preview.kind === 'buyAlternativeFromMarket' ? '从官网市场购入同任务替代矿机' : preview.official ? '从官网市场购入原目标矿机' : preview.requestKind || preview.kind}</dd></div><div><dt>接收合约</dt><dd>{preview.transaction.to}</dd></div>{preview.official && <><div><dt>购入矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.official.collection?.toLowerCase())?.[0]} #{preview.official.tokenId}</dd></div>{preview.official.verifiedWeight && <div><dt>验证产能权重</dt><dd>{preview.official.verifiedWeight}</dd></div>}<div><dt>官网挂单编号</dt><dd>#{preview.official.id}</dd></div><div><dt>官网成交价</dt><dd>{displayAmount(preview.official.priceWei)} BNB（由矿池余额支付）</dd></div><div><dt>钱包支付</dt><dd>仅 Gas</dd></div></>}{preview.firsto ? <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.firsto.ask.collection.toLowerCase())?.[0]} #{preview.firsto.ask.tokenId}</dd></div><div><dt>矿机合约</dt><dd>{preview.firsto.ask.collection}</dd></div><div><dt>卖家报价</dt><dd>{displayAmount(preview.firsto.priceWei)} BNB</dd></div><div><dt>Firsto 来源手续费</dt><dd>{displayAmount(preview.firsto.feeWei)} BNB</dd></div><div><dt>矿池总支出</dt><dd>{displayAmount(preview.firsto.grossWei)} BNB（由矿池余额支付）</dd></div><div><dt>订单有效期</dt><dd>{when(preview.firsto.ask.expiry)}</dd></div><div><dt>钱包支付</dt><dd>仅 Gas，不从运营钱包转入购机款</dd></div></> : !preview.official && <div><dt>业务支付</dt><dd>{config.stage === 'fresh-active' ? '本钱包仅签名，Gas 钱包代付手续费' : <>{displayAmount(preview.transaction.value || 0)} BNB + Gas</>}</dd></div>}{preview.input.params && <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.input.params.circuits.toLowerCase())?.[0] || preview.input.params.circuits} #{preview.input.params.circuitId.toString()}</dd></div><div><dt>购机上限</dt><dd>{displayAmount(preview.input.params.priceCap)} BNB</dd></div><FundingPreview value={preview.input.params.targetRaise}/><div><dt>募集截止</dt><dd>{when(preview.input.params.fundingDeadline)}</dd></div><div><dt>购机截止</dt><dd>{when(preview.input.params.purchaseDeadline)}</dd></div></>}{busy && gasFeeWei != null && <div><dt>Gas 费用上限</dt><dd>{displayGasFee(gasFeeWei)} BNB</dd></div>}</dl>{preview.official && <p className="subtle-note">官网预览价未锁定；交易只包含挂单编号。卖家可能在成交前调价，合约仍会检查矿池购机上限{preview.kind === 'buyAlternativeFromMarket' ? '及单位验证产能价格上限' : ''}。</p>}{preview.firsto && <p className="subtle-note">{direct ? '此预览已锁定订单，确认后按预览内容发送。' : '此预览已锁定订单。发送前会再次扫描官网市场并核验原 Firsto 订单；条件变化时需要重新预览，不会自动替换成交订单。'}</p>}<div className="operator-tabs"><button className="btn secondary" disabled={busy} onClick={() => { context.current.invalidate(); setPreview(null); }}>返回修改</button><button className="btn" disabled={frozen} onClick={() => void send()}>发送到钱包确认<ArrowRight size={16}/></button></div></OperatorDialog>}
+      {preview && preview.identity === key && <OperatorDialog title="核对后前往钱包" onClose={!busy ? () => { context.current.invalidate(); setPreview(null); } : undefined}><>{preview.kind === DESIGNATED_PURCHASE_MODE && <p className="subtle-note">{DESIGNATED_PURCHASE_TERMS}</p>}</><dl><div><dt>操作</dt><dd>{preview.kind === 'buyFromFirsto' ? '从 Firsto 购入原目标矿机' : preview.kind === 'buyAlternativeFromMarket' ? '从官网市场购入同任务替代矿机' : preview.official ? '从官网市场购入原目标矿机' : preview.requestKind || preview.kind}</dd></div><div><dt>接收合约</dt><dd>{preview.transaction.to}</dd></div>{preview.official && <><div><dt>购入矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.official.collection?.toLowerCase())?.[0]} #{preview.official.tokenId}</dd></div>{preview.official.verifiedWeight && <div><dt>验证产能权重</dt><dd>{preview.official.verifiedWeight}</dd></div>}<div><dt>官网挂单编号</dt><dd>#{preview.official.id}</dd></div><div><dt>官网成交价</dt><dd>{displayAmount(preview.official.priceWei)} BNB（由矿池余额支付）</dd></div><div><dt>钱包支付</dt><dd>仅 Gas</dd></div></>}{preview.firsto ? <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.firsto.ask.collection.toLowerCase())?.[0]} #{preview.firsto.ask.tokenId}</dd></div><div><dt>矿机合约</dt><dd>{preview.firsto.ask.collection}</dd></div><div><dt>卖家报价</dt><dd>{displayAmount(preview.firsto.priceWei)} BNB</dd></div><div><dt>Firsto 来源手续费</dt><dd>{displayAmount(preview.firsto.feeWei)} BNB</dd></div><div><dt>矿池总支出</dt><dd>{displayAmount(preview.firsto.grossWei)} BNB（由矿池余额支付）</dd></div><div><dt>订单有效期</dt><dd>{when(preview.firsto.ask.expiry)}</dd></div><div><dt>钱包支付</dt><dd>仅 Gas，不从运营钱包转入购机款</dd></div></> : !preview.official && <div><dt>业务支付</dt><dd>{config.stage === 'fresh-active' ? '本钱包仅签名，Gas 钱包代付手续费' : <>{displayAmount(preview.transaction.value || 0)} BNB + Gas</>}</dd></div>}{preview.input.params && <><div><dt>目标矿机</dt><dd>{collections.find(([, address]) => address.toLowerCase() === preview.input.params.circuits.toLowerCase())?.[0] || preview.input.params.circuits} #{preview.input.params.circuitId.toString()}</dd></div><div><dt>购机上限</dt><dd>{displayAmount(preview.input.params.priceCap)} BNB</dd></div><FundingPreview value={preview.input.params.targetRaise}/><div><dt>募集截止</dt><dd>{when(preview.input.params.fundingDeadline)}</dd></div><div><dt>购机截止</dt><dd>{when(preview.input.params.purchaseDeadline)}</dd></div></>}{busy && gasFeeWei != null && <div><dt>Gas 费用上限</dt><dd>{displayGasFee(gasFeeWei)} BNB</dd></div>}</dl>{preview.official && <p className="subtle-note">官网预览价未锁定；交易只包含挂单编号。卖家可能在成交前调价，合约仍会检查矿池购机上限{preview.kind === 'buyAlternativeFromMarket' ? '及单位验证产能价格上限' : ''}。</p>}{preview.firsto && <p className="subtle-note">{direct ? '此预览已锁定订单，确认后按预览内容发送。' : '此预览已锁定订单。发送前会再次扫描官网市场并核验原 Firsto 订单；条件变化时需要重新预览，不会自动替换成交订单。'}</p>}<div className="operator-tabs"><button className="btn secondary" disabled={busy} onClick={() => { context.current.invalidate(); setPreview(null); }}>返回修改</button><button className="btn" disabled={frozen} onClick={() => void send()}>发送到钱包确认<ArrowRight size={16}/></button></div></OperatorDialog>}
     </>}
   </section>;
 }

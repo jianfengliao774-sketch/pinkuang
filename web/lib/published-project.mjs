@@ -14,7 +14,7 @@ export function publishedProjectIntent(config, transaction, { account, command }
   const contract = portfolio ? abi.BudgetPortfolioFactory : abi.PoolFactory;
   const parsed = contract.parseTransaction({ data: transaction.data });
   if (!parsed || !(portfolio ? ['createPortfolio'] : ['createPool', 'createPoolWithExpiry',
-    'createFlexiblePool', 'createFlexiblePoolChecked', 'createBudgetChildPool']).includes(parsed.name)) return null;
+    'createFlexiblePool', 'createFlexiblePoolChecked', 'createDesignatedPoolChecked', 'createBudgetChildPool']).includes(parsed.name)) return null;
   need(BigInt(transaction.value) === 0n && BigInt(transaction.chainId) === 56n
     && same(transaction.from, account) && same(command.args.target, factory)
     && same(command.args.data, transaction.data)

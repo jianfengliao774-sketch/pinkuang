@@ -33,7 +33,8 @@ test('explicit legacy cutover configuration rejects empty, zero and malformed ad
 });
 
 test('both core creation routes and budget creation require a paused empty legacy Factory at the exact preview block', async () => {
-  for (const [kind, name] of [['factory', 'createPool'], ['factory', 'createFlexiblePoolChecked'], ['portfolioFactory', 'createPortfolio']]) {
+  for (const [kind, name] of [['factory', 'createPool'], ['factory', 'createFlexiblePoolChecked'],
+    ['factory','createDesignatedPoolChecked'], ['portfolioFactory', 'createPortfolio']]) {
     const f = fixture(); await f.check(kind, name);
     assert.deepEqual(f.state.reads.sort(), ['creationPaused', 'poolCount']);
     f.state.paused = false; await assert.rejects(f.check(kind, name), error => error.status === 409 && /尚未停建/.test(error.message));

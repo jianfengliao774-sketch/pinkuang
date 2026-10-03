@@ -16,7 +16,7 @@ const authorityAbi = new Interface([
 ]);
 const integer = value => { const n = BigInt(value); need(n >= 0n, '金额、编号或时间不能为负。'); return n; };
 const creationNames = new Set(['createPool', 'createPoolWithExpiry', 'createBudgetChildPool',
-  'createFlexiblePool', 'createFlexiblePoolChecked']);
+  'createFlexiblePool', 'createFlexiblePoolChecked', 'createDesignatedPoolChecked']);
 
 /** Inspect the signed bytes, never the picker selection or an older preview's permission. */
 function creationReservation(config, kind, args) {
@@ -57,7 +57,7 @@ export function approvedOperatorCall(config, transaction, { pool } = {}) {
     return { target, data: transaction.data };
   }
   need(parsed && (target !== core || ['createPool','createPoolWithExpiry','createBudgetChildPool',
-    'createFlexiblePool','createFlexiblePoolChecked'].includes(parsed.name))
+    'createFlexiblePool','createFlexiblePoolChecked','createDesignatedPoolChecked'].includes(parsed.name))
     && (target !== budget || parsed.name === 'createPortfolio'), '只有已预览的建池或预算项目能由管理员代付。');
   need([core, budget].includes(target)
     && contract.encodeFunctionData(parsed.fragment, parsed.args).toLowerCase() === transaction.data.toLowerCase(), '管理员建池 calldata 不规范。');

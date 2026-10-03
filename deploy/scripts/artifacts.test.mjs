@@ -4,12 +4,30 @@ import { appendFile, copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeF
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { keccak256, toUtf8Bytes, Interface } from 'ethers';
+import { reviewedDesignatedPurchaseSupport } from '../server/fresh-product-gate.mjs';
 import {
   assertCurrentArtifactInputs, assertCurrentArtifacts, artifactContentDigest, compileDeploymentArtifacts, libraryNames,
   linkedDeploymentOrder, outputPath, repositoryRoot, requiredContracts, validateArtifacts,
+  writeDeploymentArtifacts,artifactBuildOptions,
 } from './build-artifacts.mjs';
 
 const document = compileDeploymentArtifacts();
+
+test('candidate artifacts use an explicit separate output while existing deployed artifacts remain byte-for-byte unchanged',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'pinkuang-candidate-artifacts-')),artifactPath=join(root,'candidate','deployment-artifacts.json');
+  const previous=await readFile(outputPath,'utf8');
+  try {
+    assert.deepEqual(artifactBuildOptions(['--output',artifactPath,'--check']),{check:true,artifactPath});
+    assert.deepEqual(artifactBuildOptions([]),{check:false,artifactPath:outputPath});
+    for(const args of [['--output'],['--output',''],['--check','--check'],['--output',artifactPath,'--output',artifactPath],['--unknown']])
+      assert.throws(()=>artifactBuildOptions(args),/Usage/);
+    assert.equal(writeDeploymentArtifacts(document,{artifactPath}),artifactPath);
+    assertCurrentArtifacts(JSON.parse(await readFile(artifactPath,'utf8')),document);
+    assert.equal(await readFile(outputPath,'utf8'),previous);
+    assert.equal(reviewedDesignatedPurchaseSupport({bundle:document}),true,'The candidate compiler emits the exact server capability ABI.');
+    assert.equal(reviewedDesignatedPurchaseSupport({bundle:JSON.parse(previous)}),false,'Old saved deployment bytes cannot gain the candidate capability.');
+  } finally {await rm(root,{recursive:true,force:true});}
+});
 
 test('browser artifacts compile the complete source graph with the reviewed compiler settings', () => {
   assert.equal(document.schemaVersion, 1);
@@ -142,13 +160,13 @@ test('long-running dev journal guard rejects changed Solidity files and stale ar
     await cp(join(repositoryRoot, 'contracts/src'), join(root, 'contracts/src'), { recursive: true });
     await copyFile(join(repositoryRoot, 'contracts/foundry.toml'), join(root, 'contracts/foundry.toml'));
     await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'));
-    await copyFile(outputPath, artifactPath);
+    writeDeploymentArtifacts(document,{artifactPath});
     assert.doesNotThrow(() => assertCurrentArtifactInputs(digest, options));
     const changed = JSON.parse(await readFile(artifactPath, 'utf8'));
     changed.artifacts.PoolFactory.bytecode += '00';
     await writeFile(artifactPath, JSON.stringify(changed));
     assert.throws(() => assertCurrentArtifactInputs(digest, options), /Deployment artifacts changed/);
-    await copyFile(outputPath, artifactPath);
+    writeDeploymentArtifacts(document,{artifactPath});
     await appendFile(join(root, 'contracts/src/PoolVault.sol'), '\n');
     assert.throws(() => assertCurrentArtifactInputs(digest, options), /Solidity sources changed/);
   } finally { await rm(root, { recursive: true, force: true }); }

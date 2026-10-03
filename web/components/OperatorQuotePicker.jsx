@@ -5,6 +5,7 @@ import { ZeroAddress } from 'ethers';
 import { Search, RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { listOperatorQuotes, loadOperatorQuote, loadVerifiedCapacityHint, listingDailyCapacityPrice, operatorQuoteDraft, operatorQuoteError, QUOTE_BASE, QUOTE_SOURCE } from '../lib/operator-quotes.mjs';
 import { OFFICIAL_COLLECTIONS, fetchCapacityReference, quoteIssue, referenceIssue } from '../../deploy/src/pricing.ts';
+import { DESIGNATED_PURCHASE_MODE, DESIGNATED_PURCHASE_TERMS } from '../lib/designated-purchase.mjs';
 
 const amount = (value, decimals = 18) => value == null ? '—' : displayAmount(value, decimals);
 const firstoStatus = { verified: '纯验证', unverified: '未验证', optimal: '最优', not_started: '未启动', failed: '已失败', checking: '检查中' };
@@ -95,12 +96,12 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
         if (result.quote) setPage(current => current ? { ...current, rows: current.rows.map(item =>
           item.collection.toLowerCase() === result.quote.collection.toLowerCase() && item.tokenId === result.quote.tokenId
             ? result.quote : item) } : current);
-        if (!result.quote) void loadVerifiedCapacityHint(result.chain, { signal: abort.signal })
+        if (!result.quote && mode !== DESIGNATED_PURCHASE_MODE) void loadVerifiedCapacityHint(result.chain, { signal: abort.signal })
           .then(hint => { if (sequence === request.current.sequence) setCapacityHint(hint); })
           .catch(problem => { if (sequence === request.current.sequence) setCapacityError(operatorQuoteError(problem)); });
         if (result.reference) setMarketReference(result.reference);
         else if (result.referenceError) setMarketReferenceError(result.referenceError);
-        else void fetchCapacityReference({ signal: abort.signal, baseUrl: QUOTE_BASE })
+        else if (mode !== DESIGNATED_PURCHASE_MODE) void fetchCapacityReference({ signal: abort.signal, baseUrl: QUOTE_BASE })
           .then(reference => { if (sequence === request.current.sequence) setMarketReference(reference); })
           .catch(problem => { if (sequence === request.current.sequence) setMarketReferenceError(operatorQuoteError(problem)); });
       }
@@ -128,8 +129,8 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
   const blocked = disabled || busy;
   const registeredPool = selected?.chain.registry?.pool;
   const duplicate = registeredPool && registeredPool !== ZeroAddress;
-  const selectedDailyYield = selected?.quote?.estimated24hAtomic ?? capacityHint?.estimated24hAtomic;
-  const selectedYieldObservedAt = selected?.quote?.source?.observedAt ?? capacityHint?.observedAt;
+  const selectedDailyYield = selected?.designatedBaseline?.dailyOutputAtomic ?? selected?.quote?.estimated24hAtomic ?? capacityHint?.estimated24hAtomic;
+  const selectedYieldObservedAt = selected?.designatedBaseline ? Number(selected.designatedBaseline.observedAt) * 1000 : selected?.quote?.source?.observedAt ?? capacityHint?.observedAt;
   const executableAsk = selected?.chain.official ?? selected?.chain.firsto;
   // A real market quote can still be displayed when its order type is not an
   // executable pool purchase. It must never supply the fixed-pool draft cap.
@@ -144,7 +145,7 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
   const applyBlockedReason = !selected ? null : duplicate ? `此矿机已有拼矿项目：${registeredPool}，不能重复创建。`
     : !direct && !selected.chain.registry?.supported ? '当前工厂尚未支持矿机唯一性登记。'
       : !direct && !selected.chain.registry.ready ? '矿机唯一性登记尚未完成。'
-        : mode === 'createPool' && !executableAsk ? batchAsk
+        : ['createPool', DESIGNATED_PURCHASE_MODE].includes(mode) && !executableAsk ? batchAsk
           ? '该矿机挂的是 Firsto 批量订单，当前矿池合约不支持采购，不能用于指定矿机建池。'
           : selected.chain.firstoError || (selected.quote?.ask
             ? quoteIssue(selected.quote) || '当前没有可执行的官网挂单或 Firsto 单笔签名订单。'
@@ -170,19 +171,20 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
     </tbody></table></div><p className="subtle-note">挂单日产能价＝当前列表挂单价 ÷ 预计日产出；同类参考价来自 Firsto 的 listingReference，不能当成这台矿机的可成交价格。{direct ? '选择后按实际官网挂单或 Firsto 订单生成方案。' : '选中后仍以官网链上挂单或已核验 Firsto 订单为准。'}</p>{!page.rows.length && <><p>{direct ? 'Firsto 列表未找到这个编号的可用挂单；可以直接查询官网挂单。' : 'Firsto 列表未找到这个编号的可用挂单；官网链上挂单仍可直接核对。'}</p>{/^\d+$/.test(query.trim()) && series && <button type="button" className="btn secondary" disabled={blocked} onClick={() => void choose({ collection: OFFICIAL_COLLECTIONS[series], tokenId: query.trim(), series })}>直查官网链上矿机</button>}</>}
       <div className="operator-tabs"><button className="btn secondary" disabled={blocked || page.page <= 1} onClick={() => void load(page.page - 1)}>上一页</button><span>第 {page.page} / {Math.max(page.totalPages, 1)} 页</span><button className="btn secondary" disabled={blocked || page.page >= page.totalPages} onClick={() => void load(page.page + 1)}>下一页</button></div></>}
     {selected && <div className="operator-quote-selected"><h4><CheckCircle2 size={18}/>{Object.entries(OFFICIAL_COLLECTIONS).find(([, address]) => address.toLowerCase() === selected.chain.collection.toLowerCase())?.[0]} #{selected.chain.tokenId} · {direct ? '矿机资料已读取' : '矿机链上核对通过'}</h4>
-      <p>预计日产出：<strong>{selectedDailyYield ? `${amount(selectedDailyYield, 8)} BEM / 天` : '—'}</strong>{!selectedDailyYield ? capacityError ? `（${capacityError}）` : '（读取 Firsto 产能中）' : `（Firsto 估算，更新于 ${new Date(selectedYieldObservedAt).toLocaleString('zh-CN')}）`}{!direct && <>；链上核对区块 {selected.chain.blockNumber}</>}。{!selected.quote && (direct ? '官网挂单已读取，无需等待 Firsto 报价。' : '官网挂单已核验，无需等待 Firsto 报价。')}</p>
+      <p>预计日产出：<strong>{selectedDailyYield ? `${amount(selectedDailyYield, 8)} BEM / 天` : '—'}</strong>{!selectedDailyYield ? capacityError ? `（${capacityError}）` : '（读取 Firsto 产能中）' : `（${mode === DESIGNATED_PURCHASE_MODE ? '官方链上预计日产' : 'Firsto 估算'}，更新于 ${new Date(selectedYieldObservedAt).toLocaleString('zh-CN')}）`}{!direct && <>；链上核对区块 {selected.chain.blockNumber}</>}。{!selected.quote && (direct ? '官网挂单已读取，无需等待 Firsto 报价。' : '官网挂单已核验，无需等待 Firsto 报价。')}</p>
       <p>该矿机当前{selectedVenue}挂单日产能价：<strong>{selectedDailyPrice == null ? '—' : `${selectedDailyPrice} BNB / (BEM / 天)`}</strong>{referenceOnlyAsk && '（挂牌参考，尚无可执行采购路线）'}</p>
-      <p>Firsto 全市场参考日产能价：<strong>{freshMarketReference ? `${amount(freshMarketReference.dailyCapacityPriceWei, 18)} BNB / (BEM / 天)` : '—'}</strong>{freshMarketReference ? `（更新于 ${new Date(freshMarketReference.observedAt).toLocaleString('zh-CN')}）` : marketReferenceError ? `（${marketReferenceError}）` : marketReference ? '（报价已过期，请重新选择）' : '（读取中）'}</p>
-      <p className="subtle-note">两项价格口径不同：上方按这台矿机实际挂单价除以其预计日产出；Firsto 顶部展示的是全市场参考价。{referenceOnlyAsk && '挂牌参考价不能直接用于采购。'}额外 10% 是募集预留，不计入这两个日产能价。</p>
+      {mode !== DESIGNATED_PURCHASE_MODE && <p>Firsto 全市场参考日产能价：<strong>{freshMarketReference ? `${amount(freshMarketReference.dailyCapacityPriceWei, 18)} BNB / (BEM / 天)` : '—'}</strong>{freshMarketReference ? `（更新于 ${new Date(freshMarketReference.observedAt).toLocaleString('zh-CN')}）` : marketReferenceError ? `（${marketReferenceError}）` : marketReference ? '（报价已过期，请重新选择）' : '（读取中）'}</p>}
+      {mode !== DESIGNATED_PURCHASE_MODE && <p className="subtle-note">两项价格口径不同：上方按这台矿机实际挂单价除以其预计日产出；Firsto 顶部展示的是全市场参考价。{referenceOnlyAsk && '挂牌参考价不能直接用于采购。'}额外 10% 是募集预留，不计入这两个日产能价。</p>}
       {duplicate && <p className="live-notice error">此矿机已有拼矿项目：<a href={`https://bscscan.com/address/${registeredPool}`} target="_blank" rel="noreferrer">{registeredPool}</a>，不能重复创建。</p>}
       {selected.chain.official ? <p>官网优先：可采购官网挂单 #{selected.chain.official.id}，链上价格 {displayAmount(selected.chain.official.priceWei)} BNB。此价格用于指定矿机方案的购机上限。</p>
         : selected.chain.firsto ? <><p>官网暂无可用挂单；{direct ? '已读取' : '已核验'} Firsto 单笔签名订单：卖价 {displayAmount(selected.chain.firsto.priceWei)} BNB + 来源手续费 {displayAmount(selected.chain.firsto.feeWei)} BNB。</p><p><strong>矿池总支出 {displayAmount(selected.chain.firsto.grossWei)} BNB</strong>；指定矿机方案的购机上限已包含该手续费。</p></>
         : batchAsk ? <><p className="operator-quote-warning">Firsto 确有这台矿机的批量挂单，卖价 {displayAmount(marketAsk.priceWei)} BNB。当前矿池合约不支持采购该批量订单，不能用于“指定单台矿机”建池。</p><p className="subtle-note">如只以其型号与产能作为参考，可在上方选择“单台矿机灵活替代”；募集后仍需采购符合条件的官网挂单或 Firsto 单笔签名订单，未购成按合约退款。</p></>
           : <p className="operator-quote-warning">{referenceOnlyAsk ? `${selectedVenue}已返回这台矿机的挂单，但当前没有可执行的采购路线。` : '这台矿机当前未挂单，不能用于指定购机。'}可在上方选择“单台矿机灵活替代”，作为型号与产能参考；募集后仍须找到符合条件的可执行挂单，未购成按合约退款。</p>}
       {selected.chain.firstoError && !batchAsk && <p className="operator-quote-warning">{selected.chain.firstoError}</p>}
+      {mode === DESIGNATED_PURCHASE_MODE && <p className="subtle-note">{DESIGNATED_PURCHASE_TERMS} 本模式预留 10% 并锁定含费购机上限，不另请求全市场参考价。</p>}
       {mode === 'createFlexiblePoolChecked' && <p className="subtle-note">灵活购机仍按日产能参考计算购机上限；实际成交含费总价必须低于该上限。</p>}
-      <label>额外募集预算（%）<input aria-label="额外募集预算百分比" inputMode="decimal" value={extra} disabled={blocked} onChange={event => setExtra(event.target.value)}/></label>
-      <p className="subtle-note">预算默认 10%，可以调整；募集和购机时长在下方确认。只有点击预览、核对方案后才会请求钱包交易。</p>
+      {mode !== DESIGNATED_PURCHASE_MODE && <><label>额外募集预算（%）<input aria-label="额外募集预算百分比" inputMode="decimal" value={extra} disabled={blocked} onChange={event => setExtra(event.target.value)}/></label>
+      <p className="subtle-note">预算默认 10%，可以调整；募集和购机时长在下方确认。只有点击预览、核对方案后才会请求钱包交易。</p></>}
       <button className="btn" disabled={blocked || Boolean(applyBlockedReason)} aria-describedby={applyBlockedReason ? 'operator-quote-apply-reason' : undefined} onClick={apply}>填入建池表单<ArrowRight size={16}/></button>
       {applyBlockedReason && <p id="operator-quote-apply-reason" className="subtle-note">无法填入：{applyBlockedReason}</p>}
     </div>}

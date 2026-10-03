@@ -12,16 +12,13 @@ import {
   type ArtifactBundle, type DeploymentInput, type DeploymentSnapshot, type Eip1193Provider,
 } from './deployment';
 import { deploymentManifest } from './manifest';
+import { compileCandidateArtifacts } from './candidate-artifacts.test-helper';
 
-// @ts-expect-error Independently compile the reviewed source for the Node test build constant.
-import { artifactContentDigest, compileDeploymentArtifacts } from '../scripts/build-artifacts.mjs';
-
-const compiledDigest = artifactContentDigest(compileDeploymentArtifacts());
+const { bundle, digest: compiledDigest } = compileCandidateArtifacts();
 (globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = compiledDigest;
 
 // All signing below uses Anvil's disposable unlocked account on a loopback-only chain.
 // It never reads a wallet secret, contacts BSC, or sends a real-chain transaction.
-const bundle: ArtifactBundle = JSON.parse(await readFile(new URL('../public/deployment-artifacts.json', import.meta.url), 'utf8'));
 let processHandle: ReturnType<typeof spawn>;
 let rpcUrl: string;
 let account: string;
@@ -83,6 +80,22 @@ test('build is deployable and every linked library resolves; corrupt code is rej
   assert.equal(runtimeMatches(artifact, runtime, libraries, account), true);
   assert.equal(runtimeMatches(artifact, `0xff${runtime.slice(4)}`, libraries, account), false);
   assert.equal(artifactDigest(bundle), compiledDigest);
+});
+
+test('the previous artifact digest cannot use the candidate Gas plan before wallet signing', async () => {
+  const previousBundle = JSON.parse(await readFile(new URL('../public/deployment-artifacts.json', import.meta.url), 'utf8')) as ArtifactBundle;
+  const previousDigest = '0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927';
+  assert.equal(artifactDigest(previousBundle), previousDigest);
+  assert.notEqual(compiledDigest, previousDigest);
+  const beforeSends = sends;
+  (globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = previousDigest;
+  try {
+    const previousEngine = new DeploymentEngine(wallet, previousBundle, { persist: () => {} });
+    await assert.rejects(previousEngine.start(input), /Gas 计划不同/);
+    assert.equal(sends, beforeSends, 'a stale bundle must not request a wallet signature');
+  } finally {
+    (globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = compiledDigest;
+  }
 });
 
 test('read-only preflight permits unchecked review, but signing requires review', async () => {

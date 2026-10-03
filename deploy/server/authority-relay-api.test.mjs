@@ -10,6 +10,8 @@ import { authorityRelayConfiguration, createAuthorityRelayService } from './auth
 import { createDeploymentServer } from './index.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
 import { ORIGINAL_GAS_WALLET, requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
+import { OFFICIAL_MARKET,LISTING_ABI } from '../scripts/purchase-keeper.mjs';
+import { DESIGNATED_CREATE,DESIGNATED_CONFIG,DESIGNATED_GETTER,DESIGNATED_FIRSTO_BUY } from '../shared/designated-purchase-abi.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
@@ -18,7 +20,8 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
   return wallet.signTypedData(typed.domain,typed.types,typed.message);
 };
 
-function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null,
+  designatedBundle='old',designatedVersion=1}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -35,7 +38,9 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     `function createFlexiblePool(${params} params,${flexible} config)`,
     `function createFlexiblePoolChecked(${params} params,${flexible} config,uint32 expectedTaskId,uint128 expectedReferenceWeight)`,
     'function setDepositPaused(bool enabled)'];
-  const trusted = {record:{addresses:{factory,portfolioFactory:budget,shareMarket:market}},
+  const version='function designatedPurchaseVersion() pure returns(uint8)';
+  if(designatedBundle!=='old')creationAbi.push(`${DESIGNATED_CREATE} returns(address pool)`,version);
+  const trusted = {record:{artifactDigest:hash(444),addresses:{factory,portfolioFactory:budget,shareMarket:market,PoolVault:address(37)}},
     bundle:{artifacts:{FreshPoolFactory:{abi:creationAbi},
       PlatformAuthority:{deployedBytecode:code,deployedLinkReferences:{},immutableReferences:{},abi:[
         'function coreFactory() view returns(address)', 'function budgetFactory() view returns(address)',
@@ -44,17 +49,34 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
       BudgetPortfolioFactory:{abi:['function createPortfolio(uint256 budget,uint256 absoluteCap,uint256 unitCap,uint64 fundingEnd,uint64 purchaseEnd)']}}},
     freshAuthority:{authority:{address:authority,codehash,administratorOne:admin.address,
       administratorTwo:second,gasWallet:gas.address}}};
-  const graph = {freshAuthority:{address:authority,codehash},freshFactoryVerified:true,
+  if(designatedBundle==='complete') {
+    trusted.bundle.artifacts.PlatformAuthority.abi.push(version,
+      'function executeApprovedOperation(address target,bytes data,uint256 nonce,uint256 deadline,bytes signature) returns(bytes result)');
+    trusted.bundle.artifacts.PoolVault={abi:[version,`function configureDesignatedPurchase(${DESIGNATED_CONFIG} config)`,
+      DESIGNATED_GETTER,DESIGNATED_FIRSTO_BUY]};
+  }
+  const graph = {blockNumber:1,artifactDigest:hash(444),freshAuthority:{address:authority,codehash},freshFactoryVerified:true,
     addresses:trusted.record.addresses};
   const calls = [], errors = [];
   const roleState={first:admin.address,second,core:factory,budget,gasWallet:gas.address,code};
   const reservationAbi = new Interface(['function machinePool(address,uint256) view returns(address)']);
-  const reservation = { pools: new Map(), calls: [], response: null };
+  const reservation = { pools: new Map(), calls: [], versionCalls:[], response: null };
+  const versionAbi=new Interface([version]);
+  const listingAbi=new Interface(LISTING_ABI);
   const reservationKey = (collection,id) => `${getAddress(collection).toLowerCase()}:${BigInt(id)}`;
   const provider = {send:async(method,params=[])=>{
     if(method==='eth_chainId')return '0x38';
     if(method==='eth_call'){
-      const [tx,blockTag]=params,decoded=reservationAbi.parseTransaction({data:tx.data});
+      const [tx,blockTag]=params;
+      if(tx.data===versionAbi.encodeFunctionData('designatedPurchaseVersion')) {
+        reservation.versionCalls.push({target:tx.to,blockTag});
+        return versionAbi.encodeFunctionResult('designatedPurchaseVersion',[designatedVersion]);
+      }
+      if(getAddress(tx.to)===getAddress(OFFICIAL_MARKET)) {
+        assert.equal(blockTag,'0x1');assert.equal(listingAbi.parseTransaction(tx)?.name,'listingFor');
+        return listingAbi.encodeFunctionResult('listingFor',[0,ZeroAddress,0,false]);
+      }
+      const decoded=reservationAbi.parseTransaction({data:tx.data});
       assert.equal(getAddress(tx.to),factory);
       assert.equal(decoded?.name,'machinePool');
       reservation.calls.push({collection:decoded.args[0],tokenId:decoded.args[1],blockTag});
@@ -353,6 +375,55 @@ test('all five signed core creation selectors reject an occupied exact miner bef
       assert.deepEqual(f.reservation.calls,[{collection:params[0],tokenId:params[1],blockTag:'latest'}]);
     }finally{await f.close();}
   }
+});
+
+async function signedDesignatedCreation(f) {
+  const params=[address(77),7223n,120n,110n,ZeroAddress,0n,
+    BigInt(Math.floor(Date.now()/1000)+3600),BigInt(Math.floor(Date.now()/1000)+7200)];
+  const config=[address(78),100n,100n,4_579_200n,BigInt(Math.floor(Date.now()/1000)-1),1n,hash(7)];
+  const data=new Interface([DESIGNATED_CREATE]).encodeFunctionData('createDesignatedPoolChecked',[params,config,20,10]);
+  const nonce='0',deadline=String(Math.floor(Date.now()/1000)+300),args={target:f.factory,data};
+  return {authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',args,nonce,deadline,
+    signature:await sign(f.admin,f.authority,'executeApprovedOperation',args,nonce,deadline)};
+}
+
+test('designated signed creation rejects old or partial reviewed bundles before capability RPC, reservation and relay',async()=>{
+  for(const designatedBundle of ['old','factory-only']) {
+    const f=fixture({designatedBundle});try {
+      const response=await f.request('/api/journal/authority-relay','POST',{command:await signedDesignatedCreation(f)});
+      assert.equal(response.status,designatedBundle==='old'?400:409);
+      assert.equal(f.reservation.versionCalls.length,0);assert.equal(f.reservation.calls.length,0);assert.equal(f.calls.length,0);
+    } finally {await f.close();}
+  }
+});
+
+test('candidate designated creation preserves the exact duplicate-miner reservation and signed Gas relay boundaries',async()=>{
+  for(const occupied of [true,false]) {
+    const f=fixture({designatedBundle:'complete'});try {
+      if(occupied)f.reservation.pools.set(f.reservationKey(address(77),7223n),f.pool);
+      const command=await signedDesignatedCreation(f);
+      const response=await f.request('/api/journal/authority-relay','POST',{command});
+      assert.equal(response.status,occupied?409:200);
+      assert.equal(f.reservation.versionCalls.length,3);
+      assert(f.reservation.versionCalls.every(call=>call.blockTag==='0x1'));
+      assert.deepEqual(f.reservation.calls,[{collection:address(77),tokenId:7223n,blockTag:'latest'}]);
+      assert.equal(f.calls.length,occupied?0:1);
+      if(!occupied)assert.deepEqual(f.calls[0].options.commandObject,command);
+    } finally {await f.close();}
+  }
+});
+
+test('new-route capability version mismatch and noncanonical calldata never reach reservation or Gas submission',async()=>{
+  const f=fixture({designatedBundle:'complete',designatedVersion:0});try {
+    const command=await signedDesignatedCreation(f);
+    const response=await f.request('/api/journal/authority-relay','POST',{command});
+    assert.equal(response.status,409);assert.equal(f.reservation.versionCalls.length,3);
+    assert.equal(f.reservation.calls.length,0);assert.equal(f.calls.length,0);
+    const altered={...command,args:{...command.args,data:command.args.data+'00'}};
+    assert.equal((await f.request('/api/journal/authority-relay','POST',{command:altered})).status,400);
+    assert.equal(f.reservation.versionCalls.length,3,'Noncanonical calldata stops before graph capability RPC.');
+    assert.equal(f.calls.length,0);
+  } finally {await f.close();}
 });
 
 test('core creation checks exact collection and ID while zero or other identity remains available',async()=>{

@@ -183,7 +183,8 @@ test('installed product configuration defaults to its own source and accepts onl
  const root=mkdtempSync(join(tmpdir(),'fresh-machine-source-pin-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
  for(const folder of ['server/chain-index','shared','public'])mkdirSync(join(root,folder),{recursive:true});
  writeFileSync(join(root,'package.json'),JSON.stringify({type:'module'}),{mode:0o600});
- for(const path of ['server/fresh-product-gate.mjs','server/chain-index/fresh-manifest.mjs','shared/fresh-runtime-identity.mjs'])
+ for(const path of ['server/fresh-product-gate.mjs','server/chain-index/fresh-manifest.mjs',
+  'shared/fresh-runtime-identity.mjs','shared/designated-purchase-abi.mjs','shared/designated-purchase-runtime.mjs'])
   copyFileSync(new URL('../'+path,import.meta.url),join(root,path));
  symlinkSync(fileURLToPath(new URL('../node_modules',import.meta.url)),join(root,'node_modules'),'dir');
  const ownHead='b'.repeat(40),f=fixture();

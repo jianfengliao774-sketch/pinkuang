@@ -28,8 +28,8 @@ interface IRegisteredMachinePool {
 }
 
 /// @notice Creates independently funded BNB pools. Daily administration and upgrade authority are separate.
-/// @dev The only linked library calls are the two read-only PurchaseValidation helpers audited in
-///      scripts/audit-linked-libraries.mjs; all creation and registry state changes remain in this contract.
+/// @dev PurchaseValidation is the existing linked library for parameter and reference checks.
+///      Creation and machine registry state changes remain in this contract.
 /// @custom:oz-upgrades-unsafe-allow external-library-linking
 contract PoolFactory is
     OwnableUpgradeable,
@@ -165,6 +165,10 @@ contract PoolFactory is
         return _createPool(params, true);
     }
 
+    function designatedPurchaseVersion() external pure returns (uint8) {
+        return 1;
+    }
+
     /// @notice Reserve a child miner while allowing only its budget project to subscribe.
     function createBudgetChildPool(IPoolVault.PoolParams calldata params, address subscriber)
         external
@@ -200,11 +204,20 @@ contract PoolFactory is
         uint128 expectedReferenceWeight
     ) external nonReentrant returns (address pool) {
         pool = _createFlexiblePool(params, config);
-        (bool initialized, uint32 taskId) = IPoolVault(pool).purchaseModel();
-        if (
-            !initialized || taskId != expectedTaskId || expectedReferenceWeight == 0
-                || IPoolVault(pool).purchaseReferenceWeight() != expectedReferenceWeight
-        ) revert ReferenceMinerChanged();
+        PurchaseValidation.requireFlexibleReferenceMatches(pool, expectedTaskId, expectedReferenceWeight);
+    }
+
+    /// @notice Atomically opt in to a fixed-reference fallback, with the reviewed mining model pinned.
+    function createDesignatedPoolChecked(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.DesignatedPurchaseConfig calldata config,
+        uint32 expectedTaskId,
+        uint128 expectedReferenceWeight
+    ) external nonReentrant returns (address pool) {
+        pool = _createPool(params, true);
+        PurchaseValidation.configureDesignatedPoolChecked(
+            pool, params.circuitId, config, expectedTaskId, expectedReferenceWeight
+        );
     }
 
     function _createFlexiblePool(

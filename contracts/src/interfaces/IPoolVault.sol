@@ -33,6 +33,18 @@ interface IPoolVault {
         bytes32 referenceDigest;
     }
 
+    /// @notice Explicit original ask, buyer cost and mining-derived daily output locked before funding.
+    /// @dev The digest identifies an administrator-reviewed source snapshot; it is not an on-chain oracle.
+    struct DesignatedPurchaseConfig {
+        address referenceSeller;
+        uint256 referencePriceWei;
+        uint256 referenceCostWei;
+        uint256 referenceDailyOutputAtomic;
+        uint64 referenceObservedAt;
+        uint64 referenceBlock;
+        bytes32 referenceDigest;
+    }
+
     error WrongState();
     error DeadlinePassed();
     error DeadlineNotReached();
@@ -90,6 +102,12 @@ interface IPoolVault {
     error UnverifiedPurchaseRoute();
     error InvalidFirstoOrder();
     error FirstoFeeChanged();
+    error DesignatedPurchaseDisabled();
+    error DesignatedPurchaseAlreadyConfigured();
+    error OriginalTargetNotTransferred();
+    error OutsideDesignatedPriceBand();
+    error OutsideDesignatedUnitPriceBand();
+    error InvalidMiningRate();
 
     event Deposited(address indexed user, uint8 shares, uint256 amount, uint256 totalRaised);
     event DepositWithdrawn(address indexed user, uint8 shares, uint256 amount);
@@ -152,6 +170,11 @@ interface IPoolVault {
         uint256 sourceFee,
         uint256 totalCost
     );
+    event DesignatedPurchaseConfigured(
+        uint256 indexed referenceCircuitId, address indexed referenceSeller, uint32 indexed taskId,
+        uint256 referencePriceWei, uint256 referenceCostWei, uint256 referenceDailyOutputAtomic,
+        bytes32 referenceDigest
+    );
 
     function initialize(address factory, PoolParams calldata params, address treasury) external;
     function deposit(uint8 shares) external payable;
@@ -160,10 +183,23 @@ interface IPoolVault {
     function withdrawBnb() external;
     function setDepositPaused(bool paused) external;
     function buyFromMarket(uint256 listingId) external;
+    function designatedPurchaseVersion() external pure returns (uint8);
     function buyAlternativeFromMarket(uint256 listingId) external;
+    function buyAlternativeFromFirsto(uint8 kind, bytes calldata encodedOrder) external;
     /// @notice kind 0 is the fixed signed-ask V2 route. Other kinds, including unverified batch, are rejected.
     function buyFromFirsto(uint8 kind, bytes calldata encodedOrder) external;
     function configureFlexiblePurchase(FlexiblePurchaseConfig calldata config) external;
+    function configureDesignatedPurchase(DesignatedPurchaseConfig calldata config) external;
+    function designatedPurchase()
+        external
+        view
+        returns (
+            bool enabled,
+            uint256 referenceCircuitId,
+            uint32 taskId,
+            uint128 referenceVerifiedWeight,
+            DesignatedPurchaseConfig memory config
+        );
     function flexiblePurchase()
         external
         view

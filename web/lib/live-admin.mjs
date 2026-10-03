@@ -5,6 +5,7 @@ import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { requireMachineAvailable } from '../../deploy/shared/machine-reservation.mjs';
+import { DESIGNATED_PURCHASE_MODE, designatedPurchaseEnabled, checkedDesignatedCreation } from './designated-purchase.mjs';
 
 const need = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -182,14 +183,15 @@ export async function readOperatorStatus({ provider, config, account }) {
 
 /** Read-only preview. The returned immutable request freezes relative deadlines for confirmation. */
 export async function prepareAdminAction(input) {
-  const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
+  const { provider, config, account, kind, params = {}, subscriber, flexible, designated, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
+  need(kind !== DESIGNATED_PURCHASE_MODE || designatedPurchaseEnabled(config), '当前合约尚未启用指定购机替代规则。');
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
   need(status.isOperator, '仅当前运营钱包可操作。');
   let transaction, normalizedParams, frozenFirstoOrder, details = {}, resolvedKind = kind;
   let selectedListingId = listingId;
   const tx = (to, contract, name, args) => Object.freeze({ chainId: '0x38', from, to,
     data: contract.encodeFunctionData(name, args), value: '0x0' });
-  if (config.displayOnly === true && !['createPool', 'createFlexiblePoolChecked', 'createBudgetChildPool'].includes(kind)) {
+  if (config.displayOnly === true && !['createPool', 'createFlexiblePoolChecked', DESIGNATED_PURCHASE_MODE, 'createBudgetChildPool'].includes(kind)) {
     const target = addr(pool);
     let directKind = kind, data, firsto, official;
     if (kind === 'buyFromMarket' || kind === 'buyAlternativeFromMarket') {
@@ -232,7 +234,7 @@ export async function prepareAdminAction(input) {
       request: Object.freeze({ kind: directKind, pool: target, listingId: selectedListingId,
         miningAction, firstoOrder: frozenFirstoOrder }), direct: true, displayOnly: true, checkedBlock: null });
   }
-  if (kind === 'createPool' || kind === 'createFlexiblePoolChecked' || kind === 'createBudgetChildPool') {
+  if (kind === 'createPool' || kind === 'createFlexiblePoolChecked' || kind === DESIGNATED_PURCHASE_MODE || kind === 'createBudgetChildPool') {
     need(!status.creationPaused, '当前已暂停创建矿池。');
     const circuits = addr(params.circuits);
     need(OFFICIAL_COLLECTIONS.some(a => same(a, circuits)), '请选择官方矿机合约。');
@@ -263,6 +265,7 @@ export async function prepareAdminAction(input) {
     }
     transaction = kind === 'createPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams])
       : kind === 'createBudgetChildPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams, addr(subscriber)])
+      : kind === DESIGNATED_PURCHASE_MODE ? checkedDesignatedCreation({ factory, from, params: normalizedParams, config: designated, expectedTaskId, expectedReferenceWeight })
       : checkedPoolCreation({ factory, from, params: normalizedParams, config: flexible, expectedTaskId, expectedReferenceWeight });
     details = { params: normalizedParams, unitPriceWei: targetRaise / 100n };
   } else {
@@ -349,7 +352,7 @@ export async function prepareAdminAction(input) {
   }
   await ctx.verify();
   return Object.freeze({ transaction, kind: resolvedKind, requestKind: resolvedKind, ...details,
-    request: Object.freeze({ kind, params: normalizedParams, flexible, expectedTaskId, expectedReferenceWeight, pool,
+    request: Object.freeze({ kind, params: normalizedParams, flexible, designated, expectedTaskId, expectedReferenceWeight, pool,
       listingId: selectedListingId, miningAction, firstoOrder: frozenFirstoOrder }),
     ...(config.displayOnly === true ? { direct: true, displayOnly: true, checkedBlock: null }
       : { checkedBlock: Object.freeze({ blockNumber: status.blockNumber, blockHash: status.blockHash, timestamp: status.timestamp }) }) });

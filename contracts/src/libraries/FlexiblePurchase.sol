@@ -12,12 +12,23 @@ import {IFirstoSignedAskExchange} from "../interfaces/IFirstoExchange.sol";
 import {IPoolMachineRegistry} from "../interfaces/IPoolMachineRegistry.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
 import {PurchaseSelectionState} from "../PurchaseSelectionState.sol";
+import {DesignatedPurchaseState} from "../DesignatedPurchaseState.sol";
 import {PurchaseValidation} from "./PurchaseValidation.sol";
 import {PoolFunds} from "./PoolFunds.sol";
+import {DesignatedPurchase} from "./DesignatedPurchase.sol";
 
 /// @notice Fixed purchase execution plus opt-in, immutable verified-capacity selection terms.
 /// @dev All value-moving calls are fixed protocol calls under Vault.nonReentrant. Reference pricing is not an oracle.
 library FlexiblePurchase {
+    struct FirstoPurchaseContext {
+        uint256 fee;
+        uint256 cost;
+        bytes32 orderHash;
+        bytes32 key;
+        uint256 balanceBefore;
+        uint256 availableBefore;
+    }
+
     address private constant MINING = 0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46;
     address private constant CIRCUIT_MARKET = 0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f;
     address private constant FIRSTO_SIGNED_ASK = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
@@ -56,7 +67,9 @@ library FlexiblePurchase {
             revert IPoolVault.Unauthorized();
         }
         PurchaseSelectionState.SelectionStorage storage selection = _selection();
-        if (selection.enabled) revert IPoolVault.FlexiblePurchaseAlreadyConfigured();
+        if (selection.enabled || DesignatedPurchase.storageRef().enabled) {
+            revert IPoolVault.FlexiblePurchaseAlreadyConfigured();
+        }
         if (
             s.state != IPoolVault.State.Funding || supply != 0 || s.params.directSeller != address(0)
                 || s.params.directPrice != 0 || config.minVerifiedWeight == 0 || config.referencePriceWei == 0
@@ -85,6 +98,19 @@ library FlexiblePurchase {
         emit PurchaseReferenceWeightLocked(referenceMiner.verifWeight);
     }
 
+    function configureDesignated(
+        PoolVaultState.VaultStorage storage s,
+        IPoolVault.DesignatedPurchaseConfig calldata config,
+        uint256 supply
+    ) external {
+        DesignatedPurchase.configure(s, config, supply, _selection().enabled);
+    }
+
+    function designatedConfigurationEncoded() external view returns (bytes memory) {
+        DesignatedPurchaseState.DesignatedStorage storage s = DesignatedPurchase.storageRef();
+        return abi.encode(s.enabled, s.referenceCircuitId, s.taskId, s.referenceVerifiedWeight, s.config);
+    }
+
     function configuration()
         external
         view
@@ -110,13 +136,19 @@ library FlexiblePurchase {
     function buy(PoolVaultState.VaultStorage storage s, uint256 listingId, bool allowAlternative) external {
         _requireWindow(s);
         PurchaseSelectionState.SelectionStorage storage selection = _selection();
+        DesignatedPurchaseState.DesignatedStorage storage designated = DesignatedPurchase.storageRef();
+        uint256 availableBefore = type(uint256).max;
+        if (designated.enabled) {
+            if (address(this).balance < s.totalBnbOwed) revert IPoolVault.AccountingDeficit();
+            availableBefore = address(this).balance - s.totalBnbOwed;
+        }
         if (selection.enabled && !selection.modelInitialized) revert IPoolVault.PurchaseModelNotInitialized();
         if (selection.enabled && selection.referenceVerifiedWeight == 0) {
             revert IPoolVault.PurchasePricingNotInitialized();
         }
         uint256 circuitId = s.params.circuitId;
         if (allowAlternative) {
-            if (!selection.enabled) revert IPoolVault.FlexiblePurchaseDisabled();
+            if (!selection.enabled && !designated.enabled) revert IPoolVault.FlexiblePurchaseDisabled();
             // Seller and price are validated by prepareMarketPurchase; feeBps is seller-borne.
             // slither-disable-next-line unused-return
             (, address circuits, uint256 listedId,,, bool valid) = ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
@@ -133,11 +165,24 @@ library FlexiblePurchase {
                 revert IPoolVault.OriginalTargetAvailable();
             }
         }
+        if (designated.enabled && !allowAlternative) DesignatedPurchase.requireOriginal(s.params.circuits);
+        if (designated.enabled && allowAlternative) {
+            // The official market's displayed fee is deducted from seller proceeds.
+            // slither-disable-next-line unused-return
+            (,,, uint96 listedPrice,,) = ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
+            _requireDesignatedAlternative(s, selection, circuitId, listedPrice, availableBefore);
+        }
         IPoolMachineRegistry(s.factory).claimMachine(s.params.circuits, circuitId);
         (address seller, uint256 price, bytes32 key) =
             PurchaseValidation.prepareMarketPurchase(s.params.circuits, circuitId, s.params.priceCap, listingId);
         // Claim may alter miner state. Recheck the actual returned price and chain weight before any purchase payment.
         if (selection.enabled) _requirePricedModel(selection, s.params.circuits, circuitId, price);
+        if (designated.enabled) {
+            if (price > s.totalRaised || address(this).balance < s.totalBnbOwed
+                || address(this).balance - s.totalBnbOwed < price) revert IPoolVault.AccountingDeficit();
+            if (allowAlternative) _requireDesignatedAlternative(s, selection, circuitId, price, availableBefore);
+            else DesignatedPurchase.requireOriginal(s.params.circuits);
+        }
         // A failed transfer, changed miner, or wrong callback reverts this temporary selection together with all funds.
         s.params.circuitId = circuitId;
         _expectNft(s, seller, CIRCUIT_MARKET);
@@ -149,6 +194,13 @@ library FlexiblePurchase {
             _requirePricedModel(selection, s.params.circuits, circuitId, price);
             _allocateEntireSurplus(s, s.totalRaised - price);
             emit AlternativeMinerSelected(selection.referenceCircuitId, circuitId, listingId);
+        }
+        if (designated.enabled) {
+            if (allowAlternative) {
+                _requireDesignatedAlternative(s, selection, circuitId, price, availableBefore);
+                emit AlternativeMinerSelected(designated.referenceCircuitId, circuitId, listingId);
+            } else DesignatedPurchase.requireOriginal(s.params.circuits);
+            _allocateEntireSurplus(s, s.totalRaised - price);
         }
     }
 
@@ -172,6 +224,18 @@ library FlexiblePurchase {
     /// @notice Fixed signed-ask V2 purchase of the original target only. No caller-selected target or calldata.
     /// @dev The separate batch ABI is intentionally not executable until its runtime provenance is resolved.
     function buyFirsto(PoolVaultState.VaultStorage storage s, uint8 kind, bytes calldata encodedOrder) external {
+        _buyFirsto(s, kind, encodedOrder, false);
+    }
+
+    function buyDesignatedFirsto(PoolVaultState.VaultStorage storage s, uint8 kind, bytes calldata encodedOrder)
+        external
+    {
+        _buyFirsto(s, kind, encodedOrder, true);
+    }
+
+    function _buyFirsto(
+        PoolVaultState.VaultStorage storage s, uint8 kind, bytes calldata encodedOrder, bool alternative
+    ) private {
         _requireWindow(s);
         if (kind != 0) revert IPoolVault.UnverifiedPurchaseRoute();
         // Bound work before decoding; the fixed exchange validates ECDSA or ERC-1271 signatures itself.
@@ -184,8 +248,11 @@ library FlexiblePurchase {
             revert IPoolVault.InvalidFirstoOrder();
         }
         PurchaseSelectionState.SelectionStorage storage selection = _selection();
-        uint256 originalId = selection.enabled ? selection.referenceCircuitId : s.params.circuitId;
-        if (ask.collection != s.params.circuits || ask.tokenId != originalId || ask.tokenId != s.params.circuitId) {
+        if (alternative && !DesignatedPurchase.storageRef().enabled) revert IPoolVault.DesignatedPurchaseDisabled();
+        if (ask.collection != s.params.circuits
+            || alternative && ask.tokenId == DesignatedPurchase.storageRef().referenceCircuitId
+            || !alternative && (ask.tokenId != (selection.enabled ? selection.referenceCircuitId : s.params.circuitId)
+                || ask.tokenId != s.params.circuitId)) {
             revert IPoolVault.WrongCircuit();
         }
         if (
@@ -198,33 +265,72 @@ library FlexiblePurchase {
         }
         // A signed ask must not bypass an eligible official listing for this exact NFT.
         // A reverted official-market read does not prove that the listing is gone.
-        if (_originalAvailable(s, selection)) revert IPoolVault.OriginalTargetAvailable();
+        if (!DesignatedPurchase.storageRef().enabled && _originalAvailable(s, selection)) {
+            revert IPoolVault.OriginalTargetAvailable();
+        }
         _requireFirstoFees(ask);
         if (IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).isSignedAskNonceInvalidated(ask.maker, ask.nonce)) {
             revert IPoolVault.InvalidFirstoOrder();
         }
         // Source protocol uses integer division (floor). The pool budget always includes this buyer-paid fee.
-        uint256 fee = uint256(ask.price) * ask.feeBps / 10_000;
-        uint256 cost = uint256(ask.price) + fee;
-        if (cost > s.params.priceCap || cost > s.totalRaised) revert IPoolVault.OverPriceCap();
-        if (address(this).balance < s.totalBnbOwed + cost) revert IPoolVault.AccountingDeficit();
-        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        FirstoPurchaseContext memory ctx;
+        ctx.fee = uint256(ask.price) * ask.feeBps / 10_000;
+        ctx.cost = uint256(ask.price) + ctx.fee;
+        if (ctx.cost > s.params.priceCap || ctx.cost > s.totalRaised) revert IPoolVault.OverPriceCap();
+        if (address(this).balance < s.totalBnbOwed) revert IPoolVault.AccountingDeficit();
+        ctx.availableBefore = address(this).balance - s.totalBnbOwed;
+        if (ctx.availableBefore < ctx.cost) revert IPoolVault.AccountingDeficit();
+        if (!alternative && DesignatedPurchase.storageRef().enabled
+            && _originalAvailableForId(s, selection, s.params.circuitId, ctx.availableBefore, true)) {
+            revert IPoolVault.OriginalTargetAvailable();
+        }
+        if (alternative) _requireDesignatedAlternative(s, selection, ask.tokenId, ask.price, ctx.availableBefore);
+        else if (DesignatedPurchase.storageRef().enabled) DesignatedPurchase.requireOriginal(ask.collection);
+        else _requireFirstoQuality(selection, ask.collection, ask.tokenId, ctx.cost);
         IPoolMachineRegistry(s.factory).claimMachine(ask.collection, ask.tokenId);
-        bytes32 orderHash = _signedAskHash(ask);
-        bytes32 key = PurchaseValidation.prepareFirstoPurchase(ask.collection, ask.tokenId, ask.maker, orderHash);
+        ctx.orderHash = _signedAskHash(ask);
+        ctx.key = PurchaseValidation.prepareFirstoPurchase(ask.collection, ask.tokenId, ask.maker, ctx.orderHash);
         // The reward claim must not alter eligibility or source fees between validation and payment.
-        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        if (alternative) _requireDesignatedAlternative(s, selection, ask.tokenId, ask.price, ctx.availableBefore);
+        else if (DesignatedPurchase.storageRef().enabled) DesignatedPurchase.requireOriginal(ask.collection);
+        else _requireFirstoQuality(selection, ask.collection, ask.tokenId, ctx.cost);
+        if (!alternative && DesignatedPurchase.storageRef().enabled
+            && _originalAvailableForId(s, selection, s.params.circuitId, ctx.availableBefore, true)) {
+            revert IPoolVault.OriginalTargetAvailable();
+        }
         _requireFirstoFees(ask);
+        if (alternative) s.params.circuitId = ask.tokenId;
         _expectNft(s, ask.maker, FIRSTO_SIGNED_ASK);
-        uint256 balanceBefore = address(this).balance;
-        IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).fillSignedAsk{value: cost}(ask, signature, address(this));
+        ctx.balanceBefore = address(this).balance;
+        IFirstoSignedAskExchange(FIRSTO_SIGNED_ASK).fillSignedAsk{value: ctx.cost}(ask, signature, address(this));
         // A refund or unsolicited transfer during execution must not make recorded cost differ from net spending.
-        if (address(this).balance != balanceBefore - cost) revert IPoolVault.PaymentMismatch();
-        _finish(s, cost, 2, 0, key);
-        _requireFirstoQuality(selection, ask.collection, ask.tokenId, cost);
+        if (address(this).balance != ctx.balanceBefore - ctx.cost) revert IPoolVault.PaymentMismatch();
+        _finish(s, ctx.cost, 2, 0, ctx.key);
+        if (alternative) _requireDesignatedAlternative(s, selection, ask.tokenId, ask.price, ctx.availableBefore);
+        else if (DesignatedPurchase.storageRef().enabled) DesignatedPurchase.requireOriginal(ask.collection);
+        else _requireFirstoQuality(selection, ask.collection, ask.tokenId, ctx.cost);
         _requireFirstoFees(ask);
-        if (selection.enabled) _allocateEntireSurplus(s, s.totalRaised - cost);
-        emit FirstoPurchased(FIRSTO_SIGNED_ASK, orderHash, ask.tokenId, ask.price, fee, cost);
+        if (selection.enabled) _allocateEntireSurplus(s, s.totalRaised - ctx.cost);
+        if (DesignatedPurchase.storageRef().enabled) {
+            if (alternative) emit AlternativeMinerSelected(DesignatedPurchase.storageRef().referenceCircuitId, ask.tokenId, 0);
+            _allocateEntireSurplus(s, s.totalRaised - ctx.cost);
+        }
+        emit FirstoPurchased(FIRSTO_SIGNED_ASK, ctx.orderHash, ask.tokenId, ask.price, ctx.fee, ctx.cost);
+    }
+
+    function _requireDesignatedAlternative(
+        PoolVaultState.VaultStorage storage s,
+        PurchaseSelectionState.SelectionStorage storage selection,
+        uint256 circuitId,
+        uint256 askPrice,
+        uint256 availableBefore
+    ) private view {
+        DesignatedPurchase.requireTransferred(s.params.circuits);
+        uint256 originalId = DesignatedPurchase.storageRef().referenceCircuitId;
+        if (_originalAvailableForId(s, selection, originalId, availableBefore, true)) {
+            revert IPoolVault.OriginalTargetAvailable();
+        }
+        DesignatedPurchase.requireAlternative(s.params.circuits, circuitId, askPrice);
     }
 
     function _requireFirstoFees(IFirstoSignedAskExchange.SignedAsk memory ask) private view {
@@ -315,25 +421,52 @@ library FlexiblePurchase {
         PoolVaultState.VaultStorage storage s,
         PurchaseSelectionState.SelectionStorage storage selection
     ) private view returns (bool) {
-        address circuits = s.params.circuits;
         uint256 id = selection.enabled ? selection.referenceCircuitId : s.params.circuitId;
+        return _originalAvailableForId(s, selection, id, type(uint256).max, false);
+    }
+
+    function _originalAvailableForId(
+        PoolVaultState.VaultStorage storage s,
+        PurchaseSelectionState.SelectionStorage storage selection,
+        uint256 id,
+        uint256 availableBefore,
+        bool requireApproval
+    ) private view returns (bool) {
+        address circuits = s.params.circuits;
         (uint256 listingId, address seller, uint96 price, bool valid) =
             ICircuitMarket(CIRCUIT_MARKET).listingFor(circuits, id);
-        if (!valid || seller == address(0) || price == 0 || price > s.params.priceCap) return false;
+        if (!valid || seller == address(0) || price == 0 || price > s.params.priceCap
+            || requireApproval && (price > s.totalRaised || price > availableBefore)) return false;
         // Buyer pays the listing price; the omitted fee is deducted from the seller proceeds.
         // slither-disable-next-line unused-return
-        (address listedSeller, address listedCircuits, uint256 listedId, uint96 listedPrice,, bool listingValid) =
-            ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
-        if (
-            !listingValid || seller != listedSeller || circuits != listedCircuits || id != listedId
-                || price != listedPrice
-        ) {
-            revert IPoolVault.InvalidListing();
+        {
+            (address listedSeller, address listedCircuits, uint256 listedId, uint96 listedPrice,, bool listingValid) =
+                ICircuitMarket(CIRCUIT_MARKET).listingView(listingId);
+            if (
+                !listingValid || seller != listedSeller || circuits != listedCircuits || id != listedId
+                    || price != listedPrice
+            ) {
+                revert IPoolVault.InvalidListing();
+            }
         }
         if (IERC721(circuits).ownerOf(id) != seller) return false;
+        if (requireApproval && IERC721(circuits).getApproved(id) != CIRCUIT_MARKET
+            && !IERC721(circuits).isApprovedForAll(seller, CIRCUIT_MARKET)) return false;
+        return _eligibleOriginalMiner(circuits, id, price, selection);
+    }
+
+    function _eligibleOriginalMiner(
+        address circuits,
+        uint256 id,
+        uint256 price,
+        PurchaseSelectionState.SelectionStorage storage selection
+    ) private view returns (bool) {
         ITapeoutMining.Miner memory miner =
             ITapeoutMining(MINING).getMiner(ITapeoutMining(MINING).minerKey(circuits, id));
         if (miner.circuits != circuits || miner.circuitId != id || miner.status != 1) return false;
+        if (DesignatedPurchase.storageRef().enabled) {
+            return miner.taskId == DesignatedPurchase.storageRef().taskId && _meetsQuality(miner, 1);
+        }
         if (!selection.enabled) return _meetsQuality(miner, 1);
         return miner.taskId == selection.taskId && _meetsQuality(miner, selection.config.minVerifiedWeight)
             && price <= _referencePriceLimit(selection, miner.verifWeight);

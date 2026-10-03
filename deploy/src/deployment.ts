@@ -146,16 +146,16 @@ export const INTEGRATED_TRANSACTION_COUNT = LIBRARY_NAMES.length + 7;
 // bundle in a disposable BSC-chain-id 56 deployment (16 receipts), each with
 // at least 10% headroom. A changed bundle needs a new reviewed plan before
 // any wallet request.
-const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927';
+const FRESH_GAS_PLAN_ARTIFACT_DIGEST = '0xe2b8f661379d95c1e1271c95ef3937e2115d97661df3ca231bbf6882a024cd62';
 const FRESH_STEP_GAS_LIMITS: Readonly<Record<string, bigint>> = Object.freeze({
   MiningOperations: 1810000n,
-  PoolFunds: 1200000n,
+  PoolFunds: 1280000n,
   RewardAccounting: 1490000n,
   SaleGovernance: 1960000n,
   SaleSettlement: 1310000n,
   FirstoSale: 5250000n,
-  PurchaseValidation: 1550000n,
-  FlexiblePurchase: 3790000n,
+  PurchaseValidation: 1590000n,
+  FlexiblePurchase: 4470000n,
   ShareCheckpoints: 540000n,
   AtomicDeployment: 6070000n,
   PoolVault: 7050000n,

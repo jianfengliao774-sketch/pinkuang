@@ -1,10 +1,13 @@
 import { Interface, ZeroAddress, getAddress, toQuantity } from 'ethers';
 import contracts from './contracts.generated.json' with { type: 'json' };
 import { settleReadRound } from './read-retry.mjs';
+import { DESIGNATED_CREATE, DESIGNATED_GETTER, DESIGNATED_FIRSTO_BUY } from '../../deploy/shared/designated-purchase-abi.mjs';
 
 export const CHAIN_ID = 56n;
 export const ARTIFACT_DIGEST = contracts.artifactDigest;
-export const abi = Object.freeze(Object.fromEntries(Object.entries(contracts.abis).map(([name, value]) => [name, new Interface(value)])));
+export const abi = Object.freeze(Object.fromEntries(Object.entries(contracts.abis).map(([name, value]) => [name,
+  new Interface([...value, ...(name === 'PoolFactory' ? [DESIGNATED_CREATE]
+    : name === 'PoolVault' ? [DESIGNATED_GETTER, DESIGNATED_FIRSTO_BUY] : [])])])));
 const MAX_UINT256 = (1n << 256n) - 1n;
 const rowBits = Object.freeze({ params: 1, state: 2, unitPriceWei: 3, totalRaised: 4, totalSupply: 5,
   memberCount: 6, depositPaused: 7, purchaseCost: 8, activatedAt: 9, shareTradingAllowed: 10,

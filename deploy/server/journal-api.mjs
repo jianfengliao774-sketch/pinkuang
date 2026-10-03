@@ -12,7 +12,9 @@ import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIn
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
 import { isFreshWalletAction } from '../shared/fresh-wallet-actions.mjs';
-import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY } from './fresh-product-gate.mjs';
+import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY,
+  reviewedDesignatedPurchaseSupport,verifyDesignatedPurchaseCapability } from './fresh-product-gate.mjs';
+import { DESIGNATED_CREATE,DESIGNATED_FIRSTO_BUY } from '../shared/designated-purchase-abi.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { validateBudgetQueue } from '../shared/budget-queue.mjs';
 import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cutover.mjs';
@@ -108,6 +110,7 @@ const FINAL_STEPS = ['AtomicDeployment','PoolVault','PoolFactory','ShareMarket',
 export const PRODUCT_POOL_ABI = new Interface([
   'function buyFromMarket(uint256 listingId)', 'function buyAlternativeFromMarket(uint256 listingId)', 'function mine(bytes data)',
   'function buyFromFirsto(uint8 kind,bytes encodedOrder)',
+  DESIGNATED_FIRSTO_BUY,
   'function deposit(uint8 shares) payable', 'function withdrawDeposit()', 'function finalizeFailure()',
   'function harvest()', 'function claim()', 'function withdrawBnb()',
   'function propose(uint256 price,uint256 refPrice,uint64 refAt)', 'function vote(uint256 proposalId,bool support)',
@@ -123,6 +126,7 @@ export const PRODUCT_MARKET_ABI = new Interface([
 const PARAMS = '(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)';
 const FLEXIBLE = '(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
 export const PRODUCT_FACTORY_ABI = new Interface([
+  DESIGNATED_CREATE,
   `function createPool(${PARAMS} params)`,
   `function createBudgetChildPool(${PARAMS} params,address subscriber)`,
   `function createFlexiblePoolChecked(${PARAMS} params,${FLEXIBLE} config,uint32 expectedTaskId,uint128 expectedReferenceWeight)`,
@@ -264,7 +268,7 @@ function decodeProduct(value) {
   if (decoded.name === 'buyFirsto') {
     try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400,'Invalid canonical Firsto order.'); }
   }
-  if (decoded.name === 'buyFromFirsto') {
+  if (decoded.name === 'buyFromFirsto' || decoded.name === 'buyAlternativeFromFirsto') {
     if (decoded.args[0] !== 0n) fail(400, 'Firsto batch purchases are not enabled.');
     try { decodeFirstoOrder(decoded.args[1]); } catch { fail(400, 'Invalid canonical Firsto order.'); }
   }
@@ -356,6 +360,10 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
   if (!provider) fail(503, 'BSC product verifier is unavailable.');
   if (!allowedFactories.has(identity(record.factory))) fail(403, 'This Factory is not enabled for product transactions.');
   const decoded = decodeProduct(record);
+  if (decoded.name==='createDesignatedPoolChecked')
+    fail(403,'Designated creation requires an administrator signature through the isolated Authority relay.');
+  if (decoded.name==='buyAlternativeFromFirsto')
+    fail(403,'Designated Firsto fallback is restricted to the isolated purchase keeper.');
   try {
     if (BigInt(await provider.send('eth_chainId', [])) !== 56n) fail(503, 'Product RPC is not BSC mainnet.');
     const needsFreshServices=!isFreshWalletAction(record.targetType,decoded.name,record.value)
@@ -1524,6 +1532,11 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
       const stage=graph.freshAuthority && graph.freshFactoryVerified ? 'fresh-active' : graph.securityUpgrade
         ? graph.securityUpgrade.roleWiringComplete ? 'role-wired'
           : graph.securityUpgrade.roleMigrationStarted ? 'role-migrating' : 'code-upgraded' : 'genesis';
+      let designatedPurchase;
+      if(stage==='fresh-active' && reviewedDesignatedPurchaseSupport(trustedProduct)) {
+        try {designatedPurchase=await verifyDesignatedPurchaseCapability(officialProvider,trustedProduct,graph,block);}
+        catch {/* An unproved new capability cannot block existing member exits. */}
+      }
       const manifest={schemaVersion:1,kind:'integrated-v2',chainId:56,
         ...Object.fromEntries(Object.entries(manifestNames)
           .map(([key,name])=>[key,graph.salePolicyUpgrade && key==='portfolioImplementation'
@@ -1550,6 +1563,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
+        ...(designatedPurchase ? {designatedPurchase} : {}),
         ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
           codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
           activationHash:graph.freshAuthority.activationHash,

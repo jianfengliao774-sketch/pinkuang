@@ -14,11 +14,39 @@ test('purchase supervisor is read-only unless explicitly given send mode and a d
   const base = ['--factory', factory];
   const options = parseSupervisorArguments(base);
   assert.equal(options.send, false);
+  assert.equal(options.designatedFallback, false);
   assert.equal(options.interval, 2);
   assert.equal(options.maxPools, 1000);
   assert.throws(() => parseSupervisorArguments([...base, '--send']), /journal-dir/);
   assert.equal(parseSupervisorArguments([...base, '--send', '--journal-dir', '/private/purchase']).send, true);
   assert.throws(() => parseSupervisorArguments([...base, '--max-gas-bnb', '0']), /positive/);
+});
+
+test('designated fallback is explicit and forwarded unchanged to the automatic keeper cycle', async t => {
+  const journalDir = mkdtempSync(join(tmpdir(), 'purchase-supervisor-designated-'));
+  t.after(() => rmSync(journalDir, { recursive: true, force: true }));
+  const captured = [];
+  const dependencies = { refreshPools: async () => [pools[0]], readPoolState: async () => 1n,
+    acquireKeeperLock: () => () => {},
+    runKeeperCycle: async (_provider, forwarded) => {
+      captured.push(forwarded);
+      return { status: 'funding-waiting' };
+    } };
+  for (const flagged of [false, true]) {
+    const args = ['--factory', factory, '--journal-dir', journalDir, '--once'];
+    if (flagged) args.push('--designated-fallback');
+    const options = parseSupervisorArguments(args);
+    assert.equal(options.designatedFallback, flagged);
+    await runSupervisorCycle({}, options, null,
+      { pools: [], cursor: 0, runtimes: new Map() }, dependencies);
+    const forwarded = captured.at(-1);
+    assert.equal(forwarded.designatedFallback, flagged);
+    assert.equal(forwarded.venue, 'auto');
+    assert.equal(forwarded.pool, pools[0]);
+    assert.equal(forwarded.refreshInterval, 30);
+  }
+  assert.throws(() => parseSupervisorArguments(['--factory', factory,
+    '--designated-fallback', '--designated-fallback']), /repeated option/);
 });
 
 test('pending purchase has priority over another funded pool and cannot coexist with a second pending journal', () => {

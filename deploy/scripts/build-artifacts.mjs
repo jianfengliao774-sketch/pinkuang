@@ -223,9 +223,9 @@ export function artifactContentDigest(document) {
 }
 
 /** Called by Vite in Node, never by a browser or from a downloaded hash document. */
-export function verifiedBuildDigest() {
-  const compiled = compileDeploymentArtifacts();
-  const saved = JSON.parse(readFileSync(outputPath, 'utf8'));
+export function verifiedBuildDigest({root=repositoryRoot,artifactPath=outputPath}={}) {
+  const compiled = compileDeploymentArtifacts({root});
+  const saved = JSON.parse(readFileSync(artifactPath, 'utf8'));
   assertCurrentArtifacts(saved, compiled);
   return artifactContentDigest(compiled);
 }
@@ -248,17 +248,36 @@ export function assertCurrentArtifactInputs(expectedDigest, { root = repositoryR
   assert.deepEqual(saved.sourceHashes, sortedObject(hashes), 'Solidity sources changed. Regenerate deployment artifacts.');
 }
 
+/** A candidate bundle can be built separately from immutable deployment pins. */
+export function writeDeploymentArtifacts(document,{artifactPath=outputPath}={}) {
+  validateArtifacts(document.artifacts);
+  const destination=resolve(artifactPath);
+  mkdirSync(dirname(destination), { recursive: true });
+  writeFileSync(destination, `${JSON.stringify(document, null, 2)}\n`);
+  return destination;
+}
+
+export function artifactBuildOptions(args) {
+  let check=false,artifactPath=outputPath,seenOutput=false;
+  for(let index=0;index<args.length;index++) {
+    if(args[index]==='--check' && !check) check=true;
+    else if(args[index]==='--output' && !seenOutput && typeof args[index+1]==='string'
+      && args[index+1].length>0 && !args[index+1].startsWith('--')) {
+      artifactPath=resolve(args[++index]);seenOutput=true;
+    } else assert.fail('Usage: node scripts/build-artifacts.mjs [--check] [--output <artifact-path>]');
+  }
+  return {check,artifactPath};
+}
+
 function main() {
-  const args = process.argv.slice(2);
-  assert(args.length === 0 || (args.length === 1 && args[0] === '--check'), 'Usage: node scripts/build-artifacts.mjs [--check]');
+  const {check,artifactPath}=artifactBuildOptions(process.argv.slice(2));
   const document = compileDeploymentArtifacts();
-  if (args[0] === '--check') {
-    assertCurrentArtifacts(JSON.parse(readFileSync(outputPath, 'utf8')), document);
+  if (check) {
+    assertCurrentArtifacts(JSON.parse(readFileSync(artifactPath, 'utf8')), document);
     console.log('Deployment artifacts match all local sources, dependencies and compiler settings.');
     return;
   }
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(document, null, 2)}\n`);
+  writeDeploymentArtifacts(document,{artifactPath});
   console.log(`Built ${requiredContracts.length} deployment artifacts from ${Object.keys(document.sourceHashes).length} sources (${document.compilerVersion}).`);
   console.log(`Runtime bytes: ${Object.values(document.artifacts).map(artifact => `${artifact.contractName} ${(artifact.deployedBytecode.length - 2) / 2}`).join(', ')}`);
 }

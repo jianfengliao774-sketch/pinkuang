@@ -80,6 +80,43 @@ function* walkAst(value) {
   }
 }
 
+function expressionShape(node) {
+  if (node?.nodeType === 'Identifier') return node.name;
+  if (node?.nodeType === 'Literal') return node.value;
+  if (node?.nodeType === 'MemberAccess') return `${expressionShape(node.expression)}.${node.memberName}`;
+  if (node?.nodeType === 'UnaryOperation') return [node.operator, expressionShape(node.subExpression)];
+  if (node?.nodeType === 'BinaryOperation') return [node.operator, expressionShape(node.leftExpression), expressionShape(node.rightExpression)];
+  throw new Error(`Unreviewed reference expression: ${node?.nodeType}`);
+}
+
+function reviewedVaultCalls(helper, expected) {
+  const allCalls = [...walkAst(helper.body)].filter(node => node.nodeType === 'FunctionCall');
+  const calls = allCalls.filter(node => node.expression?.nodeType === 'MemberAccess'
+    && node.expression.typeDescriptions?.typeIdentifier?.startsWith('t_function_external'));
+  assert.deepEqual(calls.map(node => node.expression.memberName).sort(), [...expected].sort(),
+    `${helper.name} external call surface changed.`);
+  for (const call of calls) {
+    const converted = call.expression.expression;
+    assert(converted.nodeType === 'FunctionCall' && converted.kind === 'typeConversion'
+      && converted.expression?.name === 'IPoolVault' && converted.arguments?.[0]?.name === 'pool',
+    `${helper.name} external call must target only IPoolVault(pool).`);
+  }
+  for (const call of allCalls) {
+    if (calls.includes(call)) continue;
+    if (call.kind === 'typeConversion' && call.expression?.name === 'IPoolVault'
+      && call.arguments?.length === 1 && call.arguments[0]?.name === 'pool') continue;
+    assert(call.expression?.name === 'ReferenceMinerChanged' && call.arguments?.length === 0,
+      `${helper.name} gained an unreviewed function call.`);
+  }
+  for (const node of walkAst(helper.body)) {
+    if (node.nodeType === 'MemberAccess') assert(!['call', 'delegatecall', 'callcode', 'send', 'transfer'].includes(node.memberName),
+      `${helper.name} has an unreviewed raw call.`);
+    if (node.nodeType === 'YulFunctionCall') assert(!['call', 'delegatecall', 'callcode'].includes(node.functionName.name),
+      `${helper.name} has an unreviewed assembly call.`);
+  }
+  return calls;
+}
+
 // This gate examines compiler AST nodes, not source-text regexes. Its scope is
 // deliberately the listed production library source units, not a general security audit.
 function reviewLibraryAst(name, artifact) {
@@ -139,7 +176,7 @@ function reviewLibraryAst(name, artifact) {
   assert.equal(rawCalls.length, ['MiningOperations', 'PoolFunds'].includes(name) ? 1 : 0, `Raw CALL surface changed: ${name}`);
   return { compilerAstChecked: true, inheritance: [], ordinaryStorageFields: 0,
     mutableStateDeclarations: 0, explicitDelegatecallOrCallcode: false, selfdestruct: false, rawCalls, additionalNamespace,
-    scope: 'Own library source AST only; Vault entry-point guards and dependency behavior require separate review/tests.' };
+    scope: 'Own library source AST only; Vault/Factory entry-point guards and dependency behavior require separate review/tests.' };
 }
 
 /**
@@ -159,6 +196,26 @@ export default function auditLinkedLibraries(root, logRoot) {
   sourceEvidence(projectRoot, 'src/PoolFactory.sol', freshFactory.metadata);
   const vaultSource = sourceEvidence(projectRoot, 'src/PoolVault.sol', vault.metadata);
   const selectionSource = sourceEvidence(projectRoot, 'src/PurchaseSelectionState.sol', vault.metadata);
+  const designatedStateSource = sourceEvidence(projectRoot, 'src/DesignatedPurchaseState.sol', vault.metadata);
+  const designatedPolicySource = sourceEvidence(projectRoot, 'src/libraries/DesignatedPurchase.sol', vault.metadata);
+  const designatedPolicy = readArtifact(projectRoot, 'DesignatedPurchase');
+  sourceEvidence(projectRoot, 'src/libraries/DesignatedPurchase.sol', designatedPolicy.metadata);
+  assert.equal(designatedPolicy.artifact.storageLayout?.storage?.length, 0,
+    'Internal DesignatedPurchase library must have no ordinary storage.');
+  vaultLinks(designatedPolicy.artifact.bytecode, 'DesignatedPurchase creation bytecode', []);
+  vaultLinks(designatedPolicy.artifact.deployedBytecode, 'DesignatedPurchase runtime bytecode', []);
+  const designatedDefinition = designatedPolicy.artifact.ast.nodes
+    .find(node => node.nodeType === 'ContractDefinition' && node.name === 'DesignatedPurchase');
+  assert(designatedDefinition?.contractKind === 'library', 'Missing internal DesignatedPurchase library.');
+  assert(designatedDefinition.nodes.filter(node => node.nodeType === 'FunctionDefinition')
+    .every(node => node.visibility === 'internal' || node.visibility === 'private'),
+  'DesignatedPurchase must remain internal-only; adding an external link needs separate review.');
+  const designatedSlot = `0x${(BigInt(keccak(Buffer.from((BigInt(keccak(Buffer.from('tapeout.storage.DesignatedPurchase'))) - 1n)
+    .toString(16).padStart(64, '0'), 'hex'))) & ~255n).toString(16).padStart(64, '0')}`;
+  const slotDeclaration = designatedDefinition.nodes.find(node => node.nodeType === 'VariableDeclaration'
+    && node.name === 'STORAGE_SLOT');
+  assert.equal(slotDeclaration?.value?.value?.toLowerCase(), designatedSlot,
+    'DesignatedPurchase namespace slot differs from ERC-7201 derivation.');
   const executor = readArtifact(projectRoot, 'FirstoSaleExecutor');
   const executorSource = sourceEvidence(projectRoot, 'src/FirstoSaleExecutor.sol', vault.metadata);
   const executorDefinition = executor.artifact.ast.nodes.find(node => node.nodeType === 'ContractDefinition' && node.name === 'FirstoSaleExecutor');
@@ -201,13 +258,47 @@ export default function auditLinkedLibraries(root, logRoot) {
   const libraryCalls = [...walkAst(factoryDefinition)].filter(node => node.nodeType === 'MemberAccess'
     && node.expression?.nodeType === 'Identifier' && node.expression.name === 'PurchaseValidation');
   assert.deepEqual(libraryCalls.map(node => node.memberName).sort(),
-    ['liveMachineReservation', 'validatePoolParams'], 'PoolFactory library call surface changed.');
+    ['configureDesignatedPoolChecked', 'liveMachineReservation', 'requireFlexibleReferenceMatches', 'validatePoolParams'],
+    'PoolFactory library call surface changed.');
   const factoryCallSites = libraryCalls.map(node => {
     const helper = helperByName.get(node.memberName);
-    assert(helper && helper.stateMutability === 'view'
-      && helper.visibility === 'external', `PoolFactory linked helper is not a reviewed external view: ${node.memberName}`);
+    const expectedMutability = node.memberName === 'configureDesignatedPoolChecked' ? 'nonpayable' : 'view';
+    assert(helper && helper.stateMutability === expectedMutability
+      && helper.visibility === 'external', `PoolFactory linked helper mutability changed: ${node.memberName}`);
     return { name: node.memberName, stateMutability: helper.stateMutability, library: 'PurchaseValidation' };
   });
+  const checkedCreate = factoryDefinition.nodes.find(node => node.nodeType === 'FunctionDefinition'
+    && node.name === 'createDesignatedPoolChecked');
+  assert(checkedCreate?.modifiers?.some(node => node.modifierName?.name === 'nonReentrant'),
+    'Designated pool creation must remain nonReentrant.');
+  const [createStatement, configureStatement] = checkedCreate.body?.statements ?? [];
+  assert.equal(checkedCreate.body.statements.length, 2, 'Designated creation sequence changed.');
+  const createAssignment = createStatement?.expression;
+  const createCall = createAssignment?.rightHandSide;
+  assert(createAssignment?.nodeType === 'Assignment' && createAssignment.leftHandSide?.name === 'pool'
+    && createCall?.expression?.name === '_createPool'
+    && createCall.arguments?.[0]?.name === 'params' && createCall.arguments?.[1]?.value === 'true',
+  'Designated creation must first use the guarded _createPool(params, true).');
+  const configureCall = configureStatement?.expression;
+  assert(configureCall?.expression?.expression?.name === 'PurchaseValidation'
+    && configureCall.expression.memberName === 'configureDesignatedPoolChecked',
+  'Designated creation must then call the reviewed linked helper.');
+  assert.deepEqual(configureCall.arguments.map(expressionShape),
+    ['pool', 'params.circuitId', 'config', 'expectedTaskId', 'expectedReferenceWeight'],
+  'Designated reference check must bind the created pool and exact target.');
+  const designatedHelper = helperByName.get('configureDesignatedPoolChecked');
+  const helperCalls = reviewedVaultCalls(designatedHelper, ['configureDesignatedPurchase', 'designatedPurchase']);
+  assert(helperCalls[0].expression.memberName === 'configureDesignatedPurchase'
+    && helperCalls[0].arguments?.[0]?.name === 'config'
+    && helperCalls[1].expression.memberName === 'designatedPurchase',
+  'Designated helper must configure the provided terms before reading them back.');
+  assert.deepEqual(expressionShape(designatedHelper.body.statements[2]?.condition),
+    ['||', ['||', ['||', ['||', ['!', 'enabled'], ['!=', 'referenceId', 'expectedCircuitId']],
+      ['!=', 'taskId', 'expectedTaskId']], ['==', 'expectedReferenceWeight', '0']],
+    ['!=', 'weight', 'expectedReferenceWeight']],
+  'Designated helper reference identity, task, or weight check changed.');
+  reviewedVaultCalls(helperByName.get('requireFlexibleReferenceMatches'),
+    ['purchaseModel', 'purchaseReferenceWeight']);
   const freshFactoryDefinition = freshFactory.artifact.ast.nodes
     .find(node => node.nodeType === 'ContractDefinition' && node.name === 'FreshPoolFactory');
   assert(freshFactoryDefinition && freshFactoryDefinition.baseContracts.length === 1
@@ -280,7 +371,9 @@ export default function auditLinkedLibraries(root, logRoot) {
     }
   }
   const audit = { schemaVersion: 1, generatedAt: new Date().toISOString(), ok: true,
-    vault: { source: vaultSource, selectionSource, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
+    vault: { source: vaultSource, selectionSource, designatedStateSource, designatedPolicySource,
+      designatedNamespace: { name: 'erc7201:tapeout.storage.DesignatedPurchase', slot: designatedSlot,
+        internalOnly: true }, artifactPath: vault.path, artifactSha256: vault.artifactSha256,
       runtimeBytecodeTemplate: templateEvidence(vault.artifact.deployedBytecode, 'PoolVault'),
       creationLinks, runtimeLinks }, libraries,
     firstoExecutor: { source: executorSource, artifactPath: executor.path, constructorOnly: true, fixedExchange: true },
@@ -292,7 +385,7 @@ export default function auditLinkedLibraries(root, logRoot) {
       factoryLinking: {
         PoolFactory: { source: factorySource, creationLinks: poolFactoryCreationLinks,
           runtimeLinks: poolFactoryRuntimeLinks, callSites: factoryCallSites,
-          note: 'Only two external PurchaseValidation calls are present; both target compiler-resolved external view functions.' },
+          note: 'Exactly four reviewed PurchaseValidation calls are present; the designated nonpayable helper configures the newly created Vault and checks its identity, task and weight in the same nonReentrant transaction.' },
         FreshPoolFactory: { source: freshFactorySource, creationLinks: freshFactoryCreationLinks,
           runtimeLinks: freshFactoryRuntimeLinks, base: 'PoolFactory',
           note: 'FreshPoolFactory inherits the exact reviewed PoolFactory call surface.' },
@@ -300,14 +393,14 @@ export default function auditLinkedLibraries(root, logRoot) {
           runtimeLinks: budgetVaultRuntimeLinks, callSites: budgetCallSites, childSaleNonReentrant: true,
           note: 'SaleGovernance is storage-free; child sale writes are called only under BudgetPortfolioVault.nonReentrant.' },
       },
-      execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
-      reentrancy: 'Vault owns the nonReentrant purchase/payment entry points. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.',
-      upgradeValidationException: 'PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory narrowly annotates external-library-linking after the two view-only PurchaseValidation call sites are pinned above. BudgetPortfolioVault SaleGovernance call sites and nonReentrant child sale path are pinned above. Storage validation is not skipped; immutable factory values are verified separately.',
+      execution: 'Solidity linked-library calls execute by DELEGATECALL in the calling Vault or Factory context.',
+      reentrancy: 'Vault owns the nonReentrant purchase/payment entry points; Factory owns nonReentrant pool creation. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.',
+      upgradeValidationException: 'PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory external-library-linking covers the four pinned PurchaseValidation call sites above, including atomic designated configuration. BudgetPortfolioVault SaleGovernance call sites and nonReentrant child sale path are pinned above. Storage validation is not skipped; immutable factory values are verified separately.',
       limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };
   mkdirSync(evidenceRoot, { recursive: true });
   writeFileSync(join(evidenceRoot, 'library-link-audit.json'), JSON.stringify(audit, null, 2) + '\n');
-  console.log(`PASS: PoolFactory and FreshPoolFactory link only the two audited PurchaseValidation view helpers; PoolVault links ${directVaultLibraries.length} direct and ${expectedLibraries.length} total reviewed libraries; source hashes, templates and scoped AST gates recorded.`);
+  console.log(`PASS: PoolFactory and FreshPoolFactory link only the four audited PurchaseValidation helpers; PoolVault links ${directVaultLibraries.length} direct and ${expectedLibraries.length} total reviewed libraries; source hashes, templates and scoped AST gates recorded.`);
   return audit;
 }

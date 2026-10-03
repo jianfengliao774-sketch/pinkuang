@@ -12,6 +12,7 @@ contract AuthorityFactoryMock {
     mapping(address => bool) public isPool;
     address public operator;
     address public lastSubscriber;
+    bytes32 public lastDesignatedCallHash;
 
     constructor(address timelock_) {
         timelock = timelock_;
@@ -55,6 +56,17 @@ contract AuthorityFactoryMock {
         uint128
     ) external view returns (address) {
         require(msg.sender == operator, "operator");
+        return address(0x1234);
+    }
+
+    function createDesignatedPoolChecked(
+        IPoolVault.PoolParams calldata params,
+        IPoolVault.DesignatedPurchaseConfig calldata config,
+        uint32 taskId,
+        uint128 weight
+    ) external returns (address) {
+        require(msg.sender == operator, "operator");
+        lastDesignatedCallHash = keccak256(abi.encode(params, config, taskId, weight));
         return address(0x1234);
     }
 
@@ -385,6 +397,75 @@ contract PlatformAuthorityTest is Test {
         return _configHash(c);
     }
 
+    function _designatedConfigHash(IPoolVault.DesignatedPurchaseConfig memory c) private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                authority.DESIGNATED_CONFIG_TYPEHASH(),
+                c.referenceSeller,
+                c.referencePriceWei,
+                c.referenceCostWei,
+                c.referenceDailyOutputAtomic,
+                c.referenceObservedAt,
+                c.referenceBlock,
+                c.referenceDigest
+            )
+        );
+    }
+
+    function _designatedData() private view returns (bytes memory data) {
+        IPoolVault.PoolParams memory params = IPoolVault.PoolParams({
+            circuits: address(0xCAFE),
+            circuitId: 123,
+            targetRaise: 1.111 ether,
+            priceCap: 1.111 ether,
+            directSeller: address(0),
+            directPrice: 0,
+            fundingDeadline: uint64(block.timestamp + 1 days),
+            purchaseDeadline: uint64(block.timestamp + 2 days)
+        });
+        IPoolVault.DesignatedPurchaseConfig memory config = IPoolVault.DesignatedPurchaseConfig({
+            referenceSeller: address(0xBEEF),
+            referencePriceWei: 1 ether,
+            referenceCostWei: 1.01 ether,
+            referenceDailyOutputAtomic: 4_579_200,
+            referenceObservedAt: uint64(block.timestamp),
+            referenceBlock: uint64(block.number),
+            referenceDigest: keccak256("public quote provenance")
+        });
+        return abi.encodeWithSelector(
+            AuthorityFactoryMock.createDesignatedPoolChecked.selector, params, config, uint32(20), uint128(10)
+        );
+    }
+
+    function _designatedStructHash(address factory, bytes memory data, uint256 nonce, uint256 deadline)
+        private
+        view
+        returns (bytes32)
+    {
+        (IPoolVault.PoolParams memory p, IPoolVault.DesignatedPurchaseConfig memory c, uint32 taskId, uint128 weight) =
+            abi.decode(_tail(data), (IPoolVault.PoolParams, IPoolVault.DesignatedPurchaseConfig, uint32, uint128));
+        return keccak256(
+            abi.encode(
+                authority.CREATE_DESIGNATED_POOL_TYPEHASH(),
+                factory,
+                _paramsHash(p),
+                _designatedConfigHash(c),
+                taskId,
+                weight,
+                nonce,
+                deadline
+            )
+        );
+    }
+
+    function _designatedSig(uint256 key, address factory, bytes memory data, uint256 nonce, uint256 deadline)
+        private
+        view
+        returns (bytes memory)
+    {
+        return _sign(key, _designatedStructHash(factory, data, nonce, deadline));
+    }
+
     function _poolSig(uint256 key, address factory, bytes memory data, uint256 nonce, uint256 deadline)
         private
         view
@@ -549,6 +630,147 @@ contract PlatformAuthorityTest is Test {
         words[9] = bytes32(uint256(2));
         words[10] = bytes32(uint256(9999999999));
         assertEq(keccak256(abi.encodePacked(words)), 0x2e479e5e053f4ac9b3cc8b317638eed409caa78d2403572a419e26e22516ab4c);
+    }
+
+    function testDesignatedHashMatchesIndependentEthersVector() public view {
+        IPoolVault.PoolParams memory p = IPoolVault.PoolParams({
+            circuits: address(0x33),
+            circuitId: 123,
+            targetRaise: 100000,
+            priceCap: 90000,
+            directSeller: address(0x44),
+            directPrice: 80000,
+            fundingDeadline: 1800001000,
+            purchaseDeadline: 1800002000
+        });
+        IPoolVault.DesignatedPurchaseConfig memory c = IPoolVault.DesignatedPurchaseConfig({
+            referenceSeller: address(0x66),
+            referencePriceWei: 80000,
+            referenceCostWei: 80800,
+            referenceDailyOutputAtomic: 4579200,
+            referenceObservedAt: 1800000000,
+            referenceBlock: 125523136,
+            referenceDigest: 0xabababababababababababababababababababababababababababababababab
+        });
+        bytes memory data = abi.encodeWithSelector(
+            AuthorityFactoryMock.createDesignatedPoolChecked.selector, p, c, uint32(20), uint128(10)
+        );
+        assertEq(
+            _designatedStructHash(address(0x22), data, 2, 9999999999),
+            0x331adf987b7514870c9509e6d2a9bc8d18375aa9166da8e6b343be13f7d1b94f
+        );
+        assertEq(authority.designatedPurchaseVersion(), 1);
+    }
+
+    function testDesignatedCreationRequiresExactSignatureAndForwardsAllFields() public {
+        bytes memory data = _designatedData();
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _designatedSig(FIRST_KEY, address(core), data, 0, deadline);
+        vm.prank(RELAYER);
+        bytes memory result = authority.executeApprovedOperation(address(core), data, 0, deadline, signature);
+        assertEq(abi.decode(result, (address)), address(0x1234));
+        assertEq(core.lastDesignatedCallHash(), keccak256(_tail(data)));
+        assertEq(authority.nonces(first), 1);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, signature);
+        bytes memory secondSignature = _designatedSig(SECOND_KEY, address(core), data, 0, deadline);
+        vm.prank(second);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, secondSignature);
+        assertEq(authority.nonces(second), 1);
+    }
+
+    function testDesignatedSignatureBindsEveryCalldataWord() public {
+        bytes memory data = _designatedData();
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _designatedSig(FIRST_KEY, address(core), data, 0, deadline);
+        // Eight pool fields, seven config fields, task and weight are all independently signed.
+        for (uint256 index; index < 17; ++index) {
+            bytes memory changed = bytes.concat(data);
+            assembly {
+                let word := add(changed, add(36, mul(index, 32)))
+                mstore(word, add(mload(word), 1))
+            }
+            vm.prank(RELAYER);
+            vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+            authority.executeApprovedOperation(address(core), changed, 0, deadline, signature);
+            assertEq(authority.nonces(first), 0);
+            assertEq(core.lastDesignatedCallHash(), bytes32(0));
+        }
+    }
+
+    function testDesignatedRejectsNoncanonicalAndWrongTargetCalldata() public {
+        bytes memory data = _designatedData();
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _designatedSig(FIRST_KEY, address(core), data, 0, deadline);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeApprovedOperation(address(core), bytes.concat(data, hex"00"), 0, deadline, signature);
+        bytes memory badPadding = bytes.concat(data);
+        assembly { mstore(add(badPadding, add(36, mul(15, 32))), shl(32, 1)) }
+        vm.prank(RELAYER);
+        vm.expectRevert();
+        authority.executeApprovedOperation(address(core), badPadding, 0, deadline, signature);
+        bytes memory truncated = bytes.concat(data);
+        assembly { mstore(truncated, sub(mload(truncated), 1)) }
+        vm.prank(RELAYER);
+        vm.expectRevert();
+        authority.executeApprovedOperation(address(core), truncated, 0, deadline, signature);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeApprovedOperation(address(budget), data, 0, deadline, signature);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidAction.selector);
+        authority.executeApprovedOperation(address(pool), data, 0, deadline, signature);
+        assertEq(authority.nonces(first), 0);
+        assertEq(core.lastDesignatedCallHash(), bytes32(0));
+    }
+
+    function testDesignatedKeepsCallerDeadlineChainAndNonceBoundaries() public {
+        bytes memory data = _designatedData();
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _designatedSig(FIRST_KEY, address(core), data, 0, deadline);
+        vm.prank(address(0xBAD));
+        vm.expectRevert(PlatformAuthority.Unauthorized.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, signature);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 1, deadline, signature);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline + 1, signature);
+        vm.chainId(57);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, signature);
+        vm.chainId(56);
+        vm.warp(deadline + 1);
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, signature);
+        assertEq(authority.nonces(first), 0);
+    }
+
+    function testLegacyCreatePoolSignatureDoesNotAuthorizeDesignatedCreation() public {
+        bytes memory data = _designatedData();
+        uint256 deadline = block.timestamp + 1 hours;
+        (IPoolVault.PoolParams memory p,, uint32 taskId, uint128 weight) =
+            abi.decode(_tail(data), (IPoolVault.PoolParams, IPoolVault.DesignatedPurchaseConfig, uint32, uint128));
+        bytes32[11] memory words;
+        words[0] = authority.CREATE_POOL_TYPEHASH();
+        words[1] = bytes32(uint256(uint160(address(core))));
+        words[2] = keccak256("createDesignatedPoolChecked");
+        words[3] = _paramsHash(p);
+        words[4] = bytes32(uint256(1));
+        words[6] = _zeroConfigHash();
+        words[7] = bytes32(uint256(taskId));
+        words[8] = bytes32(uint256(weight));
+        words[10] = bytes32(deadline);
+        bytes memory obsolete = _sign(FIRST_KEY, keccak256(abi.encodePacked(words)));
+        vm.prank(RELAYER);
+        vm.expectRevert(PlatformAuthority.InvalidSignature.selector);
+        authority.executeApprovedOperation(address(core), data, 0, deadline, obsolete);
+        assertEq(authority.nonces(first), 0);
     }
 
     function testEitherAdminCanReviewButRelayerCannotForgeOrReplay() public {

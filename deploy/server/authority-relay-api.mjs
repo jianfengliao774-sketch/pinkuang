@@ -8,6 +8,7 @@ import { Contract, FetchRequest, Interface, Wallet, getAddress, keccak256,
 import { JournalStore } from './journal-store.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
 import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { verifyDesignatedPurchaseCapability,verifyApplicableOriginalOfficialBaseline } from './fresh-product-gate.mjs';
 import { createKeyedLimiter } from './request-limiter.mjs';
 import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
 import { acquireKeeperLock, acquireWalletLock, readJournal,
@@ -38,6 +39,7 @@ const GAS_LIMIT = Object.freeze({
 const allowedCoreCreation = new Set([
   'createPool', 'createPoolWithExpiry', 'createBudgetChildPool',
   'createFlexiblePool', 'createFlexiblePoolChecked',
+  'createDesignatedPoolChecked',
 ]);
 const allowedBudgetCreation = new Set(['createPortfolio']);
 const POOL_MINE = new Interface(['function mine(bytes data)']);
@@ -148,7 +150,7 @@ function authenticatedAccount(req, store) {
   return getAddress(account);
 }
 
-async function checkExactOperation(command, trusted, graph, readReclaimState) {
+async function checkExactOperation(command, trusted, graph, readReclaimState, provider) {
   if (command.kind !== 'executeApprovedOperation') return;
   const target = getAddress(command.args.target), data = command.args.data;
   const addresses = trusted.record.addresses;
@@ -191,12 +193,19 @@ async function checkExactOperation(command, trusted, graph, readReclaimState) {
   if (allowed === allowedCoreCreation) {
     if (iface.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== data.toLowerCase())
       fail(400, 'Creation calldata is not canonical.');
+    if (decoded.name==='createDesignatedPoolChecked') {
+      const block={number:graph.blockNumber,hash:graph.blockHash};
+      try {await verifyDesignatedPurchaseCapability(provider,trusted,graph,block);}
+      catch {fail(409,'The reviewed Factory, Vault and Authority do not support designated purchase version 1.');}
+      try {await verifyApplicableOriginalOfficialBaseline(provider,decoded.args[0],decoded.args[1],block);}
+      catch {fail(409,'The executable original official ask no longer matches the signed baseline; refresh the designated quote.');}
+    }
     const params = decoded.args[0];
     return { factory: target, collection: params.circuits, tokenId: params.circuitId };
   }
 }
 
-async function checkAction(command, prepared, graph, trusted, readReclaimState) {
+async function checkAction(command, prepared, graph, trusted, readReclaimState, provider) {
   const authority = trusted.freshAuthority.authority;
   if (!same(command.authority, authority.address) || !HASH.test(command.expectedCodehash ?? '')
     || command.expectedCodehash.toLowerCase() !== graph.freshAuthority.codehash.toLowerCase())
@@ -209,7 +218,7 @@ async function checkAction(command, prepared, graph, trusted, readReclaimState) 
     if (command.args.markets.length + command.args.pools.length > 24)
       fail(400, 'Too many fee sources in one transaction.');
   }
-  return checkExactOperation(command, trusted, graph, readReclaimState);
+  return checkExactOperation(command, trusted, graph, readReclaimState, provider);
 }
 
 /** Gas-wallet transactions are never enabled by merely serving the deployment page. */
@@ -353,7 +362,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     catch { fail(400, 'Invalid or unsupported administrator action.'); }
     if (!prepared.signer || !same(prepared.signer, account)) fail(403, 'Session wallet did not sign this action.');
     const graph = await freshGraph();
-    const reservation = await checkAction(command, prepared, graph, trusted, readReclaimState);
+    const reservation = await checkAction(command, prepared, graph, trusted, readReclaimState, provider);
     const authority = trusted.freshAuthority.authority.address;
     const { core, budget, first, second, gasWallet, nonce, code } = await readAuthorityState(authority, account);
     if (!same(core, graph.addresses.factory) || !same(budget, graph.addresses.portfolioFactory)

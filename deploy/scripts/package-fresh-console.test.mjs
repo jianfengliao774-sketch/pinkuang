@@ -57,6 +57,10 @@ test('fresh console runtime allowlist includes the complete static import closur
   assert.throws(() => verifyRuntimeClosure(missing), /Missing packaged runtime module/);
   assert.throws(() => verifyRuntimeClosure(files, [...RUNTIME_MODULES, 'scripts/treasury-collector.mjs']),
     /unreachable modules/);
+  for(const name of ['shared/designated-purchase-abi.mjs','shared/designated-purchase-runtime.mjs']) {
+    const incomplete=new Map(files);incomplete.delete(name);
+    assert.throws(()=>verifyRuntimeClosure(incomplete),/Missing packaged runtime module/);
+  }
 });
 
 test('independent product backend package closes both API and index entrypoints', () => {
@@ -66,6 +70,11 @@ test('independent product backend package closes both API and index entrypoints'
   files.delete('server/chain-index/portfolio-notifications.mjs');
   assert.throws(()=>verifyRuntimeClosure(files,PRODUCT_BACKEND_MODULES,
     ['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs','scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs']),/Missing packaged runtime module/);
+  for(const name of ['shared/designated-purchase-abi.mjs','shared/designated-purchase-runtime.mjs']) {
+    const incomplete=new Map(PRODUCT_BACKEND_MODULES.map(name=>[name,readFileSync(join(deploy,name))]));incomplete.delete(name);
+    assert.throws(()=>verifyRuntimeClosure(incomplete,PRODUCT_BACKEND_MODULES,
+      ['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs','scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs']),/Missing packaged runtime module/);
+  }
 });
 
 test('pre-genesis package contains only fresh dist and required runtime files', async () => {

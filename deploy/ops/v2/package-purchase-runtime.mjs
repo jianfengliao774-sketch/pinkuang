@@ -27,6 +27,13 @@ export const PURCHASE_RUNTIME_FILES = Object.freeze({
   'shared/fresh-activation-execution.mjs': 'shared/fresh-activation-execution.mjs',
   'shared/integrated-upgrade-plan.mjs': 'shared/integrated-upgrade-plan.mjs',
   'shared/original-gas-wallet.mjs': 'shared/original-gas-wallet.mjs',
+  'shared/designated-purchase-abi.mjs': 'shared/designated-purchase-abi.mjs',
+  'shared/designated-purchase-runtime.mjs': 'shared/designated-purchase-runtime.mjs',
+  'shared/fresh-factory-reuse-proof.mjs': 'shared/fresh-factory-reuse-proof.mjs',
+  'shared/fresh-native-sale-proof.mjs': 'shared/fresh-native-sale-proof.mjs',
+  'shared/fresh-sale-policy-proof.mjs': 'shared/fresh-sale-policy-proof.mjs',
+  'shared/read-only-rpc-fallback.mjs': 'shared/read-only-rpc-fallback.mjs',
+  'shared/runtime-rpc-selection.mjs': 'shared/runtime-rpc-selection.mjs',
 });
 const hash = data => createHash('sha256').update(data).digest('hex');
 

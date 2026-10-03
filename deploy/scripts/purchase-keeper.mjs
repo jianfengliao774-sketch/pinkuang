@@ -8,6 +8,9 @@ import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress
 import { decodeFirstoOrder, parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { MAX_OFFICIAL_SNAPSHOT_AGE_MS, fetchOfficialCandidates, verifyOfficialSnapshotBoundary } from './official-market-discovery.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
+import { DESIGNATED_MINING_ABI, DESIGNATED_NFT_ABI, designatedDailyOutputAtomic, designatedFundingAmounts,
+  designatedPurchaseBounds } from '../shared/designated-purchase-runtime.mjs';
+import { DESIGNATED_GETTER, DESIGNATED_FIRSTO_BUY } from '../shared/designated-purchase-abi.mjs';
 
 const configuredStateRoot = process.env.PINKUANG_KEEPER_STATE_ROOT;
 if (configuredStateRoot && !isAbsolute(configuredStateRoot)) throw new Error('Keeper state root must be absolute.');
@@ -28,6 +31,9 @@ export const KEEPER_POOL_ABI = [
   'function buyFromFirsto(uint8 kind,bytes encodedOrder)',
   'function purchaseModel() view returns(bool initialized,uint32 taskId)',
   'function purchaseReferenceWeight() view returns(uint128)',
+  DESIGNATED_GETTER,
+  'function totalRaised() view returns(uint256)', 'function totalBnbOwed() view returns(uint256)',
+  DESIGNATED_FIRSTO_BUY,
 ];
 const FACTORY_ABI = ['function isPool(address) view returns(bool)'];
 export const LISTING_ABI = [
@@ -41,7 +47,7 @@ const normalizeAddress = value => { const result = getAddress(value); if (result
 
 export function parseArguments(args) {
   const values = {};
-  const flags = new Set(['send', 'once', 'help', 'speed-up', 'rebroadcast', 'cancel-pending']);
+  const flags = new Set(['send', 'once', 'help', 'speed-up', 'rebroadcast', 'cancel-pending', 'designated-fallback']);
   const supported = new Set(['factory', 'pool', 'rpc', 'journal', 'interval', 'refresh-interval', 'pages', 'sort', 'venue', 'from', 'max-gas-bnb', 'max-gas-price-gwei', 'recover-hash', 'max-speed-ups', 'pending-seconds']);
   for (let index = 0; index < args.length; index += 1) {
     const key = args[index].startsWith('--') ? args[index].slice(2) : '';
@@ -61,6 +67,7 @@ export function parseArguments(args) {
   if (!['capacity', 'price'].includes(sort)) throw new Error('--sort must be capacity or price.');
   const venue = values.venue ?? 'official';
   if (!['official', 'firsto-signed', 'auto'].includes(venue)) throw new Error('--venue must be official, firsto-signed or auto; batch orders are disabled.');
+  if (values['designated-fallback'] && venue !== 'auto') throw new Error('Designated fallback requires --venue auto so both original purchase venues are checked first.');
   const rpc = values.rpc ?? 'https://bsc-dataseed.bnbchain.org';
   const rpcUrl = new URL(rpc);
   if (!/^https?:$/.test(rpcUrl.protocol)) throw new Error('RPC must be an HTTP(S) URL.');
@@ -78,7 +85,8 @@ export function parseArguments(args) {
   const maxSpeedUps = Number(values['max-speed-ups'] ?? 3), pendingSeconds = Number(values['pending-seconds'] ?? 120);
   if (!Number.isSafeInteger(maxSpeedUps) || maxSpeedUps < 0 || maxSpeedUps > 5) throw new Error('--max-speed-ups must be 0–5.');
   if (!Number.isSafeInteger(pendingSeconds) || pendingSeconds < 30 || pendingSeconds > 86400) throw new Error('--pending-seconds must be 30–86400.');
-  return { factory, pool, rpc, cancelPending: values['cancel-pending'] === true, speedUp: values['speed-up'] === true, rebroadcast: values.rebroadcast === true, maxSpeedUps, pendingSeconds, send: values.send === true, once: values.once === true, interval, refreshInterval, pages, sort,
+  return { factory, pool, rpc, designatedFallback: values['designated-fallback'] === true,
+    cancelPending: values['cancel-pending'] === true, speedUp: values['speed-up'] === true, rebroadcast: values.rebroadcast === true, maxSpeedUps, pendingSeconds, send: values.send === true, once: values.once === true, interval, refreshInterval, pages, sort,
     from: values.from ? normalizeAddress(values.from) : null, venue, maxGasWei, maxGasPrice,
     journal: resolve(values.journal ?? `keeper-journal/${pool.toLowerCase()}.json`), recoverHash: values['recover-hash'] };
 }
@@ -117,18 +125,26 @@ export function selectFirstoCandidates(rows, constraints, now = Date.now()) {
   const candidates = new Map();
   for (const row of rows) {
     if (!row || typeof row.collection !== 'string' || !same(row.collection, constraints.circuits)
-      || !OFFICIAL_COLLECTIONS.some(item => same(item, row.collection)) || integer(row.tokenId) !== constraints.circuitId
+      || !OFFICIAL_COLLECTIONS.some(item => same(item, row.collection))
+      || (!constraints.designatedEnabled && integer(row.tokenId) !== constraints.circuitId)
       || row.category !== 'official_mining' || row.mining?.status !== 'verified') continue;
+    const tokenId = integer(row.tokenId);
+    if (tokenId === null || constraints.designatedEnabled && tokenId === constraints.referenceCircuitId) continue;
+    const taskId = typeof row.mining.taskId === 'number' && Number.isSafeInteger(row.mining.taskId)
+      ? BigInt(row.mining.taskId) : integer(row.mining.taskId);
+    if (constraints.designatedEnabled && taskId !== constraints.taskId) continue;
     const weight = integer(row.mining.verifiedWeight), unverified = integer(row.mining.unverifiedWeight);
     if (weight === null || weight <= 0n || weight < constraints.minVerifiedWeight || unverified !== 0n) continue;
     try {
       const order = parseFirstoSignedAsk(row.bestAsk, { collection: constraints.circuits,
-        tokenId: constraints.circuitId.toString(), owner: row.owner, now });
+        tokenId: tokenId.toString(), owner: row.owner, now });
       if (BigInt(order.grossWei) > constraints.priceCap) continue;
-      const collection = normalizeAddress(row.collection), key = `${collection.toLowerCase()}:${constraints.circuitId}`;
-      candidates.set(key, { key, collection, tokenId: constraints.circuitId, priceWei: BigInt(order.grossWei),
-        verifiedWeight: weight, indexerBuyerCostWei: BigInt(order.grossWei), isReference: true,
-        discoverySource: 'Firsto signed original target', discoveryVenue: 'firsto', order });
+      const collection = normalizeAddress(row.collection), key = `${collection.toLowerCase()}:${tokenId}`;
+      candidates.set(key, { key, collection, tokenId, taskId,
+        priceWei: BigInt(constraints.designatedEnabled ? order.priceWei : order.grossWei),
+        verifiedWeight: weight, indexerBuyerCostWei: BigInt(order.grossWei), isReference: !constraints.designatedEnabled,
+        discoverySource: constraints.designatedEnabled ? 'Firsto signed alternative hint' : 'Firsto signed original target',
+        discoveryVenue: 'firsto', order });
     } catch { /* Missing, expired, malformed or batch orders are not executable hints. */ }
   }
   return [...candidates.values()];
@@ -192,7 +208,7 @@ export async function fetchCandidates(options, constraints, fetcher = fetch) {
     if (signal.aborted) throw new Error('Firsto discovery timed out or was aborted.');
     const url = new URL(FIRSTO_API);
     url.search = new URLSearchParams({ category: 'official_mining', sort: options.sort === 'price' ? 'price_low' : 'daily_capacity_price_low', page: String(page), pageSize: '50' }).toString();
-    if (options.venue === 'firsto-signed') {
+    if (options.venue === 'firsto-signed' && !constraints.designatedEnabled) {
       url.searchParams.set('query', constraints.circuitId.toString());
       url.searchParams.set('processorName', same(constraints.circuits, OFFICIAL_COLLECTIONS[0]) ? 'TapeOut' : 'Behemoth');
       if (viewId) url.searchParams.set('viewId', viewId);
@@ -237,22 +253,58 @@ export async function readKeeperPool(provider, options) {
   if (!OFFICIAL_COLLECTIONS.some(item => same(item, params.circuits))) throw new Error('Pool collection is not an official TapeOut/Behemoth collection.');
   if (policy.enabled && !model.initialized) throw new Error('Flexible pool has no immutable on-chain purchase model; create a new configured pool.');
   if (policy.enabled && referenceWeight === 0n) throw new Error('Flexible pool has no immutable reference weight; legacy pricing cannot purchase. Create a new configured pool.');
-  const check = inspectPoolState(state, policy.enabled || options.venue === 'firsto-signed' || options.allowFixedOfficial === true,
+  let designated = null;
+  if (options.designatedFallback) {
+    // The new getter is requested only for an explicitly staged route. A missing selector or RPC
+    // failure must never downgrade a funded pool into an older, broader purchase policy.
+    const [terms, totalRaised, totalBnbOwed, balance] = await Promise.all([
+      pool.designatedPurchase(opts), pool.totalRaised(opts), pool.totalBnbOwed(opts), provider.getBalance(options.pool, block.number),
+    ]);
+    const funding = designatedFundingAmounts(terms.config.referenceCostWei);
+    if (!terms.enabled || terms.referenceCircuitId !== params.circuitId || terms.taskId === 0n
+      || terms.referenceVerifiedWeight === 0n || terms.config.referenceSeller === ZeroAddress
+      || terms.config.referencePriceWei === 0n || terms.config.referenceCostWei === 0n
+      || terms.config.referenceDailyOutputAtomic === 0n || terms.config.referenceCostWei < terms.config.referencePriceWei
+      || terms.config.referencePriceWei > (1n << 128n) - 1n
+      || terms.config.referenceCostWei > 2n * terms.config.referencePriceWei
+      || params.priceCap !== funding.priceCapWei || params.targetRaise !== funding.targetRaiseWei
+      || terms.config.referenceObservedAt === 0n || terms.config.referenceObservedAt > BigInt(block.timestamp)
+      || terms.config.referenceBlock === 0n || terms.config.referenceBlock > BigInt(block.number)
+      || terms.config.referenceDigest === `0x${'00'.repeat(32)}`
+      || totalRaised === 0n || totalRaised > params.targetRaise || balance < totalBnbOwed) {
+      throw new Error('Designated purchase is not configured with a valid immutable on-chain basis.');
+    }
+    designated = { enabled: true, referenceCircuitId: terms.referenceCircuitId,
+      taskId: terms.taskId, referenceVerifiedWeight: terms.referenceVerifiedWeight,
+      referenceSeller: terms.config.referenceSeller, referencePriceWei: terms.config.referencePriceWei,
+      referenceCostWei: terms.config.referenceCostWei,
+      referenceDailyOutputAtomic: terms.config.referenceDailyOutputAtomic,
+      referenceObservedAt: terms.config.referenceObservedAt, referenceBlock: terms.config.referenceBlock,
+      referenceDigest: terms.config.referenceDigest, totalRaised, freeBalanceWei: balance - totalBnbOwed };
+  }
+  const check = inspectPoolState(state, policy.enabled || !!designated || options.venue === 'firsto-signed' || options.allowFixedOfficial === true,
     params.purchaseDeadline, BigInt(block.timestamp));
   if (policy.enabled && (policy.config.minVerifiedWeight === 0n || params.priceCap === 0n)) throw new Error('Invalid flexible-purchase constraints.');
-  return { ...check, blockNumber: block.number, blockGasLimit: block.gasLimit, enabled: policy.enabled, state, circuits: params.circuits, circuitId: params.circuitId, priceCap: params.priceCap,
-    purchaseDeadline: params.purchaseDeadline, taskId: model.taskId, referenceVerifiedWeight: referenceWeight, minVerifiedWeight: policy.config.minVerifiedWeight,
-    referencePriceWei: policy.config.referencePriceWei,
-    referenceCircuitId: policy.enabled ? policy.referenceCircuitId : params.circuitId };
+  return { ...check, blockNumber: block.number, blockGasLimit: block.gasLimit,
+    enabled: policy.enabled || !!designated, designatedEnabled: !!designated, designated,
+    state, circuits: params.circuits, circuitId: params.circuitId, priceCap: params.priceCap,
+    purchaseDeadline: params.purchaseDeadline, taskId: designated?.taskId ?? model.taskId,
+    referenceVerifiedWeight: designated?.referenceVerifiedWeight ?? referenceWeight,
+    minVerifiedWeight: designated ? 1n : policy.config.minVerifiedWeight,
+    referencePriceWei: designated?.referencePriceWei ?? policy.config.referencePriceWei,
+    referenceCircuitId: designated?.referenceCircuitId ?? (policy.enabled ? policy.referenceCircuitId : params.circuitId) };
 }
 
 export async function verifyFirstoCandidate(provider, candidate, constraints) {
-  if (!candidate?.order || !same(candidate.collection, constraints.circuits) || candidate.tokenId !== constraints.circuitId
-    || !same(candidate.order.ask.collection, constraints.circuits) || BigInt(candidate.order.ask.tokenId) !== constraints.circuitId) return null;
+  if (!candidate?.order || !same(candidate.collection, constraints.circuits)
+    || (!constraints.designatedEnabled && candidate.tokenId !== constraints.circuitId)
+    || !same(candidate.order.ask.collection, constraints.circuits) || BigInt(candidate.order.ask.tokenId) !== candidate.tokenId) return null;
   const rpc = typeof provider.request === 'function' ? provider : { request: ({ method, params }) => provider.send(method, params) };
   const order = await verifyFirstoSignedAsk(rpc, candidate.order, { blockTag: toQuantity(constraints.blockNumber) });
   if (BigInt(order.checkedBlock.number) !== BigInt(constraints.blockNumber) || BigInt(order.grossWei) > constraints.priceCap) return null;
-  return { ...candidate, order, priceWei: BigInt(order.grossWei), firstoObservedBlock: constraints.blockNumber };
+  return { ...candidate, order, seller: order.ask.maker,
+    priceWei: BigInt(constraints.designatedEnabled ? order.priceWei : order.grossWei),
+    grossCostWei: BigInt(order.grossWei), firstoObservedBlock: constraints.blockNumber };
 }
 
 export async function verifyCandidate(provider, candidate, constraints) {
@@ -266,13 +318,100 @@ export async function verifyCandidate(provider, candidate, constraints) {
   // The Vault's mandatory estimateGas EVM simulation checks current mining status, non-optimal/verified
   // capacity, total-price and unit-weight caps, deadline and NFT ownership together with purchase settlement.
   // Repeating minerKey/getMiner here would add RPCs without strengthening that atomic check.
-  return { ...candidate, listingId: current.id, priceWei: listing.price,
+  return { ...candidate, listingId: current.id, seller: listing.seller,
+    priceWei: listing.price, grossCostWei: listing.price,
     officialListingSource: 'CircuitMarket.listingFor', officialObservedBlock: constraints.blockNumber };
+}
+
+async function readDesignatedMiner(provider, constraints, tokenId) {
+  const opts = { blockTag: constraints.blockNumber };
+  const mining = new Contract(MINING, DESIGNATED_MINING_ABI, provider);
+  const key = await mining.minerKey(constraints.circuits, tokenId, opts);
+  const [miner, rate, unverifiedBps, totalWeight] = await Promise.all([
+    mining.getMiner(key, opts), mining.currentRate(opts), mining.UNVERIFIED_BPS(opts),
+    mining.totalVerifWeight(opts),
+  ]);
+  if (!same(miner.circuits, constraints.circuits) || BigInt(miner.circuitId) !== tokenId
+    || BigInt(miner.taskId) !== constraints.taskId || BigInt(miner.status) !== 1n
+    || miner.optimal || BigInt(miner.unverWeight) !== 0n || BigInt(miner.verifWeight) === 0n) return null;
+  const dailyOutputAtomic = designatedDailyOutputAtomic(rate, unverifiedBps, totalWeight,
+    BigInt(miner.verifWeight));
+  return dailyOutputAtomic > 0n ? { verifiedWeight: BigInt(miner.verifWeight), dailyOutputAtomic,
+    rate, unverifiedBps, totalWeight } : null;
+}
+
+async function readDesignatedOwner(provider, circuits, tokenId, blockNumber) {
+  return new Contract(circuits, DESIGNATED_NFT_ABI, provider).ownerOf(tokenId, { blockTag: blockNumber });
+}
+
+/** Original is always checked before discovery; a read error is never interpreted as a sale. */
+export async function designatedOriginalPriority(provider, constraints) {
+  if (!constraints.designatedEnabled || !constraints.designated) throw new Error('Designated policy is not enabled.');
+  const originalId = constraints.designated.referenceCircuitId;
+  const original = { key: `${constraints.circuits.toLowerCase()}:${originalId}`, collection: constraints.circuits,
+    tokenId: originalId, isReference: true, discoverySource: 'designated-original',
+    indexerBuyerCostWei: null, indexerSourceBlock: null };
+  const opts = { blockTag: constraints.blockNumber };
+  const market = new Contract(OFFICIAL_MARKET, LISTING_ABI, provider);
+  const [owner, listing] = await Promise.all([
+    readDesignatedOwner(provider, constraints.circuits, originalId, constraints.blockNumber),
+    market.listingFor(constraints.circuits, originalId, opts),
+  ]);
+  let available = null;
+  if (listing.valid && listing.seller !== ZeroAddress && listing.price !== 0n
+    && listing.price <= constraints.priceCap && listing.price <= constraints.designated.totalRaised
+    && listing.price <= constraints.designated.freeBalanceWei) {
+    if (listing.id === 0n) throw new Error('Original official listing has no valid listing ID.');
+    const detail = await market.listingView(listing.id, opts);
+    if (!detail.valid || !same(detail.circuits, constraints.circuits) || detail.tokenId !== originalId
+      || !same(detail.seller, listing.seller) || detail.price !== listing.price) {
+      throw new Error('Original official listing read is inconsistent.');
+    }
+    if (same(owner, detail.seller)) {
+      const nft = new Contract(constraints.circuits, DESIGNATED_NFT_ABI, provider);
+      const [approved, approvedAll] = await Promise.all([
+        nft.getApproved(originalId, opts), nft.isApprovedForAll(detail.seller, OFFICIAL_MARKET, opts),
+      ]);
+      if (!same(approved, OFFICIAL_MARKET) && !approvedAll) {
+        return { owner, ownerChanged: !same(owner, constraints.designated.referenceSeller), available: null };
+      }
+      const miner = await readDesignatedMiner(provider, constraints, originalId);
+      if (miner) available = { ...original, listingId: listing.id, seller: detail.seller,
+        priceWei: detail.price, grossCostWei: detail.price, dailyOutputAtomic: miner.dailyOutputAtomic,
+        verifiedWeight: miner.verifiedWeight, officialListingSource: 'CircuitMarket.listingFor',
+        officialObservedBlock: constraints.blockNumber };
+    }
+  }
+  return { owner, ownerChanged: !same(owner, constraints.designated.referenceSeller), available };
+}
+
+/** One final candidate is priced against chain data pinned to the purchase-read block. */
+export async function verifyDesignatedAlternative(provider, candidate, constraints) {
+  if (!candidate || candidate.tokenId === constraints.designated.referenceCircuitId
+    || !same(candidate.collection, constraints.circuits)) return null;
+  const [owner, miner] = await Promise.all([
+    readDesignatedOwner(provider, constraints.circuits, candidate.tokenId, constraints.blockNumber),
+    readDesignatedMiner(provider, constraints, candidate.tokenId),
+  ]);
+  if (!miner || !candidate.seller || !same(owner, candidate.seller)) return null;
+  const bounds = designatedPurchaseBounds({
+    originalAskWei: constraints.designated.referencePriceWei,
+    originalCostWei: constraints.designated.referenceCostWei,
+    originalDailyOutputAtomic: constraints.designated.referenceDailyOutputAtomic,
+    candidateAskWei: candidate.priceWei, candidateCostWei: candidate.grossCostWei,
+    candidateDailyOutputAtomic: miner.dailyOutputAtomic,
+    priceCapWei: constraints.priceCap, totalRaisedWei: constraints.designated.totalRaised,
+    freeBalanceWei: constraints.designated.freeBalanceWei,
+  });
+  return bounds.allowed ? { ...candidate, onChainDailyOutputAtomic: miner.dailyOutputAtomic,
+    onChainVerifiedWeight: miner.verifiedWeight, grossUpperWei: bounds.grossUpperWei,
+    capacityObservedBlock: constraints.blockNumber } : null;
 }
 
 export function createKeeperRuntime() {
   return { constraints: null, queue: [], refreshTask: null, lastRefreshStarted: 0, lastRefreshCompleted: 0,
-    refreshError: null, discovery: null, stopped: false, abortController: new AbortController() };
+    refreshError: null, discovery: null, originalFirstoRefreshAt: 0, originalFirstoHints: [],
+    stopped: false, abortController: new AbortController() };
 }
 
 function referenceFirst(candidates, constraints, sort, limit = 30) {
@@ -287,6 +426,12 @@ function referenceFirst(candidates, constraints, sort, limit = 30) {
 }
 
 function orderedCandidates(candidates, constraints, options) {
+  if (options.designatedFallback) {
+    return candidates.filter(candidate => candidate.tokenId !== constraints.referenceCircuitId
+      && same(candidate.collection, constraints.circuits)
+      && (options.venue !== 'firsto-signed' || candidate.order?.kind === 0))
+      .sort((a, b) => compareCandidates(a, b, options.sort)).slice(0, 30);
+  }
   return options.venue === 'firsto-signed'
     ? candidates.filter(candidate => candidate.order?.kind === 0 && candidate.tokenId === constraints.circuitId && same(candidate.collection, constraints.circuits)).slice(0, 1)
     : referenceFirst(candidates, constraints, options.sort, options.officialSnapshot ? Infinity : 30);
@@ -319,6 +464,13 @@ export function startCandidateRefresh(provider, options, constraints, runtime, f
       if (!block) throw new Error('Cannot read block for candidate preparation.');
       const discoveryConstraints = { ...constraints, blockNumber: block.number }, prepared = [];
       const candidates = orderedCandidates(indexed.candidates, constraints, options);
+      if (options.designatedFallback) {
+        runtime.queue = candidates;
+        runtime.discovery = { scannedRows: indexed.scannedRows, pagesRead: indexed.pagesRead,
+          sourceBlock: indexed.sourceBlock, stagedDesignatedHints: candidates.length };
+        runtime.lastRefreshCompleted = Date.now(); runtime.refreshError = null;
+        return;
+      }
       for (let offset = 0; offset < candidates.length && !runtime.stopped; offset += 4) {
         const resolved = await Promise.allSettled(candidates.slice(offset, offset + 4).map(candidate => verifyPurchaseCandidate(provider,
           { ...candidate, indexerSourceBlock: indexed.sourceBlock }, discoveryConstraints, options)));
@@ -725,8 +877,10 @@ export async function recoverPending(provider, options, signer, journal, diagnos
   // A purchase resend, including identical signed bytes, must still pass the pinned source checks.
   // Identify the route from its exact calldata, not editable journal metadata or the current CLI venue.
   if (!options.cancelPending && !(options.rebroadcast && previous.kind === 'cancel')) {
-    const abi = new Interface(KEEPER_POOL_ABI), selector = abi.getFunction('buyFromFirsto').selector;
-    if (pending.data.toLowerCase().startsWith(selector.toLowerCase())) {
+    const abi = new Interface(KEEPER_POOL_ABI);
+    const signedSelectors = ['buyFromFirsto', 'buyAlternativeFromFirsto']
+      .map(name => abi.getFunction(name).selector.toLowerCase());
+    if (signedSelectors.some(selector => pending.data.toLowerCase().startsWith(selector))) {
       try {
         const decoded = abi.parseTransaction({ data: pending.data });
         if (decoded.args[0] !== 0n || abi.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== pending.data.toLowerCase()) throw new Error('Invalid Firsto recovery calldata.');
@@ -734,7 +888,7 @@ export async function recoverPending(provider, options, signer, journal, diagnos
         await verifyFirstoSignedAsk(rpc, decodeFirstoOrder(decoded.args[1]), { blockTag: 'latest' });
       } catch {
         return { status: 'firsto-recovery-order-no-longer-verified', terminal: false, hash: pending.hash,
-          message: 'The original signed purchase is still reserved. No resend or new signature; reconcile its receipt or explicitly cancel this nonce.' };
+          message: 'The signed purchase is still reserved. No resend or new signature; reconcile its receipt or explicitly cancel this nonce.' };
       }
     }
   }
@@ -768,11 +922,164 @@ export async function recoverPending(provider, options, signer, journal, diagnos
   return broadcastSigned(provider, options, journal, attempt, true, runtime);
 }
 
+async function executeDesignatedCandidate(provider, options, signer, runtime, journal, constraints,
+  candidate, originalOwner, firsto) {
+  const beforeCandidate = stoppedResult(runtime, 'candidate');
+  if (beforeCandidate) return beforeCandidate;
+  const method = firsto ? candidate.isReference ? 'buyFromFirsto' : 'buyAlternativeFromFirsto'
+    : candidate.isReference ? 'buyFromMarket' : 'buyAlternativeFromMarket';
+  const args = firsto ? [0, candidate.order.encodedOrder] : [candidate.listingId];
+  const runner = signer ?? provider, pool = new Contract(options.pool, KEEPER_POOL_ABI, runner);
+  const overrides = !signer && options.from ? { from: options.from } : {};
+  let gasLimit;
+  try {
+    gasLimit = ((await pool[method].estimateGas(...args, overrides)) * 120n + 99n) / 100n;
+  } catch {
+    return { status: candidate.isReference ? 'designated-original-simulation-unresolved'
+      : 'designated-candidate-simulation-unresolved', terminal: false, mode: 'designated-fallback',
+      tokenId: candidate.tokenId, listingId: candidate.listingId,
+      message: 'The chain simulation did not establish an executable purchase. No other target is attempted in this cycle.' };
+  }
+  const details = { mode: 'designated-fallback', purchaseRoute: method, listingId: candidate.listingId,
+    tokenId: candidate.tokenId, collection: candidate.collection, isReference: candidate.isReference === true,
+    originalOwner, referenceSeller: constraints.designated.referenceSeller,
+    referenceAskWei: constraints.designated.referencePriceWei,
+    referenceGrossCostWei: constraints.designated.referenceCostWei,
+    referenceDailyOutputAtomic: constraints.designated.referenceDailyOutputAtomic,
+    referenceDigest: constraints.designated.referenceDigest,
+    sellerAskWei: candidate.priceWei, grossCostWei: candidate.grossCostWei,
+    dailyOutputAtomic: candidate.onChainDailyOutputAtomic ?? candidate.dailyOutputAtomic,
+    capacityObservedBlock: candidate.capacityObservedBlock ?? constraints.blockNumber,
+    capacityValidation: 'fixed-block-mining-and-atomic-purchase-simulation', gasLimit,
+    discoverySource: candidate.discoverySource, discoveryVenue: candidate.discoveryVenue,
+    indexerSourceBlock: candidate.indexerSourceBlock,
+    indexerBuyerCostWei: candidate.indexerBuyerCostWei,
+    ...(firsto ? { firstoOrderHash: candidate.order.askHash,
+      firstoFeeWei: candidate.order.feeWei, firstoImplementation: candidate.order.implementation,
+      firstoObservedBlock: candidate.firstoObservedBlock }
+      : { officialListingSource: candidate.officialListingSource,
+        officialObservedBlock: candidate.officialObservedBlock }) };
+  if (!options.send) return { status: 'dry-run-ready', terminal: false, ...details,
+    message: 'Simulation only. No signature, approval, purchase or fee transfer was sent.' };
+  if (!signer) throw new Error('--send requires a locally supplied keeper signer.');
+  const from = await signer.getAddress();
+  const [fee, balance, nonce, latestNonce] = await Promise.all([
+    provider.getFeeData(), provider.getBalance(from), provider.getTransactionCount(from, 'pending'),
+    provider.getTransactionCount(from, 'latest'),
+  ]);
+  const gasPrice = fee.gasPrice;
+  if (!gasPrice || gasPrice > options.maxGasPrice
+    || constraints.blockGasLimit && gasLimit > constraints.blockGasLimit) {
+    return { status: 'gas-price-or-block-limit-exceeded', terminal: false, ...details };
+  }
+  const budget = gasBudget(journal, gasLimit, gasPrice, options.maxGasWei);
+  if (!budget.allowed) return { status: 'total-gas-budget-exceeded', terminal: false,
+    spentGasWei: budget.spent, maximumNextGasWei: budget.maximumNextFee,
+    totalBudgetWei: options.maxGasWei, ...details };
+  if (balance < budget.reservedFee) return { status: 'keeper-gas-balance-insufficient', terminal: false, ...details };
+  if (nonce !== latestNonce) return { status: 'keeper-account-has-pending-transactions', terminal: false, ...details };
+  const data = new Interface(KEEPER_POOL_ABI).encodeFunctionData(method, args);
+  const pending = { phase: 'signed', from, nonce, to: options.pool, data, value: '0',
+    purchaseMode: 'designated-fallback',
+    ...(firsto ? { venue: 'firsto-signed', orderHash: candidate.order.askHash,
+      circuitId: candidate.tokenId.toString(), totalCostWei: candidate.order.grossWei }
+      : { listingId: candidate.listingId.toString() }),
+    createdAt: new Date().toISOString(), speedUps: 0 };
+  const beforeSigning = stoppedResult(runtime, 'signing');
+  if (beforeSigning) return beforeSigning;
+  if (options.verifyBeforeSend) await options.verifyBeforeSend(provider, options.pool);
+  const attempt = await signAttempt(signer, pending, options, gasLimit, gasPrice);
+  pending.attempts = [attempt]; pending.hash = attempt.hash;
+  if (journal.transaction) journal.previousTransaction = journal.transaction;
+  journal.transaction = pending;
+  writeJournal(options.journal, journal);
+  return { ...await broadcastSigned(provider, options, journal, attempt, false, runtime), ...details };
+}
+
+/** Exact original-ID search is cached; every retained order is rechecked at the current chain block. */
+async function designatedOriginalFirstoPriority(provider, options, fetcher, runtime, constraints, originalOwner) {
+  const refreshDue = Date.now() - runtime.originalFirstoRefreshAt >= (options.refreshInterval ?? 30) * 1000;
+  if (refreshDue) {
+    const exact = await fetchCandidates({ ...options, venue: 'firsto-signed',
+      signal: runtime.abortController.signal }, { ...constraints, designatedEnabled: false }, fetcher);
+    runtime.originalFirstoHints = exact.candidates.filter(candidate => candidate.tokenId === constraints.referenceCircuitId)
+      .slice(0, 1).map(candidate => ({ ...candidate, indexerSourceBlock: exact.sourceBlock }));
+    runtime.originalFirstoRefreshAt = Date.now();
+  }
+  for (const hint of runtime.originalFirstoHints) {
+    const fresh = await verifyFirstoCandidate(provider, hint,
+      { ...constraints, designatedEnabled: false });
+    if (!fresh || !same(fresh.seller, originalOwner)
+      || fresh.grossCostWei > constraints.designated.totalRaised
+      || fresh.grossCostWei > constraints.designated.freeBalanceWei) continue;
+    const miner = await readDesignatedMiner(provider, constraints, hint.tokenId);
+    if (!miner) continue;
+    return { ...fresh, isReference: true, priceWei: BigInt(fresh.order.priceWei),
+      dailyOutputAtomic: miner.dailyOutputAtomic,
+      verifiedWeight: miner.verifiedWeight, capacityObservedBlock: constraints.blockNumber };
+  }
+  return null;
+}
+
+async function runDesignatedCycle(provider, options, signer, fetcher, runtime, journal) {
+  const constraints = await readKeeperPool(provider, options);
+  runtime.constraints = constraints;
+  if (constraints.terminal) return { status: constraints.reason, terminal: true, state: constraints.state,
+    mode: 'designated-fallback' };
+  if (!constraints.eligible) return { status: 'funding-waiting', terminal: false,
+    state: constraints.state, mode: 'designated-fallback' };
+  const original = await designatedOriginalPriority(provider, constraints);
+  if (original.available) return executeDesignatedCandidate(provider, options, signer, runtime, journal,
+    constraints, original.available, original.owner, false);
+  if (options.designatedCheckOriginalFirsto) {
+    let signedOriginal;
+    try {
+      signedOriginal = await designatedOriginalFirstoPriority(provider, options, fetcher, runtime,
+        constraints, original.owner);
+    } catch (error) {
+      return { status: 'designated-original-firsto-unresolved', terminal: false,
+        mode: 'designated-fallback', originalOwner: original.owner,
+        message: 'Original signed-order discovery or verification failed; no alternative can be selected this cycle.',
+        reason: String(error?.message || 'Original signed-order check failed.').slice(0, 250) };
+    }
+    if (signedOriginal) return executeDesignatedCandidate(provider, options, signer, runtime, journal,
+      constraints, signedOriginal, original.owner, true);
+  }
+  if (!original.ownerChanged) return { status: 'designated-original-owner-unchanged', terminal: false,
+    mode: 'designated-fallback', originalOwner: original.owner,
+    message: 'The original remains with its locked seller. No alternative discovery or purchase is authorized.' };
+  const refreshDue = Date.now() - runtime.lastRefreshStarted >= (options.refreshInterval ?? 30) * 1000;
+  if (!runtime.queue.length && refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
+  if (options.once && runtime.refreshTask) await runtime.refreshTask;
+  if (!runtime.queue.length) return { status: runtime.refreshTask ? 'designated-candidates-preparing'
+    : 'designated-no-executable-alternative-in-cache', terminal: false, mode: 'designated-fallback',
+    refreshError: runtime.refreshError, discovery: runtime.discovery };
+  const skipped = [];
+  for (const hint of orderedCandidates(runtime.queue, constraints, options)) {
+    const beforeCandidate = stoppedResult(runtime, 'candidate');
+    if (beforeCandidate) return beforeCandidate;
+    let fresh;
+    try { fresh = await verifyPurchaseCandidate(provider, hint, constraints, options); }
+    catch { return { status: 'designated-candidate-chain-read-unresolved', terminal: false,
+      mode: 'designated-fallback', tokenId: hint.tokenId,
+      message: 'A live order read failed; the keeper will not infer that the order or original is unavailable.' }; }
+    if (!fresh) { skipped.push({ tokenId: hint.tokenId, reason: 'no-current-executable-order' }); continue; }
+    const candidate = await verifyDesignatedAlternative(provider, fresh, constraints);
+    if (!candidate) { skipped.push({ tokenId: hint.tokenId, reason: 'outside-chain-designated-terms' }); continue; }
+    const result = await executeDesignatedCandidate(provider, options, signer, runtime, journal,
+      constraints, candidate, original.owner, options.venue === 'firsto-signed');
+    return { ...result, skipped, discovery: runtime.discovery };
+  }
+  runtime.queue = [];
+  return { status: 'designated-no-executable-alternative-in-cache', terminal: false,
+    mode: 'designated-fallback', skipped, discovery: runtime.discovery };
+}
+
 async function runKeeperCycleSingle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
   const stopped = stoppedResult(runtime, 'cycle');
   if (stopped) return stopped;
   const firsto = options.venue === 'firsto-signed';
-  const binding = `56:${options.factory.toLowerCase()}:${options.pool.toLowerCase()}:${options.venue ?? 'official'}`;
+  const binding = `56:${options.factory.toLowerCase()}:${options.pool.toLowerCase()}:${options.venue ?? 'official'}:${options.designatedFallback ? 'designated' : 'legacy'}`;
   if (runtime.binding && runtime.binding !== binding) throw new Error('In-memory keeper state belongs to another pool.');
   runtime.binding = binding;
   const journal = readJournal(options.journal, options);
@@ -782,6 +1089,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
   if (['cancelled', 'cancel-reverted'].includes(journal.transaction?.phase)) return { status: journal.transaction.phase === 'cancelled' ? 'purchase-nonce-cancelled' : 'cancellation-flow-reverted', terminal: true, hash: journal.transaction.hash, message: 'This cancellation flow has ended and this journal has stopped; no automatic next purchase.' };
   if (journal.transaction?.phase === 'confirmed') return { status: 'purchase-transaction-already-confirmed', terminal: true, hash: journal.transaction.hash };
   if (options.speedUp || options.rebroadcast || options.cancelPending) return { status: 'no-unresolved-purchase-to-recover', terminal: true };
+  if (options.designatedFallback) return runDesignatedCycle(provider, options, signer, fetcher, runtime, journal);
   const firstRead = !runtime.constraints;
   let constraints = firstRead ? await readKeeperPool(provider, options) : await pollPoolState(provider, options, runtime.constraints);
   runtime.constraints = constraints;
@@ -878,8 +1186,25 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
 /** The automatic route checks every discovered official listing before a signed Firsto order.
  * A failed or incomplete official scan is not proof that the official market has no suitable miner. */
 export async function runKeeperCycle(provider, options, signer = null, fetcher = fetch, runtime = createKeeperRuntime()) {
+  if (options.designatedFallback && options.venue !== 'auto') {
+    throw new Error('Designated fallback requires --venue auto so both original purchase venues are checked first.');
+  }
   if (options.venue === 'firsto-signed' && options.send && !options.speedUp && !options.rebroadcast && !options.cancelPending) {
     throw new Error('Firsto signed mode cannot send a new purchase without the official-first auto route.');
+  }
+  if (options.designatedFallback && options.venue === 'auto') {
+    const binding = `56:${options.factory.toLowerCase()}:${options.pool.toLowerCase()}:auto:designated`;
+    if (runtime.binding && runtime.binding !== binding) throw new Error('In-memory keeper state belongs to another pool.');
+    runtime.binding = binding;
+    runtime.autoOfficial ??= createKeeperRuntime();
+    runtime.autoFirsto ??= createKeeperRuntime();
+    const official = await runKeeperCycleSingle(provider, { ...options, venue: 'official',
+      designatedCheckOriginalFirsto: true },
+      signer, fetcher, runtime.autoOfficial);
+    if (official.status !== 'designated-no-executable-alternative-in-cache') return official;
+    const firsto = await runKeeperCycleSingle(provider, { ...options, venue: 'firsto-signed' },
+      signer, fetcher, runtime.autoFirsto);
+    return { ...firsto, purchaseSequence: 'designated-original-then-official-then-firsto' };
   }
   if (options.venue !== 'auto') return runKeeperCycleSingle(provider, options, signer, fetcher, runtime);
   const stopped = stoppedResult(runtime, 'cycle');
@@ -949,7 +1274,7 @@ export async function runKeeperCycle(provider, options, signer = null, fetcher =
 }
 
 function help() {
-  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads the systemd keeper-private-key credential or KEEPER_PRIVATE_KEY. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
+  console.log(`Purchase keeper — BSC official listings before opt-in Firsto signed orders\n\nDefault: read-only, state polls every 2 seconds, candidate prewarming every 30 seconds.\nFunded pools try the original target immediately. --venue auto then scans the independent TapeOut official listing feed and considers Firsto only after a complete, current official check.\n\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --once\nnode scripts/purchase-keeper.mjs --factory 0x... --pool 0x... --venue auto --journal /private/path/pool.json --send\n\n--send reads the systemd keeper-private-key credential or KEEPER_PRIVATE_KEY. Never put a key in command arguments.\nOptions: --venue official|firsto-signed|auto (default official), --rpc URL, --sort capacity|price, --pages 1..10 (default 3), --interval seconds (default 2),\n--refresh-interval seconds (default 30), --from ADDRESS (optional dry-run caller),\n--max-gas-bnb 0.01 (cumulative budget including failed transactions), --max-gas-price-gwei 1, --recover-hash 0x...\nAuto mode supports flexible official alternatives, then only an original-target Firsto V2 signed ask; batch and Firsto alternatives are not enabled. An unavailable, incomplete or changed official snapshot blocks Firsto fallback. Each attempt verifies the live listing/order and simulates the complete Pool purchase. Unresolved transactions are recovered by exact journal identity before either route is considered.\nStaged designated mode: --designated-fallback --venue auto. It checks the original official listing, then an exact original Firsto V2 ask, before bounded alternative discovery. Alternatives require a changed original NFT owner and the on-chain configured ask and daily-output bands.\nTwo canonical confirmations plus BSC finalized inclusion are required before releasing a nonce. Unsupported finalized RPCs fail closed. Default pending handling never resends.\nRecovery: --send --once --rebroadcast (identical bytes), or --send --once --speed-up (same purchase + nonce, 20% fee bump; a node may require a higher replacement threshold).\n--send --once --cancel-pending replaces this nonce with a zero-value empty self-transfer for an EOA; confirmation stops this journal.\n--max-speed-ups 3 (hard ceiling 5), --pending-seconds 120 (diagnostic threshold, never an expiry).\nWallet locks coordinate this machine only: run one executor per wallet, including across machines.\nAll process locks persist in private 0700 state directories; send mode requires HTTPS RPC (loopback HTTP is for tests).\nSigned raw transactions stay in the private journal; keep it and its wallet lock state until every pending nonce is resolved.\nThe factory address is a user trust input; reciprocal getters do not authenticate an arbitrary deployment.\nNo pool creation, funding, finalization, share trading or service-fee collection is performed.`);
 }
 
 export async function main(args = process.argv.slice(2)) {

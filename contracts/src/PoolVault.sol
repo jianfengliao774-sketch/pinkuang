@@ -22,6 +22,7 @@ import {FlexiblePurchase} from "./libraries/FlexiblePurchase.sol";
 import {SaleSettlement} from "./libraries/SaleSettlement.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
 import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
+import {DesignatedPurchaseState} from "./DesignatedPurchaseState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
@@ -36,6 +37,7 @@ contract PoolVault is
     PoolSaleState,
     PoolVaultState,
     PurchaseSelectionState,
+    DesignatedPurchaseState,
     FirstoSaleState
 {
     using Checkpoints for Checkpoints.Trace208;
@@ -79,19 +81,7 @@ contract PoolVault is
 
     function deposit(uint8 shares) external payable nonReentrant {
         VaultStorage storage s = _vaultStorage();
-        if (s.factory == address(0)) revert Unauthorized();
-        if (s.state != State.Funding) revert WrongState();
-        if (s.depositPaused) revert DepositPaused();
-        address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));
-        if (subscriber != address(0) && msg.sender != subscriber) revert Unauthorized();
-        if (block.timestamp >= s.params.fundingDeadline) revert DeadlinePassed();
-        if (shares == 0) revert InvalidShareCount();
-        if (shares > maxShares || balanceOf(msg.sender) + shares > maxShares) revert ShareOutOfRange();
-        if (totalSupply() + shares > TOTAL_SHARES) revert ExceedsTarget();
-        uint256 amount = uint256(shares) * s.unitPriceWei;
-        if (msg.value != amount) revert PaymentMismatch();
-        s.contributedWei[msg.sender] += amount;
-        s.totalRaised += amount;
+        uint256 amount = PoolFunds.prepareDeposit(s, shares, balanceOf(msg.sender), totalSupply(), msg.value);
         _mint(msg.sender, shares);
         emit Deposited(msg.sender, shares, amount, s.totalRaised);
         if (totalSupply() == TOTAL_SHARES) {
@@ -105,25 +95,15 @@ contract PoolVault is
     /// @notice Withdraws the full subscription into the caller's pull-payment balance.
     function withdrawDeposit() external nonReentrant {
         VaultStorage storage s = _vaultStorage();
-        if (s.state != State.Funding) revert WrongState();
         uint256 shares = balanceOf(msg.sender);
-        if (shares == 0) revert NotMember();
-        uint256 amount = s.contributedWei[msg.sender];
-        s.contributedWei[msg.sender] = 0;
-        s.totalRaised -= amount;
+        uint256 amount = PoolFunds.prepareDepositWithdrawal(s, msg.sender, shares);
         _burn(msg.sender, shares);
-        _creditBnb(s, msg.sender, amount);
         // The entire pool contains 100 integer shares, so this uint8 cast is exact.
         emit DepositWithdrawn(msg.sender, uint8(shares), amount);
     }
 
     function finalizeFailure() external nonReentrant {
         PoolFunds.finalizeFailure(_vaultStorage());
-    }
-
-    function _creditBnb(VaultStorage storage s, address member, uint256 amount) private {
-        s.bnbOwed[member] += amount;
-        s.totalBnbOwed += amount;
     }
 
     function withdrawBnb() external nonReentrant {
@@ -137,6 +117,10 @@ contract PoolVault is
         FlexiblePurchase.buy(_vaultStorage(), listingId, false);
     }
 
+    function designatedPurchaseVersion() external pure returns (uint8) {
+        return 1;
+    }
+
     function buyAlternativeFromMarket(uint256 listingId) external nonReentrant {
         FlexiblePurchase.buy(_vaultStorage(), listingId, true);
     }
@@ -145,12 +129,35 @@ contract PoolVault is
         FlexiblePurchase.buyFirsto(_vaultStorage(), kind, encodedOrder);
     }
 
+    function buyAlternativeFromFirsto(uint8 kind, bytes calldata encodedOrder) external nonReentrant {
+        FlexiblePurchase.buyDesignatedFirsto(_vaultStorage(), kind, encodedOrder);
+    }
+
     function sellToPool() external nonReentrant {
         FlexiblePurchase.sell(_vaultStorage());
     }
 
     function configureFlexiblePurchase(FlexiblePurchaseConfig calldata config) external {
         FlexiblePurchase.configure(_vaultStorage(), config, totalSupply());
+    }
+
+    function configureDesignatedPurchase(DesignatedPurchaseConfig calldata config) external {
+        FlexiblePurchase.configureDesignated(_vaultStorage(), config, totalSupply());
+    }
+
+    function designatedPurchase()
+        external
+        view
+        returns (
+            bool enabled,
+            uint256 referenceCircuitId,
+            uint32 taskId,
+            uint128 referenceVerifiedWeight,
+            DesignatedPurchaseConfig memory config
+    )
+    {
+        bytes memory encoded = FlexiblePurchase.designatedConfigurationEncoded();
+        assembly { return(add(encoded, 32), mload(encoded)) }
     }
 
     function flexiblePurchase()
@@ -190,10 +197,7 @@ contract PoolVault is
     }
 
     function setDepositPaused(bool paused) external {
-        VaultStorage storage s = _vaultStorage();
-        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert Unauthorized();
-        s.depositPaused = paused;
-        emit DepositPauseChanged(paused);
+        PoolFunds.setDepositPaused(_vaultStorage(), paused);
     }
 
     /// @notice Called only by Factory as part of creation, before the pool is published.

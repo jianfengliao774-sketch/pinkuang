@@ -30,6 +30,9 @@ interface ITapeoutMining {
 
     function minerKey(address circuits, uint256 circuitId) external view returns (bytes32);
     function getMiner(bytes32 key) external view returns (Miner memory);
+    function currentRate() external view returns (uint256);
+    function totalVerifWeight() external view returns (uint256);
+    function UNVERIFIED_BPS() external view returns (uint256);
     function pending(bytes32 key) external view returns (uint256);
     function claim(bytes32 key) external;
     function arm(address circuits, uint256 circuitId) external;

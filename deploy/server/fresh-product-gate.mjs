@@ -1,4 +1,8 @@
 import { loadFreshIndexManifest } from './chain-index/fresh-manifest.mjs';
+import { Interface } from 'ethers';
+import { DESIGNATED_CREATE,DESIGNATED_CONFIG,DESIGNATED_GETTER,DESIGNATED_FIRSTO_BUY } from '../shared/designated-purchase-abi.mjs';
+import { DESIGNATED_NFT_ABI,DESIGNATED_OFFICIAL_MARKET as OFFICIAL_MARKET,
+  DESIGNATED_OFFICIAL_LISTING_ABI as LISTING_ABI } from '../shared/designated-purchase-runtime.mjs';
 import { freshRuntimeLayout,freshRuntimeSource,freshGraphIdentity,assertFreshIdentity,need,same,HASH } from '../shared/fresh-runtime-identity.mjs';
 
 export function freshProductConfiguration(env=process.env) {
@@ -145,4 +149,85 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
 }
 
 export const FRESH_AUTHORITY_ONLY = new Set(['createPool','createPoolWithExpiry','createFlexiblePool',
-  'createFlexiblePoolChecked','createBudgetChildPool','createPortfolio','mine','buyOfficial','buyFirsto']);
+  'createFlexiblePoolChecked','createDesignatedPoolChecked','createBudgetChildPool','createPortfolio','mine','buyOfficial','buyFirsto',
+  'buyAlternativeFromFirsto']);
+
+const designatedVersion = 'function designatedPurchaseVersion() pure returns(uint8)';
+const designatedRequirements = Object.freeze({
+  FreshPoolFactory:[designatedVersion,`${DESIGNATED_CREATE} returns(address pool)`],
+  PoolVault:[designatedVersion,`function configureDesignatedPurchase(${DESIGNATED_CONFIG} config)`,
+    DESIGNATED_GETTER,DESIGNATED_FIRSTO_BUY],
+  PlatformAuthority:[designatedVersion,'function executeApprovedOperation(address target,bytes data,uint256 nonce,uint256 deadline,bytes signature) returns(bytes result)'],
+});
+const versionAbi = new Interface([designatedVersion]);
+
+/** Only the reviewed full ABI graph can advertise the candidate capability.
+ * Supplementing a legacy ABI or setting an environment flag cannot enable it. */
+export function reviewedDesignatedPurchaseSupport(trusted) {
+  try {
+    return Object.entries(designatedRequirements).every(([name,declarations])=>{
+      const actual = new Interface(trusted?.bundle?.artifacts?.[name]?.abi ?? []);
+      return declarations.every(declaration=>{
+        const expected = new Interface([declaration]).fragments[0], found = actual.getFunction(expected.selector);
+        return found?.format('sighash')===expected.format('sighash')
+          && found.outputs.map(output=>output.format('sighash')).join(',')
+            ===expected.outputs.map(output=>output.format('sighash')).join(',')
+          && found.stateMutability===expected.stateMutability;
+      });
+    });
+  } catch {return false;}
+}
+
+/** Called only for opt-in creation, after the existing full graph/code proof.
+ * Every version read uses its canonical block; legacy graphs exit without RPC. */
+export async function verifyDesignatedPurchaseCapability(provider,trusted,graph,block) {
+  need(reviewedDesignatedPurchaseSupport(trusted),'Reviewed deployment does not support designated purchase version 1.');
+  const a=trusted.record.addresses,authority=trusted.freshAuthority?.authority?.address;
+  need(graph?.freshFactoryVerified===true && graph?.freshAuthority && authority
+    && same(graph.artifactDigest,trusted.record.artifactDigest) && same(graph.addresses?.factory,a.factory)
+    && same(graph.addresses?.PoolVault,a.PoolVault) && same(graph.freshAuthority.address,authority)
+    && Number.isSafeInteger(block?.number) && block.number===graph.blockNumber && HASH.test(block.hash),
+  'Designated purchase requires the verified independent Factory, Vault and Authority graph.');
+  const tag=`0x${block.number.toString(16)}`;
+  const addresses=[a.factory,a.PoolVault,authority];
+  const results=await Promise.all(addresses.map(to=>provider.send('eth_call',[
+    {to,data:versionAbi.encodeFunctionData('designatedPurchaseVersion')},tag])));
+  need(results.every(bytes=>/^0x0{62}01$/i.test(bytes)),
+    'Factory, Vault and Authority must all prove designated purchase version 1.');
+  need(same((await provider.getBlock(block.number))?.hash,block.hash),'Designated purchase capability chain changed.');
+  return {version:1,factory:a.factory,implementation:a.PoolVault,authority,
+    artifactDigest:trusted.record.artifactDigest,verifiedBlockNumber:block.number,verifiedBlockHash:block.hash};
+}
+
+const officialBaselineAbi=new Interface(LISTING_ABI),baselineNftAbi=new Interface(DESIGNATED_NFT_ABI);
+/** Authenticate only a currently executable official original ask. A Firsto
+ * JSON reference remains an explicitly administrator-signed quotation. */
+export async function verifyApplicableOriginalOfficialBaseline(provider,params,config,block) {
+  const tag=`0x${block.number.toString(16)}`;
+  const finish=async result=>{
+    need(same((await provider.getBlock(block.number))?.hash,block.hash),'Original official baseline chain changed.');
+    return result;
+  };
+  const call=async(abi,to,name,args)=>{
+    const bytes=await provider.send('eth_call',[{to,data:abi.encodeFunctionData(name,args)},tag]);
+    const result=abi.decodeFunctionResult(name,bytes);
+    need(abi.encodeFunctionResult(name,result).toLowerCase()===bytes.toLowerCase(),'Original official listing response is not canonical.');
+    return result;
+  };
+  const listing=await call(officialBaselineAbi,OFFICIAL_MARKET,'listingFor',[params.circuits,params.circuitId]);
+  if(!listing.valid)return finish(null);
+  need(listing.id>0n && listing.price>0n,'Original official listing is inconsistent.');
+  const detail=await call(officialBaselineAbi,OFFICIAL_MARKET,'listingView',[listing.id]);
+  need(detail.valid && same(detail.circuits,params.circuits) && detail.tokenId===params.circuitId
+    && same(detail.seller,listing.seller) && detail.price===listing.price,'Original official listing changed.');
+  const [owner,approved,approvedAll]=await Promise.all([
+    call(baselineNftAbi,params.circuits,'ownerOf',[params.circuitId]),
+    call(baselineNftAbi,params.circuits,'getApproved',[params.circuitId]),
+    call(baselineNftAbi,params.circuits,'isApprovedForAll',[detail.seller,OFFICIAL_MARKET]),
+  ]);
+  if(!same(owner[0],detail.seller) || !same(approved[0],OFFICIAL_MARKET) && !approvedAll[0])return finish(null);
+  need(same(config.referenceSeller,detail.seller) && config.referencePriceWei===detail.price
+    && config.referenceCostWei===detail.price,'Executable original official ask differs from the signed designated baseline.');
+  return finish({venue:'official',seller:detail.seller,priceWei:detail.price,costWei:detail.price,listingId:listing.id,
+    verifiedBlockNumber:block.number,verifiedBlockHash:block.hash});
+}

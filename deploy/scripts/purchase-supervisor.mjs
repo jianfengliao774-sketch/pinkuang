@@ -48,7 +48,7 @@ export function parseSupervisorArguments(args) {
   for (let index = 0; index < args.length; index += 1) {
     const key = args[index].startsWith('--') ? args[index].slice(2) : '';
     if (!key || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option: ${args[index]}`);
-    if (['send', 'once', 'help', 'fresh-graph'].includes(key)) values[key] = true;
+    if (['send', 'once', 'help', 'fresh-graph', 'designated-fallback'].includes(key)) values[key] = true;
     else if (keys.has(key) && args[index + 1] && !args[index + 1].startsWith('--')) values[key] = args[++index];
     else throw new Error(`Unknown option or missing value: --${key}`);
   }
@@ -66,7 +66,7 @@ export function parseSupervisorArguments(args) {
   if (maxGasWei <= 0n || maxGasPrice <= 0n) throw new Error('Gas limits must be positive.');
   return { factory: getAddress(values.factory), rpc, interval, maxPools, pages, sort,
     send: values.send === true, once: values.once === true, from: values.from ? getAddress(values.from) : null,
-    freshGraph: values['fresh-graph'] === true,
+    freshGraph: values['fresh-graph'] === true, designatedFallback: values['designated-fallback'] === true,
     journalDirExplicitAbsolute: Boolean(values['journal-dir'] && isAbsolute(values['journal-dir'])),
     journalDir: resolve(values['journal-dir'] ?? 'keeper-journal/purchase'),
     maxGasWei, maxGasPrice };
@@ -138,7 +138,8 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
       }
       const runtime = state.runtimes.get(pool) ?? createKeeperRuntime();
       state.runtimes.set(pool, runtime);
-      const result = await (dependencies.runKeeperCycle ?? runKeeperCycle)(provider, { ...options, pool, journal, venue: 'auto', refreshInterval: 30 }, signer, fetch, runtime);
+      const result = await (dependencies.runKeeperCycle ?? runKeeperCycle)(provider, { ...options, pool, journal,
+        venue: 'auto', designatedFallback: options.designatedFallback === true, refreshInterval: 30 }, signer, fetch, runtime);
       results.push({ pool, ...result });
       // A terminal pool no longer reserves this wallet. Continue to other
       // Funded pools; only an unresolved nonce or review state blocks them.
@@ -161,7 +162,7 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
 export async function main(args = process.argv.slice(2)) {
   const options = parseSupervisorArguments(args);
   if (options.help) {
-    console.log('Automatic purchase supervisor: --factory 0x... [--once]. Read-only by default. Legacy --send requires --journal-dir and KEEPER_PRIVATE_KEY_FILE. Fresh --send requires --fresh-graph, FRESH_PURCHASE_ENABLED=1, a systemd keeper-private-key credential and reviewed deployment evidence.');
+    console.log('Automatic purchase supervisor: --factory 0x... [--once]. Read-only by default. Legacy --send requires --journal-dir and KEEPER_PRIVATE_KEY_FILE. Fresh --send requires --fresh-graph, FRESH_PURCHASE_ENABLED=1, a systemd keeper-private-key credential and reviewed deployment evidence. The new designated-purchase route requires explicit --designated-fallback and a reviewed future pool; existing services leave it disabled.');
     return;
   }
   if (options.send && process.env.BEMINE_PRODUCT_ACTIVATION_PATH && !options.freshGraph)

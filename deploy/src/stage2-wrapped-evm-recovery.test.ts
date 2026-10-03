@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AbiCoder, BrowserProvider, Contract, Interface, Wallet, getAddress } from 'ethers';
 import { DeploymentEngine, PROTOCOL_ADDRESSES, artifactDigest,
-  type ArtifactBundle, type DeploymentSnapshot, type Eip1193Provider } from './deployment';
+  type DeploymentSnapshot, type Eip1193Provider } from './deployment';
 import { FreshActivationEngine, activationEvidence, activatedDeploymentManifest,
   type FreshActivationRecord } from './fresh-activation';
 // @ts-expect-error Production server modules are exercised directly by the Node EVM test.
@@ -22,12 +22,10 @@ import { verifyFreshAuthority } from '../server/product-graph.mjs';
 import { FRESH_DELEGATION_MANAGER, FRESH_DELEGATOR, FRESH_BALANCE_ENFORCER } from '../shared/fresh-activation-execution.mjs';
 import type { ServerJournal } from './server-journal';
 import { deploymentManifest } from './manifest';
-// @ts-expect-error The pinned compiler script is loaded directly by the Node test.
-import { artifactContentDigest, compileDeploymentArtifacts } from '../scripts/build-artifacts.mjs';
+import { compileCandidateArtifacts } from './candidate-artifacts.test-helper';
 
-const bundle: ArtifactBundle = JSON.parse(await readFile(new URL('../public/deployment-artifacts.json', import.meta.url), 'utf8'));
-(globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ =
-  artifactContentDigest(compileDeploymentArtifacts());
+const { bundle, digest } = compileCandidateArtifacts();
+(globalThis as unknown as Record<string, unknown>).__DEPLOYMENT_ARTIFACT_DIGEST__ = digest;
 
 test('real fixed DelegationManager runtime: delegated EOA wrapped 7-step roles, failed 3/7 recovery, immutable server history',
   { timeout: 240_000 }, async () => {

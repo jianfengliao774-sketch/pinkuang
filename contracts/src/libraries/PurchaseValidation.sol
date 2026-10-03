@@ -11,10 +11,40 @@ interface IReservedMachineState {
     function state() external view returns (IPoolVault.State);
 }
 
-/// @notice Existing purchase checks and seller reward settlement, executed in the Vault context.
-/// @dev Callers enforce the purchase window and nonReentrant. This library has no
-/// storage and neither buys, transfers, nor approves the NFT or purchase funds.
+/// @notice Factory reference checks and Vault purchase checks/reward settlement.
+/// @dev This library has no storage and neither buys, transfers, nor approves
+/// the NFT or purchase funds. Vault callers enforce the window and nonReentrant.
 library PurchaseValidation {
+    error ReferenceMinerChanged();
+
+    function requireFlexibleReferenceMatches(address pool, uint32 expectedTaskId, uint128 expectedReferenceWeight)
+        external
+        view
+    {
+        (bool initialized, uint32 taskId) = IPoolVault(pool).purchaseModel();
+        if (
+            !initialized || taskId != expectedTaskId || expectedReferenceWeight == 0
+                || IPoolVault(pool).purchaseReferenceWeight() != expectedReferenceWeight
+        ) revert ReferenceMinerChanged();
+    }
+
+    /// @dev The Factory calls this through its existing linked library. A revert also
+    /// rolls back pool creation and the machine reservation in the same transaction.
+    function configureDesignatedPoolChecked(
+        address pool,
+        uint256 expectedCircuitId,
+        IPoolVault.DesignatedPurchaseConfig calldata config,
+        uint32 expectedTaskId,
+        uint128 expectedReferenceWeight
+    ) external {
+        IPoolVault(pool).configureDesignatedPurchase(config);
+        (bool enabled, uint256 referenceId, uint32 taskId, uint128 weight,) = IPoolVault(pool).designatedPurchase();
+        if (
+            !enabled || referenceId != expectedCircuitId || taskId != expectedTaskId
+                || expectedReferenceWeight == 0 || weight != expectedReferenceWeight
+        ) revert ReferenceMinerChanged();
+    }
+
     /// @notice Preserve a reservation unless a closed pool has handed the NFT to another owner.
     /// @dev Shared read-only custody logic keeps the Factory below the runtime code-size limit.
     function liveMachineReservation(address circuits, uint256 circuitId, address pool) external view returns (address) {

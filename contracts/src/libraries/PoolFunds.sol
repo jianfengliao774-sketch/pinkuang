@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {IPoolVault} from "../interfaces/IPoolVault.sol";
+import {IPoolVault, IPoolFactoryRoles} from "../interfaces/IPoolVault.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
 
 /// @notice Existing BNB liabilities and purchase surplus, in the guarded Vault context.
@@ -15,6 +15,7 @@ library PoolFunds {
     event BnbWithdrawn(address indexed user, uint256 amount);
     event Purchased(uint256 cost, uint8 path, uint256 listingId);
     event PurchaseSurplusSettled(address indexed user, uint256 shares, uint256 amount);
+    event DepositPauseChanged(bool paused);
 
     /// @dev Vault's initializer and immutable factory check guard this delegate call.
     function initialize(
@@ -44,6 +45,48 @@ library PoolFunds {
     function shareName(address circuits, uint256 circuitId) external pure returns (string memory) {
         string memory collection = circuits == 0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C ? "Behemoth" : "TapeOut";
         return string.concat(collection, " #", Strings.toString(circuitId), " Pool Share");
+    }
+
+    /// @dev The Vault mints the shares immediately after this guarded delegate call.
+    function prepareDeposit(
+        PoolVaultState.VaultStorage storage s,
+        uint8 shares,
+        uint256 memberBalance,
+        uint256 supply,
+        uint256 paid
+    ) external returns (uint256 amount) {
+        if (s.factory == address(0)) revert IPoolVault.Unauthorized();
+        if (s.state != IPoolVault.State.Funding) revert IPoolVault.WrongState();
+        if (s.depositPaused) revert IPoolVault.DepositPaused();
+        address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));
+        if (subscriber != address(0) && msg.sender != subscriber) revert IPoolVault.Unauthorized();
+        if (block.timestamp >= s.params.fundingDeadline) revert IPoolVault.DeadlinePassed();
+        if (shares == 0) revert IPoolVault.InvalidShareCount();
+        if (memberBalance + shares > TOTAL_SHARES) revert IPoolVault.ShareOutOfRange();
+        if (supply + shares > TOTAL_SHARES) revert IPoolVault.ExceedsTarget();
+        amount = uint256(shares) * s.unitPriceWei;
+        if (paid != amount) revert IPoolVault.PaymentMismatch();
+        s.contributedWei[msg.sender] += amount;
+        s.totalRaised += amount;
+    }
+
+    /// @dev The Vault burns the checked balance immediately after this guarded delegate call.
+    function prepareDepositWithdrawal(PoolVaultState.VaultStorage storage s, address member, uint256 shares)
+        external
+        returns (uint256 amount)
+    {
+        if (s.state != IPoolVault.State.Funding) revert IPoolVault.WrongState();
+        if (shares == 0) revert IPoolVault.NotMember();
+        amount = s.contributedWei[member];
+        s.contributedWei[member] = 0;
+        s.totalRaised -= amount;
+        _credit(s, member, amount);
+    }
+
+    function setDepositPaused(PoolVaultState.VaultStorage storage s, bool paused) external {
+        if (msg.sender != IPoolFactoryRoles(s.factory).operator()) revert IPoolVault.Unauthorized();
+        s.depositPaused = paused;
+        emit DepositPauseChanged(paused);
     }
 
     function finalizeFailure(PoolVaultState.VaultStorage storage s) external {

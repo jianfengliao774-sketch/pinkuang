@@ -75,6 +75,15 @@ contract PurchaseMockNft is ERC721 {
 }
 
 contract PurchaseMockMining {
+    uint256 public currentRate;
+    uint256 public totalVerifWeight;
+    uint256 public constant UNVERIFIED_BPS = 100;
+
+    function setEmission(uint256 rate, uint256 weight) external {
+        currentRate = rate;
+        totalVerifWeight = weight;
+    }
+
     struct Miner {
         address circuits;
         uint64 circuitId;
