@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-10-03T16:45:00Z",
+  "frontendSourceHead": "a4e1e32a0dd4b12c0e8df53e0364e5b2d120d174",
+  "rootHttpStatus": 200,
+  "rootHtmlSha256": "20ae64908b48acb6521b46ccb0c60b4522564367674324f573d671f6aa1493c1",
+  "releaseManifestSha256": "04715f14dcefee3a6665648a409c3a3ed4f8b9c71d48707a66cc01e7de0c6302",
+  "rootMatchesBuiltArtifact": true,
+  "versionRedirectStatus": 308,
+  "versionRedirectsToRoot": true,
+  "entryChunksMatchArtifact": 13,
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c"
+}

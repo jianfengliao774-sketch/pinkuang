@@ -32,10 +32,15 @@ function fixture() {
       log(abi.PoolFactory, config.factory, 'PoolCreated', [row.pool, row.params.circuits, row.params.circuitId,
         row.params.targetRaise, row.params.priceCap, config.authority]),
     ] };
+  const tx = { hash: hash(20), from: config.gasWallet, to: config.authority,
+    blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
+    input: abi.PlatformAuthority.encodeFunctionData('executeApprovedOperation',
+      [config.factory, transaction.data, 7n, 1000000n, '0x']) };
   const reads = [], provider = { request: async request => { reads.push(request);
     if (request.method === 'eth_getTransactionReceipt') return receipt;
+    if (request.method === 'eth_getTransactionByHash') return tx;
     return f.request(request); } };
-  return { f, row, account, config, transaction, command, intent, receipt, reads, provider };
+  return { f, row, account, config, transaction, command, intent, receipt, tx, reads, provider };
 }
 
 test('only the confirmed exact administrator creation returns its genuine Factory address', async () => {
@@ -46,12 +51,29 @@ test('only the confirmed exact administrator creation returns its genuine Factor
   const result = await readPublishedProject({ provider: f.provider, intent: f.intent,
     status: { status: 'confirmed', hash: hash(20) } });
   assert.equal(result.poolAddress, f.row.pool); assert.equal(result.finalized, true);
-  assert.equal(result.receipt.status, 1); assert.equal(f.reads.length, 1);
+  assert.equal(result.receipt.status, 1);
+  assert.deepEqual(f.reads.map(read => read.method), ['eth_getTransactionReceipt', 'eth_getTransactionByHash']);
   await assert.rejects(readPublishedProject({ provider: f.provider, intent: { ...f.intent, nonce: '8' },
     status: { status: 'confirmed', hash: hash(20) } }), /不属于本次/);
   f.receipt.logs[1].address = address(30);
   await assert.rejects(readPublishedProject({ provider: f.provider, intent: f.intent,
     status: { status: 'confirmed', hash: hash(20) } }), /PoolCreated/);
+});
+
+test('a prior confirmed creation with the same nonce and public fields cannot satisfy a newer deadline', async () => {
+  const f = fixture(), newer = { ...f.row.params, fundingDeadline: f.row.params.fundingDeadline + 86400n };
+  const transaction = { ...f.transaction, data: abi.PoolFactory.encodeFunctionData('createPool', [newer]) };
+  const intent = publishedProjectIntent(f.config, transaction, { account: f.account,
+    command: { ...f.command, args: { target: f.config.factory, data: transaction.data } } });
+  assert.deepEqual(intent.expected, f.intent.expected, 'PoolCreated has no funding deadline to distinguish these previews.');
+  await assert.rejects(readPublishedProject({ provider: f.provider, intent,
+    status: { status: 'confirmed', hash: hash(20) }, hash: hash(20) }), /不属于本次签名内容/);
+  f.tx.blockHash = hash(101);
+  await assert.rejects(readPublishedProject({ provider: f.provider, intent: f.intent,
+    status: { status: 'confirmed', hash: hash(20) } }), /不属于本次签名内容/);
+  f.tx.blockHash = f.receipt.blockHash; f.tx.blockNumber = '0x65';
+  await assert.rejects(readPublishedProject({ provider: f.provider, intent: f.intent,
+    status: { status: 'confirmed', hash: hash(20) } }), /不属于本次签名内容/);
 });
 
 test('confirmed creation can read one registered latest Lens row while the directory is older', async () => {
@@ -62,8 +84,8 @@ test('confirmed creation can read one registered latest Lens row while the direc
   const result = await readPublishedPoolDisplay(client, confirmation, f.intent, f.account);
   assert.equal(result.item.trusted, true); assert.equal(result.item.pool, confirmation.poolAddress);
   assert.equal(result.item.totalSupply, 65n);
-  assert.deepEqual(f.reads.map(read => read.method), ['eth_getTransactionReceipt', 'eth_call']);
-  assert.equal(f.reads[1].params[0].to, f.f.manifest.lens); assert.equal(f.reads[1].params[1], 'latest');
+  assert.deepEqual(f.reads.map(read => read.method), ['eth_getTransactionReceipt', 'eth_getTransactionByHash', 'eth_call']);
+  assert.equal(f.reads[2].params[0].to, f.f.manifest.lens); assert.equal(f.reads[2].params[1], 'latest');
   assert.equal(mergePublishedProjects([], [viewPool(result.item)]).length, 1);
   const ended = { ...viewPool(result.item), status: 'Closed' };
   assert.equal(mergePublishedProjects([ended], [viewPool(result.item)])[0].status, 'Closed', 'Newer catalog business state wins.');
@@ -73,13 +95,9 @@ test('confirmed creation can read one registered latest Lens row while the direc
 
 test('a reverted creation reports failure only for the matching original signed operation', async () => {
   const f = fixture(); f.receipt.status = '0x0'; f.receipt.logs = [];
-  const tx = { hash: hash(20), from: f.config.gasWallet, to: f.config.authority,
-    input: abi.PlatformAuthority.encodeFunctionData('executeApprovedOperation',
-      [f.config.factory, f.transaction.data, 7n, 1000000n, '0x']) };
-  const provider = { request: async request => request.method === 'eth_getTransactionReceipt' ? f.receipt : tx };
-  const result = await readPublishedProject({ provider, intent: f.intent, status: { status: 'failed', hash: hash(20) } });
+  const result = await readPublishedProject({ provider: f.provider, intent: f.intent, status: { status: 'failed', hash: hash(20) } });
   assert.equal(result.status, 'failed'); assert.equal(result.poolAddress, undefined);
-  await assert.rejects(readPublishedProject({ provider, intent: { ...f.intent, nonce: '8' },
+  await assert.rejects(readPublishedProject({ provider: f.provider, intent: { ...f.intent, nonce: '8' },
     status: { status: 'failed', hash: hash(20) } }), /不属于本次/);
 });
 
@@ -94,6 +112,8 @@ test('budget creation uses the separate Factory event and a new pool address for
   f.receipt.logs = [log(abi.PlatformAuthority, f.config.authority, 'AdminAction',
     [f.account, id('APPROVED_OPERATION'), transaction.to, 7]),
     log(abi.BudgetPortfolioFactory, transaction.to, 'PortfolioCreated', [newPool, 10000n, 9000n, 20n])];
+  f.tx.input = abi.PlatformAuthority.encodeFunctionData('executeApprovedOperation',
+    [transaction.to, transaction.data, 7n, 1000000n, '0x']);
   const result = await readPublishedProject({ provider: f.provider, intent, status: { status: 'confirmed', hash: hash(20) } });
   assert.equal(result.poolAddress, newPool); assert.equal(result.projectKind, 'portfolio');
   assert.equal(mergePublishedProjects([{ pool: f.row.pool, tokenId: '16736', status: 'Closed' }],
@@ -137,12 +157,43 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   job.result = null; job.initialStatus = { status: 'confirmed', hash: hash(20) };
   const newerJob = { account: address(99) }; state.job = newerJob;
   client.provider = { request: request => {
+    if (request.method === 'eth_getTransactionByHash') return f.tx;
     assert.equal(request.method, 'eth_getTransactionReceipt', 'Cancelled work must not perform a new display read.');
     return new Promise(resolve => { release = resolve; });
   } };
   const stop = effect(); stop(); release(f.receipt);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(results.length, 1); assert.equal(state.job, newerJob);
+});
+
+test('a hashless timed-out publication cannot adopt the previous confirmed status with a different deadline', async () => {
+  const f = fixture(), source = await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('  useEffect(() => {\n    const job = publishingProject;');
+  const end = source.indexOf('  async function submitFreshAuthority', start);
+  assert(start > 0 && end > start);
+  const newer = { ...f.row.params, fundingDeadline: f.row.params.fundingDeadline + 86400n };
+  const transaction = { ...f.transaction, data: abi.PoolFactory.encodeFunctionData('createPool', [newer]) };
+  const intent = publishedProjectIntent(f.config, transaction, { account: f.account,
+    command: { ...f.command, args: { target: f.config.factory, data: transaction.data } } });
+  const client = { manifest: f.f.manifest, provider: f.provider };
+  const job = { intent, hash: null, initialStatus: null, client, account: f.account, config: f.config, startedAt: Date.now() };
+  const timers = [], results = [], rows = [], context = { publishingProject: job, client, config: f.config,
+    account: f.account, same: (a, b) => a.toLowerCase() === b.toLowerCase(),
+    showTransactionResult: result => results.push(result), setOperatorRefresh: () => {}, setRefresh: () => {},
+    authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20) }), readPublishedProject,
+    readPublishedPoolDisplay: () => assert.fail('An older creation cannot become a displayed project.'),
+    viewPool, publishedProjects: { current: [] }, mergePublishedProjects,
+    setPools: value => rows.push(value), setPublishingProject: () => assert.fail('The unresolved intent must remain.'),
+    readPortfolioDisplayRow: () => assert.fail(), rememberPortfolioDisplay: () => assert.fail(),
+    publishedPortfolios: { current: [] }, setMessage: () => {}, L: zh => zh };
+  let effect;
+  new Function('useEffect', 'setTimeout', 'clearTimeout', ...Object.keys(context), source.slice(start, end))(
+    fn => { effect = fn; }, fn => { timers.push(fn); return timers.length; }, () => {}, ...Object.values(context));
+  const cleanup = effect(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(job.result, undefined); assert.equal(results.length, 0); assert.equal(rows.length, 0);
+  assert.deepEqual(f.reads.map(read => read.method), ['eth_getTransactionReceipt', 'eth_getTransactionByHash']);
+  assert.equal(timers.length, 1, 'The existing timeout guard keeps the unresolved creation available for another poll.');
+  cleanup();
 });
 
 test('the real result dialog exposes address and directory actions only after confirmed creation', async () => {
@@ -177,7 +228,7 @@ test('the real result dialog exposes address and directory actions only after co
 });
 
 async function actualAdminCreation({ result = { status: 'pending', hash: hash(20) }, rejectSign, rejectRelay,
-  relayStatus = result, afterSign } = {}) {
+  afterSign } = {}) {
   const f = fixture(), source = (await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
   const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
@@ -188,18 +239,21 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
     account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
     epoch: { current: 0 }, submissionLock: { current: null }, L: zh => zh, textError: error => error.message,
     requireCurrentProductStage: async () => { calls.push('stage'); },
-    authorityActionStatus: async () => { calls.push('status'); return calls.filter(value => value === 'status').length === 1
-      ? { status: 'idle' } : relayStatus; },
-    signAuthorityAction: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
+    prepareAuthoritySubmission: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
       assert.equal(input.args.target, f.config.factory); assert.equal(input.args.data, f.transaction.data);
-      if (rejectSign) throw rejectSign; afterSign?.(walletEpoch); return f.command; },
+      if (rejectSign) throw rejectSign; afterSign?.(walletEpoch);
+      if (!input.isCurrent()) throw Error('页面或钱包已改变，请重新预览。');
+      calls.push('authenticate'); await input.authenticate();
+      if (!input.isCurrent()) throw Error('页面或钱包已改变；尚未提交签名。');
+      return f.command; },
     submitAuthorityAction: async (_config, _account, command) => { calls.push('relay'); assert.equal(command, f.command);
       if (rejectRelay) throw rejectRelay; return result; },
     publishedProjectIntent, setPublishingProject: job => { state.job = job; },
     showTransactionResult: (input, options) => feedback.push({ input, options }),
     setMessage: () => {}, setOperatorRefresh: () => {}, setRefresh: () => {},
     setBusy: value => { state.busy = value; }, setError: () => {}, setTransactionStage: () => {},
-    showTransactionProgress: () => {}, connectJournal: async () => { calls.push('authenticate'); },
+    showTransactionProgress: () => {}, connectJournal: async () => {},
+    createReadOnlyHttpProvider: () => assert.fail('The existing read client is already available.'),
     sameUnsignedIntent, sameAdminPurchasePreview: () => true, approvedOperatorCall,
     boundedReadPreview: () => assert.fail('The display-only creation preview must not add another read round.'),
     prepareAdminAction: () => assert.fail(), sendProductTransaction: () => assert.fail('Admin creation uses the approved relay.'),
@@ -216,17 +270,29 @@ test('actual admin creation registers exact creation intent and pending feedback
   assert.deepEqual(f.state.job.intent.expected, f.intent.expected); assert.equal(f.state.job.intent.nonce, '7');
   assert.equal(f.feedback.length, 1); assert.equal(f.feedback[0].options.creationPending, true);
   assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input), null);
-  assert.deepEqual(f.calls, ['authenticate', 'stage', 'status', 'sign', 'relay']);
+  assert.deepEqual(f.calls, ['stage', 'sign', 'authenticate', 'relay']);
   assert.equal(f.state.busy, false); assert.equal(f.context.submissionLock.current, null);
 });
 
-test('actual creation reconciles an ambiguous relay response without resubmitting and preserves final receipt lookup', async () => {
-  const f = await actualAdminCreation({ rejectRelay: Error('connection closed'), relayStatus: { status: 'confirmed', hash: hash(20) } });
-  await f.send();
+test('ambiguous relay POST keeps a hashless creation intent without adopting the older status or resubmitting', async () => {
+  const f = await actualAdminCreation({ rejectRelay: Error('connection closed') });
+  await assert.rejects(f.send(), /请核对状态/);
   assert.equal(f.calls.filter(value => value === 'relay').length, 1);
-  assert.equal(f.state.job.initialStatus.status, 'confirmed'); assert.equal(f.feedback.length, 0);
-  const result = await readPublishedProject({ provider: f.provider, intent: f.state.job.intent, status: f.state.job.initialStatus });
-  assert.equal(result.poolAddress, f.row.pool); assert.equal(transactionResult.normalizeTransactionResult(result).kind, 'success');
+  assert.equal(f.calls.includes('status'), false);
+  assert.equal(f.state.job.hash, null); assert.equal(f.state.job.initialStatus, null);
+  assert.equal(f.feedback.length, 1); assert.notEqual(f.feedback[0].options.creationFailure, true);
+  assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input, { source: 'wallet' }), null);
+  assert.equal(f.context.submissionLock.current, null);
+});
+
+test('a 409 against an older confirmed relay record never registers a new project', async () => {
+  const problem = Object.assign(Error('stale administrator nonce'), { httpStatus: 409 });
+  const f = await actualAdminCreation({ rejectRelay: problem });
+  await assert.rejects(f.send(), /stale administrator nonce/);
+  assert.equal(f.calls.includes('status'), false);
+  assert.equal(f.state.job, null); assert.equal(f.feedback.length, 1);
+  assert.equal(f.feedback[0].options.creationFailure, true);
+  assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input, { source: 'wallet' }), null);
 });
 
 test('actual creation signature failure and wallet change cannot register a published project or resend', async () => {
@@ -235,7 +301,7 @@ test('actual creation signature failure and wallet change cannot register a publ
   assert.equal(denied.state.job, null); assert.equal(denied.calls.includes('relay'), false);
   assert.equal(denied.feedback[0].options.creationFailure, true);
   const changed = await actualAdminCreation({ afterSign: walletEpoch => { walletEpoch.current++; } });
-  await assert.rejects(changed.send(), /签名期间/);
+  await assert.rejects(changed.send(), /页面或钱包已改变/);
   assert.equal(changed.state.job, null); assert.equal(changed.feedback.length, 0); assert.equal(changed.calls.includes('relay'), false);
   assert.equal(changed.context.submissionLock.current, null);
 });
