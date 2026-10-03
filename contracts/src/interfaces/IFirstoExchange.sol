@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 /// @notice Fixed Firsto protocol ABIs, independently checked against its deployed front-end and read-only calls.
-/// @dev Batch execution remains disabled until its deployed runtime provenance is resolved.
+/// @dev Batch execution requires the independently pinned runtime; ABI identity is not code provenance.
 interface IFirstoSignedAskExchange {
     struct SignedAsk {
         address maker;
@@ -52,6 +52,15 @@ interface IFirstoBatchAskExchange {
         uint256 leafIndex;
         uint16 schemaVersion;
     }
+
+    function factory() external view returns (address);
+    function paused() external view returns (bool);
+    function defaultTakerFeeBps() external view returns (uint16);
+    function feeEpoch() external view returns (uint256);
+    function feeBpsAtEpoch(uint256 epoch) external view returns (uint16);
+    function BATCH_ASK_SCHEMA_VERSION() external view returns (uint16);
+    function batchCancelled(address maker, uint256 batchNonce) external view returns (bool);
+    function isAskLeafInvalidated(address maker, uint256 batchNonce, uint256 leafIndex) external view returns (bool);
 
     function fillAsk(
         BatchAsk calldata batch,

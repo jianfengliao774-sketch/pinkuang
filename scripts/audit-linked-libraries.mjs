@@ -186,9 +186,9 @@ export default function auditLinkedLibraries(root, logRoot) {
   const freshFactoryCreationLinks = vaultLinks(freshFactory.artifact.bytecode, 'FreshPoolFactory creation bytecode', ['PurchaseValidation']);
   const freshFactoryRuntimeLinks = vaultLinks(freshFactory.artifact.deployedBytecode, 'FreshPoolFactory runtime bytecode', ['PurchaseValidation']);
   const budgetVaultCreationLinks = vaultLinks(budgetVault.artifact.bytecode,
-    'BudgetPortfolioVault creation bytecode', ['SaleGovernance']);
+    'BudgetPortfolioVault creation bytecode', ['FlexiblePurchase', 'SaleGovernance']);
   const budgetVaultRuntimeLinks = vaultLinks(budgetVault.artifact.deployedBytecode,
-    'BudgetPortfolioVault runtime bytecode', ['SaleGovernance']);
+    'BudgetPortfolioVault runtime bytecode', ['FlexiblePurchase', 'SaleGovernance']);
   const validationLibrary = readArtifact(projectRoot, 'PurchaseValidation');
   const libraryDefinition = validationLibrary.artifact.ast.nodes
     .find(node => node.nodeType === 'ContractDefinition' && node.name === 'PurchaseValidation');
@@ -237,6 +237,32 @@ export default function auditLinkedLibraries(root, logRoot) {
     .find(node => node.nodeType === 'FunctionDefinition' && node.name === 'executeChildSale');
   assert(executeChildSale?.modifiers?.some(node => node.modifierName?.name === 'nonReentrant'),
     'BudgetPortfolioVault linked child-sale execution must remain nonReentrant.');
+  const budgetPurchase = budgetVaultDefinition.nodes
+    .find(node => node.nodeType === 'FunctionDefinition' && node.name === 'buyFirsto');
+  assert(budgetPurchase?.modifiers?.some(node => node.modifierName?.name === 'nonReentrant'),
+    'BudgetPortfolioVault linked Firsto purchase must remain nonReentrant.');
+  const budgetPurchaseCalls = [...walkAst(budgetPurchase)].filter(node => node.nodeType === 'FunctionCall');
+  const orderedCalls = budgetPurchaseCalls.map(node => node.expression?.name ?? node.expression?.memberName).filter(Boolean);
+  assert.deepEqual(orderedCalls, ['_requireOperatorPurchase', '_prepareChild', 'buyBudgetFirsto', '_finishChild'],
+    'Budget Firsto must authorize and bind the child before the linked purchase, then reconcile it.');
+  const budgetFlexibleCalls = [...walkAst(budgetVaultDefinition)].filter(node => node.nodeType === 'MemberAccess'
+    && node.expression?.nodeType === 'Identifier' && node.expression.name === 'FlexiblePurchase');
+  assert.deepEqual(budgetFlexibleCalls.map(node => node.memberName), ['buyBudgetFirsto'],
+    'Unexpected BudgetPortfolioVault FlexiblePurchase call surface.');
+  const purchaseLibrary = readArtifact(projectRoot, 'FlexiblePurchase');
+  const purchaseDefinition = purchaseLibrary.artifact.ast.nodes.find(node => node.nodeType === 'ContractDefinition' && node.name === 'FlexiblePurchase');
+  const purchaseHelper = purchaseDefinition?.nodes.find(node => node.nodeType === 'FunctionDefinition' && node.name === 'buyBudgetFirsto');
+  assert(purchaseHelper?.visibility === 'external' && purchaseHelper.stateMutability === 'nonpayable',
+    'Budget purchase must use the reviewed external helper.');
+  const childCalls = [...walkAst(purchaseHelper)].filter(node => node.nodeType === 'MemberAccess'
+    && ['deposit', 'buyFromFirsto'].includes(node.memberName));
+  assert.deepEqual(childCalls.map(node => node.memberName), ['deposit', 'buyFromFirsto'],
+    'Budget purchase child-call sequence changed.');
+  for (const call of childCalls) assert(call.expression?.expression?.name === 'IPoolVault'
+    && call.expression.arguments?.length === 1 && call.expression.arguments[0].name === 'child',
+    'Budget purchase may only call the prevalidated child through IPoolVault.');
+  budgetCallSites.push({ name: 'buyBudgetFirsto', stateMutability: 'nonpayable', library: 'FlexiblePurchase',
+    authorization: '_requireOperatorPurchase + _prepareChild before call; _finishChild afterwards; outer nonReentrant' });
   const libraries = expectedLibraries.map(name => {
     const compiled = readArtifact(projectRoot, name);
     const source = sourceEvidence(projectRoot, `src/libraries/${name}.sol`, compiled.metadata);
@@ -298,11 +324,11 @@ export default function auditLinkedLibraries(root, logRoot) {
           note: 'FreshPoolFactory inherits the exact reviewed PoolFactory call surface.' },
         BudgetPortfolioVault: { source: budgetVaultSource, creationLinks: budgetVaultCreationLinks,
           runtimeLinks: budgetVaultRuntimeLinks, callSites: budgetCallSites, childSaleNonReentrant: true,
-          note: 'SaleGovernance is storage-free; child sale writes are called only under BudgetPortfolioVault.nonReentrant.' },
+          note: 'SaleGovernance and FlexiblePurchase are storage-free; child sale and purchase writes run under BudgetPortfolioVault.nonReentrant. Purchase authorizes and binds the child before the helper, then reconciles ownership and funds.' },
       },
       execution: 'Solidity linked-library calls execute by DELEGATECALL in the guarded Vault context.',
       reentrancy: 'Vault owns the nonReentrant purchase/payment entry points. FlexiblePurchase uses bounded static balanceOf callbacks to Vault when recording purchase-time refund credits; no arbitrary call target or calldata is accepted.',
-      upgradeValidationException: 'PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory narrowly annotates external-library-linking after the two view-only PurchaseValidation call sites are pinned above. BudgetPortfolioVault SaleGovernance call sites and nonReentrant child sale path are pinned above. Storage validation is not skipped; immutable factory values are verified separately.',
+      upgradeValidationException: 'PoolVault and BudgetPortfolioVault narrowly annotate their constructors/immutable fields and linked-library use. PoolFactory narrowly annotates external-library-linking after the two view-only PurchaseValidation call sites are pinned above. BudgetPortfolioVault SaleGovernance and FlexiblePurchase call sites, guarded child-sale execution and purchase authorization/call/reconciliation sequence are pinned above. Storage validation is not skipped; immutable factory values are verified separately.',
       limitations: 'Compiler templates are not deployed code hashes. Vault link placeholders and constructor immutable references require deployment fixups; a library runtime template also has its own-address fixup. Deployment and Beacon upgrade checks must verify the official factory binding, each linked address and runtime code.',
     },
   };

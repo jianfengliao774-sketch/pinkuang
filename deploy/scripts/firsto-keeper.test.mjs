@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { Interface, Transaction, TypedDataEncoder, Wallet, ZeroAddress, toQuantity } from 'ethers';
 import { FIRSTO_ASK_FIELDS, FIRSTO_SIGNED_EXCHANGE } from '../src/firsto-purchase.mjs';
 import { KEEPER_POOL_ABI, LISTING_ABI, OFFICIAL_MARKET, OFFICIAL_COLLECTIONS, createKeeperRuntime, fetchCandidates, parseArguments,
-  readJournal, readKeeperPool, runKeeperCycle, selectFirstoCandidates, verifyFirstoCandidate, writeJournal } from './purchase-keeper.mjs';
+  readJournal, readKeeperPool, recoverPending, runKeeperCycle, selectFirstoCandidates, verifyFirstoCandidate, writeJournal } from './purchase-keeper.mjs';
+
+import { batchSource } from './fixtures/firsto-batch-order.mjs';
+import { parseFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 
 const runtimeFixture = JSON.parse(readFileSync(new URL('./fixtures/firsto-signed-runtime.json', import.meta.url), 'utf8'));
 const factory = '0x1111111111111111111111111111111111111111', pool = '0x2222222222222222222222222222222222222222';
@@ -104,7 +107,7 @@ function simulatedChain() {
   return { state, provider, signer };
 }
 
-test('Firsto execution requires explicit venue and never enables batch or changes default official mode', () => {
+test('Firsto execution keeps the official default and requires the official-first auto route for every order kind', () => {
   const base = ['--factory', factory, '--pool', pool];
   assert.equal(parseArguments(base).venue, 'official');
   assert.equal(parseArguments([...base, '--venue', 'firsto-signed']).send, false);
@@ -112,7 +115,7 @@ test('Firsto execution requires explicit venue and never enables batch or change
   assert.throws(() => parseArguments([...base, '--venue', 'firsto-signed', '--journal', '/tmp/keeper-test.json', '--send']),
     /read-only for new purchases/);
   assert.equal(parseArguments([...base, '--venue', 'firsto-signed', '--journal', '/tmp/keeper-test.json', '--send', '--once', '--rebroadcast']).rebroadcast, true);
-  assert.throws(() => parseArguments([...base, '--venue', 'batch']), /batch orders are disabled/);
+  assert.throws(() => parseArguments([...base, '--venue', 'batch']), /official, firsto-signed or auto/);
 });
 
 test('runtime API also refuses a direct signed-Firsto send without official-first selection', async t => {
@@ -263,7 +266,7 @@ test('an older official alternative repriced during Firsto preparation wins befo
   assert.equal(poolAbi.parseTransaction({ data: state.broadcasts[0].data }).name, 'buyAlternativeFromMarket');
 });
 
-test('signed discovery is original-target-only, rejects batch/malformed orders, and counts source fee in cap', () => {
+test('signed discovery is original-target-only, rejects unknown/malformed orders, and counts source fee in cap', () => {
   assert.equal(selectFirstoCandidates([row()], constraints).length, 1);
   for (const changed of [
     { ...row(), tokenId: '8' }, { ...row(), collection: OFFICIAL_COLLECTIONS[1] },
@@ -413,4 +416,36 @@ test('Firsto source failure never blocks explicit cancellation, replaying that c
     blockNumber: original.state.block, blockHash, status: 1, fee: 100n }]]);
   assert.equal((await runKeeperCycle(original.provider, options(original.journal))).status, 'confirmed');
   assert.equal(original.state.signed, 1); assert.equal(original.state.broadcasts.length, 1);
+});
+
+
+test('known batch discovery preserves original NFT and fee cap but an unreviewed runtime cannot enter simulation or signing',async t=>{
+  const source=await batchSource({price:'1000',expiry:String(now+3600)}),item={...row(),bestAsk:source};
+  const candidates=selectFirstoCandidates([item],constraints);
+  assert.equal(candidates.length,1);assert.equal(candidates[0].order.kind,1);
+  assert.equal(candidates[0].tokenId,7n);assert.equal(candidates[0].priceWei,1010n);
+  assert.equal(candidates[0].order.leafHash,source.id);assert.equal(candidates[0].order.askHash,source.execution.batchHash);
+  assert.equal(selectFirstoCandidates([item],{...constraints,priceCap:1009n}).length,0);
+  let reads=0;
+  await assert.rejects(verifyFirstoCandidate({send:async()=>{reads++;throw new Error('must not read');}},candidates[0],constraints),/尚未通过核验/);
+  assert.equal(reads,0);
+  const journal=temporary(t),{provider,state,signer}=simulatedChain();
+  const result=await runKeeperCycle(provider,{...options(journal),venue:'auto',send:true},signer,feed([item]));
+  assert.equal(result.status,'no-firsto-original-target-in-scanned-pages');
+  assert.equal(result.discovery.verifiedSignedOrders,0);
+  assert.equal(state.signed,0);assert.equal(state.broadcasts.length,0);assert.equal(state.estimates.length,0);
+});
+
+test('recovery derives batch/unknown kind from frozen calldata and retains the nonce without resending or signing',async()=>{
+  const source=await batchSource({price:'1000',expiry:String(now+3600)});
+  const order=parseFirstoPurchaseOrder(source,{collection,tokenId:'7',owner,now:now*1000});
+  for(const kind of [1,2,255])for(const action of ['rebroadcast','speedUp']){
+    const pending={from:owner,nonce:7,hash:`0x${'44'.repeat(32)}`,data:poolAbi.encodeFunctionData('buyFromFirsto',[kind,order.encodedOrder]),
+      venue:'official',firstoKind:0,attempts:[{kind:'purchase'}]};
+    const journal={transaction:pending},original=structuredClone(journal);let calls=0;
+    const result=await recoverPending({send:async()=>{calls++;throw new Error('no protocol reads');}},
+      {send:true,[action]:true},{getAddress:async()=>owner},journal,{recoveryAllowed:true,terminal:false});
+    assert.equal(result.status,'firsto-recovery-order-no-longer-verified');assert.equal(result.hash,pending.hash);
+    assert.deepEqual(journal,original);assert.equal(calls,0);
+  }
 });

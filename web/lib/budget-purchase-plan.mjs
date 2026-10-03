@@ -8,7 +8,7 @@ import { readOfficialMinerOnchain, checkMinerOnchain, listOperatorQuotes } from 
 import { readPending, recoverPending, requireWallet } from './live-transactions.mjs';
 import { sameUnsignedIntent } from './ui-context.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { decodeFirstoBudgetOrder, encodeFirstoBudgetOrder, verifyFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
 import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus } from './authority-client.mjs';
 import { recoverAuthorityQueueStep } from './authority-queue-recovery.mjs';
 
@@ -122,7 +122,7 @@ export async function discoverBudgetPurchasePlan({config,provider,account,parent
           ||exact(checked.official.priceWei)>limit,'官网出现可采购挂单，请重新读取 / An official listing became available');
         if(!checked.firsto)return null;
         return {collection:addr(quote.collection),tokenId:exact(quote.tokenId).toString(),verifiedWeight:weight.toString(),venue:'firsto',
-          costWei:exact(checked.firsto.grossWei).toString(),encodedOrder:checked.firsto.encodedOrder};
+          costWei:exact(checked.firsto.grossWei).toString(),encodedOrder:encodeFirstoBudgetOrder(checked.firsto)};
       }));candidates.push(...batch.filter(Boolean));
     }
     selected=selectBudgetCandidates(candidates,{remainingWei:remaining,limitWei:limit,maxMachines});firstoView={viewId,totalPages,sourceBlock,
@@ -145,7 +145,7 @@ export function nextBudgetQueueItem(plan){validateBudgetQueue(plan);return plan.
 /** Prepare one explicit step; display mode relies on contract execution for permissions. */
 export async function prepareBudgetQueueStep({config,provider,account,parent,plan,index,readParent=freshParent,
   readMiner=readOfficialMinerOnchain,prepareCreate=prepareAdminAction,preparePurchase=preparePortfolioAction,readOfficial=officialSnapshot,
-  verifyOrder=verifyFirstoSignedAsk,fetcher=globalThis.fetch}={}){
+  verifyOrder=verifyFirstoPurchaseOrder,fetcher=globalThis.fetch}={}){
   need(budgetPurchaseQueueSupported(config),'当前合约阶段不支持连续采购队列 / The current contract stage does not support this purchase queue');
   validateBudgetQueue(plan,{config,account,parent});need(plan.approved===true,'Preview and approve the purchase limits first');
   need(index===nextBudgetQueueItem(plan),'Only the next reviewed queue item may run');const item=plan.items[index];
@@ -168,7 +168,7 @@ export async function prepareBudgetQueueStep({config,provider,account,parent,pla
       &&same(full.snapshot.blockHash,context.block.hash),'Official discovery is incomplete or moved');
     need(!selectBudgetCandidates(full.candidates,{remainingWei:row.budgetWei-row.spentWei,
       limitWei:exact(plan.startSpentWei)+exact(plan.limitWei)-row.spentWei,maxMachines:1}).length,'有官网候选，暂停 Firsto / Official candidates take priority');
-    const order=await verifyOrder(provider,decodeFirstoOrder(item.encodedOrder),{blockTag:context.tag});
+    const order=await verifyOrder(provider,decodeFirstoBudgetOrder(item.encodedOrder),{blockTag:context.tag});
     need(same(order.ask.collection,item.collection)&&exact(order.ask.tokenId)===exact(item.tokenId)
       &&exact(order.grossWei)<=exact(item.maxCostWei),'Firsto order changed or exceeds approved cap');
   }
@@ -222,11 +222,11 @@ async function prepareBudgetQueueDirectStep({config,provider,account,parent,plan
       method='buyOfficial';args=[child,exact(official.id)];
       procurement={route:'official',child,priceWei,capWei:exact(item.maxCostWei)};
     }else{
-      const order=decodeFirstoOrder(item.encodedOrder);
+      const order=decodeFirstoBudgetOrder(item.encodedOrder);
       need(same(order.ask.collection,item.collection)&&exact(order.ask.tokenId)===exact(item.tokenId)
         &&exact(order.grossWei)<=exact(item.maxCostWei),'Firsto order differs from approved machine or amount');
-      method='buyFirsto';args=[child,order.encodedOrder];
-      procurement={route:'firsto',child,priceWei:exact(order.grossWei),capWei:exact(item.maxCostWei),frozenOrder:order.encodedOrder};
+      method='buyFirsto';args=[child,encodeFirstoBudgetOrder(order)];
+      procurement={route:'firsto',child,firstoKind:order.kind,priceWei:exact(order.grossWei),capWei:exact(item.maxCostWei),frozenOrder:args[1]};
     }
     prepared={transaction:{chainId:'0x38',from:account,to:parent,value:'0x0',data:abi.BudgetPortfolioVault.encodeFunctionData(method,args)},
       action:{kind:method,targetType:'portfolio'},row:{pool:parent,account,displayOnly:true},args,procurement,blockNumber:null,displayOnly:true};

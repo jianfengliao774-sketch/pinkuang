@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { Interface, Wallet, getAddress } from 'ethers';
+import { AbiCoder, Interface, Wallet, ZeroAddress, getAddress } from 'ethers';
 import { createJournalService, createProductVerifierProvider, verifyProductIntent as verifyWithGraph, cancellationIntent, PRODUCT_POOL_ABI as poolAbi, PRODUCT_MARKET_ABI as marketAbi, PRODUCT_FACTORY_ABI as factoryAbi,
   PRODUCT_PORTFOLIO_ABI as portfolioAbi,PRODUCT_PORTFOLIO_FACTORY_ABI as portfolioFactoryAbi,verifyMarketFinalized } from './journal-api.mjs';
 import { JournalStore } from './journal-store.mjs';
-import { parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { parseFirstoPurchaseOrder, encodeFirstoBudgetOrder, FIRSTO_BUDGET_ORDER_MAGIC, parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { signedSource,firstoProvider,collection,now } from '../scripts/fixtures/firsto-order.mjs';
+import { batchSource } from '../scripts/fixtures/firsto-batch-order.mjs';
+import { verifyPortfolioIntent } from './portfolio-intent.mjs';
 const addr = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
 const factory = addr(1), pool = addr(2), market = addr(3), wallet = Wallet.createRandom(), account = wallet.address.toLowerCase();
@@ -1105,4 +1107,55 @@ test('fresh user exits survive machine outage but preserve registration, amount 
  p.state.registered=true;p.state.pendingNonce=8;await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'0'),allow,graph,options),/nonce/);
  await assert.rejects(verifyWithGraph(p.provider,intent('claim',[],'0'),new Set(),graph,options),/not enabled/);
  assert.equal(readinessCalls,0,'member exits never enter the machine/relay proof reader');
+});
+
+
+test('journal rejects unknown or mismatched Firsto route and budget envelopes before any RPC',async()=>{
+  const source=await batchSource(),order=parseFirstoPurchaseOrder(source,{collection,tokenId:'7',owner:source.account,now});
+  const signed=parseFirstoSignedAsk(await signedSource(),{collection,tokenId:'7',owner:source.account,now});
+  const coder=AbiCoder.defaultAbiCoder(),wrapped=encodeFirstoBudgetOrder(order),allow=new Set([factory.toLowerCase()]);
+  const budget=bytes=>({...intent(),targetType:'portfolio',action:{kind:'buyFirsto'},value:'0',
+    data:portfolioAbi.encodeFunctionData('buyFirsto',[addr(40),bytes])});
+  const bad=[intent('buyFromFirsto',[2,order.encodedOrder],'0'),intent('buyFromFirsto',[0,order.encodedOrder],'0'),
+    intent('buyFromFirsto',[1,signed.encodedOrder],'0'),intent('buyFromFirsto',[1,order.encodedOrder+'00'],'0'),
+    intent('buyFromFirsto',[1,order.encodedOrder],'1'),budget(order.encodedOrder),budget(wrapped+'00'),
+    budget(coder.encode(['bytes32','uint8','bytes'],[FIRSTO_BUDGET_ORDER_MAGIC,0,signed.encodedOrder])),
+    budget(coder.encode(['bytes32','uint8','bytes'],[FIRSTO_BUDGET_ORDER_MAGIC,2,order.encodedOrder]))];
+  let reads=0;const provider={send:async()=>{reads++;throw new Error('must not RPC');}};
+  for(const record of bad)await assert.rejects(verifyProductIntent(provider,record,allow));
+  assert.equal(reads,0);
+});
+
+test('canonical batch Pool intent fails closed after operator checks without reserving a signature or simulating purchase',async()=>{
+  const source=await batchSource(),order=parseFirstoPurchaseOrder(source,{collection,tokenId:'7',owner:source.account,now});
+  const record=intent('buyFromFirsto',[1,order.encodedOrder],'0'),p=proof(record),allow=new Set([factory.toLowerCase()]);
+  let nonceReads=0;const nonce=p.provider.getTransactionCount;p.provider.getTransactionCount=async(...args)=>{nonceReads++;return nonce(...args);};
+  await assert.rejects(verifyProductIntent(p.provider,record,allow),/could not be verified/);
+  assert.equal(nonceReads,0);assert.equal(p.state.estimates,0);assert.equal(p.state.simulations,0);
+  p.state.operator=addr(99);await assert.rejects(verifyProductIntent(p.provider,record,allow),/operator/);
+});
+
+test('portfolio batch envelope retains reviewed graph, registered-child and operator boundaries before protocol execution',async()=>{
+  const source=await batchSource(),order=parseFirstoPurchaseOrder(source,{collection,tokenId:'7',owner:source.account,now});
+  const child=addr(40),parent=addr(30),legacy=addr(10),block={number:100};
+  const decoded=portfolioAbi.parseTransaction({data:portfolioAbi.encodeFunctionData('buyFirsto',[child,encodeFirstoBudgetOrder(order)])});
+  const graph={productKind:'budget',factory,legacyFactory:legacy},record={factory,target:parent,targetType:'portfolio',account};
+  const abi=new Interface(['function operator() view returns(address)','function legacyFactory() view returns(address)',
+    'function isPool(address) view returns(bool)','function OFFICIAL_FACTORY() view returns(address)','function factory() view returns(address)',
+    'function childInfo(address) view returns(address collection,uint256 tokenId,uint256 purchaseCost,bool official,bool sold)']);
+  const state={operator:account,registered:true,childInfo:[ZeroAddress,0,0,false,false]},tags=[];
+  const provider={getCode:async()=> '0x6000',send:async(method,params)=>{
+    assert.equal(method,'eth_call');tags.push(params[1]);const tx=params[0],call=abi.parseTransaction(tx);
+    const result={operator:[state.operator],legacyFactory:[legacy],isPool:[state.registered],
+      OFFICIAL_FACTORY:[tx.to.toLowerCase()===child.toLowerCase()?legacy:factory],factory:[legacy],childInfo:state.childInfo}[call.name];
+    return abi.encodeFunctionResult(call.fragment,result);
+  }};
+  const fail=(_status,message)=>{throw new Error(message);};
+  await assert.rejects(verifyPortfolioIntent(provider,record,decoded,block,graph,fail),/尚未通过核验/);
+  assert(tags.every(tag=>tag==='0x64'));
+  state.operator=addr(99);await assert.rejects(verifyPortfolioIntent(provider,record,decoded,block,graph,fail),/operator/);
+  state.operator=account;state.childInfo=[collection,7,1010,false,false];
+  await assert.rejects(verifyPortfolioIntent(provider,record,decoded,block,graph,fail),/already held/);
+  state.childInfo=[ZeroAddress,0,0,false,false];state.registered=false;
+  await assert.rejects(verifyPortfolioIntent(provider,record,decoded,block,graph,fail),/not registered/);
 });

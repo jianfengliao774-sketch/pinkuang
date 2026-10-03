@@ -1,0 +1,505 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import {FundingTestBase, IFundingVault} from "../utils/FundingTestBase.sol";
+import {PurchaseMockNft, PurchaseMockBem, PurchaseMockMining, PurchaseMockMarket} from "../utils/PurchaseMocks.sol";
+import {FirstoBatchAskMock} from "../utils/FirstoBatchMocks.sol";
+import {Firsto1271Mock, FirstoRejectingRecipient} from "../utils/FirstoMocks.sol";
+import {IFirstoBatchAskExchange} from "../../src/interfaces/IFirstoExchange.sol";
+import {PoolVault} from "../../src/PoolVault.sol";
+import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {Addresses} from "../../script/Addresses.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PoolBeacon} from "../../src/PoolBeacon.sol";
+import {BudgetPortfolioFactory} from "../../src/BudgetPortfolioFactory.sol";
+import {BudgetPortfolioVault} from "../../src/BudgetPortfolioVault.sol";
+import {ShareMarket} from "../../src/ShareMarket.sol";
+
+/// @notice ISOLATED LOGIC TESTS ONLY. The runner replaces the production runtime pin
+/// with the controlled mock hash in a temporary copy; this never verifies Firsto provenance.
+contract FirstoBatchIsolatedLogicTest is FundingTestBase {
+    address private constant EXCHANGE = 0x3F58C9cbce933c76158B2A29B0d612c46546Dc43;
+    address private constant PROTOCOL_FACTORY = 0x68224F668083c29e9800Be2a646d42d18cedF7e2;
+    uint256 private constant SELLER_KEY = 0x12345;
+    address private seller;
+    PurchaseMockNft private nft;
+    PurchaseMockBem private bem;
+    PurchaseMockMining private mining;
+    PurchaseMockMarket private officialMarket;
+    FirstoBatchAskMock private exchange;
+    IFirstoBatchAskExchange.BatchAsk private batch;
+    IFirstoBatchAskExchange.AskLeaf private leaf;
+    bytes32[] private proof;
+
+    function setUp() public override {
+        super.setUp();
+        vm.chainId(56);
+        seller = vm.addr(SELLER_KEY);
+        vm.etch(Addresses.TAPEOUT_CIRCUITS, address(new PurchaseMockNft()).code);
+        vm.etch(Addresses.BEM, address(new PurchaseMockBem()).code);
+        vm.etch(Addresses.MINING, address(new PurchaseMockMining()).code);
+        vm.etch(Addresses.CIRCUIT_MARKET, address(new PurchaseMockMarket()).code);
+        vm.etch(EXCHANGE, address(new FirstoBatchAskMock()).code);
+        nft = PurchaseMockNft(Addresses.TAPEOUT_CIRCUITS);
+        bem = PurchaseMockBem(Addresses.BEM);
+        mining = PurchaseMockMining(payable(Addresses.MINING));
+        officialMarket = PurchaseMockMarket(Addresses.CIRCUIT_MARKET);
+        exchange = FirstoBatchAskMock(EXCHANGE);
+        exchange.configure(PROTOCOL_FACTORY, 100, 1);
+        nft.mint(seller, defaultParams.circuitId);
+        mining.configure(address(nft), defaultParams.circuitId, 0, 21 * 1e8);
+        vm.prank(seller);
+        nft.approve(EXCHANGE, defaultParams.circuitId);
+        leaf = IFirstoBatchAskExchange.AskLeaf(
+            seller, address(nft), defaultParams.circuitId, uint128(5 ether), seller, 100, 1, 17, 257, 1
+        );
+        batch = IFirstoBatchAskExchange.BatchAsk(
+            seller, exchange.hashLeaf(leaf), 17, uint64(block.timestamp + 5 days), seller, 100, 1, 1
+        );
+    }
+
+    function _signature() private view returns (bytes memory) {
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Firsto Circuit Batch Ask"),
+                keccak256("1"),
+                block.chainid,
+                EXCHANGE
+            )
+        );
+        bytes32 typehash = keccak256(
+            "BatchAsk(address maker,bytes32 merkleRoot,uint256 batchNonce,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion)"
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domain, keccak256(abi.encode(typehash, batch))));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SELLER_KEY, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _order() private view returns (bytes memory) {
+        return abi.encode(batch, leaf, proof, _signature());
+    }
+
+    function _buy() private {
+        pool.buyFromFirsto(1, _order());
+    }
+
+    function _assertUnchanged() private view {
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Funded));
+        assertEq(nft.ownerOf(leaf.tokenId), seller);
+        assertEq(address(pool).balance, pool.totalRaised());
+        assertEq(pool.totalBnbOwed(), 0);
+        assertEq(exchange.fills(), 0);
+        assertEq(bem.balanceOf(seller), 0);
+        assertEq(mining.claimCalls(), 0);
+        assertFalse(exchange.leafUsed(exchange.leafKey(leaf)));
+    }
+
+    function _refreshRoot() private {
+        batch.merkleRoot = exchange.hashLeaf(leaf);
+        delete proof;
+    }
+
+    function test_ISOLATED_batchSingleLeafExactCostCustodyAndSellerRewards() public {
+        _fundPool();
+        uint256 sellerBefore = seller.balance;
+        _buy();
+        assertEq(uint256(pool.state()), uint256(IPoolVault.State.Active));
+        assertEq(nft.ownerOf(leaf.tokenId), address(pool));
+        assertEq(seller.balance - sellerBefore, leaf.price);
+        assertEq(EXCHANGE.balance, 0.05 ether);
+        assertEq(PoolVault(payable(address(pool))).purchaseCost(), 5.05 ether);
+        assertEq(bem.balanceOf(seller), 21 * 1e8);
+        assertEq(poolFactory.machinePool(address(nft), leaf.tokenId), address(pool));
+        assertTrue(exchange.leafUsed(exchange.leafKey(leaf)));
+        assertFalse(exchange.batchCancelled(seller, batch.batchNonce));
+    }
+
+    function test_ISOLATED_multiLeafSortedProofAndSiblingRemainUnspent() public {
+        _fundPool();
+        IFirstoBatchAskExchange.AskLeaf memory sibling = leaf;
+        sibling.tokenId += 1;
+        sibling.leafIndex += 1;
+        bytes32 a = exchange.hashLeaf(leaf);
+        bytes32 b = exchange.hashLeaf(sibling);
+        batch.merkleRoot = a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+        proof.push(b);
+        _buy();
+        assertTrue(exchange.leafUsed(exchange.leafKey(leaf)));
+        assertFalse(exchange.leafUsed(exchange.leafKey(sibling)));
+    }
+
+    function test_ISOLATED_badProofIndexAndMismatchedLeafReject() public {
+        _fundPool();
+        proof.push(bytes32(uint256(123)));
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        delete proof;
+        ++leaf.leafIndex;
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        --leaf.leafIndex;
+        ++leaf.batchNonce;
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        --leaf.batchNonce;
+        ++leaf.feeEpoch;
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        --leaf.feeEpoch;
+        _assertUnchanged();
+    }
+
+    function test_ISOLATED_signatureBatchCancellationConsumedLeafRollback() public {
+        _fundPool();
+        bytes memory signature = _signature();
+        signature[0] ^= 0x01;
+        vm.expectRevert();
+        pool.buyFromFirsto(1, abi.encode(batch, leaf, proof, signature));
+        _assertUnchanged();
+        exchange.cancel(seller, batch.batchNonce);
+        vm.expectRevert();
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_ISOLATED_alreadyConsumedLeafCannotBuy() public {
+        _fundPool();
+        exchange.consume(leaf);
+        vm.expectRevert();
+        _buy();
+        assertEq(nft.ownerOf(leaf.tokenId), seller);
+        assertEq(bem.balanceOf(seller), 0);
+        assertEq(exchange.fills(), 0);
+    }
+
+    function test_ISOLATED_officialPriorityAndReadFailureBlockFallback() public {
+        _fundPool();
+        officialMarket.createListing(seller, address(nft), leaf.tokenId, 5 ether);
+        vm.expectRevert(IPoolVault.OriginalTargetAvailable.selector);
+        _buy();
+        _assertUnchanged();
+        vm.mockCallRevert(
+            address(officialMarket),
+            abi.encodeWithSignature("listingFor(address,uint256)", address(nft), leaf.tokenId),
+            abi.encodeWithSignature("Error(string)", "unavailable")
+        );
+        vm.expectRevert();
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_ISOLATED_feeChangesGrossCapAndFloor() public {
+        _fundPool();
+        exchange.configure(PROTOCOL_FACTORY, 100, 2);
+        vm.expectRevert(IPoolVault.FirstoFeeChanged.selector);
+        _buy();
+        exchange.configure(PROTOCOL_FACTORY, 101, 1);
+        vm.expectRevert(IPoolVault.FirstoFeeChanged.selector);
+        _buy();
+        exchange.configure(PROTOCOL_FACTORY, 100, 1);
+        leaf.price = uint128(defaultParams.priceCap);
+        _refreshRoot();
+        vm.expectRevert(IPoolVault.OverPriceCap.selector);
+        _buy();
+        leaf.price = 10_099;
+        _refreshRoot();
+        _buy();
+        assertEq(PoolVault(payable(address(pool))).purchaseCost(), 10_199);
+        assertEq(EXCHANGE.balance, 100);
+    }
+
+    function test_ISOLATED_marketFaultsAndNftCallbackFaultsRollback() public {
+        _fundPool();
+        for (uint8 fault = 1; fault <= 6; ++fault) {
+            exchange.setFault(fault);
+            vm.expectRevert();
+            _buy();
+            _assertUnchanged();
+        }
+        exchange.setFault(0);
+        for (uint8 fault = 1; fault <= 6; ++fault) {
+            nft.setCallbackFault(fault);
+            vm.expectRevert();
+            _buy();
+            _assertUnchanged();
+        }
+    }
+
+    function test_ISOLATED_reentryCannotSpendAgain() public {
+        _fundPool();
+        exchange.setReentry(abi.encodeCall(IPoolVault.buyFromFirsto, (1, _order())));
+        _buy();
+        assertFalse(exchange.reentrySucceeded());
+        assertEq(exchange.fills(), 1);
+    }
+
+    function test_ISOLATED_1271AndBoundsAndCanonicalEncoding() public {
+        _fundPool();
+        vm.etch(seller, address(new Firsto1271Mock()).code);
+        bytes memory longSignature = new bytes(1025);
+        longSignature[0] = 0x42;
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        pool.buyFromFirsto(1, abi.encode(batch, leaf, proof, longSignature));
+        bytes memory accepted = new bytes(1024);
+        accepted[0] = 0x42;
+        bytes memory encoded = abi.encode(batch, leaf, proof, accepted);
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        pool.buyFromFirsto(1, bytes.concat(encoded, hex"00"));
+        pool.buyFromFirsto(1, encoded);
+        assertEq(nft.ownerOf(leaf.tokenId), address(pool));
+    }
+
+    function _makeProof(uint256 count) private {
+        delete proof;
+        bytes32 root = exchange.hashLeaf(leaf);
+        for (uint256 i; i < count; ++i) {
+            bytes32 sibling = keccak256(abi.encode("isolated proof node", i));
+            proof.push(sibling);
+            root = root < sibling
+                ? keccak256(abi.encodePacked(root, sibling))
+                : keccak256(abi.encodePacked(sibling, root));
+        }
+        batch.merkleRoot = root;
+    }
+
+    function test_ISOLATED_proofDepthAndMaximumCanonicalPayload() public {
+        _fundPool();
+        _makeProof(33);
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        _assertUnchanged();
+        _makeProof(32);
+        vm.etch(seller, address(new Firsto1271Mock()).code);
+        bytes memory signature = new bytes(1024);
+        signature[0] = 0x42;
+        bytes memory maximum = abi.encode(batch, leaf, proof, signature);
+        assertEq(maximum.length, 2752);
+        pool.buyFromFirsto(1, maximum);
+        assertEq(nft.ownerOf(leaf.tokenId), address(pool));
+    }
+
+    function test_ISOLATED_expiryWrongSchemaWrongNftAndPayoutRollback() public {
+        _fundPool();
+        batch.expiry = uint64(block.timestamp);
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        batch.expiry = uint64(block.timestamp + 1 days);
+        leaf.schemaVersion = 2;
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        leaf.schemaVersion = 1;
+        ++leaf.tokenId;
+        _refreshRoot();
+        vm.expectRevert(IPoolVault.WrongCircuit.selector);
+        _buy();
+        --leaf.tokenId;
+        leaf.payoutRecipient = address(new FirstoRejectingRecipient());
+        batch.payoutRecipient = leaf.payoutRecipient;
+        _refreshRoot();
+        vm.expectRevert();
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_ISOLATED_claimFailureAndPostClaimQualityMutationRollback() public {
+        _fundPool();
+        mining.configure(address(nft), leaf.tokenId, 7 * 1e8, 21 * 1e8);
+        for (uint8 fault = 1; fault <= 9; ++fault) {
+            mining.setClaimFault(fault);
+            vm.expectRevert();
+            _buy();
+            _assertUnchanged();
+            assertEq(poolFactory.machinePool(address(nft), leaf.tokenId), address(pool));
+        }
+    }
+
+    function _flexiblePool() private {
+        ++defaultParams.circuitId;
+        defaultParams.targetRaise = 6.6 ether;
+        nft.mint(seller, defaultParams.circuitId);
+        mining.configure(address(nft), defaultParams.circuitId, 0, 21 * 1e8);
+        vm.prank(seller);
+        nft.approve(EXCHANGE, defaultParams.circuitId);
+        IPoolVault.FlexiblePurchaseConfig memory config = IPoolVault.FlexiblePurchaseConfig({
+            minVerifiedWeight: 1,
+            referencePriceWei: 6 ether,
+            targetDailyYieldAtomic: 1e8,
+            extraBps: 1000,
+            referenceObservedAt: uint64(block.timestamp),
+            referenceBlock: uint64(block.number),
+            referenceDigest: keccak256("isolated fixture")
+        });
+        vm.prank(OPERATOR);
+        pool = IFundingVault(poolFactory.createFlexiblePool(defaultParams, config));
+        leaf.tokenId = defaultParams.circuitId;
+        _refreshRoot();
+    }
+
+    function test_ISOLATED_flexibleGrossSurplusAllocatedAndOriginalPriority() public {
+        _flexiblePool();
+        _deposit(pool, ALICE, 37);
+        _deposit(pool, BOB, 63);
+        uint256 listing = officialMarket.createListing(seller, address(nft), leaf.tokenId, 5 ether);
+        vm.expectRevert(IPoolVault.OriginalTargetAvailable.selector);
+        _buy();
+        _assertUnchanged();
+        officialMarket.setValid(listing, false);
+        _buy();
+        assertEq(pool.totalBnbOwed(), 1.55 ether);
+        assertEq(pool.bnbOwed(ALICE), 1.55 ether * 37 / 100);
+        assertEq(pool.bnbOwed(BOB), 1.55 ether * 63 / 100);
+        assertEq(address(pool).balance, pool.totalBnbOwed());
+    }
+
+    function test_ISOLATED_flexibleLockedModelAndWeightGrossCap() public {
+        _flexiblePool();
+        _deposit(pool, ALICE, 100);
+        bytes32 minerKey = mining.minerKey(address(nft), leaf.tokenId);
+        mining.setTaskId(minerKey, 2);
+        vm.expectRevert(IPoolVault.WrongPurchaseModel.selector);
+        _buy();
+        _assertUnchanged();
+        mining.setTaskId(minerKey, 1);
+        mining.setVerifiedWeight(minerKey, 1);
+        leaf.price = uint128(3 ether);
+        _refreshRoot();
+        vm.expectRevert(IPoolVault.OverReferenceUnitPrice.selector);
+        _buy();
+        _assertUnchanged();
+    }
+
+    function test_ISOLATED_batchFailureStillAllowsDeadlinePrincipalRefund() public {
+        _fundPool();
+        exchange.setPaused(true);
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        _buy();
+        vm.warp(defaultParams.purchaseDeadline);
+        pool.finalizeFailure();
+        uint256 before = ALICE.balance;
+        vm.prank(ALICE);
+        pool.withdrawBnb();
+        assertEq(ALICE.balance - before, 49 * UNIT_PRICE);
+        assertEq(exchange.fills(), 0);
+    }
+
+    function _budgetProject() private returns (BudgetPortfolioVault project) {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
+        BudgetPortfolioVault implementation = new BudgetPortfolioVault(predicted);
+        PoolBeacon budgetBeacon = new PoolBeacon(address(implementation), address(timelock));
+        BudgetPortfolioFactory factoryImplementation = new BudgetPortfolioFactory();
+        BudgetPortfolioFactory portfolios = BudgetPortfolioFactory(
+            address(
+                new ERC1967Proxy(
+                    address(factoryImplementation),
+                    abi.encodeCall(
+                        BudgetPortfolioFactory.initialize,
+                        (OWNER, OPERATOR, TREASURY, address(timelock), address(budgetBeacon), address(poolFactory))
+                    )
+                )
+            )
+        );
+        ShareMarket marketImplementation = new ShareMarket();
+        ShareMarket budgetMarket = ShareMarket(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(marketImplementation),
+                        abi.encodeCall(ShareMarket.initialize, (address(portfolios), address(timelock)))
+                    )
+                ))
+        );
+        vm.prank(address(timelock));
+        portfolios.registerShareMarket(address(budgetMarket));
+        vm.prank(OPERATOR);
+        project = BudgetPortfolioVault(
+            payable(portfolios.createPortfolio(
+                    13 ether, 6 ether, 6 ether, uint64(block.timestamp + 7 days), uint64(block.timestamp + 10 days)
+                ))
+        );
+        vm.deal(ALICE, 13 ether);
+        vm.prank(ALICE);
+        project.deposit{value: 13 ether}(100);
+    }
+
+    function test_ISOLATED_budgetEnvelopeExactChildAndCostAccounting() public {
+        BudgetPortfolioVault project = _budgetProject();
+        ++leaf.tokenId;
+        _refreshRoot();
+        nft.mint(seller, leaf.tokenId);
+        mining.configure(address(nft), leaf.tokenId, 0, 21 * 1e8);
+        vm.prank(seller);
+        nft.approve(EXCHANGE, leaf.tokenId);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId = leaf.tokenId;
+        params.targetRaise = 5.05 ether;
+        params.priceCap = 5.05 ether;
+        vm.prank(OPERATOR);
+        address child = poolFactory.createBudgetChildPool(params, address(project));
+        bytes memory encoded = abi.encode(keccak256("BEMine Firsto order envelope v1"), uint8(1), _order());
+        vm.prank(OPERATOR);
+        project.buyFirsto(child, encoded);
+        assertEq(project.childCount(), 1);
+        assertEq(project.spentWei(), 5.05 ether);
+        assertEq(address(project).balance, 7.95 ether);
+        assertEq(project.officialSpentWei(), 0);
+        assertEq(nft.ownerOf(leaf.tokenId), child);
+        assertEq(PoolVault(payable(child)).balanceOf(address(project)), 100);
+        vm.prank(OPERATOR);
+        vm.expectRevert(BudgetPortfolioVault.InvalidChild.selector);
+        project.buyFirsto(child, encoded);
+    }
+
+    function test_ISOLATED_budgetRejectsUnreservedChildAndMalformedEnvelopeAtomically() public {
+        BudgetPortfolioVault project = _budgetProject();
+        vm.prank(OPERATOR);
+        vm.expectRevert(BudgetPortfolioVault.InvalidChild.selector);
+        project.buyFirsto(address(pool), abi.encode(keccak256("BEMine Firsto order envelope v1"), uint8(1), _order()));
+        ++leaf.tokenId;
+        _refreshRoot();
+        nft.mint(seller, leaf.tokenId);
+        mining.configure(address(nft), leaf.tokenId, 0, 21 * 1e8);
+        vm.prank(seller);
+        nft.approve(EXCHANGE, leaf.tokenId);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId = leaf.tokenId;
+        vm.prank(OPERATOR);
+        address child = poolFactory.createBudgetChildPool(params, address(project));
+        vm.prank(OPERATOR);
+        vm.expectRevert(IPoolVault.InvalidFirstoOrder.selector);
+        project.buyFirsto(child, abi.encode(keccak256("BEMine Firsto order envelope v1"), uint8(2), _order()));
+        assertEq(address(project).balance, 13 ether);
+        assertEq(project.spentWei(), 0);
+        assertEq(PoolVault(payable(child)).totalSupply(), 0);
+        assertEq(uint256(PoolVault(payable(child)).state()), uint256(IPoolVault.State.Funding));
+    }
+
+    function test_ISOLATED_budgetMarketFailureRollsBackDepositChildAndBudget() public {
+        BudgetPortfolioVault project = _budgetProject();
+        ++leaf.tokenId;
+        _refreshRoot();
+        nft.mint(seller, leaf.tokenId);
+        mining.configure(address(nft), leaf.tokenId, 0, 21 * 1e8);
+        vm.prank(seller);
+        nft.approve(EXCHANGE, leaf.tokenId);
+        IPoolVault.PoolParams memory params = defaultParams;
+        params.circuitId = leaf.tokenId;
+        vm.prank(OPERATOR);
+        address child = poolFactory.createBudgetChildPool(params, address(project));
+        exchange.setFault(2);
+        bytes memory encoded = abi.encode(keccak256("BEMine Firsto order envelope v1"), uint8(1), _order());
+        vm.prank(OPERATOR);
+        vm.expectRevert();
+        project.buyFirsto(child, encoded);
+        assertEq(project.childCount(), 0);
+        assertEq(project.spentWei(), 0);
+        assertEq(address(project).balance, 13 ether);
+        assertEq(address(child).balance, 0);
+        assertEq(PoolVault(payable(child)).totalSupply(), 0);
+        assertEq(PoolVault(payable(child)).totalRaised(), 0);
+        assertEq(uint256(PoolVault(payable(child)).state()), uint256(IPoolVault.State.Funding));
+        assertEq(nft.ownerOf(leaf.tokenId), seller);
+        assertEq(bem.balanceOf(seller), 0);
+        assertEq(exchange.fills(), 0);
+        assertFalse(exchange.leafUsed(exchange.leafKey(leaf)));
+    }
+}

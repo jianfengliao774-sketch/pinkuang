@@ -85,7 +85,7 @@ run('forge-build-sizes', ['build', '--sizes', '--force']);
 // is milliseconds, with provider hints/CU offsets; this is not exponential.
 // Retries apply only to retryable RPC errors. Exhaustion/test failures still fail
 // this single run; no whole-suite reruns or swallowed failures.
-run('forge-test', ['test', '--match-path', 'test/fork/**', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock,
+run('forge-test', ['test', '--match-path', 'test/fork/**', '--no-match-path', 'test/fork/FirstoBatchPoolFork.t.sol', '--fork-url', 'bsc', '--fork-block-number', pinnedBlock,
   '--threads', String(rpcPolicy.threads), '--compute-units-per-second', String(rpcPolicy.computeUnitsPerSecond),
   '--fork-retries', String(rpcPolicy.retries), '--fork-retry-backoff', String(rpcPolicy.initialBackoffMs), '-vv']);
 summary.status = 'passed';

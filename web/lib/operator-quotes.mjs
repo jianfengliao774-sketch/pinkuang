@@ -4,7 +4,7 @@ import { createReadOnlyHttpProvider } from './live-config.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { QUOTE_BASE } from './quote-base.mjs';
 import { uint, referenceQuote } from './chain-client.mjs';
-import { parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { parseFirstoPurchaseOrder, verifyFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
 
 const MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 const MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
@@ -140,6 +140,13 @@ export async function loadVerifiedCapacityHint(chain, options = {}) {
 }
 
 /** Public quotes are discovery only; an official listing always takes purchase priority. */
+async function displayFirstoOrder(provider, source, chain) {
+  const order = parseFirstoPurchaseOrder(source, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+  // Batch execution adds a separately pinned external contract. A cached quote
+  // cannot attest that version, even when the rest of the page is display-only.
+  return order.kind === 1 ? verifyFirstoPurchaseOrder(provider, order) : order;
+}
+
 export async function checkMinerOnchain(provider, quote, { config, blockTag = 'latest', officialPriceCapWei } = {}) {
   const chain = await readOfficialMinerOnchain(provider, quote?.collection, quote?.tokenId, { config, blockTag });
   matchQuoteToMiner(quote, chain);
@@ -148,15 +155,15 @@ export async function checkMinerOnchain(provider, quote, { config, blockTag = 'l
     || BigInt(chain.official.priceWei) <= uint(officialPriceCapWei));
   if (!officialWithinCap && quote.ask?.venue === 'firsto') {
     if (config?.displayOnly === true) {
-      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      try { firsto = await displayFirstoOrder(provider, quote.ask, chain); }
       catch (error) { firstoError = operatorQuoteError(error); }
     }
     else if (!chain.registry.supported) firstoError = '当前工厂版本尚未开放 Firsto 合约采购。';
     else if (!chain.registry.ready) firstoError = '矿机唯一性登记尚未完成，Firsto 采购暂不可用。';
     else {
       try {
-        const order = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
-        firsto = await verifyFirstoSignedAsk(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)) });
+        const order = parseFirstoPurchaseOrder(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner });
+        firsto = await verifyFirstoPurchaseOrder(provider, order, { blockTag: toQuantity(BigInt(chain.blockNumber)) });
         requireValue(firsto.checkedBlock.hash === chain.blockHash, 'Firsto 订单与矿机核对区块不一致。');
       } catch (error) { firsto = null; firstoError = operatorQuoteError(error); }
     }
@@ -182,7 +189,7 @@ export async function loadOperatorQuote({ collection, tokenId, config, provider,
   if (!officialWithinCap && config?.displayOnly === true) {
     let firsto = null, firstoError = null;
     if (quote.ask?.venue === 'firsto') {
-      try { firsto = parseFirstoSignedAsk(quote.ask, { collection: chain.collection, tokenId: chain.tokenId, owner: chain.owner }); }
+      try { firsto = await displayFirstoOrder(reader, quote.ask, chain); }
       catch (error) { firstoError = operatorQuoteError(error); }
     }
     chain = Object.freeze({ ...officialChain, firsto, firstoError });

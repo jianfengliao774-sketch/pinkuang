@@ -126,7 +126,7 @@ test('known miner ID selects exact official identity directly without relying on
 // no mocked batch order is ever made into an executable purchase route.
 const batchSelection = () => ({ chain: { collection: address, tokenId: '5181', official: null, firsto: null,
   registry: { supported: true, ready: true, pool: `0x${'00'.repeat(20)}` },
-  firstoError: '仅支持 Firsto 单笔签名挂单；批量挂单尚未开放。' },
+  firstoError: 'Firsto 批量市场代码版本未通过核验，暂不能采购。' },
   quote: { estimated24hAtomic: '18490000', issues: [], source: { observedAt: Date.now() },
     ask: { priceWei: '1373777280000000000', buyerCostWei: '1387515052800000000', venue: 'firsto',
       kind: 'circuit_batch_ask', status: 'open', expiresAt: Date.now() + 60000 } },
@@ -143,7 +143,7 @@ test('selected batch ask retains its own daily price and explains why fixed crea
   const apply = button(ui, '填入建池表单');
   assert.equal(apply.disabled, true);
   const reason = elements(ui.tree).find(item => item.props?.id === apply['aria-describedby']);
-  assert.match(text(reason), /Firsto 批量订单.*当前矿池合约不支持采购/);
+  assert.match(text(reason), /Firsto 批量市场代码版本未通过核验/);
   ui.unmount();
 });
 
@@ -174,7 +174,7 @@ test('flexible reference remains available for batch metadata while unfinished r
   const allowed = moduleFixture(undefined, { loadSelected: batchSelection }), ui = allowed.host(flexibleProps);
   await ui.settle(); button(ui, '选择矿机').onClick(); await ui.settle();
   assert.equal(button(ui, '填入建池表单').disabled, false);
-  assert.match(text(ui.tree), /当前矿池合约不支持采购该批量订单/);
+  assert.match(text(ui.tree), /该订单尚未通过成交版本核验/);
   ui.unmount();
   const selected = batchSelection(); selected.chain.registry.ready = false;
   const blocked = moduleFixture(undefined, { loadSelected: () => selected });

@@ -1,5 +1,5 @@
 import { Interface, ZeroAddress, getAddress } from 'ethers';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { decodeFirstoBudgetOrder, verifyFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 
 // These are deliberately narrower than the deployed ABIs. No raw forwarding,
 // token approval, ownership change, or implementation upgrade is a product action.
@@ -67,6 +67,6 @@ export async function verifyPortfolioIntent(provider, record, decoded, block, gr
     if (purchase ? existing.collection !== ZeroAddress : existing.collection === ZeroAddress)
       fail(409,purchase ? 'Child miner is already held by this project.' : 'Child miner is not held by this project.');
   }
-  if (decoded.name === 'buyFirsto') await verifyFirstoSignedAsk(
-    {request:({method,params})=>provider.send(method,params)},decodeFirstoOrder(decoded.args[1]),{blockTag:tag});
+  if (decoded.name === 'buyFirsto') await verifyFirstoPurchaseOrder(
+    {request:({method,params})=>provider.send(method,params)},decodeFirstoBudgetOrder(decoded.args[1]),{blockTag:tag});
 }

@@ -4,7 +4,7 @@ import { validateManifest, insist, PORTFOLIO_MANIFEST_KEYS, GENESIS_ARTIFACT_DIG
 import { fetchLiveJsonWithClock, requireRecentSnapshotState, validateIndexSource, displayIndexSource } from './live-data.mjs';
 import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
 import { loadOperatorQuote, readOfficialMinerOnchain } from './operator-quotes.mjs';
-import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { decodeFirstoBudgetOrder, encodeFirstoBudgetOrder, verifyFirstoPurchaseOrder } from '../../deploy/src/firsto-purchase.mjs';
 import { exactPrice, shareQuantity } from './live-actions.mjs';
 import { isRetryableReadError } from './read-retry.mjs';
 import { saleReferenceState, DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold,
@@ -593,7 +593,7 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
         procurement = { route: 'official', child, priceWei: uint(official.official.priceWei), capWei: params.priceCap };
       } else {
         let order;
-        if (action.frozenOrder) order = await verifyFirstoSignedAsk(provider, decodeFirstoOrder(action.frozenOrder), { blockTag: context.tag });
+        if (action.frozenOrder) order = await verifyFirstoPurchaseOrder(provider, decodeFirstoBudgetOrder(action.frozenOrder), { blockTag: context.tag });
         else {
           const checked = await loadOperatorQuote({ collection: params.circuits, tokenId: params.circuitId.toString(), config, provider,
             blockTag: context.tag, mode: 'createPool', officialPriceCapWei: params.priceCap.toString() });
@@ -602,8 +602,8 @@ export async function preparePortfolioAction({ config, provider, account, pool, 
         }
         requireValue(same(order.ask.collection, params.circuits) && uint(order.ask.tokenId) === params.circuitId
           && uint(order.grossWei) <= params.priceCap, 'Firsto 报价不属于目标矿机或超过购机上限。');
-        method = 'buyFirsto'; args = [child, order.encodedOrder];
-        procurement = { route: 'firsto', child, priceWei: uint(order.grossWei), capWei: params.priceCap, frozenOrder: order.encodedOrder };
+        method = 'buyFirsto'; args = [child, encodeFirstoBudgetOrder(order)];
+        procurement = { route: 'firsto', child, firstoKind: order.kind, priceWei: uint(order.grossWei), capWei: params.priceCap, frozenOrder: args[1] };
       }
       if (action.expectedPurchaseWei !== undefined) requireValue(procurement.priceWei === uint(action.expectedPurchaseWei), '采购报价已变化，请重新预览。');
     } else if (method === 'deposit') { const shares = shareQuantity(action.quantity); args = [shares]; value = row.unitPriceWei * shares; }
@@ -710,19 +710,21 @@ async function preparePortfolioDirectAction({ config, provider, account, pool, a
       row.shares = row.balanceOf; payoutWei = portfolioBnbEntitlement(row);
     } else if (method === 'autoPurchase') {
       const child = address(action.child), params = (await read(child, abi.PoolVault, 'params'))[0];
-      const checked = await loadOperatorQuote({ collection: params.circuits, tokenId: params.circuitId.toString(), config,
-        provider, mode: 'createPool', officialPriceCapWei: params.priceCap.toString() });
+      const checked = action.frozenOrder
+        ? { chain: await readOfficialMinerOnchain(provider, params.circuits, params.circuitId, { config }) }
+        : await loadOperatorQuote({ collection: params.circuits, tokenId: params.circuitId.toString(), config,
+          provider, mode: 'createPool', officialPriceCapWei: params.priceCap.toString() });
       if (checked.chain.official && uint(checked.chain.official.priceWei) <= params.priceCap) {
         method = 'buyOfficial'; args = [child, uint(checked.chain.official.id)];
         procurement = { route: 'official', child, priceWei: uint(checked.chain.official.priceWei), capWei: params.priceCap };
       } else {
-        const order = action.frozenOrder ? decodeFirstoOrder(action.frozenOrder) : checked.chain.firsto;
+        const order = action.frozenOrder ? decodeFirstoBudgetOrder(action.frozenOrder) : checked.chain.firsto;
         requireValue(order && same(order.ask.collection, params.circuits) && uint(order.ask.tokenId) === params.circuitId,
           'Firsto 报价不属于目标矿机。');
         const price = uint(order.grossWei ?? checked.chain.firsto?.grossWei);
         requireValue(price <= params.priceCap, 'Firsto 报价超过购机上限。');
-        method = 'buyFirsto'; args = [child, order.encodedOrder ?? action.frozenOrder];
-        procurement = { route: 'firsto', child, priceWei: price, capWei: params.priceCap, frozenOrder: args[1] };
+        method = 'buyFirsto'; args = [child, encodeFirstoBudgetOrder(order)];
+        procurement = { route: 'firsto', child, firstoKind: order.kind, priceWei: price, capWei: params.priceCap, frozenOrder: args[1] };
       }
     }
   }

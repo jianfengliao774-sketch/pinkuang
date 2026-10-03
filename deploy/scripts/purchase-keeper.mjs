@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Contract, Interface, JsonRpcProvider, FetchRequest, Wallet, ZeroAddress, formatEther, getAddress, parseEther, parseUnits, Transaction, keccak256, toQuantity } from 'ethers';
-import { decodeFirstoOrder, parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../src/firsto-purchase.mjs';
+import { decodeFirstoPurchaseOrder, parseFirstoPurchaseOrder, verifyFirstoPurchaseOrder } from '../src/firsto-purchase.mjs';
 import { MAX_OFFICIAL_SNAPSHOT_AGE_MS, fetchOfficialCandidates, verifyOfficialSnapshotBoundary } from './official-market-discovery.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
 
@@ -60,7 +60,7 @@ export function parseArguments(args) {
   const sort = values.sort ?? 'capacity';
   if (!['capacity', 'price'].includes(sort)) throw new Error('--sort must be capacity or price.');
   const venue = values.venue ?? 'official';
-  if (!['official', 'firsto-signed', 'auto'].includes(venue)) throw new Error('--venue must be official, firsto-signed or auto; batch orders are disabled.');
+  if (!['official', 'firsto-signed', 'auto'].includes(venue)) throw new Error('--venue must be official, firsto-signed or auto; Firsto orders are selected through auto after the official market.');
   const rpc = values.rpc ?? 'https://bsc-dataseed.bnbchain.org';
   const rpcUrl = new URL(rpc);
   if (!/^https?:$/.test(rpcUrl.protocol)) throw new Error('RPC must be an HTTP(S) URL.');
@@ -122,14 +122,14 @@ export function selectFirstoCandidates(rows, constraints, now = Date.now()) {
     const weight = integer(row.mining.verifiedWeight), unverified = integer(row.mining.unverifiedWeight);
     if (weight === null || weight <= 0n || weight < constraints.minVerifiedWeight || unverified !== 0n) continue;
     try {
-      const order = parseFirstoSignedAsk(row.bestAsk, { collection: constraints.circuits,
+      const order = parseFirstoPurchaseOrder(row.bestAsk, { collection: constraints.circuits,
         tokenId: constraints.circuitId.toString(), owner: row.owner, now });
       if (BigInt(order.grossWei) > constraints.priceCap) continue;
       const collection = normalizeAddress(row.collection), key = `${collection.toLowerCase()}:${constraints.circuitId}`;
       candidates.set(key, { key, collection, tokenId: constraints.circuitId, priceWei: BigInt(order.grossWei),
         verifiedWeight: weight, indexerBuyerCostWei: BigInt(order.grossWei), isReference: true,
         discoverySource: 'Firsto signed original target', discoveryVenue: 'firsto', order });
-    } catch { /* Missing, expired, malformed or batch orders are not executable hints. */ }
+    } catch { /* Missing, expired, malformed or unsupported orders are not executable hints. */ }
   }
   return [...candidates.values()];
 }
@@ -250,7 +250,7 @@ export async function verifyFirstoCandidate(provider, candidate, constraints) {
   if (!candidate?.order || !same(candidate.collection, constraints.circuits) || candidate.tokenId !== constraints.circuitId
     || !same(candidate.order.ask.collection, constraints.circuits) || BigInt(candidate.order.ask.tokenId) !== constraints.circuitId) return null;
   const rpc = typeof provider.request === 'function' ? provider : { request: ({ method, params }) => provider.send(method, params) };
-  const order = await verifyFirstoSignedAsk(rpc, candidate.order, { blockTag: toQuantity(constraints.blockNumber) });
+  const order = await verifyFirstoPurchaseOrder(rpc, candidate.order, { blockTag: toQuantity(constraints.blockNumber) });
   if (BigInt(order.checkedBlock.number) !== BigInt(constraints.blockNumber) || BigInt(order.grossWei) > constraints.priceCap) return null;
   return { ...candidate, order, priceWei: BigInt(order.grossWei), firstoObservedBlock: constraints.blockNumber };
 }
@@ -729,9 +729,9 @@ export async function recoverPending(provider, options, signer, journal, diagnos
     if (pending.data.toLowerCase().startsWith(selector.toLowerCase())) {
       try {
         const decoded = abi.parseTransaction({ data: pending.data });
-        if (decoded.args[0] !== 0n || abi.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== pending.data.toLowerCase()) throw new Error('Invalid Firsto recovery calldata.');
+        if (![0n,1n].includes(decoded.args[0]) || abi.encodeFunctionData(decoded.fragment, decoded.args).toLowerCase() !== pending.data.toLowerCase()) throw new Error('Invalid Firsto recovery calldata.');
         const rpc = typeof provider.request === 'function' ? provider : { request: ({ method, params }) => provider.send(method, params) };
-        await verifyFirstoSignedAsk(rpc, decodeFirstoOrder(decoded.args[1]), { blockTag: 'latest' });
+        await verifyFirstoPurchaseOrder(rpc, decodeFirstoPurchaseOrder(decoded.args[1],decoded.args[0]), { blockTag: 'latest' });
       } catch {
         return { status: 'firsto-recovery-order-no-longer-verified', terminal: false, hash: pending.hash,
           message: 'The original signed purchase is still reserved. No resend or new signature; reconcile its receipt or explicitly cancel this nonce.' };
@@ -823,7 +823,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
     }
     const overrides = !signer && options.from ? { from: options.from } : {};
     const method = firsto ? 'buyFromFirsto' : constraints.enabled ? 'buyAlternativeFromMarket' : 'buyFromMarket';
-    const args = firsto ? [0, candidate.order.encodedOrder] : [candidate.listingId];
+    const args = firsto ? [candidate.order.kind, candidate.order.encodedOrder] : [candidate.listingId];
     let gasLimit;
     try {
       // estimateGas executes the complete atomic purchase path once: this is the
@@ -832,7 +832,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
     } catch { skipped.push({ listingId: candidate.listingId, reason: 'purchase-simulation-reverted-or-listing-changed' }); continue; }
     const details = { listingId: candidate.listingId, tokenId: candidate.tokenId, collection: candidate.collection,
       ...(firsto ? { firstoSellerPriceWei: candidate.order.priceWei, firstoFeeWei: candidate.order.feeWei,
-        firstoTotalCostWei: candidate.order.grossWei, firstoOrderHash: candidate.order.askHash,
+        firstoTotalCostWei: candidate.order.grossWei, firstoKind: candidate.order.kind, firstoOrderHash: candidate.order.askHash,
         firstoObservedBlock: candidate.firstoObservedBlock, firstoImplementation: candidate.order.implementation }
         : { officialPriceWei: candidate.priceWei, officialPriceBnb: formatEther(candidate.priceWei) }), indexerBuyerCostWei: candidate.indexerBuyerCostWei,
       indexerVerifiedWeight: candidate.discoverySource === 'pool-reference' ? null : candidate.verifiedWeight,
@@ -854,7 +854,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
     if (nonce !== latestNonce) return { status: 'keeper-account-has-pending-transactions', terminal: false, ...details };
     const data = new Interface(KEEPER_POOL_ABI).encodeFunctionData(method, args);
     const pending = { phase: 'signed', from, nonce, to: options.pool, data, value: '0',
-      ...(firsto ? { venue: 'firsto-signed', orderHash: candidate.order.askHash, circuitId: candidate.tokenId.toString(), totalCostWei: candidate.order.grossWei }
+      ...(firsto ? { venue: 'firsto-signed', firstoKind: candidate.order.kind, orderHash: candidate.order.askHash, circuitId: candidate.tokenId.toString(), totalCostWei: candidate.order.grossWei }
         : { listingId: candidate.listingId.toString() }),
       createdAt: new Date().toISOString(), speedUps: 0 };
     const beforeSigning = stoppedResult(runtime, 'signing');
@@ -871,7 +871,7 @@ async function runKeeperCycleSingle(provider, options, signer = null, fetcher = 
   }
   if ((constraints.enabled || firsto) && refreshDue) startCandidateRefresh(provider, options, constraints, runtime, fetcher);
   return { status: firsto ? 'no-executable-firsto-original-target-in-prepared-queue' : 'no-executable-official-candidate-in-prepared-queue', terminal: false, ...queueInfo(), skipped,
-    message: firsto ? 'Only the original target with a currently verified Firsto signed V2 order is executable; batch and alternative targets are disabled.'
+    message: firsto ? 'Only the original target with a canonical, independently verified Firsto order is executable; alternative targets are disabled.'
       : 'Only official listings are executable in this venue; Firsto orders require explicit --venue firsto-signed.' };
 }
 

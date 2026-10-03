@@ -1,0 +1,16 @@
+{
+  "scope": "Observed public runtime for isolated offline verifier tests only; not a reviewed production trust pin",
+  "exchange": "0x3F58C9cbce933c76158B2A29B0d612c46546Dc43",
+  "observedRuntimeHash": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+  "officialAdvertisedHash": "0x0a44a1aa18057cf5345eea9e1c58e4d40b0ff9c3da52c0f6eb8032320e7f23fb",
+  "officialFrontendSource": "https://tapeout.firsto.ai/assets/index-CCV82TiP.js",
+  "officialFrontendSha256": "107b7394a02126d9fa208e637b0082b927197339b66cf73ec0c79468cee553a0",
+  "getterEvidenceBlock": "125510758",
+  "confirmedGetters": [
+    "batchCancelled(address,uint256)",
+    "isAskLeafInvalidated(address,uint256,uint256)",
+    "hashBatchAsk(BatchAsk)",
+    "hashAskLeaf(AskLeaf)"
+  ],
+  "provenanceVerified": false
+}
