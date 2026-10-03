@@ -1,0 +1,91 @@
+{
+  "generatedAt": "2026-10-03T15:19:45.889Z",
+  "implementation": "Actual LiveOperator JSX transformed by Next SWC and rendered with ReactDOMServer; state samples supplied by hook harness.",
+  "source": {
+    "file": "web/components/LiveOperator.jsx",
+    "sha256": "7622471d6c79eb73b77a014747e7339146d6e1fe9fd7c4a03b90c09a4ec13a75"
+  },
+  "helper": {
+    "file": "web/lib/operator-create-input.mjs",
+    "sha256": "2a97e2c90bc6bfb8a5591b69c5f2dc52d567d14dd50aa1265f4bb4a6c865747f"
+  },
+  "stylesheetSha256": "596fbe6a3aa6bd333eb755874bb3867a3962e66f3194b9913e7be6a4b3144746",
+  "stylesheetFiles": [
+    "globals.css",
+    "themes.css",
+    "refinement.css",
+    "home.css",
+    "catalog.css",
+    "motion.css",
+    "language.css",
+    "appearance.css",
+    "dark.css",
+    "desktop-review.css",
+    "deploy-console.css",
+    "live.css",
+    "live-operator.css"
+  ],
+  "pages": [
+    {
+      "file": "blank/index.html",
+      "htmlSha256": "4b8f991d1e7cea6665bcce57dde23ede88a3a36896ebc011706ee312c7bfde63",
+      "scenario": "\u7a7a\u8868\u5355",
+      "requiredFieldsValid": false,
+      "previewDisabled": true,
+      "params": null,
+      "errors": {
+        "circuitId": "\u8bf7\u586b\u5199\u77ff\u673a\u7f16\u53f7\u3002",
+        "targetRaise": "\u8bf7\u586b\u5199\u52df\u96c6\u603b\u989d\u3002",
+        "priceCap": "\u8bf7\u586b\u5199\u8d2d\u673a\u4ef7\u683c\u4e0a\u9650\u3002"
+      }
+    },
+    {
+      "file": "index.html",
+      "htmlSha256": "dd5ffdd2dc085d7ac772b32b7b3dfff165f124756d98e7f72f4118b8ff0fc7fe",
+      "scenario": "\u7a7a\u8868\u5355",
+      "requiredFieldsValid": false,
+      "previewDisabled": true,
+      "params": null,
+      "errors": {
+        "circuitId": "\u8bf7\u586b\u5199\u77ff\u673a\u7f16\u53f7\u3002",
+        "targetRaise": "\u8bf7\u586b\u5199\u52df\u96c6\u603b\u989d\u3002",
+        "priceCap": "\u8bf7\u586b\u5199\u8d2d\u673a\u4ef7\u683c\u4e0a\u9650\u3002"
+      }
+    },
+    {
+      "file": "valid.html",
+      "htmlSha256": "90be4e3b1aa9fdfb2124592f9831b087d2357ee4c04f42bce21ef7857984eaba",
+      "scenario": "\u6709\u6548\u8f93\u5165",
+      "requiredFieldsValid": true,
+      "previewDisabled": false,
+      "params": {
+        "circuits": "0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C",
+        "circuitId": "0",
+        "targetRaiseWei": "5000000000000000",
+        "priceCapWei": "4000000000000000",
+        "fundingHours": "24",
+        "purchaseHours": "48"
+      },
+      "errors": {}
+    }
+  ],
+  "mockScope": [
+    "operator.isOperator and wallet address",
+    "factory address",
+    "quote-picker placeholder"
+  ],
+  "fixtureCallsToApiRpcWallet": 0,
+  "noApiRequests": true,
+  "noRpc": true,
+  "noWallet": true,
+  "noExternalNetwork": true,
+  "scriptsEmbedded": false,
+  "browserCsp": "default-src 'none'; script-src 'none'; connect-src 'none'; form-action 'none'; local styles and fonts only",
+  "caveat": "Static display fixture, not proof of a real miner, executable order, on-chain preview, successful creation or transaction.",
+  "frontendSourceHead": "ff6c2efe504dddde22439c5aad51a492f870ca1e",
+  "browserScreenshots": {
+    "blank-form.png": "523c5f498163201f340b0b69558ea15496b5f4e44fd2535b00c9e832ad9e9b14",
+    "valid-form.png": "d00ac9e1eb44c7170708d4a44846ba2e9bbbaba4f22032e4f2c74500a2032b38",
+    "official-home.png": "f4816bae4521a9e052bdb503a0673d3f6d9714ab5d6e57f8544b6da82963ec8f"
+  }
+}
