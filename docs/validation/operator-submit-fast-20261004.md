@@ -10,4 +10,12 @@
 
 验证：997 项前端测试全部通过，另通过 catalog、BEM 价格和 review policy 检查。用实际 JSX 回调验证进度收起、互斥和迟到事件；用真实 EIP-712 库验证 nonce/签名一致性、慢读取不会触发迟到签名、签名先于慢登录。覆盖旧确认交易、相同 nonce 但不同截止时间、POST 结果不明与 409 的发布回归。
 
-只读实测：现网 Authority `0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c` 的管理员 nonce 查询 HTTP 200，单次 521 ms。此为一次测量，不是钱包响应速度保证。未请求真实钱包签名，未发送链上交易。生产构建和发布回执在发布完成后补充。
+只读实测：现网 Authority `0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c` 的管理员 nonce 查询 HTTP 200，单次 521 ms；发布核查再次读取为 476 ms。这些是单次测量，不是钱包响应速度保证。未请求真实钱包签名，未发送链上交易。
+
+生产构建通过并于北京时间 2026-10-04 00:42:44 发布到 `https://bemine.cc.cd/`。线上前端源码为 `a4e1e32a0dd4b12c0e8df53e0364e5b2d120d174`，运行服务仍为 `23b48e6adb2a19810eb287a67add5f40b4fb94b9`；原合约、Factory、Authority 和 Gas 钱包保持。发布采用静态目录原子切换，保留 198 个旧内容寻址资源供已打开的标签页使用，六个业务服务进程未改变。
+
+独立公网核查：根首页 HTTP 200 且内容与构建产物逐字一致；发布清单 SHA256 与服务器回执一致；首页引用的 13 个脚本均与构建文件一致。旧版本浏览器入口继续 308 跳转根网址，内部 API 路径保持。浏览器实际加载了 7 个项目、2 台已管理矿机，未出现读取错误。
+
+首次发布预检查的 product graph GET 超过客户端 20 秒期限，切换尚未开始；后续缓存完成核验，读取得到 current、stale=false、operationalReady=true、userExitReady=true，再进行发布。该冷启动读取不在新版 displayOnly 签名前路径内；提交后的服务器权限与新鲜状态检查保持。
+
+构建与发布证据见 [build-summary.json](operator-submit-fast-20261004/build-summary.json)、[publication.json](operator-submit-fast-20261004/publication.json) 和 [public-verification.json](operator-submit-fast-20261004/public-verification.json)。修复代码及证据同步到 [PR 40](https://github.com/jianfengliao774-sketch/pinkuang/pull/40)。
