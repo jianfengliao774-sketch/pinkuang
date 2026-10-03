@@ -5,6 +5,7 @@ import { settleReadRound } from './read-retry.mjs';
 import { QUOTE_BASE } from './quote-base.mjs';
 import { uint, referenceQuote } from './chain-client.mjs';
 import { parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { readMachineReservation } from '../../deploy/shared/machine-reservation.mjs';
 
 const MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 const MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
@@ -74,16 +75,18 @@ export async function readMachineRegistry(provider, { factory, collection, token
 
 /** The exact NFT can be checked on the official market without an indexer or Firsto API. */
 export async function readOfficialMinerOnchain(provider, collectionValue, tokenValue,
-  { config, blockTag = 'latest', allowIneligible = false } = {}) {
+  { config, blockTag = 'latest', allowIneligible = false, checkReservation = false } = {}) {
   const collection = getAddress(collectionValue), tokenId = uint(tokenValue);
   requireValue(Object.values(OFFICIAL_COLLECTIONS).some(value => same(value, collection)), '仅接受已核验的官方矿机合约。');
   const request = (method, params = []) => provider.request({ method, params });
   if (config?.displayOnly === true) {
     const call = async (to, contract, name, args) => contract.decodeFunctionResult(name,
       await request('eth_call', [{ to, data: contract.encodeFunctionData(name, args) }, blockTag]));
-    const [owner, listing, key] = await Promise.all([
+    const factory = checkReservation ? getAddress(config.factory ?? config.manifest?.factory) : null;
+    const [owner, listing, key, reservedPool] = await Promise.all([
       call(collection, nftAbi, 'ownerOf', [tokenId]), call(MARKET, marketAbi, 'listingFor', [collection, tokenId]),
       call(MINING, miningAbi, 'minerKey', [collection, tokenId]),
+      checkReservation ? readMachineReservation(provider, { factory, collection, tokenId, blockTag }) : null,
     ]);
     const miner = (await call(MINING, miningAbi, 'getMiner', [key[0]]))[0];
     requireValue(same(miner.circuits, collection) && miner.circuitId === tokenId, '矿机链上身份不一致。');
@@ -91,9 +94,12 @@ export async function readOfficialMinerOnchain(provider, collectionValue, tokenV
     requireValue(allowIneligible || eligible, eligibilityIssue);
     const official = eligible && listing.valid && listing.id > 0n && listing.price > 0n && same(listing.seller, owner[0])
       ? Object.freeze({ id: listing.id.toString(), seller: getAddress(listing.seller), priceWei: listing.price.toString() }) : null;
+    const checkedAt = Date.now();
     return Object.freeze({ collection, tokenId: tokenId.toString(), owner: getAddress(owner[0]), taskId: miner.taskId.toString(),
       verifiedWeight: miner.verifWeight.toString(), eligible, official, firsto: null, firstoError: null,
-      registry: null, blockNumber: null, blockHash: null, checkedAt: Date.now(), displayOnly: true });
+      registry: checkReservation ? Object.freeze({ factory, collection, tokenId: tokenId.toString(), pool: reservedPool,
+        supported: true, ready: null, checkedAt, blockTag }) : null,
+      blockNumber: null, blockHash: null, checkedAt, displayOnly: true });
   }
   const { chain, block } = await settleReadRound({ chain: () => request('eth_chainId'), block: () => request('eth_getBlockByNumber', [blockTag, false]) });
   requireValue(BigInt(chain) === 56n && /^0x[\da-f]{64}$/i.test(block?.hash ?? '')
@@ -165,9 +171,14 @@ export async function checkMinerOnchain(provider, quote, { config, blockTag = 'l
 }
 
 export async function loadOperatorQuote({ collection, tokenId, config, provider, blockTag,
-  mode = 'createPool', officialPriceCapWei, ...options }) {
+  mode = 'createPool', officialPriceCapWei, forCreation = false, ...options }) {
   const reader = provider ?? createReadOnlyHttpProvider(config);
-  const officialChain = await readOfficialMinerOnchain(reader, collection, tokenId, { config, blockTag });
+  const officialChain = await readOfficialMinerOnchain(reader, collection, tokenId, { config, blockTag, checkReservation: forCreation });
+  // Existing projects reserve their NFT before purchasing it. Only creation
+  // discovery rejects an occupied NFT, before requesting paid public quotes.
+  if (forCreation && officialChain.registry?.pool && !same(officialChain.registry.pool, ZeroAddress))
+    throw Object.assign(new Error(`此矿机已有拼矿项目：${officialChain.registry.pool}，不能重复创建。`),
+      { code: 'MachineAlreadyReserved', pool: officialChain.registry.pool });
   // A fixed official purchase needs no Firsto availability, estimate or buyer-fee quote.
   const officialWithinCap = officialChain.official && (officialPriceCapWei === undefined
     || BigInt(officialChain.official.priceWei) <= uint(officialPriceCapWei));
@@ -223,7 +234,11 @@ export function operatorQuoteDraft(checked, { mode = 'createPool', extraBps = 10
   requireValue(chain && Number.isFinite(chain.checkedAt) && chain.checkedAt <= now + 30000 && now - chain.checkedAt <= 300000, '链上矿机核对已过期，请重新获取。');
   requireValue(Number.isInteger(extraBps) && extraBps >= 0 && extraBps <= 10000, '额外预算需在 0%–100% 之间。');
   requireValue(uint(fundingHours, 32) > 0n && uint(purchaseHours, 32) > 0n, '请填写有效的募集和购机时长。');
-  if (chain.displayOnly !== true) {
+  if (chain.displayOnly === true) {
+    requireValue(chain.registry?.pool && same(chain.registry.collection, chain.collection)
+      && uint(chain.registry.tokenId) === uint(chain.tokenId), '矿机登记尚未核对，请重新选择矿机。');
+    requireValue(same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);
+  } else {
     requireValue(chain.registry?.supported, '当前工厂尚未支持矿机唯一性登记，请等待合约升级后创建。');
     requireValue(chain.registry.ready, '矿机唯一性登记尚未完成，请稍后创建。');
     requireValue(chain.registry.pool && same(chain.registry.pool, ZeroAddress), `此矿机已有拼矿项目：${chain.registry.pool}，不能重复创建。`);

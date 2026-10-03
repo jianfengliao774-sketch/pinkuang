@@ -4,6 +4,7 @@ import { GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { requireMachineAvailable } from '../../deploy/shared/machine-reservation.mjs';
 
 const need = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -250,6 +251,16 @@ export async function prepareAdminAction(input) {
     need(fundingDeadline > status.timestamp && purchaseDeadline > fundingDeadline, '募集和购机截止时间无效。');
     normalizedParams = Object.freeze({ circuits, circuitId: uint(params.circuitId), targetRaise, priceCap,
       directSeller: ZeroAddress, directPrice: 0n, fundingDeadline, purchaseDeadline });
+    if (config.displayOnly === true) {
+      // An immediately selected quote already read this exact reservation. This
+      // only saves a duplicate preview read; the signer always checks again.
+      const checked = input.machineReservation;
+      const reusable = checked && checked.blockTag === 'latest' && Number.isFinite(checked.checkedAt)
+        && checked.checkedAt <= Date.now() && Date.now() - checked.checkedAt <= 15_000
+        && same(checked.factory, factory) && same(checked.collection, circuits)
+        && uint(checked.tokenId) === normalizedParams.circuitId && same(checked.pool, ZeroAddress);
+      if (!reusable) await requireMachineAvailable(provider, { factory, collection: circuits, tokenId: normalizedParams.circuitId });
+    }
     transaction = kind === 'createPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams])
       : kind === 'createBudgetChildPool' ? tx(factory, abi.PoolFactory, kind, [normalizedParams, addr(subscriber)])
       : checkedPoolCreation({ factory, from, params: normalizedParams, config: flexible, expectedTaskId, expectedReferenceWeight });

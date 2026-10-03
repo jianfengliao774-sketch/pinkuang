@@ -16,6 +16,22 @@ function unlistedFixture() {
   return data;
 }
 
+test('direct occupied miner selection stops before any paid Firsto GET and null registry cannot authorize a draft', async () => {
+  const data = dataFixture(), raw = chainFixture(data.quote, { registryPool: other, listing: { valid: false } }), api = apiFixture(data);
+  const provider = { request: input => raw.provider.request({ ...input, params: [input.params[0], '0x64'] }) };
+  await assert.rejects(loadOperatorQuote({ collection: data.quote.collection, tokenId: data.quote.tokenId,
+    config: { ...config, displayOnly: true }, forCreation: true, provider, fetcher: api.fetcher }), error => error.code === 'MachineAlreadyReserved' && error.pool === other);
+  assert.equal(api.requests.length, 0);
+  assert.equal(raw.requests.filter(input => input.method === 'eth_call' && input.params[0].to === config.factory).length, 1);
+  const chain = { collection: data.quote.collection, tokenId: data.quote.tokenId, displayOnly: true,
+    checkedAt: Date.now(), official: { priceWei: '10000' }, registry: null };
+  assert.throws(() => operatorQuoteDraft({ quote: null, chain }), /登记尚未核对/);
+  chain.registry = { collection: chain.collection, tokenId: chain.tokenId, pool: other };
+  assert.throws(() => operatorQuoteDraft({ quote: null, chain }), /已有拼矿项目/);
+  chain.registry = { collection: chain.collection, tokenId: '7223', pool: ZeroAddress };
+  assert.throws(() => operatorQuoteDraft({ quote: null, chain }), /登记尚未核对/);
+});
+
 test('listing daily capacity price divides the displayed ask by daily BEM with exact decimal arithmetic', () => {
   assert.equal(listingDailyCapacityPrice('39441600000000000', '432000'), '9.13000');
   assert.equal(listingDailyCapacityPrice('123456789012345678', '100000000'), '0.12346');
@@ -139,7 +155,7 @@ test('unlisted reference gives only the flexible model-bound budget, and an ask 
   assert.throws(() => operatorQuoteDraft(checked, { mode: 'createFlexiblePoolUnchecked' }));
 });
 
-test('the display-only production path selects an unlisted miner with four read calls and keeps fixed creation blocked', async () => {
+test('the display-only production path selects an unlisted miner with five exact reads and keeps fixed creation blocked', async () => {
   const data = unlistedFixture(), rpc = chainFixture(data.quote, { listing: { valid: false, id: 0n, price: 0n } });
   // The strict fixture decodes the same public ABI at its pinned block; the
   // shipped display reader requests latest without verified-chain headers.
@@ -147,10 +163,10 @@ test('the display-only production path selects an unlisted miner with four read 
     ? { ...input, params: [input.params[0], '0x64'] } : input) };
   const api = apiFixture(data);
   const checked = await loadOperatorQuote({ config: { ...config, displayOnly: true },
-    collection: data.quote.collection, tokenId: data.quote.tokenId, provider, fetcher: api.fetcher });
+    collection: data.quote.collection, tokenId: data.quote.tokenId, forCreation: true, provider, fetcher: api.fetcher });
   assert.equal(checked.chain.displayOnly, true); assert.equal(checked.chain.official, null);
   assert.equal(checked.chain.firsto, null); assert.equal(checked.quote.ask, null);
-  assert.equal(rpc.requests.length, 4); assert.equal(api.requests.length, 3);
+  assert.equal(rpc.requests.length, 5); assert.equal(api.requests.length, 3);
   assert(rpc.requests.every(input => input.method === 'eth_call'), 'No simulation, wallet signature or transaction is requested.');
   assert.throws(() => operatorQuoteDraft(checked), /没有.*挂单|没有.*订单/);
   assert.equal(operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' }).expectedTaskId, '220');

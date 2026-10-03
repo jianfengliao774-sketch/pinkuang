@@ -125,7 +125,7 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   const start = source.indexOf('  useEffect(() => {\n    const job = publishingProject;');
   const end = source.indexOf('  async function submitFreshAuthority', start);
   assert(start > 0 && end > start);
-  const timers = [], results = [], state = { pools: [], refresh: 0, job: null };
+  const timers = [], results = [], state = { pools: [], refresh: 0, resetKey: 0, job: null };
   const client = { manifest: f.f.manifest, provider: f.provider,
     readDisplayPool: async () => { throw Object.assign(Error('missing new cache row'), { code: 'http_unavailable' }); } };
   const job = { intent: f.intent, hash: hash(20), initialStatus: { status: 'pending', hash: hash(20) },
@@ -133,6 +133,7 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   const publishedProjects = { current: [] }, context = {
     publishingProject: job, client, config: f.config, account: f.account, same: (a, b) => a.toLowerCase() === b.toLowerCase(),
     showTransactionResult: result => results.push(result), setOperatorRefresh: () => {},
+    setCreationResetKey: fn => { state.resetKey = fn(state.resetKey); },
     setRefresh: fn => { state.refresh = fn(state.refresh); },
     authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20) }),
     readPublishedProject, readPublishedPoolDisplay, viewPool, publishedProjects,
@@ -151,6 +152,7 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   assert.equal(results.length, 1); assert.equal(results[0].poolAddress, f.row.pool);
   assert.equal(state.pools.length, 1); assert.equal(state.pools[0].pool, f.row.pool);
   assert.equal(state.job, null); assert.equal(timers.length, 0);
+  assert.equal(state.resetKey, 1, 'Only a verified success resets the creation form.');
   cleanup();
   // A previous account's unresolved receipt cannot erase a newer account's task.
   let release;
@@ -180,6 +182,7 @@ test('a hashless timed-out publication cannot adopt the previous confirmed statu
   const timers = [], results = [], rows = [], context = { publishingProject: job, client, config: f.config,
     account: f.account, same: (a, b) => a.toLowerCase() === b.toLowerCase(),
     showTransactionResult: result => results.push(result), setOperatorRefresh: () => {}, setRefresh: () => {},
+    setCreationResetKey: () => assert.fail('An older result cannot reset the active creation form.'),
     authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20) }), readPublishedProject,
     readPublishedPoolDisplay: () => assert.fail('An older creation cannot become a displayed project.'),
     viewPool, publishedProjects: { current: [] }, mergePublishedProjects,
@@ -233,11 +236,12 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
   const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
   const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
   assert(relayStart > 0 && relayEnd > relayStart && sendStart > 0 && sendEnd > sendStart);
-  const calls = [], feedback = [], state = { job: null, busy: false }, walletEpoch = { current: 0 };
+  const calls = [], feedback = [], state = { job: null, busy: false }, walletEpoch = { current: 0 }, publishingProjectRef = { current: null };
   const context = { config: { ...f.config, stage: 'fresh-active', displayOnly: true }, isOperator: true,
     operatorServiceReady: true, wallet: { request: () => assert.fail('Tests cannot request real wallet actions.') },
     account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
-    epoch: { current: 0 }, submissionLock: { current: null }, L: zh => zh, textError: error => error.message,
+    epoch: { current: 0 }, submissionLock: { current: null }, publishingProjectRef,
+    same: (a, b) => a?.toLowerCase() === b?.toLowerCase(), L: zh => zh, textError: error => error.message,
     requireCurrentProductStage: async () => { calls.push('stage'); },
     prepareAuthoritySubmission: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
       assert.equal(input.args.target, f.config.factory); assert.equal(input.args.data, f.transaction.data);
@@ -248,7 +252,7 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
       return f.command; },
     submitAuthorityAction: async (_config, _account, command) => { calls.push('relay'); assert.equal(command, f.command);
       if (rejectRelay) throw rejectRelay; return result; },
-    publishedProjectIntent, setPublishingProject: job => { state.job = job; },
+    publishedProjectIntent, setPublishingProject: job => { state.job = job; publishingProjectRef.current = job; },
     showTransactionResult: (input, options) => feedback.push({ input, options }),
     setMessage: () => {}, setOperatorRefresh: () => {}, setRefresh: () => {},
     setBusy: value => { state.busy = value; }, setError: () => {}, setTransactionStage: () => {},
@@ -304,4 +308,36 @@ test('actual creation signature failure and wallet change cannot register a publ
   await assert.rejects(changed.send(), /页面或钱包已改变/);
   assert.equal(changed.state.job, null); assert.equal(changed.feedback.length, 0); assert.equal(changed.calls.includes('relay'), false);
   assert.equal(changed.context.submissionLock.current, null);
+});
+
+test('pending or uncertain creation blocks a second signature and cannot overwrite the unresolved publication', async () => {
+  for (const rejectRelay of [undefined, Error('POST response lost')]) {
+    const f = await actualAdminCreation({ rejectRelay });
+    if (rejectRelay) await assert.rejects(f.send(), /请核对状态/); else await f.send();
+    const first = f.state.job;
+    await assert.rejects(f.send(), /上一笔项目发布正在确认/);
+    assert.equal(f.state.job, first); assert.equal(f.context.publishingProjectRef.current, first);
+    assert.equal(f.calls.filter(value => value === 'sign').length, 1);
+    assert.equal(f.calls.filter(value => value === 'relay').length, 1);
+    assert.equal(first.submitting, false); assert.equal(f.context.submissionLock.current, null);
+  }
+});
+
+test('relay confirmed status alone stays locked until exact receipt verification; verified completion permits new creation', async () => {
+  const f = await actualAdminCreation({ result: { status: 'confirmed', hash: hash(20) } });
+  await f.send(); await assert.rejects(f.send(), /上一笔项目发布正在确认/);
+  assert.equal(f.calls.filter(value => value === 'sign').length, 1);
+  f.state.job.result = await readPublishedProject({ provider: f.provider, intent: f.state.job.intent,
+    status: { status: 'confirmed', hash: hash(20) } });
+  await f.send(); assert.equal(f.calls.filter(value => value === 'sign').length, 2,
+    'A confirmed historical project is not a permanent NFT lock; the signer still checks current machinePool.');
+});
+
+test('definite relay rejection clears only its own publication lock and permits a new reviewed attempt', async () => {
+  for (const httpStatus of [400, 409, 429]) {
+    const f = await actualAdminCreation({ rejectRelay: Object.assign(Error('rejected before broadcast'), { httpStatus }) });
+    await assert.rejects(f.send(), /rejected before broadcast/); assert.equal(f.context.publishingProjectRef.current, null);
+    await assert.rejects(f.send(), /rejected before broadcast/);
+    assert.equal(f.calls.filter(value => value === 'sign').length, 2); assert.equal(f.state.job, null);
+  }
 });

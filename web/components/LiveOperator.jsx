@@ -26,7 +26,8 @@ function FundingPreview({ value }) {
   return <div><dt>募集总额</dt><dd>{fundingDisplay(exact)} BNB{amount.approximate && <details><summary>查看精确金额</summary>{exact} BNB</details>}</dd></div>;
 }
 
-export default function LiveOperator({ config, account, wallet, readProvider, operator, disabled, disabledReason, refreshKey = 0, onSend, onRefresh, gasFeeWei }) {
+export default function LiveOperator({ config, account, wallet, readProvider, operator, disabled, disabledReason, creationPending = false, creationPendingReason,
+  creationResetKey = 0, refreshKey = 0, onSend, onRefresh, gasFeeWei }) {
   const [form, setForm] = useState(initial), [mode, setMode] = useState('createPool');
   const [imported, setImported] = useState(''), [pool, setPool] = useState(''), [listingId, setListingId] = useState('');
   const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -46,11 +47,18 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
   }
   useEffect(() => { previewRead.current?.abort(); setPreview(null); setFeedback(null); setSubmissionHidden(false); setError(''); setBusy(false); setProgress(''); setAutoSelection(null); setImported(''); }, [key, wallet, deploymentKey, readProvider]);
   useEffect(() => () => { context.current.invalidate(); previewRead.current?.abort(); }, []);
+  useEffect(() => {
+    if (!creationResetKey) return;
+    context.current.invalidate(); previewRead.current?.abort(); setPreview(null); setForm(initial);
+    setAutoSelection(null); setImported(''); setFeedback(null); setError('');
+    setBusy(false); setProgress(''); setSubmissionHidden(false);
+  }, [creationResetKey]);
   const direct = config?.displayOnly === true;
   const frozen = busy || disabled || !operator?.isOperator;
   const creationInput = operatorCreateInput({ form, mode, imported, autoSelection });
-  const creationBlocked = frozen || !!preview || !creationInput.valid || !direct && (operator?.creationPaused || !operator?.machineRegistry?.supported || !operator.machineRegistry.ready);
+  const creationBlocked = frozen || creationPending || !!preview || !creationInput.valid || !direct && (operator?.creationPaused || !operator?.machineRegistry?.supported || !operator.machineRegistry.ready);
   const creationReason = busy ? progress || '正在核对，请稍候…'
+    : creationPending ? creationPendingReason || '上一笔项目发布正在确认，请勿重复创建。'
     : disabled ? disabledReason || '请先核对当前交易状态，再创建项目。'
       : !operator?.isOperator ? direct ? '请连接本次部署配置的管理员钱包。' : '请先完成运营权限核验。'
         : preview ? '请在确认窗口完成操作，或返回修改。'
@@ -81,7 +89,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     const original = operatorQuoteDraft(selection.checked, options);
     if (direct) return original;
     const checked = await loadOperatorQuote({ collection: selection.checked.chain.collection,
-      tokenId: selection.checked.chain.tokenId, config, mode, ...optionsForRead });
+      tokenId: selection.checked.chain.tokenId, config, mode, forCreation: true, ...optionsForRead });
     const current = operatorQuoteDraft(checked, options);
     if (current.params.targetRaiseWei !== original.params.targetRaiseWei || current.params.priceCapWei !== original.params.priceCapWei
       || current.expectedTaskId !== original.expectedTaskId || current.expectedReferenceWeight !== original.expectedReferenceWeight) {
@@ -107,7 +115,8 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       else input = { kind, pool, listingId, miningAction };
       check();
       setProgress(direct ? '正在生成操作预览…' : '正在核对链上条件，完成后显示确认窗口…');
-      return prepareAdminAction({ provider, config, account, ...input });
+      return prepareAdminAction({ provider, config, account, ...input,
+        ...(direct && autoSelection && creation ? { machineReservation: autoSelection.checked.chain.registry } : {}) });
       }, { provider: config?.productFamily === 'fresh-v4' ? readProvider : wallet,
         isCurrent: () => context.current.current(ticket), signal: controller.signal });
       if (!context.current.current(ticket)) return;
@@ -132,7 +141,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
     return Object.hasOwn(phases, status) ? { kind: 'submitting', ...phases[status] } : null;
   }
   async function send() {
-    if (submission.current || !preview || preview.identity !== key || !context.current.current(preview.ticket)) return;
+    if (submission.current || (creationPending && preview?.input.params) || !preview || preview.identity !== key || !context.current.current(preview.ticket)) return;
     const ticket = preview.ticket, attempt = { ticket }; submission.current = attempt;
     setBusy(true); setError(''); setSubmissionHidden(false);
     setPreview(null);
@@ -162,7 +171,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       <div className="operator-tabs"><button className={`btn${mode === 'createPool' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createPool')}>指定单台矿机</button><button className={`btn${mode === 'createFlexiblePoolChecked' ? '' : ' secondary'}`} disabled={frozen} onClick={() => switchMode('createFlexiblePoolChecked')}>单台矿机灵活替代</button><button className="btn secondary" disabled={frozen} onClick={() => document.getElementById('multi-miner-projects')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>多矿机同一项目（100 份）↓</button></div>
       <p className="subtle-note">当前表单只建单台矿机池。若要用固定 BNB 预算购买多台矿机，请进入下方“多矿机预算项目”；募满后可设置本批最多采购台数。</p>
       {operator.creationPaused && <p className="live-notice error">链上建池已暂停，需要治理权限恢复后才能新建。</p>}
-      <OperatorQuotePicker config={config} mode={mode} disabled={frozen || !!preview} refreshKey={refreshKey} onApply={applyQuote}/>
+      <OperatorQuotePicker config={config} mode={mode} disabled={frozen || creationPending || !!preview} refreshKey={refreshKey} onApply={applyQuote}/>
       {autoSelection && <p className="live-notice">{direct ? '已自动填入矿机与募集方案。请核对金额和期限。' : '已自动填入矿机与募集方案。请核对金额和期限；预览前会重新读取最新报价。'}</p>}
       {(mode === 'createPool' || autoSelection) && <div className="operator-grid">
         <label>矿机系列<select value={form.circuits} disabled={frozen || !!preview || mode !== 'createPool'} onChange={event => change('circuits', event.target.value)}>{collections.map(([name, address]) => <option key={address} value={address}>{name}</option>)}</select></label>

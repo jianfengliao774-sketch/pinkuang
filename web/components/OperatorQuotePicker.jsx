@@ -87,7 +87,7 @@ export default function OperatorQuotePicker({ config, mode, disabled, refreshKey
     invalidate(); const sequence = request.current.sequence, abort = new AbortController(); request.current.abort = abort;
     setBusy(true); setError(''); setSelected(null); setCapacityHint(null); setCapacityError(''); setMarketReference(null); setMarketReferenceError('');
     try {
-      const result = await loadOperatorQuote({ collection: row.collection, tokenId: row.tokenId, config, mode, signal: abort.signal });
+      const result = await loadOperatorQuote({ collection: row.collection, tokenId: row.tokenId, config, mode, forCreation: true, signal: abort.signal });
       if (sequence === request.current.sequence) {
         setSelected(result);
         // Correct an older directory row with the freshly checked quote. Other

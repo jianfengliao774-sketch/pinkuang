@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { createServer } from 'node:http';
-import { Interface, Wallet, getAddress, keccak256 } from 'ethers';
+import { Interface, Wallet, ZeroAddress, getAddress, keccak256 } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { createDeploymentServer } from './index.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
@@ -27,7 +27,13 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
   const config = {origin:'https://example.test',rpcUrl:'https://example.test/rpc',journal:join(directory,'authority.json'),
     expectedGasWallet:gas.address,maxGasWei:10n**18n,maxGasPrice:3n*10n**9n,
     ...(runtimeRpc ? {rpcUrl:runtimeRpc.primary,readFallbackRpcUrl:runtimeRpc.backup} : {})};
-  const creationAbi = ['function createPool((address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline) params)',
+  const params = '(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)';
+  const flexible = '(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
+  const creationAbi = [`function createPool(${params} params)`,
+    `function createPoolWithExpiry(${params} params,bool expiryEnabled)`,
+    `function createBudgetChildPool(${params} params,address subscriber)`,
+    `function createFlexiblePool(${params} params,${flexible} config)`,
+    `function createFlexiblePoolChecked(${params} params,${flexible} config,uint32 expectedTaskId,uint128 expectedReferenceWeight)`,
     'function setDepositPaused(bool enabled)'];
   const trusted = {record:{addresses:{factory,portfolioFactory:budget,shareMarket:market}},
     bundle:{artifacts:{FreshPoolFactory:{abi:creationAbi},
@@ -42,7 +48,21 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     addresses:trusted.record.addresses};
   const calls = [], errors = [];
   const roleState={first:admin.address,second,core:factory,budget,gasWallet:gas.address,code};
-  const provider = {send:async()=> '0x38',getBlock:async()=>({number:1,hash:hash(1),
+  const reservationAbi = new Interface(['function machinePool(address,uint256) view returns(address)']);
+  const reservation = { pools: new Map(), calls: [], response: null };
+  const reservationKey = (collection,id) => `${getAddress(collection).toLowerCase()}:${BigInt(id)}`;
+  const provider = {send:async(method,params=[])=>{
+    if(method==='eth_chainId')return '0x38';
+    if(method==='eth_call'){
+      const [tx,blockTag]=params,decoded=reservationAbi.parseTransaction({data:tx.data});
+      assert.equal(getAddress(tx.to),factory);
+      assert.equal(decoded?.name,'machinePool');
+      reservation.calls.push({collection:decoded.args[0],tokenId:decoded.args[1],blockTag});
+      return reservation.response ?? reservationAbi.encodeFunctionResult('machinePool',[
+        reservation.pools.get(reservationKey(decoded.args[0],decoded.args[1]))??ZeroAddress]);
+    }
+    throw new Error(`Unexpected RPC method ${method}`);
+  },getBlock:async()=>({number:1,hash:hash(1),
     timestamp:Math.floor(Date.now()/1000)}),destroy(){}};
   const store = {session:()=>admin.address.toLowerCase(),close(){}};
   const service = createAuthorityRelayService(config,{trusted,...(runtimeRpc ? {} : {provider}),store,onError:error=>errors.push(error),
@@ -66,7 +86,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     service.handle(req,res);
   });
   return {admin,gas,authority,factory,budget,market,pool,codehash,service,request,calls,errors,
-    creationAbi,roleState,
+    creationAbi,roleState,reservation,reservationKey,
     close:async()=>{await service.close();rmSync(directory,{recursive:true,force:true});}};
 }
 
@@ -300,12 +320,80 @@ test('signed creation accepts only exact reviewed Factory selectors',async()=>{
     const command={authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',
       args:{target:f.factory,data},nonce:'0',deadline,signature:await signOperation(f.factory,data)};
     assert.equal((await f.request('/api/journal/authority-relay','POST',{command})).body.status,'pending');
+    assert.deepEqual(f.reservation.calls,[{collection:address(77),tokenId:13043n,blockTag:'latest'}]);
     const pause=iface.encodeFunctionData('setDepositPaused',[true]);
     const forbidden={...command,args:{target:f.factory,data:pause},signature:await signOperation(f.factory,pause)};
     const blocked=await f.request('/api/journal/authority-relay','POST',{command:forbidden});
     assert.equal(blocked.status,400);
     assert.equal(f.calls.length,1);
   } finally {await f.close();}
+});
+
+test('all five signed core creation selectors reject an occupied exact miner before relay or journal work',async()=>{
+  const params=[address(77),7223n,10n,10n,ZeroAddress,0n,
+    BigInt(Math.floor(Date.now()/1000)+3600),BigInt(Math.floor(Date.now()/1000)+7200)];
+  const flexible=[1n,10n,100000000n,1000,BigInt(Math.floor(Date.now()/1000)-1),1n,hash(7)];
+  const cases=[['createPool',[params]],['createPoolWithExpiry',[params,true]],
+    ['createBudgetChildPool',[params,address(99)]],['createFlexiblePool',[params,flexible]],
+    ['createFlexiblePoolChecked',[params,flexible,1,1]]];
+  for(const [name,args] of cases){
+    const f=fixture();
+    try{
+      f.reservation.pools.set(f.reservationKey(params[0],params[1]),f.pool);
+      const data=new Interface(f.creationAbi).encodeFunctionData(name,args);
+      const deadline=String(Math.floor(Date.now()/1000)+300),nonce='0';
+      const signature=await sign(f.admin,f.authority,'executeApprovedOperation',
+        {target:f.factory,data},nonce,deadline);
+      const command={authority:f.authority,expectedCodehash:f.codehash,kind:'executeApprovedOperation',
+        args:{target:f.factory,data},nonce,deadline,signature};
+      const reply=await f.request('/api/journal/authority-relay','POST',{command});
+      assert.equal(reply.status,409,`${name}: ${reply.body.error}`);
+      assert.match(reply.body.error,/已有拼矿项目.*不能重复创建/);
+      assert.equal(f.calls.length,0,`${name} must not enter the Gas relay`);
+      assert.deepEqual(f.reservation.calls,[{collection:params[0],tokenId:params[1],blockTag:'latest'}]);
+    }finally{await f.close();}
+  }
+});
+
+test('core creation checks exact collection and ID while zero or other identity remains available',async()=>{
+  const f=fixture();
+  try{
+    f.reservation.pools.set(f.reservationKey(address(77),7223n),f.pool);
+    const iface=new Interface(f.creationAbi),deadline=String(Math.floor(Date.now()/1000)+300),nonce='0';
+    const send=async(collection,tokenId)=>{
+      const params=[collection,tokenId,10n,10n,ZeroAddress,0n,
+        BigInt(Math.floor(Date.now()/1000)+3600),BigInt(Math.floor(Date.now()/1000)+7200)];
+      const data=iface.encodeFunctionData('createPool',[params]);
+      const signature=await sign(f.admin,f.authority,'executeApprovedOperation',
+        {target:f.factory,data},nonce,deadline);
+      return f.request('/api/journal/authority-relay','POST',{command:{authority:f.authority,
+        expectedCodehash:f.codehash,kind:'executeApprovedOperation',args:{target:f.factory,data},
+        nonce,deadline,signature}});
+    };
+    assert.equal((await send(address(77),7224n)).status,200);
+    assert.equal((await send(address(78),7223n)).status,200);
+    assert.equal(f.calls.length,2);
+    assert.deepEqual(f.reservation.calls.map(({collection,tokenId})=>[collection,tokenId]),[
+      [address(77),7224n],[address(78),7223n]]);
+  }finally{await f.close();}
+});
+
+test('malformed or unavailable reservation proof fails closed before the Gas relay',async()=>{
+  const f=fixture();
+  try{
+    f.reservation.response='0x';
+    const params=[address(77),7223n,10n,10n,ZeroAddress,0n,
+      BigInt(Math.floor(Date.now()/1000)+3600),BigInt(Math.floor(Date.now()/1000)+7200)];
+    const data=new Interface(f.creationAbi).encodeFunctionData('createPool',[params]);
+    const deadline=String(Math.floor(Date.now()/1000)+300),nonce='0';
+    const signature=await sign(f.admin,f.authority,'executeApprovedOperation',
+      {target:f.factory,data},nonce,deadline);
+    const reply=await f.request('/api/journal/authority-relay','POST',{command:{authority:f.authority,
+      expectedCodehash:f.codehash,kind:'executeApprovedOperation',args:{target:f.factory,data},
+      nonce,deadline,signature}});
+    assert.equal(reply.status,503);
+    assert.equal(f.calls.length,0);
+  }finally{await f.close();}
 });
 
 test('signed pool operation accepts only canonical reclaim for a current fresh miner',async()=>{

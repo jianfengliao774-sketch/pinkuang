@@ -13,6 +13,8 @@ const require = createRequire(import.meta.url), turn = () => new Promise(resolve
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const address = number => `0x${number.toString(16).padStart(40, '0')}`;
 const collection = '0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', account = address(1);
+const reservation = (tokenId, fields = {}) => ({ factory: address(2), collection, tokenId,
+  pool: address(0), blockTag: 'latest', checkedAt: Date.now(), ...fields });
 await loadBindings();
 const { code } = await transform(await readFile(new URL('../components/LiveOperator.jsx', import.meta.url), 'utf8'), {
   filename: 'LiveOperator.jsx', jsc: { parser: { syntax: 'ecmascript', jsx: true }, target: 'es2022',
@@ -25,7 +27,7 @@ const text = tree => tree == null || typeof tree === 'boolean' ? '' : Array.isAr
 const QuotePicker = () => null, Dialog = () => null;
 
 function fixture(overrides = {}) {
-  const slots = [], effects = [], reads = [], prepared = [], results = []; let position = 0, tree;
+  const slots = [], effects = [], reads = [], rpcReads = [], prepared = [], results = []; let position = 0, tree;
   const hooks = {
     useState(initial) { const index = position++; if (!slots[index]) slots[index] = { value: typeof initial === 'function' ? initial() : initial };
       return [slots[index].value, value => { slots[index].value = typeof value === 'function' ? value(slots[index].value) : value; }]; },
@@ -33,7 +35,12 @@ function fixture(overrides = {}) {
     useEffect(fn, deps) { const index = position++, old = slots[index];
       if (!old || deps.some((dep, at) => dep !== old.deps[at])) effects.push(() => { old?.cleanup?.(); slots[index] = { deps, cleanup: fn() }; }); },
   };
-  const provider = { request: () => assert.fail('Local form validation and direct previews cannot read RPC or request a wallet.') };
+  const provider = { request: async ({ method, params }) => {
+    assert.equal(method, 'eth_call', 'A preview can read the reservation but cannot ask for a signature or simulation.');
+    assert.equal(params[0].to, address(2)); assert.equal(params[1], 'latest');
+    const call = abi.PoolFactory.parseTransaction(params[0]); assert.equal(call.name, 'machinePool'); rpcReads.push(call);
+    return abi.PoolFactory.encodeFunctionResult('machinePool', [address(0)]);
+  } };
   const props = { config: { status: 'ready', chainId: 56, factory: address(2), authority: address(3), portfolioFactory: address(4),
     displayOnly: true, productFamily: 'fresh-v4', stage: 'fresh-active', freshAuthority: { administratorOne: account, administratorTwo: address(5) } },
   account, wallet: provider, readProvider: provider, operator: { isOperator: true, creationPaused: false }, disabled: false,
@@ -55,7 +62,7 @@ function fixture(overrides = {}) {
   const input = (label, value) => { field(label).onChange({ target: { value } }); render(); };
   const settle = async () => { for (let i = 0; i < 4; i++) { await turn(); render(); } };
   render(); render();
-  return { render, button, field, input, settle, props, reads, prepared, results, get tree() { return tree; },
+  return { render, button, field, input, settle, props, reads, rpcReads, prepared, results, get tree() { return tree; },
     apply(selection) { elements(tree).find(node => node.type === QuotePicker).props.onApply(selection); render(); } };
 }
 function fill(ui, { id = '16736', target = '0.005', cap = '0.004' } = {}) {
@@ -162,7 +169,7 @@ test('manual normal forms accept zero NFT ID and familiar exact decimals, then p
 
 test('actual apply-quote and modal-preview callbacks preserve every quoted Wei despite rounded field presentation', async () => {
   const ui = fixture(), checked = { quote: null, chain: { collection, tokenId: '5181', displayOnly: true,
-    checkedAt: Date.now(), official: { priceWei: '4000000000000001' } } };
+    checkedAt: Date.now(), registry: reservation('5181'), official: { priceWei: '4000000000000001' } } };
   const selection = { checked, extraBps: 1000, draft: quotes.operatorQuoteDraft(checked) };
   ui.input('募集截止', ' 024 '); ui.input('购机期限', '0048');
   ui.apply(selection);
@@ -186,7 +193,7 @@ test('actual apply-quote and modal-preview callbacks preserve every quoted Wei d
 
 test('invalid quote duration disables both main and filled-dialog previews while permission restrictions remain', async () => {
   const ui = fixture(), checked = { quote: null, chain: { collection, tokenId: '7', displayOnly: true,
-    checkedAt: Date.now(), official: { priceWei: '4000000000000000' } } };
+    checkedAt: Date.now(), registry: reservation('7'), official: { priceWei: '4000000000000000' } } };
   ui.input('募集截止', '0'); ui.apply({ checked, extraBps: 1000, draft: quotes.operatorQuoteDraft(checked) });
   for (const node of elements(ui.tree).filter(node => node.type === 'button' && text(node) === '预览创建矿池')) {
     assert.equal(node.props.disabled, true); await node.props.onClick();
@@ -208,7 +215,7 @@ test('empty or malformed flexible import is rejected locally without opening a p
 
 test('complete flexible auto-selection and manual imports still produce exact unsigned flexible creation previews', async () => {
   const data = dataFixture(), checked = { quote: data.quote, reference: data.reference, chain: { collection: data.quote.collection,
-    tokenId: data.quote.tokenId, checkedAt: Date.now(), displayOnly: true } };
+    tokenId: data.quote.tokenId, registry: reservation(data.quote.tokenId), checkedAt: Date.now(), displayOnly: true } };
   const draft = quotes.operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' });
   for (const imported of [false, true]) {
     const ui = fixture(); ui.button('单台矿机灵活替代').onClick(); ui.render();
@@ -224,5 +231,71 @@ test('complete flexible auto-selection and manual imports still produce exact un
     assert.equal(decoded.args[2], BigInt(draft.expectedTaskId));
     assert.equal(decoded.args[3], BigInt(draft.expectedReferenceWeight));
     assert.equal(ui.results[0].transaction.value, '0x0');
+  }
+});
+
+test('an unresolved publication blocks previews after edits, dismissals and mode changes without another read', async () => {
+  const ui = fixture({ creationPending: true }); fill(ui, { id: '7223' });
+  assert.equal(ui.button('预览创建矿池').disabled, true); assert.match(text(ui.tree), /上一笔项目发布正在确认/);
+  await ui.button('预览创建矿池').onClick(); ui.input('购机价格上限', '0.003');
+  await ui.button('预览创建矿池').onClick();
+  ui.button('单台矿机灵活替代').onClick(); ui.render();
+  ui.button('指定单台矿机').onClick(); ui.render();
+  assert.equal(ui.button('预览创建矿池').disabled, true); await ui.button('预览创建矿池').onClick();
+  assert.equal(ui.reads.length, 0); assert.equal(ui.rpcReads.length, 0); assert.equal(ui.prepared.length, 0);
+  const checked = { quote: null, chain: { collection, tokenId: '7223', displayOnly: true,
+    checkedAt: Date.now(), registry: reservation('7223'), official: { priceWei: '4000000000000000' } } };
+  ui.apply({ checked, extraBps: 1000, draft: quotes.operatorQuoteDraft(checked) });
+  const filled = elements(ui.tree).find(node => node.type === Dialog); filled.props.onClose(); ui.render();
+  assert.equal(ui.button('预览创建矿池').disabled, true); assert.match(text(ui.tree), /请勿重复创建/);
+});
+
+test('an unresolved publication from another wallet explains how to resume its result check', async () => {
+  const original = address(15);
+  const ui = fixture({ creationPending: true,
+    creationPendingReason: `请切回钱包 ${original} 核对上一笔项目发布结果。` });
+  fill(ui, { id: '7223' }); assert.equal(ui.button('预览创建矿池').disabled, true);
+  assert.match(text(ui.tree), new RegExp(`请切回钱包 ${original} 核对上一笔项目发布结果`));
+  await ui.button('预览创建矿池').onClick(); assert.equal(ui.rpcReads.length, 0); assert.equal(ui.prepared.length, 0);
+});
+
+test('verified creation reset clears stale form, selection and collapsed busy UI while a late send is harmless', async () => {
+  const pending = deferred(); let report;
+  const ui = fixture({ onSend: (_preview, options) => { report = options.onState; return pending.promise; } });
+  const checked = { quote: null, chain: { collection, tokenId: '7223', displayOnly: true,
+    checkedAt: Date.now(), registry: reservation('7223'), official: { priceWei: '4000000000000000' } } };
+  ui.apply({ checked, extraBps: 1000, draft: quotes.operatorQuoteDraft(checked) });
+  ui.button('预览创建矿池').onClick(); await ui.settle();
+  ui.button('发送到钱包确认').onClick(); await ui.settle(); ui.button('收起').onClick(); ui.render();
+  ui.props.creationPending = true; ui.render(); ui.props.creationResetKey = 1; ui.props.creationPending = false;
+  ui.render(); ui.render();
+  assert.equal(ui.field('矿机编号').value, ''); assert.equal(ui.field('购机价格上限').value, '');
+  assert.equal(ui.field('矿机编号').disabled, false); assert.equal(elements(ui.tree).find(node => node.type === Dialog), undefined);
+  assert(!text(ui.tree).includes('已自动填入')); assert(!text(ui.tree).includes('查看提交进度'));
+  report({ status: 'awaiting-admin-signature' }); ui.render();
+  assert.equal(elements(ui.tree).find(node => node.type === Dialog), undefined);
+  pending.resolve({ status: 'confirmed' }); await ui.settle();
+  assert.equal(ui.field('矿机编号').value, ''); assert.equal(ui.field('矿机编号').disabled, false);
+});
+
+test('manual and imported flexible duplicate previews show the registered project without signing or refreshing quotes', async () => {
+  const occupied = address(9), data = dataFixture();
+  const checked = { quote: data.quote, reference: data.reference, chain: { collection: data.quote.collection,
+    tokenId: data.quote.tokenId, registry: reservation(data.quote.tokenId), checkedAt: Date.now(), displayOnly: true } };
+  const draft = quotes.operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' });
+  for (const flexible of [false, true]) {
+    let reads = 0;
+    const readProvider = { request: async ({ method, params }) => {
+      reads++; assert.equal(method, 'eth_call'); assert.equal(params[1], 'latest');
+      assert.equal(abi.PoolFactory.parseTransaction(params[0]).name, 'machinePool');
+      return abi.PoolFactory.encodeFunctionResult('machinePool', [occupied]);
+    } };
+    const ui = fixture({ readProvider });
+    if (flexible) { ui.button('单台矿机灵活替代').onClick(); ui.render(); ui.input('已核验矿机报价 JSON', JSON.stringify(draft)); }
+    else fill(ui, { id: '7223' });
+    await ui.button('预览创建矿池').onClick(); await ui.settle();
+    assert.equal(reads, 1); assert.equal(ui.results.length, 0);
+    assert.match(text(ui.tree), /已有拼矿项目/); assert.match(text(ui.tree), new RegExp(occupied));
+    assert.equal(elements(ui.tree).find(node => node.type === Dialog).props.title, '无法生成操作预览');
   }
 });
