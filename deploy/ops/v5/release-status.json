@@ -20,5 +20,10 @@
   "regressionReport": "../../../docs/validation/formal-regression-20261003.md",
   "frontendRedeploymentReceipt": "frontend-redeployment-20261003.json",
   "frontendRepublishedAt": "2026-10-03T14:19:20.067992+00:00",
-  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00"
+  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00",
+  "canonicalHomepageUrl": "https://bemine.cc.cd/",
+  "legacyHomepageEntriesRedirectToCanonical": true,
+  "canonicalHomepagePublishedAt": "2026-10-03T14:38:45.661483+00:00",
+  "canonicalHomepageReceipt": "canonical-homepage-20261003.json",
+  "allPageUrlsOmitVersionPrefix": true
 }

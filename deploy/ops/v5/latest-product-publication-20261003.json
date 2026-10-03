@@ -107,7 +107,8 @@
     "bootstrapReceipts": "latest-20261003/bootstrap-receipts.json",
     "independentGraph": "latest-20261003/live-graph-verification.json",
     "regressionReport": "../../../docs/validation/formal-regression-20261003.md",
-    "frontendRedeployment": "frontend-redeployment-20261003.json"
+    "frontendRedeployment": "frontend-redeployment-20261003.json",
+    "canonicalHomepage": "canonical-homepage-20261003.json"
   },
   "legacyPreservation": {
     "oldContractsUnchanged": true,
@@ -120,5 +121,9 @@
   "indexManifestSha256": "7d638c5802a2867f1ca3a3d0ecdbd7281c56d588ae9a65b3f2910e3cf3547338",
   "mergedMobileSourceHead": "8a3f68987b6c2c057ce38c8fa241521efbaf753e",
   "lastFrontendCodeHead": "25d2503c9d3c9f0bbf0a09b4a4d271ed213ac72f",
-  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00"
+  "lastFrontendCodeUpdatedAt": "2026-10-03T20:54:06+08:00",
+  "canonicalHomepageUrl": "https://bemine.cc.cd/",
+  "legacyHomepageEntriesRedirectToCanonical": true,
+  "canonicalHomepagePublishedAt": "2026-10-03T14:38:45.661483+00:00",
+  "allPageUrlsOmitVersionPrefix": true
 }

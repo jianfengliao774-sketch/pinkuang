@@ -14,6 +14,20 @@ website cutover. The existing runtime uses server display caches, an incremental
 chain index, and the verified purchase/mining workers. Legacy contracts and asset
 recovery records remain intact; older public sites stay paused.
 
+The canonical app homepage is **https://bemine.cc.cd/**. Since
+2026-10-03 22:38 CST, all 25 exported HTML pages are available without the
+`/bemine-v5` prefix. Exact root aliases serve the existing HTML bytes; old page
+addresses redirect to the matching root path, preserving query parameters and
+browser fragments. The 24 non-homepage files each support extensionless,
+trailing-slash and `.html` URLs (72 aliases). API, data, images, fonts, wallet
+icons and Next assets retain their existing paths. The guarded
+[`canonical-homepage.py`](canonical-homepage.py) installer replaces the earlier
+rewrite-based root routing; it checks the complete HTML inventory, backs up
+both nginx files and rolls back on validation failure. Every alias was checked
+for its response, original HTML digest and legacy redirect; browser checks
+covered the root, market, records, posters and preview pages. See
+[routing publication evidence](canonical-homepage-20261003.json).
+
 Current deploy entry: https://tapeout.cc.cd/pinkuang-deploy-latest/.
 Whole-machine sale cooling remains **3 days**. Publication readiness does not
 claim a new mainnet financial transaction was exercised by the deployment agent.

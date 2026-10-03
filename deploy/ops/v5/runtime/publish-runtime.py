@@ -64,7 +64,7 @@ old_root = 'location = / { return 308 /bemine-v4/; }'
 assert before.count(old_root) == 1
 anchor = 'include /etc/nginx/snippets/bemine-retired-paused.conf;'
 assert before.count(anchor) == 1
-after = before.replace(old_root, 'location = / { rewrite ^ /bemine-v5/ last; }').replace(
+after = before.replace(old_root, 'location = / { root /var/www/bemine-v5/current; try_files /index.html =404; add_header Cache-Control "no-store" always; }').replace(
     anchor, anchor + '\n    include /etc/nginx/snippets/bemine-v5-product.conf;')
 stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 backup = Path('/root/bemine-v5-publish-' + stamp)
@@ -83,7 +83,7 @@ try:
     checks = {}
     for host, path, expected in [
         ('bemine.cc.cd', '/', 200),
-        ('bemine.cc.cd', '/bemine-v5/', 200),
+        ('bemine.cc.cd', '/bemine-v5/', 308),
         ('bemine.cc.cd', '/bemine-v5/fresh-product-release.json', 200),
         ('bemine.cc.cd', '/bemine-v5/api/chain-index/v1/display/stats', 200),
         ('bemine.cc.cd', '/bemine-v5/data/bem-price.json', 200),
