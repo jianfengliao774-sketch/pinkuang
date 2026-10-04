@@ -7,6 +7,7 @@ import { buildTargetOwnerUpgradePlan, prepareTargetOwnerUpgradeDeployment, valid
 // @ts-ignore ESM proof module is reviewed and tested independently of this wallet UI.
 import { validateTargetOwnerUpgradePreflight } from '../shared/target-owner-upgrade-proof.mjs';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
+import { normalizeWalletRecoveryResult } from './upgrade-transactions';
 import { TARGET_OWNER_DEPLOYMENTS, confirmedTargetOwnerDeployments, newTargetOwnerJournal, parseTargetOwnerJournal,
   targetOwnerJournalKey, targetOwnerPending, runTargetOwnerUpgradeSequence, waitForTargetOwnerFinality, targetOwnerRecoveryPhase, submitTargetOwnerUpgrade, targetOwnerReviewedGas,
   verifyTargetOwnerRecoveryReceipt, VerifiedTargetOwnerTransactionFailure, archiveTargetOwnerFailure,
@@ -61,7 +62,7 @@ function recoveryProvider(session: Session, selected: WalletOption): JsonRpcProv
       const chain = await selected.provider.request({ method: 'eth_chainId' });
       if (BigInt(chain as string) !== 56n) throw new Error('钱包只读节点已离开 BSC 主网。');
       session.assertCurrent(); const value = await selected.provider.request({ method, params });
-      session.assertCurrent(); return value;
+      session.assertCurrent(); return normalizeWalletRecoveryResult(method, value);
     };
     const value = Reflect.get(target, property, target);
     return typeof value === 'function' ? value.bind(target) : value;

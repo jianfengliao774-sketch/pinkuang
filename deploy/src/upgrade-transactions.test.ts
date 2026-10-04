@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { keccak256, type Provider } from 'ethers';
-import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt } from './upgrade-transactions';
+import { sendUpgradeTransaction, UncertainUpgradeSubmission, verifyUpgradeReceipt,
+  normalizeWalletRpcQuantity, normalizeWalletRecoveryResult } from './upgrade-transactions';
 import type { WalletProvider } from './wallet';
 
 const signer = '0x1111111111111111111111111111111111111111';
@@ -9,6 +10,23 @@ const target = '0x2222222222222222222222222222222222222222';
 const data = '0x12345678';
 const hash = `0x${'a'.repeat(64)}`;
 const blockHash = `0x${'b'.repeat(64)}`;
+
+test('wallet integers normalize losslessly without accepting rounded or ambiguous values', () => {
+  for (const value of ['0x00a5', '0X00A5', '000165', 165]) assert.equal(normalizeWalletRpcQuantity(value), '0xa5');
+  assert.equal(normalizeWalletRpcQuantity('0x00'), '0x0');
+  assert.equal(normalizeWalletRpcQuantity('9007199254740993'), '0x20000000000001');
+  for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1e3', '+1', '-1', ' 1', '0x', null, {}, true])
+    assert.throws(() => normalizeWalletRpcQuantity(value), /钱包节点/);
+  assert.throws(() => normalizeWalletRpcQuantity(`0x1${'0'.repeat(64)}`), /有效范围/);
+});
+test('wallet full-block normalization changes only integer representations, keeping proof identity intact', () => {
+  const tx = { hash, from: signer, to: null, input: data, blockHash, nonce: '0x00', value: 0, chainId: '056', blockNumber: '0x005a' };
+  const raw = { number: '0x005a', hash: blockHash, transactions: [tx] };
+  assert.deepEqual(normalizeWalletRecoveryResult('eth_getBlockByNumber', raw),
+    { ...raw, number: '0x5a', transactions: [{ ...tx, nonce: '0x0', value: '0x0', chainId: '0x38', blockNumber: '0x5a' }] });
+  assert.equal(raw.number, '0x005a');
+  assert.equal(normalizeWalletRecoveryResult('eth_getTransactionReceipt', raw), raw);
+});
 
 test('wallet submission uses exact zero-value calldata without simulation', async () => {
   const methods: string[] = [];

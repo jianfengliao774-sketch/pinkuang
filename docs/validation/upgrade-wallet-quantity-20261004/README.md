@@ -1,0 +1,7 @@
+# Wallet integer compatibility in standalone upgrade recovery
+
+The reported upgrade error was a strict JSON-RPC quantity mismatch while reading the selected wallet's transaction count. The exact raw returned value was not captured. Wallet-only recovery reads now normalize exact hexadecimal strings (including padded values), decimal digit strings and safe nonnegative JavaScript integers to canonical hex. Fractional, signed, exponential, whitespace, rounded numbers and values outside uint256 are rejected. Nonce safety bounds remain in the core parser. Wallet full-block integer fields use the same boundary conversion.
+
+Normalization does not change transaction hashes, addresses, calldata, block identities or public headers. The strict proof parser still rejects unnormalized public quantities; canonical finality, unique nonce, exact sender/initcode and receipt verification remain. Old unknown record recovery still archives the unchanged row with zero sends; only a separate user click may start the next deployment. No wallet signing or broadcast occurs during publication.
+
+Validation covers actual component legacy recovery and lost-hash full-block recovery with padded hex, numeric and decimal encodings, invalid/unsafe responses and busy wallet nonces, plus prior proof tests. This publication changes only standalone upgrade UI files and retains the exact reviewed candidates and 48-hour upgrade wait.

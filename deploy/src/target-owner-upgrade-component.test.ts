@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import * as ethers from 'ethers';
 import * as ui from './target-owner-upgrade-ui';
+import * as transactions from './upgrade-transactions';
 const h = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
 const a = (n: number) => `0x${n.toString(16).padStart(40, '0')}`;
 const names = ui.TARGET_OWNER_DEPLOYMENTS;
@@ -14,7 +15,8 @@ const compiled = ts.transpileModule(readFileSync(new URL('./TargetOwnerUpgradeSt
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 type Options = { source?: ui.TargetOwnerJournal; recoveryHash?: string; deniedLock?: boolean; jump48h?: boolean;
   beforeSendRead?: (f: any) => Promise<void>; afterBroadcast?: (f: any, hash: string) => void;
-  preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number };
+  preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number;
+  walletInteger?: (count: number) => unknown };
 // Execute the actual component with deterministic hooks, wallet and read-only RPC adapters.
 // No browser, network, wallet extension or live chain is used by this test.
 function fixture(options: Options = {}) {
@@ -45,12 +47,13 @@ function fixture(options: Options = {}) {
     if (method === 'eth_getTransactionCount') { const tag = params[1];
       const count = tag === 'pending' && options.pendingNonce !== undefined ? options.pendingNonce : tag === 'latest' || tag === 'pending' ? rows.size
         : [...rows.values()].filter(row => row.transaction.blockNumber <= Number(tag)).length;
-      return `0x${count.toString(16)}`;
+      return options.walletInteger ? options.walletInteger(count) : `0x${count.toString(16)}`;
     }
     if (method === 'eth_getBlockByNumber') { assert.equal(params[1], true); const block = await provider.getBlock(Number(params[0]));
-      return { ...block, number: `0x${block.number.toString(16)}`, transactions: block.transactions.map(hash => {
-        const tx = rows.get(hash).transaction; return { ...tx, nonce: `0x${tx.nonce.toString(16)}`, value: '0x0',
-          chainId: '0x38', input: tx.data, blockNumber: `0x${tx.blockNumber.toString(16)}` }; }) };
+      const encode = options.walletInteger ?? ((count: number) => `0x${count.toString(16)}`);
+      return { ...block, number: encode(block.number), transactions: block.transactions.map(hash => {
+        const tx = rows.get(hash).transaction; return { ...tx, nonce: encode(tx.nonce), value: encode(0),
+          chainId: encode(56), input: tx.data, blockNumber: encode(tx.blockNumber) }; }) };
     }
     assert.equal(method, 'eth_sendTransaction'); const intent = JSON.parse(storage.get(key)!);
     assert(ui.targetOwnerPending(intent), 'uncertain intent must exist before the wallet send');
@@ -82,6 +85,7 @@ function fixture(options: Options = {}) {
     ethers: { ...ethers, JsonRpcProvider: class { constructor() { return provider; } }, Contract: class { getTimestamp = async () => provider.timestamp; } },
     '../shared/target-owner-upgrade-plan.mjs': { buildTargetOwnerUpgradePlan: build, prepareTargetOwnerUpgradeDeployment: prepare, validateTargetOwnerUpgradeReview: () => {} },
     '../shared/target-owner-upgrade-proof.mjs': { validateTargetOwnerUpgradePreflight: proof }, './target-owner-upgrade-ui': ui,
+    './upgrade-transactions': transactions,
     './wallet': { discoverWallets: () => () => {}, readWallet: async () => ({ address: a(6), chainId: 56 }), messageOf: (error: any) => error?.message ?? String(error) },
     './target-owner-upgrade.css': {} };
   const exports: any = {};
@@ -256,4 +260,33 @@ test('legacy recovery refuses mismatched sender or initcode before archiving', a
     const f = fixture({ source }); await f.resumeLegacy();
     assert.deepEqual(f.journal(), source); assert.equal(f.sends.length, 0); assert.match(f.state[12], /发送者或部署字节码/); f.unmount();
   }
+});
+
+test('actual legacy recovery accepts exact wallet integer encodings and still requires a separate deployment click', async () => {
+  for (const encode of [(count: number) => `0x${count.toString(16).padStart(8, '0')}`,
+    (count: number) => count, (count: number) => String(count)]) {
+    const source = legacySource(), f = fixture({ source, walletInteger: encode }); await f.resumeLegacy();
+    assert.equal(f.state[12], ''); assert.equal(f.sends.length, 0);
+    assert.deepEqual(f.journal().abandonedUnknownDeployments[0].transaction, source.deployments.PoolFunds);
+    await f.click(); assert.equal(f.sends.length, 4); assert.equal(f.sends[0].nonce, '0x0');
+    assert.equal(f.journal().schedule.status, 'confirmed'); f.unmount();
+  }
+});
+test('wallet integer normalization also recovers exact canonical full-block transactions without resending', async () => {
+  for (const encode of [(count: number) => `0x${count.toString(16).padStart(8, '0')}`,
+    (count: number) => count, (count: number) => String(count)]) {
+    const f = fixture({ walletInteger: encode, afterBroadcast: () => { throw new Error('wallet callback timeout'); } });
+    await f.click(); await f.recover(); assert.equal(f.state[12], '');
+    assert.equal(f.sends.length, 1); assert.equal(f.journal().deployments.PoolFunds.status, 'confirmed');
+    assert.equal(f.journal().deployments.FlexiblePurchase, undefined); f.unmount();
+  }
+});
+test('invalid or inexact wallet integers cannot unblock legacy recovery or send a transaction', async () => {
+  for (const value of ['1e3', '0x20000000000000', Number.MAX_SAFE_INTEGER + 1, -1, null]) {
+    const source = legacySource(), f = fixture({ source, walletInteger: () => value }); await f.resumeLegacy();
+    assert.deepEqual(f.journal(), source); assert.equal(f.sends.length, 0); assert(f.state[12]); f.unmount();
+  }
+  const source = legacySource(), f = fixture({ source, pendingNonce: 1, walletInteger: count => `0x00${count.toString(16)}` });
+  await f.resumeLegacy(); assert.deepEqual(f.journal(), source); assert.equal(f.sends.length, 0);
+  assert.match(f.state[12], /待处理交易|nonce/); f.unmount();
 });
