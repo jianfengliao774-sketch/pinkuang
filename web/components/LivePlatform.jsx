@@ -53,6 +53,8 @@ import PoolSortMenu from "./PoolSortMenu";
 import { projectDirectory, projectDirectoryCategory, projectMatchesStatus } from '../lib/project-directory.mjs';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
+import FundingRefundNotice from './FundingRefundNotice';
+import { fundingRefundView, participantFundingNotices } from '../lib/funding-refund.mjs';
 import SiteOverview from "./SiteOverview";
 import BemPriceStat from "./BemPriceStat";
 import LiveYieldChart from "./LiveYieldChart";
@@ -1156,7 +1158,12 @@ export default function LivePlatform() {
     ? `${client.manifest.factory.toLowerCase()}:${account.toLowerCase()}:${rewardPoolsKey}` : '';
 
   useEffect(() => {
-    if (!client || !['overview', 'rewards', 'governance', 'market'].includes(route.route)) return;
+    if (!client) return;
+    const personalPage = ['overview', 'rewards', 'governance', 'market', 'notifications'].includes(route.route);
+    // Once a formal wallet is connected, its cached positions can notify even on the homepage.
+    if (!personalPage && (!config?.displayOnly || !client.readDisplayPositions)) return;
+    // The notifications page reuses materialized personal rows; never add per-pool RPC reads.
+    if (route.route === 'notifications' && (!config?.displayOnly || !client.readDisplayPositions)) return;
     let cancelled = false;
     ++positionsReadEpoch.current;
     const owner = account?.toLowerCase();
@@ -1169,7 +1176,11 @@ export default function LivePlatform() {
     }
     const cacheKey = `positions:${owner}`;
     const memory = readCache.current.get(client)?.get(cacheKey);
-    const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
+    const backgroundAge = memory ? Date.now() - memory.savedAt : NaN;
+    const reuseBackgroundPositions = config?.displayOnly && !personalPage && memory && same(positionsAccount, account)
+      && backgroundAge >= 0 && backgroundAge < 60_000 && typeof memory.refresh === 'string'
+      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0];
+    const cached = displayListSnapshot(memory && (Date.now() - memory.savedAt < 120_000 || reuseBackgroundPositions)
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
     if (cached) {
@@ -1183,7 +1194,8 @@ export default function LivePlatform() {
     } else {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
-    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
+    if (config?.displayOnly && cached && (canReuseDisplayRead(memory, displayRefreshKey)
+      || reuseBackgroundPositions)) {
       setPositionsReadLoading(false);
       return () => { cancelled = true; ++positionsReadEpoch.current; };
     }
@@ -2618,14 +2630,15 @@ export default function LivePlatform() {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
           const bemPreview = previewRows.get(p.pool.toLowerCase());
           const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
-          const fundingBnbClaim = holdings && p.kind !== 'portfolio' && p.status === 'Funding'
+          const refundView = holdings ? fundingRefundView(p, positionsReadSource) : null;
+          const fundingBnbClaim = holdings && p.kind !== 'portfolio' && ['Funding', 'Funded', 'Refunding'].includes(p.status)
             ? claimState(p, 'BNB', positionsReadSource) : null;
           const identity = <><Chip pool={p}/><span>
             <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
             {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
             {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
             {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
-            {targetStatus === 'unavailable' && <small className="live-order-state">{L('指定矿机已转移，已停止开放认购', 'The designated miner was transferred; subscriptions are closed')}</small>}
+            {targetStatus === 'unavailable' && <small className="live-order-state">{L('目标矿机已转移给其他持有人，本项目已下架', 'The target miner was transferred to another holder; this project was delisted')}</small>}
             {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机归属未确认，请刷新核对', 'Miner ownership is unconfirmed; refresh to check')}</small>}
           </span></>;
           const cells = {
@@ -2653,6 +2666,9 @@ export default function LivePlatform() {
               {holdings && p.kind !== 'portfolio' && p.status === 'Funding' && p.shares > 0n && <button className="btn secondary"
                 disabled={!positionsActionReadyFor('withdrawDeposit') || busy || !!pending}
                 onClick={() => openAction('withdrawDeposit', p)}>{L('撤回认购', 'Withdraw subscription')}</button>}
+              {refundView?.unavailable && p.status === 'Funded' && p.shares > 0n && <button className="btn"
+                disabled={!positionsActionReadyFor('finalizeFailure') || busy || !!pending || refundView.deadlineReached !== true}
+                onClick={() => openAction('finalizeFailure', p)}>{L('开启到期退款', 'Enable expired-purchase refunds')}</button>}
               {fundingBnbClaim && (p.shares > 0n || fundingBnbClaim.canClaim) && <button className="btn secondary"
                   disabled={!positionsActionReadyFor('withdrawBnb') || busy || !!pending
                     || !fundingBnbClaim.canClaim}
@@ -2761,6 +2777,8 @@ export default function LivePlatform() {
           >
             {p.name} #{p.tokenId}
           </button>
+          <FundingRefundNotice row={p} source={positionsReadSource} L={L} compact readyFor={positionsActionReadyFor}
+            blocked={busy || !!pending} onAction={openAction}/>
         </>,
         bem: <>
           {amount(bookedRow.claimableBEM, 8)}
@@ -3038,6 +3056,14 @@ export default function LivePlatform() {
         <Metric title={partial?L('已加载持有份额','Loaded shares held'):L('持有份额','Shares held')}
           value={totals.shares?.toString()??'—'} unit={L('份','shares')}/>
       </div>
+      {view.rows.some(p => fundingRefundView(p, positionsReadSource).relevant) && <section className="panel live-section" data-participant-refunds>
+        <div className="section-head"><h2>{L('下架项目与退款', 'Delisted projects and refunds')}</h2></div>
+        {view.rows.filter(p => fundingRefundView(p, positionsReadSource).relevant).map(p => <div key={p.pool} className="participant-refund-project">
+          <button className="text-button" onClick={() => openDetails(p)}>{p.name} #{p.tokenId} · {L('查看项目', 'View project')}</button>
+          <FundingRefundNotice row={p} source={positionsReadSource} L={L} readyFor={positionsActionReadyFor}
+            blocked={busy || !!pending} onAction={openAction}/>
+        </div>)}
+      </section>}
       <section className="panel holdings" data-asset-directory="unified" aria-busy={updating}>
         <div className="section-head"><div><h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
           <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p></div></div>
@@ -3239,6 +3265,7 @@ export default function LivePlatform() {
   const marketOrderNeedsConnection = !wallet || !account;
   const marketOrderConnectReady = marketTab === 'shares' && !!client && config?.status === 'ready';
   const detailTargetStatus = config?.indexBaseUrl ? fundingTargetStatus(detail) : 'not_applicable';
+  const participantNotices = participantFundingNotices(positions, { account, positionsAccount, source: positionsReadSource });
 
   return (
     <div
@@ -3347,7 +3374,11 @@ export default function LivePlatform() {
               <span>{L("加入官方 Telegram 群", "Join official Telegram group")}</span>
               <ExternalLink className="live-community-external" size={14} aria-hidden="true" />
             </a>
-            <button className="appearance-toggle" aria-label={L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/></button>
+            <button className="appearance-toggle participant-notification-bell" aria-label={participantNotices.length
+              ? L(`通知中心，${participantNotices.length} 个已加载项目需要查看退款`, `Notifications, ${participantNotices.length} loaded projects have refund updates`)
+              : L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/>
+              {participantNotices.length > 0 && <span className="participant-notification-count">{participantNotices.length}</span>}
+            </button>
             <button
               className="appearance-toggle"
               aria-label={L("切换外观", "Change appearance")}
@@ -3389,6 +3420,8 @@ export default function LivePlatform() {
           <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
             account={account} wallet={wallet} config={config} locale={locale} route={route.route}
             positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
+            participantNotices={participantNotices} positionsSource={positionsReadSource} positionsLoading={positionsReadLoading} positionsError={positionsReadError}
+            positionsHaveMore={positionCursor != null} onMorePositions={() => more('positions')}
             blocked={busy || !!modal} onConnect={connect} onOpen={() => go('notifications')}
             isCurrent={() => connectedWallet.current === wallet && walletEpoch.current === walletRevision}/>
           {boot.status !== "ready" && boot.status !== "loading" && (
@@ -3570,6 +3603,8 @@ export default function LivePlatform() {
                     {L("邀请朋友", "Invite friends")}
                   </button>
                 </div>
+                <FundingRefundNotice row={detail} source={source} L={L} readyFor={detailActionReadyFor}
+                  blocked={busy || !!pending || !account} onAction={openAction}/>
                 <div className="detail-layout">
                   <div className="detail-main">
                     <section className="panel detail-summary">
@@ -3611,8 +3646,8 @@ export default function LivePlatform() {
                         </span>
                       </div>
                       {detailTargetStatus === 'unavailable' && detail.status === 'Funding' && <p className="subtle-note" role="status">
-                        {L('指定矿机已转移，已停止开放认购。已有认购可在募集期内撤回；如有已入账 BNB，可单独领取。',
-                          'The designated miner was transferred, so subscriptions are closed. Existing subscriptions can be withdrawn during funding; any booked BNB can be claimed separately.')}
+                        {L('指定矿机已转移，已停止开放认购。只要项目仍未募满，已有认购即可撤回；如有已入账 BNB，可单独领取。',
+                          'The designated miner was transferred, so subscriptions are closed. Existing subscriptions can be withdrawn while the pool remains in Funding; any booked BNB can be claimed separately.')}
                       </p>}
                       {detailTargetStatus === 'unavailable' && detail.status === 'Funded' && <p className="subtle-note" role="status">
                         {L('指定矿机已转移。现行合约需等待购机期限到期后，才可核对并开启退款；目前不会自动退款。',

@@ -1102,6 +1102,15 @@ body:has(.preview-banner) .page-footer {
 .live-platform .metrics[data-asset-summary="unified"] .metric-value { margin-bottom: 0; }
 .live-pool-row-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .live-pool-row-actions > button { white-space: nowrap; }
+.funding-refund-notice { padding: 20px 24px; margin: 18px 0; border: 1px solid var(--brand-gold, #cbb079); border-left: 4px solid var(--brand-gold, #cbb079); border-radius: 12px; background: var(--soft, #eeefe8); overflow-wrap: anywhere; }
+.funding-refund-notice > strong { display: block; font-size: 17px; line-height: 1.5; }
+.funding-refund-notice > p { margin-top: 9px; line-height: 1.65; font-size: 14px; color: var(--muted); }
+.funding-refund-notice .live-actions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; }
+.funding-refund-notice.compact { min-width: 220px; max-width: 520px; padding: 14px; margin: 12px 0 0; }
+.participant-refund-project { margin: 0 24px 24px; }
+.participant-notification-bell { position: relative; }
+.participant-notification-count { position: absolute; right: -4px; top: -5px; min-width: 19px; height: 19px; padding: 0 4px; border-radius: 10px; color: var(--ink); background: var(--brand-gold, #cbb079); font-size: 11px; line-height: 19px; }
+@media (max-width: 600px) { .funding-refund-notice { padding: 16px; }.funding-refund-notice.compact { min-width: 0; }.participant-refund-project { margin: 0 16px 20px; }.funding-refund-notice .btn { width: 100%; } }
 .live-directory-group + .live-directory-group { border-top: 1px solid var(--border); }
 .live-directory-group > h2 { margin: 0; padding: 22px; font-size: 20px; }
 .live-directory-group > h2 small { font-size: 14px; color: var(--muted); margin-left: 8px; }
