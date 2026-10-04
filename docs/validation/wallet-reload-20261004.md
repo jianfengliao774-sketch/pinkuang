@@ -1,6 +1,6 @@
 # Wallet recovery after a page reload
 
-Production baseline: `a65f9e31dabeb240c16f4005c4f79a68302d4b04`.
+Production baseline: `f604123b8a7be4f4c55dc2109a684f19a524d8e1`.
 
 The page previously kept the connected provider/account only in React memory.
 Reloading discarded both and redirected the operator route before a previously
