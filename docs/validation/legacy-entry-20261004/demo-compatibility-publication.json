@@ -1,0 +1,992 @@
+{
+  "publishedAt": "2026-10-04T05:04:50.880840+00:00",
+  "rollback": false,
+  "target": "/etc/nginx/snippets/bemine-retired-paused.conf",
+  "beforeSha256": "9f599d0bdc03a2df158900f2e591cfbc89853b5953ecfd01c334061391b46a58",
+  "afterSha256": "ac9fa66aed77db670643fd3ad75443b914612eecf3d06ddda373f448e8cc85f9",
+  "nginxReloaded": true,
+  "businessServicesRestarted": false,
+  "allProductAndUpgradeFilesUnchanged": true,
+  "businessServiceIdentitiesUnchanged": true,
+  "nginxMasterBefore": {
+    "MainPID": "547237",
+    "ExecMainStartTimestampMonotonic": "2102417886312",
+    "ActiveState": "active",
+    "SubState": "running",
+    "InvocationID": "d7fbbafa423c4c40a6ddfa282c543bd8"
+  },
+  "nginxMasterAfter": {
+    "MainPID": "547237",
+    "ExecMainStartTimestampMonotonic": "2102417886312",
+    "ActiveState": "active",
+    "SubState": "running",
+    "InvocationID": "d7fbbafa423c4c40a6ddfa282c543bd8"
+  },
+  "nginxWorkerPidsBefore": [
+    "829631",
+    "829632",
+    "866228",
+    "866229",
+    "896895",
+    "897640",
+    "897641"
+  ],
+  "nginxWorkerPidsAfter": [
+    "829631",
+    "829632",
+    "866228",
+    "866229",
+    "896895",
+    "897640",
+    "898279",
+    "898280"
+  ],
+  "reloadReadinessAttempts": [
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    }
+  ],
+  "strictDemoAliases": [
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html?source=tg",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?source=tg",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html?lang=zh&source=x",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?lang=zh&source=x",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/anime.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/finance.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/future.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/ink.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/original.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/papercraft.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/space.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/tech.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/preview.html",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/preview.html?source=tg",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?source=tg",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/preview.html?lang=zh&source=x",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?lang=zh&source=x",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/anime.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/finance.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/future.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/ink.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/original.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/papercraft.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/space.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=16210&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=16210&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=8204&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=8204&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=15832&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=15832&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=16928&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=16928&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=8316&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=8316&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/tech.html?mode=demo&project=17006&source=native",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?mode=demo&project=17006&source=native",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    }
+  ],
+  "stillPaused": [
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html?mode=live",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/preview.html?redirect=https://evil.invalid",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=live&project=0x0000000000000000000000000000000000000001",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&mode=live&project=16928",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=16928&mode=live",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=unknown",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/unknown.html?mode=demo&project=16928",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=16928&redirect=https://evil.invalid",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/api/chain-index/v1/display/graph",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/preview.html?mode=live",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/preview.html?redirect=https://evil.invalid",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=live&project=0x0000000000000000000000000000000000000001",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&mode=live&project=16928",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=16928&mode=live",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=unknown",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/unknown.html?mode=demo&project=16928",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/share/real.html?mode=demo&project=16928&redirect=https://evil.invalid",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/api/chain-index/v1/display/graph",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "location": null,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ],
+  "protectedPublicBefore": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ],
+  "protectedPublicAfter": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ]
+}

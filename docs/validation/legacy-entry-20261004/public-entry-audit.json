@@ -1,0 +1,961 @@
+{
+  "checkedAt": "2026-10-04T04:50:09.515220+00:00",
+  "scope": "public static files, nginx public entry rules, static HTTP GETs; no paid RPC or wallet calls",
+  "currentProductDirectory": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764",
+  "release": {
+    "frontendSourceHead": "af164a6ad76427e53a4bb1a6e1e907f96dae998a",
+    "publicOrigin": "https://bemine.cc.cd",
+    "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+    "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+    "basePath": "/bemine-v5",
+    "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927"
+  },
+  "retiredFamilyCount": 20,
+  "retiredRouteResults": [
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v1/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v2/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v3/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-full-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-sale-test/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-sale-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-test/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-live-test/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-live-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-preview/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-preview/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-deploy/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-deploy/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-deploy-v1/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-deploy-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-deploy-v2/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-deploy-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-deploy-v3/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-deploy-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-deploy-v4/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-deploy-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-upgrade/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-upgrade/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-upgrade-v1/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-upgrade-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-upgrade-v2/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-upgrade-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-upgrade-v3/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-upgrade-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/pinkuang-upgrade-v4/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/pinkuang-upgrade-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v1/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v2/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v3/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-full-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-sale-test/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-sale-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-test/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-live-test/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-live-test/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-preview/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/bemine-preview/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-deploy/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-deploy/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-deploy-v1/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-deploy-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-deploy-v2/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-deploy-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-deploy-v3/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-deploy-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-deploy-v4/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-deploy-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-upgrade/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-upgrade/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-upgrade-v1/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-upgrade-v1/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-upgrade-v2/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-upgrade-v2/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-upgrade-v3/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-upgrade-v3/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-upgrade-v4/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-upgrade-v4/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/review-20260926/review.html",
+      "finalUrl": "https://tapeout.cc.cd/bemine/review-20260926/review.html",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v3/#market",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v3/#market",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/deploy/",
+      "finalUrl": "https://tapeout.cc.cd/bemine-full-test/deploy/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-sale-test/api/chain-index/v1/display/pools",
+      "finalUrl": "https://tapeout.cc.cd/bemine-sale-test/api/chain-index/v1/display/pools",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/review-20260926/review.html",
+      "finalUrl": "https://bemine.cc.cd/bemine/review-20260926/review.html",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v3/#market",
+      "finalUrl": "https://bemine.cc.cd/bemine-v3/#market",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/deploy/",
+      "finalUrl": "https://bemine.cc.cd/bemine-full-test/deploy/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-sale-test/api/chain-index/v1/display/pools",
+      "finalUrl": "https://bemine.cc.cd/bemine-sale-test/api/chain-index/v1/display/pools",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://bemine.cc.cd/"
+      ]
+    }
+  ],
+  "regularRouteResults": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "finalUrl": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b",
+      "cacheControl": "no-store",
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "finalUrl": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "/bemine-v5/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/?lang=zh",
+      "finalUrl": "https://bemine.cc.cd/?lang=zh",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b",
+      "cacheControl": "no-store",
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://bemine.cc.cd/share/original.html?mode=live&project=0x8475ffffffffffffffffffffffffffffffffb67b",
+      "finalUrl": "https://bemine.cc.cd/share/original.html?mode=live&project=0x8475ffffffffffffffffffffffffffffffffb67b",
+      "status": 200,
+      "sha256": "ad48ed3cad888f3bc02c7529d2cc724efd0c149413f8aad761278ce6c3c580da",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "/bemine-v5/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/share/original.html?mode=live&project=0x8475ffffffffffffffffffffffffffffffffb67b",
+      "finalUrl": "https://bemine.cc.cd/share/original.html?mode=live&project=0x8475ffffffffffffffffffffffffffffffffb67b",
+      "status": 200,
+      "sha256": "ad48ed3cad888f3bc02c7529d2cc724efd0c149413f8aad761278ce6c3c580da",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "/bemine-v5/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/mobile-review",
+      "finalUrl": "https://bemine.cc.cd/mobile-review",
+      "status": 200,
+      "sha256": "3fd2c8d8aa0b934ce37d8f4ed1dace049c1080dcb45a3f64d26ac92af656e374",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "/bemine-v5/",
+        "https://bemine.cc.cd/#home",
+        "/bemine-v5/review-files/bemine-mobile-review-v8.md",
+        "/bemine-v5/mobile-review/view.html?id=A01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A05&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A06&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A07&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A08&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A09&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A10&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=A11&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B05&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B06&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B07&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B08&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B09&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B10&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B11&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B12&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B13&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B14&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=B15&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C05&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C06&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C07&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C08&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C09&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C10&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C11&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C12&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C13&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C14&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C15&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C16&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C17&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C18&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C19&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C20&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C21&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C22&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C23&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=C24&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D05&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D06&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D07&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D08&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D09&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D10&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D11&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D12&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D13&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D14&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D15&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D16&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=D17&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E05&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E06&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E07&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E08&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E09&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E10&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E11&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E12&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E13&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E14&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E15&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E16&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E17&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E18&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=E19&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=F01&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=F02&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=F03&locale=zh&appearance=light&width=390",
+        "/bemine-v5/mobile-review/view.html?id=F04&locale=zh&appearance=light&width=390",
+        "/bemine-v5/design.html"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/preview",
+      "finalUrl": "https://bemine.cc.cd/preview",
+      "status": 200,
+      "sha256": "9eb9c244985208f4711918915488de74e4ebdcab2571833575f849234b6bac24",
+      "cacheControl": "no-store",
+      "publicEntryLinks": [
+        "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+        "/bemine-v5/"
+      ]
+    },
+    {
+      "url": "https://bemine.cc.cd/404",
+      "finalUrl": "https://bemine.cc.cd/404",
+      "status": 200,
+      "sha256": "5704a8c7fd98d95da59430320e52e42a816a6230608ca572797631f71b0fb00d",
+      "cacheControl": "no-store",
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://bemine.cc.cd/not-a-real-page-legacy-check/",
+      "finalUrl": "https://bemine.cc.cd/not-a-real-page-legacy-check/",
+      "status": 404,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07",
+      "cacheControl": null,
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "finalUrl": "https://tapeout.cc.cd/",
+      "status": 200,
+      "sha256": "653d898a9bffeca964d057a5fb77802aba797b97cc6fa6431b2785f954b06ce6",
+      "cacheControl": "no-cache",
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/?lang=zh",
+      "finalUrl": "https://tapeout.cc.cd/bemine-v5/?lang=zh",
+      "status": 404,
+      "sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f",
+      "cacheControl": "no-store",
+      "publicEntryLinks": []
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "finalUrl": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84",
+      "cacheControl": "no-store",
+      "publicEntryLinks": []
+    }
+  ],
+  "activeHtmlCrossSiteLinks": [
+    {
+      "file": "preview.html",
+      "links": [
+        "https://tapeout.cc.cd/pinkuang-deploy-v5/"
+      ]
+    }
+  ],
+  "activeScriptCount": 28,
+  "activeScriptCrossSiteLinks": [
+    {
+      "file": "_next/static/chunks/app/mobile-review/page-45c32413c1f98231.js",
+      "links": [
+        "https://tapeout.cc.cd/bemine/#home"
+      ]
+    },
+    {
+      "file": "_next/static/chunks/app/page-bf280b5691bdf063.js",
+      "links": [
+        "https://bemine.cc.cd/bemine-v5/",
+        "https://tapeout.cc.cd/pinkuang-deploy-v5/"
+      ]
+    },
+    {
+      "file": "_next/static/chunks/app/preview/page-8d69e90ee935c7d7.js",
+      "links": [
+        "https://tapeout.cc.cd/bemine/preview.html",
+        "https://tapeout.cc.cd/pinkuang-deploy-v5/"
+      ]
+    }
+  ],
+  "nginxEntryRules": [
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 121,
+      "rule": "location = /pinkuang-deploy { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 122,
+      "rule": "location ^~ /pinkuang-deploy/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 127,
+      "rule": "location = /bemine-full-test { return 308 /bemine-full-test/; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 169,
+      "rule": "location = /bemine-full-test/deploy { return 308 /bemine-full-test/deploy/; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 170,
+      "rule": "location = /bemine-full-test/factory-reuse-upgrade/ { return 302 /bemine-full-test/factory-reuse-upgrade.html; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 182,
+      "rule": "location = /bemine-sale-test { return 308 /bemine-sale-test/; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 192,
+      "rule": "location = /bemine-test { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 193,
+      "rule": "location ^~ /bemine-test/api/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 194,
+      "rule": "location ^~ /bemine-test/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 196,
+      "rule": "location = /bemine-live-test { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 197,
+      "rule": "location ^~ /bemine-live-test/api/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 198,
+      "rule": "location ^~ /bemine-live-test/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 200,
+      "rule": "location = /bemine { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 201,
+      "rule": "location ^~ /bemine/api/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 202,
+      "rule": "location ^~ /bemine/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 203,
+      "rule": "location = /bemine-preview { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bem2075",
+      "line": 204,
+      "rule": "location ^~ /bemine-preview/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 10,
+      "rule": "location / { return 308 https://bemine.cc.cd$request_uri; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 33,
+      "rule": "location = /bemine-v4 { return 308 /bemine-v4/; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 34,
+      "rule": "location ^~ /bemine-v4/api/journal/deployment { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 35,
+      "rule": "location ^~ /bemine-v4/api/journal/fresh-activation { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 36,
+      "rule": "location ^~ /bemine-v4/api/journal/upgrade { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 91,
+      "rule": "rewrite ^/bemine-v4/(.*)$ /$1 break;"
+    },
+    {
+      "file": "/etc/nginx/sites-enabled/bemine-v4-domain",
+      "line": 122,
+      "rule": "rewrite ^/bemine-v4/(.*)$ /$1 break;"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-retired-paused.conf",
+      "line": 3,
+      "rule": "# 418 is internal only; the maintenance page returns HTTP 503 without caching."
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-retired-paused.conf",
+      "line": 4,
+      "rule": "error_page 418 =503 /bemine-paused.html;"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-retired-paused.conf",
+      "line": 6,
+      "rule": "return 418;"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v2.conf",
+      "line": 2,
+      "rule": "location = /bemine-v2 { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v2.conf",
+      "line": 3,
+      "rule": "location ^~ /bemine-v2/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v5-product.conf",
+      "line": 7,
+      "rule": "location ^~ /bemine-v5/api/journal/deployment { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v5-product.conf",
+      "line": 8,
+      "rule": "location ^~ /bemine-v5/api/journal/fresh-activation { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v5-product.conf",
+      "line": 9,
+      "rule": "location ^~ /bemine-v5/api/journal/upgrade { return 404; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v5-product.conf",
+      "line": 69,
+      "rule": "rewrite ^/bemine-v5/(.*)$ /$1 break;"
+    },
+    {
+      "file": "/etc/nginx/snippets/bemine-v5-product.conf",
+      "line": 83,
+      "rule": "rewrite ^/bemine-v5/(.*)$ /$1 break;"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-latest.conf",
+      "line": 1,
+      "rule": "location = /pinkuang-deploy-latest { return 308 /pinkuang-deploy-latest/; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v2.conf",
+      "line": 2,
+      "rule": "location = /pinkuang-deploy-v2 { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v2.conf",
+      "line": 3,
+      "rule": "location ^~ /pinkuang-deploy-v2/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v3.conf",
+      "line": 2,
+      "rule": "location = /pinkuang-deploy-v3 { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v3.conf",
+      "line": 3,
+      "rule": "location ^~ /pinkuang-deploy-v3/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v4.conf",
+      "line": 1,
+      "rule": "location = /pinkuang-deploy-v4 { return 308 /pinkuang-deploy-v4/; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v5.conf",
+      "line": 1,
+      "rule": "location = /pinkuang-deploy-v5 { return 308 /pinkuang-deploy-v5/; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-deploy-v5.conf",
+      "line": 38,
+      "rule": "return 302 https://tapeout.cc.cd/pinkuang-deploy-latest/;"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf",
+      "line": 3,
+      "rule": "location = /pinkuang-target-owner-upgrade { return 308 /pinkuang-target-owner-upgrade/; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-upgrade-v2.conf",
+      "line": 2,
+      "rule": "location = /pinkuang-upgrade-v2 { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-upgrade-v2.conf",
+      "line": 3,
+      "rule": "location ^~ /pinkuang-upgrade-v2/ { return 410; }"
+    },
+    {
+      "file": "/etc/nginx/snippets/pinkuang-upgrade-v5.conf",
+      "line": 3,
+      "rule": "location = /pinkuang-upgrade-v5 { return 308 /pinkuang-upgrade-v5/; }"
+    }
+  ]
+}

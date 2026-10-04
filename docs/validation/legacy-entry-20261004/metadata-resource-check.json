@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-04T05:07:23.631841+00:00",
+  "method": "HEAD only; image pixels not downloaded",
+  "resources": [
+    {
+      "url": "https://bemine.cc.cd/images/bemine-share-v10.jpg",
+      "status": 404,
+      "contentType": "text/html; charset=utf-8",
+      "contentLength": "162"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/images/bemine-share-v10.jpg",
+      "status": 503,
+      "contentType": "text/html; charset=utf-8",
+      "contentLength": "1249"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg",
+      "status": 200,
+      "contentType": "image/jpeg",
+      "contentLength": "180152"
+    }
+  ],
+  "artifactFile": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764/images/bemine-share-v10.jpg",
+  "artifactFileExists": true
+}

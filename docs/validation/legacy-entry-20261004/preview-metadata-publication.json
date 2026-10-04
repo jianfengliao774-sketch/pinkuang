@@ -1,0 +1,137 @@
+{
+  "publishedAt": "2026-10-04T05:11:26.076502+00:00",
+  "rollback": false,
+  "target": "/var/www/bemine-v5/current/preview.html",
+  "beforeSha256": "9eb9c244985208f4711918915488de74e4ebdcab2571833575f849234b6bac24",
+  "afterSha256": "c099271b1a477da3cc191bad99880654b4a7882092881bb8f0e930d9c8d92658",
+  "semanticMetadataFieldsChanged": 3,
+  "htmlDomAndSerializedImageReferences": 4,
+  "htmlDomAndSerializedPageReferences": 2,
+  "otherProductAndUpgradeFilesUnchanged": true,
+  "serviceIdentitiesUnchanged": true,
+  "nginxReloaded": false,
+  "runtimeRestarted": false,
+  "productRebuilt": false,
+  "artifactDigestMarkerRecalculated": false,
+  "public": [
+    {
+      "url": "https://bemine.cc.cd/preview.html",
+      "status": 200,
+      "sha256": "c099271b1a477da3cc191bad99880654b4a7882092881bb8f0e930d9c8d92658"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/preview.html",
+      "status": 200,
+      "sha256": "c099271b1a477da3cc191bad99880654b4a7882092881bb8f0e930d9c8d92658"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "image/jpeg",
+      "contentLength": "180152"
+    }
+  ],
+  "protectedPublicBefore": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "07054fddb062e3f92c389bf23d2705bb786768970fde1221875b21e459d91c7a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ],
+  "protectedPublicAfter": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "07054fddb062e3f92c389bf23d2705bb786768970fde1221875b21e459d91c7a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "checkedAt": "2026-10-04T04:40:45.023Z",
+  "dataKind": "public-live-maintenance-page",
+  "checks": [
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh#market",
+      "status": 503,
+      "destination": "https://bemine.cc.cd/?lang=zh#market"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/?lang=en#rewards",
+      "status": 503,
+      "destination": "https://bemine.cc.cd/?lang=en#rewards"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/?lang=zh#detail/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": 503,
+      "destination": "https://bemine.cc.cd/?lang=zh"
+    },
+    {
+      "check": "390px mobile maintenance page has no horizontal overflow",
+      "passed": true
+    },
+    {
+      "check": "JavaScript-disabled fallback goes to the formal product root",
+      "passed": true
+    }
+  ],
+  "pageErrors": [],
+  "allowedNavigationRequests": [
+    "https://tapeout.cc.cd/bemine/?lang=zh",
+    "https://bemine.cc.cd/bemine-v4/?lang=en",
+    "https://tapeout.cc.cd/bemine-full-test/?lang=zh",
+    "https://tapeout.cc.cd/bemine/?lang=zh"
+  ],
+  "blockedRequests": [],
+  "walletOrRpcRequestsSent": 0,
+  "transactionRequestsSent": 0,
+  "screenshots": [
+    "maintenance-market-desktop.png",
+    "maintenance-market-mobile.png"
+  ]
+}

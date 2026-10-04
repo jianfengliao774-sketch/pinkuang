@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scope": "standalone upgrade wallet result recovery",
+  "publishedAt": "2026-10-04T05:05:20.133115+00:00",
+  "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+  "sourceCommit": "3b09f155789c83859de384e3d3d243dc2a561b4d",
+  "previousSourceCommit": "83bd2180fea2ea7cb066004d75fa4339b39222b7",
+  "releaseDirectory": "/srv/pinkuang-target-owner-upgrade/releases/3b09f155789c83859de384e3d3d243dc2a561b4d",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedGenesisArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "trustedUpgradeArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+    "trustedReviewCatalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba"
+  },
+  "archiveSha256": "cbc6b466bc639c6bb37904992020b5f5207913b49961425e140f9b44d87d277f",
+  "manifestSha256": "08e42edcefb0350b644f072fee1d5b1716c4d4be6ce221aed2c0697bbf19587e",
+  "verifiedFiles": [
+    "assets/target-owner-upgrade-btLox2Nz.css",
+    "assets/target-owner-upgrade-wT5pUdqv.js",
+    "data/gasEvidence.json",
+    "data/genesisBundle.json",
+    "data/genesisRecord.json",
+    "data/liveReview.json",
+    "data/reviewCatalog.json",
+    "data/trustedGenesisManifest.json",
+    "data/upgradeBundle.json",
+    "index.html"
+  ],
+  "retainedImmutableAssets": [
+    "assets/target-owner-upgrade-B-blP-HZ.js"
+  ],
+  "servicesUnchanged": true,
+  "productUnchanged": true,
+  "nginxUnchanged": true,
+  "readOnlyRpcChainId": 56,
+  "chainActionsPerformed": false,
+  "codeUpgradeComplete": false
+}
