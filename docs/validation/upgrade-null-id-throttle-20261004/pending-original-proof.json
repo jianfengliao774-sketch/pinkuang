@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "phase": "prepared",
+  "blockNumber": 125654806,
+  "baselineVerified": true,
+  "verifiedDeploymentNames": [
+    "PoolFunds"
+  ],
+  "deployments": {
+    "PoolFunds": {
+      "address": "0x00eB4BE0695db8d93685C8f04F1676D67318571b",
+      "txHash": "0xa4d090116dedfa56a71f55d0b01e6f445c05bca2e0828f948811dfd8f2cd74ee"
+    }
+  },
+  "codeUpgradeComplete": false,
+  "userJournalMutated": false,
+  "elapsedMs": 17602,
+  "methods": {
+    "eth_getTransactionReceipt": 3,
+    "eth_chainId": 39,
+    "eth_getBlockByNumber": 8,
+    "eth_getCode": 25,
+    "eth_getStorageAt": 4,
+    "eth_call": 26,
+    "eth_getTransactionByHash": 2
+  },
+  "failures": [],
+  "chainActionsPerformed": false,
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "readEndpoint": "public-standalone-upgrade-rpc",
+  "generatedAt": "2026-10-04T09:47:23.868Z"
+}

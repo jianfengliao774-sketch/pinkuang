@@ -30,6 +30,13 @@ const release = __TARGET_OWNER_RELEASE__;
 const explorer = 'https://bscscan.com';
 const short = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+function temporaryReadFailure(problem: unknown) {
+  const item = problem as { code?: string; info?: { response?: { statusCode?: number } } } | null;
+  const status = item?.info?.response?.statusCode;
+  return typeof status === 'number' && [429, 502, 503, 504].includes(status)
+    || item?.code === 'TIMEOUT'
+    || /(?:server response|HTTP)\s+(?:429|502|503|504)\b|^读取超时/i.test(messageOf(problem));
+}
 const json = (value: unknown) => JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item, 2);
 const canonical = (value: any): string => JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
@@ -80,6 +87,7 @@ export function TargetOwnerUpgradeStandalone() {
   const [recoveryHash, setRecoveryHash] = useState('');
   const [unwrittenHash, setUnwrittenHash] = useState('');
   const [closedOldRequest, setClosedOldRequest] = useState(false);
+  const [confirmedAwaitingComponents, setConfirmedAwaitingComponents] = useState<{ step: TargetOwnerStep; hash: string } | null>(null);
   const busyRef = useRef(false), epoch = useRef(0), abort = useRef<AbortController | null>(null);
   const walletRef = useRef<WalletOption | null>(null), mounted = useRef(true);
   const returnedHash = useRef<{ key: string; raw: string; step: TargetOwnerStep; hash: string } | null>(null);
@@ -101,7 +109,7 @@ export function TargetOwnerUpgradeStandalone() {
       .map(([name, item]) => [name, item.address])), salt: journal.salt, delaySeconds: journal.delaySeconds }); }
     catch (problem) { return { invalid: messageOf(problem) }; }
   }, [common, journal, completed]);
-  function stop() { epoch.current++; abort.current?.abort(); setProof(null); setClosedOldRequest(false);
+  function stop() { epoch.current++; abort.current?.abort(); setProof(null); setClosedOldRequest(false); setConfirmedAwaitingComponents(null);
     if (busyRef.current) setMessage('钱包或本机记录已变化，流程已停止。请核对原交易后继续。'); }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; abort.current?.abort(); }; }, []);
   useEffect(() => {
@@ -137,7 +145,7 @@ export function TargetOwnerUpgradeStandalone() {
   useEffect(() => {
     if (!key || !context) return;
     const restore = () => { try { const raw = localStorage.getItem(key); setJournal(raw ? parseTargetOwnerJournal(JSON.parse(raw), context) : null);
-      setProof(null); setResult(null); setOperation('unknown'); setReadyAt(null); }
+      setProof(null); setResult(null); setOperation('unknown'); setReadyAt(null); setConfirmedAwaitingComponents(null); }
     catch (problem) { setJournal(null); setError(messageOf(problem)); } };
     restore(); const storage = (event: StorageEvent) => { if (event.key === key || event.key === null) { stop(); restore(); } };
     window.addEventListener('storage', storage); return () => window.removeEventListener('storage', storage);
@@ -216,7 +224,7 @@ export function TargetOwnerUpgradeStandalone() {
       replacements: Object.fromEntries(Object.entries(deployments).map(([name, item]) => [name, item.address])),
       salt: source.salt, delaySeconds: source.delaySeconds }) : null;
   }
-  async function preflight(provider: JsonRpcProvider, source: TargetOwnerJournal | null, assertCurrent: () => void, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') {
+  async function preflight(provider: JsonRpcProvider, source: TargetOwnerJournal | null, assertCurrent: () => void, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done', transactionConfirmed = false) {
     if (!common) throw new Error('已审查发布文件尚未加载。');
     assertCurrent(); const currentPlan = source ? planFor(source) : null;
     // Abandonment is a user decision, never a failed-receipt or non-broadcast proof.
@@ -251,7 +259,8 @@ export function TargetOwnerUpgradeStandalone() {
       : { operation: 'unknown' as Operation, readyAt: null, snapshot: undefined };
     const phase = force || (currentState.operation === 'done' ? 'done'
       : ['waiting', 'ready'].includes(currentState.operation) ? 'scheduled' : currentPlan ? 'unscheduled' : 'prepared');
-    assertCurrent(); setBusy(phase === 'done' ? '确认升级结果' : '自动检查升级条件');
+    assertCurrent(); setBusy(transactionConfirmed ? '链上交易已确认，正在读取升级组件'
+      : phase === 'done' ? '确认升级结果' : '自动检查升级条件');
     const checked = await validateTargetOwnerUpgradePreflight(provider, common, { phase,
       ...(currentState.snapshot ? { snapshot: currentState.snapshot } : {}),
       deployments: source ? confirmedTargetOwnerDeployments(source) : {}, ...(currentPlan ? { plan: currentPlan } : {}),
@@ -280,13 +289,14 @@ export function TargetOwnerUpgradeStandalone() {
       if (readOnly && !restored) throw new Error('本机没有待核对的原交易记录。');
       let source = restored ?? session.persist(newTargetOwnerJournal(context, newSalt()));
       let proven: { raw: string; state: { operation: TargetOwnerOperation; readyAt: number | null } } | null = null;
-      const inspect = async (item: TargetOwnerJournal, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') => {
+      const inspect = async (item: TargetOwnerJournal, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done', transactionConfirmed = false) => {
         const raw = JSON.stringify(item);
         if (!force && proven?.raw === raw) { session.assertCurrent(); return proven.state; }
-        const checked = await session.read(() => preflight(provider, item, session.assertCurrent, force));
+        const checked = await session.read(() => preflight(provider, item, session.assertCurrent, force, transactionConfirmed));
         proven = { raw, state: { operation: checked.operation, readyAt: checked.readyAt } }; return proven.state;
       };
       const recover = async (item: TargetOwnerJournal, step: TargetOwnerStep, suppliedHash?: string) => {
+        session.assertCurrent(); setConfirmedAwaitingComponents(null);
         let transaction = step === 'schedule' || step === 'execute' ? item[step]! : item.deployments[step]!;
         const governance = step === 'schedule' || step === 'execute', currentPlan = planFor(item);
         const trusted = returnedHash.current;
@@ -337,8 +347,15 @@ export function TargetOwnerUpgradeStandalone() {
         const confirmed: UpgradeTransaction = { ...transaction, txHash: hash, status: 'confirmed',
           ...(governance ? {} : { address: getAddress(receipt.contractAddress!) }) };
         const candidate = governance ? { ...item, [step]: confirmed } : { ...item, deployments: { ...item.deployments, [step]: confirmed } };
-        const checked = await inspect(candidate, targetOwnerRecoveryPhase(step));
+        setConfirmedAwaitingComponents({ step, hash }); setBusy('链上交易已确认，正在读取升级组件');
+        let checked;
+        try { checked = await inspect(candidate, targetOwnerRecoveryPhase(step), true); }
+        catch (problem) {
+          if (temporaryReadFailure(problem)) throw new Error('链上交易已确认，原记录已保留。只读服务暂时不可用，请稍后点击“核对当前交易”；不会重复发送。');
+          throw problem;
+        }
         session.assertCurrent(); const saved = session.persist(candidate); setRecoveryHash(''); setUnwrittenHash(''); returnedHash.current = null;
+        setConfirmedAwaitingComponents(null);
         return { journal: saved, outcome: 'confirmed' as const, readyAt: checked.readyAt };
       };
       const submit = async (item: TargetOwnerJournal, step: TargetOwnerStep) => {
@@ -468,8 +485,11 @@ export function TargetOwnerUpgradeStandalone() {
     stop(); setClosedOldRequest(false); walletRef.current = option; setWallet(option); setWalletState(null);
   }
   const done = !!result && operation === 'done', scheduled = journal?.schedule?.status === 'confirmed';
-  const stateLabel = done ? '升级已完成' : operation === 'waiting' ? '等待 48 小时'
-    : operation === 'ready' ? '等待期已结束，可以执行升级' : canResumeLegacyDeployment ? '旧部署记录需要恢复' : pending ? '当前交易待确认'
+  const confirmedNeedsCheck = !!confirmedAwaitingComponents && pending === confirmedAwaitingComponents.step
+    && (!pendingTransaction?.txHash || same(pendingTransaction.txHash, confirmedAwaitingComponents.hash));
+  const stateLabel = done ? '升级已完成' : confirmedNeedsCheck ? busy ? '链上交易已确认，正在读取升级组件' : '链上交易已确认，升级组件待核验'
+    : operation === 'waiting' ? '等待 48 小时' : operation === 'ready' ? '等待期已结束，可以执行升级'
+      : canResumeLegacyDeployment ? '旧部署记录需要恢复' : pending ? '当前交易待确认'
       : scheduled ? '排程已确认，继续时自动检查等待期' : completed ? `部署进度 ${completed} / 3` : '准备就绪后，点击下方按钮开始';
   return <main className="to-shell">
     <div className="to-top"><span className="to-mark">BEMINE / 合约升级</span><span className="to-status">BSC 主网</span></div>
@@ -517,7 +537,8 @@ export function TargetOwnerUpgradeStandalone() {
         {proof && <><dt>核验区块</dt><dd>#{proof.blockNumber} <code>{proof.blockHash}</code></dd></>}
       </dl>}
       {TARGET_OWNER_DEPLOYMENTS.map(name => { const transaction = journal?.deployments[name]; return <div className="to-technical-row" key={name}>
-        <strong>{name}</strong><span>{transaction?.status === 'confirmed' ? '已确认' : transaction ? '待确认' : '尚未部署'}</span>
+        <strong>{name}</strong><span>{transaction?.status === 'confirmed' ? '已确认'
+          : confirmedNeedsCheck && confirmedAwaitingComponents?.step === name ? '链上已确认，组件待核验' : transaction ? '待确认' : '尚未部署'}</span>
         {transaction?.address && <code>{transaction.address}</code>}
         {transaction?.txHash && <a href={`${explorer}/tx/${transaction.txHash}`} target="_blank" rel="noreferrer">查看原交易</a>}
       </div>; })}

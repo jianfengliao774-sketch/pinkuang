@@ -1256,7 +1256,7 @@ test('archive retries one identified per-second CUPS error on the same node afte
     ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
   assert.equal(requestsAt(f, backupRpc).length, 0);
   assert(diagnostics.some(item => item.category === 'archive-cups-retry' && item.status === 429
-    && item.errorCode === -32005 && item.idMatches === true));
+    && item.errorCode === -32005 && item.idMatches === true && item.errorKind === 'cups'));
   assert(!JSON.stringify(diagnostics).includes('private-key-or-secret-url'));
   assert(!JSON.stringify(diagnostics).includes('operator-rpc.test'));
   assert(!JSON.stringify(diagnostics).includes(address));
@@ -1276,6 +1276,292 @@ test('archive retries one non-RPC gateway response after chain reproof', async t
   assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
     ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
   assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('HTTP429 null-id CUPS is only a refusal signal and the successful retry retains the exact caller id', async t => {
+  const diagnostics = []; let reads = 0;
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    onRpcDiagnostic: item => diagnostics.push(item), upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      if (++reads === 1) return json({ jsonrpc: '2.0', id: null, error: { code: -32005,
+        message: 'Your compute units per second capacity exceeded: private-url-and-key' } }, 429);
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const response = await f.post({ ...rpc('eth_getCode', [address, '0xa']), id: 'restore-17' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 'restore-17', result: '0x6000' });
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
+    ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
+  assert(diagnostics.some(item => item.category === 'archive-cups-retry' && item.idType === 'object'
+    && item.idMatches === false && item.errorCode === -32005 && item.errorKind === 'cups'));
+  assert(!JSON.stringify(diagnostics).includes('private-url-and-key'));
+  assert(!JSON.stringify(diagnostics).includes('operator-rpc.test'));
+});
+
+test('null-id exceptions reject every other envelope, status, quota or contract error without retry', async t => {
+  const fault = (overrides = {}, status = 429) => json({ jsonrpc: '2.0', id: null,
+    error: { code: -32005, message: 'Compute units per second capacity exceeded' }, ...overrides }, status);
+  const faults = [
+    { read: () => fault({}, 200), kind: 'cups' },
+    { read: () => fault({}, 503), kind: 'cups' },
+    { read: () => fault({ jsonrpc: '1.0' }), kind: 'cups' },
+    { read: () => json({ jsonrpc: '2.0', error: { code: -32005,
+      message: 'Compute units per second capacity exceeded' } }, 429), kind: 'cups' },
+    { read: () => fault({ id: 2 }), kind: 'cups' },
+    { read: () => fault({ result: '0x6000' }), kind: 'cups' },
+    { read: () => fault({ error: { code: -32005, message: 'Your account ran out of cu' } }), kind: 'quota' },
+    { read: () => fault({ error: { code: -32005, message: 'Monthly quota exceeded; CUPS capacity unavailable' } }), kind: 'quota' },
+    { read: () => fault({ error: { code: -32005, message: 'Rate limit reached' } }), kind: 'other' },
+    { read: () => fault({ error: { code: -32000, message: 'execution reverted' } }), kind: 'other' },
+    { read: () => fault({ error: null }), kind: 'other' },
+  ];
+  for (const { read, kind } of faults) {
+    const diagnostics = [];
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+      onRpcDiagnostic: item => diagnostics.push(item), upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : read();
+      } });
+    assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 502);
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_getCode']);
+    assert(diagnostics.some(item => item.category === 'invalid-envelope' && item.errorKind === kind));
+    assert(!diagnostics.some(item => item.category === 'archive-cups-retry'));
+    assert(diagnostics.every(item => ['cups', 'quota', 'other'].includes(item.errorKind)));
+  }
+});
+
+test('a null-id final result is rejected and cannot populate the pinned read cache', async t => {
+  let reads = 0;
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      reads++;
+      return reads % 2 ? json({ jsonrpc: '2.0', id: null, error: { code: -32005,
+        message: 'CUPS capacity exceeded' } }, 429) : json({ jsonrpc: '2.0', id: null, result: '0x6000' });
+    } });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await f.post(rpc('eth_getCode', [address, '0xa']));
+    assert.equal(response.status, 502);
+    assert.equal(response.headers.get('x-bemine-server-cache'), null);
+  }
+  assert.equal(reads, 4);
+});
+
+test('concurrent null-id throttles share one cooldown and chain proof and pace each single retry', async t => {
+  const attempts = new Map(), retryTimes = [];
+  const delay = 30;
+  let firstReads = 0, releaseFirstReads;
+  const firstWave = new Promise(resolve => { releaseFirstReads = resolve; });
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: delay,
+    maxConcurrent: 4, maxConcurrentPerClient: 4, fallbackRpcUrl: backupRpc,
+    upstream: async (url, init) => {
+      assert.equal(url, 'https://operator-rpc.test/key');
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      const attempt = (attempts.get(request.id) ?? 0) + 1;
+      attempts.set(request.id, attempt);
+      if (attempt === 1) {
+        if (++firstReads === 4) releaseFirstReads();
+        await firstWave;
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+      }
+      retryTimes.push(Date.now());
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const responses = await Promise.all(Array.from({ length: 4 }, (_, index) => f.post({
+    ...latestCall(), id: 100 + index, params: [{ to: address, data: `0x${index.toString(16).padStart(2, '0')}` }, 'latest'] })));
+  for (const [index, response] of responses.entries()) {
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 100 + index, result: '0x6000' });
+  }
+  assert.deepEqual([...attempts.values()], [2, 2, 2, 2]);
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_chainId').length, 2);
+  assert.equal(requestsAt(f, backupRpc).length, 0);
+  assert.equal(retryTimes.length, 4);
+  for (let i = 1; i < retryTimes.length; i++) assert(retryTimes[i] - retryTimes[i - 1] >= delay - 3);
+});
+
+test('shared retry proof rejects null-id, mixed envelopes and wrong chain before any data retry', async t => {
+  for (const makeProof of [
+    request => json({ jsonrpc: '2.0', id: null, result: '0x38' }),
+    request => json({ jsonrpc: '2.0', id: request.id, result: '0x38', error: { code: -32005, message: 'CUPS capacity exceeded' } }),
+    request => json({ jsonrpc: '2.0', id: request.id, result: '0x1' }),
+    request => json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429),
+  ]) {
+    let chainChecks = 0, firstReads = 0, releaseFirstReads;
+    const firstWave = new Promise(resolve => { releaseFirstReads = resolve; });
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+      maxConcurrentPerClient: 2, upstream: async (_url, init) => {
+        const request = JSON.parse(init.body);
+        if (request.method === 'eth_chainId') return ++chainChecks === 1
+          ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : makeProof(request);
+        if (++firstReads === 2) releaseFirstReads();
+        await firstWave;
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+      } });
+    const responses = await Promise.all([f.post(latestCall()), f.post({ ...latestCall(), id: 2 })]);
+    assert(responses.every(response => response.status === 502));
+    assert.equal(chainChecks, 2);
+    assert.equal(firstReads, 2);
+  }
+});
+
+test('archive retries refuse excess paced waiters instead of building a long retry queue', async t => {
+  const attempts = new Map(); let firstReads = 0, releaseFirstReads;
+  const firstWave = new Promise(resolve => { releaseFirstReads = resolve; });
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1100,
+    maxConcurrent: 5, maxConcurrentPerClient: 5, upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      const attempt = (attempts.get(request.id) ?? 0) + 1; attempts.set(request.id, attempt);
+      if (attempt === 1) {
+        if (++firstReads === 5) releaseFirstReads();
+        await firstWave;
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+      }
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const started = Date.now();
+  const responses = await Promise.all(Array.from({ length: 5 }, (_, id) => f.post({ ...latestCall(), id: id + 1 })));
+  assert.equal(responses.filter(response => response.status === 200).length, 4);
+  assert.equal(responses.filter(response => response.status === 503).length, 1);
+  assert.equal([...attempts.values()].filter(attempt => attempt === 2).length, 4);
+  assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_chainId').length, 2);
+  assert(Date.now() - started < 6500);
+});
+
+test('archive retry deadline includes the first read and chain reproof, without starting another late read', async t => {
+  let clock = 100000, chainChecks = 0, reads = 0;
+  t.mock.method(Date, 'now', () => clock);
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') {
+        if (++chainChecks === 2) clock += 1000;
+        return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      }
+      reads++; clock += 13000;
+      return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+    } });
+  assert.equal((await f.post(latestCall())).status, 504);
+  assert.equal(chainChecks, 2);
+  assert.equal(reads, 1);
+});
+
+test('the same request deadline covers a cold chain proof and the subsequent throttled read', async t => {
+  let clock = 100000;
+  const trace = [];
+  t.mock.method(Date, 'now', () => clock);
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    upstream: (_url, init) => {
+      const request = JSON.parse(init.body); trace.push({ method: request.method, at: clock - 100000 });
+      if (request.method === 'eth_chainId') {
+        clock += 9000;
+        return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      }
+      clock += 7000;
+      return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+    } });
+  assert.equal((await f.post(latestCall())).status, 504);
+  assert.deepEqual(trace, [{ method: 'eth_chainId', at: 0 }, { method: 'eth_call', at: 9000 }]);
+});
+
+test('a queued upgrade request does not receive a new budget or start late upstream work', async t => {
+  let clock = 100000, startedRead, finishRead;
+  const started = new Promise(resolve => { startedRead = resolve; });
+  const stalled = new Promise(resolve => { finishRead = resolve; });
+  t.mock.method(Date, 'now', () => clock);
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    maxConcurrent: 1, upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      startedRead(); await stalled;
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const first = f.post(latestCall()); await started;
+  const queued = f.post({ ...latestCall(), id: 2 });
+  // Allow the second request to enter the already bounded ordinary queue.
+  await new Promise(resolve => setTimeout(resolve, 10));
+  clock += 14000; finishRead();
+  assert.equal((await first).status, 504);
+  assert.equal((await queued).status, 504);
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_call']);
+});
+
+test('a live retry wave renews its expired proof before the next delayed data retry', async t => {
+  let clock = 100000, chainChecks = 0, firstReads = 0, releaseFirstReads;
+  const attempts = new Map();
+  const firstWave = new Promise(resolve => { releaseFirstReads = resolve; });
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    maxConcurrentPerClient: 2, now: () => clock, upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') {
+        chainChecks++;
+        return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      }
+      const attempt = (attempts.get(request.id) ?? 0) + 1; attempts.set(request.id, attempt);
+      if (attempt === 1) {
+        if (++firstReads === 2) releaseFirstReads();
+        await firstWave;
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+      }
+      if (chainChecks === 2) clock += 5001;
+      else assert.equal(chainChecks, 3, 'the delayed retry must use a newly proved chain');
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const responses = await Promise.all([f.post(latestCall()), f.post({ ...latestCall(), id: 2 })]);
+  assert(responses.every(response => response.status === 200));
+  assert.deepEqual([...attempts.values()], [2, 2]);
+  assert.equal(chainChecks, 3);
+});
+
+test('new requests joining a continuous wave after five seconds share a renewed proof', async t => {
+  let clock = 100000, chainChecks = 0, firstReads = 0, laterReads = 0, heldRetry = false;
+  let releaseFirstReads, releaseLaterReads, startedRetry, finishRetry, renewedProof;
+  const firstWave = new Promise(resolve => { releaseFirstReads = resolve; });
+  const laterWave = new Promise(resolve => { releaseLaterReads = resolve; });
+  const retryStarted = new Promise(resolve => { startedRetry = resolve; });
+  const stalledRetry = new Promise(resolve => { finishRetry = resolve; });
+  const proofRenewed = new Promise(resolve => { renewedProof = resolve; });
+  const attempts = new Map();
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    maxConcurrent: 4, maxConcurrentPerClient: 4, now: () => clock, upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') {
+        chainChecks++;
+        if (chainChecks === 4) renewedProof();
+        return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      }
+      const attempt = (attempts.get(request.id) ?? 0) + 1; attempts.set(request.id, attempt);
+      if (attempt === 1) {
+        if (request.id <= 2) {
+          if (++firstReads === 2) releaseFirstReads();
+          await firstWave;
+        } else {
+          if (++laterReads === 2) releaseLaterReads();
+          await laterWave;
+        }
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'CUPS capacity exceeded' } }, 429);
+      }
+      if (!heldRetry) {
+        heldRetry = true; clock += 5001; startedRetry(); await stalledRetry;
+      } else assert.equal(chainChecks, 4, 'later wave reads require the shared renewed archive proof');
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const initial = [f.post(latestCall()), f.post({ ...latestCall(), id: 2 })];
+  await retryStarted;
+  const later = [f.post({ ...latestCall(), id: 3 }), f.post({ ...latestCall(), id: 4 })];
+  await laterWave;
+  await proofRenewed;
+  finishRetry();
+  const initialResponses = await Promise.all(initial), laterResponses = await Promise.all(later);
+  assert(initialResponses.every(response => response.status === 200));
+  assert(laterResponses.every(response => response.status === 200));
+  assert.equal(chainChecks, 4, 'initial and renewed ordinary proofs plus one proof for each refusal wave');
+  assert.equal(attempts.get(3), 2);
+  assert.equal(attempts.get(4), 2);
 });
 
 test('archive never retries monthly quota, malformed envelope, contract error or mislabeled RPC body', async t => {

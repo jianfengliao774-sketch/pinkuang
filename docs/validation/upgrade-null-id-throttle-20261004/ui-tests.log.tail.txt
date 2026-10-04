@@ -1,0 +1,14 @@
+✔ wallet send follows durable intent, and post-send storage failure preserves uncertainty (0.302583ms)
+✔ failed durable write never reaches wallet, explicit rejection restores, ambiguous submission stays blocked (0.251334ms)
+✔ actual candidate CREATE gas plan is bounded and never treats local EVM addresses as production deployments (2.110833ms)
+✔ candidate wallet CREATE sends its measured fixed ceiling without estimate or simulation (0.206625ms)
+✔ only the matching canonical finalized status0 transaction releases the same retry step and preserves evidence (3.994041ms)
+✔ unknown, mismatched failed transactions, noncanonical inclusion and reorg never release retry (0.53175ms)
+ℹ tests 75
+ℹ suites 0
+ℹ pass 75
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 728.256542

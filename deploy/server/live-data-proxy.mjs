@@ -11,9 +11,18 @@ const MAX_CACHED_HEADER_BYTES = 64 * 1024;
 const MAX_FEE_LOG_CACHE_ENTRIES = 64;
 const MAX_CACHED_FEE_LOG_BYTES = 64 * 1024;
 const FEE_LOG_CACHE_MS = 30_000;
+const ARCHIVE_RETRY_BUDGET_MS = 14_000;
+const MAX_ARCHIVE_RETRY_WAIT_MS = 4_000;
 export const FEES_CLAIMED_TOPIC = '0x1ac537f0ad67b64ac68a04587ff3a4cb6977de22eb2c37ee560897a92c6d07c7';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const ownKeys = (value, allowed) => isRecord(value) && Object.keys(value).every(key => allowed.includes(key));
+// Messages are used only to classify a refusal; diagnostics never retain them.
+const rpcErrorKind = value => {
+  const message = isRecord(value?.error) && typeof value.error.message === 'string' ? value.error.message : '';
+  if (/\b(?:quota|monthly|ran out of (?:cu|compute units)|(?:credits?|compute units) (?:exhausted|depleted))\b/i.test(message)) return 'quota';
+  if (/\b(?:compute units per second capacity|cups capacity)\b/i.test(message)) return 'cups';
+  return 'other';
+};
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
 
 class ProxyError extends Error { constructor(status, message, { transportFailure = false, upstreamStatus = null, noRpcBody = false } = {}) {
@@ -244,7 +253,8 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     else queuedClients.delete(client);
   };
   const enter = client => { concurrent++; activeClients.set(client, activeFor(client) + 1); lastGrantedClient=client; };
-  const acquire = client => {
+  const acquire = (client, deadline = null) => {
+    if (deadline !== null) requireValue(deadline > Date.now(), 504, 'Read-only data service timed out.');
     if (concurrent < maxConcurrent && activeFor(client) < maxConcurrentPerClient) {
       enter(client); return Promise.resolve();
     }
@@ -263,11 +273,13 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     requireValue(queuedFor(client) < maxQueuedPerClient, 429, 'RPC client queue limit exceeded; retry shortly.');
     return new Promise((resolve, reject) => {
       const entry = { client, resolve, reject, timer: null };
+      const queueWait = deadline === null ? queueTimeoutMs : Math.min(queueTimeoutMs, deadline - Date.now());
       entry.timer = setTimeout(() => {
         const position = queue.indexOf(entry);
         if (position !== -1) {queue.splice(position, 1);removeQueued(client);}
-        reject(new ProxyError(503, 'Read-only data service is busy.'));
-      }, queueTimeoutMs);
+        reject(deadline !== null && Date.now() >= deadline
+          ? new ProxyError(504, 'Read-only data service timed out.') : new ProxyError(503, 'Read-only data service is busy.'));
+      }, queueWait);
       queue.push(entry);
       queuedClients.set(client,queuedFor(client)+1);
     });
@@ -299,6 +311,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   let verifiedChainUntil = 0, chainProof = null, chainEpoch = 0, forkEpoch = 0, headerSequence = 0;
   let fallbackChainUntil = 0, fallbackChainProof = null, primaryUnavailableUntil = 0;
   let transactionChainUntil = 0, transactionChainProof = null, transactionEpoch = 0;
+  let archiveRetryWave = null;
   const transactionRead = payload => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(payload.method);
   const diagnose = (payload, reply, category) => {
     const value = reply?.value;
@@ -307,16 +320,16 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     try { onRpcDiagnostic({ method: payload.method, status: reply?.status ?? null, keys,
       idType: Object.hasOwn(value ?? {}, 'id') ? typeof value.id : null,
       idMatches: isRecord(value) && Object.hasOwn(value, 'id') ? value.id === payload.id : false,
-      errorCode, category }); } catch { /* Diagnostics cannot affect a read result. */ }
+      errorCode, errorKind: rpcErrorKind(value), category }); } catch { /* Diagnostics cannot affect a read result. */ }
   };
   // The existing fallback can serve only eligible reads on transport failure.
   // A configured transaction node uses a separate, non-fallback path below.
   const fallbackEligible = payload => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(payload.method)
     || ['eth_call', 'eth_getCode'].includes(payload.method) && payload.params[1] === 'latest'
     || payload.method === 'eth_getStorageAt' && payload.params[2] === 'latest';
-  const fetchRpcJson = async (destination, payload) => {
+  const fetchRpcJson = async (destination, payload, readTimeoutMs = timeoutMs) => {
     const reply = await fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) },
-      { fetcher, timeoutMs, maxResponseBytes });
+      { fetcher, timeoutMs: readTimeoutMs, maxResponseBytes });
     // A JSON-RPC error is a business answer, even if a node uses HTTP 5xx for it.
     const rpcReply = Object.hasOwn(reply.value, 'jsonrpc') || Object.hasOwn(reply.value, 'id')
       || Object.hasOwn(reply.value, 'result') || isRecord(reply.value.error) && typeof reply.value.error.code === 'number';
@@ -325,18 +338,96 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     return reply;
   };
   // NodeReal also uses -32005 for exhausted monthly credits and other permanent
-  // limits. Retry only an exact, identified per-second CUPS response, once, on
-  // the same archive node. A bad envelope or contract error is never retried.
+  // limits. A null id is accepted only as an HTTP429 refusal signal, never as
+  // a read/chain answer. Every final response still requires the exact id.
   const transientArchiveThrottle = (reply, payload) => {
     const value = reply.value;
-    return [200, 429, 503].includes(reply.status) && value.jsonrpc === '2.0' && value.id === payload.id
+    const identified = Object.hasOwn(value, 'id') && (value.id === payload.id
+      || reply.status === 429 && value.id === null);
+    return [200, 429, 503].includes(reply.status) && value.jsonrpc === '2.0' && identified
       && !Object.hasOwn(value, 'result') && isRecord(value.error) && value.error.code === -32005
-      && typeof value.error.message === 'string'
-      && /\b(?:compute units per second capacity|cups capacity)\b/i.test(value.error.message);
+      && rpcErrorKind(value) === 'cups';
   };
-  const fetchArchiveRpcJson = async payload => {
+  const remainingArchiveTime = deadline => {
+    if (deadline === null) return timeoutMs;
+    const remaining = deadline - Date.now();
+    requireValue(remaining > 0, 504, 'Read-only archive retry timed out.');
+    return Math.min(timeoutMs, remaining);
+  };
+  const awaitArchiveRetry = async (work, deadline) => {
+    if (deadline === null) return work;
+    let timer;
+    try { return await Promise.race([work, new Promise((_, reject) => {
+      remainingArchiveTime(deadline);
+      const remaining = deadline - Date.now();
+      timer = setTimeout(() => reject(new ProxyError(504, 'Read-only archive retry timed out.')), remaining);
+    })]); } finally { clearTimeout(timer); }
+  };
+  const retryArchiveRead = async (payload, read, deadline) => {
+    // One refusal wave shares its cooldown and fresh identity proof. Retry
+    // slots are paced rather than releasing all four helper reads at once.
+    // Reject excess retry waiters; do not create another long request queue.
+    const wave = archiveRetryWave ??= { users: 0, proof: null, proofPending: false, proofUntil: 0,
+      proofFailure: null, nextReadAt: 0, tail: Promise.resolve(), cooldownUntil: 0, cooldown: null };
+    const joinedAt = Date.now();
+    if (joinedAt >= wave.cooldownUntil) {
+      wave.cooldownUntil = joinedAt + rateLimitRetryDelayMs;
+      wave.cooldown = new Promise(resolve => setTimeout(resolve, rateLimitRetryDelayMs));
+    }
+    wave.users++;
+    let releaseTurn = null;
+    const ensureWaveProof = async () => {
+      if (payload.method === 'eth_chainId') return;
+      if (wave.proofFailure) throw wave.proofFailure;
+      if (!wave.proof || !wave.proofPending && now() >= wave.proofUntil) {
+        wave.proofPending = true;
+        wave.proof = (async () => {
+          const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
+          try {
+            const proof = await fetchRpcJson(rpcUrl, request, remainingArchiveTime(deadline)), value = proof.value;
+            const valid = proof.status === 200 && value.jsonrpc === '2.0' && value.id === request.id
+              && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
+              && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
+            if (!valid) diagnose(request, proof, 'archive-retry-chain-failed');
+            requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.');
+            wave.proofUntil = verifiedChainUntil = now() + chainIdTtlMs;
+          } catch (error) {
+            if (error instanceof ProxyError) diagnose(request, { status: error.upstreamStatus }, 'archive-retry-chain-read-failed');
+            wave.proofFailure = error;
+            verifiedChainUntil = 0; clearReadCaches(); throw error;
+          } finally { wave.proofPending = false; }
+        })();
+      }
+      await awaitArchiveRetry(wave.proof, deadline);
+    };
+    try {
+      await awaitArchiveRetry(wave.cooldown, deadline);
+      await ensureWaveProof();
+      const turnDeadline = Math.min(deadline, Date.now() + MAX_ARCHIVE_RETRY_WAIT_MS);
+      const previousTurn = wave.tail;
+      const turn = new Promise(resolve => { releaseTurn = resolve; });
+      // A timed-out waiter releases its own place only after its predecessor,
+      // so later callers cannot jump past an in-flight retry.
+      wave.tail = previousTurn.then(() => turn);
+      await awaitArchiveRetry(previousTurn, turnDeadline);
+      const current = Date.now(), retryAt = Math.max(current, wave.nextReadAt), wait = retryAt - current;
+      requireValue(retryAt <= turnDeadline, 503, 'Read-only archive retry is busy.');
+      if (wait) await awaitArchiveRetry(new Promise(resolve => setTimeout(resolve, wait)), turnDeadline);
+      // A continuous wave or a delayed lane must not outlive the five-second
+      // identity proof. Reprove once for the wave before a stale slot reads.
+      await ensureWaveProof();
+      remainingArchiveTime(deadline);
+      wave.nextReadAt = Date.now() + rateLimitRetryDelayMs;
+      return await read();
+    } finally {
+      releaseTurn?.();
+      wave.users--;
+      if (!wave.users && archiveRetryWave === wave) archiveRetryWave = null;
+    }
+  };
+  const fetchArchiveRpcJson = async (payload, deadline = null) => {
     const read = async () => {
-      try { return await fetchRpcJson(rpcUrl, payload); }
+      try { return await fetchRpcJson(rpcUrl, payload, deadline === null ? timeoutMs : remainingArchiveTime(deadline)); }
       catch (error) {
         diagnose(payload, { status: error instanceof ProxyError ? error.upstreamStatus : null },
           error instanceof ProxyError && error.noRpcBody ? 'non-json-transport' : 'upstream-read-failed');
@@ -353,32 +444,16 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     }
     if (!temporary) return first;
     diagnose(payload, first ?? { status: transportStatus }, first ? 'archive-cups-retry' : 'archive-transport-retry');
-    await new Promise(resolve => setTimeout(resolve, rateLimitRetryDelayMs));
-    if (payload.method !== 'eth_chainId') {
-      const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-      try {
-        const proof = await fetchRpcJson(rpcUrl, request), value = proof.value;
-        const valid = proof.status === 200 && value.jsonrpc === '2.0' && value.id === request.id
-          && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
-          && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
-        if (!valid) diagnose(request, proof, 'archive-retry-chain-failed');
-        requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.');
-        verifiedChainUntil = now() + chainIdTtlMs;
-      } catch (error) {
-        if (error instanceof ProxyError) diagnose(request, { status: error.upstreamStatus }, 'archive-retry-chain-read-failed');
-        verifiedChainUntil = 0; clearReadCaches(); throw error;
-      }
-    }
-    return read();
+    return retryArchiveRead(payload, read, deadline);
   };
-  const ensureFallbackBscChain = async () => {
+  const ensureFallbackBscChain = async (deadline = null) => {
     requireValue(fallbackRpcUrl, 503, 'Read-only fallback RPC is not configured.');
     if (now() < fallbackChainUntil) return;
     if (!fallbackChainProof) {
       const proof = (async () => {
         try {
           const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-          const { status, value } = await fetchRpcJson(fallbackRpcUrl, request);
+          const { status, value } = await fetchRpcJson(fallbackRpcUrl, request, remainingArchiveTime(deadline));
           requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
             && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
             && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error'),
@@ -389,18 +464,18 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       fallbackChainProof = proof;
       proof.finally(() => { if (fallbackChainProof === proof) fallbackChainProof = null; }).catch(() => {});
     }
-    await fallbackChainProof;
+    await awaitArchiveRetry(fallbackChainProof, deadline);
   };
   // Transaction data may come from a separate read node, but it cannot certify
   // headers or historical state. Its own short-lived BSC identity proof must
   // succeed before each lookup; failures never fall back to another node.
-  const ensureTransactionBscChain = async () => {
+  const ensureTransactionBscChain = async (deadline = null) => {
     if (now() < transactionChainUntil) return transactionEpoch;
     if (!transactionChainProof) {
       const proof = (async () => {
         const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
         try {
-          const { status, value } = await fetchRpcJson(transactionRpcUrl, request);
+          const { status, value } = await fetchRpcJson(transactionRpcUrl, request, remainingArchiveTime(deadline));
           const valid = status === 200 && value.jsonrpc === '2.0' && value.id === request.id
             && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
             && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
@@ -417,7 +492,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       transactionChainProof = proof;
       proof.finally(() => { if (transactionChainProof === proof) transactionChainProof = null; }).catch(() => {});
     }
-    return transactionChainProof;
+    return awaitArchiveRetry(transactionChainProof, deadline);
   };
   const clearReadCaches = () => {
     pinnedRpc.clear(); headerRpc.clear(); feeLogRpc.clear(); pendingRpc.clear(); observedHeaders.clear(); chainEpoch++;
@@ -487,17 +562,17 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   };
   // A fixed BSC URL is still a configuration claim, not chain evidence. Verify
   // it upstream before answering locally, then recheck at most five seconds later.
-  const ensureBscChain = async ({ allowFallback = false } = {}) => {
+  const ensureBscChain = async ({ allowFallback = false, deadline = null } = {}) => {
     if (now() < verifiedChainUntil) return rpcUrl;
     if (allowFallback && fallbackRpcUrl && now() < primaryUnavailableUntil) {
-      await ensureFallbackBscChain();
+      await ensureFallbackBscChain(deadline);
       return fallbackRpcUrl;
     }
     if (!chainProof) {
       const proof = (async () => {
         try {
           const request = { jsonrpc: '2.0', id: 0, method: 'eth_chainId', params: [] };
-          const { status, value } = await fetchArchiveRpcJson(request);
+          const { status, value } = await fetchArchiveRpcJson(request, deadline);
           const valid = status === 200 && value.jsonrpc === '2.0' && value.id === request.id
             && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
             && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
@@ -514,10 +589,10 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       chainProof = proof;
       proof.finally(() => { if (chainProof === proof) chainProof = null; }).catch(() => {});
     }
-    try { await chainProof; return rpcUrl; }
+    try { await awaitArchiveRetry(chainProof, deadline); return rpcUrl; }
     catch (error) {
       if (!allowFallback || !fallbackRpcUrl || !error.transportFailure) throw error;
-      await ensureFallbackBscChain();
+      await ensureFallbackBscChain(deadline);
       // This remembers a transport outage only. It never establishes the
       // primary identity or allows pinned/header reads to use the backup.
       primaryUnavailableUntil = now() + chainIdTtlMs;
@@ -525,7 +600,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     }
   };
   const readRpc = async (payload, key, { rpcDestination = rpcUrl, allowTransportFallback = false,
-    transactionProofEpoch = null } = {}) => {
+    transactionProofEpoch = null, deadline = null } = {}) => {
     let entry = key && pendingRpc.get(key);
     if (!entry) {
       const epoch = chainEpoch, startedForkEpoch = forkEpoch;
@@ -536,16 +611,18 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         const destination = created.isFeeLog ? logsRpcUrl : rpcDestination;
         const dataRead = created.isFeeLog || !allowTransportFallback
           ? retryArchiveRateLimit && !created.isFeeLog && destination === rpcUrl
-            ? fetchArchiveRpcJson(payload)
-            : fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) }, { fetcher, timeoutMs, maxResponseBytes })
+            ? fetchArchiveRpcJson(payload, deadline)
+            : fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) },
+              { fetcher, timeoutMs: remainingArchiveTime(deadline), maxResponseBytes })
           : (async () => {
-            try { return await (destination === rpcUrl ? fetchArchiveRpcJson(payload) : fetchRpcJson(destination, payload)); }
+            try { return await (destination === rpcUrl ? fetchArchiveRpcJson(payload, deadline)
+              : fetchRpcJson(destination, payload, remainingArchiveTime(deadline))); }
             catch (error) {
               if (destination !== rpcUrl || !fallbackRpcUrl || !error.transportFailure) throw error;
-              await ensureFallbackBscChain();
+              await ensureFallbackBscChain(deadline);
               // Exactly one secondary data request. Contract errors, invalid
               // envelopes and a failed backup are returned without retrying.
-              return fetchRpcJson(fallbackRpcUrl, payload);
+              return fetchRpcJson(fallbackRpcUrl, payload, remainingArchiveTime(deadline));
             }
           })();
         let response;
@@ -554,7 +631,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
           const request = { jsonrpc: '2.0', id: 0, method: 'eth_getBlockByNumber', params: [tag, false] };
           const readAnchor = async url => {
             const { status, value } = await fetchJson(url, { method: 'POST', body: JSON.stringify(request) },
-              { fetcher, timeoutMs, maxResponseBytes });
+              { fetcher, timeoutMs: remainingArchiveTime(deadline), maxResponseBytes });
             requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === request.id
               && Object.hasOwn(value, 'result') && !Object.hasOwn(value, 'error') && validHeader(value.result, tag),
             502, 'Fee history range is not available on both BSC nodes.');
@@ -589,7 +666,8 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       if (key) pendingRpc.set(key, entry);
     }
     try {
-      const { value, canonical } = await entry.pending;
+      const { value, canonical } = await awaitArchiveRetry(entry.pending, deadline);
+      remainingArchiveTime(deadline);
       if (transactionProofEpoch !== null)
         requireValue(transactionProofEpoch === transactionEpoch, 502, 'Read-only transaction RPC chain changed during request.');
       // A different caller's pinned read invalidates this header for cache
@@ -629,6 +707,9 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
       if (status >= 400) res.setHeader('Connection', 'close'); res.end(JSON.stringify(value)); };
     let acquired = false;
+    // The upgrade client waits fifteen seconds. Opted-in archive recovery uses
+    // one shorter request budget, including the ordinary queue and both proofs.
+    const deadline = retryArchiveRateLimit ? Date.now() + ARCHIVE_RETRY_BUDGET_MS : null;
     const client = clientAddress(req);
     try {
       requireValue(typeof req.url === 'string' && req.url.length <= 2048 && req.url.startsWith('/') && !req.url.startsWith('//'), 400, 'Invalid request URL.');
@@ -638,20 +719,21 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         requireValue(req.method === 'POST', 405, 'RPC requires POST.');
         requireValue(!url.search && !url.hash, 400, 'RPC does not accept URL parameters.');
         requireValue(rpcUrl, 503, 'Read-only RPC is not configured.');
-        const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes, timeoutMs }), { feeHistoryLogScope });
+        const payload = validateReadRpc(await readJson(req, { maxBytes: maxRequestBytes,
+          timeoutMs: remainingArchiveTime(deadline) }), { feeHistoryLogScope });
         if (payload.method === 'eth_chainId' && now() < verifiedChainUntil)
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
-        await acquire(client); acquired = true;
+        await acquire(client, deadline); acquired = true;
         if (payload.method === 'eth_chainId') {
-          await ensureBscChain({ allowFallback: true });
+          await ensureBscChain({ allowFallback: true, deadline });
           return send(200, { jsonrpc: '2.0', id: payload.id, result: BSC_CHAIN_ID });
         }
         const pinned = pinnedKey(payload), header = headerKey(payload), feeLog = feeLogKey(payload), key = pinned ?? header ?? feeLog;
         const dedicatedTransactionRead = !!transactionRpcUrl && transactionRead(payload);
         const allowTransportFallback = !dedicatedTransactionRead && fallbackEligible(payload);
-        const transactionProofEpoch = dedicatedTransactionRead ? await ensureTransactionBscChain() : null;
+        const transactionProofEpoch = dedicatedTransactionRead ? await ensureTransactionBscChain(deadline) : null;
         const rpcDestination = dedicatedTransactionRead ? transactionRpcUrl
-          : await ensureBscChain({ allowFallback: allowTransportFallback });
+          : await ensureBscChain({ allowFallback: allowTransportFallback, deadline });
         if (feeLog) requireValue(logsRpcUrl, 503, 'Read-only fee history RPC is not configured.');
         // A caller can use the next header as its post-read canonical check.
         // Do not answer that check from a header cached before a pinned read.
@@ -663,7 +745,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         const hit = cached && now() < cached.until;
         if (!hit && cached) cache.delete(key);
         const value = hit ? cached.value : await readRpc(payload, key,
-          { rpcDestination, allowTransportFallback, transactionProofEpoch });
+          { rpcDestination, allowTransportFallback, transactionProofEpoch, deadline });
         if (hit) res.setHeader('X-Bemine-Server-Cache', 'hit');
         if (readBlock) invalidateHeaderForPinnedRead(readBlock);
         if (feeLog) invalidateHeadersForLogRead();

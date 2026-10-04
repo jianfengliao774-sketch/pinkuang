@@ -1,0 +1,25 @@
+{
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "tests": {
+    "relatedServerAndProof": {
+      "passed": 490,
+      "skipped": 1,
+      "failed": 0
+    },
+    "targetOwnerUi": {
+      "passed": 75,
+      "failed": 0
+    }
+  },
+  "typecheck": true,
+  "staticBuild": true,
+  "reviewedStaticPackage": true,
+  "gitDiffCheck": true,
+  "fullFreshProductSuitePassed": false,
+  "fullFreshProductSuiteLimitation": "Unchanged fresh deployment artifact/Gas-plan pin fixtures mismatch; temporary generated tracked artifacts restored. No pins bypassed.",
+  "productionNode": "v24.20.0",
+  "localNode": "v24.19.0",
+  "userJournalMutated": false,
+  "walletActionsPerformed": false,
+  "chainActionsPerformed": false
+}

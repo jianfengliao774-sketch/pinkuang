@@ -1,0 +1,7 @@
+{
+  "kind": "target-owner-upgrade-static-release-v1",
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "sourceDiffDigest": "505fd4f282dd84bba544fe3cf21744354467a532aead6259b4ffdce8a80d9be0",
+  "candidateArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+  "catalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba"
+}

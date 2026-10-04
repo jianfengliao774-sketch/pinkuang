@@ -46,3 +46,33 @@ test('target-owner server exposes one read route and never dispatches journal, i
   assert.deepEqual(calls, [{ url: transactions, method: 'eth_chainId' },
     { url: transactions, method: 'eth_getTransactionReceipt' }]);
 });
+
+test('target-owner HTTP route recovers a null-id CUPS refusal while preserving the caller id and bounded diagnostics', async t => {
+  const calls = [], diagnostics = [];
+  const archive = 'https://archive.test/fixed', transactions = 'https://transactions.test/fixed';
+  let attempts = 0;
+  const proxy = createLiveDataProxy({ rpcUrl: archive, transactionRpcUrl: transactions,
+    maxConcurrent: 4, maxConcurrentPerClient: 2, retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    onRpcDiagnostic: item => diagnostics.push(item), fetcher: async (url, init) => {
+      const request = JSON.parse(init.body); calls.push({ url, method: request.method });
+      if (request.method === 'eth_call' && ++attempts === 1) return new Response(JSON.stringify({
+        jsonrpc: '2.0', id: null, error: { code: -32005, message: 'Compute units per second capacity exceeded: secret' },
+      }), { status: 429, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        result: request.method === 'eth_chainId' ? '0x38' : '0x6000' }),
+      { status: 200, headers: { 'content-type': 'application/json' } });
+    } });
+  const server = createTargetOwnerReadServer(proxy);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/rpc`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(rpc('eth_call', [{ to: '0x' + '11'.repeat(20), data: '0xab' }, 'latest'])),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 7, result: '0x6000' });
+  assert.deepEqual(calls, ['eth_chainId', 'eth_call', 'eth_chainId', 'eth_call'].map(method => ({ url: archive, method })));
+  assert(diagnostics.some(item => item.errorKind === 'cups' && item.idMatches === false));
+  assert(!JSON.stringify(diagnostics).includes('secret'));
+  assert(!JSON.stringify(diagnostics).includes('archive.test'));
+});

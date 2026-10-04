@@ -1,0 +1,14 @@
+[plugin vite:reporter]
+(!) /private/tmp/bemine-upgrade-null-id-throttle-20261004/deploy/shared/integrated-upgrade-plan.mjs is dynamically imported by /private/tmp/bemine-upgrade-null-id-throttle-20261004/deploy/shared/target-owner-upgrade-proof.mjs but also statically imported by /private/tmp/bemine-upgrade-null-id-throttle-20261004/deploy/shared/target-owner-upgrade-plan.mjs, dynamic import will not move module into another chunk.
+
+rendering chunks...
+computing gzip size...
+dist-target-owner/target-owner-upgrade.html                   0.46 kB │ gzip:   0.34 kB
+dist-target-owner/assets/target-owner-upgrade-B0G5ebXi.css   34.76 kB │ gzip:   8.29 kB
+dist-target-owner/assets/target-owner-upgrade-CE82v1f4.js   557.28 kB │ gzip: 190.72 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 678ms

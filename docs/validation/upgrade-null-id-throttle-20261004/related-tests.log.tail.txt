@@ -1,0 +1,14 @@
+✔ roles, Authority owner, chain, event metadata and full schedule delay are mandatory (7699.778292ms)
+✔ reorg or anchor change during the final recheck rejects the whole proof (1342.374708ms)
+✔ persistent catalog pin is mandatory, frozen, and graph adapter verifies all five receipts (2184.701834ms)
+✔ completed history cache saves receipt reads and rejects reorg, version drift and provider substitution (2429.299458ms)
+✔ real ethers Log objects serialize protocol evidence without traversing their provider (1163.640666ms)
+✔ core policy market and preserved portfolio market have independent implementation rows (1355.8985ms)
+ℹ tests 491
+ℹ suites 0
+ℹ pass 490
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 39609.064958

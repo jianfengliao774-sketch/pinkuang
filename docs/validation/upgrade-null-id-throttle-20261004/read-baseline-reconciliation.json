@@ -1,0 +1,19 @@
+{
+  "originalBaselineSha256": "6ada51fb6db0cf9906ee5898fe6155892d6807cd2d5e9fa41d97b7d638110873",
+  "activationBaselineSha256": "ca547e2e249d83ede01c9d08ccbba5eca3f00928698318c5b72f94794b3cde5c",
+  "allowedChangedKeys": [
+    "formalPath",
+    "formalFiles",
+    "upgradePath",
+    "upgradeFiles"
+  ],
+  "formalActivationReceiptSha256": "7d579a96bce525ae7582214f93abda47950186f0689e3b9c58bee518f7169510",
+  "formalPublicVerificationSha256": "14a4400c0b3a20093842fdddf0827822ec2b152a310552e5037c0b0ae9952f04",
+  "formalReleaseSha256": "ebcc7239e9a7d775029efb79f75a4380c8d77c8587b9318f03e3f46db3d12e25",
+  "upgradePublicationSha256": "a8cc57586e8154606af2b40cd8f2bb1d335ce2b59203113791ff43ca5ad1b7ad",
+  "upgradeManifestSha256": "671aae5730093f3b293a7c1d23763c5270015843a9d712923d1f93e75bd6e9ee",
+  "servicesNginxEnvironmentAndOldHelperUnchanged": true,
+  "originalBaselinePreserved": true,
+  "chainActionsPerformed": false,
+  "checkedAt": "2026-10-04T09:42:26.593060+00:00"
+}
