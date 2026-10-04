@@ -23,3 +23,9 @@ A verified finalized failed transaction can be archived, but retrying it require
 `publish.py` replaces only the static upgrade page through an atomic release symlink. It checks the previous release, reviewed JSON pins, new archive, public file hashes, the existing RPC chain identity, business page identity, Nginx configuration fingerprint, and service identities. Previous immutable assets are retained for cached HTML. It does not restart services, rewrite product configuration, or perform chain actions.
 
 Publication and focused verification results are recorded alongside this file after execution. Actual wallet signatures and on-chain upgrade completion are outside static publication verification.
+
+## Executed results
+
+50 focused checks passed (29 component/sequence/journal and 21 plan/proof/package), along with TypeScript and whitespace checks. The candidate package was built from `83bd2180fea2ea7cb066004d75fa4339b39222b7` and published at 2026-10-04T03:17:17.713027+00:00. All ten public files matched the package; the seven reviewed JSON inputs retained their previous bytes. The public browser preview verified the new heading, single primary action, and collapsed technical section without connecting a wallet.
+
+`publication.json`, `publication-pins.json`, `static-release-manifest.json`, `verification.json`, and `upgrade-page.png` preserve the scoped publication evidence. Static publication did not deploy contracts, sign wallet requests, or complete the chain upgrade.
