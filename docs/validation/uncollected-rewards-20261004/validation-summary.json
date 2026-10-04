@@ -1,0 +1,36 @@
+{
+  "checkedAt": "2026-10-04T02:23:01.911133+00:00",
+  "sourceHead": "2cf1a075b658f37a3c730182302b1f602efc035e",
+  "checks": [
+    {
+      "command": "node scripts/catalog-check.mjs",
+      "status": "pass"
+    },
+    {
+      "command": "node scripts/bem-price-check.mjs",
+      "status": "pass"
+    },
+    {
+      "command": "node scripts/review-policy-check.mjs",
+      "status": "pass"
+    },
+    {
+      "command": "node --test scripts/*.test.mjs server/live-api.test.mjs",
+      "tests": 1124,
+      "pass": 1124,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "command": "Next.js 16.3.6 webpack production build and static export",
+      "status": "pass"
+    },
+    {
+      "command": "python3 docs/validation/reward-collection-20261004/smoke-test.py",
+      "status": "pass",
+      "scope": "static publication switch, retained immutable chunk, rollback after failed public proof"
+    }
+  ],
+  "liveTransactionsSent": false,
+  "browserCheck": "Official root route loads with wallet connection boundary; no wallet switch, harvest or claim performed."
+}

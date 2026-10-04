@@ -1,0 +1,10 @@
+{
+  "reader": {
+    "file": "_next/static/chunks/7756-080a0ecf32fd2f95.js",
+    "sha256": "d79a675ca46ef744faba995505fc9ea6268d6421a6d238997c151dc7cb062c91"
+  },
+  "ui": {
+    "file": "_next/static/chunks/app/page-b8409736c670c935.js",
+    "sha256": "4d3a2b92e126a3e3a614f31e7dd660f5f82098157c16cb3d3f9a14eb77b33a95"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "checkedAt": "2026-10-04T02:06:27.004Z",
+  "counts": {
+    "eth_chainId": 2,
+    "eth_getBlockByNumber": 2,
+    "eth_call": 24
+  },
+  "failures": [],
+  "result": {
+    "scope": "loaded-single-pools",
+    "account": "0x6F4d78fB59eC938cBAF65b9fc822aD04d00c155E",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "chainId": "56",
+    "status": "ready",
+    "canonical": true,
+    "complete": true,
+    "error": null,
+    "blockNumber": "125593399",
+    "blockHash": "0x10e3e845671f3840bfe4642d3f16d85f82feaa9208cba4033c81bd3b2795700b",
+    "timestamp": "1791079585",
+    "checkedAt": 1791079584082,
+    "items": [
+      {
+        "pool": "0x84756683C70F4666aAF6E7b26015bA60f503b67B",
+        "status": "ready",
+        "reason": null,
+        "error": null,
+        "bookedBEM": "0",
+        "shares": "50",
+        "uncollectedBEM": "287485",
+        "pendingGrossBEM": "580778",
+        "unaccountedBEM": "0",
+        "grossBEM": "580778",
+        "platformFeeBEM": "5807",
+        "totalEstimatedBEM": "287485",
+        "state": "2",
+        "minerStatus": "1",
+        "blockNumber": "125593399",
+        "blockHash": "0x10e3e845671f3840bfe4642d3f16d85f82feaa9208cba4033c81bd3b2795700b",
+        "timestamp": "1791079585"
+      },
+      {
+        "pool": "0xCBdDf7B35074a28dC89afB7f53f8713DABB8520c",
+        "status": "ready",
+        "reason": null,
+        "error": null,
+        "bookedBEM": "0",
+        "shares": "51",
+        "uncollectedBEM": "100513",
+        "pendingGrossBEM": "199076",
+        "unaccountedBEM": "0",
+        "grossBEM": "199076",
+        "platformFeeBEM": "1990",
+        "totalEstimatedBEM": "100513",
+        "state": "2",
+        "minerStatus": "1",
+        "blockNumber": "125593399",
+        "blockHash": "0x10e3e845671f3840bfe4642d3f16d85f82feaa9208cba4033c81bd3b2795700b",
+        "timestamp": "1791079585"
+      }
+    ],
+    "totals": {
+      "bookedBEM": "0",
+      "uncollectedBEM": "387998",
+      "totalEstimatedBEM": "387998"
+    }
+  }
+}
