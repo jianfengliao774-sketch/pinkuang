@@ -230,13 +230,67 @@ test('the actual positions effect paints old rows immediately, then replaces wai
   };
   for (const name of ['PositionsReadError', 'PositionsReadSource', 'Positions', 'PositionCursor', 'PositionsLoaded',
     'PositionsAccount', 'PositionsReadLoading', 'MarketCredit', 'Source']) context[`set${name}`] = value => { state[name] = value; };
-  const cleanup = effect("if (!client || !['overview', 'rewards', 'governance', 'market'].includes", context);
+  const cleanup = effect("if (!client) return;\n    const personalPage", context);
   assert.equal(state.Positions[0].status, 'Funded'); assert.equal(state.Positions[0].shares, 51n);
   assert.equal(state.PositionsReadLoading, true);
   await turn(); assert.equal(reads, 1); release(); await turn();
   assert.equal(state.Positions[0].status, 'Active'); assert.equal(state.PositionsReadLoading, false);
   assert.equal(readCache.current.get(client).get(`positions:${owner}`).result, after);
   cleanup();
+});
+
+test('home notices reuse personal cache for 60 seconds, honor manual refresh and never poll the paid node', async () => {
+  const fixture = createLiveBrowserFixture(), owner = fixture.account.toLowerCase();
+  const result = { items: fixture.rows, marketBnbOwed: 0n, nextCursor: null,
+    source: { chainId: 56, factory: fixture.manifest.factory, market: fixture.manifest.shareMarket,
+      displayOnly: true, indexedThrough: 101, indexedTimestamp: 1800000000 } };
+  let reads = 0, now = Date.now();
+  const client = { manifest: fixture.manifest, provider: { request: () => assert.fail('No node request for participant notices.') },
+    readPositions: () => assert.fail('No per-pool fallback on the formal homepage.'),
+    readDisplayPositions: async () => { reads++; return result; } };
+  const state = {}, context = { client, account: fixture.account, positionsAccount: null,
+    route: { route: 'home' }, config: { displayOnly: true }, displayRefreshKey: '0:0', Date: { now: () => now },
+    readCache: { current: new WeakMap() }, positionsReadEpoch: { current: 0 },
+    displayOnlySnapshot, displayListSnapshot, canReuseDisplayRead, viewPool,
+    same: (a, b) => Boolean(a && b && a.toLowerCase() === b.toLowerCase()),
+    readPageSnapshot: () => null, displayStorage: () => null, writeDisplaySnapshot: () => true,
+    READ_CANCELLED: Symbol('cancelled'), textError: e => e.message, invalidateDisplayOnReorg: () => {},
+    retryReadRound: fn => Promise.resolve().then(fn),
+  };
+  for (const name of ['PositionsReadError', 'PositionsReadSource', 'Positions', 'PositionCursor', 'PositionsLoaded',
+    'PositionsAccount', 'PositionsReadLoading', 'MarketCredit', 'Source']) context[`set${name}`] = value => { state[name] = value; };
+  let cleanup = effect("if (!client) return;\n    const personalPage", context);
+  await turn(); assert.equal(reads, 1); assert.equal(state.PositionsAccount, fixture.account); assert.equal(state.Positions.length, result.items.length);
+  cleanup(); context.positionsAccount = state.PositionsAccount;
+  const firstSavedAt = context.readCache.current.get(client).get(`positions:${owner}`).savedAt;
+  for (const [route, age] of [['home', 20_000], ['detail', 40_000], ['pools', 59_999]]) {
+    now = firstSavedAt + age; context.route = { route }; context.displayRefreshKey = `0:${age}`;
+    cleanup = effect("if (!client) return;\n    const personalPage", context); await turn();
+    assert.equal(reads, 1, 'Receipt/push opportunities reuse the first cache GET for at most 60 seconds.');
+    assert.equal(state.PositionsReadSource.stale, true); cleanup();
+  }
+  now = firstSavedAt + 60_000; context.route = { route: 'home' }; context.displayRefreshKey = '0:60000';
+  cleanup = effect("if (!client) return;\n    const personalPage", context); await turn();
+  assert.equal(reads, 2, 'An existing display refresh rechecks the cached positions at exactly 60 seconds.'); cleanup();
+  now++; context.displayRefreshKey = '1:60000';
+  cleanup = effect("if (!client) return;\n    const personalPage", context); await turn();
+  assert.equal(reads, 3, 'A manual refresh generation bypasses the 60-second reuse window immediately.'); cleanup();
+  context.displayRefreshKey = '1:60001';
+  cleanup = effect("if (!client) return;\n    const personalPage", context); await turn();
+  assert.equal(reads, 3, 'A following receipt/push does not duplicate the manual cache GET.'); cleanup();
+  context.account = null; context.positionsAccount = fixture.account;
+  effect("if (!client) return;\n    const personalPage", context);
+  assert.deepEqual(state.Positions, []); assert.equal(state.PositionsAccount, null);
+});
+
+test('the notifications route cannot introduce legacy per-pool RPC reads when the display cache endpoint is unavailable', () => {
+  let reads = 0;
+  for (const displayOnly of [false, true]) {
+    const context = { client: { readPositions: () => { reads++; } }, account: '0x' + 'ab'.repeat(20),
+      route: { route: 'notifications' }, config: { displayOnly }, displayRefreshKey: '0:0' };
+    effect("if (!client) return;\n    const personalPage", context);
+  }
+  assert.equal(reads, 0);
 });
 
 test('automatic cache generations do not invalidate cached governance or member RPC sections', async () => {

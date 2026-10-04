@@ -1,0 +1,17 @@
+{
+  "frontendSourceHead": "c6dfcbbcfbd1841aecc51e9a507fa1c711b6080b",
+  "appChunks": [
+    {
+      "path": "_next/static/chunks/app/page-04054a416720a077.js",
+      "sha256": "1f6e9d002f05840b8c635d19d6bebc8dee8bcfdaf14b8d8ca666453a6d8d8ba2",
+      "bytes": 600877,
+      "markers": [
+        "Uncollected single-pool BEM",
+        "BEM to claim (estimated)",
+        "data-asset-rewards-status",
+        "Collect and claim"
+      ],
+      "removedBulkControlsAbsent": true
+    }
+  ]
+}

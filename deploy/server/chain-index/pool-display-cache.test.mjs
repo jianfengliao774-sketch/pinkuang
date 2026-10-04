@@ -17,6 +17,7 @@ const targetOwnerAbi=new Interface(['function ownerOf(uint256) view returns(addr
 const targetModeAbi=new Interface(['function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)']);
 function fixture() {
   let fork=false,failed=false,calls=0,time=1000000,tokenId=12962n,state=2n,currentOwner=account,targetFailed=false;
+  const position={shares:50n,claimableBEM:7n,bnbOwed:11n,contributedWei:55550000000000000n};
   const targetCalls=[];
   const source={complete:true,unknownReason:null,chainId:56,factory,market,startBlock:1,confirmations:12,
     indexedThrough:10,indexedTimestamp:1000,observedSafeHead:10,indexedBlockHash:blockHash,
@@ -52,12 +53,15 @@ function fixture() {
             directSeller:ZeroAddress,directPrice:0n,fundingDeadline:2000n,purchaseDeadline:3000n},
           state,unitPriceWei:1111000000000000n,totalRaised:111100000000000000n,totalSupply:100n,memberCount:2n,
           depositPaused:false,purchaseCost:101000000000000000n,activatedAt:500n,shareTradingAllowed:true,
-          shares:own?50n:0n,lockedShares:0n,availableShares:own?50n:0n,claimableBEM:own?7n:0n,bnbOwed:own?11n:0n,initialContributedWei:own?55550000000000000n:0n}]};
+          shares:own?position.shares:0n,lockedShares:0n,availableShares:own?position.shares:0n,
+          claimableBEM:own?position.claimableBEM:0n,bnbOwed:own?position.bnbOwed:0n,
+          initialContributedWei:own?position.contributedWei:0n}]};
       }
       return iface.encodeFunctionResult(call.name,[value]);
     }};
   return {index,provider,now:()=>time,get calls(){return calls;},fork:()=>{fork=true;},fail:()=>{failed=true;},advance:n=>{time+=n;},
     targetCalls,setOwner:value=>{currentOwner=value;},failTarget:()=>{targetFailed=true;},
+    setPosition:value=>{Object.assign(position,value);},
     nextBlock:()=>{source.indexedThrough++;source.observedSafeHead=source.indexedThrough;
       source.indexedBlockHash='0x'+source.indexedThrough.toString(16).padStart(64,'0');},
     setToken:value=>{tokenId=BigInt(value);},setState:value=>{state=BigInt(value);}};
@@ -198,4 +202,64 @@ test('target history uses its independently supplied verified transport while or
     await cache.refresh();assert.deepEqual(f.targetCalls,['mode','transfers','owner:0x5','owner:0xa'],
       'same-tip materialization adds no target history or current owner requests');
   } finally {await cache.close();}
+});
+
+test('an externally sold Funded target remains in its participant positions with the actual refund deadline and no HTTP RPC',async()=>{
+  const f=fixture();f.setState(1);f.setPosition({claimableBEM:0n,bnbOwed:0n});f.setOwner(address(9));
+  const cache=new PoolDisplayCache(f.index,f.provider,{lens,now:f.now});let server;
+  try {
+    await cache.refresh();server=createChainIndexServer(f.index,{displayCache:cache});
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`,before=f.calls;
+    const response=await fetch(`${base}/v1/display/positions/${account}`);assert.equal(response.status,200);
+    const body=JSON.parse(await response.text(),cacheDecode);assert.equal(body.data.items.length,1);
+    const item=body.data.items[0];
+    assert.equal(item.pool,pool);assert.equal(item.state,1n,'ownership evidence cannot change the on-chain state to Refunding');
+    assert.equal(item.targetAvailability.status,'unavailable');assert.equal(item.targetAvailability.reason,'target_owner_changed');
+    assert.equal(item.targetAvailability.originalOwner,account);assert.equal(item.targetAvailability.currentOwner,address(9));
+    assert.equal(item.shares,50n);assert.equal(item.initialContributedWei,55550000000000000n);
+    assert.equal(item.bnbOwed,0n,'external sale cannot pretend a refund was already credited');
+    assert.equal(item.params.purchaseDeadline,3000n);assert.equal(body.source.indexedTimestamp,1000);
+    assert.equal(body.source.transactionReady,false,'materialized ownership evidence remains display-only');
+    const strangerResponse=await fetch(`${base}/v1/display/positions/${address(99)}`);
+    assert.equal(strangerResponse.status,200);
+    const stranger=JSON.parse(await strangerResponse.text(),cacheDecode);assert.deepEqual(stranger.data.items,[]);
+    assert.equal(stranger.data.marketBnbOwed,0n,'participant credits are not copied to another account');
+    const exact=JSON.parse(await (await fetch(`${base}/v1/display/pools/${pool}?account=${account}`)).text(),cacheDecode);
+    assert.equal(exact.data.item.params.purchaseDeadline,3000n);assert.equal(exact.data.item.shares,50n);
+    assert.equal(f.calls,before,'participant notices and refund timing reuse the existing materialized cache');
+  } finally {await cache.close();if(server)await new Promise(resolve=>server.close(resolve));}
+});
+
+test('a participant who withdraws Funding shares keeps the BNB credit after the sold target is hidden from public participation',async()=>{
+  const f=fixture();f.setState(0);f.setOwner(address(9));
+  f.setPosition({shares:0n,claimableBEM:0n,bnbOwed:55550000000000000n,contributedWei:0n});
+  const cache=new PoolDisplayCache(f.index,f.provider,{lens,now:f.now});let server;
+  try {
+    await cache.refresh();server=createChainIndexServer(f.index,{displayCache:cache});
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`,before=f.calls;
+    const response=await fetch(`${base}/v1/display/positions/${account}`);assert.equal(response.status,200);
+    const body=JSON.parse(await response.text(),cacheDecode);assert.equal(body.data.items.length,1);
+    const item=body.data.items[0];
+    assert.equal(item.state,0n);assert.equal(item.targetAvailability.status,'unavailable');assert.equal(item.shares,0n);
+    assert.equal(item.initialContributedWei,0n,'withdrawDeposit clears the remaining contribution rather than recording all-time principal');
+    assert.equal(item.bnbOwed,55550000000000000n,'the second withdrawal step must remain reachable with zero shares');
+    const publicResponse=await fetch(`${base}/v1/display/pools/${pool}`);assert.equal(publicResponse.status,200);
+    const publicBody=JSON.parse(await publicResponse.text(),cacheDecode);assert.equal(publicBody.data.item.bnbOwed,null);
+    assert.equal(publicBody.data.item.shares,null,'public rows do not disclose or replace per-wallet balances');
+    assert.equal(f.calls,before,'reading the retained withdrawal credit does not issue an HTTP-triggered RPC');
+    f.nextBlock();f.setState(1);await cache.refresh();const fundedCalls=f.calls;
+    const funded=JSON.parse(await (await fetch(`${base}/v1/display/positions/${account}`)).text(),cacheDecode);
+    assert.equal(funded.data.items[0].state,1n);assert.equal(funded.data.items[0].shares,0n);
+    assert.equal(funded.data.items[0].bnbOwed,55550000000000000n,
+      'another member completing funding cannot hide an earlier participant withdrawal credit');
+    assert.equal(f.calls,fundedCalls);
+    f.nextBlock();f.setPosition({bnbOwed:0n});await cache.refresh();const paidCalls=f.calls;
+    const paid=JSON.parse(await (await fetch(`${base}/v1/display/positions/${account}`)).text(),cacheDecode);
+    assert.deepEqual(paid.data.items,[],'only a settled zero-balance position may leave the personal assets list');
+    const exact=JSON.parse(await (await fetch(`${base}/v1/display/pools/${pool}?account=${account}`)).text(),cacheDecode);
+    assert.equal(exact.data.item.bnbOwed,0n,'the historical exact project remains available after its credit is withdrawn');
+    assert.equal(f.calls,paidCalls);
+  } finally {await cache.close();if(server)await new Promise(resolve=>server.close(resolve));}
 });

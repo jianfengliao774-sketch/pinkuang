@@ -15,6 +15,7 @@ const displayDate = (value, locale) => {
 
 /** Parent keys this component by deployment, wallet identity and provider revision. */
 export default function Notifications({ account, wallet, config, locale, route, positions = [], detail, claim,
+  participantNotices = [], positionsSource, positionsLoading = false, positionsError = '', positionsHaveMore = false, onMorePositions,
   blocked = false, onConnect, onOpen, isCurrent = () => true }) {
   const L = (zh, en) => locale === 'zh' ? zh : en;
   const [capabilities, setCapabilities] = useState(null);
@@ -245,6 +246,25 @@ export default function Notifications({ account, wallet, config, locale, route, 
   return <>
     {isPage ? <div className={styles.page}>
       <div className="page-heading"><div><div className="eyebrow">BEMine / NOTIFICATIONS</div><h1>{L('通知中心', 'Notifications')}</h1><p>{L('不错过与你的矿机有关的重要决定。', 'Keep up with important decisions about your miners.')}</p></div></div>
+      {account && <section className={styles.panel} data-participant-notices>
+        <h2>{L('项目下架与退款提醒', 'Project delisting and refund updates')}</h2>
+        <p className={styles.muted}>{L('来自当前钱包已加载的个人项目，不需要绑定 Telegram；下架项目仍可在资产总览和详情页查看退款路径。',
+          'Based on the loaded projects of this wallet; Telegram is not required. Delisted projects remain in My portfolio and their detail pages with the refund path.')}</p>
+        {participantNotices.length > 0 && <ul className={styles.inbox}>{participantNotices.map(item => <li key={item.id}>
+          <strong>{L(...item.view.title)}</strong><p>{item.name} #{item.tokenId}</p><p>{L(...item.view.explanation)}</p>
+          <a className={styles.primary} href={`#detail/${item.pool}`}>{L('查看项目与退款入口', 'View project and refund options')}<ExternalLink size={15}/></a>
+        </li>)}</ul>}
+        {positionsSource?.stale && <p className={styles.muted}>{L('当前提醒来自缓存记录，请打开项目核对最新余额和退款状态。',
+          'These reminders use cached records. Open the project to check current balances and refund state.')}</p>}
+        {positionsLoading && <p className={styles.muted} role="status">{L('正在更新个人项目…', 'Updating personal projects…')}</p>}
+        {positionsError && <p className={styles.muted}>{L('个人项目读取暂时失败，请到资产总览刷新；已加载提醒仍保留。',
+          'Personal projects could not be refreshed. Retry in My portfolio; loaded updates remain visible.')}</p>}
+        {!positionsLoading && !positionsError && participantNotices.length === 0 && <p className={styles.muted}>{L('已加载项目暂无目标转移或待领取退款提醒。',
+          'No target-transfer or claimable-refund reminders in the loaded projects.')}</p>}
+        {positionsHaveMore && <button className={styles.secondary} disabled={blocked || positionsLoading} onClick={onMorePositions}>
+          {L('加载更多个人项目', 'Load more personal projects')}</button>}
+        <a className={styles.textButton} href="#overview">{L('查看我的资产与退款', 'View my assets and refunds')}</a>
+      </section>}
       <section className={styles.panel}><div className={styles.heading}><span className={styles.icon}><Bell size={24}/></span><div><h2>{L('我的矿机通知', 'My miner alerts')}</h2><p>{L('出售提案、投票截止提醒、投票结果与成交消息。', 'Sale proposals, voting reminders, results and completed sales.')}</p></div></div>{controls()}</section>
       {account && inbox()}
     </div> : account && enabled && eligible && ['overview', 'detail'].includes(route) && !status?.connected && <section className={styles.card}>

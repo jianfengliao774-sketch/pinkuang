@@ -1,0 +1,17 @@
+{
+  "verifiedAt": "2026-10-04T02:44:30.335366+00:00",
+  "frontendSourceHead": "c6dfcbbcfbd1841aecc51e9a507fa1c711b6080b",
+  "publicReleaseManifestSha256": "dd1661514b0d4264b8e8796da451f3b3752a877173d61fe73185bbf0ee789685",
+  "chunks": [
+    {
+      "url": "https://bemine.cc.cd/bemine-v5/_next/static/chunks/app/page-04054a416720a077.js",
+      "status": 200,
+      "sha256": "1f6e9d002f05840b8c635d19d6bebc8dee8bcfdaf14b8d8ca666453a6d8d8ba2",
+      "featureMarkersPresent": true
+    }
+  ],
+  "runtimeCutoverRequired": false,
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "signerSourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "machineSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9"
+}
