@@ -408,6 +408,8 @@ export default function LivePlatform() {
   const [expandedProjectRows, setExpandedProjectRows] = useState(() => new Set());
   const mobileDirectoryReturn = useRef(null);
   const epoch = useRef(0),
+    pageReadEpoch = useRef(0),
+    displayReads = useRef(new Set()),
     pageCache = useRef(new WeakMap()),
     readCache = useRef(new WeakMap()),
     positionsReadEpoch = useRef(0),
@@ -437,6 +439,7 @@ export default function LivePlatform() {
     invalidateDisplaySnapshots(displayStorage(), service.manifest);
     invalidateDisplaySnapshots(sessionDisplayStorage(), service.manifest);
     clearRecentPortfolioDisplays();
+    clearWalletDisplay(); setPrepared(null);
     pageCache.current.delete(service);
     readCache.current.delete(service);
   };
@@ -530,12 +533,18 @@ export default function LivePlatform() {
   }, [route.route, operatorAccess]);
 
   useEffect(() => {
+    // Only a real client, wallet account or page identity change retires user-action and members reads.
+    epoch.current++;
+    return () => { epoch.current++; };
+  }, [client, account, route.route, route.pool]);
+
+  useEffect(() => {
     if (!client || !boot.displayOnly) return;
     return startDisplayUpdates(boot, {
       isPaused: () => {
         const state = refreshState.current;
-        return displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy,
-          pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(routeIdentity.current.route) && recordsPageRef.current > 0 })
+        return displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0,
+          pastFirstRecordsPage: recordsPageRef.current > 0 })
           || !automaticDisplayRefreshDue({ lastAttempt: lastPageRefresh.current.get(displayRefreshPage.current),
             now: Date.now(), failed: state.failed || portfolioRead.current.failed });
       },
@@ -836,7 +845,7 @@ export default function LivePlatform() {
         const state = refreshState.current;
         return { ...receiptDisplayState.current, portfolioSource: portfolioRead.current.source,
           visible: document.visibilityState === 'visible',
-          busy: displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy }),
+          busy: displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0 }),
           pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(route.route) && recordsPageRef.current > 0 };
       },
       // This separate generation updates materialized GETs. Governance,
@@ -1000,13 +1009,13 @@ export default function LivePlatform() {
     const page = displayRefreshPageKey(route, account);
     lastPageRefresh.current.set(page, Date.now());
     const check = () => {
-      if (['overview', 'records', 'rewards'].includes(route.route) && recordsPage > 0) return;
+      if (recordsPage > 0) return;
       const state = refreshState.current;
       const now = Date.now();
       if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
         displayOnly: config?.displayOnly,
         visible: document.visibilityState === 'visible',
-        busy: displayRefreshPaused(state, { displayOnly: config?.displayOnly, portfolioBusy: portfolioRead.current.busy }),
+        busy: displayRefreshPaused(state, { displayOnly: config?.displayOnly, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0 }),
         failed: state.failed || portfolioRead.current.failed })) return;
       lastPageRefresh.current.set(page, now);
       if (config?.displayOnly) setReceiptDisplayRefresh(value => value + 1);
@@ -1053,8 +1062,8 @@ export default function LivePlatform() {
       return;
     }
     let cancelled = false;
-    const revision = ++epoch.current;
-    const current = () => !cancelled && revision === epoch.current;
+    const revision = ++pageReadEpoch.current;
+    const current = () => !cancelled && revision === pageReadEpoch.current;
     const accountKey = account?.toLowerCase() || '';
     const pageKey = pageDisplayKey(route, account, marketTab);
     const cache = pageCache.current.get(client);
@@ -1071,6 +1080,13 @@ export default function LivePlatform() {
     const sharedDisplay = shared && displayOnlySnapshot(shared.result, client.manifest, shared.savedAt);
     const cached = recent(saved) ? displayOnlySnapshot(saved.result, client.manifest, saved.savedAt)
       : persisted || (sharedDisplay?.catalog ? { catalog: sharedDisplay.catalog } : null);
+    const silent = config?.displayOnly && cached
+      && loadedRoute === route.route + (route.pool ? `/${route.pool}` : '')
+      && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase();
+    if (silent && saved?.expanded && typeof saved.refresh === 'string'
+      && saved.refresh.split(':')[0] === displayRefreshKey.split(':')[0])
+      return () => { cancelled = true; pageReadEpoch.current++; };
+    const readTicket = {};
     const showResult = result => {
       if (result.catalog) {
         setPools(mergePublishedProjects(result.catalog.items.map(viewPool), publishedProjects.current));
@@ -1090,9 +1106,10 @@ export default function LivePlatform() {
       setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
       setCachedPage(false); setLoading(false); setRevalidating(false);
       setError(''); setReadRetry(null); setReadFailed(false);
-      return () => { cancelled = true; epoch.current++; };
+      return () => { cancelled = true; pageReadEpoch.current++; };
     }
     const clearRound = progress => {
+      if (silent) return;
       setReadRetry(progress.attempt > 1 ? progress : null);
       setReadFailed(false);
       setCachedPage(!!cached);
@@ -1116,8 +1133,9 @@ export default function LivePlatform() {
     async function load() {
       return readPageRound(client, { route, account, marketTab });
     }
+    displayReads.current.add(readTicket);
     retryReadRound(load, { isCurrent: current, onAttempt: clearRound,
-      onRetry: progress => { if (current()) setReadRetry(progress); } })
+      onRetry: progress => { if (current() && !silent) setReadRetry(progress); } })
       .then((result) => {
         if (result === READ_CANCELLED || !current()) return;
         if (result.catalog || result.detail) {
@@ -1130,20 +1148,22 @@ export default function LivePlatform() {
           writePoolDisplaySnapshots(displayStorage(), client.manifest, result, account);
         }
         showResult(result);
-        if (result.detail) setDetailPreview(null);
+        setReadFailed(false);
+        if (result.detail && !silent) setDetailPreview(null);
         setCachedPage(false);
       })
       .catch((e) => {
         if (current()) {
           invalidateDisplayOnReorg(client, e);
-          setError(textError(e));
+          if (!silent) setError(textError(e));
           setReadFailed(true);
           // A failed revalidation must not turn the last verified display into
           // an apparent empty account. Transaction paths still require fresh reads.
-          setCachedPage(!!cached);
+          if (!silent) setCachedPage(!!cached);
         }
       })
       .finally(() => {
+        displayReads.current.delete(readTicket);
         if (current()) {
           setLoading(false);
           setRevalidating(false);
@@ -1152,8 +1172,9 @@ export default function LivePlatform() {
         }
       });
     return () => {
+      displayReads.current.delete(readTicket);
       cancelled = true;
-      epoch.current++;
+      pageReadEpoch.current++;
     };
   }, [client, account, route.route, route.pool, marketTab, displayRefreshKey]);
 
@@ -1172,11 +1193,11 @@ export default function LivePlatform() {
     // The notifications page reuses materialized personal rows; never add per-pool RPC reads.
     if (route.route === 'notifications' && (!config?.displayOnly || !client.readDisplayPositions)) return;
     let cancelled = false;
-    ++positionsReadEpoch.current;
     const owner = account?.toLowerCase();
     setPositionsReadError('');
-    setPositionsReadSource(null);
+
     if (!owner) {
+      ++positionsReadEpoch.current;
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
       setPositionsReadLoading(false);
       return;
@@ -1187,6 +1208,9 @@ export default function LivePlatform() {
     const reuseBackgroundPositions = config?.displayOnly && !personalPage && memory && same(positionsAccount, account)
       && backgroundAge >= 0 && backgroundAge < 60_000 && typeof memory.refresh === 'string'
       && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0];
+    if (config?.displayOnly && memory?.expanded && typeof memory.refresh === 'string'
+      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0] && same(positionsAccount, account)
+      && positions.length > memory.result.items.length) return () => { cancelled = true; };
     const cached = displayListSnapshot(memory && (Date.now() - memory.savedAt < 120_000 || reuseBackgroundPositions)
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1204,9 +1228,12 @@ export default function LivePlatform() {
     if (config?.displayOnly && cached && (canReuseDisplayRead(memory, displayRefreshKey)
       || reuseBackgroundPositions)) {
       setPositionsReadLoading(false);
-      return () => { cancelled = true; ++positionsReadEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setPositionsReadLoading(true);
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++positionsReadEpoch.current;
+    displayReads.current.add(readTicket);
+    setPositionsReadLoading(!silent);
     retryReadRound(() => (client.readDisplayPositions ?? client.readPositions)({ account }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1223,8 +1250,8 @@ export default function LivePlatform() {
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setPositionsReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
-    return () => { cancelled = true; ++positionsReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setPositionsReadLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, displayRefreshKey]);
 
   useEffect(() => {
@@ -1247,16 +1274,19 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!client || route.route !== 'market') return;
     let cancelled = false;
-    ++marketOrdersEpoch.current;
     setMarketOrdersError('');
-    setMarketOrderSource(null);
-    setMarketOrderIdentity('');
+
     if (marketTab === 'whole' || (marketTab === 'mine' && !account)) {
+      ++marketOrdersEpoch.current;
       setOrders([]); setOrderCursor(null); setMarketOrdersLoading(false);
       return;
     }
     const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
     const memory = readCache.current.get(client)?.get(cacheKey);
+    if (config?.displayOnly && memory?.expanded && typeof memory.refresh === 'string'
+      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0]
+      && marketOrderIdentity === `${marketTab}:${account?.toLowerCase() || ''}`
+      && orders.length > memory.result.items.length) return () => { cancelled = true; };
     const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1270,9 +1300,12 @@ export default function LivePlatform() {
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
       setMarketOrdersLoading(false);
-      return () => { cancelled = true; ++marketOrdersEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setMarketOrdersLoading(true);
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++marketOrdersEpoch.current;
+    displayReads.current.add(readTicket);
+    setMarketOrdersLoading(!silent);
     retryReadRound(() => (client.readDisplayOrders ?? client.readOrders)(marketTab === 'mine' ? { seller: account } : { active: true }),
       { isCurrent: () => !cancelled })
       .then(result => {
@@ -1287,25 +1320,30 @@ export default function LivePlatform() {
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setMarketOrdersError(textError(error)); } })
-      .finally(() => { if (!cancelled) setMarketOrdersLoading(false); });
-    return () => { cancelled = true; ++marketOrdersEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setMarketOrdersLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, marketTab, displayRefreshKey]);
 
   useEffect(() => {
     if (!client || !['records', 'overview', 'rewards'].includes(route.route)) return;
     let cancelled = false;
-    ++activityReadEpoch.current;
     const owner = route.route === 'records' ? undefined : account;
-    setRecordsPage(0);
+    const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    if (config?.displayOnly && recordsPageRef.current > 0 && loadedRoute === route.route
+      && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase()
+      && typeof memory?.refresh === 'string' && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0])
+      return () => { cancelled = true; };
+    if (!config?.displayOnly) setRecordsPage(0);
     setActivityReadError('');
-    setActivityReadSource(null);
+
     setActivityTotals({ totalCount: null, overviewTotalCount: null });
     if (route.route !== 'records' && !owner) {
+      ++activityReadEpoch.current;
       setActivity([]); setActivityCursor(null); setActivityReadLoading(false);
       return;
     }
-    const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
-    const memory = readCache.current.get(client)?.get(cacheKey);
+
     const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1320,9 +1358,12 @@ export default function LivePlatform() {
     }
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setActivityReadLoading(false);
-      return () => { cancelled = true; ++activityReadEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setActivityReadLoading(true);
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++activityReadEpoch.current;
+    displayReads.current.add(readTicket);
+    setActivityReadLoading(!silent);
     retryReadRound(() => client.readActivity({ account: owner, limit: 50 }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1337,8 +1378,8 @@ export default function LivePlatform() {
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
-    return () => { cancelled = true; ++activityReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setActivityReadLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, displayRefreshKey]);
 
   useEffect(() => {
@@ -1353,6 +1394,7 @@ export default function LivePlatform() {
     setStatsSource(cached?.source ?? null);
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey))
       return () => { cancelled = true; };
+    const readTicket = {}; displayReads.current.add(readTicket);
     retryReadRound(() => (client.readDisplayStats ?? client.readStats)(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1363,8 +1405,9 @@ export default function LivePlatform() {
         entries.set('stats', { savedAt: Date.now(), refresh: displayRefreshKey, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
       })
-      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } });
-    return () => { cancelled = true; };
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } })
+      .finally(() => displayReads.current.delete(readTicket));
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, route.route, displayRefreshKey]);
 
   function readCachedSection(key, reader, { refreshToken = refresh } = {}) {
@@ -1422,20 +1465,26 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
     let cancelled = false;
-    ++activityReadEpoch.current;
     const pool = route.pool;
     const activityKey = `pool-activity:${pool.toLowerCase()}`;
     const saved = readCache.current.get(client)?.get(activityKey);
+    if (config?.displayOnly && recordsPageRef.current > 0
+      && loadedRoute === `detail/${pool}` && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase()
+      && typeof saved?.refresh === 'string'
+      && saved.refresh.split(':')[0] === displayRefreshKey.split(':')[0]) return;
     const currentActivity = config?.displayOnly && saved?.refresh === displayRefreshKey
       && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
-    const activityCache = currentActivity ?? readPageSnapshot(displayStorage(), client.manifest, activityKey);
-    setActivityReadError(''); setActivityReadLoading(!currentActivity);
+    const activityCache = currentActivity ?? (config?.displayOnly && saved?.result && Date.now() - saved.savedAt < 120_000
+      ? displayOnlySnapshot(saved.result, client.manifest, saved.savedAt)
+      : readPageSnapshot(displayStorage(), client.manifest, activityKey));
+    const silent = config?.displayOnly && !!activityCache, readTicket = {};
+    setActivityReadError(''); setActivityReadLoading(!currentActivity && !silent);
     if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor);
       setActivityReadSource(activityCache.source);
       setActivityTotals({ totalCount: activityCache.totalCount, overviewTotalCount: activityCache.overviewTotalCount }); }
     else { setActivity([]); setActivityCursor(null); setActivityReadSource(null);
       setActivityTotals({ totalCount: null, overviewTotalCount: null }); }
-    if (!currentActivity) void readCachedSection(activityKey, () => client.readActivity({ pool }), { refreshToken: displayRefreshKey })
+    if (!currentActivity) { ++activityReadEpoch.current; displayReads.current.add(readTicket); void readCachedSection(activityKey, () => client.readActivity({ pool }), { refreshToken: displayRefreshKey })
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
           setActivityReadSource(result.source);
@@ -1446,8 +1495,8 @@ export default function LivePlatform() {
           writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
-    return () => { cancelled = true; ++activityReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setActivityReadLoading(false); }); }
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, config?.displayOnly, account, route.route, route.pool, !!detail, loading, displayRefreshKey]);
 
   useEffect(() => { setRecordsPage(0); }, [client, route.route, route.pool, account]);
@@ -2442,6 +2491,8 @@ export default function LivePlatform() {
         if (revision !== epoch.current) return false;
         setPools((old) => [...old, ...result.items.map(viewPool)]);
         setPoolCursor(result.nextCursor);
+        const saved = pageCache.current.get(client)?.get(pageDisplayKey(route, account, marketTab));
+        if (saved) saved.expanded = true;
       } else if (kind === "positions") {
         const result = await (client.readDisplayPositions ?? client.readPositions)({
           account,
@@ -2451,6 +2502,8 @@ export default function LivePlatform() {
         if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return false;
         setPositions((old) => [...old, ...result.items.map(viewPool)]);
         setPositionCursor(result.nextCursor);
+        const saved = readCache.current.get(client)?.get(`positions:${account?.toLowerCase()}`);
+        if (saved) saved.expanded = true;
       } else if (kind === "orders") {
         const result = await (client.readDisplayOrders ?? client.readOrders)({
           ...(marketTab === "mine" ? { seller: account } : { active: true }),
@@ -2460,6 +2513,8 @@ export default function LivePlatform() {
         if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return false;
         setOrders((old) => [...old, ...result.items]);
         setOrderCursor(result.nextCursor);
+        const saved = readCache.current.get(client)?.get(marketTab === 'mine' ? `orders:${account?.toLowerCase()}` : 'orders:active');
+        if (saved) saved.expanded = true;
       } else {
         const result = await client.readActivity({
           pool: route.route === "detail" ? route.pool : undefined,
@@ -2533,10 +2588,15 @@ export default function LivePlatform() {
       secondary
       onClick={() => {
         if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
-        if (refreshState.current.loading || portfolioRead.current.busy || submissionLock.current) return;
+        if (refreshState.current.loading || displayReads.current.size || portfolioRead.current.busy || submissionLock.current) return;
+        setRecordsPage(0);
+        const catalog = pageCache.current.get(client)?.get(pageDisplayKey(route, account, marketTab));
+        if (catalog) catalog.expanded = false;
+        for (const entry of readCache.current.get(client)?.values() || []) entry.expanded = false;
         const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
         if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) {
+          setRefresh(v => v + 1);
           setRewardsRefresh(v => v + 1);
           setReceiptDisplayRefresh(v => v + 1); return;
         }

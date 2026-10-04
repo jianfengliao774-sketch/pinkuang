@@ -1,0 +1,18 @@
+{
+  "kind": "public-browser-validation",
+  "observer": "parent release task",
+  "runningFrontendSourceHead": "b61a835a50ba876ddcd3f046ad2160d3041ec266",
+  "route": "#pools",
+  "initialSearch": "16735",
+  "elapsedSeconds": 62.858,
+  "inputValueRetained": true,
+  "inputFocusRetained": true,
+  "scrollYBefore": 99,
+  "scrollYAfter": 99,
+  "indexedThroughBefore": 125643614,
+  "indexedThroughAfter": 125643749,
+  "manualRefreshIndexedThrough": 125645181,
+  "manualRefreshSucceeded": true,
+  "testSearchClearedAfterValidation": true,
+  "walletTransactionsSubmitted": false
+}
