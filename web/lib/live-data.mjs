@@ -6,6 +6,7 @@ import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceStat
   DEFAULT_SALE_REVIEW_THRESHOLD_BPS, readSaleReviewThreshold } from './sale-governance-gate.mjs';
 import { readMiningOverviewStats } from './mining-overview.mjs';
 import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
+import { createUncollectedRewardReader } from './uncollected-rewards.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -159,6 +160,7 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
   insist(config?.status === 'ready', 'unconfigured', '尚未配置已核验的正式合约。');
   const manifest = validateManifest(config.manifest, config.stage === 'genesis' ? GENESIS_ARTIFACT_DIGEST : undefined);
   const rpc = provider ?? createReadOnlyHttpProvider(config, { fetcher });
+  const readUncollectedRewards = createUncollectedRewardReader({ provider: rpc, config, now });
   // Browsing reads use the same-origin index's source and business fields.
   // Transaction preparation has its own latest-chain checks in live-actions.
   const displayReads = config.productFamily === 'fresh-v4';
@@ -855,5 +857,5 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         accountClaimedAtomic: account ? exact(row.accountClaimedAtomic, 'accountClaimedAtomic') : null }; });
     return Object.freeze({ source, data: Object.freeze({ ...data, buckets, accountUnclaimedDailyAccrual: null }) });
   }
-  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readDisplayPool, readDisplayPools, readDisplayPositions, readDisplayOrders, readDisplayStats, readPools, readPool, readPositions, readStats, readOrders, readGovernance, readActivity, readYield });
+  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readUncollectedRewards, readDisplayPool, readDisplayPools, readDisplayPositions, readDisplayOrders, readDisplayStats, readPools, readPool, readPositions, readStats, readOrders, readGovernance, readActivity, readYield });
 }

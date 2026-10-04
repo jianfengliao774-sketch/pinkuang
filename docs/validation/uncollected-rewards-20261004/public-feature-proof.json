@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-10-04T02:21:54.367970+00:00",
+  "site": "https://bemine.cc.cd",
+  "assets": [
+    {
+      "role": "reader",
+      "url": "https://bemine.cc.cd/bemine-v5/_next/static/chunks/7756-080a0ecf32fd2f95.js",
+      "httpStatus": 200,
+      "bytes": 449030,
+      "sha256": "d79a675ca46ef744faba995505fc9ea6268d6421a6d238997c151dc7cb062c91"
+    },
+    {
+      "role": "ui",
+      "url": "https://bemine.cc.cd/bemine-v5/_next/static/chunks/app/page-b8409736c670c935.js",
+      "httpStatus": 200,
+      "bytes": 597334,
+      "sha256": "4d3a2b92e126a3e3a614f31e7dd660f5f82098157c16cb3d3f9a14eb77b33a95"
+    }
+  ],
+  "frontendSourceHead": "2cf1a075b658f37a3c730182302b1f602efc035e",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "uiOnlyRelease": true
+}

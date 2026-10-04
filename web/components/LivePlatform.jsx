@@ -331,6 +331,9 @@ export default function LivePlatform() {
   const [rewardCollection, setRewardCollection] = useState(null);
   const [rewardRecovery, setRewardRecovery] = useState(null);
   const [rewardRecoveryHash, setRewardRecoveryHash] = useState('');
+  const [uncollectedRewards, setUncollectedRewards] = useState(null);
+  const [rewardsRefresh, setRewardsRefresh] = useState(0);
+  const uncollectedRequest = useRef(null);
   const rewardRecoveryRef = useRef(null), rewardStop = useRef(false);
   const rewardIdentity = useRef(null), rewardMounted = useRef(true);
   const [transactionResults, setTransactionResults] = useState([]);
@@ -438,7 +441,8 @@ export default function LivePlatform() {
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
-  refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading,
+  refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading
+      || route.route === 'rewards' && uncollectedRewards?.status === 'loading',
     busy, inputModal: !!modal, modal: !!modal || !!transactionResult, pending: !!pending,
     failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
@@ -1143,6 +1147,13 @@ export default function LivePlatform() {
     };
   }, [client, account, route.route, route.pool, marketTab, displayRefreshKey]);
 
+  // Pending output is read only for the loaded rewards page. Index/price ticks
+  // do not start paid per-miner reads; manual refresh and settled transactions do.
+  const rewardPoolsKey = same(positionsAccount, account)
+    ? [...new Set(positions.map(p => p.pool.toLowerCase()))].sort().join(',') : '';
+  const rewardReadKey = client && account
+    ? `${client.manifest.factory.toLowerCase()}:${account.toLowerCase()}:${rewardPoolsKey}` : '';
+
   useEffect(() => {
     if (!client || !['overview', 'rewards', 'governance', 'market'].includes(route.route)) return;
     let cancelled = false;
@@ -1195,6 +1206,23 @@ export default function LivePlatform() {
       .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
     return () => { cancelled = true; ++positionsReadEpoch.current; };
   }, [client, account, route.route, displayRefreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUncollectedRewards(null);
+    if (route.route !== 'rewards' || !client?.readUncollectedRewards || !account
+      || !positionsLoaded || !same(positionsAccount, account)) return;
+    const revision = `${refresh}:${rewardsRefresh}`;
+    const previous = uncollectedRequest.current;
+    const force = previous?.client === client && previous.key === rewardReadKey
+      && previous.revision !== revision;
+    uncollectedRequest.current = { client, key: rewardReadKey, revision };
+    setUncollectedRewards({ status: 'loading', requestKey: rewardReadKey, client });
+    client.readUncollectedRewards({ account, positions, force })
+      .then(result => { if (!cancelled) setUncollectedRewards({ ...result, requestKey: rewardReadKey, client }); })
+      .catch(() => { if (!cancelled) setUncollectedRewards({ status: 'unavailable', requestKey: rewardReadKey, client }); });
+    return () => { cancelled = true; };
+  }, [client, account, route.route, positionsLoaded, positionsAccount, rewardPoolsKey, refresh, rewardsRefresh]);
 
   useEffect(() => {
     if (!client || route.route !== 'market') return;
@@ -2486,7 +2514,10 @@ export default function LivePlatform() {
         if (refreshState.current.loading || portfolioRead.current.busy || submissionLock.current) return;
         const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
-        if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) { setReceiptDisplayRefresh(v => v + 1); return; }
+        if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) {
+          if (route.route === 'rewards') setRewardsRefresh(v => v + 1);
+          setReceiptDisplayRefresh(v => v + 1); return;
+        }
         setRefresh(v => v + 1);
         if (boot.displayOnly) return;
         // Refresh page data immediately; only rebootstrap the page if the
@@ -2518,10 +2549,11 @@ export default function LivePlatform() {
       {L("刷新", "Refresh")}
     </Button></div>
   );
-  const claimable = positionsLoaded
-      ? sumKnown(positions, "claimableBEM")
-      : null,
-    poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const rewardsView = uncollectedRewards?.client === client && uncollectedRewards?.requestKey === rewardReadKey
+    ? uncollectedRewards : null;
+  const rewardEstimate = rewardsView?.totals?.totalEstimatedBEM ?? null;
+  const rewardEstimates = new Map((rewardsView?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
   const currentPoolQuote = p => {
     const quote = p && poolCapacity[p.pool.toLowerCase()];
     return quote?.requestKey === capacityRequestKey(poolCapacityInput(p)) && quote.available && quote.validUntil > capacityNow
@@ -2707,6 +2739,10 @@ export default function LivePlatform() {
   };
   const claimTable = () => {
     const rows = positions.map(p => {
+      const estimate = rewardEstimates.get(p.pool.toLowerCase());
+      const bookedRow = estimate?.status === 'ready' ? { ...p, claimableBEM: estimate.bookedBEM } : p;
+      const bemClaim = claimState(bookedRow, 'BEM', estimate?.status === 'ready'
+        ? { indexedThrough: estimate.blockNumber } : positionsReadSource);
       const cells = {
         miner: <>
           <button
@@ -2717,7 +2753,10 @@ export default function LivePlatform() {
           </button>
         </>,
         bem: <>
-          {amount(p.claimableBEM, 8)}
+          {amount(bookedRow.claimableBEM, 8)}
+        </>,
+        uncollected: <>
+          {amount(estimate?.uncollectedBEM ?? null, 8)}
         </>,
         bnb: <>
           {amount(p.bnbOwed)}
@@ -2726,10 +2765,10 @@ export default function LivePlatform() {
           <div className="live-actions">
             <Button
               secondary
-              disabled={!positionsActionReadyFor('claim') || busy || !claimState(p, 'BEM', positionsReadSource).canClaim}
-              onClick={() => openAction("claim", p)}
+              disabled={!positionsActionReadyFor('claim') || busy || !bemClaim.canClaim}
+              onClick={() => openAction("claim", bookedRow)}
             >
-              {L(claimState(p, 'BEM', positionsReadSource).labelZh, claimState(p, 'BEM', positionsReadSource).labelEn)}
+              {L(bemClaim.labelZh, bemClaim.labelEn)}
             </Button>
             <Button
               secondary
@@ -2753,6 +2792,7 @@ export default function LivePlatform() {
       return { key: p.pool, cells, identity: cells.miner,
         fields: [
           { key: 'bem', label: L("可领取 BEM", "Claimable BEM"), value: cells.bem },
+          { key: 'uncollected', label: L("待归集 BEM（预计）", "Uncollected BEM (estimated)"), value: cells.uncollected },
           { key: 'bnb', label: L("待领取 BNB", "Claimable BNB"), value: cells.bnb }
         ], actions: cells.actions };
     });
@@ -2769,13 +2809,14 @@ export default function LivePlatform() {
           <thead>
             <tr>
               <th>{L("矿机", "Miner")}</th>
-              <th>BEM</th>
+              <th>{L('已入账 BEM', 'Booked BEM')}</th>
+              <th>{L('待归集 BEM（预计）', 'Uncollected BEM (estimated)')}</th>
               <th>BNB</th>
               <th>{L("操作", "Actions")}</th>
             </tr>
           </thead>
           <tbody>{rows.map(row => <tr key={row.key}>
-            {['miner', 'bem', 'bnb', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
+            {['miner', 'bem', 'uncollected', 'bnb', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
           </tr>)}</tbody>
         </table>
         {!rows.length && empty}
@@ -3919,15 +3960,11 @@ export default function LivePlatform() {
               <div className="metrics">
                 <Metric
                   primary
-                  title={!config?.displayOnly && positionsReadSource?.stale
-                    ? L("上次核验可领取 BEM", "BEM claim at last verification")
-                    : L("单矿机可领取 BEM", "Single-miner claimable BEM")}
-                  value={amount(claimable, 8)}
+                  title={L('单矿机待领取 BEM（预计）', 'Single-miner BEM rewards (estimated)')}
+                  value={amount(rewardEstimate, 8)}
                   unit="BEM"
-                  note={L(
-                    "已加载矿池 · 不含待归集",
-                    "Loaded pools · excludes uncollected output",
-                  )}
+                  note={<>{L('已入账', 'Booked')} {amount(rewardsView?.totals?.bookedBEM ?? null, 8)}
+                    {' · '}{L('待归集', 'Uncollected')} {amount(rewardsView?.totals?.uncollectedBEM ?? null, 8)}</>}
                 />
                 <Metric
                   title={L("单矿机待领取 BNB", "Single-miner claimable BNB")}
@@ -3971,6 +4008,15 @@ export default function LivePlatform() {
                   'Processes the loaded single-miner pools below. Confirm each transaction and pay Gas; zero claims are skipped. Market proceeds and portfolios are claimed separately.')}
                   {!!positionCursor && <> {L('还有未加载矿机，请先加载更多。', 'More pools are not loaded. Load more first.')}</>}
                 </p>}
+                <p className="subtle-note" style={{ margin: '0 24px 20px' }} data-uncollected-rewards-status={rewardsView?.status ?? 'idle'}>
+                  {rewardsView?.status === 'loading'
+                    ? L('正在读取待归集收益…', 'Reading uncollected output…')
+                    : ['partial', 'unavailable'].includes(rewardsView?.status)
+                      ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+                      : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。仅汇总已加载矿池。',
+                        'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection. Includes loaded pools only.')}
+                  {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
+                </p>
                 {(rewardCollection || rewardRecovery) && <RewardCollectionStatus locale={locale}
                   run={{ ...(rewardCollection || { status: 'stopped', account, result: { reason: 'unknown', steps: [] } }),
                     recovery: rewardRecovery, ...(rewardRecovery?.status === 'invalid' ? { result: { reason: 'error', error: rewardRecovery.error } } : {}) }}
