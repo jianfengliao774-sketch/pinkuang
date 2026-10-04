@@ -3995,12 +3995,6 @@ export default function LivePlatform() {
                     <Button disabled={busy || !!pending || !!rewardRecovery || !positions.length
                       || !positionsActionReadyFor('harvest') || !positionsActionReadyFor('claim')}
                       onClick={() => void collectRewards('collect-and-claim')}>{L('一键归集并领取', 'Collect and claim')}</Button>
-                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
-                      || !positionsActionReadyFor('harvest')}
-                      onClick={() => void collectRewards('collect-only')}>{L('一键归集', 'Collect all loaded')}</Button>
-                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
-                      || !positionsActionReadyFor('claim')}
-                      onClick={() => void collectRewards('claim-only')}>{L('一键领取', 'Claim all loaded')}</Button>
                   </div>}
                 </div>
                 {config?.displayOnly && <p className="inline-note" style={{ margin: '0 24px 20px' }}>{L(
