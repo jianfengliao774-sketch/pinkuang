@@ -6,6 +6,34 @@ import { SHARE_ARTWORKS } from '../lib/share-artwork.mjs';
 const pool = `0x${'a1'.repeat(20)}`;
 const origin = 'https://tapeout.cc.cd';
 
+test('canonical root demo and live invitations preserve project, artwork and source', () => {
+  const canonicalOrigin = 'https://bemine.cc.cd';
+  for (const art of SHARE_ARTWORKS) for (const source of [undefined, 'tg', 'x', 'native']) for (const demo of [true, false]) {
+    const path = demo ? '/preview.html' : '/', id = demo ? '16928' : pool;
+    const direct = `${canonicalOrigin}${path}${source ? `?source=${source}` : ''}#detail/${id}`;
+    const invitation = new URL(makeArtworkShareUrl(direct, art.id));
+    assert.equal(invitation.origin, canonicalOrigin);
+    assert.equal(invitation.pathname, `/share/${art.id}.html`);
+    assert.equal(invitation.searchParams.get('mode'), demo ? 'demo' : 'live');
+    assert.equal(invitation.searchParams.get('project'), id);
+    assert.equal(resolveArtworkShareTarget(invitation.search, ''), direct.slice(canonicalOrigin.length));
+  }
+});
+
+test('root invitations reject untrusted origins, injected parameters and normalized malicious paths', () => {
+  for (const input of [
+    `https://evil.example/#detail/${pool}`, `https://bemine.cc.cd.evil.example/#detail/${pool}`,
+    `http://bemine.cc.cd/#detail/${pool}`, `https://user:pass@bemine.cc.cd/#detail/${pool}`,
+    `https://bemine.cc.cd/?redirect=https://evil.example#detail/${pool}`,
+    `https://bemine.cc.cd/?source=tg&source=x#detail/${pool}`,
+    `https://bemine.cc.cd/arbitrary/#detail/${pool}`, `https://bemine.cc.cd//preview.html#detail/16928`,
+    `https://bemine.cc.cd/nested/../preview.html#detail/16928`,
+    `https://bemine.cc.cd/%2e%2e/preview.html#detail/16928`,
+    `https://bemine.cc.cd/\\preview.html#detail/16928`,
+    `https://bemine.cc.cd/%2fpreview.html#detail/16928`,
+  ]) assert.equal(makeArtworkShareUrl(input), null, input);
+});
+
 test('every artwork preserves the same verified project and attribution through its static landing', () => {
   for (const art of SHARE_ARTWORKS) for (const source of [undefined, 'tg', 'x']) for (const demo of [true, false]) {
     const path = demo ? '/bemine/preview.html' : '/bemine/';
@@ -17,6 +45,15 @@ test('every artwork preserves the same verified project and attribution through 
     assert.equal(invitation.searchParams.get('project'), id);
     assert.equal(resolveArtworkShareTarget(invitation.search), direct.slice(origin.length));
     assert.equal(invitation.hash, '');
+  }
+});
+
+test('existing versioned product links keep their original prefix', () => {
+  for (const base of ['/bemine-v2', '/bemine-v5']) for (const demo of [true, false]) {
+    const direct = `${origin}${base}/${demo ? 'preview.html' : ''}#detail/${demo ? '16928' : pool}`;
+    const invitation = new URL(makeArtworkShareUrl(direct));
+    assert.equal(invitation.pathname, `${base}/share/original.html`);
+    assert.equal(resolveArtworkShareTarget(invitation.search, base), direct.slice(origin.length));
   }
 });
 
