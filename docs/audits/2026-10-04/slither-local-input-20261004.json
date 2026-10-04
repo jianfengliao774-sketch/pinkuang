@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "local-slither-review-input-v1",
+  "sourceCommit": "8caecbf4f8d677b5414e2a2248cb1f1cff23c632",
+  "tool": "slither-analyzer 0.11.5",
+  "solc": "0.8.24+commit.e11b9ed9.Darwin.appleclang",
+  "rawJsonSha256": "65fd926b4527c62ec6a3b2f5df844e90838db6e2e105801c409f356c122b9d3b",
+  "rawJsonBytes": 5914382,
+  "rawExitCode": 255,
+  "counts": {
+    "Medium": 5,
+    "Low": 92,
+    "Informational": 55
+  },
+  "sourceSha256": {
+    "contracts/src/PoolVault.sol": "e70eaf0552b678fc29e6d1c6661d55ceec6e5e6bc422def733a04c5b5969be1a",
+    "contracts/src/libraries/FirstoSale.sol": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+    "contracts/src/libraries/SaleSettlement.sol": "f951d8a7ff40f268cbe3596947690d4882967c2f5ceacbc79768f41de78ab4d8",
+    "contracts/src/libraries/RewardAccounting.sol": "0538ce9d4e66d5b834bd18977ccb8aaae78d86ff2e3f0c0b0512120a44b096e1",
+    "contracts/src/libraries/PoolFunds.sol": "a2ccb8b7c80de71f27d178af1302b102cffd4faf55d1022ffb63447d9612a060"
+  }
+}
