@@ -91,11 +91,11 @@ function harness({ account = proposer, ambiguousSend = false } = {}) {
     dispose() { for (const slot of slots) slot?.cleanup?.(); globalThis.window = previousWindow; globalThis.fetch = previousFetch; } };
 }
 
-test('native upgrade renders five transactions and exact five-decimal existing price without asking the wallet on mount', async () => {
+test('native upgrade renders five transactions and four-decimal existing price without asking the wallet on mount', async () => {
   const ui = harness(); try {
     await ui.settle(); assert.deepEqual(ui.sends, []); assert.deepEqual(ui.reads, []);
     assert.match(ui.urls[0], /\/data\/native-firsto-upgrade\.full-test\.json$/);
-    assert.match(ui.text(), /共 5 笔钱包交易/); assert.match(ui.text(), /0\.04000 BNB/);
+    assert.match(ui.text(), /共 5 笔钱包交易/); assert.match(ui.text(), /0\.0400 BNB/);
     assert.match(ui.text(), /待领取收益随矿机/); assert.match(ui.text(), /网络 Gas 不退/);
     assert.equal(ui.button('开始启用').props.disabled, true);
   } finally { ui.dispose(); }

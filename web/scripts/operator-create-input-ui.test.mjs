@@ -178,7 +178,7 @@ test('actual apply-quote and modal-preview callbacks preserve every quoted Wei d
   assert.equal(preview.disabled, false);
   ui.field('募集总额').onFocus(); ui.render();
   assert.equal(ui.field('募集总额').value, '0.0044000000000001');
-  ui.field('募集总额').onBlur(); ui.render(); assert.match(ui.field('募集总额').value, /0.00440/);
+  ui.field('募集总额').onBlur(); ui.render(); assert.match(ui.field('募集总额').value, /0\.0044/);
   ui.field('购机价格上限').onFocus(); ui.render(); assert.equal(ui.field('购机价格上限').value, '0.004000000000000001');
   ui.field('购机价格上限').onBlur(); ui.render();
   const currentDialog = elements(ui.tree).find(node => node.type === Dialog && node.props.title === '募集方案已填入');

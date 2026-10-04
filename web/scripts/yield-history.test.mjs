@@ -33,7 +33,7 @@ test('actual chart marks 7/30 selection and shows the exact collected BEM bar',(
   assert.deepEqual(buttons.map(row=>[row.props.className,row.props['aria-pressed']]),[['selected',true],['',false]]);
   buttons[1].props.onClick();assert.deepEqual(clicks,[30]);
   const html=renderToStaticMarkup(tree);
-  assert.match(html,/0\.00116/);assert.match(html,/本期矿池归集 0\.00116 BEM，7 天/);
+  assert.match(html,/0\.0012/);assert.match(html,/本期矿池归集 0\.0012 BEM，7 天/);
   assert.equal(elements(tree).filter(row=>row.props?.className==='live-yield-column').length,7);
   const bars=elements(tree).filter(row=>row.type==='span'&&row.props?.style?.height);
   assert.equal(bars.at(-1).props.style.height,'100%');
@@ -43,13 +43,13 @@ test('actual chart marks 7/30 selection and shows the exact collected BEM bar',(
 
 test('zero income is distinct from loading/failure, and failure or range switching preserves honestly labelled history',()=>{
   const zero=renderToStaticMarkup(Chart({data:dataFor(7,0n),locale:'zh',days:7}));
-  assert.match(zero,/0\.00000/);assert.match(zero,/近 7 天暂无收益归集/);
+  assert.match(zero,/0\.0000/);assert.match(zero,/近 7 天暂无收益归集/);
   const loading=renderToStaticMarkup(Chart({locale:'zh',days:7,loading:true}));
-  assert.match(loading,/正在读取收益/);assert(!loading.includes('0.00000'));
+  assert.match(loading,/正在读取收益/);assert(!loading.includes('0.0000'));
   const failed=renderToStaticMarkup(Chart({data:dataFor(7),locale:'zh',days:7,error:'HTTP 502'}));
-  assert.match(failed,/role="alert"/);assert.match(failed,/已保留上次读取的数据/);assert.match(failed,/0\.00116/);
+  assert.match(failed,/role="alert"/);assert.match(failed,/已保留上次读取的数据/);assert.match(failed,/0\.0012/);
   const switched=renderToStaticMarkup(Chart({data:dataFor(7),locale:'zh',days:30,loading:true}));
-  assert.match(switched,/暂显示已加载的 7 天数据/);assert.match(switched,/本期矿池归集 0\.00116 BEM，7 天/);
+  assert.match(switched,/暂显示已加载的 7 天数据/);assert.match(switched,/本期矿池归集 0\.0012 BEM，7 天/);
   const unknown=yieldChartModel({...dataFor(7),buckets:[{date:'2026-10-01',poolHarvestNetAtomic:null}]});
   assert.equal(unknown,null,'invalid/missing amounts do not become fabricated zeros');
 });

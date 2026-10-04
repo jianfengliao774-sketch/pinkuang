@@ -69,7 +69,7 @@ const page = (rows = [row()], overrides = {}) => ({ rows, nextCursor: null, comp
 const baseProps = () => ({ config, provider: { request: async () => assert.fail('Unexpected RPC') },
   wallet: { request: async () => assert.fail('Unexpected wallet use') }, account: address(7), refreshKey: 0 });
 
-test('history shows receiving administrator, separate five-decimal amounts and receipt links without inputs', async () => {
+test('history shows receiving administrator, separate four-decimal amounts and receipt links without inputs', async () => {
   const props = baseProps(), ui = host(props, () => page([row(), row(2, { timestamp: null, bnbAmountWei: 0n, bemAmountWei: 0n })]));
   await ui.settle();
   assert.equal(ui.reads.length, 1, 'initial effects issue a single read');
@@ -80,7 +80,7 @@ test('history shows receiving administrator, separate five-decimal amounts and r
   const nodes = elements(ui.tree), links = nodes.filter(node => node.type === 'a');
   assert(links.some(link => link.props.href === view.explorerAddress(row().administrator) && text(link) === row().administrator));
   assert(links.some(link => link.props.href === view.explorerTransaction(row().transactionHash) && link.props.title === row().transactionHash));
-  assert.match(text(ui.tree), /0\.00500/); assert.match(text(ui.tree), /0\.45000/); assert.match(text(ui.tree), /0\.00000/);
+  assert.match(text(ui.tree), /0\.0050/); assert.match(text(ui.tree), /0\.4500/); assert.match(text(ui.tree), /0\.0000/);
   assert.match(text(ui.tree), /—/); assert.match(text(ui.tree), /20000/);
   assert.equal(nodes.some(node => ['input', 'select', 'textarea'].includes(node.type)), false); ui.unmount();
 });

@@ -41,17 +41,17 @@ test('actual price component retains a fresh quote through failed refreshes, exp
   globalThis.setTimeout=()=>2;globalThis.clearTimeout=()=>{};
   const initial=quote();response={ok:true,json:async()=>initial};
   assert.match(render(),/正在获取行情/);mounted=true;cleanup=effects[0]();await tick();
-  assert.match(render(),/34\.90/);assert.match(render('home'),/34\.90/);
+  assert.match(render(),/34\.8990/);assert.match(render('home'),/34\.8990/);
   assert.doesNotMatch(render(),/34\.89896|≈/);
-  assert.match(await refresh(15_000,{ok:false}),/34\.90/,'one HTTP failure does not discard a fresh price');
-  assert.match(await refresh(15_000,new Error('temporary timeout')),/34\.90/,'one network failure does not discard a fresh price');
-  assert.match(await refresh(15_000,{ok:true,json:async()=>({...initial,tokenAddress:'0xwrong'})}),/34\.90/,
+  assert.match(await refresh(15_000,{ok:false}),/34\.8990/,'one HTTP failure does not discard a fresh price');
+  assert.match(await refresh(15_000,new Error('temporary timeout')),/34\.8990/,'one network failure does not discard a fresh price');
+  assert.match(await refresh(15_000,{ok:true,json:async()=>({...initial,tokenAddress:'0xwrong'})}),/34\.8990/,
    'an invalid refreshed quote cannot replace or erase the still-valid prior quote');
   const expired=await refresh(15_001,new Error('still unavailable'));
-  assert.match(expired,/行情暂不可用/);assert.doesNotMatch(expired,/34\.90/,
+  assert.match(expired,/行情暂不可用/);assert.doesNotMatch(expired,/34\.8990/,
    'failures never extend the original quote timestamp beyond its 60 second validity');
   const recovered=await refresh(0,{ok:true,json:async()=>({...quote(),priceUsdt:35.126})});
-  assert.match(recovered,/35\.13/);assert.doesNotMatch(recovered,/行情暂不可用/);
+  assert.match(recovered,/35\.1260/);assert.doesNotMatch(recovered,/行情暂不可用/);
   assert.equal(requests,6);
  }finally{
   cleanup?.();Date.now=saved.now;
