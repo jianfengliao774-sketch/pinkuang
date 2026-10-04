@@ -7,6 +7,7 @@ import {getAddress} from 'ethers';
 import {createWalletConnectConnector, standardWalletConnectProvider} from '../../deploy/shared/walletconnect.mjs';
 import {connectWallet, sendProductTransaction} from '../lib/live-transactions.mjs';
 import {startWalletSession} from '../lib/wallet-session.mjs';
+import {saveWalletPreference,clearWalletPreference} from '../lib/wallet-reload.mjs';
 import {abi} from '../lib/chain-client.mjs';
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const account='0x0000000000000000000000000000000000000001';
@@ -32,13 +33,17 @@ function liveHandlers(c,checkWallet,options={}){
  const functions=source.slice(source.indexOf('  function cancelWalletScan()'),source.indexOf('  function showTransactionProgress('));
  assert(functions.includes('async function selectWallet'),'Review harness must use actual current component functions');
  const target={type:'connect-wallet',...options.modal};
- const state={wallet:options.wallet??null,account:options.account??null,busy:false,error:null,modal:target,prepared:{account:'old'},pending:{account:'old'}},refs={connectionLock:{current:null},activeModal:{current:target},epoch:{current:0},walletEpoch:{current:0},connectedWallet:{current:options.wallet??null},qrConnector:{current:c},walletLanguage:{current:'en'}};
+ const state={wallet:options.wallet??null,account:options.account??null,walletConnectionRevision:0,busy:false,error:null,modal:target,prepared:{account:'old'},pending:{account:'old'}},refs={connectionLock:{current:null},activeModal:{current:target},epoch:{current:0},walletEpoch:{current:0},connectedWallet:{current:options.wallet??null},connectedSession:{current:options.wallet?{provider:options.wallet}:null},restoredProvider:{current:options.restoredProvider??null},qrConnector:{current:c},walletLanguage:{current:'en'}};
  const context={...refs,busy:false,wallet:state.wallet,account:state.account,locale:'en',walletConnectEnabled:true,discovery:{current:options.wallets?{getWallets:()=>options.wallets}:null},walletConnectForPage:()=>c,connectWallet:checkWallet,getAddress:x=>x,L:(_,en)=>en,walletConnectionError:e=>e.message,
-  clearWalletDisplay:()=>{}};
+  clearWalletDisplay:()=>{},saveWalletPreference,clearWalletPreference,displayStorage:()=>null,
+  setWalletConnectionRevision:value=>{state.walletConnectionRevision=typeof value==='function'?value(state.walletConnectionRevision):value;}};
  for(const key of ['ConnectingId','Operator','ConnectionError','WalletQr','Busy','WalletChecking','Wallet','WalletInfo','Account','Prepared','Modal','Pending','Message','Refresh','OperatorRefresh'])context['set'+key]=value=>{state[key[0].toLowerCase()+key.slice(1)]=value;if(key==='Modal')refs.activeModal.current=value;};
- const watchStart=source.indexOf('    const invalidate = () => {'),watchEnd=source.indexOf('  }, [wallet, account]);',watchStart);
+ const watchStart=source.indexOf('    const verifyOnStart = '),watchEnd=source.indexOf('  }, [wallet, account',watchStart);
  assert(watchStart>=0&&watchEnd>watchStart,'Watch harness must use actual current component wallet effect');
- const watch=()=>new Function(...Object.keys(context),'startWalletSession','same',source.slice(watchStart,watchEnd))(...Object.values(context),startWalletSession,(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase());
+ const watch=()=>{
+  const render={...context,wallet:state.wallet,account:state.account};
+  return new Function(...Object.keys(render),'startWalletSession','same',source.slice(watchStart,watchEnd))(...Object.values(render),startWalletSession,(a,b)=>typeof a==='string'&&typeof b==='string'&&a.toLowerCase()===b.toLowerCase());
+ };
  return{...new Function(...Object.keys(context),functions+'\nreturn {selectWallet,cancelWalletScan};')(...Object.values(context)),state,refs,watch};
 }
 test('cancel after relay approval invalidates outer chain-check; late result cannot replace retry wallet',async()=>{
@@ -138,4 +143,37 @@ test('an account event from the former provider cannot revive a different pendin
   assert.equal(ui.refs.connectedWallet.current,previous.wallet);
   assert.equal(ui.refs.connectionLock.current,null);assert.equal(ui.state.busy,false);
  }finally{stop();}
+});
+
+test('same-provider manual success retires the former restored session before its initial identity check resolves',async()=>{
+ const provider=new EventEmitter(),held=deferred(),other='0x0000000000000000000000000000000000000002',calls=[];
+ provider.request=async args=>{
+  calls.push(args);
+  if(args.method==='eth_accounts')return held.promise;
+  if(args.method==='eth_chainId')return'0x38';
+  assert.fail('Restore handoff must not prompt the wallet: '+args.method);
+ };
+ const entry={id:'wallet-metamask',name:'MetaMask',provider,source:'eip6963',rdns:'io.metamask',brandId:'metamask'};
+ const ui=liveHandlers(null,async()=>other,{wallet:provider,account,wallets:[entry],restoredProvider:provider,modal:{reselectAccount:true}});
+ const oldSession=ui.refs.connectedSession.current,stop=ui.watch();
+ try{
+  await tick();assert.equal(ui.state.walletChecking,true);
+  assert.deepEqual(calls,[{method:'eth_accounts'},{method:'eth_chainId'}]);
+  // Re-open the picker after startup invalidation, then complete a deliberate
+  // connection to this same concrete provider before React's effect cleanup.
+  const target={type:'connect-wallet',reselectAccount:true};ui.refs.activeModal.current=target;ui.state.modal=target;
+  await ui.selectWallet(entry);
+  assert.equal(ui.state.account,other);assert.equal(ui.state.wallet,provider);
+  assert.notEqual(ui.refs.connectedSession.current,oldSession);
+  assert.equal(ui.state.walletConnectionRevision,1);
+  held.resolve([other]);await tick();
+  assert.equal(ui.state.account,other,'The former A-account check must not clear the new B-account connection');
+  assert.equal(ui.state.wallet,provider);assert.equal(ui.refs.connectedWallet.current,provider);
+  assert.equal(ui.refs.connectedSession.current.provider,provider);assert.equal(ui.state.walletChecking,false);
+  assert.equal(ui.state.message,'');assert.equal(calls.length,2,'A retired session cannot retry');
+ }finally{stop();held.resolve([other]);}
+ assert.equal(provider.eventNames().length,0);
+ // Simulate the dependency-triggered remount with the latest rendered values.
+ const stopNew=ui.watch();await tick();assert.equal(calls.length,2,'A manual connection does not need restore verification again');stopNew();
+ assert.equal(provider.eventNames().length,0);
 });

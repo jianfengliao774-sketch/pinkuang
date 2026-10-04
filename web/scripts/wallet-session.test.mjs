@@ -6,7 +6,7 @@ import { startWalletSession } from '../lib/wallet-session.mjs';
 const account = '0x7674fa446D42b1f7f150DC5e678cc525d275Ea53';
 const other = '0x0000000000000000000000000000000000000002';
 const drain = async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); };
-function fixture({ request, isCurrent = () => true, followAccountChanges = false } = {}) {
+function fixture({ request, isCurrent = () => true, followAccountChanges = false, verifyOnStart = false, onListener } = {}) {
   let now = 0, serial = 0;
   const provider = new EventEmitter(), calls = [], events = [], timers = new Map();
   provider.request = args => {
@@ -14,7 +14,11 @@ function fixture({ request, isCurrent = () => true, followAccountChanges = false
     assert(['eth_accounts', 'eth_chainId'].includes(args.method), `Unexpected permission, switch or signing request: ${args.method}`);
     return request ? request(args) : args.method === 'eth_accounts' ? [account] : '0x38';
   };
-  const stop = startWalletSession({ provider, account, isCurrent, followAccountChanges,
+  if (onListener) {
+    const on = provider.on;
+    provider.on = (event, listener) => { on.call(provider, event, listener); onListener(provider, event); return provider; };
+  }
+  const stop = startWalletSession({ provider, account, isCurrent, followAccountChanges, verifyOnStart,
     onInvalidate: value => events.push({ type: 'invalidate', ...value }),
     onChecking: () => events.push({ type: 'checking' }),
     onRecovered: value => events.push({ type: 'recovered', ...value }),
@@ -164,5 +168,98 @@ test('rapid account changes ignore a late probe for the previous selection', asy
   f.provider.emit('accountsChanged', [account]); await drain();
   finish([other]); await drain();
   assert.deepEqual(f.events.filter(event => event.type === 'recovered'), [{ type: 'recovered', account, chainId: 56 }]);
+  assert.equal(f.timers.size, 0); f.stop();
+});
+
+test('verifyOnStart blocks readiness synchronously and verifies the same identity after all listeners are attached', async () => {
+  const registered = [];
+  const f = fixture({ verifyOnStart: true, onListener: (provider, event) => registered.push(event),
+    request: ({ method }) => {
+      assert.deepEqual(registered, ['accountsChanged', 'chainChanged', 'disconnect', 'connect']);
+      return method === 'eth_accounts' ? [account] : '0x38';
+    } });
+  assert.deepEqual(f.events, [{ type: 'invalidate', reason: 'restore' }, { type: 'checking' }]);
+  assert.equal(f.calls.length, 0);
+  await drain();
+  assert.deepEqual(f.events.at(-1), { type: 'recovered', account, chainId: 56 });
+  assert.deepEqual(f.calls, [{ method: 'eth_accounts' }, { method: 'eth_chainId' }]);
+  assert.equal(f.timers.size, 0); f.stop(); assert.equal(f.provider.eventNames().length, 0);
+});
+
+test('an account, authorization or network change in the restore handoff interval cannot pass initial verification', async () => {
+  for (const [accounts, chain, reason] of [[[other], '0x38', 'account'], [[], '0x38', 'account'],
+    [[account], '0x1', 'network']]) {
+    const f = fixture({ verifyOnStart: true, followAccountChanges: true,
+      request: ({ method }) => method === 'eth_accounts' ? accounts : chain }); await drain();
+    assert.equal(f.events.at(-1).type, 'disconnected'); assert.equal(f.events.at(-1).reason, reason);
+    assert(!f.events.some(event => event.type === 'recovered')); assert.equal(f.calls.length, 2);
+    f.stop(); assert.equal(f.timers.size, 0);
+  }
+});
+
+test('synchronous account changes while listeners attach are validated without retaining the old identity', async () => {
+  for (const followAccountChanges of [false, true]) {
+    const registered = [];
+    const f = fixture({ verifyOnStart: true, followAccountChanges,
+      onListener: (provider, event) => {
+        registered.push(event);
+        if (event === 'accountsChanged') provider.emit('accountsChanged', [other]);
+      }, request: ({ method }) => {
+        assert.deepEqual(registered, ['accountsChanged', 'chainChanged', 'disconnect', 'connect']);
+        return method === 'eth_accounts' ? [other] : '0x38';
+      } }); await drain();
+    if (followAccountChanges) {
+      // The initial restore recheck invalidates the setup-time partial check;
+      // the bounded retry then verifies the announced account with all listeners.
+      await f.advance(500);
+      assert.deepEqual(f.events.filter(event => event.type === 'recovered'), [{ type: 'recovered', account: other, chainId: 56 }]);
+    } else {
+      assert.equal(f.events.at(-1).reason, 'account'); assert.equal(f.calls.length, 0);
+    }
+    assert(!f.events.some(event => event.type === 'recovered' && event.account === account));
+    f.stop(); assert.equal(f.provider.eventNames().length, 0); assert.equal(f.timers.size, 0);
+  }
+});
+
+test('a synchronous wrong-chain event during listener setup cancels queued startup reads', async () => {
+  const f = fixture({ verifyOnStart: true, followAccountChanges: true,
+    onListener: (provider, event) => {
+      if (event === 'accountsChanged') provider.emit('accountsChanged', [other]);
+      if (event === 'chainChanged') provider.emit('chainChanged', '0x1');
+    } }); await drain();
+  assert.equal(f.events.at(-1).reason, 'network'); assert.equal(f.calls.length, 0);
+  assert(!f.events.some(event => event.type === 'recovered')); f.stop(); assert.equal(f.timers.size, 0);
+});
+
+test('cleanup or ownership loss before startup request microtasks prevents all wallet reads', async () => {
+  for (const mode of ['cleanup', 'ownership']) {
+    let active = true;
+    const f = fixture({ verifyOnStart: true, isCurrent: () => active });
+    if (mode === 'cleanup') f.stop(); else active = false;
+    await f.advance(60_000);
+    assert.equal(f.calls.length, 0); assert(!f.events.some(event => event.type === 'recovered' || event.type === 'disconnected'));
+    f.stop(); assert.equal(f.provider.eventNames().length, 0); assert.equal(f.timers.size, 0);
+  }
+});
+
+test('a late initial verification response cannot restore after cleanup', async () => {
+  let finish;
+  const f = fixture({ verifyOnStart: true, request: ({ method }) => method === 'eth_accounts'
+    ? new Promise(resolve => { finish = resolve; }) : '0x38' }); await drain();
+  f.stop(); finish([account]); await f.advance(60_000);
+  assert(!f.events.some(event => event.type === 'recovered' || event.type === 'disconnected'));
+  assert.equal(f.provider.eventNames().length, 0); assert.equal(f.timers.size, 0);
+});
+
+test('a new disconnect during initial verification rejects pre-interruption identity responses with a bounded retry', async () => {
+  let finish, reads = 0;
+  const f = fixture({ verifyOnStart: true, request: ({ method }) => method === 'eth_chainId' ? '0x38'
+    : ++reads === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.reject(new Error('offline')) }); await drain();
+  f.provider.emit('disconnect'); finish([account]); await drain();
+  assert(!f.events.some(event => event.type === 'recovered'));
+  for (let i = 0; i < 50; i++) f.provider.emit('disconnect');
+  await f.advance(60_000);
+  assert.equal(f.calls.length, 6); assert.equal(f.events.at(-1).reason, 'transport');
+  assert.equal(f.events.filter(event => event.type === 'checking').length, 1);
   assert.equal(f.timers.size, 0); f.stop();
 });
