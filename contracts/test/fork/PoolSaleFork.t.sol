@@ -234,9 +234,9 @@ contract PoolSaleForkTest is Test {
         assertEq(vault.activeProposalId(), newProposal);
     }
 
-    function test_Fork_SevenDayGateSignedDiscountReviewVoteAndRealFirstoSettlement() public {
+    function test_Fork_ThreeDayGateSignedDiscountReviewVoteAndRealFirstoSettlement() public {
         PlatformAuthority authority = _installAuthority();
-        uint256 firstAllowed = uint256(vault.activatedAt()) + 7 days;
+        uint256 firstAllowed = uint256(vault.activatedAt()) + 3 days;
         vm.warp(firstAllowed - 1);
         vm.prank(ALICE);
         vm.expectRevert(IPoolVault.DeadlineNotReached.selector);
@@ -244,13 +244,16 @@ contract PoolSaleForkTest is Test {
         assertEq(vault.nextProposalId(), 1, "early attempt consumes no proposal ID");
 
         vm.warp(firstAllowed);
+        _signedReference(authority, SALE_PRICE * 2);
         vm.prank(ALICE);
         uint256 proposalId = vault.propose(SALE_PRICE, 0, 0);
         PoolSaleState.Proposal memory p = vault.getProposal(proposalId);
         assertEq(p.snapshotMemberCount, 3);
         assertEq(p.snapshotTotalShares, 100);
         assertEq(p.endsAt, block.timestamp + 1 days);
-        _signedReference(authority, SALE_PRICE * 2);
+        (uint8 reviewStatus, uint128 snapshottedPrice) = shareMarket.saleReview(address(vault), proposalId);
+        assertEq(reviewStatus, 0, "discounted signed reference requires explicit administrator review");
+        assertEq(snapshottedPrice, SALE_PRICE);
         vm.prank(ALICE);
         vault.vote(proposalId, true);
         assertFalse(vault.proposalPassed(proposalId), "one of three members and 49 shares do not pass");
@@ -278,10 +281,10 @@ contract PoolSaleForkTest is Test {
 
     function test_Fork_SignedRejectionIsFinalAndPreservesRealMinerOwnership() public {
         PlatformAuthority authority = _installAuthority();
-        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        vm.warp(uint256(vault.activatedAt()) + 3 days);
+        _signedReference(authority, SALE_PRICE * 2);
         vm.prank(ALICE);
         uint256 proposalId = vault.propose(SALE_PRICE, 0, 0);
-        _signedReference(authority, SALE_PRICE * 2);
         vm.prank(ALICE);
         vault.vote(proposalId, true);
         vm.prank(BOB);
@@ -299,6 +302,35 @@ contract PoolSaleForkTest is Test {
         assertEq(NFT.ownerOf(TOKEN_ID), address(vault));
         assertEq(MINING.getMiner(key).status, 1);
         assertEq(vault.saleProceeds(), 0);
+    }
+
+    function test_Fork_LateMatchingReferenceCannotBypassProposalReviewSnapshot() public {
+        vm.warp(uint256(vault.activatedAt()) + 3 days);
+        vm.prank(ALICE);
+        uint256 proposalId = vault.propose(SALE_PRICE, 0, 0);
+        vm.prank(ALICE);
+        vault.vote(proposalId, true);
+        vm.prank(BOB);
+        vault.vote(proposalId, true);
+        assertTrue(vault.proposalPassed(proposalId));
+
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("late-fork-reference")
+        );
+        (uint8 status, uint128 snapshottedPrice) = shareMarket.saleReview(address(vault), proposalId);
+        assertEq(status, 0, "publishing a quote cannot rewrite the proposal's missing-reference decision");
+        assertEq(snapshottedPrice, SALE_PRICE);
+        vm.expectRevert(SaleGovernance.SaleNotApproved.selector);
+        vault.executeSale(proposalId);
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Active));
+        assertEq(NFT.ownerOf(TOKEN_ID), address(vault));
+
+        vm.prank(OPERATOR);
+        shareMarket.reviewSale(address(vault), proposalId, uint128(SALE_PRICE), true);
+        vault.executeSale(proposalId);
+        assertEq(uint256(vault.state()), uint256(IPoolVault.State.Listed));
+        assertEq(vault.expiresAt(), block.timestamp + 7 days);
     }
 
     function _completeAndAssertOriginalRights(uint256 proposalId) private {
@@ -498,7 +530,11 @@ contract PoolSaleForkTest is Test {
     }
 
     function _list() private returns (uint256 proposalId) {
-        vm.warp(uint256(vault.activatedAt()) + 7 days);
+        vm.warp(uint256(vault.activatedAt()) + 3 days);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vm.prank(ALICE);
         proposalId = vault.propose(SALE_PRICE, SALE_PRICE, uint64(block.timestamp));
         PoolSaleState.Proposal memory p = vault.getProposal(proposalId);
@@ -511,10 +547,9 @@ contract PoolSaleForkTest is Test {
         vm.prank(BOB);
         vault.vote(proposalId, true);
         assertTrue(vault.proposalPassed(proposalId));
-        vm.prank(OPERATOR);
-        shareMarket.setSaleReference(
-            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
-        );
+        (uint8 reviewStatus, uint128 snapshottedPrice) = shareMarket.saleReview(address(vault), proposalId);
+        assertEq(reviewStatus, 3, "fresh matching reference is bound when the proposal opens");
+        assertEq(snapshottedPrice, SALE_PRICE);
         vault.executeSale(proposalId);
         assertTrue(vault.getProposal(proposalId).executed);
         assertEq(uint256(vault.state()), uint256(IPoolVault.State.Listed));

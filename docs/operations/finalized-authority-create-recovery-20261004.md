@@ -10,4 +10,14 @@ Every relay response and frontend publication check now binds `keccak256(Authori
 
 Validation covers recovery without signing/sending, fee/history preservation, changed runtime/wallet/transaction/block/nonce/fees, late reorg, another wallet-owner journal, zero idle reads, stale failure responses, and same-inner-call/same-admin-nonce requests with different signed envelopes. Publication preserves the existing formal Factory, roles, genesis artifact and contract-upgrade page. Only the private signer runtime and frontend are changed; purchase, mining, index and public API workers retain their current releases.
 
-Live recovery and publication evidence is recorded separately after execution. A recovered queue does not prove that any later project has been created; creation still requires a new valid wallet signature and a successful exact receipt.
+## Executed formal recovery and publication
+
+At 2026-10-04 09:11:31 CST, the exact original failed transaction was independently verified and archived. The active transaction slot was cleared, the original signed raw transaction was preserved, the existing wallet-owner pointer was unchanged, and the cumulative Gas ledger remained `219386800000000` wei across eight receipts. Recovery issued zero chain writes. The private backup and raw transaction remain on the formal server; only compact recovery metadata is published in [recovery.json](../validation/finalized-create-recovery-20261004/recovery.json).
+
+At 09:13:32 CST, production was switched to source `c1c5b3a5cf318c1464c2bc4af99c2beea2588d94`. Only `pinkuang-v5-signer.service` was restarted. The purchase, mining, index, public API and deployment workers, protected configuration, formal contract addresses, roles and upgrade page were preserved. The post-cutover product graph was operationally ready, with a snapshot age of 4,688 ms. See [publication.json](../validation/finalized-create-recovery-20261004/publication.json). Its `noChainWrites` field describes this publication script, not unrelated production activity.
+
+External verification at 09:19 CST confirmed that `https://bemine.cc.cd/`, `/live`, and all five referenced live-page scripts exactly match the compiled release. The legacy `/bemine-v5/` page still redirects to the clean root, and the existing contract-upgrade page returns HTTP 200. Those checks used only static HTTP requests and no paid RPC. See [public-check.json](../validation/finalized-create-recovery-20261004/public-check.json). A subsequent private journal check at 09:20:29 CST found no active relay transaction, one archived failure and the new signer service active.
+
+The runtime and frontend regression suites passed 161 and 1,103 tests respectively, with no failures or skips. Separate inherited release-tooling and contracts CI issues are recorded and repaired without changing this published runtime, frontend or Solidity.
+
+A recovered queue does not prove that any later project has been created; creation still requires a new valid wallet signature and a successful exact receipt. Behemoth #2393 already has its original project, so it should not be submitted again as a new project.

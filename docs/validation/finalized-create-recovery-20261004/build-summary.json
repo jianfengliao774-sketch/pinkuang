@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "sourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "frontend": {
+    "schemaVersion": 1,
+    "kind": "fresh-v5-product-static-candidate",
+    "chainId": 56,
+    "basePath": "/bemine-v5",
+    "productFamily": "fresh-v4",
+    "publicOrigin": "https://bemine.cc.cd",
+    "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+    "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+    "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+    "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+    "deployment": {
+      "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+      "blockNumber": 125476240,
+      "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e"
+    },
+    "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+    "frontendSourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+    "contentSha256": "2769f860eb85f0d5d1201cc33b01418777a7c326cba77ec373690e6b99e4b5ef",
+    "fileCount": 318,
+    "legacyManifestIncluded": false,
+    "activationAllowed": false
+  },
+  "metadata": {
+    "schemaVersion": 1,
+    "kind": "fresh-v5-product-static-candidate",
+    "chainId": 56,
+    "basePath": "/bemine-v5",
+    "productFamily": "fresh-v4",
+    "publicOrigin": "https://bemine.cc.cd",
+    "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+    "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+    "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+    "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+    "deployment": {
+      "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+      "blockNumber": 125476240,
+      "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e"
+    },
+    "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+    "frontendSourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+    "contentSha256": "2769f860eb85f0d5d1201cc33b01418777a7c326cba77ec373690e6b99e4b5ef",
+    "fileCount": 318,
+    "legacyManifestIncluded": false,
+    "activationAllowed": false,
+    "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+    "signerSourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+    "machineSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+    "runtimeCutoverRequired": true,
+    "updateScope": "Archive verified finalized failed Authority requests and bind new publication responses to exact signed operations"
+  },
+  "overlay": {
+    "server/authority-relay-api.mjs": {
+      "sha256": "11360d675a717161aacce861fd860866bf100a2c20ba52f05cf571d83245bd59",
+      "bytes": 31671,
+      "previousSha256": "9870879732a71dc4a594be494b2d5fc4f0af30222a73b828a83267c64fd9dbd0"
+    },
+    "scripts/authority-relay.mjs": {
+      "sha256": "4496145a4da461c571c107f5953a18087ed0895b9b638b514303c3faa694ce41",
+      "bytes": 60461,
+      "previousSha256": "5f1084243b9eba4daf48104191bd79c345a757357ec3e1ed62324df717248be9"
+    },
+    "scripts/purchase-keeper.mjs": {
+      "sha256": "dd41f140eb59fad89a9b3450fefd318013160f3bdb10630b575d9489684986a8",
+      "bytes": 80042,
+      "previousSha256": "342c89d1ced181db365a321c397744a84c194641265b81a642d8ef8b41b091a9"
+    }
+  },
+  "archives": {
+    "static.tgz": {
+      "sha256": "5e874f45b07ae853a520e912e019c6e69fb06c1bc7c0bd0950c97308cd30b49a",
+      "bytes": 16813623
+    },
+    "overlay.tgz": {
+      "sha256": "469d333ba7afa8c43220bdc19ad5bbddccd8a8186ddb76e0ddba1fb77a7cb1bb",
+      "bytes": 43232
+    }
+  },
+  "frontendReleaseManifestSha256": "76e7924e9866b53b1a91f26cee5ad9e67eebc987ceb2e207c6d9c684cf96bbdf",
+  "previousSignerManifestSha256": "465f8c307b601d338b380cd28102befa03885dd2ca9c84e5002b1d1cb472ee99",
+  "previousSignerHead": "74d38f7808e63088d98b680466dec8f482c618b8",
+  "previousSignerDirectory": "/srv/pinkuang-v5/releases/v5-duplicate-create-74d38f7808e6",
+  "packagedFileCount": 319
+}

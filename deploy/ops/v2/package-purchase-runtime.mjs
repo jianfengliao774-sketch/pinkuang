@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { relativeImports } from '../../scripts/package-fresh-console.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const deploy = realpathSync(resolve(here, '../..'));
@@ -25,30 +26,44 @@ export const PURCHASE_RUNTIME_FILES = Object.freeze({
   'shared/firsto-upgrade-proof.mjs': 'shared/firsto-upgrade-proof.mjs',
   'shared/fresh-activation-chain-proof.mjs': 'shared/fresh-activation-chain-proof.mjs',
   'shared/fresh-activation-execution.mjs': 'shared/fresh-activation-execution.mjs',
+  'shared/fresh-factory-reuse-proof.mjs': 'shared/fresh-factory-reuse-proof.mjs',
+  'shared/fresh-native-sale-proof.mjs': 'shared/fresh-native-sale-proof.mjs',
+  'shared/fresh-sale-policy-proof.mjs': 'shared/fresh-sale-policy-proof.mjs',
   'shared/integrated-upgrade-plan.mjs': 'shared/integrated-upgrade-plan.mjs',
   'shared/original-gas-wallet.mjs': 'shared/original-gas-wallet.mjs',
+  'shared/read-only-rpc-fallback.mjs': 'shared/read-only-rpc-fallback.mjs',
+  'shared/runtime-rpc-selection.mjs': 'shared/runtime-rpc-selection.mjs',
 });
 const hash = data => createHash('sha256').update(data).digest('hex');
 
 /** Check every literal local import, including the supervisor's opt-in dynamic guard. */
 export function assertPurchaseImportClosure(contents) {
   assert(contents instanceof Map, 'Package contents must be a map.');
+  const allowed = new Set(Object.keys(PURCHASE_RUNTIME_FILES).filter(name => name.endsWith('.mjs')));
+  const seen = new Set(), pending = ['scripts/purchase-supervisor.mjs', 'scripts/purchase-keeper.mjs'];
   let edges = 0;
-  for (const [name, bytes] of contents) {
-    if (!name.endsWith('.mjs')) continue;
+  while (pending.length) {
+    const name = pending.pop();
+    if (seen.has(name)) continue;
+    assert(allowed.has(name), `Missing purchase allowlist entry: ${name}`);
+    const bytes = contents.get(name);
+    assert(bytes, `Missing packaged import: ${name}`);
+    seen.add(name);
     const source = bytes.toString('utf8');
-    const imports = [
-      ...source.matchAll(/(?:^|\n)\s*(?:import|export)\s+(?:[^;]*?\s+from\s+)?['"]([^'"]+)['"]/g),
-      ...source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g),
-    ];
-    for (const [, specifier] of imports) {
-      if (!specifier.startsWith('.')) continue;
-      const target = relative('/', resolve('/', dirname(name), specifier)).split(sep).join('/');
+    for (const dynamic of source.matchAll(/\bimport\s*\(/g)) {
+      assert(/^import\s*\(\s*(['"])[^'"]+\1\s*\)/.test(source.slice(dynamic.index)),
+        'Computed dynamic import is not allowed in the purchase runtime.');
+    }
+    for (const specifier of relativeImports(source)) {
+      const target = posix.normalize(posix.join(posix.dirname(name), specifier));
+      assert(!target.startsWith('../') && target.endsWith('.mjs'), `Unsafe purchase import: ${specifier}`);
       assert(contents.has(target), `Missing packaged import: ${name} -> ${specifier}`);
+      pending.push(target);
       edges++;
     }
   }
-  assert(edges >= 10, 'Purchase import scan did not cover the expected module graph.');
+  assert.equal(seen.size, allowed.size, 'Purchase package includes unreachable runtime modules.');
+  for (const name of contents.keys()) assert(Object.hasOwn(PURCHASE_RUNTIME_FILES, name), `Unreviewed purchase file: ${name}`);
   return edges;
 }
 

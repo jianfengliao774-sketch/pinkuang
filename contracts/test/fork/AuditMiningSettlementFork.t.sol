@@ -159,6 +159,10 @@ contract AuditMiningSettlementForkTest is Test {
         market.fill{value: 0.0000202 ether}(order, 2);
         assertEq(vault.balanceOf(DAVE), 3);
         vm.warp(block.timestamp + 1);
+        vm.prank(OPERATOR);
+        market.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vm.prank(ALICE);
         uint256 proposal = vault.propose(SALE_PRICE, 0, 0);
         address[4] memory voters = [ALICE, BOB, CAROL, DAVE];
@@ -166,10 +170,8 @@ contract AuditMiningSettlementForkTest is Test {
             vm.prank(voters[i]);
             vault.vote(proposal, true);
         }
-        vm.prank(OPERATOR);
-        market.setSaleReference(
-            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
-        );
+        (uint8 reviewStatus,) = market.saleReview(address(vault), proposal);
+        assertEq(reviewStatus, 3);
         vault.executeSale(proposal);
         vm.deal(BUYER, SALE_PRICE + SALE_PRICE / 100);
         vm.prank(BUYER);

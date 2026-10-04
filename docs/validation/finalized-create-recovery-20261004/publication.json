@@ -1,0 +1,14 @@
+{
+  "publishedAt": "2026-10-04T01:13:32.661152+00:00",
+  "sourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "runtime": "/srv/pinkuang-v5/releases/v5-failed-create-c1c5b3a5cf31",
+  "web": "/var/www/bemine-v5/releases/formal-failed-create-c1c5b3a5cf31",
+  "restartedUnits": [
+    "pinkuang-v5-signer.service"
+  ],
+  "protectedServicesUnchanged": true,
+  "formalGraphReady": true,
+  "retainedChunks": 380,
+  "noChainWrites": true,
+  "graphSnapshotAgeMs": 4688
+}

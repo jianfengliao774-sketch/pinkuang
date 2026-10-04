@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "kind": "exact-source-bound-slither-review-v1",
+  "scannerExitCode": 255,
+  "counts": {
+    "Medium": 5,
+    "Low": 91,
+    "Informational": 54
+  },
+  "acceptedMediumFindings": [
+    {
+      "id": "3c4d4c3c0530fb2e49d832e6ab4655b1e3a6253cb1d68816e9752c299d8a2fcc",
+      "check": "incorrect-equality",
+      "reason": "Zero self-Vault ERC20 shares rejects a non-member. This is a membership predicate, not a target balance of BNB or an external token that unsolicited transfers can disturb."
+    },
+    {
+      "id": "fd0b13bc7abb0621c833f661cf59620d675a56e2824c2fda6ec4187263c0c487",
+      "check": "incorrect-equality",
+      "reason": "Exactly 100 pool shares identifies the sole holder entitled to the integer surplus remainder. PoolFunds uses the identical condition for settlement and claimable liability; removing it would omit an existing liability."
+    },
+    {
+      "id": "2a077cd66d14ffca2b0e21d3974e1e4d24f4bf82eaa46e6abfafd566e8b26c09",
+      "check": "unused-return",
+      "reason": "receiveNative intentionally uses account for bookkeeping, the platform-fee transfer and Harvested event. Its four return amounts are summaries, not a success flag. Any revert propagates and rolls back the native sale."
+    },
+    {
+      "id": "59dea589c5537c15d8858598ab4d0428a9f2e2b89f279ef93a9ee62c2a05d097",
+      "check": "unused-return",
+      "reason": "The function explicitly returns the complete RewardAccounting.account tuple. Slither 0.11.5 retains tuple-element lvalues despite the direct tuple return; rewards regressions check the returned amounts."
+    },
+    {
+      "id": "c3127d43c9a45de4bf53269e2852e9dd664b3b8649ca618b3691e67c7720048e",
+      "check": "unused-return",
+      "reason": "The current-branch PoolVault._harvest explicitly returns the complete FirstoSale.harvest tuple at lines 225-227. This is the tuple-return detector limitation; its fingerprint and Vault source hash are independent of the target-owner candidate."
+    }
+  ],
+  "unreviewedHighOrMedium": 0,
+  "sourceSha256": {
+    "contracts/src/PoolVault.sol": "39295d0e63de70749cf7e359b80648b0f58d16a8d4d2674539575471076a6306",
+    "contracts/src/libraries/FirstoSale.sol": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+    "contracts/src/libraries/SaleSettlement.sol": "f951d8a7ff40f268cbe3596947690d4882967c2f5ceacbc79768f41de78ab4d8",
+    "contracts/src/libraries/RewardAccounting.sol": "0538ce9d4e66d5b834bd18977ccb8aaae78d86ff2e3f0c0b0512120a44b096e1",
+    "contracts/src/libraries/PoolFunds.sol": "9840d881d7bf096b4faee54cac3aade90a7f4cb90dce6202d94cfbc288afd44f"
+  },
+  "review": "docs/audits/2026-10-04/create-failed-recovery-slither/review.md"
+}

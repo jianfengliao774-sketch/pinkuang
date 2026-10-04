@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-10-04T01:20:29.586614+00:00",
+  "activeTransaction": null,
+  "archivedCount": 1,
+  "signerWorkingDirectory": "/srv/pinkuang-v5/releases/v5-failed-create-c1c5b3a5cf31",
+  "signerActive": "active",
+  "method": "compact private journal metadata and systemd state; no credentials or signed raw transaction exported"
+}
