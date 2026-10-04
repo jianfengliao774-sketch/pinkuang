@@ -5,7 +5,7 @@
 .live-platform .live-asset-promo > img {
   position: absolute; inset: 0 0 0 auto; width: 60%; height: 100%;
   object-fit: contain; object-position: right center;
-  mask-image: linear-gradient(to right, transparent, #000 30%);
+  mask-image: linear-gradient(to right, transparent 30%, #000 60%);
 }
 .live-platform .live-asset-promo-copy { position: relative; max-width: 73%; }
 .live-platform .live-asset-promo h2 { margin: 0; font-size: 23px; line-height: 1.4; }

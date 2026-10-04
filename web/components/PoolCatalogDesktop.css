@@ -139,7 +139,7 @@
 .live-platform .live-catalog-promo img {
   position: absolute; right: 0; top: 0; display: block; width: 65%; height: 100%;
   object-fit: contain; object-position: right center;
-  mask-image: linear-gradient(to right, transparent, #000 25%);
+  mask-image: linear-gradient(to right, transparent 30%, #000 65%);
 }
 .live-platform .live-catalog-promo-copy { position: relative; max-width: 65%; }
 .live-platform .live-catalog-promo-copy strong {
