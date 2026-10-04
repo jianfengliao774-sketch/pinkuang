@@ -555,13 +555,17 @@ export function acquireKeeperLock(resourcePath, root = resolve(KEEPER_STATE_ROOT
 }
 
 /** The persistent wallet pointer also blocks a different pool after --once exits or a process crashes. */
-export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_STATE_ROOT, 'wallets')) {
+export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_STATE_ROOT, 'wallets'),
+  { existingJournalOnly = false } = {}) {
   mkdirSync(root, { recursive: true, mode: 0o700 }); chmodSync(root, 0o700);
   const path = resolve(root, `56-${normalizeAddress(address).toLowerCase()}.json`);
   const release = acquireKeeperLock(path, resolve(root, 'locks'));
   try {
     if (existsSync(path)) {
       const owner = readPrivateJson(path);
+      if (existingJournalOnly && (owner.chainId !== 56 || !same(owner.address ?? '', address)
+        || owner.journal !== resolve(journalPath)))
+        throw new Error('Wallet recovery requires its exact existing journal pointer; retain the other journal.');
       // Check even when resuming the same path. Never silently replace a lost
       // pending ledger with a fresh empty file before reserving another nonce.
       if (!existsSync(owner.journal)) throw new Error('Wallet has an unavailable previous journal; preserve the pointer and recover that journal before sending.');
@@ -569,8 +573,11 @@ export function acquireWalletLock(address, journalPath, root = resolve(KEEPER_ST
       readJournal(owner.journal, { factory: previous.factory, pool: previous.pool,
         transactionTarget: previous.transactionTarget ?? previous.pool });
       if (owner.journal !== resolve(journalPath) && previous.transaction && !finalizedRecord(previous.transaction)) throw new Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
+    } else if (existingJournalOnly) {
+      throw new Error('Wallet recovery requires its existing journal pointer; no new pointer was created.');
     }
-    writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
+    if (!existingJournalOnly)
+      writeJournal(path, { chainId: 56, address: normalizeAddress(address), journal: resolve(journalPath) });
     return release;
   } catch (error) { release(); throw error; }
 }

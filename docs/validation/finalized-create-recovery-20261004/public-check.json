@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-10-04T01:19:07.337868+00:00",
+  "origin": "https://bemine.cc.cd",
+  "sourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "rootHtmlMatchesBuild": true,
+  "liveHtmlMatchesBuild": true,
+  "formalContractIdentityUnchanged": true,
+  "releaseManifestSha256": "e36d7215e1c33e2e911fb1cba9d74fd7678c447e4b5af8c63f0e95595393a3be",
+  "retainedImmutableChunks": 380,
+  "legacyRedirect": {
+    "status": 308,
+    "location": "https://bemine.cc.cd/"
+  },
+  "upgradePage": {
+    "status": 200,
+    "sha256": "94e63964ba18aeedbdabbb342f9e17299e7a83e15a5d23a9e33483c95acc3090"
+  },
+  "scripts": [
+    {
+      "path": "/bemine-v5/_next/static/chunks/26873907-6fe6a446a5ee1852.js",
+      "status": 200,
+      "bytes": 201059,
+      "sha256": "af6187e364caf1751fab5109fae902d00511f1d3f5a651ff8e71a58f55579d0f"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/9818-2966f307cd310f26.js",
+      "status": 200,
+      "bytes": 241922,
+      "sha256": "051cbdc6742204b5d0e02eb79cec737bfb2e913044b3b8c00c8d0daaa49b9687"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/main-app-4576e2521811cd20.js",
+      "status": 200,
+      "bytes": 528,
+      "sha256": "29cec26dc43c7fe4e6a5205d300c669440c150d3f82f5fda5ac81ebc38b19be7"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/polyfills-42372ed130431b0a.js",
+      "status": 200,
+      "bytes": 112594,
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/webpack-9fead58e52a03ca0.js",
+      "status": 200,
+      "bytes": 5002,
+      "sha256": "61ba22adc66c056515902b0759a6dc6f74b0b58aba9ac19d4dacb52d32b55ed2"
+    }
+  ],
+  "paidRpcRequests": 0,
+  "chainWrites": 0
+}

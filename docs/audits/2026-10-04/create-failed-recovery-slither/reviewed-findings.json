@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "review": "docs/audits/2026-10-04/create-failed-recovery-slither/review.md",
+  "tool": "slither-analyzer 0.11.5",
+  "sourceSha256": {
+    "contracts/src/PoolVault.sol": "39295d0e63de70749cf7e359b80648b0f58d16a8d4d2674539575471076a6306",
+    "contracts/src/libraries/FirstoSale.sol": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+    "contracts/src/libraries/SaleSettlement.sol": "f951d8a7ff40f268cbe3596947690d4882967c2f5ceacbc79768f41de78ab4d8",
+    "contracts/src/libraries/RewardAccounting.sol": "0538ce9d4e66d5b834bd18977ccb8aaae78d86ff2e3f0c0b0512120a44b096e1",
+    "contracts/src/libraries/PoolFunds.sol": "9840d881d7bf096b4faee54cac3aade90a7f4cb90dce6202d94cfbc288afd44f"
+  },
+  "findings": [
+    {
+      "fingerprint": {
+        "id": "3c4d4c3c0530fb2e49d832e6ab4655b1e3a6253cb1d68816e9752c299d8a2fcc",
+        "check": "incorrect-equality",
+        "impact": "Medium",
+        "confidence": "High",
+        "description": "FirstoSale.delist(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage,uint8,uint256,uint256,bool) (src/libraries/FirstoSale.sol#146-206) uses a dangerous strict equality:\n\t- IERC20(address(this)).balanceOf(msg.sender) == 0 (src/libraries/FirstoSale.sol#166)\n",
+        "elements": [
+          {
+            "type": "function",
+            "name": "delist",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": "delist(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage,uint8,uint256,uint256,bool)",
+            "parent": "FirstoSale"
+          },
+          {
+            "type": "node",
+            "name": "IERC20(address(this)).balanceOf(msg.sender) == 0",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": null,
+            "parent": "delist"
+          }
+        ]
+      },
+      "reason": "Zero self-Vault ERC20 shares rejects a non-member. This is a membership predicate, not a target balance of BNB or an external token that unsolicited transfers can disturb."
+    },
+    {
+      "fingerprint": {
+        "id": "fd0b13bc7abb0621c833f661cf59620d675a56e2824c2fda6ec4187263c0c487",
+        "check": "incorrect-equality",
+        "impact": "Medium",
+        "confidence": "High",
+        "description": "SaleSettlement.totalOwed(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage) (src/libraries/SaleSettlement.sol#180-193) uses a dangerous strict equality:\n\t- IERC20(address(this)).balanceOf(member) == TOTAL_SHARES && ! v.surplusSettled[member] (src/libraries/SaleSettlement.sol#188)\n",
+        "elements": [
+          {
+            "type": "function",
+            "name": "totalOwed",
+            "path": "src/libraries/SaleSettlement.sol",
+            "signature": "totalOwed(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage)",
+            "parent": "SaleSettlement"
+          },
+          {
+            "type": "node",
+            "name": "IERC20(address(this)).balanceOf(member) == TOTAL_SHARES && ! v.surplusSettled[member]",
+            "path": "src/libraries/SaleSettlement.sol",
+            "signature": null,
+            "parent": "totalOwed"
+          }
+        ]
+      },
+      "reason": "Exactly 100 pool shares identifies the sole holder entitled to the integer surplus remainder. PoolFunds uses the identical condition for settlement and claimable liability; removing it would omit an existing liability."
+    },
+    {
+      "fingerprint": {
+        "id": "2a077cd66d14ffca2b0e21d3974e1e4d24f4bf82eaa46e6abfafd566e8b26c09",
+        "check": "unused-return",
+        "impact": "Medium",
+        "confidence": "Medium",
+        "description": "FirstoSale.receiveNative(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage,PoolRewardState.RewardStorage) (src/libraries/FirstoSale.sol#420-458) ignores return value by RewardAccounting.account(rewards,0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a,v.treasury) (src/libraries/FirstoSale.sol#447)\n",
+        "elements": [
+          {
+            "type": "function",
+            "name": "receiveNative",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": "receiveNative(PoolVaultState.VaultStorage,PoolSaleState.SaleStorage,PoolRewardState.RewardStorage)",
+            "parent": "FirstoSale"
+          },
+          {
+            "type": "node",
+            "name": "RewardAccounting.account(rewards,0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a,v.treasury)",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": null,
+            "parent": "receiveNative"
+          }
+        ]
+      },
+      "reason": "receiveNative intentionally uses account for bookkeeping, the platform-fee transfer and Harvested event. Its four return amounts are summaries, not a success flag. Any revert propagates and rolls back the native sale."
+    },
+    {
+      "fingerprint": {
+        "id": "59dea589c5537c15d8858598ab4d0428a9f2e2b89f279ef93a9ee62c2a05d097",
+        "check": "unused-return",
+        "impact": "Medium",
+        "confidence": "Medium",
+        "description": "FirstoSale._harvest(PoolVaultState.VaultStorage,PoolRewardState.RewardStorage,bool) (src/libraries/FirstoSale.sol#238-245) ignores return value by RewardAccounting.account(rewards,0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a,v.treasury) (src/libraries/FirstoSale.sol#244)\n",
+        "elements": [
+          {
+            "type": "function",
+            "name": "_harvest",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": "_harvest(PoolVaultState.VaultStorage,PoolRewardState.RewardStorage,bool)",
+            "parent": "FirstoSale"
+          },
+          {
+            "type": "node",
+            "name": "RewardAccounting.account(rewards,0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a,v.treasury)",
+            "path": "src/libraries/FirstoSale.sol",
+            "signature": null,
+            "parent": "_harvest"
+          }
+        ]
+      },
+      "reason": "The function explicitly returns the complete RewardAccounting.account tuple. Slither 0.11.5 retains tuple-element lvalues despite the direct tuple return; rewards regressions check the returned amounts."
+    },
+    {
+      "fingerprint": {
+        "id": "c3127d43c9a45de4bf53269e2852e9dd664b3b8649ca618b3691e67c7720048e",
+        "check": "unused-return",
+        "impact": "Medium",
+        "confidence": "Medium",
+        "description": "PoolVault._harvest(bool) (src/PoolVault.sol#225-227) ignores return value by FirstoSale.harvest(_vaultStorage(),_rewardStorage(),finalHandover) (src/PoolVault.sol#226)\n",
+        "elements": [
+          {
+            "type": "function",
+            "name": "_harvest",
+            "path": "src/PoolVault.sol",
+            "signature": "_harvest(bool)",
+            "parent": "PoolVault"
+          },
+          {
+            "type": "node",
+            "name": "FirstoSale.harvest(_vaultStorage(),_rewardStorage(),finalHandover)",
+            "path": "src/PoolVault.sol",
+            "signature": null,
+            "parent": "_harvest"
+          }
+        ]
+      },
+      "reason": "The current-branch PoolVault._harvest explicitly returns the complete FirstoSale.harvest tuple at lines 225-227. This is the tuple-return detector limitation; its fingerprint and Vault source hash are independent of the target-owner candidate."
+    }
+  ]
+}

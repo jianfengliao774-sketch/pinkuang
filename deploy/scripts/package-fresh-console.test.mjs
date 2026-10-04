@@ -68,6 +68,18 @@ test('independent product backend package closes both API and index entrypoints'
     ['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs','scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs']),/Missing packaged runtime module/);
 });
 
+test('product display package includes target-availability evidence and rejects its missing or unreviewed dependencies', () => {
+  const files=new Map(PRODUCT_BACKEND_MODULES.map(name=>[name,readFileSync(join(deploy,name))]));
+  const entries=['server/index.mjs','server/chain-index/server.mjs','server/authority-signer.mjs',
+    'scripts/purchase-supervisor.mjs','scripts/mining-supervisor.mjs'];
+  assert(PRODUCT_BACKEND_MODULES.includes('server/chain-index/target-availability.mjs'));
+  const missing=new Map(files); missing.delete('server/chain-index/target-availability.mjs');
+  assert.throws(()=>verifyRuntimeClosure(missing,PRODUCT_BACKEND_MODULES,entries),/Missing packaged runtime module/);
+  const changed=new Map(files);
+  changed.set('server/chain-index/target-availability.mjs',Buffer.from("import './unreviewed-availability-source.mjs';\n"));
+  assert.throws(()=>verifyRuntimeClosure(changed,PRODUCT_BACKEND_MODULES,entries),/Missing allowlisted runtime dependency/);
+});
+
 test('pre-genesis package contains only fresh dist and required runtime files', async () => {
   const temp = mkdtempSync(join(tmpdir(), 'pinkuang-fresh-package-test-'));
   try {

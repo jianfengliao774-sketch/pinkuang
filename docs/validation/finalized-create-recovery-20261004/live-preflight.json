@@ -1,0 +1,32 @@
+{
+  "checkedAt": "2026-10-04T00:56:13.971Z",
+  "hash": "0x2e1b37852f92fdd0b85a48fcd82b491a21955217eb7c82da7a9f99ad80ebc6ec",
+  "status": 0,
+  "nonce": 17,
+  "blockNumber": 125516816,
+  "blockHash": "0xd2a9cc45cbb997c716e9578f31b1b7292754ebf506162449ff0688a93d5a4cba",
+  "finalizedBlock": 125584041,
+  "latestNonce": 18,
+  "pendingNonce": 18,
+  "authorityCodehash": "0x34845ff4b079ec7b4cc33c7f1f95a3e0e18a0b50f23c2022bf0ed1d0b2575ee8",
+  "operation": "createPool",
+  "params": {
+    "params": [
+      "0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C",
+      "2393",
+      "3982000000000000000",
+      "3620000000000000000",
+      "0x0000000000000000000000000000000000000000",
+      "0",
+      "1791131443",
+      "1791304243"
+    ]
+  },
+  "feeWei": "5231450000000",
+  "gasSpentWei": "219386800000000",
+  "gasReceiptCount": 8,
+  "collection": "0x1F5Cb4aeaE1807Bf60c3b9C0D8aDBCC14e91f12C",
+  "tokenId": "2393",
+  "registeredBeforeFailedTx": "0x382D8aF76A8225a0F776fE4C72831A8008d23Ec2",
+  "registeredNow": "0x382D8aF76A8225a0F776fE4C72831A8008d23Ec2"
+}

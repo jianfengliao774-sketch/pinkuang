@@ -1,0 +1,22 @@
+{
+  "archivedAt": "2026-10-04T01:11:31.324Z",
+  "status": "reverted",
+  "hash": "0x2e1b37852f92fdd0b85a48fcd82b491a21955217eb7c82da7a9f99ad80ebc6ec",
+  "kind": "executeApprovedOperation",
+  "operationId": "0x9e65e1e80aaf52187f7c48c0eac8b305c8d7e35d65e95550ed03e9abada9880e",
+  "blockNumber": 125516816,
+  "gasCostWei": "5231450000000",
+  "archived": true,
+  "recoveryRequired": false,
+  "queueReserved": false,
+  "gasSpentWei": "219386800000000",
+  "gasReceiptCount": 8,
+  "reviewedFailureCount": 1,
+  "ownerPointerUnchanged": true,
+  "rawTransactionPreserved": true,
+  "gasLedgerUnchanged": true,
+  "chainWrites": 0,
+  "beforeJournalSha256": "4289e554afa247860c2ca2df4f825b1e36ec582f5f30a59cc2255edd8f04c489",
+  "afterJournalSha256": "15e3ea9fad33dd65520306b462913d24da8f6efb7da4b7c37f6d72d596479c91",
+  "runtimeHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94"
+}

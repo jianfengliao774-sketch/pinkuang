@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "node": "v24.19.0",
+  "command": [
+    "node",
+    "--test",
+    "scripts/review-slither.test.mjs"
+  ],
+  "exitCode": 0,
+  "passed": 8,
+  "failed": 0,
+  "skipped": 0,
+  "realReportVerified": true,
+  "snapshotSourceEqual": true,
+  "rawScannerExitCode": 255,
+  "reviewModuleSha256": "ca74c8c80a4a666ea7a0e5fa066287f2a9bb48b76884a29ab3472a57a4f57b75",
+  "reviewTestsSha256": "e067b157c7c80a1b164d396723504c32c1c5806e4fa4592fe83b9ae5df20e5f3",
+  "catalogSha256": "31cffa5868ed924370417c939eb430aea77e9e8f45c5dccffc30e24f61fe434d",
+  "allCatalogItemsRequired": true,
+  "missingEachCatalogItemRejected": true,
+  "emptySuccessfulReportRejected": true
+}

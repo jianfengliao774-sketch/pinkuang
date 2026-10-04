@@ -1,4 +1,4 @@
-import { Interface, ZeroAddress, getAddress, keccak256, verifyTypedData } from 'ethers';
+import { Interface, ZeroAddress, concat, getAddress, keccak256, verifyTypedData } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { authorityTypedAction } from '../../deploy/shared/authority-typed.mjs';
 import { boundedReadPreview } from './bounded-read-preview.mjs';
@@ -17,6 +17,45 @@ const authorityAbi = new Interface([
 const integer = value => { const n = BigInt(value); need(n >= 0n, '金额、编号或时间不能为负。'); return n; };
 const creationNames = new Set(['createPool', 'createPoolWithExpiry', 'createBudgetChildPool',
   'createFlexiblePool', 'createFlexiblePoolChecked']);
+const HASH = /^0x[\da-f]{64}$/i;
+const sameBytes = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+const signedKinds = new Set(['reviewSale', 'reviewChildSale', 'setSaleReference', 'claimFees',
+  'executeApprovedOperation', 'buyBudgetOfficial', 'buyBudgetFirsto']);
+
+/** Include the complete signed envelope: a reverted nonce can be signed again. */
+export function authorityCommandData(command) {
+  need(command && signedKinds.has(command.kind) && command.args
+    && /^0x[\da-f]{130}$/i.test(command.signature ?? ''), '管理员签名内容不完整。');
+  const fragment = abi.PlatformAuthority.getFunction(command.kind);
+  const values = fragment.inputs.map(input => ['nonce', 'deadline', 'signature'].includes(input.name)
+    ? command[input.name] : command.args[input.name]);
+  return abi.PlatformAuthority.encodeFunctionData(fragment, values);
+}
+
+export function authorityOperationId(command) {
+  return keccak256(concat([getAddress(command.authority), authorityCommandData(command)]));
+}
+
+/** Latest shared journal status is useful only for this exact submitted command. */
+export function authorityStatusForRequest(status, operationId, hash = null) {
+  if (!HASH.test(operationId ?? '') || !HASH.test(status?.operationId ?? '')
+    || !sameBytes(status.operationId, operationId)
+    || hash && (!HASH.test(status.hash ?? '') || !sameBytes(status.hash, hash))) return null;
+  return status;
+}
+
+function relayMetadata(result) {
+  if (!result || typeof result !== 'object') return null;
+  const safe = {};
+  for (const name of ['status', 'rawStatus', 'reason', 'message', 'kind'])
+    if (typeof result[name] === 'string') safe[name] = result[name];
+  for (const name of ['hash', 'requestId', 'operationId'])
+    if (HASH.test(result[name] ?? '')) safe[name] = result[name];
+  for (const name of ['accepted', 'archived', 'recoveryRequired'])
+    if (typeof result[name] === 'boolean') safe[name] = result[name];
+  if (Number.isSafeInteger(result.blockNumber) && result.blockNumber >= 0) safe.blockNumber = result.blockNumber;
+  return safe;
+}
 
 /** Inspect the signed bytes, never the picker selection or an older preview's permission. */
 function creationReservation(config, kind, args) {
@@ -168,13 +207,22 @@ export async function prepareAuthoritySubmission({ authenticate, ...input }) {
 }
 
 export async function submitAuthorityAction(config, account, command) {
+  const requestId = authorityOperationId(command);
   const base = (config.journalBase ?? '/api/journal').replace(/\/$/, '');
   const response = await fetch(`${base}/authority-relay`, { method: 'POST', credentials: 'same-origin',
     cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Pinkuang-Account': getAddress(account) },
     body: JSON.stringify({ command }), signal: AbortSignal.timeout(30_000) });
   const result = await response.json().catch(() => null);
   if (!response.ok || !result) throw Object.assign(new Error(result?.error
-    || `管理员代付服务暂不可用（HTTP ${response.status}）。`), { httpStatus: response.status });
+    || `管理员代付服务暂不可用（HTTP ${response.status}）。`),
+    { httpStatus: response.status,
+      submissionRejected: [400, 401, 403, 404, 405, 409, 413, 415, 429].includes(response.status),
+      relayResult: relayMetadata(result) });
+  need(sameBytes(result.requestId, requestId), '代付响应不属于本次签名；请保留请求并核对状态，不要重复发送。');
+  if (result.accepted === false) throw Object.assign(new Error(result.message || '本次签名请求未被代付服务接受。'),
+    { httpStatus: response.status, submissionRejected: true, relayResult: relayMetadata(result) });
+  need(result.accepted === true && HASH.test(result.hash ?? '') && authorityStatusForRequest(result, requestId),
+    '代付响应尚未证明本次请求已被接受；请核对状态，不要重复发送。');
   return result;
 }
 

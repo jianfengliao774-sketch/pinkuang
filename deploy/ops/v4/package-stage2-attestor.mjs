@@ -19,20 +19,32 @@ export const STAGE2_SIGNER_MODULES=Object.freeze([
   "server/authority-relay-api.mjs",
   "server/authority-role.mjs",
   "server/authority-signer.mjs",
+  "server/firsto-ask-publisher-store.mjs",
+  "server/firsto-listing-expiry-keeper.mjs",
   "server/fresh-activation-journal.mjs",
   "server/fresh-machine-readiness.mjs",
   "server/journal-store.mjs",
   "server/product-graph.mjs",
   "server/request-limiter.mjs",
+  "server/sale-reference-publisher.mjs",
+  "server/sale-reference-status-read.mjs",
   "shared/authority-typed.mjs",
   "shared/firsto-upgrade-proof.mjs",
+  "shared/firsto-sale-reference.mjs",
   "shared/fresh-activation-chain-proof.mjs",
   "shared/fresh-activation-execution.mjs",
+  "shared/fresh-factory-reuse-proof.mjs",
+  "shared/fresh-native-sale-proof.mjs",
+  "shared/fresh-sale-policy-proof.mjs",
   "shared/fresh-runtime-identity.mjs",
   "shared/gas-signer-attestation.mjs",
   "shared/integrated-upgrade-plan.mjs",
+  "shared/machine-reservation.mjs",
   "shared/original-gas-wallet.mjs",
-  "src/firsto-purchase.mjs"
+  "shared/read-only-rpc-fallback.mjs",
+  "shared/runtime-rpc-selection.mjs",
+  "src/firsto-purchase.mjs",
+  "src/pricing.ts"
 ]);
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 
@@ -47,9 +59,14 @@ export function verifyStage2SignerClosure(files) {
     const bytes=files.get(name);
     assert(bytes,`Missing signer module: ${name}`);
     seen.add(name);
-    for(const specifier of relativeImports(bytes.toString('utf8'))){
+    const text=bytes.toString('utf8');
+    for(const dynamic of text.matchAll(/\bimport\s*\(/g)) {
+      assert(/^import\s*\(\s*(['"])[^'"]+\1\s*\)/.test(text.slice(dynamic.index)),
+        'Computed dynamic import is not allowed in the signer runtime.');
+    }
+    for(const specifier of relativeImports(text)){
       const child=posix.normalize(posix.join(posix.dirname(name),specifier));
-      assert(!child.startsWith('../') && child.endsWith('.mjs'),`Unsafe signer import: ${specifier}`);
+      assert(!child.startsWith('../') && (child.endsWith('.mjs') || child === 'src/pricing.ts'),`Unsafe signer import: ${specifier}`);
       pending.push(child);
     }
   }

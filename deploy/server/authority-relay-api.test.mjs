@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { createServer } from 'node:http';
-import { Interface, Wallet, ZeroAddress, getAddress, keccak256 } from 'ethers';
+import { Interface, Transaction, Wallet, ZeroAddress, getAddress, keccak256 } from 'ethers';
 import { authorityRelayConfiguration, createAuthorityRelayService } from './authority-relay-api.mjs';
 import { createDeploymentServer } from './index.mjs';
 import { authorityTypedAction } from '../shared/authority-typed.mjs';
 import { ORIGINAL_GAS_WALLET, requireOriginalSenderDrained } from '../shared/original-gas-wallet.mjs';
+import { authorityOperationId, prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
+import { readJournal, writeJournal } from '../scripts/purchase-keeper.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
@@ -18,7 +20,7 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
   return wallet.signTypedData(typed.domain,typed.types,typed.message);
 };
 
-function fixture({registered=true,relayHandler=null,lockJournal=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null}={}) {
+function fixture({registered=true,relayHandler=null,lockJournal=null,lockWallet=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -71,7 +73,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     readReclaimState:async target=>({registered:registered && target===pool,factory,
       mining:'0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',minerKey:hash(333)}),
     readAuthorityState:async()=>({...roleState,nonce:0n}),
-    lockJournal:lockJournal??(()=>()=>{}),lockWallet:()=>()=>{},
+    lockJournal:lockJournal??(()=>()=>{}),lockWallet:lockWallet??(()=>()=>{}),
     relay:async (_provider,options,signer)=>{
       calls.push({options,signer:signer.address});
       if (relayHandler) return relayHandler(options,signer,_provider);
@@ -85,7 +87,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,authenticat
     const res = {statusCode:200,setHeader(){},end(data){resolve({status:this.statusCode,body:JSON.parse(data)});}};
     service.handle(req,res);
   });
-  return {admin,gas,authority,factory,budget,market,pool,codehash,service,request,calls,errors,
+  return {admin,gas,authority,factory,budget,market,pool,codehash,service,request,calls,errors,config,provider,trusted,
     creationAbi,roleState,reservation,reservationKey,
     close:async()=>{await service.close();rmSync(directory,{recursive:true,force:true});}};
 }
@@ -96,6 +98,121 @@ async function signedReview(f) {
   const signature = await sign(f.admin,f.authority,'reviewSale',args,nonce,deadline);
   return {authority:f.authority,expectedCodehash:f.codehash,kind:'reviewSale',args,nonce,deadline,signature};
 }
+
+async function installFinalizedFailure(f) {
+  const command = await signedReview(f), prepared = prepareAuthorityCall(command);
+  const raw = await f.gas.signTransaction({ type:0,chainId:56,to:f.authority,data:prepared.data,
+    value:0n,nonce:17,gasLimit:650000n,gasPrice:1000000000n });
+  const signed = Transaction.from(raw);
+  const tx = { phase:'reverted',kind:command.kind,from:f.gas.address,to:f.authority,data:prepared.data,
+    value:'0',nonce:17,hash:signed.hash,blockNumber:100,blockHash:hash(100),finality:'bsc-finalized',
+    finalizedBlockNumber:110,finalizedBlockHash:hash(110),gasCostWei:'21000',speedUps:0,
+    attempts:[{kind:'purchase',raw,hash:signed.hash,gasLimit:'650000',gasPrice:'1000000000',broadcastCount:1}] };
+  const options = { factory:f.authority,pool:f.authority,transactionTarget:f.authority };
+  const journal = {...readJournal(f.config.journal,options),transaction:tx,gasSpentWei:'21000',gasReceipts:{[tx.hash]:'21000'}};
+  writeJournal(f.config.journal,journal);
+  const state = {code:'0x6000',fee:21000n,nonce:18,blockHash:hash(100)}, reads=[], broadcasts=[];
+  const getters = new Interface(['function coreFactory() view returns(address)','function budgetFactory() view returns(address)',
+    'function gasWallet() view returns(address)','function administratorOne() view returns(address)',
+    'function administratorTwo() view returns(address)','function nonces(address) view returns(uint256)']);
+  const values = {coreFactory:f.factory,budgetFactory:f.budget,gasWallet:f.gas.address,
+    administratorOne:f.admin.address,administratorTwo:address(36),nonces:0n};
+  Object.assign(f.provider,{
+    getNetwork:async()=>{reads.push('network');return {chainId:56n};},
+    getBlock:async tag=>{reads.push(['block',tag]);return {number:tag==='latest'?115:tag==='finalized'?110:tag,
+      hash:tag===100?state.blockHash:hash(tag==='latest'?115:tag==='finalized'?110:tag),
+      gasLimit:30000000n,timestamp:Math.floor(Date.now()/1000)};},
+    getCode:async()=>{reads.push('code');return state.code;},
+    call:async transaction=>{const decoded=getters.parseTransaction(transaction);reads.push(['call',decoded.name]);
+      return getters.encodeFunctionResult(decoded.name,[values[decoded.name]]);},
+    getTransactionCount:async()=>{reads.push('nonce');return state.nonce;},
+    getTransaction:async()=>{reads.push('transaction');return {hash:tx.hash,from:tx.from,to:tx.to,data:tx.data,nonce:tx.nonce,
+      value:0n,chainId:56n,gasLimit:650000n,gasPrice:1000000000n,type:0,blockNumber:100,blockHash:hash(100)};},
+    getTransactionReceipt:async()=>{reads.push('receipt');return {hash:tx.hash,from:tx.from,to:tx.to,
+      blockNumber:100,blockHash:hash(100),status:0,fee:state.fee};},
+    getFeeData:async()=>({gasPrice:1000000000n}),getBalance:async()=>10n**18n,
+    estimateGas:async()=>assert.fail('No submission or recovery simulation'),
+    broadcastTransaction:async bytes=>{broadcasts.push(bytes);return {hash:keccak256(bytes)};},
+  });
+  return {command,prepared,raw,tx,options,journal,state,reads,broadcasts,values};
+}
+
+test('background recovery archives one exact failure without credentials/signing and later polls make zero RPC reads',async()=>{
+  const locks=[];
+  const f=fixture({lockWallet:(...args)=>{locks.push(args);return ()=>{};}});
+  try{
+    const old=await installFinalizedFailure(f);
+    delete f.trusted.freshAuthority.authority.codehash;
+    const status=await f.service.reconcile();
+    assert.equal(status.status,'failed');assert.equal(status.archived,true);assert.equal(status.recoveryRequired,false);
+    assert.equal(status.operationId,authorityOperationId(f.authority,old.prepared.data));
+    assert.deepEqual(locks[0][3],{existingJournalOnly:true});
+    const saved=readJournal(f.config.journal,old.options);
+    assert.equal(saved.transaction,null);assert.equal(saved.gasSpentWei,'21000');
+    assert.equal(saved.reviewedAuthorityFailures[0].transaction.attempts[0].raw,old.raw);
+    old.reads.length=0;
+    assert.deepEqual(await f.service.reconcile(),status);assert.deepEqual(old.reads,[]);
+    assert.equal(f.calls.length,0);assert.deepEqual(old.broadcasts,[]);
+  }finally{await f.close();}
+});
+
+test('next explicitly signed POST archives finalized failure and accepts only its own newly durable transaction',async()=>{
+  let active=false;
+  const locks=[];
+  const f=fixture({lockJournal:()=>{assert.equal(active,false);active=true;return()=>{active=false;};},
+    lockWallet:(...args)=>{locks.push(args);return()=>{};},
+    relayHandler:(options,signer,provider)=>runAuthorityRelay(provider,options,signer)});
+  try{
+    const old=await installFinalizedFailure(f);
+    const command=await signedReview(f);command.args.priceWei='1001';
+    command.signature=await sign(f.admin,f.authority,command.kind,command.args,command.nonce,command.deadline);
+    const result=await f.request('/api/journal/authority-relay','POST',{command});
+    assert.equal(result.status,200);assert.equal(result.body.status,'pending');assert.equal(result.body.accepted,true);
+    const requestId=authorityOperationId(f.authority,prepareAuthorityCall(command).data);
+    assert.equal(result.body.requestId,requestId);assert.equal(result.body.operationId,requestId);
+    assert.notEqual(result.body.hash,old.tx.hash);assert.equal(result.body.previousFailure.hash,old.tx.hash);
+    assert.equal(result.body.previousFailure.archived,true);assert.equal(result.body.previousFailure.status,'reverted');
+    assert.equal(old.broadcasts.length,1);assert.deepEqual(locks[0][3],{existingJournalOnly:true});
+    const saved=readJournal(f.config.journal,old.options);
+    assert.equal(saved.transaction.nonce,18);assert.equal(saved.gasSpentWei,'21000');
+    assert.equal(saved.reviewedAuthorityFailures[0].transaction.hash,old.tx.hash);
+  }finally{await f.close();}
+});
+
+test('an unverified failure remains locked, repeated background polls back off, and explicit submit cannot resend it',async()=>{
+  const f=fixture({relayHandler:(options,signer,provider)=>runAuthorityRelay(provider,options,signer)});
+  try{
+    const old=await installFinalizedFailure(f);old.state.fee=21001n;
+    const first=await f.service.reconcile();
+    assert.equal(first.status,'uncertain');assert.equal(first.recoveryRequired,true);assert.equal(first.archived,false);
+    const count=old.reads.length;
+    assert.deepEqual(await f.service.reconcile(),first);assert.equal(old.reads.length,count);
+    const command=await signedReview(f);command.args.priceWei='1001';
+    command.signature=await sign(f.admin,f.authority,command.kind,command.args,command.nonce,command.deadline);
+    const result=await f.request('/api/journal/authority-relay','POST',{command});
+    assert.equal(result.body.accepted,false);assert.equal(result.body.status,'failed');assert.equal(result.body.recoveryRequired,true);
+    assert.equal(result.body.hash,old.tx.hash);assert.notEqual(result.body.operationId,result.body.requestId);
+    assert.equal(f.calls.length,0);assert.deepEqual(old.broadcasts,[]);
+    const saved=readJournal(f.config.journal,old.options);
+    assert.equal(saved.transaction.hash,old.tx.hash);assert.equal(saved.reviewedAuthorityFailures,undefined);
+  }finally{await f.close();}
+});
+
+test('an unrelated pending operation is not accepted as a newly signed request and no second nonce is sent',async()=>{
+  const f=fixture({relayHandler:(options,signer,provider)=>runAuthorityRelay(provider,options,signer)});
+  try{
+    const old=await installFinalizedFailure(f);
+    old.journal.transaction.phase='broadcast';delete old.journal.transaction.finality;
+    writeJournal(f.config.journal,old.journal);
+    f.provider.getTransactionReceipt=async()=>null;
+    const command=await signedReview(f);command.args.priceWei='1001';
+    command.signature=await sign(f.admin,f.authority,command.kind,command.args,command.nonce,command.deadline);
+    const result=await f.request('/api/journal/authority-relay','POST',{command});
+    assert.equal(result.status,200);assert.equal(result.body.accepted,false);
+    assert.equal(result.body.hash,old.tx.hash);assert.notEqual(result.body.operationId,result.body.requestId);
+    assert.deepEqual(old.broadcasts,[]);assert.equal(readJournal(f.config.journal,old.options).transaction.hash,old.tx.hash);
+  }finally{await f.close();}
+});
 
 async function localRpcPair({backupChain='0x38',primaryResultError=false}={}) {
   const calls={primary:[],backup:[]}, servers=[];
@@ -220,7 +337,7 @@ test('status exposes only the authenticated administrator journal summary',async
   try {
     const result=await f.request('/api/journal/authority-relay/status','GET');
     assert.deepEqual(result,{status:200,body:{status:'idle',hash:null,kind:null,
-      blockNumber:null,gasCostWei:null}});
+      operationId:null,blockNumber:null,gasCostWei:null}});
     const switched=await f.request('/api/journal/authority-relay/status','GET',undefined,
       {'x-pinkuang-account':address(99)});
     assert.equal(switched.status,409);

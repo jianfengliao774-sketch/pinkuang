@@ -1,6 +1,7 @@
 import { ZeroAddress, getAddress, id } from 'ethers';
 import { abi, decodePoolRow } from './chain-client.mjs';
 import { livePoolModel } from './live-data.mjs';
+import { authorityCommandData, authorityOperationId } from './authority-client.mjs';
 
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 const HASH = /^0x[\da-f]{64}$/i;
@@ -17,12 +18,14 @@ export function publishedProjectIntent(config, transaction, { account, command }
     'createFlexiblePool', 'createFlexiblePoolChecked', 'createBudgetChildPool']).includes(parsed.name)) return null;
   need(BigInt(transaction.value) === 0n && BigInt(transaction.chainId) === 56n
     && same(transaction.from, account) && same(command.args.target, factory)
+    && same(command.authority, config.authority)
     && same(command.args.data, transaction.data)
     && same(contract.encodeFunctionData(parsed.fragment, parsed.args), transaction.data), '项目发布内容已改变。');
   const params = parsed.args[0];
   return { kind: portfolio ? 'portfolio' : 'single', action: portfolio ? 'createPortfolio' : 'createPool',
     factory, account: getAddress(account), authority: getAddress(config.authority), gasWallet: getAddress(config.gasWallet),
     nonce: BigInt(command.nonce).toString(), callData: transaction.data, child: parsed.name === 'createBudgetChildPool',
+    authorityCallData: authorityCommandData(command), operationId: authorityOperationId(command),
     expected: portfolio ? { budgetWei: parsed.args[0], absoluteCapWei: parsed.args[1], unitCapWei: parsed.args[2] }
       : { circuits: params.circuits, circuitId: params.circuitId, targetRaise: params.targetRaise, priceCap: params.priceCap } };
 }
@@ -59,7 +62,8 @@ export async function readPublishedProject({ provider, intent, status, hash = st
     && same(tx.blockHash, receipt.blockHash)
     && /^0x[\da-f]+$/i.test(tx.blockNumber ?? '') && BigInt(tx.blockNumber) === BigInt(receipt.blockNumber)
     && call?.name === 'executeApprovedOperation' && same(call.args[0], intent.factory)
-    && same(call.args[1], intent.callData) && call.args[2] === BigInt(intent.nonce),
+    && same(call.args[1], intent.callData) && call.args[2] === BigInt(intent.nonce)
+    && same(tx.input ?? tx.data, intent.authorityCallData),
   '项目发布交易不属于本次签名内容。');
   if (!successful) {
     need(status.status === 'failed' && receipt.logs.length === 0, '项目发布失败状态与回执不一致。');

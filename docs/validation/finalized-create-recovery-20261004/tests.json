@@ -1,0 +1,57 @@
+{
+  "backend": {
+    "tests": 161,
+    "passed": 161,
+    "failed": 0,
+    "skipped": 0,
+    "runtime": "Node 24"
+  },
+  "frontend": {
+    "tests": 1103,
+    "passed": 1103,
+    "failed": 0,
+    "skipped": 0,
+    "checks": [
+      "catalog",
+      "BEM price",
+      "review policy",
+      "diff whitespace"
+    ]
+  },
+  "releaseToolingNode": {
+    "tests": 90,
+    "passed": 90,
+    "failed": 0,
+    "skipped": 0,
+    "runtime": "Node 24.19.0"
+  },
+  "slitherReviewRegressions": {
+    "tests": 8,
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "exact current source pins and all five known findings; new, changed, missing, malformed and failed scanner evidence rejects"
+  },
+  "rawSlither": {
+    "version": "0.11.5",
+    "exitCode": 255,
+    "counts": { "Medium": 5, "Low": 91, "Informational": 54 },
+    "exactReviewedMedium": 5,
+    "additionalHighOrMedium": 0,
+    "reviewEvidence": "../../audits/2026-10-04/create-failed-recovery-slither/local-review.json"
+  },
+  "firstoForkEvidenceRegressions": {
+    "tests": 3,
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "exact five-suite/eighteen-test inventory; skipped, missing, redistributed and partial output rejects"
+  },
+  "forkFixtureRepair": {
+    "testsModified": 4,
+    "applicability": "SaleGovernance, ShareMarket and BudgetPortfolioVault are byte-identical to reviewed PR47; refresh quote after time warp and before proposal snapshot, preserve three-day/ seven-day boundaries and late-quote rejection",
+    "formatCheck": "passed",
+    "actualForkRun": "separate fixed-block CI, not included in local test counts"
+  },
+  "scope": "receipt-verified local archival and exact signed operation identity; no Solidity or genesis artifact changes"
+}

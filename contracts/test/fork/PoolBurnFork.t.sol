@@ -91,16 +91,18 @@ contract PoolBurnForkTest is Test {
         vault.sellToPool();
         vm.stopPrank();
         vm.warp(block.timestamp + 7 days);
+        vm.prank(OPERATOR);
+        shareMarket.setSaleReference(
+            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
+        );
         vm.prank(ALICE);
         uint256 proposal = vault.propose(SALE_PRICE, 0, 0);
         vm.prank(ALICE);
         vault.vote(proposal, true);
         vm.prank(BOB);
         vault.vote(proposal, true);
-        vm.prank(OPERATOR);
-        shareMarket.setSaleReference(
-            address(vault), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
-        );
+        (uint8 reviewStatus,) = shareMarket.saleReview(address(vault), proposal);
+        assertEq(reviewStatus, 3);
         vault.executeSale(proposal);
         vm.deal(BUYER, BUYER_PAYMENT);
         vm.prank(BUYER);

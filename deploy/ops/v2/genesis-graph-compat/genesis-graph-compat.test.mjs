@@ -1,18 +1,50 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { formatV2GenesisGraph, createV2GenesisGraphReader } from './v2-genesis-public-graph.mjs';
 import { patchD09Journal } from './stage-d09.mjs';
-import { loadLiveConfig, validateProductGraph } from '../../../../web/lib/live-config.mjs';
 
-const record = JSON.parse(readFileSync(new URL('../../../public/upgrade-genesis/genesis-record.json', import.meta.url)));
-const manifest = JSON.parse(readFileSync(new URL('../../../../web/public/data/frontend-manifest.json', import.meta.url)));
+const root = fileURLToPath(new URL('../../../../', import.meta.url));
+// This tests the original d09 runtime. Later releases replaced the mutable
+// upgrade-genesis files with a FreshPoolFactory graph that d09 cannot verify.
+const evidenceSource = '8958edd1cf5fbf0402a4ae448782dd04f6e00e1e';
+const artifactDigest = '0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7';
+const artifactSource = '8c5598cf44fe8fb6174969eba12b3baa13f7942b';
+const historical = path => execFileSync('git', ['show', `${evidenceSource}:${path}`],
+  { cwd: root, maxBuffer: 12_000_000 });
+const record = JSON.parse(historical('deploy/public/upgrade-genesis/genesis-record.json'));
+const bundle = JSON.parse(historical('deploy/public/upgrade-genesis/genesis-artifacts.json'));
+const manifestBytes = historical('web/public/data/frontend-manifest.json');
+const manifest = JSON.parse(manifestBytes);
+assert.equal(record.artifactDigest, artifactDigest);
+assert.equal(manifest.artifactDigest, artifactDigest);
+for (const evidence of [record, bundle, manifest]) assert.equal(evidence.sourceCommit, artifactSource);
+assert.equal(record.addresses.factory, manifest.factory);
+assert.ok(record.addresses.PoolFactory);
+assert.equal(record.addresses.FreshPoolFactory, undefined);
+
+// Exercise the exact current validator source with this page's preserved v2
+// build pin, in a disposable tree. No checked-in UI or manifest is changed.
+const pageFixture = await mkdtemp(join(tmpdir(), 'v2-genesis-page-'));
+after(() => rm(pageFixture, { recursive: true, force: true }));
+mkdirSync(join(pageFixture, 'lib'), { recursive: true });
+mkdirSync(join(pageFixture, 'public/data'), { recursive: true });
+for (const name of ['live-config.mjs', 'chain-client.mjs', 'contracts.generated.json', 'read-retry.mjs']) {
+  const original = join(root, 'web/lib', name), copy = join(pageFixture, 'lib', name);
+  copyFileSync(original, copy);
+  assert.ok(readFileSync(copy).equals(readFileSync(original)), `Validator source differs: ${name}`);
+}
+writeFileSync(join(pageFixture, 'public/data/frontend-manifest.json'), manifestBytes);
+symlinkSync(join(root, 'deploy/node_modules'), join(pageFixture, 'node_modules'));
+const { loadLiveConfig, validateProductGraph, GENESIS_ARTIFACT_DIGEST } =
+  await import(pathToFileURL(join(pageFixture, 'lib/live-config.mjs')));
+assert.equal(GENESIS_ARTIFACT_DIGEST, artifactDigest);
 const initial = record.steps.find(step => step.id === 'initialize');
 const activation = { number: initial.receipt.blockNumber, hash: initial.receipt.blockHash,
   timestamp: Math.floor(Date.parse(manifest.verifiedAt) / 1000) };
@@ -20,7 +52,7 @@ const finalized = { number: record.verification.blockNumber + 100, hash: `0x${'a
 const graph = { factory: record.addresses.factory, legacyFactory: record.addresses.factory,
   productKind: 'pool', artifactDigest: record.artifactDigest, blockNumber: finalized.number };
 
-test('v2-only public graph is accepted by the current genesis page without a v4 address or ABI', () => {
+test('v2-only public graph is accepted by current page sources with the preserved v2 build pin', () => {
   const response = formatV2GenesisGraph(record, graph, finalized, activation);
   const page = validateProductGraph(response, manifest);
   assert.equal(page.stage, 'genesis');
@@ -89,8 +121,14 @@ test('patched d09b25c runtime serves only its verified genesis graph without a w
     copyFileSync(new URL('./v2-genesis-public-graph.mjs', import.meta.url),
       join(directory, 'deploy/server/v2-genesis-public-graph.mjs'));
     symlinkSync(join(root, 'deploy/node_modules'), join(directory, 'deploy/node_modules'));
-    const module = await import(new URL(`file://${oldJournal}`));
-    const bundle = JSON.parse(readFileSync(new URL('../../../public/upgrade-genesis/genesis-artifacts.json', import.meta.url)));
+    const module = await import(pathToFileURL(oldJournal));
+    const oldGraph = await import(pathToFileURL(join(directory, 'deploy/server/product-graph.mjs')));
+    const freshRecord = JSON.parse(readFileSync(new URL('../../../public/upgrade-genesis/genesis-record.json', import.meta.url)));
+    const freshBundle = JSON.parse(readFileSync(new URL('../../../public/upgrade-genesis/genesis-artifacts.json', import.meta.url)));
+    assert.ok(freshRecord.addresses.FreshPoolFactory, 'negative fixture must be the actual later Fresh graph');
+    assert.equal(freshRecord.addresses.PoolFactory, undefined, 'do not fabricate a legacy implementation alias');
+    assert.throws(() => oldGraph.productGraphConfiguration({ record: freshRecord, bundle: freshBundle }),
+      /invalid address/, 'the old runtime must reject the later Fresh graph');
     const provider = { async send() { return '0x38'; }, async getBlock(number) {
       if (number === 'finalized' || number === finalized.number) return finalized;
       if (number === activation.number) return activation;
