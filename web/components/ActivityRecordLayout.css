@@ -1,4 +1,4 @@
-@media (min-width: 761px) {
+@media (min-width: 1001px) {
   .live-platform .live-activity-table-desktop {
     --activity-column-time: 12%;
     --activity-column-block: 10%;
@@ -122,7 +122,7 @@
   }
 }
 
-@media (min-width: 761px) and (max-width: 1100px) {
+@media (min-width: 1001px) and (max-width: 1100px) {
   .live-platform .live-activity-table-desktop {
     --activity-column-time: 14%;
     --activity-column-operation: 24%;
@@ -134,13 +134,166 @@
   }
 }
 
-@media (min-width: 761px) and (max-width: 900px) {
-  .live-platform .live-activity-table-desktop {
-    --activity-column-operation: 19%;
-    --activity-column-amount: 33%;
+@media (max-width: 1000px) {
+  .live-platform .table-wrap.live-activity-table-desktop {
+    display: none;
   }
 
-  .live-platform .table-wrap.live-activity-table-desktop :is(th, td) {
-    padding-inline: 4px;
+  .live-platform main .live-mobile-activity {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    gap: 0;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row {
+    min-width: 0;
+    max-width: 100%;
+    padding: 13px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-heading :is(span, strong, time) {
+    min-width: 0;
+    max-width: 100%;
+    font-size: inherit;
+    font-variant-numeric: tabular-nums;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row .activity-operation {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-row .activity-operation :is(strong, p, small, code) {
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    max-width: 100%;
+    gap: 8px;
+    margin: 9px 0 0;
+    padding: 9px 0 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px 12px;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts :is(dt, dd) {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts dt {
+    color: var(--muted);
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-amounts dd {
+    color: var(--ink);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px 16px;
+    margin-top: 4px;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links > span,
+  .live-platform .live-mobile-activity .live-mobile-activity-links .text-button {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    gap: 4px;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .live-platform .live-mobile-activity .live-mobile-activity-links > span {
+    flex-wrap: wrap;
+    min-height: 44px;
+  }
+
+  .live-platform .live-mobile-activity .live-activity-link-label {
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-overflow: clip;
+    overflow: visible;
+  }
+
+  .live-platform .live-mobile-activity .text-button > svg {
+    flex: 0 0 auto;
+  }
+
+  .live-platform .live-mobile-activity .live-empty {
+    padding: 23px 14px;
+    font-size: 15px;
+  }
+
+  .live-platform .live-mobile-activity .live-empty h3 {
+    margin: 9px 0 6px;
+    font-size: 15px;
   }
 }
