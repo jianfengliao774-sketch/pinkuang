@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { Interface } from 'ethers';
 import { transform, loadBindings } from 'next/dist/build/swc/index.js';
 import { abi } from '../lib/chain-client.mjs';
 import { operatorCreateInput } from '../lib/operator-create-input.mjs';
@@ -13,6 +14,7 @@ const require = createRequire(import.meta.url), turn = () => new Promise(resolve
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const address = number => `0x${number.toString(16).padStart(40, '0')}`;
 const collection = '0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C', account = address(1);
+const authorityNonce = new Interface(['function nonces(address) view returns(uint256)']);
 const reservation = (tokenId, fields = {}) => ({ factory: address(2), collection, tokenId,
   pool: address(0), blockTag: 'latest', checkedAt: Date.now(), ...fields });
 await loadBindings();
@@ -37,12 +39,20 @@ function fixture(overrides = {}) {
   };
   const provider = { request: async ({ method, params }) => {
     assert.equal(method, 'eth_call', 'A preview can read the reservation but cannot ask for a signature or simulation.');
-    assert.equal(params[0].to, address(2)); assert.equal(params[1], 'latest');
+    assert.equal(params[1], 'latest');
+    if (params[0].to === address(3)) {
+      const call = authorityNonce.parseTransaction(params[0]);
+      assert.equal(call.name, 'nonces'); assert.equal(call.args[0].toLowerCase(), account);
+      rpcReads.push(call);
+      return authorityNonce.encodeFunctionResult('nonces', [7n]);
+    }
+    assert.equal(params[0].to, address(2));
     const call = abi.PoolFactory.parseTransaction(params[0]); assert.equal(call.name, 'machinePool'); rpcReads.push(call);
     return abi.PoolFactory.encodeFunctionResult('machinePool', [address(0)]);
   } };
   const props = { config: { status: 'ready', chainId: 56, factory: address(2), authority: address(3), portfolioFactory: address(4),
-    displayOnly: true, productFamily: 'fresh-v4', stage: 'fresh-active', freshAuthority: { administratorOne: account, administratorTwo: address(5) } },
+    displayOnly: true, productFamily: 'fresh-v4', stage: 'fresh-active', freshAuthority: {
+      address: address(3), codehash: '0x' + 'aa'.repeat(32), administratorOne: account, administratorTwo: address(5) } },
   account, wallet: provider, readProvider: provider, operator: { isOperator: true, creationPaused: false }, disabled: false,
   onSend: () => assert.fail('Preview cannot submit a transaction.'), onRefresh() {}, ...overrides };
   const modules = { react: hooks, '../app/live-operator.css': {}, './OperatorQuotePicker': { __esModule: true, default: QuotePicker },
@@ -161,6 +171,8 @@ test('manual normal forms accept zero NFT ID and familiar exact decimals, then p
     assert.equal(decoded.name, 'createPool'); assert.equal(decoded.args[0].targetRaise, BigInt(targetWei));
     assert.equal(decoded.args[0].priceCap, BigInt(capWei)); assert.equal(decoded.args[0].circuitId, 0n);
     assert.equal(transaction.value, '0x0');
+    assert.equal(ui.rpcReads.filter(call => call.name === 'nonces').length, 1,
+      'The current administrator preview prepares one nonce through a read-only call.');
     const dialog = elements(ui.tree).find(node => node.type === Dialog && node.props.title === '核对后前往钱包');
     assert(dialog, 'Complete form shows the unsigned preview, with no submission.');
     const submit = ui.button('发送到钱包确认'); assert.equal(submit.disabled, false);
