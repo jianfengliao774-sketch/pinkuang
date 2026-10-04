@@ -1,0 +1,51 @@
+{
+  "method": "CUA in-app browser navigation and rendered accessibility state",
+  "walletConnected": false,
+  "transactionControlsClicked": false,
+  "checks": [
+    {
+      "requested": "https://tapeout.cc.cd/bemine-v5/?lang=zh#market",
+      "observed": "https://bemine.cc.cd/?lang=zh#market",
+      "heading": "矿机转让",
+      "passed": true
+    },
+    {
+      "requested": "https://tapeout.cc.cd/bemine/preview.html?source=tg#detail/16928",
+      "observed": "https://bemine.cc.cd/preview.html?source=tg#detail/16928",
+      "heading": "TapeOut #16928",
+      "renderedNotice": "演示操作，不连接钱包或发起链上交易。",
+      "passed": true
+    },
+    {
+      "requested": "https://tapeout.cc.cd/bemine/share/real.html?mode=demo&project=16928&source=tg",
+      "observed": "https://bemine.cc.cd/preview.html?source=tg#detail/16928",
+      "heading": "TapeOut #16928",
+      "passed": true
+    },
+    {
+      "requested": "https://tapeout.cc.cd/bemine/share/real.html?mode=live&project=0x0000000000000000000000000000000000000001",
+      "observed": "https://tapeout.cc.cd/bemine/share/real.html?mode=live&project=0x0000000000000000000000000000000000000001",
+      "heading": "此版本已临时关闭",
+      "publicLink": "https://bemine.cc.cd/",
+      "passed": true
+    },
+    {
+      "requested": "https://bemine.cc.cd/mobile-review.html",
+      "observed": "https://bemine.cc.cd/mobile-review.html",
+      "publicLinkName": "打开网站",
+      "publicLink": "https://bemine.cc.cd/",
+      "passed": true
+    },
+    {
+      "requested": "https://bemine.cc.cd/preview.html",
+      "observed": "https://bemine.cc.cd/preview.html",
+      "method": "CUA rendered page then read-only DOM metadata after hydration",
+      "ogUrl": "https://bemine.cc.cd/preview.html",
+      "ogImage": "https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg",
+      "twitterImage": "https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg",
+      "passed": true
+    }
+  ],
+  "temporaryTabClosed": true,
+  "checkedOn": "2026-10-04 (CST)"
+}

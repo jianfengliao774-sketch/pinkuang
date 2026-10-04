@@ -1,0 +1,564 @@
+{
+  "publishedAt": "2026-10-04T04:58:34.483042+00:00",
+  "rollback": false,
+  "nginxReloaded": true,
+  "businessServicesRestarted": false,
+  "allProductAndUpgradeFilesUnchanged": true,
+  "businessServiceIdentitiesUnchanged": true,
+  "nginxMasterBefore": {
+    "MainPID": "547237",
+    "ExecMainStartTimestampMonotonic": "2102417886312",
+    "ActiveState": "active",
+    "SubState": "running",
+    "InvocationID": "d7fbbafa423c4c40a6ddfa282c543bd8"
+  },
+  "nginxMasterAfter": {
+    "MainPID": "547237",
+    "ExecMainStartTimestampMonotonic": "2102417886312",
+    "ActiveState": "active",
+    "SubState": "running",
+    "InvocationID": "d7fbbafa423c4c40a6ddfa282c543bd8"
+  },
+  "nginxWorkerPidsBefore": [
+    "829631",
+    "829632",
+    "866228",
+    "866229",
+    "896895",
+    "896896"
+  ],
+  "nginxWorkerPidsAfter": [
+    "829631",
+    "829632",
+    "866228",
+    "866229",
+    "896895",
+    "897640",
+    "897641"
+  ],
+  "configurationBeforeSha256": "f3982df8d56f562c462cf5fd9663431c46e3523891c99c73254cdca97bf81eff",
+  "configurationAfterSha256": "72b2e0aa1fea060325cb474f15b45f3cce19aa1291e7af5b11ca7ac5b22f89b2",
+  "snippetSha256": "c71e0bb1bb79e9d93153ebcb420e1c02060459edd753e8313a561348047fb6bb",
+  "publicAliases": [
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/index.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/budget-share?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/budget-share?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/budget-share/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/budget-share/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/budget-share.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/budget-share.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/design?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/design?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/design/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/design/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/design.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/design.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/live?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/live?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/live/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/live/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/live.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/live.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/frame?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/frame?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/frame/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/frame/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/frame.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/frame.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/view?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/view?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/view/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/view/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/view.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/view.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/mobile-review.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/mobile-review.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/posters?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/posters?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/posters/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/posters/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/posters.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/posters.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/preview?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/preview/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/preview.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/preview.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review/frame?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review/frame?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review/frame/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review/frame/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review/frame.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review/frame.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/review.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/review.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/anime?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/anime/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/anime.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/anime.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/finance?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/finance/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/finance.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/finance.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/future?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/future/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/future.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/future.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/ink?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/ink/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/ink.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/ink.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/original?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/original/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/original.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/original.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/papercraft?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/papercraft/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/papercraft.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/papercraft.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/real?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/real/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/real.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/real.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/space?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/space/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/space.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/space.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/tech?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/tech/?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/tech.html?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/share/tech.html?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    }
+  ],
+  "apiAndUnknownDocuments": [
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/api",
+      "status": 404,
+      "location": null,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/api/rpc",
+      "status": 404,
+      "location": null,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/api/journal/session",
+      "status": 404,
+      "location": null,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/firsto-api",
+      "status": 404,
+      "location": null,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/firsto-api/order",
+      "status": 404,
+      "location": null,
+      "sha256": "766c1d6bcb81d3e983fb7adbc19c616d7fc01dafb7893738edc242e2adc59c07"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/share/unknown-poster.html",
+      "status": 404,
+      "location": null,
+      "sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5/not-a-real-document",
+      "status": 404,
+      "location": null,
+      "sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f"
+    }
+  ],
+  "reloadReadinessAttempts": [
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5?lang=zh&entry=compatibility",
+      "status": 404,
+      "location": null,
+      "sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v5?lang=zh&entry=compatibility",
+      "status": 308,
+      "location": "https://bemine.cc.cd/?lang=zh&entry=compatibility",
+      "sha256": "28da607988b832b48dac9f539ac377f7e06baa161155b17371ff8cb1ad5be0bc"
+    }
+  ],
+  "protectedPublicBefore": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ],
+  "protectedPublicAfter": [
+    {
+      "url": "https://bemine.cc.cd/",
+      "status": 200,
+      "sha256": "708c2d7123ebc1c1c0a00fe87312de1950374dbca730875217078a25eeeed97b"
+    },
+    {
+      "url": "https://bemine.cc.cd/live",
+      "status": 200,
+      "sha256": "ce995ab5d5aa068b136da7173fb771f38784e566bf2a91d24f0cb05e163c2c49"
+    },
+    {
+      "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+      "status": 200,
+      "sha256": "c70492f057426d3b3c9d720225f6723172205a534e96a209b4b8607e49a36f84"
+    },
+    {
+      "url": "https://tapeout.cc.cd/",
+      "status": 200
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://tapeout.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine/?lang=zh",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-v4/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    },
+    {
+      "url": "https://bemine.cc.cd/bemine-full-test/",
+      "status": 503,
+      "sha256": "19a332738b5c0365ec128eadf0e55c5e87dd2a7a12eddc62f83fa0e87b9b491a"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import { shareMotto } from './share-copy.mjs';
 import { makeArtworkShareUrl } from './share-landing.mjs';
 
 // Deliberately separate from verified transaction sharing. Only known preview projects are supported.
-export const DEMO_SHARE_BASE = 'https://tapeout.cc.cd/bemine/preview.html';
+export const DEMO_SHARE_BASE = 'https://bemine.cc.cd/preview.html';
 const demoProjects = new Map(pools.map(project => [project.id, project.name]));
 
 export function buildDemoShareUrl(projectId, source) {

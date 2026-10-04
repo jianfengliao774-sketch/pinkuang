@@ -2,7 +2,8 @@ import { pools } from './demo-data.js';
 import { normalizeSharePoster } from './share-artwork.mjs';
 import { isTrustedShareOrigin } from './public-share-origin.mjs';
 
-const validBase = value => /^\/bemine(?:-[a-z0-9_-]+)?$/.test(value);
+const validBase = value => value === '' || /^\/bemine(?:-[a-z0-9_-]+)?$/.test(value);
+const canonicalOrigin = 'https://bemine.cc.cd';
 const DEMO_IDS = new Set(pools.map(pool => pool.id));
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const SOURCES = new Set(['tg', 'x', 'native']);
@@ -16,9 +17,12 @@ function validProject(mode, project) {
 /** Static per-artwork URLs let social crawlers see the selected image without JavaScript. */
 export function makeArtworkShareUrl(projectUrl, posterId = 'original') {
   try {
+    if (typeof projectUrl !== 'string') return null;
     const source = new URL(projectUrl);
     const base = source.pathname.replace(/\/(?:preview\.html)?$/, '');
-    if (!isTrustedShareOrigin(source.origin) || source.username || source.password
+    // Only canonical direct links: URL normalization must not admit traversal or backslashes.
+    if (source.href !== projectUrl || source.origin !== canonicalOrigin && !isTrustedShareOrigin(source.origin)
+      || source.username || source.password
       || !validBase(base) || ![`${base}/`, `${base}/preview.html`].includes(source.pathname)
       || [...source.searchParams.keys()].some(key => key !== 'source')
       || source.searchParams.getAll('source').length > 1) return null;

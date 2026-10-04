@@ -7,9 +7,11 @@ export class UncertainUpgradeSubmission extends Error {}
 
 export async function sendUpgradeTransaction(
   wallet: WalletProvider,
-  transaction: { from: string; to?: string; data: string },
+  transaction: { from: string; to?: string; data: string; nonce?: number },
 ): Promise<string> {
   if (!isHexString(transaction.data) || transaction.data.length < 4) throw new Error('交易数据不是完整十六进制字节码。');
+  if (transaction.nonce !== undefined && (!Number.isSafeInteger(transaction.nonce) || transaction.nonce < 0))
+    throw new Error('交易 nonce 必须是精确非负整数。');
   const [chainId, accounts] = await Promise.all([
     wallet.request({ method: 'eth_chainId' }),
     wallet.request({ method: 'eth_accounts' }),
@@ -23,6 +25,7 @@ export async function sendUpgradeTransaction(
       ...(transaction.to ? { to: getAddress(transaction.to) } : {}),
       data: transaction.data,
       value: '0x0',
+      ...(transaction.nonce === undefined ? {} : { nonce: `0x${transaction.nonce.toString(16)}` }),
     }] });
   } catch (error) {
     if ((error as { code?: number | string })?.code === 4001

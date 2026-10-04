@@ -27,21 +27,31 @@ function fixture(options: Options = {}) {
   const add = (event: string, fn: (...args: any[]) => void) => { if (!events.has(event)) events.set(event, new Set()); events.get(event)!.add(fn); };
   const remove = (event: string, fn: (...args: any[]) => void) => events.get(event)?.delete(fn);
   const register = (hash: string, data: string, to: string | null, status = 1) => {
-    const index = rows.size; const address = to ? null : a(100 + index);
-    rows.set(hash, { transaction: { hash, from: a(6), to, chainId: 56n, value: 0n, data, blockNumber: 10, blockHash: h(10) },
-      receipt: { hash, from: a(6), to, blockNumber: 10, blockHash: h(10), index, status, contractAddress: address, gasUsed: 20000n } });
+    const nonce = rows.size, blockNumber = 21 + nonce, address = to ? null : ethers.getCreateAddress({ from: a(6), nonce });
+    rows.set(hash, { transaction: { hash, from: a(6), to, chainId: 56n, value: 0n, data, nonce, blockNumber, blockHash: h(blockNumber) },
+      receipt: { hash, from: a(6), to, blockNumber, blockHash: h(blockNumber), index: 0, status, contractAddress: address, gasUsed: 20000n } });
   };
   const provider = { timestamp: 0n, send: async (method: string) => { assert.equal(method, 'eth_chainId'); return '0x38'; },
     getTransaction: async (hash: string) => rows.get(hash)?.transaction ?? null,
     getTransactionReceipt: async (hash: string) => { receiptReads++; return rows.get(hash)?.receipt ?? null; },
-    getBlock: async (tag: any) => tag === 'finalized' || tag === 20
-      ? { number: 20, hash: h(20), timestamp: options.jump48h ? 300000 : 1000, transactions: [] }
-      : { number: 10, hash: h(10), timestamp: 900, transactions: [...rows.keys()] }, destroy: () => {} };
+    getBlock: async (tag: any) => { const number = tag === 'finalized' ? 20 + rows.size : Number(tag);
+      return { number, hash: h(number), timestamp: options.jump48h ? 300000 : 1000,
+        transactions: [...rows.values()].filter(row => row.transaction.blockNumber === number).map(row => row.transaction.hash) }; }, destroy: () => {} };
   let f: any;
   const wallet = { request: async ({ method, params }: any) => {
     if (method === 'eth_requestAccounts') return [a(6)];
     if (method === 'eth_chainId') return '0x38';
     if (method === 'eth_accounts') { await options.beforeSendRead?.(f); return [a(6)]; }
+    if (method === 'eth_getTransactionCount') { const tag = params[1];
+      const count = tag === 'latest' || tag === 'pending' ? rows.size
+        : [...rows.values()].filter(row => row.transaction.blockNumber <= Number(tag)).length;
+      return `0x${count.toString(16)}`;
+    }
+    if (method === 'eth_getBlockByNumber') { assert.equal(params[1], true); const block = await provider.getBlock(Number(params[0]));
+      return { ...block, number: `0x${block.number.toString(16)}`, transactions: block.transactions.map(hash => {
+        const tx = rows.get(hash).transaction; return { ...tx, nonce: `0x${tx.nonce.toString(16)}`, value: '0x0',
+          chainId: '0x38', input: tx.data, blockNumber: `0x${tx.blockNumber.toString(16)}` }; }) };
+    }
     assert.equal(method, 'eth_sendTransaction'); const intent = JSON.parse(storage.get(key)!);
     assert(ui.targetOwnerPending(intent), 'uncertain intent must exist before the wallet send');
     const transaction = params[0], hash = h(1000 + ++sent); sends.push(transaction);
@@ -89,9 +99,13 @@ function fixture(options: Options = {}) {
   const render = () => { stateIndex = 0; refIndex = 0; const tree = exports.TargetOwnerUpgradeStandalone();
     if (first) { first = false; effects.forEach((effect, index) => { if (index !== 1) { const fn = effect(); if (typeof fn === 'function') cleanup.push(fn); } }); } return tree; };
   f = { provider, storage, key, state, phases, sends, dispatch, register, render,
-    failWrites: () => { storageFailure = true; }, setUnknownHash: (hash: string) => { state[14] = hash; },
+    failWrites: () => { storageFailure = true; }, allowWrites: () => { storageFailure = false; }, setUnknownHash: (hash: string) => { state[14] = hash; },
     journal: () => storage.has(key) ? ui.parseTargetOwnerJournal(JSON.parse(storage.get(key)!), context) : null,
     click: async () => { const button = walk(render(), node => node.type === 'button' && node.props.className === 'to-primary'); assert(button); await button.props.onClick(); },
+    recover: async () => { const button = walk(render(), node => node.type === 'button' && node.props.children === '核对当前交易'); assert(button); await button.props.onClick(); },
+    import: async (journal: ui.TargetOwnerJournal) => { const input = walk(render(), node => node.type === 'input' && node.props.type === 'file'); assert(input);
+      input.props.onChange({ target: { files: [{ size: 1000, text: async () => JSON.stringify({ journal }) }], value: 'record.json' } });
+      for (let i = 0; i < 50 && (state[11] || i === 0); i++) await new Promise(resolve => setImmediate(resolve)); },
     unmount: () => cleanup.forEach(fn => fn()), receiptReads: () => receiptReads, find: (predicate: any) => walk(render(), predicate) };
   return f;
 }
@@ -141,4 +155,60 @@ test('known matching failed transaction is archived but retry requires a later f
   const source = ui.newTargetOwnerJournal(context, h(8)); source.deployments.PoolFunds = { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90) };
   const f = fixture({ source }); f.register(h(90), '0x6000', null, 0); await f.click();
   assert.equal(f.sends.length, 0); assert.equal(f.journal().failedTransactions.length, 1); assert.equal(ui.targetOwnerPending(f.journal()), null); f.unmount();
+});
+test('a hash returned by the wallet can be saved and verified after storage becomes writable, without another send', async () => {
+  const f = fixture({ afterBroadcast: current => current.failWrites() }); await f.click();
+  assert.equal(f.sends.length, 1); assert.equal(f.state[15], h(1001)); f.allowWrites(); await f.recover();
+  assert.equal(f.sends.length, 1); assert.equal(f.journal().deployments.PoolFunds.status, 'confirmed');
+  assert.equal(f.journal().deployments.FlexiblePurchase, undefined); assert.equal(f.state[15], ''); f.unmount();
+});
+test('actual component recovers a lost wallet response by its persisted nonce and canonical block without another send', async () => {
+  const f = fixture({ afterBroadcast: () => { throw new Error('wallet callback timeout'); } }); await f.click();
+  assert.equal(f.sends.length, 1); assert.equal(f.journal().deployments.PoolFunds.status, 'uncertain');
+  assert.equal(f.journal().deployments.PoolFunds.intent.nonce, 0); assert.equal(f.sends[0].nonce, '0x0');
+  await f.recover(); assert.equal(f.sends.length, 1); assert.equal(f.journal().deployments.PoolFunds.status, 'confirmed');
+  assert.equal(f.journal().deployments.FlexiblePurchase, undefined); f.unmount();
+});
+test('new hashless matching failure is located and archived, and readonly recovery does not retry', async () => {
+  const f = fixture({ receiptStatus: 0, afterBroadcast: () => { throw new Error('wallet callback timeout'); } }); await f.click();
+  await f.recover(); assert.equal(f.sends.length, 1); assert.equal(f.journal().failedTransactions.length, 1);
+  assert.equal(f.journal().deployments.PoolFunds, undefined); f.unmount();
+});
+test('readonly legacy hashless recovery never creates a new transaction', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8)); source.deployments.PoolFunds = { status: 'uncertain', from: a(6), dataHash: ethers.keccak256('0x6000') };
+  const f = fixture({ source }); await f.recover(); assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); f.unmount();
+});
+test('import enriches only the same nonce-bound pending row after canonical proof, without advancing or sending', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8)); source.deployments.PoolFunds = { status: 'uncertain', from: a(6), dataHash: ethers.keccak256('0x6000'),
+    intent: { schemaVersion: 1, chainId: 56, nonce: 0, anchor: { blockNumber: 20, blockHash: h(20) } } };
+  const imported = structuredClone(source); imported.deployments.PoolFunds = { ...imported.deployments.PoolFunds!, status: 'submitted', txHash: h(90) };
+  const f = fixture({ source }); f.register(h(90), '0x6000', null); await f.import(imported);
+  assert.equal(f.sends.length, 0); assert.equal(f.journal().deployments.PoolFunds.txHash, h(90));
+  assert.equal(f.journal().deployments.PoolFunds.status, 'submitted'); assert.equal(f.journal().deployments.FlexiblePurchase, undefined); f.unmount();
+});
+test('import cannot overwrite a legacy unknown send, alter the salt, or adopt an unrelated nonce', async () => {
+  for (const change of ['legacy', 'salt', 'nonce']) {
+    const source = ui.newTargetOwnerJournal(context, h(8)); source.deployments.PoolFunds = { status: 'uncertain', from: a(6), dataHash: ethers.keccak256('0x6000'),
+      ...(change === 'legacy' ? {} : { intent: { schemaVersion: 1 as const, chainId: 56 as const, nonce: 0, anchor: { blockNumber: 20, blockHash: h(20) } } }) };
+    const imported = structuredClone(source); imported.deployments.PoolFunds = { ...imported.deployments.PoolFunds!, status: 'submitted', txHash: h(90) };
+    if (change === 'salt') imported.salt = h(99);
+    if (change === 'nonce') imported.deployments.PoolFunds.intent!.nonce = 1;
+    const f = fixture({ source }); f.register(h(90), '0x6000', null); await f.import(imported);
+    assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert.match(f.state[12], /不能证明/); f.unmount();
+  }
+});
+test('returned hash recovery refuses to overwrite a record changed in another tab', async () => {
+  const f = fixture({ afterBroadcast: current => current.failWrites() }); await f.click(); f.allowWrites();
+  const changed = f.journal(); changed.salt = h(123); delete changed.deployments.PoolFunds.intent;
+  f.storage.set(f.key, JSON.stringify(changed)); await f.recover();
+  assert.equal(f.sends.length, 1); assert.deepEqual(f.journal(), changed); f.unmount();
+});
+test('empty storage import re-proves nonce-bound archived failures using wallet readonly RPC, with zero sends', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8)); source.failedTransactions = [{ step: 'PoolFunds',
+    transaction: { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90),
+      intent: { schemaVersion: 1, chainId: 56, nonce: 0, anchor: { blockNumber: 20, blockHash: h(20) } } },
+    evidence: { kind: 'target-owner-finalized-failed-transaction-v1', chainId: 56, status: 0, txHash: h(90), from: a(6), to: null,
+      value: '0', dataHash: ethers.keccak256('0x6000'), blockNumber: 21, blockHash: h(21), gasUsed: '20000', checkedAt: new Date().toISOString() } }];
+  const f = fixture(); f.register(h(90), '0x6000', null, 0); await f.import(source);
+  assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert.equal(f.state[12], ''); f.unmount();
 });

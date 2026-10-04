@@ -10,16 +10,16 @@ export const metadata = {
     title,
     description,
     type: 'website',
-    url: 'https://tapeout.cc.cd/bemine/preview.html',
+    url: 'https://bemine.cc.cd/preview.html',
     siteName: '拼矿 BEMine',
     images: [{
-      url: 'https://tapeout.cc.cd/bemine/images/bemine-share-v10.jpg',
+      url: 'https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg',
       width: 1200,
       height: 630,
       alt: '拼矿 BEMine · 一起拼矿，一起发光',
     }],
   },
   twitter: {card: 'summary_large_image', title, description,
-    images: ['https://tapeout.cc.cd/bemine/images/bemine-share-v10.jpg']},
+    images: ['https://bemine.cc.cd/bemine-v5/images/bemine-share-v10.jpg']},
 };
 export default function PreviewPage(){return <I18nProvider><Platform/></I18nProvider>}
