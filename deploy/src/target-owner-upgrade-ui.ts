@@ -1,10 +1,12 @@
-import { getAddress, keccak256, ZeroAddress, type Provider, type TransactionReceipt } from 'ethers';
+import { getAddress, getCreateAddress, keccak256, ZeroAddress, type Provider, type TransactionReceipt } from 'ethers';
 import type { WalletProvider } from './wallet';
 import { sendUpgradeTransaction, UncertainUpgradeSubmission } from './upgrade-transactions';
 // @ts-ignore Shared canonical digest has no TypeScript declarations.
 import { evidenceDigest } from '../shared/firsto-upgrade-proof.mjs';
+export type TargetOwnerIntent = { schemaVersion: 1; chainId: 56; nonce: number;
+  anchor: { blockNumber: number; blockHash: string } };
 export type UpgradeTransaction = { status: 'submitted' | 'confirmed' | 'uncertain'; from: string;
-  dataHash: string; txHash?: string; address?: string };
+  dataHash: string; txHash?: string; address?: string; intent?: TargetOwnerIntent };
 
 export const TARGET_OWNER_DEPLOYMENTS = ['PoolFunds', 'FlexiblePurchase', 'PoolVault'] as const;
 export type TargetOwnerName = typeof TARGET_OWNER_DEPLOYMENTS[number];
@@ -20,6 +22,116 @@ export type FailedTargetOwnerReceipt = { kind: 'target-owner-finalized-failed-tr
   gasUsed: string; checkedAt: string };
 const hash = (value: unknown): value is string => typeof value === 'string' && /^0x[\da-f]{64}$/i.test(value);
 const need: (ok: unknown, reason: string) => asserts ok = (ok, reason) => { if (!ok) throw new Error(reason); };
+const nonceValue = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+const rpcRead = (provider: Provider, method: string, params: unknown[]) => (provider as Provider & { send(method: string, params: unknown[]): Promise<any> }).send(method, params);
+const chainRead = (provider: Provider) => rpcRead(provider, 'eth_chainId', []);
+const rpcUint = (value: unknown): bigint => {
+  need(typeof value === 'string' && /^0x(?:0|[1-9a-f][\da-f]*)$/i.test(value), '节点返回的整数不是规范 JSON-RPC quantity。');
+  return BigInt(value);
+};
+const rpcTag = (tag: number | 'latest' | 'pending') => typeof tag === 'number' ? `0x${tag.toString(16)}` : tag;
+async function readNonce(provider: Provider, from: string, tag: number | 'latest' | 'pending') {
+  const value = rpcUint(await rpcRead(provider, 'eth_getTransactionCount', [getAddress(from), rpcTag(tag)]));
+  need(value <= BigInt(Number.MAX_SAFE_INTEGER), '节点返回的 nonce 超出精确整数范围。'); return Number(value);
+}
+function chain56(value: unknown) { need(typeof value === 'string' && /^0x[\da-f]+$/i.test(value) && BigInt(value) === 56n, '恢复需要 BSC 主网。'); }
+export function validateTargetOwnerIntent(value: unknown): asserts value is TargetOwnerIntent {
+  const intent = value as TargetOwnerIntent;
+  need(intent && typeof intent === 'object' && !Array.isArray(intent)
+    && Object.keys(intent).every(key => ['schemaVersion', 'chainId', 'nonce', 'anchor'].includes(key))
+    && intent.schemaVersion === 1 && intent.chainId === 56 && nonceValue(intent.nonce)
+    && intent.anchor && Object.keys(intent.anchor).every(key => ['blockNumber', 'blockHash'].includes(key))
+    && nonceValue(intent.anchor.blockNumber) && intent.anchor.blockNumber > 0 && hash(intent.anchor.blockHash),
+  '升级发送意图缺少有效的 nonce 或最终区块锚点。');
+}
+async function intentAnchor(provider: Provider, from: string, intent: TargetOwnerIntent) {
+  validateTargetOwnerIntent(intent); const account = getAddress(from); need(account !== ZeroAddress, '发送者不能为零地址。');
+  const [chain, block, count] = await Promise.all([chainRead(provider), provider.getBlock(intent.anchor.blockNumber),
+    readNonce(provider, account, intent.anchor.blockNumber)]);
+  chain56(chain);
+  need(block?.number === intent.anchor.blockNumber && block.hash?.toLowerCase() === intent.anchor.blockHash.toLowerCase()
+    && nonceValue(count) && count <= intent.nonce, '发送前区块锚点已变化，或该 nonce 在发送前已被消费。');
+  return count;
+}
+/** Called before persisting a new intent. A busy wallet cannot donate its pending nonce to this upgrade. */
+export async function prepareTargetOwnerIntent(provider: Provider, from: string): Promise<TargetOwnerIntent> {
+  const account = getAddress(from); need(account !== ZeroAddress, '发送者不能为零地址。');
+  const [chain, finalized, latest, pending] = await Promise.all([chainRead(provider), provider.getBlock('finalized'),
+    readNonce(provider, account, 'latest'), readNonce(provider, account, 'pending')]);
+  chain56(chain);
+  need(finalized && nonceValue(finalized.number) && finalized.number > 0 && hash(finalized.hash), '无法读取发送前最终确认区块。');
+  need(nonceValue(latest) && nonceValue(pending) && latest === pending, '钱包已有待处理交易或 nonce 不一致，请先处理原交易。');
+  const intent: TargetOwnerIntent = { schemaVersion: 1, chainId: 56, nonce: latest,
+    anchor: { blockNumber: finalized.number, blockHash: finalized.hash } };
+  await assertTargetOwnerIntentCurrent(provider, account, intent); return intent;
+}
+/** Re-read immediately before the wallet request. This never clears or retransmits an existing intent. */
+export async function assertTargetOwnerIntentCurrent(provider: Provider, from: string, intent: TargetOwnerIntent): Promise<void> {
+  validateTargetOwnerIntent(intent);
+  const [count, latest, pending, finalized] = await Promise.all([intentAnchor(provider, from, intent),
+    readNonce(provider, from, 'latest'), readNonce(provider, from, 'pending'), provider.getBlock('finalized')]);
+  need(count <= intent.nonce && latest === intent.nonce && pending === intent.nonce,
+    '发送前钱包 nonce 已变化，请停止并核对原交易。');
+  need(finalized && hash(finalized.hash) && nonceValue(finalized.number) && finalized.number >= intent.anchor.blockNumber,
+    '最终确认区块未覆盖发送前锚点。');
+}
+type TargetOwnerRecoveryIdentity = { from: string; to?: string; dataHash: string; intent?: TargetOwnerIntent };
+
+/** At most 32 nonce bisections and one full block. No mempool absence can authorize a retry. */
+export async function discoverTargetOwnerTransaction(provider: Provider, expected: TargetOwnerRecoveryIdentity): Promise<string | null> {
+  if (!expected.intent) return null; // Legacy journal: no inference or migration from the current nonce.
+  const intent = expected.intent; validateTargetOwnerIntent(intent);
+  const from = getAddress(expected.from); need(from !== ZeroAddress && hash(expected.dataHash), '原发送者或 calldata 摘要无效。');
+  if (expected.to !== undefined) need(getAddress(expected.to) !== ZeroAddress, '原交易目标无效。');
+  const [anchorCount, finalized] = await Promise.all([intentAnchor(provider, from, intent), provider.getBlock('finalized')]);
+  need(finalized && hash(finalized.hash) && nonceValue(finalized.number) && finalized.number >= intent.anchor.blockNumber,
+    '最终确认区块未覆盖发送前锚点。');
+  const checkSnapshot = async () => {
+    const [chain, anchor, finality] = await Promise.all([chainRead(provider), provider.getBlock(intent.anchor.blockNumber), provider.getBlock(finalized.number)]);
+    chain56(chain);
+    need(anchor?.hash?.toLowerCase() === intent.anchor.blockHash.toLowerCase()
+      && finality?.hash?.toLowerCase() === finalized.hash!.toLowerCase(), '查找期间规范链或最终区块发生变化。');
+  };
+  const finalCount = await readNonce(provider, from, finalized.number);
+  need(nonceValue(finalCount) && finalCount >= anchorCount, '最终区块 nonce 响应不一致。');
+  if (finalCount <= intent.nonce) { await checkSnapshot(); return null; }
+  need(finalized.number - intent.anchor.blockNumber <= 0xffff_ffff, '原交易查找超出有界区块范围，需要人工核对。');
+  let low = intent.anchor.blockNumber, high = finalized.number, lowCount = anchorCount, highCount = finalCount;
+  for (let round = 0; high - low > 1; round++) {
+    need(round < 32, '原交易查找超过有界读取次数。');
+    const middle = low + Math.floor((high - low) / 2), count = await readNonce(provider, from, middle);
+    need(nonceValue(count) && count >= lowCount && count <= highCount, '历史 nonce 响应不单调，停止恢复。');
+    if (count > intent.nonce) { high = middle; highCount = count; } else { low = middle; lowCount = count; }
+  }
+  // The facade may obtain these two extra read methods from the selected wallet;
+  // headers and exact transaction/receipt proofs still come from the pinned public provider.
+  const [full, block] = await Promise.all([rpcRead(provider, 'eth_getBlockByNumber', [rpcTag(high), true]), provider.getBlock(high)]);
+  need(block?.number === high && hash(block.hash) && full && rpcUint(full.number) === BigInt(high)
+    && typeof full.hash === 'string' && full.hash.toLowerCase() === block.hash.toLowerCase(), '完整区块与公开节点规范区块不一致。');
+  const transactions = full.transactions;
+  need(Array.isArray(transactions) && transactions.length <= 10_000 && transactions.length === block.transactions.length
+    && transactions.every((tx, index) => tx && typeof tx === 'object' && hash(tx.hash)
+      && tx.hash.toLowerCase() === block.transactions[index]?.toLowerCase()),
+    '节点未提供有界完整区块交易，不能证明原 nonce。');
+  const matches = transactions.filter(tx => typeof tx.from === 'string' && tx.from.toLowerCase() === from.toLowerCase()
+    && rpcUint(tx.nonce) === BigInt(intent.nonce));
+  need(matches.length === 1, '原 nonce 已消费，但未能找到唯一交易，需人工核对。');
+  const tx = matches[0];
+  need(hash(tx.hash) && (tx.chainId === undefined || rpcUint(tx.chainId) === 56n) && rpcUint(tx.value) === 0n
+    && typeof tx.input === 'string' && /^0x(?:[\da-f]{2})*$/i.test(tx.input) && keccak256(tx.input).toLowerCase() === expected.dataHash.toLowerCase()
+    && (expected.to ? tx.to && getAddress(tx.to) === getAddress(expected.to) : tx.to === null)
+    && rpcUint(tx.blockNumber) === BigInt(high) && tx.blockHash?.toLowerCase() === block.hash.toLowerCase(),
+  '原 nonce 已被另一笔交易消费；不能把取消或替换交易当成升级成功。');
+  await checkSnapshot();
+  try {
+    const receipt = await verifyTargetOwnerRecoveryReceipt(provider, tx.hash, expected);
+    if (!receipt) return null;
+  } catch (problem) {
+    // Matching finalized failures are found too; the existing receipt verifier owns failure archiving.
+    if (!(problem instanceof VerifiedTargetOwnerTransactionFailure)) throw problem;
+  }
+  await checkSnapshot(); return tx.hash;
+}
 const contextKeys = ['genesisRecordDigest', 'genesisManifestDigest', 'candidateArtifactDigest', 'catalogDigest'] as const;
 export function targetOwnerJournalKey(context: TargetOwnerContext) {
   need(contextKeys.every(key => hash(context[key])), '升级摘要格式无效。');
@@ -46,6 +158,7 @@ export function parseTargetOwnerJournal(value: unknown, context: TargetOwnerCont
     need(tx && ['submitted', 'confirmed', 'uncertain'].includes(tx.status) && hash(tx.dataHash)
       && (tx.txHash === undefined || hash(tx.txHash)) && getAddress(tx.from) !== ZeroAddress, '升级交易字段无效。');
     need(tx.status === 'uncertain' || hash(tx.txHash), '已提交或确认交易缺少原交易哈希。');
+    if (tx.intent !== undefined) validateTargetOwnerIntent(tx.intent);
     if (tx.txHash) { need(!transactions.has(tx.txHash.toLowerCase()), '原交易哈希重复。'); transactions.add(tx.txHash.toLowerCase()); }
     if (deployment && tx.status === 'confirmed') {
       need(tx.address && getAddress(tx.address) !== ZeroAddress, '已确认部署缺少合约地址。');
@@ -175,8 +288,9 @@ export async function waitForTargetOwnerFinality(provider: Provider, originalHas
 }
 
 /** The durable journal write must succeed before the first wallet request. */
-export async function submitTargetOwnerUpgrade(wallet: WalletProvider, transaction: { from: string; to?: string; data: string; gasLimit?: string },
+export async function submitTargetOwnerUpgrade(wallet: WalletProvider, transaction: { from: string; to?: string; data: string; gasLimit?: string; intent?: TargetOwnerIntent },
   journal: { beforeRequest: () => void; submitted: (hash: string) => void; definitelyRejected: () => void }) {
+  if (transaction.intent !== undefined) validateTargetOwnerIntent(transaction.intent);
   if (transaction.gasLimit !== undefined) need(/^[1-9]\d*$/.test(transaction.gasLimit)
     && BigInt(transaction.gasLimit) <= 9000000n, '部署 Gas 上限必须来自已审查的候选计划。');
   const sender: WalletProvider = transaction.gasLimit ? { request: args => {
@@ -186,7 +300,8 @@ export async function submitTargetOwnerUpgrade(wallet: WalletProvider, transacti
   } } : wallet;
   journal.beforeRequest();
   let hash: string;
-  try { hash = await sendUpgradeTransaction(sender, transaction); }
+  try { hash = await sendUpgradeTransaction(sender, { ...transaction,
+    ...(transaction.intent ? { nonce: transaction.intent.nonce } : {}) }); }
   catch (problem) { if (!(problem instanceof UncertainUpgradeSubmission)) journal.definitelyRejected(); throw problem; }
   // A storage failure after submission must keep the earlier uncertain row; never roll back and retry.
   journal.submitted(hash); return hash;
@@ -223,8 +338,9 @@ export class VerifiedTargetOwnerTransactionFailure extends Error {
 
 /** Both successful and failed recovery must prove the exact original transaction before changing the journal. */
 export async function verifyTargetOwnerRecoveryReceipt(provider: Provider, hashValue: string,
-  expected: { from: string; to?: string; dataHash: string }): Promise<TransactionReceipt | null> {
+  expected: TargetOwnerRecoveryIdentity): Promise<TransactionReceipt | null> {
   need(hash(hashValue) && hash(expected.dataHash), '原交易哈希或 calldata 摘要无效。');
+  if (expected.intent) await intentAnchor(provider, expected.from, expected.intent);
   const read = provider as Provider & { send(method: string, params: unknown[]): Promise<any> };
   const [chain, finalized, tx, receipt] = await Promise.all([read.send('eth_chainId', []), provider.getBlock('finalized'),
     provider.getTransaction(hashValue), provider.getTransactionReceipt(hashValue)]);
@@ -235,6 +351,7 @@ export async function verifyTargetOwnerRecoveryReceipt(provider: Provider, hashV
     && tx.chainId === 56n && getAddress(tx.from) === getAddress(expected.from) && getAddress(receipt.from) === getAddress(expected.from)
     && matchingAddress(tx.to, expected.to) && matchingAddress(receipt.to, expected.to) && tx.value === 0n
     && keccak256(tx.data).toLowerCase() === expected.dataHash.toLowerCase()
+    && (!expected.intent || tx.nonce === expected.intent.nonce && receipt.blockNumber > expected.intent.anchor.blockNumber)
     && tx.blockNumber === receipt.blockNumber && tx.blockHash?.toLowerCase() === receipt.blockHash.toLowerCase()
     && (receipt.status === 0 || receipt.status === 1), '原交易发送者、目标、金额、calldata 或回执不匹配。');
   const block = await provider.getBlock(receipt.blockNumber);
@@ -248,10 +365,18 @@ export async function verifyTargetOwnerRecoveryReceipt(provider: Provider, hashV
     && againReceipt.hash.toLowerCase() === receipt.hash.toLowerCase() && againReceipt.blockHash.toLowerCase() === receipt.blockHash.toLowerCase()
     && againReceipt.blockNumber === receipt.blockNumber && againReceipt.index === receipt.index,
   '恢复期间规范链或原交易回执发生变化。');
+  if (expected.intent) {
+    await intentAnchor(provider, expected.from, expected.intent);
+    const count = await readNonce(provider, expected.from, finalized.number);
+    need(nonceValue(count) && count > expected.intent.nonce, '最终区块未证明原 nonce 已消费。');
+  }
   if (receipt.status === 0) throw new VerifiedTargetOwnerTransactionFailure({ kind: 'target-owner-finalized-failed-transaction-v1',
     chainId: 56, status: 0, txHash: hashValue, from: tx.from, to: tx.to, value: '0', dataHash: expected.dataHash,
     blockNumber: receipt.blockNumber, blockHash: receipt.blockHash, gasUsed: receipt.gasUsed.toString(), checkedAt: new Date().toISOString() });
-  need(!!expected.to || receipt.contractAddress, '成功 CREATE 缺少合约地址。'); return receipt;
+  need(!!expected.to || receipt.contractAddress, '成功 CREATE 缺少合约地址。');
+  if (!expected.to && expected.intent) need(getAddress(receipt.contractAddress!) === getCreateAddress({ from: expected.from, nonce: expected.intent.nonce }),
+    'CREATE 地址与原发送者和 nonce 不一致。');
+  return receipt;
 }
 
 export function archiveTargetOwnerFailure(source: TargetOwnerJournal, step: TargetOwnerName | 'schedule' | 'execute',
