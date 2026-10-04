@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "transactionHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+  "blockNumber": 125476240,
+  "canonicalTransactionIndex": 23,
+  "finalizedBlockNumber": 125645667,
+  "receiptStatus": 1,
+  "methods": {
+    "eth_chainId": 1,
+    "eth_getTransactionByHash": 1,
+    "eth_getTransactionReceipt": 1,
+    "eth_getBlockByNumber": 2
+  },
+  "elapsedMs": 2202,
+  "chainActionsPerformed": false,
+  "generatedAt": "2026-10-04T08:38:33.711Z"
+}

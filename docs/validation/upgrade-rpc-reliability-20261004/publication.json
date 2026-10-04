@@ -1,0 +1,37 @@
+{
+  "published": true,
+  "sourceCommit": "86d635e452cba857e820108c7218b8fc3cd5d237",
+  "location": "/pinkuang-target-owner-upgrade/api/rpc",
+  "beforePort": 4227,
+  "afterPort": 4228,
+  "existingServicesUnchanged": true,
+  "formalAndUpgradeStaticUnchanged": true,
+  "onlyOneNginxLocationChanged": true,
+  "chainActionsPerformed": false,
+  "checkedAt": "2026-10-04T08:39:14.544970+00:00",
+  "localProof": {
+    "ok": true,
+    "phase": "prepared",
+    "blockNumber": 125645332,
+    "baselineVerified": true,
+    "elapsedMs": 18070,
+    "methods": {
+      "eth_chainId": 34,
+      "eth_getBlockByNumber": 6,
+      "eth_getCode": 24,
+      "eth_getStorageAt": 4,
+      "eth_call": 26
+    },
+    "failures": [],
+    "chainActionsPerformed": false,
+    "sourceCommit": "86d635e452cba857e820108c7218b8fc3cd5d237",
+    "readEndpoint": "dedicated-loopback-4228",
+    "generatedAt": "2026-10-04T08:36:20.400Z"
+  },
+  "unitSha256": "4df7d8d24e2a7088eec2c4d3271a35e3e3c35e904d54818b4e9affd5dd807665",
+  "sourcePins": {
+    "deploy/server/live-data-proxy.mjs": "0aae6804cb9263549962a884e3118813199ffb4572c0bb1fe9b8c46bed4c7a19",
+    "deploy/server/target-owner-read-server.mjs": "c90487a4e6324eca8d7340fc21a56f852704db4ddf6b8139f34b180c2d7673d5",
+    "deploy/server/request-limiter.mjs": "c70933abb6c0c3a60c198ff2164105827f73d2915e837e009bc9a8035e9e3c64"
+  }
+}

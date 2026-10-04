@@ -1,0 +1,21 @@
+{
+  "ok": false,
+  "errorCode": "SERVER_ERROR",
+  "errorType": "Error",
+  "errorMessage": "server response 502 Bad Gateway",
+  "elapsedMs": 4739,
+  "methods": {
+    "eth_chainId": 10,
+    "eth_getBlockByNumber": 3,
+    "eth_getCode": 6
+  },
+  "failures": [
+    {
+      "method": "eth_getCode",
+      "code": "SERVER_ERROR",
+      "status": "502 Bad Gateway",
+      "errorType": "Error"
+    }
+  ],
+  "chainActionsPerformed": false
+}
