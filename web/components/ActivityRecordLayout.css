@@ -1,4 +1,4 @@
-@media (min-width: 1001px) {
+@media (min-width: 1000px) {
   .live-platform .live-activity-table-desktop {
     --activity-column-time: 12%;
     --activity-column-block: 10%;
@@ -122,7 +122,7 @@
   }
 }
 
-@media (min-width: 1001px) and (max-width: 1100px) {
+@media (min-width: 1000px) and (max-width: 1100px) {
   .live-platform .live-activity-table-desktop {
     --activity-column-time: 14%;
     --activity-column-operation: 24%;
