@@ -10,3 +10,14 @@ export function activityTimeUtc8(timestamp) {
     label: `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())} ${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}`,
   };
 }
+
+/** Compact display only; the original UTC instant and full year remain available. */
+export function activityCompactTimeUtc8(timestamp) {
+  const full = activityTimeUtc8(timestamp);
+  if (!full) return null;
+  const local = new Date(timestamp * 1000 + 8 * 60 * 60 * 1000);
+  const pad = value => String(value).padStart(2, '0');
+  const date = `${pad(local.getUTCFullYear() % 100)}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}`;
+  const clock = `${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}`;
+  return { iso: full.iso, label: `${date} ${clock}`, date, clock, fullLabel: full.label };
+}

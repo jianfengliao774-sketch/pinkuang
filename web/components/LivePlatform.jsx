@@ -1,10 +1,11 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
-import { activityTimeUtc8 } from '../lib/activity-time.mjs';
+import { activityCompactTimeUtc8 } from '../lib/activity-time.mjs';
 import { createCatalogShare } from '../lib/catalog-share.mjs';
 import PoolCatalogShare from './PoolCatalogShare';
 import './PoolDetailLayout.css';
+import './ActivityRecordLayout.css';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
 import { claimDisplayState } from '../lib/claim-display.mjs';
@@ -2733,6 +2734,7 @@ export default function LivePlatform() {
           const bemPreview = previewRows.get(p.pool.toLowerCase());
           const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
           const refundView = holdings ? fundingRefundView(p, positionsReadSource) : null;
+          const compactFundingHolding = holdings && route.route === 'overview' && p.status === 'Funding';
           const fundingBnbClaim = holdings && p.kind !== 'portfolio' && ['Funding', 'Funded', 'Refunding'].includes(p.status)
             ? claimState(p, 'BNB', positionsReadSource) : null;
           const identity = <><Chip pool={p}/><span>
@@ -2777,17 +2779,17 @@ export default function LivePlatform() {
               {refundView?.unavailable && p.status === 'Funded' && p.shares > 0n && <button className="btn"
                 disabled={!positionsActionReadyFor('finalizeFailure') || busy || !!pending || refundView.deadlineReached !== true}
                 onClick={() => openAction('finalizeFailure', p)}>{L('开启到期退款', 'Enable expired-purchase refunds')}</button>}
-              {fundingBnbClaim && (p.shares > 0n || fundingBnbClaim.canClaim) && <button className="btn secondary"
+              {fundingBnbClaim && !compactFundingHolding && (p.shares > 0n || fundingBnbClaim.canClaim) && <button className="btn secondary"
                   disabled={!positionsActionReadyFor('withdrawBnb') || busy || !!pending
                     || !fundingBnbClaim.canClaim}
                   onClick={() => openAction('withdrawBnb', p)}>
                   {L(fundingBnbClaim.labelZh, fundingBnbClaim.labelEn)}
                 </button>}
-              {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
+              {holdings && p.kind !== 'portfolio' && !compactFundingHolding && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                 onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   <span className="live-desktop-copy">{L('挂单出售', 'List shares')}</span><span className="live-mobile-copy">{L('挂单', 'List')}</span>
               </button>}
-              {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state"
+              {holdings && p.kind !== 'portfolio' && !compactFundingHolding && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state"
                 title={p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
                   : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares are locked')
                     : L('当前状态不可挂牌', 'Listing unavailable in this state')}>
@@ -3271,15 +3273,15 @@ export default function LivePlatform() {
       const contract = row.contract ?? row.address ?? row.pool;
       const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
       const transactionUrl = explorerTransaction(hash);
-      return { key: `${hash}-${row.logIndex ?? i}`, time: activityTimeUtc8(row.timestamp), block: row.blockNumber,
+      return { key: `${hash}-${row.logIndex ?? i}`, time: activityCompactTimeUtc8(row.timestamp), block: row.blockNumber,
         operation: <ActivityOperation row={row} locale={locale} />,
         amounts: activityAmounts(row).map(item => ({ key: item.kind, label: L(...amountLabels[item.kind]),
           value: <>{displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</> })),
         contract: contractUrl ? <a className="text-button" href={contractUrl}
           title={contract} target="_blank" rel="noopener noreferrer">
-          {shortAddress(contract)}<ArrowUpRight size={14} /></a> : "—",
+          <span className="live-activity-link-label">{shortAddress(contract)}</span><ArrowUpRight size={14} /></a> : "—",
         transaction: transactionUrl ? <a className="text-button" href={transactionUrl}
-          target="_blank" rel="noopener noreferrer">{hash.slice(0, 10)}…<ArrowUpRight size={14} /></a> : "—" };
+          title={hash} target="_blank" rel="noopener noreferrer"><span className="live-activity-link-label">{hash.slice(0, 10)}…</span><ArrowUpRight size={14} /></a> : "—" };
     });
     const empty = <Empty title={activityReadLoading
       ? L('正在读取记录…', 'Loading records…')
@@ -3289,25 +3291,29 @@ export default function LivePlatform() {
     return <>
       <div className="table-wrap live-activity-table-desktop">
         <table>
+          <colgroup>{['time', 'block', 'operation', 'amount', 'contract', 'transaction'].map(column =>
+            <col key={column} data-activity-column={column} />)}</colgroup>
           <thead>
             <tr>
-              <th>{L("时间 (UTC+8)", "Time (UTC+8)")}</th>
-              <th>{L("区块", "Block")}</th>
-              <th>{L("操作 / 说明", "Operation / description")}</th>
-              <th>{L("金额 / 费用", "Amount / fee")}</th>
-              <th>{L("合约", "Contract")}</th>
-              <th>{L("链上记录", "Transaction")}</th>
+              <th data-activity-column="time">{L("时间 (UTC+8)", "Time (UTC+8)")}</th>
+              <th data-activity-column="block">{L("区块", "Block")}</th>
+              <th data-activity-column="operation">{L("操作 / 说明", "Operation / description")}</th>
+              <th data-activity-column="amount">{L("金额 / 费用", "Amount / fee")}</th>
+              <th data-activity-column="contract">{L("合约", "Contract")}</th>
+              <th data-activity-column="transaction">{L("链上记录", "Transaction")}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(row => <tr key={row.key}>
-              <td className="live-activity-time">{row.time ? <time dateTime={row.time.iso}>{row.time.label}</time> : "—"}</td>
-              <td>{row.block}</td>
-              <td>{row.operation}</td>
-              <td>{row.amounts.length ? row.amounts.map((item, index) => <span key={item.key}>
-                {index > 0 ? " · " : ""}{item.label}{" "}{item.value}</span>) : "—"}</td>
-              <td>{row.contract}</td>
-              <td>{row.transaction}</td>
+              <td className="live-activity-time" data-activity-column="time">{row.time ? <time dateTime={row.time.iso} title={row.time.fullLabel}>
+                <span className="date">{row.time.date}</span>{" "}<span className="clock">{row.time.clock}</span>
+              </time> : "—"}</td>
+              <td data-activity-column="block">{row.block}</td>
+              <td data-activity-column="operation">{row.operation}</td>
+              <td data-activity-column="amount">{row.amounts.length ? row.amounts.map(item => <span className="live-activity-amount-line" key={item.key}>
+                {item.label}{" "}{item.value}</span>) : "—"}</td>
+              <td data-activity-column="contract">{row.contract}</td>
+              <td data-activity-column="transaction">{row.transaction}</td>
             </tr>)}
           </tbody>
         </table>
