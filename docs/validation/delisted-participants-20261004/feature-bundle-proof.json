@@ -1,0 +1,29 @@
+{
+  "required": [
+    "目标矿机已转移给其他持有人，本项目已下架",
+    "项目下架与退款提醒",
+    "Current subscription principal",
+    "Refund deadline not reached",
+    "领取退款 / 待领取 BNB"
+  ],
+  "scripts": [
+    {
+      "path": "_next/static/chunks/7756-080a0ecf32fd2f95.js",
+      "sha256": "d79a675ca46ef744faba995505fc9ea6268d6421a6d238997c151dc7cb062c91",
+      "features": [
+        "Refund deadline not reached"
+      ]
+    },
+    {
+      "path": "_next/static/chunks/app/page-827c1abcb2492fc8.js",
+      "sha256": "218da536379f3ce439d93abd8e6f83a11697d8f0d19ddceaf75921a562575fff",
+      "features": [
+        "目标矿机已转移给其他持有人，本项目已下架",
+        "项目下架与退款提醒",
+        "Current subscription principal",
+        "Refund deadline not reached",
+        "领取退款 / 待领取 BNB"
+      ]
+    }
+  ]
+}

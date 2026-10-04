@@ -90,10 +90,21 @@ async function rpc(input) {
   if (method === 'eth_getBlockByNumber') return { number: toQuantity(block), timestamp: toQuantity(now), hash: hash(block) };
   if (method === 'eth_blockNumber') return toQuantity(block);
   if (method === 'eth_call') {
+    if (same(params[0].to, manifest.factory)) {
+      const parsed = abi.PoolFactory.parseTransaction(params[0]);
+      if (parsed?.name === 'isPool') return abi.PoolFactory.encodeFunctionResult(parsed.fragment,
+        [rows.some(row => same(row.pool, parsed.args[0]))]);
+    }
+    if (same(params[0].to, '0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a')) {
+      const parsed = abi.PoolVault.parseTransaction(params[0]);
+      if (parsed?.name === 'balanceOf') return abi.PoolVault.encodeFunctionResult(parsed.fragment, [0n]);
+    }
     const row = rows.find(row => same(row.pool, params[0].to));
     const parsed = row && abi.PoolVault.parseTransaction(params[0]);
-    const result = parsed && ({ state: row.state, balanceOf: ownerRow(row, parsed.args[0]).shares,
-      claimable: 0n, bnbOwed: ownerRow(row, parsed.args[0]).bnbOwed, params: row.params })[parsed.name];
+    const getters = row && { state: () => row.state, factory: () => manifest.factory,
+      balanceOf: () => ownerRow(row, parsed.args[0]).shares, claimable: () => 0n,
+      bemAccounted: () => 0n, bnbOwed: () => ownerRow(row, parsed.args[0]).bnbOwed, params: () => row.params };
+    const result = parsed && getters[parsed.name]?.();
     if (result !== undefined && parsed.fragment.stateMutability === 'view') return abi.PoolVault.encodeFunctionResult(parsed.fragment, [result]);
   }
   throw Error('Local fixture refuses RPC ' + method);
@@ -151,7 +162,19 @@ async function settle(route) { await page.waitForFunction(route => {
   const main = document.querySelector('main'); return main?.dataset.readyRoute === route && main.getAttribute('aria-busy') === 'false';
 }, route); }
 async function open(route) { await page.evaluate(route => { location.hash = route; }, route); await settle(route); }
-async function capture(name) { const path = join(output, name + '.png'); await page.screenshot({ path, fullPage: true, animations: 'disabled' }); screenshots.push(path); }
+async function capture(name) {
+  // Add after hydration, outside the application tree. This label is test-only.
+  await page.evaluate(() => {
+    let label = document.querySelector('[data-synthetic-fixture]');
+    if (!label) { label = document.createElement('aside'); label.dataset.syntheticFixture = 'true'; document.body.appendChild(label); }
+    label.textContent = '本地合成数据 · 无签名 / 交易';
+    label.style.cssText = 'position:fixed;bottom:6px;left:6px;z-index:99999;max-width:calc(100vw - 24px);padding:6px 8px;background:#203d30;color:#f8d887;border:1px solid #cda959;border-radius:6px;font:12px system-ui;pointer-events:none';
+    scrollTo({ top: 0, behavior: 'instant' });
+  });
+  await page.locator('[data-synthetic-fixture]').waitFor({ state: 'visible' });
+  const path = join(output, name + '.png');
+  await page.screenshot({ path, fullPage: page.viewportSize().width > 760, animations: 'disabled' }); screenshots.push(path);
+}
 async function checkNotice(pool, action, enabled) {
   const notice = section(page, pool).first(); await notice.waitFor();
   assert.match(await notice.innerText(), /下架|退款/);
@@ -174,7 +197,7 @@ try {
   await checkNotice(pools.credit, '领取退款 / 待领取 BNB', true);
   await checkNotice(pools.refunding, '领取退款 / 待领取 BNB', true);
   assert.match(await section(page, pools.funded).first().innerText(), /尚未到退款时间/);
-  for (const kind of ['funding', 'funded']) assert.match(await section(page, pools[kind]).first().innerText(), /1\.43\s*BNB/);
+  for (const kind of ['funding', 'funded']) assert.match(await section(page, pools[kind]).first().innerText(), /当前认购本金：\s*1\.430*\s*BNB/);
   checks.push('Overview preserves participant Funding/Funded/zero-share credit/Refunding rows; Funded predeadline action disabled');
   checks.push('Funding and Funded notices display the exact 1.43 BNB contributed principal separately from booked BNB');
   await capture('overview');
@@ -194,12 +217,14 @@ try {
   checks.push('In-app notices link to all refund paths with Telegram capability disabled'); await capture('notifications');
   await page.setViewportSize({ width: 390, height: 844 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  assert.equal(await page.locator('main h1').count(), 1, 'Single notification page, no duplicate document tree');
   await capture('notifications-mobile'); checks.push('390px notification page has no horizontal overflow');
   selectedAccount = otherAccount;
   await page.evaluate(account => window.ethereum.__emit('accountsChanged', [account]), otherAccount);
   await page.waitForFunction(() => document.querySelectorAll('[data-participant-notices] li').length === 0);
   checks.push('Switching to an unrelated synthetic account clears the former wallet refund notices');
   assert.deepEqual(pageErrors, []); assert.deepEqual(denied, []);
+  assert.equal(reads.filter(read => read.startsWith('REFUSED:')).length, 0, 'All requested synthetic read endpoints must be modeled');
   assert(!walletReads.some(method => /sign|send|wallet_/i.test(method)));
   checks.push('No signatures, broadcasts, external HTTP/RPC, or Telegram posts');
   const result = { passed: true, synthetic: true, formalManifestDigest: expectedManifestDigest,

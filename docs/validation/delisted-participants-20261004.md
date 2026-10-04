@@ -14,3 +14,15 @@
 后端无需新增运行接口或重启：`targetAvailability`、个人本金、购机期限与 BNB 信用已经存在于物化持仓结果。新增 HTTP 回归验证个人结果不受公开隐藏影响，不向其他钱包串入余额，HTTP 读取不增加 RPC。
 
 本次发布范围为静态前端展示和既有退款入口，链上状态和退款期限以当前生效合约为准。发布证据在同名目录中补充。
+
+## 正式发布与验证
+
+2026-10-04 11:45:42 CST 已切换正式站 https://bemine.cc.cd/，部署前端来自干净提交 `b5321379da78814ef9cb57f894724c441357ad58`。既有运行源码仍为 `23b48e6adb2a19810eb287a67add5f40b4fb94b9`，六个业务服务的进程身份未改变，没有重启后台、签名或广播交易。最终浏览器夹具调整和发布证据单独提交，不改变已构建的应用源码。
+
+- 完整前端测试 1,150 项及后端 HTTP/归属回归 22 项全部通过，零失败、跳过或取消；发布器 5 项测试和离线切换/保留旧资源/失败回滚验证通过。
+- 浏览器合成夹具 11 项通过：公开隐藏、四种个人退款路径、准确本金、禁用未到期退款、无需 Telegram、手机布局和钱包隔离。请求只由本地模型响应，未核验或执行真实参与人的退款。截图明确标注合成数据。
+- 发布器核对根页面、`/live`、旧路径跳转和 13 个脚本哈希；发布后独立取回公开页面与功能脚本，核对字节哈希和发布身份，通过。
+- 保留原详情的“核对到期退款”只读预览入口。它可能在到期前可点击，准备阶段会拒绝未达到实际购机期限的请求，不会发起提前退款交易；新增“开启到期退款”按钮仅在索引链时间达到期限时可用。
+- 通知采用站内提醒，限当前钱包已加载项目；提供加载更多个人项目入口，不承诺向离线参与人发送外部消息。
+
+发布与构建记录见 [publication.json](delisted-participants-20261004/publication.json)、[build-summary.json](delisted-participants-20261004/build-summary.json)，公开资源核验见 [public-proof.json](delisted-participants-20261004/public-proof.json)，测试摘要见 [validation-summary.json](delisted-participants-20261004/validation-summary.json) 和 [browser-results.json](delisted-participants-20261004/browser-results.json)。
