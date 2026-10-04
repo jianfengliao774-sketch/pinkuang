@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "phase": "prepared",
+  "blockNumber": 125645785,
+  "baselineVerified": true,
+  "elapsedMs": 15261,
+  "methods": {
+    "eth_chainId": 34,
+    "eth_getBlockByNumber": 6,
+    "eth_getCode": 24,
+    "eth_getStorageAt": 4,
+    "eth_call": 26
+  },
+  "failures": [],
+  "chainActionsPerformed": false,
+  "sourceCommit": "86d635e452cba857e820108c7218b8fc3cd5d237",
+  "readEndpoint": "public-upgrade-entry",
+  "generatedAt": "2026-10-04T08:39:41.327Z"
+}
