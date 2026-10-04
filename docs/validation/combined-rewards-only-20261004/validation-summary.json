@@ -1,0 +1,30 @@
+{
+  "checkedAt": "2026-10-04T02:28:47.319914+00:00",
+  "sourceHead": "4340c07b7ea6ec1a45ba6272bfa9e3772dc5e41d",
+  "checks": [
+    {
+      "command": "node --test web/scripts/reward-collection.test.mjs web/scripts/reward-collection-session.test.mjs web/scripts/reward-collection-integration.test.mjs",
+      "tests": 30,
+      "pass": 30,
+      "fail": 0,
+      "skipped": 0
+    },
+    {
+      "command": "Next.js 16.3.6 webpack production build and static export",
+      "status": "pass"
+    },
+    {
+      "scope": "Final source and exported page chunk",
+      "combinedBulkEntry": 1,
+      "collectOnlyBulkEntry": 0,
+      "claimOnlyBulkEntry": 0,
+      "status": "pass"
+    },
+    {
+      "command": "git diff --check; publisher syntax parse",
+      "status": "pass"
+    }
+  ],
+  "contractOrBackendChanged": false,
+  "liveTransactionsSent": false
+}
