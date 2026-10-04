@@ -133,6 +133,12 @@ writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + 
 console.log(`Logs saved under ${logRoot}`);
 
 } catch (error) {
+  // Failures outside run() (for example a stale evidence JSON or report-write
+  // failure) must also leave a terminal, truthful evidence summary.
+  summary.status = 'failed';
+  summary.finishedAt = new Date().toISOString();
+  summary.runnerError = { message: error.message };
+  writeFileSync(join(logRoot, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
   console.error(error.message);
   // Do not process.exit(): it truncates buffered CI stdout precisely on failure.
   process.exitCode = error.exitCode ?? 1;

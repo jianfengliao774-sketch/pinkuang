@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { keccak256, toUtf8Bytes, Interface } from 'ethers';
 import {
   assertCurrentArtifactInputs, assertCurrentArtifacts, artifactContentDigest, compileDeploymentArtifacts, libraryNames,
-  linkedDeploymentOrder, outputPath, repositoryRoot, requiredContracts, validateArtifacts,
+  linkedDeploymentOrder, repositoryRoot, requiredContracts, validateArtifacts,
 } from './build-artifacts.mjs';
 
 const document = compileDeploymentArtifacts();
@@ -142,13 +142,15 @@ test('long-running dev journal guard rejects changed Solidity files and stale ar
     await cp(join(repositoryRoot, 'contracts/src'), join(root, 'contracts/src'), { recursive: true });
     await copyFile(join(repositoryRoot, 'contracts/foundry.toml'), join(root, 'contracts/foundry.toml'));
     await symlink(join(repositoryRoot, 'node_modules'), join(root, 'node_modules'));
-    await copyFile(outputPath, artifactPath);
+    // Exercise the independently compiled current source. A scoped Beacon
+    // upgrade intentionally retains the old full-deployment bundle on disk.
+    await writeFile(artifactPath, JSON.stringify(document));
     assert.doesNotThrow(() => assertCurrentArtifactInputs(digest, options));
     const changed = JSON.parse(await readFile(artifactPath, 'utf8'));
     changed.artifacts.PoolFactory.bytecode += '00';
     await writeFile(artifactPath, JSON.stringify(changed));
     assert.throws(() => assertCurrentArtifactInputs(digest, options), /Deployment artifacts changed/);
-    await copyFile(outputPath, artifactPath);
+    await writeFile(artifactPath, JSON.stringify(document));
     await appendFile(join(root, 'contracts/src/PoolVault.sol'), '\n');
     assert.throws(() => assertCurrentArtifactInputs(digest, options), /Solidity sources changed/);
   } finally { await rm(root, { recursive: true, force: true }); }

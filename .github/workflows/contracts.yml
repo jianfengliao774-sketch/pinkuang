@@ -60,6 +60,14 @@ jobs:
   deployment-console:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      # A Beacon-only upgrade deliberately retains the old full-deployment
+      # bundle and its measured Gas plan. Verify both reviewed source scopes;
+      # never turn the upgrade into an unreviewed new-genesis console build.
+      # This checked-in release scope also applies after merging to main.
+      # A future fresh release must explicitly review and change this scope;
+      # neither branch names nor a failing digest select a weaker fallback.
+      DEPLOYMENT_CI_PROFILE: target-owner-upgrade
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,11 +86,13 @@ jobs:
       - run: npm ci
         working-directory: deploy
       - name: Verify deployment artifacts against Solidity sources and pinned compiler
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: npm run artifacts:check
         working-directory: deploy
       # These packages require a clean, source-pinned checkout. Run them before
       # regression suites that may leave generated files in protected paths.
       - name: Build and package the actual pre-genesis v4 console
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: |
           npm run build:fresh
           node scripts/package-fresh-console.mjs --out "$RUNNER_TEMP/pinkuang-fresh-package"
@@ -94,11 +104,37 @@ jobs:
       - name: Install product frontend dependencies from its lockfile
         run: pnpm install --frozen-lockfile
         working-directory: web
+      - name: Independently compile the HEAD Beacon candidate and prepare the unchanged approved deployment scope
+        if: env.DEPLOYMENT_CI_PROFILE == 'target-owner-upgrade'
+        run: node deploy/scripts/target-owner-ci-profile.mjs --out "$RUNNER_TEMP/target-owner-ci"
+      - name: Verify and test the retained full-deployment console and product ABI in their approved source checkout
+        if: env.DEPLOYMENT_CI_PROFILE == 'target-owner-upgrade'
+        run: |
+          cd "$RUNNER_TEMP/target-owner-ci/legacy-checkout/deploy"
+          npm run artifacts:check
+          npm run build:fresh
+          node scripts/package-fresh-console.mjs --out "$RUNNER_TEMP/target-owner-ci/legacy-fresh-package"
+          node ops/v4/validate-release-ci.mjs --out "$RUNNER_TEMP/target-owner-ci/legacy-v4-release-validation"
+          npm run build
+          cd ../web
+          node scripts/sync-contracts.mjs --check
+          pnpm run build
+          cd ../deploy
+          node node_modules/tsx/dist/cli.mjs --test src/*.test.ts
       - name: Build and bind the actual v4 static and backend packages using a synthetic graph
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: node ops/v4/validate-release-ci.mjs --out "$RUNNER_TEMP/v4-release-validation"
         working-directory: deploy
       - name: Deployment, keeper and proxy regression tests
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: npm test
+        working-directory: deploy
+      - name: Current HEAD upgrade UI, source compiler, keeper, journal and mixed-runtime regressions
+        if: env.DEPLOYMENT_CI_PROFILE == 'target-owner-upgrade'
+        run: |
+          node scripts/target-owner-ci-profile.mjs --head-tests
+          node --test shared/*.test.mjs scripts/*.test.mjs server/*.test.mjs server/chain-index/*.test.mjs
+          node node_modules/typescript/bin/tsc -b
         working-directory: deploy
       - name: Release tooling, notification and ops Node regressions
         run: node --test ops/v2/*.test.mjs ops/v2/genesis-graph-compat/*.test.mjs ops/v3/*.test.mjs ops/v4/*.test.mjs server/notifications/*.test.mjs
@@ -118,15 +154,18 @@ jobs:
             esac
           done
       - name: Compile source-pinned UI and production server assets
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: npm run build
         working-directory: deploy
       - name: Verify product frontend ABI against independently compiled Solidity
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: node scripts/sync-contracts.mjs --check
         working-directory: web
       - name: Product frontend accounting, catalog and chain adapter checks
         run: pnpm run check
         working-directory: web
       - name: Build product frontend with checked contract bindings
+        if: env.DEPLOYMENT_CI_PROFILE == 'fresh'
         run: pnpm run build
         working-directory: web
       - name: Preserve current v4 release validation manifests
@@ -135,6 +174,16 @@ jobs:
         with:
           name: v4-release-validation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/v4-release-validation/
+          if-no-files-found: warn
+      - name: Preserve the separately verified owner-upgrade and retained deployment evidence
+        if: always() && env.DEPLOYMENT_CI_PROFILE == 'target-owner-upgrade'
+        uses: actions/upload-artifact@v4
+        with:
+          name: target-owner-scoped-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/target-owner-ci/scope-summary.json
+            ${{ runner.temp }}/target-owner-ci/head-candidate-artifacts.json
+            ${{ runner.temp }}/target-owner-ci/legacy-v4-release-validation/
           if-no-files-found: warn
 
   fork:
