@@ -7,9 +7,10 @@ import { Contract, FetchRequest, Interface, Wallet, getAddress, keccak256,
   parseEther, parseUnits } from 'ethers';
 import { JournalStore } from './journal-store.mjs';
 import { verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
-import { productGraphConfiguration, verifyProductGraph } from './product-graph.mjs';
+import { productGraphConfiguration, reviewedAuthorityRuntimeMatches, verifyProductGraph } from './product-graph.mjs';
 import { createKeyedLimiter } from './request-limiter.mjs';
-import { prepareAuthorityCall, runAuthorityRelay } from '../scripts/authority-relay.mjs';
+import { archiveFinalizedAuthorityFailure, authorityOperationId, prepareAuthorityCall,
+  runAuthorityRelay } from '../scripts/authority-relay.mjs';
 import { acquireKeeperLock, acquireWalletLock, readJournal,
   reconcilePending, writeJournal } from '../scripts/purchase-keeper.mjs';
 import { readKeeperPrivateKey } from '../scripts/keeper-credential.mjs';
@@ -53,6 +54,15 @@ function relayStatus(status) {
   if (['broadcast', 'signed', 'pending-receipt', 'pending-confirmations', 'pending-finality',
     'pending-not-indexed'].includes(status)) return 'pending';
   return 'uncertain';
+}
+function operationId(tx) {
+  return tx?.to && tx?.data ? authorityOperationId(tx.to, tx.data) : null;
+}
+function lastFailure(journal) {
+  const row = journal.reviewedAuthorityFailures?.at(-1), tx = row?.transaction;
+  return tx ? { status: 'failed', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+    blockNumber: tx.blockNumber, gasCostWei: tx.gasCostWei, archived: true, recoveryRequired: false,
+    reason: 'transaction-reverted' } : null;
 }
 const json = (res, status, body) => {
   res.statusCode = status;
@@ -283,7 +293,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   // Status reconciliation can write the journal. Serialize it with submit in
   // this process so simultaneous polls do not turn the O_EXCL lock into a 503.
   // The filesystem lock still protects against a second process.
-  let journalQueue = Promise.resolve(), statusTask = null;
+  let journalQueue = Promise.resolve(), statusTask = null, failedProofRetry = null;
   function withJournalTurn(work) {
     const turn = journalQueue.then(work);
     journalQueue = turn.catch(() => {});
@@ -328,17 +338,45 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     const task = withJournalTurn(async () => {
       const authority = trusted.freshAuthority.authority.address;
       const release = lockJournal(config.journal);
+      let releaseWallet;
       try {
         const options = { factory: authority, pool: authority, transactionTarget: authority, journal: config.journal };
         const journal = readJournal(config.journal, options);
         const result = await reconcilePending(provider, options, journal);
         const tx = journal.transaction;
+        if (tx?.phase === 'reverted') {
+          try {
+            if (failedProofRetry?.hash === tx.hash && Date.now() < failedProofRetry.after)
+              return { status: 'uncertain', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+                archived: false, recoveryRequired: true, reason: 'failure-verification-unavailable' };
+            releaseWallet = lockWallet(config.expectedGasWallet, config.journal, undefined,
+              { existingJournalOnly: true });
+            const archived = await archiveFinalizedAuthorityFailure(provider, {
+              journal: config.journal, authority,
+              expectedCodehash: trusted.freshAuthority.authority.codehash,
+              reviewedRuntimeMatches: code => reviewedAuthorityRuntimeMatches(trusted, code),
+              expectedCoreFactory: trusted.record.addresses.factory,
+              expectedBudgetFactory: trusted.record.addresses.portfolioFactory,
+              expectedGasWallet: config.expectedGasWallet,
+            }, journal);
+            failedProofRetry = null;
+            return { ...archived, status: 'failed', reason: 'transaction-reverted' };
+          } catch (error) {
+            failedProofRetry = { hash: tx.hash, after: Date.now() + 60_000 };
+            dependencies.onError?.(error);
+            return { status: 'uncertain', hash: tx.hash, kind: tx.kind, operationId: operationId(tx),
+              archived: false, recoveryRequired: true, reason: 'failure-verification-unavailable' };
+          }
+        }
+        if (!tx) return lastFailure(journal) ?? { status: 'idle', hash: null, kind: null,
+          operationId: null, blockNumber: null, gasCostWei: null };
         const rawStatus = tx?.phase === 'signed' && result?.status === 'pending-not-indexed'
           ? 'broadcast-result-unknown' : result?.status ?? tx?.phase ?? 'idle';
         return { status: relayStatus(rawStatus), hash: result?.hash ?? tx?.hash ?? null,
+          operationId: operationId(tx), archived: false,
           kind: tx?.kind ?? null, blockNumber: tx?.blockNumber ?? null,
           gasCostWei: tx?.gasCostWei ?? null };
-      } finally { release(); }
+      } finally { releaseWallet?.(); release(); }
     });
     statusTask = task;
     task.finally(() => { if (statusTask === task) statusTask = null; }).catch(() => {});
@@ -379,10 +417,42 @@ export function createAuthorityRelayService(config, dependencies = {}) {
         if (!same(signer.address, gasWallet)) fail(409, 'Configured Gas credential does not match the reviewed wallet.');
         if (!existsSync(config.journal)) writeJournal(config.journal, readJournal(config.journal,
           { factory: authority, pool: authority, transactionTarget: authority }));
-        releaseWallet = lockWallet(signer.address, config.journal);
-        return await relay(provider, { commandObject: command, journal: config.journal, send: true,
+        const journalOptions = { factory: authority, pool: authority, transactionTarget: authority };
+        const journal = readJournal(config.journal, journalOptions);
+        releaseWallet = journal.transaction?.phase === 'reverted'
+          ? lockWallet(signer.address, config.journal, undefined, { existingJournalOnly: true })
+          : lockWallet(signer.address, config.journal);
+        let previousFailure;
+        if (journal.transaction?.phase === 'reverted') {
+          const tx = journal.transaction;
+          try {
+            previousFailure = await archiveFinalizedAuthorityFailure(provider, {
+              journal: config.journal, authority,
+              expectedCodehash: trusted.freshAuthority.authority.codehash,
+              reviewedRuntimeMatches: code => reviewedAuthorityRuntimeMatches(trusted, code),
+              expectedCoreFactory: trusted.record.addresses.factory,
+              expectedBudgetFactory: trusted.record.addresses.portfolioFactory,
+              expectedGasWallet: config.expectedGasWallet,
+            }, journal);
+            failedProofRetry = null;
+          } catch (error) {
+            dependencies.onError?.(error);
+            return { status: 'previous-operation-failed-review-required', hash: tx.hash, kind: tx.kind,
+              operationId: operationId(tx), requestId: authorityOperationId(authority, prepared.data),
+              accepted: false, archived: false, recoveryRequired: true,
+              reason: 'failure-verification-unavailable' };
+          }
+        }
+        const result = await relay(provider, { commandObject: command, journal: config.journal, send: true,
           maxGasWei: config.maxGasWei, maxGasPrice: config.maxGasPrice,
           gasLimit: GAS_LIMIT[command.kind] }, signer);
+        const current = readJournal(config.journal, journalOptions).transaction;
+        const requestId = authorityOperationId(authority, prepared.data);
+        const currentId = operationId(current);
+        return { ...result, requestId, operationId: currentId,
+          accepted: !!(result.hash && current?.hash?.toLowerCase() === result.hash.toLowerCase()
+            && currentId === requestId && relayStatus(result.status) !== 'failed'),
+          ...(previousFailure ? { previousFailure } : {}) };
       } finally { releaseWallet?.(); releaseJournal(); }
     });
   }
@@ -430,7 +500,12 @@ export function createAuthorityRelayService(config, dependencies = {}) {
           const body = await readBody(req);
           const result = await submit(body.command, account);
           return json(res, 200, { status: relayStatus(result.status), hash: result.hash ?? null,
-            kind: result.kind ?? body.command?.kind ?? null, message: result.message ?? null });
+            kind: result.kind ?? body.command?.kind ?? null, message: result.message ?? null,
+            requestId: result.requestId, operationId: result.operationId, accepted: result.accepted === true,
+            ...(result.previousFailure ? { previousFailure: result.previousFailure } : {}),
+            ...(result.reason ? { reason: result.reason } : {}),
+            ...(result.recoveryRequired !== undefined ? { recoveryRequired: result.recoveryRequired } : {}),
+            ...(result.archived !== undefined ? { archived: result.archived } : {}) });
         } catch (error) {
           dependencies.onError?.(error);
           // Never reflect RPC errors, calldata, signatures or private-key material.

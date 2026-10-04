@@ -74,11 +74,11 @@ import { startWalletSession } from '../lib/wallet-session.mjs';
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
-import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
+import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, authorityStatusForRequest, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
 import ShareSaleDialogContent from './ShareSaleDialogContent';
 import TransactionResultDialog from './TransactionResultDialog';
-import { normalizeTransactionResult } from '../lib/transaction-result.mjs';
+import { authorityPreviousFailureNotice, authorityRejectionResult, normalizeTransactionResult } from '../lib/transaction-result.mjs';
 import { applyMarketOrderFeedback, marketOrderFeedback } from '../lib/market-order-feedback.mjs';
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
@@ -346,13 +346,16 @@ export default function LivePlatform() {
   const shownTransactionResults = useRef(new Set());
   const transactionResult = transactionResults[0] ?? null;
   function showTransactionResult(input, options) {
-    let result = normalizeTransactionResult(input, { locale, ...options });
+    let result = authorityRejectionResult(input, { locale, ...options }) || normalizeTransactionResult(input, { locale, ...options });
     if (!result && options?.creationPending) result = { kind: 'pending', reason: 'publication', hash: input?.hash,
       title: L('项目正在发布', 'Publishing project'),
-      message: L('交易已提交，正在等待链上确认。确认成功后会显示项目地址，请勿重复发布。',
-        'Transaction submitted. The project address will appear after confirmation. Do not submit it again.') };
+      message: input?.hash ? L('交易已提交，正在等待链上确认。确认成功后会显示项目地址，请勿重复发布。',
+        'Transaction submitted. The project address will appear after confirmation. Do not submit it again.')
+        : L('签名已发送，代付服务是否接受本次请求尚未确认。请核对状态，不要重复创建。',
+          'The signature was sent, but acceptance by the relay is unconfirmed. Check the status; do not repeat creation.') };
     if (!result && options?.creationFailure) result = { kind: 'failed', reason: 'publication',
       title: L('项目发布失败', 'Project publication failed'), message: textError(input) };
+    if (result && options?.creationPending) result = { ...result, previousFailure: authorityPreviousFailureNotice(input, locale) };
     if (result && input?.poolAddress && input?.status === 'confirmed') result = { ...result,
       projectAddress: input.poolAddress, projectKind: input.projectKind, reason: 'publication',
       title: L('项目发布成功', 'Project published'),
@@ -1835,10 +1838,11 @@ export default function LivePlatform() {
       if (job.submitting) { timer = setTimeout(poll, 3000); return; }
       try {
         if (!job.result) {
-          const status = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
+          const latest = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
           if (!current()) return;
           job.initialStatus = null;
-          if ((!job.hash || same(status.hash, job.hash)) && ['confirmed', 'failed'].includes(status.status)) {
+          const status = authorityStatusForRequest(latest, job.intent.operationId, job.hash);
+          if (status && ['confirmed', 'failed'].includes(status.status)) {
             job.result = await readPublishedProject({ provider: job.client.provider, intent: job.intent,
               status, hash: job.hash || status.hash });
             if (!current()) return;
@@ -1907,14 +1911,14 @@ export default function LivePlatform() {
     catch (problem) {
       // A status GET describes the latest shared Gas journal, which may still
       // be an older command. It cannot prove that this POST was accepted.
-      if ([400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {
+      if (problem.submissionRejected === true || [400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {
         if (publication && publishingProjectRef.current === publication) setPublishingProject(null);
         throw Object.assign(problem, { beforeWalletSubmission: true });
       }
       if (publication && publishingProjectRef.current === publication) {
         publication.submitting = false; setPublishingProject({ ...publication });
       }
-      throw Object.assign(new Error('签名已发送，代付结果暂未返回；请核对状态后再操作。'), { cause: problem });
+      throw Object.assign(new Error('签名已发送，本次请求是否被接受尚未确认；请核对状态，不要重复创建。'), { cause: problem });
     }
     if (publication && publishingProjectRef.current === publication) {
       publication.hash = result.hash ?? null; publication.initialStatus = result; publication.submitting = false;
@@ -4145,11 +4149,14 @@ export default function LivePlatform() {
               operator={operator} disabled={busy || !!pending || !operatorServiceReady} onSend={sendAdminAction}
               creationPending={!!publishingProject && !publishingProject.result} creationResetKey={creationResetKey}
               creationPendingReason={publishingProject && !same(publishingProject.account, account)
-                ? `请切回钱包 ${publishingProject.account} 核对上一笔项目发布结果。` : undefined}
+                ? `请切回钱包 ${publishingProject.account} 核对上一笔项目发布结果。`
+                : publishingProject && !publishingProject.hash ? '签名已发送，但本次请求是否被接受尚未确认。请刷新核对状态，不要重复创建。' : undefined}
               disabledReason={!operatorServiceReady ? L('交易服务恢复中，暂不能预览或签名；恢复后会自动启用。', 'Transaction services are recovering; previews and signatures will resume after verification.')
                 : pending ? L('请先核对上一笔交易结果。', 'Verify the previous transaction first.') : undefined}
               gasFeeWei={transactionGasWei}
-              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
+              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1);
+                const job = publishingProjectRef.current;
+                if (job && !job.submitting && !job.result) setPublishingProject({ ...job, startedAt: Date.now() }); }}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending || !!publishingProject && !publishingProject.result || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio} marketTransactions={memberTransactions}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}

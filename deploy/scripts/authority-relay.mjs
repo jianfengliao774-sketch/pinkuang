@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, statSync } from 'node:f
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Contract, FetchRequest, Interface, JsonRpcProvider, Transaction, Wallet, getAddress,
+import { Contract, FetchRequest, Interface, JsonRpcProvider, Transaction, Wallet, concat, getAddress,
   keccak256, parseEther, parseUnits, verifyTypedData } from 'ethers';
 import { acquireKeeperLock, acquireWalletLock, gasBudget, KEEPER_STATE_ROOT, readJournal, reconcilePending, writeJournal } from './purchase-keeper.mjs';
 import { readKeeperPrivateKey } from './keeper-credential.mjs';
@@ -85,6 +85,7 @@ export function requireAuthorityRecoveryUnit(query = systemdUnitProperty, pid = 
 }
 
 const abi = new Interface([
+  'function coreFactory() view returns(address)', 'function budgetFactory() view returns(address)',
   'function administratorOne() view returns(address)', 'function administratorTwo() view returns(address)',
   'function gasWallet() view returns(address)',
   'function nonces(address) view returns(uint256)',
@@ -100,6 +101,13 @@ const abi = new Interface([
 const same = (a, b) => getAddress(a) === getAddress(b);
 const mineSelector = new Interface(['function mine(bytes)']).getFunction('mine').selector;
 const calldata = data => typeof data === 'string' && /^0x[0-9a-f]{8}(?:[0-9a-f]{2})*$/i.test(data);
+const blockIdentity = block => Number.isSafeInteger(block?.number) && block.number >= 0
+  && /^0x[0-9a-f]{64}$/i.test(block.hash ?? '');
+
+export function authorityOperationId(authority, data) {
+  if (!calldata(data)) throw new Error('Authority operation identity requires canonical calldata.');
+  return keccak256(concat([getAddress(authority), data]));
+}
 
 export async function authorityGasLimit(_provider, _transaction, fixedLimit) {
   if (fixedLimit === undefined) throw new Error('Authority send requires an explicit reviewed Gas limit.');
@@ -279,27 +287,48 @@ export async function acknowledgeFinalizedAuthorityFailure(provider, options, jo
   const tx = journal.transaction;
   if (!['reverted', 'cancel-reverted'].includes(tx?.phase)
     || !options.acknowledgeFailure || tx.hash.toLowerCase() !== options.acknowledgeFailure
-    || tx.finality !== 'bsc-finalized' || !journal.gasReceipts?.[tx.hash])
+    || tx.finality !== 'bsc-finalized' || !journal.gasReceipts?.[tx.hash]
+    || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0
+    || !Number.isSafeInteger(tx.blockNumber) || tx.blockNumber < 0
+    || !/^0x[0-9a-f]{64}$/i.test(tx.blockHash ?? ''))
     throw new Error('Only the exact finalized failed Authority transaction can be manually acknowledged.');
+  let ledgerTotal = 0n;
+  for (const [hash, cost] of Object.entries(journal.gasReceipts)) {
+    if (!/^0x[0-9a-f]{64}$/i.test(hash) || typeof cost !== 'string' || !/^\d+$/.test(cost))
+      throw new Error('Failure Gas ledger is malformed; retain review hold.');
+    ledgerTotal += BigInt(cost);
+  }
+  if (ledgerTotal.toString() !== journal.gasSpentWei)
+    throw new Error('Failure cumulative Gas ledger changed; retain review hold.');
   const [network, transaction, receipt, finalized, latest, queued] = await Promise.all([
     provider.getNetwork(), provider.getTransaction(tx.hash), provider.getTransactionReceipt(tx.hash),
     provider.getBlock('finalized'), provider.getTransactionCount(tx.from, 'latest'),
     provider.getTransactionCount(tx.from, 'pending'),
   ]);
-  if (network.chainId !== 56n || !transaction || !receipt || !finalized
+  if (network.chainId !== 56n || !transaction || !receipt || !blockIdentity(finalized)
+    || !Number.isSafeInteger(latest) || !Number.isSafeInteger(queued)
     || receipt.hash.toLowerCase() !== tx.hash.toLowerCase()
     || transaction.hash.toLowerCase() !== tx.hash.toLowerCase()
     || !same(transaction.from, tx.from) || !same(transaction.to, tx.to)
     || !same(receipt.from, tx.from) || !same(receipt.to, tx.to)
     || transaction.nonce !== tx.nonce || transaction.data.toLowerCase() !== tx.data.toLowerCase()
     || transaction.value !== 0n || transaction.chainId !== 56n
+    || (options.requireMinedIdentity && (transaction.blockNumber !== receipt.blockNumber
+      || transaction.blockHash?.toLowerCase() !== receipt.blockHash?.toLowerCase()))
+    || (options.signedTransaction && (transaction.gasLimit !== options.signedTransaction.gasLimit
+      || transaction.gasPrice !== options.signedTransaction.gasPrice
+      || transaction.type !== options.signedTransaction.type))
     || receipt.blockNumber !== tx.blockNumber || receipt.blockHash.toLowerCase() !== tx.blockHash.toLowerCase()
     || receipt.status !== 0
     || finalized.number < receipt.blockNumber || latest <= tx.nonce || queued < latest
     || journal.gasReceipts[tx.hash] !== tx.gasCostWei)
     throw new Error('Finalized receipt, transaction identity, wallet nonce or Gas ledger changed; retain review hold.');
-  const canonical = await provider.getBlock(receipt.blockNumber);
-  if (!canonical || canonical.hash.toLowerCase() !== receipt.blockHash.toLowerCase())
+  const [canonical, finalizedNonce] = await Promise.all([
+    provider.getBlock(receipt.blockNumber), provider.getTransactionCount(tx.from, finalized.number),
+  ]);
+  if (!blockIdentity(canonical) || canonical.number !== receipt.blockNumber
+    || canonical.hash.toLowerCase() !== receipt.blockHash.toLowerCase()
+    || !Number.isSafeInteger(finalizedNonce) || finalizedNonce <= tx.nonce)
     throw new Error('Failure receipt is not canonical; retain review hold.');
   const gasCost = receipt.fee ?? (receipt.gasUsed * receipt.gasPrice);
   if (typeof gasCost !== 'bigint' || gasCost.toString() !== tx.gasCostWei)
@@ -307,14 +336,84 @@ export async function acknowledgeFinalizedAuthorityFailure(provider, options, jo
   const reviewed = journal.reviewedAuthorityFailures ?? [];
   if (!Array.isArray(reviewed) || reviewed.length >= 1000)
     throw new Error('Review history is full or malformed; archive the private journal first.');
-  reviewed.push({ hash: tx.hash, phase: tx.phase, nonce: tx.nonce,
-    finalizedBlockNumber: finalized.number, acknowledgedAt: new Date().toISOString() });
-  journal.reviewedAuthorityFailures = reviewed;
-  journal.previousTransaction = tx;
-  journal.transaction = null;
-  writeJournal(options.journal, journal);
+  // Anchor the receipt and finalized observation again after the nonce/fee
+  // reads, immediately before the durable archival mutation.
+  const [finalReceiptBlock, finalAnchor] = await Promise.all([
+    provider.getBlock(receipt.blockNumber), provider.getBlock(finalized.number),
+  ]);
+  if (!blockIdentity(finalReceiptBlock) || finalReceiptBlock.number !== receipt.blockNumber
+    || finalReceiptBlock.hash.toLowerCase() !== receipt.blockHash.toLowerCase()
+    || !blockIdentity(finalAnchor) || finalAnchor.number !== finalized.number
+    || finalAnchor.hash.toLowerCase() !== finalized.hash.toLowerCase())
+    throw new Error('Failure finalized anchor changed before archival; retain review hold.');
+  const archivedJournal = { ...journal, previousTransaction: tx, transaction: null,
+    reviewedAuthorityFailures: [...reviewed, { hash: tx.hash, phase: tx.phase, nonce: tx.nonce, transaction: tx,
+      finalizedBlockNumber: finalized.number, acknowledgedAt: new Date().toISOString() }] };
+  writeJournal(options.journal, archivedJournal);
+  Object.assign(journal, archivedJournal);
   return { status: 'failure-acknowledged', hash: tx.hash,
     message: 'The finalized failure is archived. This command did not sign or broadcast a transaction.' };
+}
+
+/** HTTP callers hold both journal and current-wallet locks. Recovery archives
+ * only an authenticated original failure; it never signs or broadcasts. CLI
+ * acknowledgement, cancellation and replacement remain explicit operations. */
+export async function archiveFinalizedAuthorityFailure(provider, options, journal) {
+  const tx = journal.transaction;
+  if (tx?.phase !== 'reverted') return null;
+  const authority = getAddress(options.authority), expectedWallet = getAddress(options.expectedGasWallet);
+  const hashPinned = /^0x[0-9a-f]{64}$/i.test(options.expectedCodehash ?? '');
+  const bundlePinned = typeof options.reviewedRuntimeMatches === 'function'
+    && options.expectedCoreFactory && options.expectedBudgetFactory;
+  if (!hashPinned && !bundlePinned
+    || options.expectedCodehash !== undefined && !hashPinned
+    || options.expectedHash !== undefined && options.expectedHash.toLowerCase() !== tx.hash?.toLowerCase()
+    || !same(tx.to, authority) || !same(tx.from, expectedWallet)
+    || tx.finality !== 'bsc-finalized' || !blockIdentity({ number: tx.blockNumber, hash: tx.blockHash })
+    || !Number.isSafeInteger(tx.nonce) || tx.nonce < 0
+    || !Array.isArray(tx.attempts) || !tx.attempts.length
+    || tx.attempts.some(attempt => attempt.kind !== 'purchase'))
+    throw new Error('Failure does not belong to the reviewed Authority original transaction; retain review hold.');
+  const decoded = prepareAuthorityCall(authorityCommandFromCalldata(authority, tx.data));
+  if (decoded.kind !== tx.kind || decoded.data.toLowerCase() !== tx.data.toLowerCase())
+    throw new Error('Failure Authority calldata is not canonical; retain review hold.');
+  const winner = tx.attempts.find(attempt => attempt.hash?.toLowerCase() === tx.hash?.toLowerCase());
+  const signed = winner?.raw ? Transaction.from(winner.raw) : null;
+  if (!signed || signed.hash?.toLowerCase() !== tx.hash.toLowerCase() || !same(signed.from, tx.from)
+    || !same(signed.to, authority) || signed.chainId !== 56n || signed.nonce !== tx.nonce
+    || signed.value !== 0n || signed.data.toLowerCase() !== tx.data.toLowerCase())
+    throw new Error('Failure signed transaction identity changed; retain review hold.');
+  const [network, finalized, current] = await Promise.all([
+    provider.getNetwork(), provider.getBlock('finalized'), provider.getBlock('latest'),
+  ]);
+  if (network.chainId !== 56n || !blockIdentity(finalized) || !blockIdentity(current)
+    || current.number < finalized.number || current.number - tx.blockNumber + 1 < 2
+    || finalized.number < tx.blockNumber)
+    throw new Error('Failure has no current canonical BSC-finalized block proof; retain review hold.');
+  const contract = new Contract(authority, abi, provider);
+  const [code, wallet, core, budget] = await Promise.all([
+    provider.getCode(authority, current.number), contract.gasWallet({ blockTag: current.number }),
+    ...(bundlePinned ? [contract.coreFactory({ blockTag: current.number }),
+      contract.budgetFactory({ blockTag: current.number })] : []),
+  ]);
+  if (code === '0x' || hashPinned && keccak256(code).toLowerCase() !== options.expectedCodehash.toLowerCase()
+    || bundlePinned && (!options.reviewedRuntimeMatches(code)
+      || !same(core, options.expectedCoreFactory) || !same(budget, options.expectedBudgetFactory))
+    || !same(wallet, expectedWallet))
+    throw new Error('Reviewed Authority runtime or Gas wallet changed; retain review hold.');
+  const [canonicalCurrent, canonicalFinalized] = await Promise.all([
+    provider.getBlock(current.number), provider.getBlock(finalized.number),
+  ]);
+  if (!blockIdentity(canonicalCurrent) || canonicalCurrent.number !== current.number
+    || canonicalCurrent.hash.toLowerCase() !== current.hash.toLowerCase()
+    || !blockIdentity(canonicalFinalized) || canonicalFinalized.number !== finalized.number
+    || canonicalFinalized.hash.toLowerCase() !== finalized.hash.toLowerCase())
+    throw new Error('Authority failure proof was reorganized; retain review hold.');
+  const operationId = authorityOperationId(authority, tx.data);
+  await acknowledgeFinalizedAuthorityFailure(provider, { journal: options.journal,
+    acknowledgeFailure: tx.hash.toLowerCase(), requireMinedIdentity: true, signedTransaction: signed }, journal);
+  return { status: 'reverted', hash: tx.hash, kind: tx.kind, operationId,
+    blockNumber: tx.blockNumber, gasCostWei: tx.gasCostWei, archived: true, recoveryRequired: false };
 }
 
 /** A finalized different transaction at the same wallet nonce proves every
@@ -713,7 +812,9 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     data: prepared.data, value: 0n, nonce: latestNonce, gasLimit, gasPrice: fee.gasPrice });
   const hash = keccak256(raw);
   if (journal.transaction) journal.previousTransaction = journal.transaction;
-  journal.transaction = { phase: 'signed', kind: prepared.kind, from: signer.address, nonce: latestNonce, to: prepared.authority,
+  journal.transaction = { phase: 'signed', kind: prepared.kind,
+    operationId: authorityOperationId(prepared.authority, prepared.data),
+    from: signer.address, nonce: latestNonce, to: prepared.authority,
     data: prepared.data, value: '0', createdAt: new Date().toISOString(), hash, speedUps: 0,
     attempts: [{ kind: 'purchase', raw, hash, gasLimit: gasLimit.toString(), gasPrice: fee.gasPrice.toString(),
       createdAt: new Date().toISOString(), broadcastCount: 0 }] };

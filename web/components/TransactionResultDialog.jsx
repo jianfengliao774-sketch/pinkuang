@@ -55,6 +55,15 @@ export default function TransactionResultDialog({ result, locale = 'zh', onClose
       <span className="transaction-result-icon" aria-hidden="true"><Icon size={34}/></span>
       <h2 id={titleId}>{title}</h2>
       <p id={messageId} className="transaction-result-message">{message}</p>
+      {explorerUrl && <p className="transaction-result-message" style={{ overflowWrap: 'anywhere' }}>
+        {L('交易哈希', 'Transaction hash')}<br/>{result.hash}
+      </p>}
+      {transactionExplorerUrl(result.previousFailure?.hash) && <p className="transaction-result-message" style={{ overflowWrap: 'anywhere' }}>
+        {result.previousFailure.message}<br/>{L('旧失败交易', 'Earlier failed transaction')}<br/>
+        <a className="transaction-result-link" href={transactionExplorerUrl(result.previousFailure.hash)} target="_blank" rel="noopener noreferrer">
+          {result.previousFailure.hash}<ExternalLink size={15}/>
+        </a>
+      </p>}
       {result.kind === 'success' && /^0x[\da-f]{40}$/i.test(result.projectAddress ?? '') && <>
         <p className="transaction-result-message">{L('项目地址', 'Project address')}<br/>
           <a className="transaction-result-link" href={`https://bscscan.com/address/${result.projectAddress}`}

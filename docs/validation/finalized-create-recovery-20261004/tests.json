@@ -1,0 +1,22 @@
+{
+  "backend": {
+    "tests": 161,
+    "passed": 161,
+    "failed": 0,
+    "skipped": 0,
+    "runtime": "Node 24"
+  },
+  "frontend": {
+    "tests": 1103,
+    "passed": 1103,
+    "failed": 0,
+    "skipped": 0,
+    "checks": [
+      "catalog",
+      "BEM price",
+      "review policy",
+      "diff whitespace"
+    ]
+  },
+  "scope": "receipt-verified local archival and exact signed operation identity; no Solidity or genesis artifact changes"
+}

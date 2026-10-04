@@ -1,0 +1,13 @@
+# Finalized failed creation queue recovery
+
+A duplicate `createPool` request for Behemoth #2393 reverted in transaction `0x2e1b37852f92fdd0b85a48fcd82b491a21955217eb7c82da7a9f99ad80ebc6ec`, block 125516816, Gas-wallet nonce 17. The Factory already mapped that miner to `0x382D8aF76A8225a0F776fE4C72831A8008d23Ec2` in block 125516815. The relay retained the finalized `reverted` transaction and returned its result for later submissions; this was not a five-project limit.
+
+The relay now archives only an authenticated original, finalized status-0 transaction under its journal lock and the exact existing wallet-owner lock. It verifies the reviewed Authority runtime and Factory/Gas tuple, complete original signed transaction, canonical receipt and finalized blocks, consumed wallet nonce, and exact cumulative Gas ledger. A final block recheck precedes the journal mutation. Unknown, nonfinalized, cancelled, replaced or inconsistent records remain reserved. The existing manual CLI recovery isolation is unchanged.
+
+The private archive preserves the complete failed transaction, raw signed attempts, receipt and Gas accounting. It clears only the active transaction slot; it does not delete or change the wallet-owner pointer, sign, replay, cancel, send a transaction, or refund anything. Idle/archived status performs no chain reads; failed background verification retries no more often than once per minute.
+
+Every relay response and frontend publication check now binds `keccak256(Authority address || complete canonical outer Authority calldata)`. Deadline and signature are included. A new POST hash is accepted only when `requestId`, `operationId` and `accepted:true` match that exact request. An old failure cannot be relabelled as a new project's failure or success. Uncertain HTTP or mismatched responses keep the original request reserved. The failure dialog distinguishes the earlier failed transaction from the current request and displays its explorer link.
+
+Validation covers recovery without signing/sending, fee/history preservation, changed runtime/wallet/transaction/block/nonce/fees, late reorg, another wallet-owner journal, zero idle reads, stale failure responses, and same-inner-call/same-admin-nonce requests with different signed envelopes. Publication preserves the existing formal Factory, roles, genesis artifact and contract-upgrade page. Only the private signer runtime and frontend are changed; purchase, mining, index and public API workers retain their current releases.
+
+Live recovery and publication evidence is recorded separately after execution. A recovered queue does not prove that any later project has been created; creation still requires a new valid wallet signature and a successful exact receipt.
