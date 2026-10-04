@@ -13,7 +13,9 @@ const deferred = () => { let resolve; return { promise: new Promise(yes => { res
 const success = (now, context = input) => ({ available: true, pool: context.pool,
   pricePerUnitWei: context.pricePerUnitWei, forPriceWei: context.pricePerUnitWei.toString(),
   collection: context.params?.circuits ?? address('4'), tokenId: context.params?.circuitId?.toString() ?? '16736',
-  displayOnly: context.displayOnly, observedAt: now, validUntil: now + 300_000, estimated24hAtomic: 432000n });
+  displayOnly: context.displayOnly, includeOfficialAsk: context.includeOfficialAsk === true,
+  allowUnownedTarget: context.allowUnownedTarget === true, officialAskStatus: context.includeOfficialAsk ? 'absent' : 'not_requested',
+  minerAskPriceWei: null, minerAskSource: null, observedAt: now, validUntil: now + 300_000, estimated24hAtomic: 432000n });
 
 test('overlapping page refreshes and explicit retries share one paid in-flight request', async () => {
   const wait = deferred(); let calls = 0, now = 1000;
@@ -29,13 +31,13 @@ test('overlapping page refreshes and explicit retries share one paid in-flight r
   assert.equal(result.requestKey, capacityRequestKey(input));
 });
 
-test('fifteen-second business page refreshes reuse a failure for five minutes, then retry once', async () => {
+test('thirty-second business page refreshes reuse a failure for five minutes, then retry once', async () => {
   let calls = 0, now = 1000;
   const cache = createCapacityRequestCache({ now: () => now });
   const load = () => { calls++; return unavailable; };
   const result = await cache.read(input, load);
-  for (let refresh = 1; refresh < 20; refresh++) {
-    now = 1000 + refresh * 15_000;
+  for (let refresh = 1; refresh < 10; refresh++) {
+    now = 1000 + refresh * 30_000;
     assert.equal(await cache.read(input, load), result);
   }
   assert.equal(calls, 1);
@@ -124,4 +126,33 @@ test('a malformed or mismatched deployment context never starts a paid request',
     assert.equal(capacityRequestKey(changed), null);
     assert.equal((await cache.read(changed, () => assert.fail('Invalid context must not spend quota'))).available, false);
   }
+});
+
+
+test('official ask opt-in isolates in-flight, successful and persisted daily-only estimates', async () => {
+  let now = 1000, calls = 0;
+  const cache = createCapacityRequestCache({ now: () => now });
+  const withAsk = { ...input, includeOfficialAsk: true, allowUnownedTarget: true };
+  const load = context => () => { calls++; return success(now, context); };
+  const daily = await cache.read(input, load(input));
+  assert.notEqual(capacityRequestKey(input), capacityRequestKey(withAsk));
+  const funded = await cache.read(withAsk, load(withAsk), { savedQuote: daily });
+  assert.equal(funded.includeOfficialAsk, true); assert.equal(calls, 2);
+  // Funding -> Active uses acquisition cost and never inherits the fundraising ask policy.
+  assert.equal(await cache.read(input, load(input), { savedQuote: funded }), daily);
+  now += 30_000;
+  assert.equal(await cache.read(withAsk, load(withAsk)), funded); assert.equal(calls, 2);
+  const missingMarker = { ...funded }; delete missingMarker.includeOfficialAsk;
+  const fresh = createCapacityRequestCache({ now: () => now });
+  await fresh.read(withAsk, load(withAsk), { savedQuote: missingMarker }); assert.equal(calls, 3);
+});
+
+test('persisted strict fundraising estimates cannot bypass the pool-owned miner policy', async () => {
+  let calls = 0;
+  const cache = createCapacityRequestCache({ now: () => 2000 });
+  const funding = { ...input, displayOnly: false, allowUnownedTarget: true };
+  const active = { ...funding, allowUnownedTarget: false };
+  const savedQuote = success(1000, funding);
+  assert.equal((await cache.read(active, () => { calls++; return unavailable; }, { savedQuote })).available, false);
+  assert.equal(calls, 1);
 });

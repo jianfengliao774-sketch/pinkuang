@@ -987,9 +987,10 @@ export default function LivePlatform() {
   const actionLabel = (kind) => L(...(actionNames[kind] || [kind, kind]));
   const poolCapacityInput = row => ({ manifest: client?.manifest, factory: config?.factory,
     pool: row?.pool, pricePerUnitWei: row?.unitPriceWei, displayOnly: config?.displayOnly,
-    params: row?.params, allowUnownedTarget: ['Funding', 'Funded'].includes(row?.status) });
+    params: row?.params, allowUnownedTarget: ['Funding', 'Funded'].includes(row?.status),
+    includeOfficialAsk: ['pools', 'detail'].includes(route.route) && ['Funding', 'Funded'].includes(row?.status) });
   const orderCapacityInput = order => ({ manifest: client?.manifest, factory: config?.factory,
-    pool: order?.pool, pricePerUnitWei: order?.pricePerUnitWei, displayOnly: config?.displayOnly });
+    pool: order?.pool, pricePerUnitWei: order?.pricePerUnitWei, displayOnly: config?.displayOnly, includeOfficialAsk: false });
   const capacityCell = (order) => {
     const saved = orderCapacity[order.pool?.toLowerCase()];
     const capacity = saved?.requestKey === capacityRequestKey(orderCapacityInput(order)) ? saved : null;
@@ -1574,7 +1575,8 @@ export default function LivePlatform() {
 
   async function readPoolCapacityQuote(row, force, provider) {
     const input = poolCapacityInput(row);
-    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
+    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei,
+      { includeOfficialAsk: input.includeOfficialAsk });
     const result = await capacityRequests.current.read(input,
       () => readShareDailyCapacityPrice(provider, input), { force, savedQuote });
     if (result.available) writeCapacityDisplay(displayStorage(), client.manifest, result);
@@ -2765,7 +2767,9 @@ export default function LivePlatform() {
               : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p),
             capacity: holdings ? <>{amount(p.bnbOwed)} BNB</> : currentPoolCapacityPrice(p) != null
               ? displayPreciseAmount(currentPoolCapacityPrice(p), 18, catalog ? 2 : 4)
-              : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
+              : quote?.includeOfficialAsk ? <><span>—</span><small className="live-order-state">{quote.officialAskStatus === 'unavailable'
+                ? L('价格暂不可用', 'Price unavailable') : L('暂无有效挂单', 'No valid listing')}</small></>
+                : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
             actions: <div className="live-pool-row-actions">
               {holdings && p.kind !== 'portfolio' && p.status === 'Funding' && p.shares > 0n && <button className="btn secondary"
                 disabled={!positionsActionReadyFor('withdrawDeposit') || busy || !!pending}
@@ -2802,7 +2806,11 @@ export default function LivePlatform() {
           };
           const columnTitle = column => !holdings && column === "daily" && !config?.displayOnly && quote?.cached
                 ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window')
-                : !holdings && column === "capacity" ? !config?.displayOnly && quote?.cached
+                : !holdings && column === "capacity" ? quote?.includeOfficialAsk && quote.minerAskSource === 'official'
+                  ? L('当前官网挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'Current official listing price / this miner estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
+                  : quote?.includeOfficialAsk && quote.minerAskSource === 'firsto'
+                    ? L('当前 Firsto 挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'Current Firsto listing price / this miner estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
+                    : !config?.displayOnly && quote?.cached
                   ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
                   : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
                   : undefined;
