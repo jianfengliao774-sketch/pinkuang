@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Contract, JsonRpcProvider, getAddress, keccak256 } from 'ethers';
+import { Contract, FetchRequest, JsonRpcProvider, getAddress, keccak256 } from 'ethers';
 // The reviewed helpers are deliberately shared with the read-only product graph verifier.
 // @ts-ignore ESM helper has runtime validation; this standalone entry supplies pinned JSON only.
 import { buildTargetOwnerUpgradePlan, prepareTargetOwnerUpgradeDeployment, validateTargetOwnerUpgradeReview } from '../shared/target-owner-upgrade-plan.mjs';
@@ -8,9 +8,9 @@ import { buildTargetOwnerUpgradePlan, prepareTargetOwnerUpgradeDeployment, valid
 import { validateTargetOwnerUpgradePreflight } from '../shared/target-owner-upgrade-proof.mjs';
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 import { TARGET_OWNER_DEPLOYMENTS, confirmedTargetOwnerDeployments, newTargetOwnerJournal, parseTargetOwnerJournal,
-  targetOwnerActionReady, targetOwnerJournalKey, targetOwnerNext, targetOwnerPending, submitTargetOwnerUpgrade, targetOwnerReviewedGas,
+  targetOwnerJournalKey, targetOwnerPending, runTargetOwnerUpgradeSequence, waitForTargetOwnerFinality, targetOwnerRecoveryPhase, submitTargetOwnerUpgrade, targetOwnerReviewedGas,
   verifyTargetOwnerRecoveryReceipt, VerifiedTargetOwnerTransactionFailure, archiveTargetOwnerFailure,
-  type TargetOwnerJournal, type TargetOwnerName, type UpgradeTransaction } from './target-owner-upgrade-ui';
+  type TargetOwnerJournal, type TargetOwnerName, type TargetOwnerStep, type TargetOwnerOperation, type UpgradeTransaction } from './target-owner-upgrade-ui';
 import './target-owner-upgrade.css';
 
 type Json = Record<string, any>;
@@ -18,10 +18,13 @@ type Release = { kind: string; sourceCommit: string; sourceDiffDigest: string; c
   pins: Record<string, string>; files: Record<string, { path: string; sha256: string }>; rpcPath: string; gasEvidenceDigest: string;
   liveReviewEvidenceDigest: string; liveReviewAnchor: { blockNumber: number; blockHash: string; checkedAt: string } };
 declare const __TARGET_OWNER_RELEASE__: Release;
-type Operation = 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done';
+type Operation = TargetOwnerOperation;
+type Session = { provider: JsonRpcProvider; assertCurrent: () => void; bindWallet: (option: WalletOption) => void;
+  read: <T>(action: () => Promise<T>, timeout?: number) => Promise<T>;
+  lock: (action: (source: TargetOwnerJournal | null) => Promise<void>) => Promise<void>;
+  persist: (item: TargetOwnerJournal) => TargetOwnerJournal; wait: () => Promise<void>; };
 type Preflight = { blockNumber: number; blockHash: string; [name: string]: any };
 const release = __TARGET_OWNER_RELEASE__;
-const names: Record<TargetOwnerName, string> = { PoolFunds: '资金结算库', FlexiblePurchase: '购机库', PoolVault: '矿池实现' };
 const explorer = 'https://bscscan.com';
 const short = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
@@ -33,8 +36,8 @@ function download(name: string, value: unknown) {
 }
 function newSalt() { const bytes = crypto.getRandomValues(new Uint8Array(32)); if (bytes.every(value => value === 0)) bytes[31] = 1;
   return `0x${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`; }
-function rpc() { return new JsonRpcProvider(new URL(release.rpcPath, window.location.href).href, 56,
-  { batchMaxCount: 1, cacheTimeout: -1 }); }
+function rpc() { const request = new FetchRequest(new URL(release.rpcPath, window.location.href).href); request.timeout = 15000;
+  return new JsonRpcProvider(request, 56, { batchMaxCount: 1, cacheTimeout: -1 }); }
 async function pinnedJson(name: string, signal: AbortSignal): Promise<Json> {
   const file = release.files[name]; if (!file) throw new Error(`发布包缺少已审查文件 ${name}。`);
   const response = await fetch(new URL(file.path, window.location.href), { signal, cache: 'no-store', redirect: 'error', credentials: 'same-origin' });
@@ -45,7 +48,7 @@ async function pinnedJson(name: string, signal: AbortSignal): Promise<Json> {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 }
 
-function TargetOwnerUpgradeStandalone() {
+export function TargetOwnerUpgradeStandalone() {
   const [common, setCommon] = useState<Json | null>(null), [loadError, setLoadError] = useState('');
   const [gasLimits, setGasLimits] = useState<Record<TargetOwnerName, string> | null>(null);
   const [wallets, setWallets] = useState<WalletOption[]>([]), [wallet, setWallet] = useState<WalletOption | null>(null);
@@ -53,16 +56,20 @@ function TargetOwnerUpgradeStandalone() {
   const [proof, setProof] = useState<Preflight | null>(null), [result, setResult] = useState<Preflight | null>(null);
   const [operation, setOperation] = useState<Operation>('unknown'), [readyAt, setReadyAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [message, setMessage] = useState('');
-  const [recoveryHash, setRecoveryHash] = useState(''), [reviewed, setReviewed] = useState(false);
-  const busyRef = useRef(false);
+  const [recoveryHash, setRecoveryHash] = useState('');
+  const [unwrittenHash, setUnwrittenHash] = useState('');
+  const busyRef = useRef(false), epoch = useRef(0), abort = useRef<AbortController | null>(null);
+  const walletRef = useRef<WalletOption | null>(null), mounted = useRef(true);
   const context = useMemo(() => common ? { factory: common.genesisRecord.addresses.factory,
     genesisRecordDigest: release.pins.trustedGenesisRecordDigest, genesisManifestDigest: release.pins.trustedGenesisManifestDigest,
     candidateArtifactDigest: release.pins.trustedUpgradeArtifactDigest, catalogDigest: release.pins.trustedReviewCatalogDigest } : null, [common]);
   const key = context ? targetOwnerJournalKey(context) : null;
-  const account = walletState?.address, onBsc = !!wallet && !!account && walletState?.chainId === 56;
+  const account = walletState?.address;
   const reviewedCatalog = common?.reviewCatalog;
   const deployer = reviewedCatalog?.deployer as string | undefined, proposer = reviewedCatalog?.bindings?.proposer as string | undefined;
-  const pending = journal ? targetOwnerPending(journal) : null, nextName = journal ? targetOwnerNext(journal) : null;
+  const pending = journal ? targetOwnerPending(journal) : null;
+  const pendingTransaction = pending === 'schedule' || pending === 'execute' ? journal?.[pending] : pending ? journal?.deployments[pending] : null;
+  const needsOriginalHash = !!pending && !pendingTransaction?.txHash;
   const completed = journal ? Object.keys(confirmedTargetOwnerDeployments(journal)).length : 0;
   const plan = useMemo(() => {
     if (!common || !journal || completed !== 3) return null;
@@ -70,6 +77,9 @@ function TargetOwnerUpgradeStandalone() {
       .map(([name, item]) => [name, item.address])), salt: journal.salt, delaySeconds: journal.delaySeconds }); }
     catch (problem) { return { invalid: messageOf(problem) }; }
   }, [common, journal, completed]);
+  function stop() { epoch.current++; abort.current?.abort(); setProof(null);
+    if (busyRef.current) setMessage('钱包或本机记录已变化，流程已停止。请核对原交易后继续。'); }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; abort.current?.abort(); }; }, []);
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all(['genesisRecord', 'genesisBundle', 'trustedGenesisManifest', 'upgradeBundle', 'reviewCatalog', 'gasEvidence', 'liveReview'].map(name => pinnedJson(name, controller.signal)))
@@ -83,13 +93,19 @@ function TargetOwnerUpgradeStandalone() {
       }).catch(problem => { if (!controller.signal.aborted) setLoadError(messageOf(problem)); });
     return () => controller.abort();
   }, []);
-  useEffect(() => discoverWallets(setWallets), []);
+  useEffect(() => discoverWallets(options => {
+    const selected = walletRef.current, replacement = selected && options.find(option => option.id === selected.id);
+    if (selected && replacement && selected.provider !== replacement.provider) {
+      stop(); walletRef.current = replacement; setWallet(replacement); setWalletState(null);
+    }
+    setWallets(options);
+  }), []);
   useEffect(() => {
     if (!wallet) return; let active = true;
-    const changed = () => { setProof(null); setReviewed(false); void readWallet(wallet.provider).then(value => {
+    const changed = () => { stop(); void readWallet(wallet.provider).then(value => {
       if (active) setWalletState(value ? { ...value, address: getAddress(value.address) } : null);
     }).catch(problem => { if (active) { setWalletState(null); setError(messageOf(problem)); } }); };
-    const disconnected = () => { if (active) { setWalletState(null); setProof(null); setReviewed(false); } };
+    const disconnected = () => { if (active) { stop(); setWalletState(null); } };
     wallet.provider.on?.('accountsChanged', changed); wallet.provider.on?.('chainChanged', changed); wallet.provider.on?.('disconnect', disconnected);
     return () => { active = false; wallet.provider.removeListener?.('accountsChanged', changed);
       wallet.provider.removeListener?.('chainChanged', changed); wallet.provider.removeListener?.('disconnect', disconnected); };
@@ -97,26 +113,67 @@ function TargetOwnerUpgradeStandalone() {
   useEffect(() => {
     if (!key || !context) return;
     const restore = () => { try { const raw = localStorage.getItem(key); setJournal(raw ? parseTargetOwnerJournal(JSON.parse(raw), context) : null);
-      setProof(null); setResult(null); setOperation('unknown'); setReviewed(false); }
-    catch (problem) { setError(messageOf(problem)); } };
-    restore(); const storage = (event: StorageEvent) => { if (event.key === key) restore(); };
+      setProof(null); setResult(null); setOperation('unknown'); setReadyAt(null); }
+    catch (problem) { setJournal(null); setError(messageOf(problem)); } };
+    restore(); const storage = (event: StorageEvent) => { if (event.key === key || event.key === null) { stop(); restore(); } };
     window.addEventListener('storage', storage); return () => window.removeEventListener('storage', storage);
   }, [key]);
-  function save(item: TargetOwnerJournal) {
-    if (!context || !key) throw new Error('固定发布证据尚未加载。');
-    const checked = parseTargetOwnerJournal(item, context); localStorage.setItem(key, JSON.stringify(checked)); setJournal(checked); setProof(null); setReviewed(false);
-  }
-  async function run(label: string, action: () => Promise<void>) {
-    if (busyRef.current) return; busyRef.current = true; setBusy(label); setError(''); setMessage('');
-    try { await action(); } catch (problem) { setError(messageOf(problem)); } finally { busyRef.current = false; setBusy(''); }
-  }
-  async function exclusive(source: TargetOwnerJournal, action: () => Promise<void>) {
-    if (!key || !navigator.locks) throw new Error('浏览器需要支持跨标签交易记录锁。请使用最新 Chrome、Edge 或 Safari。');
-    await navigator.locks.request(key, { mode: 'exclusive', ifAvailable: true }, async lock => {
-      if (!lock) throw new Error('另一标签正在处理本次升级，请先核对原交易。');
-      if (localStorage.getItem(key) !== JSON.stringify(source)) throw new Error('本机记录已变化，请刷新后继续。');
-      await action();
-    });
+  async function run(label: string, action: (session: Session) => Promise<void>) {
+    if (busyRef.current || !context || !key) return;
+    busyRef.current = true; setBusy(label); setError(''); setMessage('');
+    const revision = epoch.current, controller = new AbortController(), provider = rpc(); abort.current = controller;
+    let expectedRaw: string | null = null, locked = false;
+    const boundWallet: { current: WalletOption | null } = { current: null };
+    const current = () => mounted.current && revision === epoch.current && !controller.signal.aborted;
+    const assertCurrent = () => {
+      if (!current() || boundWallet.current && walletRef.current?.provider !== boundWallet.current.provider)
+        throw new Error('钱包、网络或记录已变化，本次流程已停止。');
+      if (localStorage.getItem(key) !== expectedRaw) throw new Error('另一标签已更新升级记录，请重新继续。');
+    };
+    const cancel = () => { stop(); };
+    const session: Session = { provider, assertCurrent,
+      bindWallet: option => { boundWallet.current = option;
+        for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) option.provider.on?.(event, cancel); },
+      read: async (read, timeout = 60000) => {
+        assertCurrent(); let timer: ReturnType<typeof setTimeout> | undefined;
+        let cancelRead: (() => void) | undefined;
+        try {
+          const value = await Promise.race([read(), new Promise<never>((_, reject) => {
+            cancelRead = () => reject(new Error('流程已停止。'));
+            controller.signal.addEventListener('abort', cancelRead, { once: true });
+            timer = setTimeout(() => { reject(new Error('读取超时，已停止后续钱包请求。请稍后继续。')); controller.abort(); }, timeout);
+          })]); assertCurrent(); return value;
+        } finally { if (timer) clearTimeout(timer); if (cancelRead) controller.signal.removeEventListener('abort', cancelRead); }
+      },
+      lock: async lockedAction => {
+        assertCurrent(); if (!navigator.locks) throw new Error('请使用支持交易记录锁的最新 Chrome、Edge 或 Safari。');
+        await navigator.locks.request(key, { mode: 'exclusive', ifAvailable: true }, async lock => {
+          if (!lock) throw new Error('另一标签正在处理本次升级，请稍后继续。');
+          assertCurrent(); locked = true;
+          try { await lockedAction(expectedRaw ? parseTargetOwnerJournal(JSON.parse(expectedRaw), context) : null); }
+          finally { locked = false; }
+        });
+      },
+      persist: item => {
+        // A returned hash remains durable even when a wallet event stopped the run.
+        if (!locked || localStorage.getItem(key) !== expectedRaw) throw new Error('升级记录已变化，不能覆盖原交易。');
+        const checked = parseTargetOwnerJournal(item, context), raw = JSON.stringify(checked);
+        localStorage.setItem(key, raw); expectedRaw = raw;
+        if (mounted.current) setJournal(checked); return checked;
+      },
+      wait: () => new Promise<void>((resolve, reject) => {
+        assertCurrent(); const canceled = () => { clearTimeout(timer); reject(new Error('流程已停止。')); };
+        const timer = setTimeout(() => { controller.signal.removeEventListener('abort', canceled); resolve(); }, 3000);
+        controller.signal.addEventListener('abort', canceled, { once: true });
+      }),
+    };
+    try { expectedRaw = localStorage.getItem(key); await action(session); }
+    catch (problem) { if (mounted.current && (current() || controller.signal.aborted && revision === epoch.current)) setError(messageOf(problem)); }
+    finally {
+      for (const event of ['accountsChanged', 'chainChanged', 'disconnect']) boundWallet.current?.provider.removeListener?.(event, cancel);
+      provider.destroy(); if (abort.current === controller) abort.current = null;
+      busyRef.current = false; if (mounted.current) setBusy('');
+    }
   }
   async function operationState(provider: JsonRpcProvider, currentPlan: Json) {
     const block = await provider.getBlock('finalized'); if (!block?.hash) throw new Error('无法读取最终确认区块。');
@@ -135,9 +192,9 @@ function TargetOwnerUpgradeStandalone() {
       replacements: Object.fromEntries(Object.entries(deployments).map(([name, item]) => [name, item.address])),
       salt: source.salt, delaySeconds: source.delaySeconds }) : null;
   }
-  async function preflight(source: TargetOwnerJournal | null, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') {
+  async function preflight(provider: JsonRpcProvider, source: TargetOwnerJournal | null, assertCurrent: () => void, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') {
     if (!common) throw new Error('已审查发布文件尚未加载。');
-    const provider = rpc(), currentPlan = source ? planFor(source) : null;
+    assertCurrent(); const currentPlan = source ? planFor(source) : null;
     // Imported failure rows are claims too. Re-prove status0 before they can clear a retry gate.
     for (const failed of source?.failedTransactions ?? []) {
       const governance = failed.step === 'schedule' || failed.step === 'execute';
@@ -161,166 +218,181 @@ function TargetOwnerUpgradeStandalone() {
       : { operation: 'unknown' as Operation, readyAt: null, snapshot: undefined };
     const phase = force || (currentState.operation === 'done' ? 'done'
       : ['waiting', 'ready'].includes(currentState.operation) ? 'scheduled' : currentPlan ? 'unscheduled' : 'prepared');
-    setBusy(phase === 'done' ? '核验原 Beacon、候选代码与五笔最终回执'
-      : '核验原部署图、Authority 角色和已确认候选回执');
+    assertCurrent(); setBusy(phase === 'done' ? '确认升级结果' : '自动检查升级条件');
     const checked = await validateTargetOwnerUpgradePreflight(provider, common, { phase,
       ...(currentState.snapshot ? { snapshot: currentState.snapshot } : {}),
       deployments: source ? confirmedTargetOwnerDeployments(source) : {}, ...(currentPlan ? { plan: currentPlan } : {}),
       ...(source?.schedule?.txHash ? { scheduleTxHash: source.schedule.txHash } : {}),
       ...(source?.execute?.txHash ? { executeTxHash: source.execute.txHash } : {}) });
-    const state = { operation: (checked.operation || currentState.operation) as Operation,
+    assertCurrent(); const state = { operation: (checked.operation || currentState.operation) as Operation,
       readyAt: checked.readyAt ?? currentState.readyAt };
     setProof(checked); setOperation(state.operation); setReadyAt(state.readyAt);
     if (phase === 'done') setResult(checked);
     return { checked, ...state };
   }
-  async function connect(option: WalletOption) { await run('连接钱包', async () => {
-    await option.provider.request({ method: 'eth_requestAccounts' }); const state = await readWallet(option.provider);
-    if (!state) throw new Error('钱包没有提供账户。'); setWallet(option); setWalletState({ ...state, address: getAddress(state.address) });
-  }); }
-  async function refresh() { await run('只读核验正式图与本次回执', async () => {
-    const checked = await preflight(journal); setMessage(`已在最终确认区块 #${checked.checked.blockNumber} 核对。每次钱包提交前会重新检查。`);
-  }); }
-  function createBatch() {
-    if (!context || !key || !proof || journal) return;
-    try { if (localStorage.getItem(key)) throw new Error('本机已有升级记录，请刷新并恢复。');
-      save(newTargetOwnerJournal(context, newSalt())); setMessage('已保存本次唯一 salt；断线后从本机记录继续。'); }
-    catch (problem) { setError(messageOf(problem)); }
-  }
-  function allowed(action: 'deploy' | 'schedule' | 'execute') {
-    return !!journal && targetOwnerActionReady({ action, onBsc, signerAuthorized: same(account, action === 'deploy' ? deployer : proposer),
-      pending: !!pending, graphVerified: !!proof, prefixVerified: !!proof, completedDeployments: completed,
-      operation, scheduleConfirmed: journal.schedule?.status === 'confirmed' });
-  }
-  async function deploy(name: TargetOwnerName) { await run(`部署 ${name}`, async () => {
-    if (!common || !gasLimits || !journal || !wallet || !account || !allowed('deploy') || nextName !== name) throw new Error('请先核验正式图、连接指定部署钱包并核对上一笔回执。');
-    const source = journal, prefix = confirmedTargetOwnerDeployments(source);
-    await exclusive(source, async () => {
-      await preflight(source, 'prepared');
-      const prepared = prepareTargetOwnerUpgradeDeployment(name, common, { deploymentsPrefix: prefix });
-      const transaction: UpgradeTransaction = { status: 'uncertain', from: account, dataHash: keccak256(prepared.data) };
-      await submitTargetOwnerUpgrade(wallet.provider, { from: account, data: prepared.data, gasLimit: gasLimits[name] }, {
-        beforeRequest: () => save({ ...source, deployments: { ...source.deployments, [name]: transaction } }),
-        definitelyRejected: () => save(source),
-        submitted: hash => save({ ...source, deployments: { ...source.deployments, [name]: { ...transaction, status: 'submitted', txHash: hash } } }),
-      });
-      setMessage(`${name} 已提交。最终回执与精确运行代码验证后才能部署下一项。`);
-    });
-  }); }
-  async function recover() { await run('核验原交易回执', async () => {
-    if (!common || !context || !journal || !pending) throw new Error('没有待恢复的原交易。');
-    const source = journal, name = pending;
-    const transaction = name === 'schedule' || name === 'execute' ? source[name]! : source.deployments[name]!;
-    if (!same(transaction.from, name === 'schedule' || name === 'execute' ? proposer : deployer)) throw new Error('原交易发送者与本页固定的钱包角色不同。');
-    const hash = transaction.txHash || recoveryHash.trim(), currentPlan = planFor(source);
-    const data = name === 'schedule' || name === 'execute' ? currentPlan?.[`${name}Data`]
-      : prepareTargetOwnerUpgradeDeployment(name, common, { deploymentsPrefix: confirmedTargetOwnerDeployments(source) }).data;
-    if (!data || !same(keccak256(data), transaction.dataHash)) throw new Error('本机记录与固定候选操作不一致。');
-    await exclusive(source, async () => {
-      let receipt;
-      try { receipt = await verifyTargetOwnerRecoveryReceipt(rpc(), hash, { from: transaction.from, dataHash: transaction.dataHash,
-        ...((name === 'schedule' || name === 'execute') ? { to: currentPlan.timelock } : {}) }); }
-      catch (problem) {
-        if (!(problem instanceof VerifiedTargetOwnerTransactionFailure)) throw problem;
-        save(archiveTargetOwnerFailure(source, name, problem.evidence, context)); setOperation('unknown'); setRecoveryHash('');
-        setMessage('原交易已最终失败，匹配的规范回执已归档。请只读核验当前状态后重试同一步；失败证据会保留在导出记录中。'); return;
+  async function begin() { await run('准备升级', async session => {
+    if (!common || !context || !gasLimits) throw new Error('升级文件尚未加载完成。');
+    const selected = walletRef.current ?? wallets[0];
+    if (!selected) throw new Error('请安装并解锁浏览器钱包后刷新。');
+    setBusy('请在钱包中确认连接');
+    await selected.provider.request({ method: 'eth_requestAccounts' }); session.assertCurrent();
+    const state = await readWallet(selected.provider); session.assertCurrent();
+    if (!state) throw new Error('钱包没有提供账户。');
+    walletRef.current = selected; setWallet(selected); setWalletState({ ...state, address: getAddress(state.address) }); session.bindWallet(selected);
+    if (state.chainId !== 56) { setBusy('请在钱包中切换 BSC 主网'); await switchToBsc(selected.provider);
+      setMessage('请确认钱包已切换到 BSC 主网，再点击继续。'); return; }
+    if (!same(state.address, deployer) || !same(state.address, proposer)) throw new Error(`请切换到部署钱包 ${deployer} 后继续。`);
+    await session.lock(async restored => {
+      let source = restored ?? session.persist(newTargetOwnerJournal(context, newSalt()));
+      let proven: { raw: string; state: { operation: TargetOwnerOperation; readyAt: number | null } } | null = null;
+      const inspect = async (item: TargetOwnerJournal, force?: 'prepared' | 'unscheduled' | 'scheduled' | 'done') => {
+        const raw = JSON.stringify(item);
+        if (!force && proven?.raw === raw) { session.assertCurrent(); return proven.state; }
+        const checked = await session.read(() => preflight(session.provider, item, session.assertCurrent, force));
+        proven = { raw, state: { operation: checked.operation, readyAt: checked.readyAt } }; return proven.state;
+      };
+      const recover = async (item: TargetOwnerJournal, step: TargetOwnerStep, suppliedHash?: string) => {
+        const transaction = step === 'schedule' || step === 'execute' ? item[step]! : item.deployments[step]!;
+        const governance = step === 'schedule' || step === 'execute', currentPlan = planFor(item);
+        const hash = transaction.txHash || suppliedHash?.trim();
+        if (!hash || !/^0x[\da-f]{64}$/i.test(hash)) throw new Error('请从钱包交易记录复制完整的原交易哈希。');
+        if (!same(transaction.from, governance ? proposer : deployer)) throw new Error('原交易发送者与指定钱包不同。');
+        const data = governance ? currentPlan?.[`${step}Data`]
+          : prepareTargetOwnerUpgradeDeployment(step, common, { deploymentsPrefix: confirmedTargetOwnerDeployments(item) }).data;
+        if (!data || !same(keccak256(data), transaction.dataHash)) throw new Error('本机原交易与固定升级步骤不同。');
+        setBusy('等待当前交易确认');
+        const finalized = await session.read(() => waitForTargetOwnerFinality(session.provider, hash,
+          { assertCurrent: session.assertCurrent, wait: session.wait }), 75000);
+        if (!finalized) return { journal: item, outcome: 'waiting' as const };
+        let receipt;
+        try { receipt = await session.read(() => verifyTargetOwnerRecoveryReceipt(session.provider, hash,
+          { from: transaction.from, dataHash: transaction.dataHash, ...(governance ? { to: currentPlan.timelock } : {}) }), 30000); }
+        catch (problem) {
+          if (!(problem instanceof VerifiedTargetOwnerTransactionFailure)) throw problem;
+          if (!transaction.txHash) throw new Error('输入的交易已失败，但不能证明它是本次未知发送。请回到原钱包请求或原标签取得带原哈希的记录；当前步骤不会重发。');
+          session.assertCurrent(); const archived = session.persist(archiveTargetOwnerFailure(item, step, problem.evidence, context));
+          setOperation('unknown'); setRecoveryHash('');
+          setMessage('当前交易执行失败，原回执已保存。准备好后点击继续重试这一步。');
+          return { journal: archived, outcome: 'failed' as const };
+        }
+        if (!receipt) return { journal: item, outcome: 'waiting' as const };
+        if (!transaction.txHash) throw new Error('输入的交易已确认，但不能证明它是本次未知发送。请回到原钱包请求或原标签取得带原哈希的记录；当前步骤不会继续发送。');
+        const confirmed: UpgradeTransaction = { ...transaction, txHash: hash, status: 'confirmed',
+          ...(governance ? {} : { address: getAddress(receipt.contractAddress!) }) };
+        const candidate = governance ? { ...item, [step]: confirmed } : { ...item, deployments: { ...item.deployments, [step]: confirmed } };
+        const checked = await inspect(candidate, targetOwnerRecoveryPhase(step));
+        session.assertCurrent(); const saved = session.persist(candidate); setRecoveryHash('');
+        return { journal: saved, outcome: 'confirmed' as const, readyAt: checked.readyAt };
+      };
+      const submit = async (item: TargetOwnerJournal, step: TargetOwnerStep) => {
+        session.assertCurrent(); const governance = step === 'schedule' || step === 'execute';
+        const currentPlan = governance ? planFor(item) : null;
+        const prepared = governance ? { data: currentPlan[`${step}Data`] }
+          : prepareTargetOwnerUpgradeDeployment(step, common, { deploymentsPrefix: confirmedTargetOwnerDeployments(item) });
+        const transaction: UpgradeTransaction = { status: 'uncertain', from: getAddress(state.address), dataHash: keccak256(prepared.data) };
+        let saved = item;
+        const put = (value: UpgradeTransaction) => governance ? { ...item, [step]: value }
+          : { ...item, deployments: { ...item.deployments, [step]: value } };
+        setBusy(governance ? step === 'schedule' ? '请在钱包中确认等待期排程' : '请在钱包中确认执行升级'
+          : `请在钱包中确认第 ${TARGET_OWNER_DEPLOYMENTS.indexOf(step as TargetOwnerName) + 1} 笔部署`);
+        const guardedWallet = { request: (request: Parameters<typeof selected.provider.request>[0]) => {
+          try { session.assertCurrent(); } catch (problem) { throw Object.assign(problem as Error, { code: 'ACTION_REJECTED' }); }
+          return selected.provider.request(request);
+        } };
+        await submitTargetOwnerUpgrade(guardedWallet, { from: transaction.from, data: prepared.data,
+          ...(governance ? { to: currentPlan.timelock } : { gasLimit: gasLimits[step as TargetOwnerName] }) }, {
+          beforeRequest: () => { session.assertCurrent(); saved = session.persist(put(transaction)); },
+          definitelyRejected: () => { saved = session.persist(item); },
+          submitted: hash => { try { saved = session.persist(put({ ...transaction, status: 'submitted', txHash: hash })); if (mounted.current) setUnwrittenHash(''); }
+            catch (problem) { if (mounted.current) setUnwrittenHash(hash); throw new Error(`原交易已发送，记录未能保存。请保存此哈希 ${hash}。${messageOf(problem)}`); } },
+        });
+        proven = null; session.assertCurrent(); return saved;
+      };
+      const original = targetOwnerPending(source);
+      if (original && !(original === 'schedule' || original === 'execute' ? source[original] : source.deployments[original])?.txHash && recoveryHash.trim()) {
+        const recovered = await recover(source, original, recoveryHash); source = recovered.journal;
+        if (recovered.outcome !== 'confirmed' || original === 'schedule' || original === 'execute') return;
       }
-      if (!receipt) { setMessage('原交易尚未最终确认。保留记录，稍后继续核验。'); return; }
-      const confirmed: UpgradeTransaction = { ...transaction, txHash: hash, status: 'confirmed',
-        ...((name === 'schedule' || name === 'execute') ? {} : { address: getAddress(receipt.contractAddress!) }) };
-      const candidate = name === 'schedule' || name === 'execute' ? { ...source, [name]: confirmed }
-        : { ...source, deployments: { ...source.deployments, [name]: confirmed } };
-      await preflight(candidate, name === 'schedule' ? 'scheduled' : name === 'execute' ? 'done' : 'prepared');
-      save(candidate); setRecoveryHash('');
-      setMessage(name === 'execute' ? '原 Beacon 升级及全部回执已验证。旧池历史 owner 迁移仍是另一步。'
-        : name === 'schedule' ? '排程回执已确认，48 小时从链上排程区块开始计算。'
-          : `${name} 部署及运行代码、依赖绑定已验证。请再次只读核验后继续。`);
+      const advanced = await runTargetOwnerUpgradeSequence({ journal: source, assertCurrent: session.assertCurrent, inspect, submit, recover });
+      if (advanced.outcome === 'unknown') setMessage('钱包没有返回原交易哈希。请回到原钱包请求或原标签等待哈希保存，或取回带原哈希的原记录；页面不会重发。');
+      else if (advanced.outcome === 'waiting') setMessage(advanced.journal.schedule?.status === 'confirmed'
+        ? '排程已确认。等待 48 小时后，再点击同一按钮执行升级。'
+        : '当前交易仍在确认。记录已保存，稍后点击继续即可。');
+      else if (advanced.outcome === 'done') setMessage('升级已完成，原矿池升级结果已确认。');
     });
   }); }
-  async function governance(which: 'schedule' | 'execute') { await run(which === 'schedule' ? '提交 48 小时排程' : '执行原 Beacon 升级', async () => {
-    if (!journal || !wallet || !account || !reviewed || !allowed(which) || journal[which] || !plan || plan.invalid) throw new Error('钱包、已核验状态或本次升级批次尚未就绪。');
-    const source = journal, currentPlan = planFor(source);
-    await exclusive(source, async () => {
-      const checked = await preflight(source, which === 'schedule' ? 'unscheduled' : 'scheduled');
-      if (checked.operation !== (which === 'schedule' ? 'unscheduled' : 'ready')) throw new Error('链上排程状态已变化，请重新核验。');
-      const data = currentPlan[`${which}Data`], transaction: UpgradeTransaction = { status: 'uncertain', from: account, dataHash: keccak256(data) };
-      await submitTargetOwnerUpgrade(wallet.provider, { from: account, to: currentPlan.timelock, data }, {
-        beforeRequest: () => save({ ...source, [which]: transaction }), definitelyRejected: () => save(source),
-        submitted: hash => save({ ...source, [which]: { ...transaction, status: 'submitted', txHash: hash } }),
-      });
-      setMessage(which === 'schedule' ? '排程已提交，等待原交易最终回执。' : '执行已提交，验证 Beacon 当前指针后才会显示激活。');
+  async function importJournal(file: File) { await run('恢复升级记录', async session => {
+    if (!context || file.size > 100000) throw new Error('恢复记录过大或升级文件尚未就绪。');
+    const value = JSON.parse(await file.text()); session.assertCurrent();
+    const imported = parseTargetOwnerJournal(value.journal || value, context);
+    await session.lock(async existing => {
+      if (existing) throw new Error('本机已有记录，请先核对当前记录，不能覆盖原交易。');
+      await session.read(() => preflight(session.provider, imported, session.assertCurrent));
+      session.assertCurrent(); session.persist(imported); setMessage('记录已恢复，点击继续即可。');
     });
-  }); }
-  async function importJournal(file: File) { await run('恢复升级记录', async () => {
-    if (!context || !key || file.size > 100_000) throw new Error('记录大小或本页证据未就绪。');
-    const value = JSON.parse(await file.text()), imported = parseTargetOwnerJournal(value.journal || value, context);
-    if (localStorage.getItem(key)) throw new Error('本机已有记录，不能用导入覆盖。请先导出并核对现有记录。');
-    await preflight(imported); save(imported); setMessage('记录已恢复；签名前会重新读取原交易和运行代码。');
   }); }
   function exportRecord() { if (!journal) return; download('bemine-target-owner-upgrade-record.json', {
     schemaVersion: 1, kind: 'fixed-target-owner-upgrade-wallet-record-v1', exportedAt: new Date().toISOString(),
     release, journal, plan: plan?.invalid ? null : plan, preflight: proof, postUpgradeProof: result,
-    deploymentComplete: completed === 3, activated: !!result && operation === 'done',
-    legacyPoolOwnerMigrationComplete: false }); }
-
-  const stateLabel = result && operation === 'done' ? 'Beacon 激活已验证' : pending ? '原交易待核验'
-    : operation === 'waiting' ? '已排程 · 48 小时等待中' : operation === 'ready' ? '等待期结束 · 可执行'
-      : completed === 3 ? '部署完成 · 尚未激活' : '候选合约尚未激活';
+    deploymentComplete: completed === 3, activated: !!result && operation === 'done', legacyPoolOwnerMigrationComplete: false }); }
+  function selectWallet(id: string) {
+    const option = wallets.find(item => item.id === id); if (!option || option.provider === walletRef.current?.provider) return;
+    stop(); walletRef.current = option; setWallet(option); setWalletState(null);
+  }
+  const done = !!result && operation === 'done', scheduled = journal?.schedule?.status === 'confirmed';
+  const stateLabel = done ? '升级已完成' : operation === 'waiting' ? '等待 48 小时'
+    : operation === 'ready' ? '等待期已结束，可以执行升级' : pending ? '当前交易待确认'
+      : scheduled ? '排程已确认，继续时自动检查等待期' : completed ? `部署进度 ${completed} / 3` : '准备就绪后，点击下方按钮开始';
   return <main className="to-shell">
-    <div className="to-top"><span className="to-mark">BEMINE / 合约升级</span><span className="to-status">BSC 主网 · 56</span></div>
-    <h1>固定目标所有者保护</h1>
-    <p className="to-lead">为固定目标矿池增加 owner 变化检查。按顺序部署三个候选合约，再由原 Timelock 排程原 Beacon 升级；48 小时后单独确认执行。</p>
-    <div className={`to-note ${operation === 'waiting' ? 'to-wait' : result && operation === 'done' ? 'to-success' : ''}`}>
-      <div className="to-state" data-testid="activation-state">{stateLabel}</div>
-      {readyAt && <div>最早执行时间：{new Date(readyAt * 1000).toLocaleString('zh-CN')}（以最终确认区块时间为准）</div>}
-    </div>
-    {(loadError || error) && <p role="alert" className="to-note to-error">{loadError || error}</p>}
-    {message && <p role="status" className="to-note">{message}</p>}{busy && <p role="status" className="to-busy">{busy}…</p>}
-    <section className="to-card"><h2>1. 核对正式部署与钱包</h2>
-      <div className="to-grid"><div><p className="to-small">每次提交前重新读取最终确认区块、原图运行代码、Authority 角色和已部署候选回执。</p>
-        <button disabled={!!busy || !common} onClick={refresh}>只读核验</button>
-        {proof && <p className="to-small">已核验区块 #{proof.blockNumber}<br/><code>{proof.blockHash}</code></p>}
-      </div><div><p className="to-small">钱包：{account ? short(account) : '未连接'}{walletState ? ` · ${walletState.chainId === 56 ? 'BSC 主网' : '请切换 BSC'}` : ''}</p>
-        <div className="to-actions">{wallets.map(option => <button key={option.id} disabled={!!busy} onClick={() => connect(option)}>{option.name}</button>)}
-          {!wallets.length && <span className="to-small">安装并解锁 OneKey 或浏览器钱包后刷新。</span>}
-          {wallet && !onBsc && <button disabled={!!busy} onClick={() => run('切换 BSC 主网', () => switchToBsc(wallet.provider))}>切换 BSC</button>}</div>
-      </div></div>
-      <p className="to-small">发布前已独立只读核验区块 #{release.liveReviewAnchor.blockNumber}。此报告不代替本次提交前核验。
-        <a href={release.files.liveReview.path} target="_blank" rel="noreferrer"> 查看只读证据</a></p>
+    <div className="to-top"><span className="to-mark">BEMINE / 合约升级</span><span className="to-status">BSC 主网</span></div>
+    <h1>合约部署与升级</h1>
+    <p className="to-lead">页面会自动推进升级。你只需在钱包中确认每笔交易；排程后等待 48 小时，再回来继续。</p>
+    <section className="to-card to-main">
+      <ol className="to-steps" aria-label="升级进度">
+        <li className={completed === 3 ? 'to-complete' : 'to-current'}><span>1</span><div>部署升级组件<small>{completed} / 3 已确认</small></div></li>
+        <li className={done ? 'to-complete' : scheduled ? 'to-current' : ''}><span>2</span><div>等待 48 小时<small>{scheduled ? '排程已确认' : '部署后自动排程'}</small></div></li>
+        <li className={done ? 'to-complete' : operation === 'ready' ? 'to-current' : ''}><span>3</span><div>完成升级<small>{done ? '结果已确认' : '等待期后钱包确认'}</small></div></li>
+      </ol>
+      <h2 className="to-state" data-testid="activation-state">{stateLabel}</h2>
+      {readyAt && <p>最早执行时间：{new Date(readyAt * 1000).toLocaleString('zh-CN')}</p>}
+      {(loadError || error) && <p role="alert" className="to-note to-error">{loadError || error}</p>}
+      {message && <p role="status" className="to-note">{message}</p>}
+      {wallets.length > 1 && <label className="to-wallet">选择钱包<select aria-label="选择钱包" value={wallet?.id ?? wallets[0]?.id ?? ''} disabled={!!busy}
+        onChange={event => selectWallet(event.target.value)}>{wallets.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>}
+      <button className="to-primary" disabled={!!busy || !common || !gasLimits || !!loadError || done || !wallets.length}
+        onClick={begin}>{busy || (done ? '升级已完成' : account ? '继续升级' : '连接钱包并开始升级')}</button>
+      <p className="to-small">{account ? `当前钱包 ${short(account)}` : `请使用部署钱包 ${deployer ? short(deployer) : '正在加载…'}`}
+        {busy && ' · 关闭页面后可从原交易继续'}</p>
+      {!wallets.length && <p className="to-small">请安装并解锁浏览器钱包后刷新页面。</p>}
+      {unwrittenHash && <div className="to-note to-wait"><strong>请保存已发送的原交易哈希</strong><input aria-label="未保存的原交易哈希" value={unwrittenHash} readOnly/>
+        <p className="to-small">本机存储未写入此哈希，当前流程已停止。保留原标签和此哈希，不能重新部署。</p></div>}
+      {needsOriginalHash && <div className="to-note to-wait"><strong>需要找回带原哈希的记录</strong><p className="to-small">钱包发送结果不明。请回到原钱包请求或原标签等待哈希保存，或取回带原哈希的原记录。下方输入仅供只读核验，不能解除重复发送限制。</p>
+        <input aria-label="原交易哈希" placeholder="0x… 原交易哈希" value={recoveryHash} onChange={event => setRecoveryHash(event.target.value)} disabled={!!busy}/></div>}
+    </section>
+    <details className="to-card to-details"><summary>技术信息与记录恢复</summary>
+      <p className="to-small">每次钱包提交前自动检查正式部署与当前角色。已提交交易只读取原回执；确认后核对准确代码和依赖。</p>
       {common && <dl className="to-meta"><dt>原 Factory</dt><dd><code>{context?.factory}</code></dd><dt>原 Beacon</dt><dd><code>{reviewedCatalog?.bindings?.beacon}</code></dd>
-        <dt>原 Timelock</dt><dd><code>{reviewedCatalog?.bindings?.timelock}</code></dd><dt>指定部署钱包</dt><dd className="to-role"><code>{deployer}</code></dd>
-        <dt>原排程 / 执行钱包</dt><dd className="to-role"><code>{proposer}</code></dd><dt>候选摘要</dt><dd><code>{release.pins.trustedUpgradeArtifactDigest}</code></dd></dl>}
-      <div className="to-actions"><button disabled={!!busy || !proof || !!journal} onClick={createBatch}>建立本次升级记录</button>
-        <button disabled={!journal || !!busy} onClick={exportRecord}>导出升级记录</button>
+        <dt>原 Timelock</dt><dd><code>{reviewedCatalog?.bindings?.timelock}</code></dd><dt>部署 / 执行钱包</dt><dd><code>{deployer}</code></dd>
+        <dt>候选摘要</dt><dd><code>{release.pins.trustedUpgradeArtifactDigest}</code></dd>
+        {journal && <><dt>批次 salt</dt><dd><code>{journal.salt}</code></dd></>}
+        {plan && !plan.invalid && <><dt>操作 ID</dt><dd><code>{plan.operationId}</code></dd></>}
+        {proof && <><dt>核验区块</dt><dd>#{proof.blockNumber} <code>{proof.blockHash}</code></dd></>}
+      </dl>}
+      {TARGET_OWNER_DEPLOYMENTS.map(name => { const transaction = journal?.deployments[name]; return <div className="to-technical-row" key={name}>
+        <strong>{name}</strong><span>{transaction?.status === 'confirmed' ? '已确认' : transaction ? '待确认' : '尚未部署'}</span>
+        {transaction?.address && <code>{transaction.address}</code>}
+        {transaction?.txHash && <a href={`${explorer}/tx/${transaction.txHash}`} target="_blank" rel="noreferrer">查看原交易</a>}
+      </div>; })}
+      {journal?.schedule?.txHash && <p><a href={`${explorer}/tx/${journal.schedule.txHash}`} target="_blank" rel="noreferrer">查看排程原交易</a></p>}
+      {journal?.execute?.txHash && <p><a href={`${explorer}/tx/${journal.execute.txHash}`} target="_blank" rel="noreferrer">查看执行原交易</a></p>}
+      {!!journal?.failedTransactions?.length && <p className="to-small">已保留 {journal.failedTransactions.length} 笔最终失败回执。</p>}
+      <div className="to-actions"><button disabled={!journal || !!busy} onClick={exportRecord}>导出记录</button>
         <label className="to-import">导入恢复记录<input type="file" accept="application/json,.json" disabled={!!busy || !!journal || !common}
           onChange={event => { const file = event.target.files?.[0]; if (file) void importJournal(file); event.target.value = ''; }}/></label></div>
-      {journal && <p className="to-small">本机记录已保存。关闭页面、断线或取消钱包都不会自动重复提交。<br/>本次 salt：<code>{journal.salt}</code></p>}
-      {!!journal?.failedTransactions?.length && <p className="to-small">已归档 {journal.failedTransactions.length} 笔最终失败的原交易。失败证据随升级记录一起导出。</p>}
-    </section>
-    <section className="to-card"><h2>2. 部署三个候选合约</h2><p className="to-small">每项都需钱包单独确认；下一项只使用已验证的实际部署地址。PoolVault 构造参数固定为原 Factory。</p>
-      {TARGET_OWNER_DEPLOYMENTS.map((name, index) => { const transaction = journal?.deployments[name]; return <div key={name} className={`to-row ${transaction?.status === 'confirmed' ? 'to-confirmed' : ''}`}>
-        <span className="to-circle">{transaction?.status === 'confirmed' ? '✓' : index + 1}</span><div><h3>{name} · {names[name]}</h3>
-          <small>{transaction?.status === 'confirmed' ? '运行代码与回执已验证' : transaction ? '已提交或发送结果待核验' : '尚未部署'}
-            {gasLimits && ` · 固定 Gas 上限 ${Number(gasLimits[name]).toLocaleString('zh-CN')}`}</small>
-          {transaction?.address && <div><code>{transaction.address}</code></div>}
-          {transaction?.txHash && <a className="to-hash to-small" href={`${explorer}/tx/${transaction.txHash}`} target="_blank" rel="noreferrer">查看原交易 {short(transaction.txHash)}</a>}
-        </div><button disabled={!!busy || nextName !== name || !allowed('deploy')} onClick={() => deploy(name)}>部署 {name}</button></div>; })}
-    </section>
-    {pending && <section className="to-card"><h2>恢复原交易：{pending}</h2><p className="to-small">若钱包未返回哈希，从钱包交易记录复制原交易哈希。该步骤不会再次发送交易。</p>
-      <div className="to-recover"><input aria-label="原交易哈希" placeholder="0x… 原交易哈希" value={recoveryHash} onChange={event => setRecoveryHash(event.target.value)} disabled={!!busy}/>
-        <button disabled={!!busy || (!recoveryHash && !(pending === 'schedule' || pending === 'execute' ? journal?.[pending]?.txHash : journal?.deployments[pending]?.txHash))} onClick={recover}>只读核验原回执</button></div></section>}
-    <section className="to-card"><h2>3. 排程，等待 48 小时，再执行</h2><p className="to-small">该提案只有一条调用：原 Beacon.upgradeTo(新 PoolVault)。三个候选部署完成后仍需排程和执行。</p>
-      {plan?.invalid && <p role="alert">{plan.invalid}</p>}{plan && !plan.invalid && <dl className="to-meta"><dt>操作 ID</dt><dd><code>{plan.operationId}</code></dd><dt>延迟</dt><dd>{journal?.delaySeconds} 秒（至少 48 小时）</dd></dl>}
-      <label className="to-check"><input type="checkbox" checked={reviewed} disabled={!proof || completed !== 3 || !!busy} onChange={event => setReviewed(event.target.checked)}/>
-        我已核对正式图、候选摘要、原 Beacon 与本次操作 ID，并理解部署不等于激活。</label>
-      <div className="to-actions"><button disabled={!!busy || !reviewed || !allowed('schedule') || !!journal?.schedule} onClick={() => governance('schedule')}>钱包确认 48 小时排程</button>
-        <button disabled={!!busy || !reviewed || !allowed('execute') || !!journal?.execute} onClick={() => governance('execute')}>钱包确认执行升级</button></div>
-      {journal?.schedule?.txHash && <p className="to-small"><a href={`${explorer}/tx/${journal.schedule.txHash}`} target="_blank" rel="noreferrer">排程原交易</a></p>}
-      {journal?.execute?.txHash && <p className="to-small"><a href={`${explorer}/tx/${journal.execute.txHash}`} target="_blank" rel="noreferrer">执行原交易</a></p>}
-    </section>
-    <section className="to-card"><h2>旧固定池的历史 owner 迁移</h2><p>Beacon 激活后，旧池仍需独立迁移原始 owner。必须基于建池事件与建池时历史所有权证据，由当前两位管理员分别签署同一份授权。此页不会把当前 NFT owner 当作建池时 owner。</p>
-      <p className="to-small">迁移签名与提交入口尚未包含在本页；升级记录会明确保留“旧池迁移未完成”。新建池会直接记录创建时的 owner。</p></section>
-    <p className="to-footer">静态发布源码 {short(release.sourceCommit)} · 候选编译源码 {short(release.candidateSourceCommit)}。本次已核验图固定绑定记录、manifest、逐合约产物和候选摘要。</p>
+      <p className="to-small">本机记录会自动保存。旧固定池的历史 owner 迁移仍需两位管理员单独授权，此页面不提交迁移。</p>
+      <a className="to-small" href={release.files.liveReview.path} target="_blank" rel="noreferrer">发布前只读证据</a>
+      <p className="to-footer">页面源码 {short(release.sourceCommit)} · 候选源码 {short(release.candidateSourceCommit)}</p>
+    </details>
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<TargetOwnerUpgradeStandalone/>);

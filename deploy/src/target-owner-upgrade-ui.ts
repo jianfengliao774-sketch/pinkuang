@@ -103,6 +103,77 @@ export function targetOwnerActionReady(options: {
     : options.operation === 'ready' && options.scheduleConfirmed;
 }
 
+export type TargetOwnerStep = TargetOwnerName | 'schedule' | 'execute';
+export type TargetOwnerOperation = 'unknown' | 'unscheduled' | 'waiting' | 'ready' | 'done';
+export type TargetOwnerSequenceResult = { journal: TargetOwnerJournal; outcome: 'waiting' | 'unknown' | 'failed' | 'done'; readyAt?: number | null };
+
+/** The last candidate opens governance; a prepared-only proof cannot classify its operation. */
+export function targetOwnerRecoveryPhase(step: TargetOwnerStep) {
+  return step === 'schedule' ? 'scheduled' as const : step === 'execute' ? 'done' as const
+    : step === 'PoolVault' ? undefined : 'prepared' as const;
+}
+
+/** Advance only from verified, durable rows; an unknown wallet result is never resent. */
+export async function runTargetOwnerUpgradeSequence(options: {
+  journal: TargetOwnerJournal; assertCurrent: () => void;
+  inspect: (source: TargetOwnerJournal) => Promise<{ operation: TargetOwnerOperation; readyAt?: number | null }>;
+  submit: (source: TargetOwnerJournal, step: TargetOwnerStep) => Promise<TargetOwnerJournal>;
+  recover: (source: TargetOwnerJournal, step: TargetOwnerStep) => Promise<{ journal: TargetOwnerJournal; outcome: 'confirmed' | 'waiting' | 'failed'; readyAt?: number | null }>;
+}): Promise<TargetOwnerSequenceResult> {
+  let source = options.journal;
+  for (let advance = 0; advance < 16; advance++) {
+    options.assertCurrent();
+    const pending = targetOwnerPending(source);
+    if (pending) {
+      const original = pending === 'schedule' || pending === 'execute' ? source[pending]! : source.deployments[pending]!;
+      if (!original.txHash) return { journal: source, outcome: 'unknown' };
+      const recovered = await options.recover(source, pending); options.assertCurrent(); source = recovered.journal;
+      if (recovered.outcome !== 'confirmed') return { journal: source, outcome: recovered.outcome };
+      need(!targetOwnerPending(source), '原交易尚未确认，不能继续请求钱包。');
+      // Even a suspended tab that wakes after 48h must require a new click to execute.
+      if (pending === 'schedule') return { journal: source, outcome: 'waiting', readyAt: recovered.readyAt };
+      if (pending === 'execute') return { journal: source, outcome: 'done', readyAt: recovered.readyAt };
+      continue;
+    }
+    const state = await options.inspect(source); options.assertCurrent();
+    if (state.operation === 'done' || state.operation === 'waiting')
+      return { journal: source, outcome: state.operation, readyAt: state.readyAt };
+    const next = targetOwnerNext(source);
+    const step: TargetOwnerStep | null = next ?? (state.operation === 'unscheduled' ? 'schedule'
+      : state.operation === 'ready' && source.schedule?.status === 'confirmed' ? 'execute' : null);
+    need(step, '当前升级状态尚未核对完成，请稍后继续。');
+    if (!next) need(!source[step as 'schedule' | 'execute'], '本机已有原交易，不能重复排程或执行。');
+    source = await options.submit(source, step); options.assertCurrent();
+    need(targetOwnerPending(source) === step, '钱包提交结果未写入对应升级步骤。');
+  }
+  throw new Error('升级步骤未按已验证记录推进，请检查原交易。');
+}
+
+/** A user-triggered bounded wait reads only the original receipt and finality head. */
+export async function waitForTargetOwnerFinality(provider: Provider, originalHash: string, options: {
+  assertCurrent: () => void; wait?: () => Promise<void>; attempts?: number;
+}): Promise<boolean> {
+  need(hash(originalHash), '原交易哈希格式无效。');
+  const attempts = options.attempts ?? 15;
+  need(Number.isInteger(attempts) && attempts > 0 && attempts <= 30, '原交易等待次数无效。');
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    options.assertCurrent();
+    const receipt = await provider.getTransactionReceipt(originalHash); options.assertCurrent();
+    if (receipt) {
+      need(receipt.hash.toLowerCase() === originalHash.toLowerCase() && Number.isSafeInteger(receipt.blockNumber)
+        && receipt.blockNumber > 0, '返回的原交易回执不匹配。');
+      const finalized = await provider.getBlock('finalized'); options.assertCurrent();
+      need(finalized?.hash && Number.isSafeInteger(finalized.number), '无法读取最终确认区块。');
+      if (receipt.blockNumber <= finalized.number) return true;
+    }
+    if (attempt + 1 < attempts) {
+      await (options.wait ? options.wait() : new Promise<void>(resolve => setTimeout(resolve, 3000)));
+      options.assertCurrent();
+    }
+  }
+  return false;
+}
+
 /** The durable journal write must succeed before the first wallet request. */
 export async function submitTargetOwnerUpgrade(wallet: WalletProvider, transaction: { from: string; to?: string; data: string; gasLimit?: string },
   journal: { beforeRequest: () => void; submitted: (hash: string) => void; definitelyRejected: () => void }) {
@@ -187,7 +258,8 @@ export function archiveTargetOwnerFailure(source: TargetOwnerJournal, step: Targ
   evidence: FailedTargetOwnerReceipt, context: TargetOwnerContext) {
   need(targetOwnerPending(source) === step, '只能恢复当前待核验原交易。');
   const transaction = step === 'schedule' || step === 'execute' ? source[step]! : source.deployments[step]!;
-  need(transaction.txHash === undefined || transaction.txHash.toLowerCase() === evidence.txHash.toLowerCase(), '失败回执属于另一笔交易。');
+  need(transaction.txHash, '本次发送结果仍未知，输入的失败回执不能证明原交易，不能解除重试限制。');
+  need(transaction.txHash.toLowerCase() === evidence.txHash.toLowerCase(), '失败回执属于另一笔交易。');
   const next = { ...source, deployments: { ...source.deployments }, failedTransactions: [...source.failedTransactions ?? [], {
     step, transaction: { ...transaction, txHash: evidence.txHash }, evidence,
   }] };
