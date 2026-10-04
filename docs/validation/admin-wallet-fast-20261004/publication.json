@@ -1,0 +1,41 @@
+{
+  "published": true,
+  "sourceHead": "597e24f92c3d19d0641001745e8d66eefa91c9c6",
+  "previous": "/var/www/bemine-v5/releases/catalog-prices-af164a6ad764",
+  "current": "/var/www/bemine-v5/releases/admin-wallet-597e24f92c3d",
+  "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+  "buildContentSha256": "9b5f7460e7c6aa3b3f53e70b81cb080b3d339c15680cb2334455429ad926b924",
+  "contentSha256": "bf455b67540440e39c1b4514eae29cf8ea57bcaf59c619470ec1c3c76200dbad",
+  "fileCount": 819,
+  "retainedImmutableChunks": 502,
+  "runtimeServicesUnchanged": true,
+  "nginxUnchanged": true,
+  "backendAndUpgradeConsoleUnchanged": true,
+  "checkedAt": "2026-10-04T05:38:26.901986+00:00",
+  "httpChecks": {
+    "/": {
+      "status": 200,
+      "sha256": "7881e68451cd7eadce4cf3195829dee78fe749d224da0839c6046bc489d3c6fd"
+    },
+    "/?lang=zh#operator": {
+      "status": 200,
+      "sha256": "7881e68451cd7eadce4cf3195829dee78fe749d224da0839c6046bc489d3c6fd"
+    },
+    "/mobile-review.html": {
+      "status": 200,
+      "sha256": "4955b4c5addaf3d755df2d6ab356d8752800923b026e48041c263b89e36a7b09"
+    },
+    "/preview.html": {
+      "status": 200,
+      "sha256": "920d3528c295d2d2704cfa1ee53b383708a2caedbccdde40ffa79599bc02b8df"
+    },
+    "/pinkuang-target-owner-upgrade/": {
+      "status": 200,
+      "sha256": "07054fddb062e3f92c389bf23d2705bb786768970fde1221875b21e459d91c7a"
+    },
+    "/bemine-v5/api/chain-index/v1/display/stats": {
+      "status": 200,
+      "sha256": "2f7e40b6074270c6b7e2f1abb051e18669091f6732bd886fc1b9a3212f5cc934"
+    }
+  }
+}
