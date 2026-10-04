@@ -14,7 +14,7 @@ const compiled = ts.transpileModule(readFileSync(new URL('./TargetOwnerUpgradeSt
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 type Options = { source?: ui.TargetOwnerJournal; recoveryHash?: string; deniedLock?: boolean; jump48h?: boolean;
   beforeSendRead?: (f: any) => Promise<void>; afterBroadcast?: (f: any, hash: string) => void;
-  preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1 };
+  preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number };
 // Execute the actual component with deterministic hooks, wallet and read-only RPC adapters.
 // No browser, network, wallet extension or live chain is used by this test.
 function fixture(options: Options = {}) {
@@ -43,7 +43,7 @@ function fixture(options: Options = {}) {
     if (method === 'eth_chainId') return '0x38';
     if (method === 'eth_accounts') { await options.beforeSendRead?.(f); return [a(6)]; }
     if (method === 'eth_getTransactionCount') { const tag = params[1];
-      const count = tag === 'latest' || tag === 'pending' ? rows.size
+      const count = tag === 'pending' && options.pendingNonce !== undefined ? options.pendingNonce : tag === 'latest' || tag === 'pending' ? rows.size
         : [...rows.values()].filter(row => row.transaction.blockNumber <= Number(tag)).length;
       return `0x${count.toString(16)}`;
     }
@@ -102,6 +102,8 @@ function fixture(options: Options = {}) {
     failWrites: () => { storageFailure = true; }, allowWrites: () => { storageFailure = false; }, setUnknownHash: (hash: string) => { state[14] = hash; },
     journal: () => storage.has(key) ? ui.parseTargetOwnerJournal(JSON.parse(storage.get(key)!), context) : null,
     click: async () => { const button = walk(render(), node => node.type === 'button' && node.props.className === 'to-primary'); assert(button); await button.props.onClick(); },
+    resumeLegacy: async (acknowledged = true) => { const box = walk(render(), node => node.type === 'input' && node.props.type === 'checkbox'); assert(box); box.props.onChange({ target: { checked: acknowledged } });
+      const button = walk(render(), node => node.type === 'button' && node.props.children === '保留旧记录并恢复部署'); assert(button); await button.props.onClick(); },
     recover: async () => { const button = walk(render(), node => node.type === 'button' && node.props.children === '核对当前交易'); assert(button); await button.props.onClick(); },
     import: async (journal: ui.TargetOwnerJournal) => { const input = walk(render(), node => node.type === 'input' && node.props.type === 'file'); assert(input);
       input.props.onChange({ target: { files: [{ size: 1000, text: async () => JSON.stringify({ journal }) }], value: 'record.json' } });
@@ -211,4 +213,47 @@ test('empty storage import re-proves nonce-bound archived failures using wallet 
       value: '0', dataHash: ethers.keccak256('0x6000'), blockNumber: 21, blockHash: h(21), gasUsed: '20000', checkedAt: new Date().toISOString() } }];
   const f = fixture(); f.register(h(90), '0x6000', null, 0); await f.import(source);
   assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert.equal(f.state[12], ''); f.unmount();
+});
+
+function legacySource() { const source = ui.newTargetOwnerJournal(context, h(8)); source.deployments.PoolFunds = { status: 'uncertain', from: a(6), dataHash: ethers.keccak256('0x6000') }; return source; }
+test('legacy page exposes explicit recovery and disables the misleading continue button', () => {
+  const f = fixture({ source: legacySource() }); const button = f.find((node: any) => node.props?.className === 'to-primary');
+  assert.equal(button.props.disabled, true); assert.equal(button.props.children, '请先处理下方旧记录');
+  assert(f.find((node: any) => node.props?.['data-testid'] === 'legacy-deployment-recovery')); f.unmount();
+});
+test('acknowledged legacy recovery archives the unchanged unknown row, sends zero transactions, then fresh click resumes', async () => {
+  const source = legacySource(), f = fixture({ source }); await f.resumeLegacy(); const saved = f.journal();
+  assert.equal(f.sends.length, 0); assert.equal(saved.deployments.PoolFunds, undefined);
+  assert.deepEqual(saved.abandonedUnknownDeployments[0].transaction, source.deployments.PoolFunds);
+  assert.equal(saved.failedTransactions, undefined); assert.match(f.state[13], /本次没有发送交易/);
+  await f.click(); assert.equal(f.sends.length, 4); assert.equal(f.sends[0].nonce, '0x0');
+  assert.equal(f.journal().schedule.status, 'confirmed'); assert.equal(f.journal().abandonedUnknownDeployments.length, 1); f.unmount();
+});
+test('legacy recovery cannot archive without acknowledgement or with wallet pending nonce', async () => {
+  for (const opts of [{}, { pendingNonce: 1 }]) {
+    const source = legacySource(), f = fixture({ source, ...opts }); await f.resumeLegacy('pendingNonce' in opts);
+    assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert(f.state[12]); f.unmount();
+  }
+});
+test('legacy recovery stops at failed preflight, wallet context change, lock conflict or persistence failure', async () => {
+  for (const opts of [ { preflight: async () => { throw new Error('graph changed'); } },
+    { preflight: async (f: any) => f.dispatch('accountsChanged', [a(99)]) }, { deniedLock: true },
+    { preflight: async (f: any) => f.failWrites() } ]) {
+    const source = legacySource(), f = fixture({ source, ...opts }); await f.resumeLegacy();
+    assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert(f.state[12] || f.state[13]); f.unmount();
+  }
+});
+test('imported abandoned legacy payload cannot bypass reviewed initcode or deployer verification', async () => {
+  const source = legacySource(), f = fixture({ source }); await f.resumeLegacy(); const saved = f.journal(); f.unmount();
+  for (const field of ['dataHash', 'from']) {
+    const changed = structuredClone(saved); changed.abandonedUnknownDeployments[0].transaction[field] = field === 'from' ? a(99) : h(99);
+    const fresh = fixture(); await fresh.import(changed); assert.equal(fresh.journal(), null); assert.equal(fresh.sends.length, 0); fresh.unmount();
+  }
+});
+test('legacy recovery refuses mismatched sender or initcode before archiving', async () => {
+  for (const field of ['from', 'dataHash']) {
+    const source = legacySource(); (source.deployments.PoolFunds as any)[field] = field === 'from' ? a(99) : h(99);
+    const f = fixture({ source }); await f.resumeLegacy();
+    assert.deepEqual(f.journal(), source); assert.equal(f.sends.length, 0); assert.match(f.state[12], /发送者或部署字节码/); f.unmount();
+  }
 });
