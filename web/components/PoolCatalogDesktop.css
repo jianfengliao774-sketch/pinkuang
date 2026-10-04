@@ -155,7 +155,13 @@
   .live-platform .live-project-intro .live-project-summary { gap: 8px; }
   .live-platform .live-project-intro .live-project-summary button { padding: 12px 8px; font-size: 14px; }
   .live-platform .live-project-intro .live-project-summary strong { font-size: 23px; }
-  .live-platform .live-pool-directory .tabs { gap: 12px; }
-  .live-platform .live-pool-directory .tabs button { padding-inline: 12px; }
+  .live-platform section.live-pool-directory .live-toolbar .tabs { gap: 12px; overflow-x: auto; }
+  .live-platform section.live-pool-directory .live-toolbar .tabs button {
+    flex: 0 0 auto; min-width: max-content; padding-inline: 12px; white-space: nowrap;
+  }
+  .live-platform .live-pool-directory .live-mobile-project-actions .live-view-miner {
+    min-height: 44px; padding: 8px 12px; border: 1px solid #bdcbbd; border-radius: 8px;
+    background: var(--surface); color: var(--blue); font-weight: 600; font-size: 14px;
+  }
   .live-platform .live-catalog-promo > span { bottom: 6px; right: 6px; font-size: 11px; padding: 3px 6px; }
 }
