@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { formatEther, ZeroAddress } from 'ethers';
+import { approvedOperatorCall, prepareAuthoritySignature } from '../lib/authority-client.mjs';
 import { abi, uint } from '../lib/chain-client.mjs';
 import { applyMarketOrderFeedback, marketOrderFeedback } from '../lib/market-order-feedback.mjs';
 import { Layers3, RefreshCw, ArrowRight, ChevronDown } from 'lucide-react';
@@ -282,7 +283,14 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   async function prepare(action,pool=selectedCurrent?.pool){
     if(actionFrozen(action.kind))return;
     if(!account || !wallet){onConnect?.();return;}const ticket=++sequence.current;setBusy(true);setError('');setReadFailed(false);setPreview(null);
-    try{const input={config,provider:wallet,account,pool,action};const result=await preparePortfolioAction(input);
+    try{const input={config,provider:wallet,account,pool,action};let result=await preparePortfolioAction(input);
+      if (config?.displayOnly && config.stage === 'fresh-active' && action.kind === 'createPortfolio') {
+        if (!current(ticket)) return;
+        const preparedAuthority = await prepareAuthoritySignature({ provider: wallet, readProvider: provider,
+          config, account, kind: 'executeApprovedOperation', args: approvedOperatorCall(config, result.transaction),
+          isCurrent: () => current(ticket) });
+        result = { ...result, preparedAuthority };
+      }
       if(current(ticket))setPreview({input:{...input, action: {...action, ...(result.procurement ? { expectedPurchaseWei: result.procurement.priceWei.toString(), frozenOrder: result.procurement.frozenOrder } : {}), ...(result.marketTrade?.seller ? {expectedSeller:result.marketTrade.seller,expectedPricePerUnitWei:result.marketTrade.pricePerUnitWei.toString()}: {})}},result,identity,ticket});
     }catch(problem){if(current(ticket))setError(brief(problem));}finally{if(current(ticket))setBusy(false);}
   }

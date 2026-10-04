@@ -1925,7 +1925,7 @@ export default function LivePlatform() {
     poll();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [publishingProject, client, config?.factory, config?.authority, config?.artifactDigest, account]);
-  async function submitFreshAuthority(kind, args, current, creationTransaction, onState) {
+  async function submitFreshAuthority(kind, args, current, creationTransaction, onState, preparedAuthority) {
     let enteredRelay = false;
     try {
     if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account || !operatorServiceReady)
@@ -1934,12 +1934,14 @@ export default function LivePlatform() {
       && [config.factory, config.portfolioFactory].some(target => target && same(target, args.target));
     if (creating && publishingProjectRef.current && !publishingProjectRef.current.result)
       throw new Error('上一笔项目发布正在确认，请先核对结果，请勿重复创建。');
-    await requireCurrentProductStage(config);
+    // A prepared signature is pinned during preview; confirmation must open the wallet without another read.
+    if (!preparedAuthority) await requireCurrentProductStage(config);
     if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
     // The relay's durable journal/nonce checks serialize submissions. Its live
     // status RPC graph is recovery work, not a prerequisite for a wallet prompt.
     const command = await prepareAuthoritySubmission({ provider: wallet,
       readProvider: client?.provider ?? createReadOnlyHttpProvider(config), config, account, kind, args,
+      prepared: preparedAuthority,
       isCurrent: current, onState, authenticate: options => connectJournal({ inspect: false, ...options }) });
     const creation = creationTransaction ? publishedProjectIntent(config, creationTransaction, { account, command }) : null;
     if (!current()) throw new Error('签名期间页面或钱包已改变；请先核对管理员代付状态。');
@@ -2013,7 +2015,7 @@ export default function LivePlatform() {
         : await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
       if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
-        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current, checked.transaction);
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current, checked.transaction, undefined, checked.preparedAuthority);
       if (config?.stage === 'fresh-active' && ['buyOfficial', 'buyFirsto'].includes(checked.action.kind)) {
         const command = approvedPortfolioPurchase(config, checked);
         return await submitFreshAuthority(command.kind, command.args, current);
@@ -2324,7 +2326,7 @@ export default function LivePlatform() {
           && !(checked.kind === 'mine' && checked.miningAction === 'reclaim'))
           throw new Error('单机采购与挖矿准备、启动由独立服务执行；此处只接受精确建池或回收签名。');
         return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction,
-          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current, checked.kind === 'mine' ? null : checked.transaction, progress);
+          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current, checked.kind === 'mine' ? null : checked.transaction, progress, checked.preparedAuthority);
       }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },

@@ -1,0 +1,51 @@
+✔ actual single-miner pool handlers read only during preview; confirmation opens the wallet before authentication and relay (18.591208ms)
+✔ actual single-miner pool confirmation never signs after account (2.765417ms)
+✔ actual single-miner pool confirmation never signs after wallet (2.968625ms)
+✔ actual single-miner pool confirmation never signs after cancel (2.147083ms)
+✔ actual budget portfolio handlers read only during preview; confirmation opens the wallet before authentication and relay (4.507791ms)
+✔ actual budget portfolio confirmation never signs after account (0.987125ms)
+✔ actual budget portfolio confirmation never signs after wallet (0.966625ms)
+✔ actual budget portfolio confirmation never signs after cancel (0.97325ms)
+✔ actual single-miner input change invalidates the prepared authorization without signing the old values (2.637959ms)
+✔ changing the exact reviewed transaction cannot substitute parameters in either actual confirmation handler (3.817083ms)
+✔ canceling actual preparation prevents a late nonce reply from publishing a preview or signing (4.381459ms)
+✔ an occupied target fails the actual preview before requesting a wallet signature or journal login (0.645083ms)
+✔ a wallet change while its signature dialog is open cannot forward that signature to authentication or relay (4.437041ms)
+✔ the actual handlers cannot sign using another reviewed Authority pin even if the visible pool addresses stay the same (3.106917ms)
+✔ concurrent actual confirmation clicks consume one authorization and cannot open a second wallet prompt or relay request (7.720958ms)
+(node:48426) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/bemine-af164-source-recovery-20261004/source/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/bemine-af164-source-recovery-20261004/source/web/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ demo links only point to known preview projects with allowlisted source (1.928708ms)
+✔ both language share payloads carry clear demo notice and safe X length (0.846708ms)
+✔ demo slogans rotate without claiming availability for full or inactive projects (9.403459ms)
+✔ each demo poster has matching social landing URLs and preserves direct project navigation (0.696125ms)
+✔ demo sharing cannot turn arbitrary metadata into public claims (0.378167ms)
+✔ real sharing remains closed to preview identifiers and demo URLs (0.342042ms)
+(node:48427) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///private/tmp/bemine-af164-source-recovery-20261004/source/web/lib/demo-data.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /private/tmp/bemine-af164-source-recovery-20261004/source/web/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ canonical root demo and live invitations preserve project, artwork and source (2.932875ms)
+✔ root invitations reject untrusted origins, injected parameters and normalized malicious paths (0.153542ms)
+✔ every artwork preserves the same verified project and attribution through its static landing (0.729083ms)
+✔ existing versioned product links keep their original prefix (0.111167ms)
+✔ landing cannot redirect to an injected URL, wallet, factory or arbitrary project (0.123833ms)
+✔ invitation builder only wraps trusted direct project links and allowlisted artwork (0.112916ms)
+✔ journal success requires a final successful receipt, not a broadcast or status alone (0.77675ms)
+✔ member completion is an explicit receipt channel, not a restored status (0.305125ms)
+✔ a failed receipt is distinct from RPC timeouts and wallet simulation warnings (0.175708ms)
+✔ wallet rejection is a cancellation and a known broadcast remains ambiguous (0.096542ms)
+✔ canonical cancellations and verified replacements do not say the original action succeeded (0.0645ms)
+✔ the result copy stays compact, bilingual and free of raw RPC payloads (0.094417ms)
+✔ project actions name the completed operation without claiming settlement is a wallet payout (0.113625ms)
+✔ transaction links accept complete hashes only and deduplication keys ignore case (0.052042ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 362.449958

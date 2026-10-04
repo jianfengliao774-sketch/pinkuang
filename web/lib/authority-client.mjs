@@ -127,6 +127,87 @@ export function approvedPortfolioPurchase(config, prepared) {
 
 const emit = (callback, status) => { try { callback?.({ status }); } catch { /* UI cannot alter submission. */ } };
 
+// Tokens never expose a reusable signature payload and do not survive serialization.
+const preparedSignatures = new WeakMap();
+const stable = value => JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString()
+  : item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+const frozenCopy = value => {
+  const copy = JSON.parse(stable(value));
+  const freeze = item => { if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); } return item; };
+  return freeze(copy);
+};
+const signaturePayload = signed => ({ types: { EIP712Domain: [
+  { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
+  { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
+], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message });
+
+/** Preview only. Read the nonce/reservation now, then freeze the exact later wallet request. */
+export async function prepareAuthoritySignature({ provider, readProvider, config, account, kind, args,
+  validitySeconds = 600, cacheLifetimeMs = 300000, readTimeoutMs = 8000,
+  isCurrent = () => true, signal, onState }) {
+  need(config?.displayOnly === true && config.stage === 'fresh-active' && config.status === 'ready',
+    '当前配置不支持预先准备管理员签名。');
+  need(provider?.request && isCurrent() && !signal?.aborted, '页面或钱包已改变，请重新预览。');
+  const signer = getAddress(account), authority = getAddress(config.authority ?? config.manifest?.authority);
+  need(authority !== ZeroAddress && signer !== ZeroAddress && Number.isInteger(validitySeconds)
+    && validitySeconds > 0 && validitySeconds <= 900 && Number.isSafeInteger(cacheLifetimeMs)
+    && cacheLifetimeMs > 0 && cacheLifetimeMs <= 600000, '管理员签名有效期无效。');
+  const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
+  need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
+  const configKey = stable(config), argsKey = stable(args), capturedArgs = frozenCopy(args);
+  const reservation = creationReservation(config, kind, capturedArgs);
+  emit(onState, 'preparing-authority');
+  const [nonce] = await boundedReadPreview(async ({ provider: reader }) => Promise.all([
+    reader.request({ method: 'eth_call', params: [{ to: authority,
+      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] })
+      .then(raw => authorityAbi.decodeFunctionResult('nonces', raw)[0]),
+    reservation ? requireMachineAvailable(reader, reservation) : null,
+  ]), { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent, signal });
+  need(isCurrent() && !signal?.aborted && stable(config) === configKey && stable(args) === argsKey,
+    '预览期间页面、钱包或操作参数已改变，请重新预览。');
+  const createdAt = Date.now(), deadline = (BigInt(Math.floor(createdAt / 1000)) + BigInt(validitySeconds)).toString();
+  const signed = frozenCopy(authorityAction(authority, kind, capturedArgs, nonce, deadline));
+  const token = Object.freeze({});
+  // The read signal may be aborted by its caller's normal cleanup after a successful
+  // preview. Only page/wallet epochs govern the token after preparation completes.
+  preparedSignatures.set(token, { provider, signer, configKey, kind, argsKey, isCurrent, createdAt,
+    expiresAt: Math.min(createdAt + cacheLifetimeMs, Number(deadline) * 1000), signed,
+    payload: JSON.stringify(signaturePayload(signed)),
+    command: frozenCopy({ authority, expectedCodehash: pinned.codehash.toLowerCase(), kind,
+      args: capturedArgs, nonce: nonce.toString(), deadline }) });
+  return token;
+}
+
+/** One explicit confirmation consumes one token. No read RPC, simulation, retry or relay POST. */
+export async function signPreparedAuthorityAction({ prepared, provider, config, account, kind, args,
+  isCurrent = () => true, onState }) {
+  const stored = prepared && typeof prepared === 'object' ? preparedSignatures.get(prepared) : null;
+  need(stored, '管理员签名准备已失效或已使用，请重新预览。');
+  preparedSignatures.delete(prepared); // Also consumed by rejection, context mismatch or an unknown wallet result.
+  const current = () => {
+    need(provider === stored.provider && getAddress(account) === stored.signer
+      && stable(config) === stored.configKey && kind === stored.kind && stable(args) === stored.argsKey,
+    '钱包、配置或操作参数与预览不同，请重新预览。');
+    need(stored.isCurrent() && isCurrent(),
+      '页面或钱包已改变，请重新预览。');
+  };
+  current();
+  need(Date.now() >= stored.createdAt && Date.now() < stored.expiresAt,
+    '管理员签名准备已过期，请重新预览。');
+  emit(onState, 'awaiting-admin-signature');
+  current();
+  const signature = await stored.provider.request({ method: 'eth_signTypedData_v4',
+    params: [stored.signer, stored.payload] });
+  current();
+  need(Date.now() < Number(stored.command.deadline) * 1000, '管理员签名已过期，请重新预览。');
+  need(same(verifyTypedData(stored.signed.domain, stored.signed.types, stored.signed.message, signature), stored.signer),
+    '钱包签名与当前管理员地址不一致。');
+  // A different transaction may have consumed the cached nonce. Only the relay/chain decides;
+  // never obtain a new nonce or sign again as an automatic recovery step.
+  return { ...stored.command, signature };
+}
+
 /** Read the nonce and exact NFT reservation together; only then request the signature. */
 export async function signAuthorityAction({ provider, readProvider, config, account, kind, args,
   validitySeconds = 600, readTimeoutMs = 8000, isCurrent = () => true, onState }) {
@@ -137,31 +218,9 @@ export async function signAuthorityAction({ provider, readProvider, config, acco
   const rpc = (method, params = []) => provider.request({ method, params });
   const reservation = creationReservation(config, kind, args);
   if (config.displayOnly === true) {
-    const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
-    need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
-    emit(onState, 'preparing-authority');
-    const [nonce] = await boundedReadPreview(async ({ provider: reader }) => Promise.all([
-      reader.request({ method: 'eth_call', params: [{ to: authority,
-        data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] })
-        .then(raw => authorityAbi.decodeFunctionResult('nonces', raw)[0]),
-      reservation ? requireMachineAvailable(reader, reservation) : null,
-    ]),
-    { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent });
-    const deadline = (BigInt(Math.floor(Date.now() / 1000)) + BigInt(validitySeconds)).toString();
-    const signed = authorityAction(authority, kind, args, nonce, deadline);
-    const payload = { types: { EIP712Domain: [
-      { name: 'name', type: 'string' }, { name: 'version', type: 'string' },
-      { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
-    ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message };
-    need(isCurrent(), '页面或钱包已改变，请重新预览。');
-    emit(onState, 'awaiting-admin-signature');
-    const signature = await rpc('eth_signTypedData_v4', [signer, JSON.stringify(payload)]);
-    need(same(verifyTypedData(signed.domain, signed.types, signed.message, signature), signer),
-      '钱包签名与当前管理员地址不一致。');
-    // The relay retains its execution checks. This hash identifies the build;
-    // it is not evidence that the browser re-read the live runtime.
-    return { authority, expectedCodehash: pinned.codehash.toLowerCase(), kind, args,
-      nonce: nonce.toString(), deadline, signature };
+    const input = { provider, readProvider, config, account, kind, args, validitySeconds, readTimeoutMs, isCurrent, onState };
+    const prepared = await prepareAuthoritySignature(input);
+    return signPreparedAuthorityAction({ ...input, prepared });
   }
   need(BigInt(await rpc('eth_chainId')) === 56n, '请切换到 BSC 主网。');
   const block = await rpc('eth_getBlockByNumber', ['latest', false]);
@@ -196,9 +255,10 @@ export async function signAuthorityAction({ provider, readProvider, config, acco
 
 /** Session/status reconciliation must not postpone the administrator's wallet prompt.
  * Authentication is still required before any relay POST. No transaction is broadcast here. */
-export async function prepareAuthoritySubmission({ authenticate, ...input }) {
+export async function prepareAuthoritySubmission({ authenticate, prepared, ...input }) {
   need(typeof authenticate === 'function', '管理员代付需要本站登录会话。');
-  const command = await signAuthorityAction(input);
+  const command = prepared === undefined ? await signAuthorityAction(input)
+    : await signPreparedAuthorityAction({ ...input, prepared });
   need((input.isCurrent ?? (() => true))(), '页面或钱包已改变，请重新预览。');
   emit(input.onState, 'authenticating');
   await authenticate({ onState: input.onState });
