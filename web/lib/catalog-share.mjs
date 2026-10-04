@@ -7,8 +7,8 @@ export function createCatalogShare({ publicBaseUrl, locale = 'zh' } = {}) {
   if (target.origin === 'https://bemine.cc.cd') target.pathname = '/';
   target.hash = 'pools';
   const url = target.href;
-  const title = locale === 'en' ? 'Join a pool · BEMine' : '参与拼矿 · BEMine';
-  const text = locale === 'en' ? 'Start with one share. Own BEM miners together.' : '从一份开始，共持 BEM 矿机。';
+  const title = locale === 'en' ? 'Better together · BEMine' : '爱“拼”才会赢 · BEMine';
+  const text = locale === 'en' ? 'Build, buy, or own a miner together~' : '矿机除了打和买，还可以拼~';
   const composer = endpoint => {
     const link = new URL(endpoint);
     link.searchParams.set('url', url);

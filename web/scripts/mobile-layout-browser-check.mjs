@@ -616,11 +616,19 @@ try {
       ? route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"synthetic_directory_unavailable"}' }) : route.continue());
     await page.getByRole('button', { name: '刷新', exact: true }).first().click();
     await directory.locator('[role="alert"]').waitFor();
-    await page.waitForFunction(() => [...document.querySelectorAll('.live-project-summary strong')].every(el => el.textContent === '—'));
+    assert.equal(await page.locator('.live-project-summary').count(), 0, 'Redundant category statistic cards must be absent.');
+    const failureTabs = directory.locator('.live-toolbar .tabs button');
+    assert.equal(await failureTabs.count(), 4, 'The four category tabs must exist; an empty set is not a pass.');
+    assert.deepEqual((await failureTabs.allTextContents()).map(text => text.trim()), ['募集中', '挖矿中', '整机出售中', '项目总览']);
+    for (const name of ['挖矿中', '整机出售中', '项目总览', '募集中']) {
+      const tab = failureTabs.filter({ hasText: new RegExp('^' + name + '$') }); await tab.click();
+      assert.equal(await tab.getAttribute('aria-pressed'), 'true');
+    }
+    assert.equal(await directory.locator('[role="alert"]').count(), 1, 'The failed reader must remain explicit after category changes.');
     assert((await directory.locator('.live-mobile-project-card:visible[data-project-kind="single"]').count()) > 0);
     failPortfolio = false; await directory.locator('[role="alert"]').getByRole('button', { name: '重新读取', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('[data-project-directory="unified"] [role="alert"]'));
-    await settle(); checks.push('读取失败保留可用单矿，计数显示未知而非0；明确重试恢复');
+    await settle(); checks.push('冗余统计卡已删除；读取失败仍保留可切换的四分类、可用单矿和明确错误，重试可恢复');
     await open('home'); assert.equal(await page.getByRole('button', { name: '暂停动效', exact: true }).count(), 0);
     assert.equal(await page.locator('.bemine-scene:visible').count(), 0, '手机首页hero图须隐藏');
     await assertNoOverflow('首页'); await snapshot('home'); checks.push('手机首页暂停动效已删除');
