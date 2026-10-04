@@ -374,6 +374,11 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
 
     function withdrawBnb() external nonReentrant returns (uint256 amount) {
         _settleBnb(msg.sender, balanceOf(msg.sender));
+        if (msg.sender == treasury && state == IPoolVault.State.Closed) {
+            // Closed projects have no later sale; use the acquisition rounding recipient.
+            _creditBnb(treasury, saleRemainderWei);
+            saleRemainderWei = 0;
+        }
         amount = bnbOwed[msg.sender];
         if (amount == 0) revert NothingToClaim();
         bnbOwed[msg.sender] = 0;
