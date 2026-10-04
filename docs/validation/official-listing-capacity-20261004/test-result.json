@@ -1,0 +1,26 @@
+{
+  "frontendSourceHead": "80e754215a41e6ab627eda58a050b3b807c551cf",
+  "focusedTests": {
+    "pass": 53,
+    "fail": 0
+  },
+  "frontendTests": {
+    "pass": 1225,
+    "fail": 0
+  },
+  "catalogCheck": "passed",
+  "bemPriceCheck": "passed",
+  "reviewPolicyCheck": "passed",
+  "contractAbiSyncCheck": "passed",
+  "staticBuild": "passed",
+  "independentReview": "passed",
+  "paidRequestRegression": {
+    "automaticRefreshMs": 30000,
+    "quoteCacheMs": 300000,
+    "displayOnlyOptionalRpcPerQuote": 2,
+    "strictOptionalRpcPerQuote": 1,
+    "missingDailyOrWrongIdentityOptionalRpc": 0
+  },
+  "chainActionsPerformed": false,
+  "screenshotSha256": "57f55456362f3c1f1578acb172fa93237c088dac9334631d5a221be304bad8e8"
+}

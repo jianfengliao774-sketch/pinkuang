@@ -3,6 +3,9 @@ import { fetchMineDetail, FIRSTO_SOURCE, MAX_QUOTE_AGE_MS, OFFICIAL_COLLECTIONS 
 import { abi, CHAIN_ID, uint } from './chain-client.mjs';
 import { QUOTE_BASE } from './quote-base.mjs';
 
+const OFFICIAL_MARKET = getAddress('0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f');
+const MARKET = new Interface(['function listingFor(address,uint256) view returns(uint256 id,address seller,uint96 price,bool valid)']);
+const OFFICIAL_MARKET_SOURCE = `https://bscscan.com/address/${OFFICIAL_MARKET}`;
 const NFT = new Interface(['function ownerOf(uint256) view returns(address)']);
 const OFFICIAL = new Set(Object.values(OFFICIAL_COLLECTIONS).map(value => value.toLowerCase()));
 const BEM_ATOMIC_PER_TOKEN = 100_000_000n;
@@ -78,6 +81,42 @@ export function minerAskPriceWei(detail, now = Date.now()) {
   return best;
 }
 
+/** Only callers displaying a fundraising miner ask pay for these reads. */
+async function readOfficialAsk(request, collection, tokenId, tag, knownOwner) {
+  const read = (to, iface, name, args) => Promise.resolve().then(() => request('eth_call', [{ to,
+    data: iface.encodeFunctionData(name, args) }, tag])).then(value => iface.decodeFunctionResult(name, value));
+  const [ownerResult, listingResult] = await Promise.allSettled([
+    knownOwner === undefined ? read(collection, NFT, 'ownerOf', [tokenId]).then(value => value[0])
+      : Promise.resolve(knownOwner),
+    read(OFFICIAL_MARKET, MARKET, 'listingFor', [collection, tokenId]),
+  ]);
+  let owner = null;
+  try { if (ownerResult.status === 'fulfilled' && getAddress(ownerResult.value) !== ZeroAddress)
+    owner = getAddress(ownerResult.value); } catch { /* Keep the output estimate when an owner read fails. */ }
+  if (!owner || listingResult.status !== 'fulfilled') return { owner, status: 'unavailable', price: null };
+  try {
+    const listing = listingResult.value;
+    const ready = listing.valid === true && listing.id > 0n && listing.price > 0n
+      && getAddress(listing.seller) === owner;
+    return { owner, status: ready ? 'ready' : 'absent', price: ready ? listing.price : null };
+  } catch { return { owner, status: 'unavailable', price: null }; }
+}
+
+function minerAskContext(detail, now, includeOfficialAsk, official) {
+  let firsto = minerAskPriceWei(detail, now);
+  if (includeOfficialAsk) {
+    // The fallback seller must still own this NFT, even if Firsto has an older owner snapshot.
+    try { if (!official?.owner || getAddress(detail.asset.owner) !== official.owner) firsto = null; }
+    catch { firsto = null; }
+  }
+  const price = official?.price ?? firsto;
+  const source = official?.price != null ? 'official' : firsto != null ? 'firsto' : null;
+  const sourceUrl = source === 'official' ? OFFICIAL_MARKET_SOURCE : source === 'firsto' ? FIRSTO_SOURCE : null;
+  return { includeOfficialAsk, officialAskStatus: includeOfficialAsk ? official.status : 'not_requested',
+    minerAskPriceWei: price, minerAskSource: source, minerAskSourceUrl: sourceUrl,
+    miningSourceUrl: FIRSTO_SOURCE, sourceUrl: sourceUrl ?? FIRSTO_SOURCE };
+}
+
 /** Listed pools use their approved sale price; fundraising uses the miner ask and mining uses acquisition cost. */
 export function poolDailyCapacityPriceWei(pool, quote) {
   if (!quote?.available || typeof quote.estimated24hAtomic !== 'bigint'
@@ -95,13 +134,14 @@ export function poolDailyCapacityPriceWei(pool, quote) {
  */
 export async function readShareDailyCapacityPrice(provider, {
   factory: factoryInput, pool: poolInput, pricePerUnitWei,
-  allowUnownedTarget = false,
+  allowUnownedTarget = false, includeOfficialAsk = false,
   displayOnly = false, params: displayParams,
   blockNumber, now = Date.now(), quoteLoader = (collection, tokenId) =>
     fetchMineDetail(collection, tokenId, { baseUrl: QUOTE_BASE, displayOnly: true }),
 } = {}) {
   try {
-    if (!provider?.request || !Number.isSafeInteger(now) || now <= 0 || typeof quoteLoader !== 'function') {
+    if (!provider?.request || !Number.isSafeInteger(now) || now <= 0 || typeof quoteLoader !== 'function'
+      || typeof includeOfficialAsk !== 'boolean' || typeof allowUnownedTarget !== 'boolean') {
       return unavailable('invalid_input');
     }
     const factory = getAddress(factoryInput), pool = getAddress(poolInput);
@@ -109,24 +149,32 @@ export async function readShareDailyCapacityPrice(provider, {
     const price = uint(pricePerUnitWei);
     const request = (method, params = []) => provider.request({ method, params });
     if (displayOnly) {
-      // Only identity data and the external daily-output value are needed to render this quote.
+      // Daily output reuses the loaded identity. Official asks are opt-in for fundraising views.
       const params = displayParams ?? abi.PoolVault.decodeFunctionResult('params',
         await request('eth_call', [{ to: pool, data: abi.PoolVault.encodeFunctionData('params') }, 'latest']))[0];
       const collection = getAddress(params.circuits), tokenId = uint(params.circuitId).toString();
-      const detail = await quoteLoader(collection, tokenId), mining = detail?.asset?.mining;
+      if (includeOfficialAsk && !OFFICIAL.has(collection.toLowerCase())) return unavailable('unsupported_miner');
+      const detail = await quoteLoader(collection, tokenId);
+      const mining = detail?.asset?.mining;
+      if (includeOfficialAsk && (!detail?.asset || getAddress(detail.asset.collection) !== collection
+        || exactDecimal(detail.asset.tokenId)?.toString() !== tokenId
+        || detail.asset.category !== 'official_mining' || detail.asset.classification !== 'official_mining'
+        || mining?.tokenSymbol !== 'BEM' || mining?.tokenDecimals !== 8)) return unavailable('quote_identity');
       const dailyAtomic = exactDecimal(mining?.estimated24hAtomic);
       const metadata = parseMinerDisplayMetadata(mining);
       const context = { pool, collection, tokenId, sourceBlock: null,
         miningSourceBlock: exactDecimal(mining?.sourceBlock), observedAt: now,
-        validUntil: now + MAX_QUOTE_AGE_MS, displayOnly: true, ...metadata };
+        validUntil: now + MAX_QUOTE_AGE_MS, displayOnly: true, allowUnownedTarget, ...metadata };
       if (mining?.status !== 'verified' || dailyAtomic === null || dailyAtomic === 0n)
         return Object.freeze({ ...unavailable('missing_output'), ...context, metadataAvailable: true });
+      // No ask request can help a missing/invalid daily estimate; keep those RPCs opt-in and last.
+      const official = includeOfficialAsk ? await readOfficialAsk(request, collection, tokenId, 'latest') : null;
       return Object.freeze({ available: true, ...context, metadataAvailable: true,
         estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
         priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
-        minerAskPriceWei: minerAskPriceWei(detail, now),
+        ...minerAskContext(detail, now, includeOfficialAsk, official),
         marketReferencePriceWei: exactDecimal(detail.asset?.listingReference?.dailyCapacityPriceWei),
-        sourceUrl: FIRSTO_SOURCE, basis: 'gross_estimated_output' });
+        basis: 'gross_estimated_output' });
     }
     const requestedTag = blockNumber === undefined ? 'latest' : toQuantity(uint(blockNumber));
     const [initialChainId, initialBlock] = await Promise.all([
@@ -194,6 +242,8 @@ export async function readShareDailyCapacityPrice(provider, {
     const observedAt = blockTime(sourceHeader, miningSourceBlock);
     if (observedAt === null || observedAt > pinnedAt || observedAt > now + 30_000 ||
         now - observedAt > MAX_QUOTE_AGE_MS) return unavailable('stale_quote');
+    const official = includeOfficialAsk && mining.status === 'verified' && dailyAtomic > 0n
+      ? await readOfficialAsk(request, collection, tokenId, tag, owner) : null;
     const afterPromise = request('eth_getBlockByNumber', [tag, false]);
     const [after, sourceAfter, finalChainId] = await Promise.all([
       afterPromise,
@@ -207,22 +257,20 @@ export async function readShareDailyCapacityPrice(provider, {
     }
     const metadata = parseMinerDisplayMetadata(mining);
     const context = { pool, collection, tokenId, sourceBlock: pinnedNumber,
-      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS };
+      miningSourceBlock, observedAt, validUntil: observedAt + MAX_QUOTE_AGE_MS, allowUnownedTarget };
     if (mining.status !== 'verified' || dailyAtomic === null || dailyAtomic === 0n) {
       const missing = unavailable(mining.status !== 'verified' ? 'unverified_output' : 'missing_output');
       return metadata.miningClassification ? Object.freeze({ ...missing, ...context, ...metadata,
         metadataAvailable: true }) : missing;
     }
-    const minerPrice = minerAskPriceWei(detail, now);
     return Object.freeze({ available: true, ...context, ...metadata, metadataAvailable: true,
       estimated24hAtomic: dailyAtomic, pricePerUnitWei: price,
       priceWeiPerDailyBem: shareDailyCapacityPriceWei(price, dailyAtomic),
-      minerAskPriceWei: minerPrice,
+      ...minerAskContext(detail, now, includeOfficialAsk, official),
       marketReferencePriceWei: (() => {
         const value = exactDecimal(asset.listingReference?.dailyCapacityPriceWei);
         return value !== null && value > 0n ? value : null;
       })(),
-      sourceUrl: FIRSTO_SOURCE,
       basis: 'gross_estimated_output' });
   } catch {
     // Display data is optional. Keep purchase eligibility, calldata and price

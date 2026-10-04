@@ -1,4 +1,6 @@
-const PREFIX = 'bemine:capacity-display:v2:';
+import { capacityAskPolicyMatches } from './capacity-request-cache.mjs';
+
+const PREFIX = 'bemine:capacity-display:v3:';
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const HASH = /^0x[0-9a-f]{64}$/i;
 const BIGINT = '$bemineBigInt';
@@ -7,13 +9,15 @@ const decode = (_key, value) => value && typeof value === 'object' && Object.key
   && typeof value[BIGINT] === 'string' && /^(0|[1-9]\d*)$/.test(value[BIGINT])
   ? BigInt(value[BIGINT]) : value;
 
-function key(manifest, pool) {
+function key(manifest, pool, includeOfficialAsk) {
   if (!HASH.test(manifest?.artifactDigest) || !ADDRESS.test(manifest?.factory) || !ADDRESS.test(pool)) return null;
-  return `${PREFIX}${manifest.artifactDigest.toLowerCase()}:${manifest.factory.toLowerCase()}:${pool.toLowerCase()}`;
+  return `${PREFIX}${manifest.artifactDigest.toLowerCase()}:${manifest.factory.toLowerCase()}:${pool.toLowerCase()}:${includeOfficialAsk === true ? 'official-ask' : 'output'}`;
 }
 
-function usable(quote, pool, priceWei, now) {
+function usable(quote, pool, priceWei, now, includeOfficialAsk) {
   return quote?.available === true && ADDRESS.test(quote.pool) && quote.pool.toLowerCase() === pool.toLowerCase()
+    && capacityAskPolicyMatches(quote, { includeOfficialAsk, displayOnly: quote.displayOnly,
+      allowUnownedTarget: quote.allowUnownedTarget })
     && ADDRESS.test(quote.collection) && typeof quote.tokenId === 'string' && /^(0|[1-9]\d*)$/.test(quote.tokenId)
     && typeof quote.pricePerUnitWei === 'bigint' && quote.pricePerUnitWei === priceWei
     && quote.forPriceWei === priceWei.toString()
@@ -30,20 +34,20 @@ function usable(quote, pool, priceWei, now) {
 }
 
 /** Previously verified display only; all transaction paths re-read live data. */
-export function readCapacityDisplay(storage, manifest, pool, priceWei, { now = Date.now() } = {}) {
-  const cacheKey = key(manifest, pool);
+export function readCapacityDisplay(storage, manifest, pool, priceWei, { now = Date.now(), includeOfficialAsk = false } = {}) {
+  const cacheKey = key(manifest, pool, includeOfficialAsk);
   if (!storage || !cacheKey || typeof priceWei !== 'bigint') return null;
   try {
     const saved = JSON.parse(storage.getItem(cacheKey), decode);
     if (!Number.isSafeInteger(saved?.savedAt) || saved.savedAt > now || now - saved.savedAt > 300_000
-      || !usable(saved.quote, pool, priceWei, now)) return null;
+      || !usable(saved.quote, pool, priceWei, now, includeOfficialAsk)) return null;
     return { ...saved.quote, cached: true };
   } catch { return null; }
 }
 
 export function writeCapacityDisplay(storage, manifest, quote, { now = Date.now() } = {}) {
-  const cacheKey = key(manifest, quote?.pool);
-  if (!storage || !cacheKey || !usable(quote, quote.pool, quote.pricePerUnitWei, now)) return false;
+  const cacheKey = key(manifest, quote?.pool, quote?.includeOfficialAsk);
+  if (!storage || !cacheKey || !usable(quote, quote.pool, quote.pricePerUnitWei, now, quote.includeOfficialAsk)) return false;
   try {
     const value = JSON.stringify({ savedAt: now, quote: { ...quote, cached: undefined } }, encode);
     if (value.length > 4000) return false;
