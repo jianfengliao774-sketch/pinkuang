@@ -2,7 +2,7 @@ export const homeEn={
  "拼矿 BEMine · 一起参与 TapeOut":"BEMine · Together in TapeOut", "拼矿已创建项目":"Projects on BEMine",
 
  '当前币价':'Current BEM price','正在获取行情':'Loading price','行情暂不可用':'Price unavailable','来源：':'Source: ',
- '每 15 秒更新 · {time}':'15-second refresh · {time}', 'BEM/WBNB × BNB/USDT · 参考价':'BEM/WBNB × BNB/USDT · Indicative',
+ '每 30 秒更新 · {time}':'30-second refresh · {time}', 'BEM/WBNB × BNB/USDT · 参考价':'BEM/WBNB × BNB/USDT · Indicative',
  '切换为日常模式':'Switch to light mode','切换为深色模式':'Switch to dark mode','深色':'Dark','日常':'Light',
  '贝矿 BEMine · 一起参与 TapeOut':'BEMine · Together in TapeOut',
  '一份投入，十分热爱，':'One share. Shared passion.',

@@ -37,7 +37,7 @@ test('actual price component retains a fresh quote through failed refreshes, exp
   globalThis.document={hidden:false,addEventListener(){},removeEventListener(){}};
   Date.now=()=>clock;
   globalThis.fetch=async()=>{requests++;if(response instanceof Error)throw response;return response;};
-  globalThis.setInterval=callback=>{interval=callback;return 1;};globalThis.clearInterval=()=>{};
+  globalThis.setInterval=(callback,delay)=>{assert.equal(delay,30_000);interval=callback;return 1;};globalThis.clearInterval=()=>{};
   globalThis.setTimeout=()=>2;globalThis.clearTimeout=()=>{};
   const initial=quote();response={ok:true,json:async()=>initial};
   assert.match(render(),/正在获取行情/);mounted=true;cleanup=effects[0]();await tick();
@@ -53,6 +53,8 @@ test('actual price component retains a fresh quote through failed refreshes, exp
   const recovered=await refresh(0,{ok:true,json:async()=>({...quote(),priceUsdt:35.126})});
   assert.match(recovered,/35\.1260/);assert.doesNotMatch(recovered,/行情暂不可用/);
   assert.equal(requests,6);
+  globalThis.document.hidden=true;const previousClockState=states[2];clock+=30_000;interval();await tick();
+  assert.equal(requests,6,'A hidden price card makes no request.');assert.equal(states[2],previousClockState,'Hidden polling does not rerender the card.');
  }finally{
   cleanup?.();Date.now=saved.now;
   for(const name of ['document','fetch','setInterval','clearInterval','setTimeout','clearTimeout']){

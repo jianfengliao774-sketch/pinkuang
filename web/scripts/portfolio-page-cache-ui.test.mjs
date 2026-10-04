@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const turn = () => new Promise(resolve => setImmediate(resolve));
 const address = digit => `0x${digit.repeat(40)}`;
 
-async function portfolioUi(readPortfolioPage) {
+async function portfolioUi(readPortfolioPage, overrides = {}) {
   await loadBindings();
   const code = (await transform(await readFile(new URL('../components/LivePortfolios.jsx', import.meta.url), 'utf8'), {
     filename: 'LivePortfolios.jsx', jsc: { parser: { syntax: 'ecmascript', jsx: true }, target: 'es2022',
@@ -29,7 +29,7 @@ async function portfolioUi(readPortfolioPage) {
     react: hooks,
     '../lib/live-portfolios.mjs': { portfolioPageActionReady: () => false, portfolioCreateActionReady: () => false,
       portfolioSelectedActionReady: () => false, portfolioOrderActionReady: () => false,
-      readPortfolioPage, readPortfolioDisplayRow: () => assert.fail('Overview must not start a detail read.') },
+      readPortfolioPage, readPortfolioDisplayRow: () => assert.fail('Overview must not start a detail read.'), ...overrides },
     '../lib/display-snapshot.mjs': { readDisplaySnapshot: () => null,
       displayOnlySnapshot: result => ({ ...result, source: { ...result.source, stale: true, transactionReady: false } }),
       writeDisplaySnapshot: () => true },
@@ -45,12 +45,13 @@ async function portfolioUi(readPortfolioPage) {
   const config = { kind: 'integrated-v2', productFamily: 'fresh-v4', displayOnly: true,
     artifactDigest: 'cache-ui-fixture', stage: 'fresh-active', factory: address('a'),
     portfolioFactory: address('b'), portfolioMarket: address('c') };
-  function mount({ generation = '0:0', account = address('d') } = {}) {
+  function mount({ generation = '0:0', account = address('d'), ...options } = {}) {
     const instance = { slots: [], effects: [], position: 0, disposed: false, latest: null };
     const props = { config, provider, account, locale: 'zh', mode: 'overview',
       refreshKey: 0, displayRefreshKey: generation,
-      renderDirectory: value => { instance.latest = value; return null; } };
-    instance.render = () => { active = instance; instance.position = 0; Component(props); active = null;
+      renderDirectory: value => { instance.latest = value; return null; }, ...options };
+    instance.update = values => Object.assign(props, values);
+    instance.render = () => { active = instance; instance.position = 0; instance.tree = Component(props); active = null;
       while (instance.effects.length) instance.effects.shift()(); };
     instance.settle = async () => { await turn(); instance.render(); await turn(); instance.render(); };
     instance.unmount = () => { for (const slot of instance.slots) slot?.cleanup?.(); instance.disposed = true; };
@@ -89,7 +90,7 @@ test('the overview paints its previous verified rows while a new generation refr
     assert.equal(reads, 2, 'A just completed visible page is reused within the short GET cadence.');
     sameGeneration.unmount();
 
-    now += 15_001;
+    now += 30_001;
     const older = ui.mount({ generation: '0:1' }); await older.settle();
     assert.deepEqual(older.latest.rows, [nextRow]); assert.equal(reads, 3);
     older.unmount();
@@ -124,4 +125,80 @@ test('a wallet switch cannot paint or share the prior account overview', async (
   assert.equal(reads, 2); assert.deepEqual(other.latest.rows, []);
   assert.equal(other.latest.loaded, false);
   release(); await other.settle(); other.unmount();
+});
+
+test('an automatic overview refresh keeps 40 expanded rows and their cursor, while a manual first-page read remains immediate', async () => {
+  const first = Array.from({ length:20 }, (_,i) => ({ pool:`0x${(i+1).toString(16).padStart(40,'0')}` }));
+  const second = Array.from({ length:20 }, (_,i) => ({ pool:`0x${(i+21).toString(16).padStart(40,'0')}` }));
+  let reads=0;
+  const ui=await portfolioUi(async (_config,_provider,{cursor})=>{reads++;
+    return {items:cursor?second:first,nextCursor:cursor?40:20,operator:null,source:{displayOnly:true,indexedThrough:100}};});
+  const instance=ui.mount();await instance.settle();
+  await instance.latest.load(20);await instance.settle();
+  assert.equal(instance.latest.rows.length,40);assert.equal(instance.latest.cursor,40);assert.equal(reads,2);
+  instance.update({displayRefreshKey:'0:1'});await instance.settle();
+  assert.equal(reads,2,'A silent read never replaces an expanded old-source window with a fresh first page.');
+  assert.equal(instance.latest.rows.length,40);assert.equal(instance.latest.cursor,40);assert.equal(instance.latest.loading,false);
+  instance.update({refreshKey:1,displayRefreshKey:'1:1'});await instance.settle();
+  assert.equal(reads,3,'A settled transaction generation refreshes expanded balances immediately.');
+  await instance.latest.load();await instance.settle();
+  assert.equal(reads,4);assert.equal(instance.latest.rows.length,20);assert.equal(instance.latest.cursor,20);
+  instance.unmount();
+});
+
+test('an in-place automatic portfolio refresh keeps rows and controls while its one GET is pending', async () => {
+  const row={pool:address('1')};let release,reads=0;
+  const ui=await portfolioUi(async()=>{reads++;if(reads===1)return {items:[row],nextCursor:null,source:{displayOnly:true,indexedThrough:100}};
+    return new Promise(resolve=>{release=()=>resolve({items:[row],nextCursor:null,source:{displayOnly:true,indexedThrough:101}});});});
+  const instance=ui.mount();await instance.settle();
+  instance.update({displayRefreshKey:'0:1'});await instance.settle();
+  assert.equal(reads,2);assert.deepEqual(instance.latest.rows,[row]);assert.equal(instance.latest.loading,false);
+  await instance.latest.load();assert.equal(reads,2,'Manual refresh cannot overlap the slow automatic request.');
+  instance.update({displayRefreshKey:'0:2'});await instance.settle();assert.equal(reads,2);
+  release();await instance.settle();await instance.settle();
+  // A newer invalidation waits for the current read to finish, then starts one successor.
+  assert.equal(reads,3);release();await instance.settle();instance.unmount();
+});
+
+const walk = node => node && typeof node==='object'
+  ? [node,...[node.props?.children].flat(Infinity).flatMap(walk)] : [];
+const element = (instance,predicate) => walk(instance.tree).find(predicate);
+const text = node => [node?.props?.children].flat(Infinity).map(value=>typeof value==='string'?value:'').join('');
+function portfolioRow(account,children) {
+  return {pool:address('1'),account,state:2n,activeChildCount:BigInt(children.length),childCount:200n,
+    budgetWei:1n,totalSupply:100n,shares:10n,withdrawableBnb:0n,claimableBem:0n,
+    unitPriceWei:1n,spentWei:1n,availableShares:10n,lockedShares:0n,shareTradingAllowed:true,
+    children,timestamp:100n,nextRoundAt:0n,proposal:null};
+}
+
+test('normal 100-child detail refresh preserves chosen child and input, and explicitly expanded children remain pinned until manual refresh', async () => {
+  const account=address('d'), children=Array.from({length:100},(_,i)=>({pool:`0x${(i+1).toString(16).padStart(40,'0')}`,
+    tokenId:BigInt(i+1),state:2n,sold:false,official:true,costWei:1n}));
+  let reads=0;const row=portfolioRow(account,children);
+  const ui=await portfolioUi(()=>assert.fail('A selected initial pool needs only its detail GET.'),{
+    readPortfolioDisplayRow:async()=>{reads++;return {item:row,source:{displayOnly:true,indexedThrough:100}};},
+    readPortfolioDisplayChildren:async()=>[{...children[0],pool:address('e'),tokenId:101n}],
+  });
+  // Market credit is a separate user-visible reader; omit it in this display-only fixture.
+  ui.config.portfolioMarket=null;
+  const instance=ui.mount({mode:'portfolio',initialPool:row.pool,renderDirectory:undefined});await instance.settle();
+  const chosen=children[74].pool;
+  const choose=()=>element(instance,node=>node.type==='select');
+  const price=()=>element(instance,node=>node.type==='input'&&node.props.inputMode==='decimal'&&!node.props.placeholder);
+  choose().props.onChange({target:{value:chosen}});price().props.onChange({target:{value:'0.042'}});instance.render();
+  const capacityKey=element(instance,node=>node.props?.portfolio===row)?.key;
+  instance.update({displayRefreshKey:'0:1'});await instance.settle();
+  assert.equal(reads,2,'The first 100 children are normal first-page data and still refresh.');
+  assert.equal(choose().props.value,chosen);assert.equal(price().props.value,'0.042');
+  assert.equal(element(instance,node=>node.props?.portfolio===row)?.key,capacityKey,'A block refresh does not remount the capacity details.');
+  const more=element(instance,node=>node.type==='button'&&text(node)==='加载更多子矿机');
+  more.props.onClick();await instance.settle();
+  assert.equal(walk(instance.tree).filter(node=>node.type==='tr').length,102);
+  instance.update({displayRefreshKey:'0:2'});await instance.settle();
+  assert.equal(reads,2);assert.equal(choose().props.value,chosen);assert.equal(price().props.value,'0.042');
+  instance.update({refreshKey:1,displayRefreshKey:'1:2'});await instance.settle();
+  assert.equal(reads,3,'A settled transaction refreshes balances even after children were expanded.');
+  const manual=element(instance,node=>node.type==='button'&&text(node)==='刷新项目');
+  manual.props.onClick();await instance.settle();assert.equal(reads,4);
+  instance.unmount();
 });

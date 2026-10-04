@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { ZeroAddress } from 'ethers';
 import { loadBindings, transform } from 'next/dist/build/swc/index.js';
 import * as capacity from '../lib/capacity-input.mjs';
+import { displayOnlySnapshot } from '../lib/display-snapshot.mjs';
 
 const require = createRequire(import.meta.url);
 await loadBindings();
@@ -16,7 +17,7 @@ const callbackEnd = platform.indexOf('  const pageSource =', callbackStart);
 assert(cacheStart >= 0 && effectEnd > cacheStart && callbackStart >= 0 && callbackEnd > callbackStart);
 const contextNames = ['useEffect', 'client', 'config', 'route', 'detail', 'loading', 'account', 'ZeroAddress',
   'activityReadEpoch', 'readCache', 'displayRefreshKey', 'displayStorage', 'readPageSnapshot', 'writeDisplaySnapshot',
-  'Date',
+  'Date', 'recordsPageRef', 'loadedRoute', 'loadedAccount', 'displayReads', 'displayOnlySnapshot',
   'invalidateDisplayOnReorg', 'textError', 'setGovernance', 'setGovernanceProof', 'setActivityReadError',
   'setActivityReadLoading', 'setActivity', 'setActivityCursor', 'setActivityReadSource', 'setActivityTotals',
   'detailTab', 'LiveGovernance', 'currentPoolQuote', 'wallet', 'refresh', 'busy', 'pending', 'connect',
@@ -56,6 +57,8 @@ function detailSections({ status = 'Active', tab = 'asset', account = owner } = 
   context = { client, config, route: { route: 'detail', pool }, detail: { pool, status, shares: 50n },
     detailTab: tab, loading: false, account, ZeroAddress, activityReadEpoch: { current: 0 }, readCache,
     displayRefreshKey: 0, refresh: 0, displayStorage: () => null, readPageSnapshot: () => null,
+    recordsPageRef: { current: 0 }, loadedRoute: `detail/${pool}`, loadedAccount: account,
+    displayReads: { current: new Set() }, displayOnlySnapshot,
     Date: { now: () => clockNow },
     writeDisplaySnapshot: (...args) => writes.push(args), invalidateDisplayOnReorg: () => {}, textError: e => e.message,
     LiveGovernance: () => null, currentPoolQuote: () => null, wallet: null, busy: false, pending: null,

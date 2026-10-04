@@ -99,6 +99,7 @@ function flow({ portfolio = false, nonceWait = null, occupied = false, walletWai
     if (portfolio) {
       const viewIdentity = `${props.config.factory}:${props.account}`;
       const env = { ...props, provider: props.readProvider, context: portfolioContext, sequence, identity: viewIdentity,
+        displayRead: { current: null }, expandedChildren: { current: new Set() },
         current: ticket => ticket === sequence.current, preview: state.preview, ...setters, selectedCurrent: null,
         actionFrozen: () => false, onConnect: forbidden('wallet connect'), preparePortfolioAction,
         prepareAuthoritySignature, approvedOperatorCall, brief: error => error.message,

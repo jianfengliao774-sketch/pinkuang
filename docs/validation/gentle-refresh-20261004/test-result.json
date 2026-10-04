@@ -1,0 +1,17 @@
+{
+  "baseline": "38aa441c8a85579b14fc86d955aedf994db186f4",
+  "testedAtUtc": "2026-10-04T08:16:34.050950+00:00",
+  "command": "cd web && node --test scripts/*.test.mjs server/live-api.test.mjs",
+  "tests": 1205,
+  "passed": 1205,
+  "failed": 0,
+  "logSha256": "b1292b892acbad9733555ed48bc1635d0b7aefea0ffa4db143e68fcf400e16c9",
+  "checks": [
+    "catalog-check",
+    "bem-price-check",
+    "review-policy-check",
+    "sync-contracts --check",
+    "git diff --check"
+  ],
+  "productionChanged": false
+}

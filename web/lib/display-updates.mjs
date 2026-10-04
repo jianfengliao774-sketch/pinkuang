@@ -12,7 +12,8 @@ export function startDisplayUpdates(config, {
   const flush = () => {
     timer = undefined;
     if (stopped || !pending) return;
-    if (documentObject?.visibilityState === 'hidden' || isPaused()) {
+    if (documentObject?.visibilityState === 'hidden') return;
+    if (isPaused()) {
       timer = schedule(flush, 1500); return;
     }
     pending = false; onUpdate?.();
