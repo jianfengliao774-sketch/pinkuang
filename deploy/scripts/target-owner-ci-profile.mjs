@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,40 @@ export const targetOwnerCiPins = Object.freeze({
   candidateArtifactDigest: '0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5',
   reviewCatalogDigest: '0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba',
 });
+export const publishedTargetOwnerUiPins = Object.freeze({
+  sourceCommit: '9784000db2f9adf7775e0ebc232b76437f1fdef2',
+  sourceDiffDigest: '6ddfbb24cf0b8528d5ff7d9ae665e9d97fd326faf08fa14fe173a5f20433709e',
+  manifestSha256: '4442d7617931be348950ba8896bd2d0387c8672f8b4ec6d98101702febc08b2c',
+});
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+export function assertPublishedTargetOwnerUiDigests({ sourceCommit, sourceDiffDigest, manifestSha256, headSourceDiffDigest }) {
+  for (const [name, actual] of Object.entries({ sourceCommit, sourceDiffDigest, manifestSha256 }))
+    assert.equal(actual, publishedTargetOwnerUiPins[name], `Published owner-upgrade UI root differs: ${name}.`);
+  assert.equal(headSourceDiffDigest, publishedTargetOwnerUiPins.sourceDiffDigest,
+    'Owner-upgrade UI/package source changed since the independently built and published release. Re-review and publish its new package.');
+}
+
+/** Prove HEAD matches the actually published package without claiming CI rebuilt it. */
+export function assertPublishedTargetOwnerUiSources(root = repositoryRoot) {
+  const bytes = readFileSync(join(root, 'docs/evidence/target-owner-upgrade-page-static-manifest-20261004.json'));
+  const manifest = JSON.parse(bytes.toString('utf8'));
+  // Exactly the reviewed preparation script's input closure. A new shared
+  // source, changed wallet flow, CSS or package builder cannot inherit approval.
+  const sources = ['deploy/src/TargetOwnerUpgradeStandalone.tsx', 'deploy/src/target-owner-upgrade-ui.ts',
+    'deploy/src/target-owner-upgrade.css', 'deploy/src/wallet.ts', 'deploy/src/upgrade-transactions.ts',
+    'deploy/vite.target-owner.config.ts', 'deploy/target-owner-upgrade.html', 'deploy/scripts/prepare-target-owner-static.mjs',
+    'deploy/scripts/package-target-owner-static.mjs', 'deploy/scripts/measure-target-owner-gas.mjs',
+    'deploy/evidence/target-owner-create-gas-20261004.json'];
+  for (const file of readdirSync(join(root, 'deploy/shared')))
+    if (file.endsWith('.mjs') && !file.endsWith('.test.mjs')) sources.push(`deploy/shared/${file}`);
+  const hashes = Object.fromEntries(sources.sort().map(file => [file, sha256(readFileSync(join(root, file)))]));
+  const headSourceDiffDigest = sha256(JSON.stringify(hashes));
+  assertPublishedTargetOwnerUiDigests({ sourceCommit: manifest.sourceCommit, sourceDiffDigest: manifest.sourceDiffDigest,
+    manifestSha256: sha256(bytes), headSourceDiffDigest });
+  return { sourceCommit: manifest.sourceCommit, sourceDiffDigest: headSourceDiffDigest,
+    sourceFileCount: sources.length, headSourceBytesMatchPublishedPackage: true, productionPackageRebuiltByCi: false };
+}
 
 // These tests compile the retained full-deployment bundle independently. They
 // run, without modifications, in the exact reviewed legacy checkout below.
@@ -75,6 +110,7 @@ export function prepareTargetOwnerCi(output, { root = repositoryRoot } = {}) {
   assert(isAbsolute(output) && !existsSync(output), 'CI output must be a new absolute directory.');
   assert.equal(realpathSync(dirname(output)), dirname(resolve(output)), 'CI output parent must be canonical.');
   assertRetainedDeploymentSources(root);
+  const publishedUi = assertPublishedTargetOwnerUiSources(root);
   const sourceHead = git(root, ['rev-parse', 'HEAD']);
   const legacyBundle = JSON.parse(readFileSync(join(root, 'deploy/public/deployment-artifacts.json'), 'utf8'));
   const catalog = JSON.parse(readFileSync(join(root, 'docs/evidence/formal-target-owner-review-catalog-20261004.json'), 'utf8'));
@@ -103,6 +139,7 @@ export function prepareTargetOwnerCi(output, { root = repositoryRoot } = {}) {
     pins: targetOwnerCiPins, headScope: 'Current Solidity candidate, new upgrade UI and all shared/server/keeper/ops regressions.',
     legacyScope: 'Unmodified old full-deployment console, its measured Gas plan, product ABI and static/synthetic package builds.',
     retainedDeploymentAndFrontendSourceBytesIdentical: true,
+    publishedUi,
     legacySourceCompiledTests, headCandidateArtifact: 'head-candidate-artifacts.json',
     candidateDeployedOrActivated: false, legacyBuildIsNotNewCandidateDeployment: true,
     chainActionsPerformed: false };

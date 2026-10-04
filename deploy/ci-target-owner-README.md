@@ -32,6 +32,12 @@ deployment. This profile does **not** make that console capable of deploying a
 new `c9be` genesis. The separately reviewed wallet entry from commit `9784000`
 is the scoped three-implementation Beacon upgrade page, not a new-genesis page.
 CI does not rebuild or publish that approved production package.
+Instead, a separate guard reconstructs its exact 11 declared inputs plus all
+shared runtime source hashes at HEAD. They must equal the published package's
+fixed source fingerprint `6ddfbb24cf0b8528d5ff7d9ae665e9d97fd326faf08fa14fe173a5f20433709e`,
+commit `9784000` and independently recorded manifest SHA-256. A changed UI,
+wallet flow, runtime module, CSS or package builder requires a new reviewed
+package; passing typechecks alone cannot inherit the published release's approval.
 
 `target-owner-ci-profile.mjs` writes its compiled HEAD candidate and scope
 summary only into a new external evidence directory. The retained checkout has

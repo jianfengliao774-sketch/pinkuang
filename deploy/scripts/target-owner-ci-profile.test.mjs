@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   targetOwnerCiPins, legacySourceCompiledTests,
   selectTargetOwnerHeadTests, assertTargetOwnerCiDigests,
+  publishedTargetOwnerUiPins, assertPublishedTargetOwnerUiDigests, assertPublishedTargetOwnerUiSources,
 } from './target-owner-ci-profile.mjs';
 
 const approvedPins = Object.freeze({
@@ -13,6 +14,26 @@ const approvedPins = Object.freeze({
   legacyArtifactDigest: '0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927',
   candidateArtifactDigest: '0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5',
   reviewCatalogDigest: '0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba',
+});
+
+test('HEAD package input closure matches the independently built and published UI without claiming a rebuild', () => {
+  const proof = assertPublishedTargetOwnerUiSources();
+  assert.equal(proof.sourceCommit, '9784000db2f9adf7775e0ebc232b76437f1fdef2');
+  assert.equal(proof.sourceDiffDigest, '6ddfbb24cf0b8528d5ff7d9ae665e9d97fd326faf08fa14fe173a5f20433709e');
+  assert(proof.sourceFileCount > 11, 'The published package includes all shared runtime sources.');
+  assert.equal(proof.headSourceBytesMatchPublishedPackage, true);
+  assert.equal(proof.productionPackageRebuiltByCi, false);
+});
+
+test('published manifest, commit and HEAD source drift cannot inherit the existing package approval', () => {
+  const good = { ...publishedTargetOwnerUiPins, headSourceDiffDigest: publishedTargetOwnerUiPins.sourceDiffDigest };
+  assert(Object.isFrozen(publishedTargetOwnerUiPins));
+  assert.doesNotThrow(() => assertPublishedTargetOwnerUiDigests(good));
+  for (const name of Object.keys(good)) {
+    assert.throws(() => assertPublishedTargetOwnerUiDigests({ ...good, [name]: 'f'.repeat(name === 'sourceCommit' ? 40 : 64) }));
+    const missing = { ...good }; delete missing[name];
+    assert.throws(() => assertPublishedTargetOwnerUiDigests(missing));
+  }
 });
 const approvedDigests = () => ({
   legacyArtifactDigest: approvedPins.legacyArtifactDigest,
