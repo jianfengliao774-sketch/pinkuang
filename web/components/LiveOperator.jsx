@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { formatEther } from 'ethers';
 import { Plus, ShieldCheck, ArrowRight, RefreshCw } from 'lucide-react';
 import { prepareAdminAction } from '../lib/live-admin.mjs';
+import { approvedOperatorCall, prepareAuthoritySignature } from '../lib/authority-client.mjs';
 import { createUiContext } from '../lib/ui-context.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { fundingAmount } from '../lib/funding-amount.mjs';
@@ -115,8 +116,18 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       else input = { kind, pool, listingId, miningAction };
       check();
       setProgress(direct ? '正在生成操作预览…' : '正在核对链上条件，完成后显示确认窗口…');
-      return prepareAdminAction({ provider, config, account, ...input,
+      const action = await prepareAdminAction({ provider, config, account, ...input,
         ...(direct && autoSelection && creation ? { machineReservation: autoSelection.checked.chain.registry } : {}) });
+      check();
+      if (direct && config.stage === 'fresh-active') {
+        const preparedAuthority = await prepareAuthoritySignature({
+        provider: wallet, readProvider: provider, config, account, kind: 'executeApprovedOperation',
+        args: approvedOperatorCall(config, action.transaction, { pool: action.kind === 'mine' ? action.pool : undefined }),
+        isCurrent: () => context.current.current(ticket), signal,
+      });
+        return { ...action, preparedAuthority };
+      }
+      return action;
       }, { provider: config?.productFamily === 'fresh-v4' ? readProvider : wallet,
         isCurrent: () => context.current.current(ticket), signal: controller.signal });
       if (!context.current.current(ticket)) return;

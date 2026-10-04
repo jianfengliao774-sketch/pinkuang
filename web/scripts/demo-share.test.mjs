@@ -12,6 +12,7 @@ const weighted = text => [...text].reduce((sum, char) => {
 }, 0);
 
 test('demo links only point to known preview projects with allowlisted source', () => {
+  assert.equal(DEMO_SHARE_BASE, 'https://bemine.cc.cd/preview.html');
   assert.equal(buildDemoShareUrl('16928'), `${DEMO_SHARE_BASE}#detail/16928`);
   for (const bad of [undefined, 'evil', '999999', '../16928', '16928?wallet=abc', 16928, '0x' + 'a'.repeat(40)]) assert.equal(buildDemoShareUrl(bad), null);
   assert.equal(buildDemoShareUrl('16928', 'x&wallet=secret'), null);
@@ -31,7 +32,8 @@ test('both language share payloads carry clear demo notice and safe X length', (
     assert.equal(new URL(model.xUrl).origin, 'https://x.com');
     assert.equal(new URL(model.telegramUrl).origin, 'https://t.me');
     const target = new URL(new URL(model.xUrl).searchParams.get('url'));
-    assert.equal(target.pathname, '/bemine/share/original.html');
+    assert.equal(target.origin, 'https://bemine.cc.cd');
+    assert.equal(target.pathname, '/share/original.html');
     assert.equal(target.searchParams.get('mode'), 'demo');
     assert.equal(target.searchParams.get('project'), project.id);
   }
@@ -59,10 +61,12 @@ test('each demo poster has matching social landing URLs and preserves direct pro
   for (const artwork of SHARE_ARTWORKS) {
     const model = createDemoShare({ project, posterId: artwork.id });
     assert.equal(model.projectUrl, `${DEMO_SHARE_BASE}#detail/16928`);
-    assert.equal(new URL(model.url).pathname, `/bemine/share/${artwork.id}.html`);
+    assert.equal(new URL(model.url).origin, 'https://bemine.cc.cd');
+    assert.equal(new URL(model.url).pathname, `/share/${artwork.id}.html`);
     for (const key of ['telegramUrl', 'xUrl']) {
       const target = new URL(new URL(model[key]).searchParams.get('url'));
-      assert.equal(target.pathname, `/bemine/share/${artwork.id}.html`);
+      assert.equal(target.origin, 'https://bemine.cc.cd');
+      assert.equal(target.pathname, `/share/${artwork.id}.html`);
       assert.equal(target.searchParams.get('mode'), 'demo');
       assert.equal(target.searchParams.get('project'), '16928');
     }

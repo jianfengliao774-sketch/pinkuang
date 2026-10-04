@@ -128,7 +128,7 @@ export default function ReviewBook() {
     <p role="note" style={{margin:0,padding:'16px 24px',background:'#fff5d9',color:'#5b4320'}}>历史设计审查 · 2026-09-26 v8。页面与金额均为样例，旧规则不适用于当前交易；保留原场景编号及审查意见。本页不连接钱包或发送交易。 <a href={`${basePath}/`}>进入当前产品</a></p>
     <header className="audit-header">
       <div className="audit-header-inner">
-        <div className="audit-brandline"><span className="audit-brand">BEMine</span><span>拼矿 · 手机端审查册 · v8</span><a href="https://tapeout.cc.cd/bemine/#home" target="_blank" rel="noreferrer">打开网站 <ArrowUpRight size={16}/></a></div>
+        <div className="audit-brandline"><span className="audit-brand">BEMine</span><span>拼矿 · 手机端审查册 · v8</span><a href="https://bemine.cc.cd/#home" target="_blank" rel="noreferrer">打开网站 <ArrowUpRight size={16}/></a></div>
         <div className="audit-introduction"><div><p className="audit-eyebrow">一份清单，完整审查</p><h1>手机端全部页面，逐项审查。</h1><p>按编号逐页查看，在下方写下修改意见并勾选「已审查」。切换设备、语言与外观，检查同一页面的不同呈现。</p></div><div className="audit-progress"><span><CheckCheck size={19}/> 审查进度</span><strong>{reviewedCount}<small> / {reviewScenarios.length}</small></strong><progress max={reviewScenarios.length} value={reviewedCount}/><span>还剩 {reviewScenarios.length - reviewedCount} 项</span></div></div>
         <div className="audit-instructions"><span><b>01</b> 浏览完整页面</span><span><b>02</b> 写意见、标记已审查</span><span><b>03</b> 导出意见发回修改</span><a className="audit-checklist" href={`${basePath}/review-files/bemine-mobile-review-v8.md`} download><Download size={14}/>下载完整清单</a></div>
       </div>
