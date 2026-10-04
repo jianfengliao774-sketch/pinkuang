@@ -63,7 +63,11 @@ test('public Authority proxy forwards complete policy and native evidence and re
   const paths={salePolicyCatalogPath:'/srv/reviewed/sale-policy-catalog.json',
     salePolicyArtifactPath:'/srv/reviewed/sale-policy-artifacts.json',
     nativeSaleCatalogPath:'/srv/reviewed/native-sale-catalog.json',
-    nativeSaleArtifactPath:'/srv/reviewed/native-sale-artifacts.json'};
+    nativeSaleArtifactPath:'/srv/reviewed/native-sale-artifacts.json',
+    targetOwnerCatalogPath:'/srv/reviewed/target-owner-catalog.json',
+    targetOwnerArtifactPath:'/srv/reviewed/target-owner-artifacts.json',
+    trustedTargetOwnerCatalogDigest:'0x'+'a'.repeat(64),
+    trustedTargetOwnerArtifactDigest:'0x'+'b'.repeat(64)};
   let captured;
   assert.throws(()=>createAuthorityRelayProxy({socketPath:'/run/pinkuang-v4-relay/authority.sock',
     origin,key:randomBytes(32),...paths},{store:{close(){}},configuration(input){

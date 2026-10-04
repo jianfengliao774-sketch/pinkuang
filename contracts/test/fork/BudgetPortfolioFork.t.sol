@@ -108,14 +108,17 @@ contract BudgetPortfolioForkTest is Test {
         vm.warp(block.timestamp + 7 days);
         portfolio.finalizeAcquisition();
         assertEq(portfolio.purchaseFeeWei(), OFFICIAL_PRICE / 100, "no added project Firsto purchase fee");
-        vm.prank(ALICE);
-        uint256 proposalId = portfolio.proposeChildSale(address(officialChild), SALE_PRICE, 0, 0);
-        vm.prank(ALICE);
-        portfolio.voteChildSale(proposalId, true);
         ShareMarket(payable(factory.shareMarket()))
             .setSaleReference(
                 address(officialChild), uint128(SALE_PRICE), uint64(block.timestamp), keccak256("fixed-fork-reference")
             );
+        vm.prank(ALICE);
+        uint256 proposalId = portfolio.proposeChildSale(address(officialChild), SALE_PRICE, 0, 0);
+        vm.prank(ALICE);
+        portfolio.voteChildSale(proposalId, true);
+        (uint8 reviewStatus,,,, uint8 reviewPolicy) = portfolio.childSaleReview(proposalId);
+        assertEq(reviewStatus, 0, "fresh reference avoids a separate explicit review");
+        assertEq(reviewPolicy, 1, "portfolio binds the quote before opening its sale proposal");
         portfolio.executeChildSale(proposalId);
         uint256 payment = SALE_PRICE + SALE_PRICE / 100;
         vm.deal(BUYER, payment);

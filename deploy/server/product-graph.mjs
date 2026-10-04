@@ -5,6 +5,7 @@ import { SHARE_FEE_UPGRADE_KIND, upgradeNamesForKind, settleReads, validateFirst
 import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared/fresh-sale-policy-proof.mjs';
 import { validateFreshNativeSaleCatalog, verifyFreshNativeSale } from '../shared/fresh-native-sale-proof.mjs';
 import { validateFreshFactoryReuseCatalog, verifyFreshFactoryReuse, factoryReuseRuntimeMatches } from '../shared/fresh-factory-reuse-proof.mjs';
+import { validateTargetOwnerUpgradeCatalog, verifyTargetOwnerUpgrade } from '../shared/target-owner-upgrade-proof.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
   integratedUpgradeDeploymentOrder, validateIntegratedPostCodeGraphAgainstChain,
@@ -69,9 +70,15 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
   integratedUpgradeArtifact, genesisManifestPath, genesisManifest,
   productActivationPath, productActivation, expectedGasWallet,
   salePolicyCatalogPath, salePolicyCatalog, salePolicyArtifactPath, salePolicyArtifact,
-  nativeSaleCatalogPath, nativeSaleCatalog, nativeSaleArtifactPath, nativeSaleArtifact }={}) {
+  nativeSaleCatalogPath, nativeSaleCatalog, nativeSaleArtifactPath, nativeSaleArtifact,
+  targetOwnerCatalogPath, targetOwnerCatalog, targetOwnerArtifactPath, targetOwnerArtifact,
+  trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
+  const targetOwnerConfigured=Boolean(targetOwnerCatalog || targetOwnerCatalogPath || targetOwnerArtifact
+    || targetOwnerArtifactPath || trustedTargetOwnerCatalogDigest || trustedTargetOwnerArtifactDigest);
+  check(!targetOwnerConfigured || record.schemaVersion===1 && !integratedUpgradeEvidence && !integratedUpgradeEvidencePath,
+    'Target-owner upgrade must preserve the independent fresh genesis and its existing Authority.');
   // Keep the exact deployment record for independently reviewed upgrade plans.
   // The normalized copy below adds a PoolFactory compatibility alias for legacy
   // graph readers, but that alias must not change the signed plan's evidence digest.
@@ -211,6 +218,24 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
       trusted.freshNativeSale=validateFreshNativeSaleCatalog(nativeSaleCatalog ?? load(nativeSaleCatalogPath),
         nativeSaleArtifact ?? load(nativeSaleArtifactPath),trusted);
     }
+    if (targetOwnerCatalog || targetOwnerCatalogPath || targetOwnerArtifact || targetOwnerArtifactPath
+      || trustedTargetOwnerCatalogDigest || trustedTargetOwnerArtifactDigest) {
+      check((targetOwnerCatalog || targetOwnerCatalogPath) && (targetOwnerArtifact || targetOwnerArtifactPath)
+        && (genesisManifest || genesisManifestPath) && HASH.test(trustedTargetOwnerCatalogDigest ?? '')
+        && HASH.test(trustedTargetOwnerArtifactDigest ?? ''),
+      'Target-owner upgrade requires independently pinned local catalog, artifacts and preserved genesis manifest.');
+      const catalog=targetOwnerCatalog ?? load(targetOwnerCatalogPath);
+      const manifest=genesisManifest ?? load(genesisManifestPath);
+      check(same(catalog.candidateArtifactDigest,trustedTargetOwnerArtifactDigest),
+        'Target-owner candidate artifact pin differs.');
+      trusted.targetOwnerUpgrade=validateTargetOwnerUpgradeCatalog(catalog,
+        targetOwnerArtifact ?? load(targetOwnerArtifactPath),{
+          genesisRecord:genesisEvidenceRecord,genesisBundle:bundle,trustedGenesisManifest:manifest,
+          trustedGenesisRecordDigest:evidenceDigest(genesisEvidenceRecord),
+          trustedGenesisManifestDigest:evidenceDigest(manifest),
+          trustedUpgradeArtifactDigest:trustedTargetOwnerArtifactDigest,
+        },{trustedCatalogDigest:trustedTargetOwnerCatalogDigest});
+    }
     return trusted;
   }
   // Defensive clone: consumers cannot modify the trusted evidence through a browser record.
@@ -218,6 +243,9 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
     'Sale policy cannot bypass the original fresh activation evidence.');
   check(!nativeSaleCatalog && !nativeSaleCatalogPath && !nativeSaleArtifact && !nativeSaleArtifactPath,
     'Native sale cannot bypass the original fresh activation evidence.');
+  check(!targetOwnerCatalog && !targetOwnerCatalogPath && !targetOwnerArtifact && !targetOwnerArtifactPath
+    && !trustedTargetOwnerCatalogDigest && !trustedTargetOwnerArtifactDigest,
+    'Target-owner upgrade cannot bypass the original fresh activation evidence.');
   return JSON.parse(JSON.stringify({record,bundle}));
 }
 
@@ -328,9 +356,12 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   check(same(factory,a.factory) || budget,'Factory differs from the trusted deployment.');
   const freshAuthority=trusted.freshAuthority
     ? await verifyFreshAuthority(provider,record,bundle,trusted.freshAuthority,block) : null;
-  const nativeSale=await verifyFreshNativeSale(provider,trusted,block);
-  const salePolicy=await verifyFreshSalePolicy(provider,trusted,block,{nativeUpgrade:nativeSale});
-  const factoryReuse=await verifyFreshFactoryReuse(provider,trusted,block);
+  // A separately pinned target-owner catalog records the complete current mixed
+  // baseline. Earlier upgrade verifiers intentionally only recognize their own
+  // terminal Beacon pointer, so they must not be used to attest its successor.
+  const nativeSale=trusted.targetOwnerUpgrade ? null : await verifyFreshNativeSale(provider,trusted,block);
+  const salePolicy=trusted.targetOwnerUpgrade ? null : await verifyFreshSalePolicy(provider,trusted,block,{nativeUpgrade:nativeSale});
+  const factoryReuse=trusted.targetOwnerUpgrade ? null : await verifyFreshFactoryReuse(provider,trusted,block);
   if (salePolicy) a={...a,...salePolicy.replacements,portfolioVaultImplementation:salePolicy.replacements.BudgetPortfolioVault};
   if (nativeSale) {
     check(salePolicy && same(salePolicy.replacements.PoolVault,nativeSale.baselinePoolVault),
@@ -342,16 +373,29 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     a={...a,...nativeSale.replacements};
   }
   if (factoryReuse) a={...a,...factoryReuse.replacements};
+  const targetOwner=await verifyTargetOwnerUpgrade(provider,trusted,block);
+  const targetBaseline=trusted.targetOwnerUpgrade?.catalog?.reviewCatalog?.nodes;
+  if (targetBaseline) a={...a,...Object.fromEntries(Object.entries(targetBaseline).map(([name,node])=>[name,node.address])),
+    PoolFactory:targetBaseline.FreshPoolFactory.address,
+    portfolioVaultImplementation:targetBaseline.BudgetPortfolioVault.address,
+    portfolioFactoryImplementation:targetBaseline.BudgetPortfolioFactory.address};
+  if (targetOwner) a={...a,...targetOwner.replacements};
   const upgradeProof=trusted.upgradeRecord ? await verifyFirstoUpgradeProof(provider,trusted,block) : null;
   const upgradedNames=candidateActive ? integratedUpgradeDeploymentOrder
     : trusted.upgradeRecord ? upgradeNamesForKind(trusted.upgradeRecord.kind) : [];
   const policyNames=salePolicy ? ['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'] : [];
   const nativeNames=nativeSale ? ['SaleSettlement','FirstoSale','PoolVault'] : [];
   const reuseName=name=>factoryReuse && ['PoolFactory','FreshPoolFactory'].includes(name);
-  const sourceFor=name=>reuseName(name) ? trusted.freshFactoryReuse.bundle : nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
-    : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
+  const targetNames=targetOwner ? ['PoolFunds','FlexiblePurchase','PoolVault'] : [];
+  const targetNode=name=>targetBaseline?.[name==='PoolFactory' ? 'FreshPoolFactory' : name];
   const artifactFor=name=>name==='PoolFactory' && freshFactory ? 'FreshPoolFactory' : artifacts[name] ?? name;
-  const runtimeLinksFor=name=>nativeNames.includes(name) ? nativeSale.runtimeLinks : salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
+  const sourceFor=name=>targetNames.includes(name) ? trusted.targetOwnerUpgrade.bundle
+    : targetNode(name) ? {artifacts:{[name]:targetNode(name).artifact,[artifactFor(name)]:targetNode(name).artifact}}
+    : reuseName(name) ? trusted.freshFactoryReuse.bundle : nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
+    : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
+  const runtimeLinksFor=name=>targetNames.includes(name) ? {...Object.fromEntries(Object.entries(targetBaseline).map(([key,node])=>[key,node.address])),...targetOwner.replacements}
+    : targetNode(name) ? targetNode(name).links
+    : nativeNames.includes(name) ? nativeSale.runtimeLinks : salePolicy ? policyNames.includes(name) ? salePolicy.runtimeLinks : record.addresses
     : candidateActive && !upgradedNames.includes(name) ? record.addresses
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisRecord.addresses : a;
   const read=async(name,method,args=[])=>{
@@ -361,25 +405,30 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     return iface.decodeFunctionResult(method,await provider.send('eth_call',[{to:a[name],data:iface.encodeFunctionData(method,args)},tag]))[0];
   };
   const observedCodehash={};
-  await settleReads((integrated ? INTEGRATED_NAMES : NAMES).map(async name=>{
+  const runtimeNames=[...(integrated ? INTEGRATED_NAMES : NAMES),...Object.keys(targetBaseline ?? {})
+    .filter(name=>name!=='FreshPoolFactory' && !(integrated ? INTEGRATED_NAMES : NAMES).includes(name))];
+  await settleReads(runtimeNames.map(async name=>{
     const code=await provider.getCode(a[name],block.number);
     const policyUpgraded=policyNames.includes(name);
     const nativeUpgraded=nativeNames.includes(name);
     const reuseUpgraded=reuseName(name);
+    const targetUpgraded=targetNames.includes(name);
     const upgraded=(candidateActive || trusted.upgradeRecord) && upgradedNames.includes(name);
     // The common proof checked replacement bytes at a finalized block. Compare
     // their complete hash again at the signing block, including immutables;
     // artifact shape matching alone masks constructor immutable values.
     const finalizedCode=candidateActive && upgraded
       ? await provider.getCode(a[name],finalizedProof.blockNumber) : null;
-    check(code!=='0x' && (reuseUpgraded ? same(keccak256(code),factoryReuse.codehash[name]) : nativeUpgraded ? same(keccak256(code),nativeSale.codehash[name]) : policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
+    check(code!=='0x' && (targetUpgraded ? same(keccak256(code),targetOwner.codehash[name])
+      : targetNode(name) ? same(keccak256(code),targetNode(name).codehash)
+      : reuseUpgraded ? same(keccak256(code),factoryReuse.codehash[name]) : nativeUpgraded ? same(keccak256(code),nativeSale.codehash[name]) : policyUpgraded ? same(keccak256(code),salePolicy.codehash[name])
       : upgraded || same(keccak256(code),record.verification.code[name].codehash))
       && (!finalizedCode || same(keccak256(code),keccak256(finalizedCode)))
       && (reuseUpgraded ? factoryReuseRuntimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,a[name])
         : runtimeMatches(sourceFor(name).artifacts[artifactFor(name)],code,runtimeLinksFor(name),a[name])),`Reviewed runtime changed: ${name}.`);
     observedCodehash[name]=keccak256(code);
   }));
-  if (factoryReuse) observedCodehash.FreshPoolFactory=observedCodehash.PoolFactory;
+  if (factoryReuse || targetBaseline) observedCodehash.FreshPoolFactory=observedCodehash.PoolFactory;
   const currentRoles=roleState?.current ?? freshAuthority?.current;
   const assertions=[['AtomicDeployment','deployed',true],['AtomicDeployment','deployer',record.account],
     ['AtomicDeployment','predictedFactory',a.factory],['factory','owner',currentRoles?.coreOwner ?? record.input.ownerMultisig],
@@ -404,7 +453,9 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket'],...(integrated
     ? [['portfolioFactory','BudgetPortfolioFactory'],['portfolioShareMarket','ShareMarket']] : [])].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);
-    const expected=name==='portfolioShareMarket' && salePolicy ? record.addresses.ShareMarket : a[implementation];
+    const targetImplementation=trusted.targetOwnerUpgrade?.catalog?.implementations?.[name];
+    const expected=targetImplementation ? targetBaseline[targetImplementation].address
+      :name==='portfolioShareMarket' && salePolicy ? record.addresses.ShareMarket : a[implementation];
     check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,expected),`Reviewed implementation changed: ${name}.`);
   }));
   const roles=await settleReads(['PROPOSER_ROLE','CANCELLER_ROLE','EXECUTOR_ROLE','DEFAULT_ADMIN_ROLE'].map(name=>read('timelock',name)));
@@ -440,6 +491,10 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ...(factoryReuse ? {factoryReuseUpgrade:{version:1,candidateArtifactDigest:factoryReuse.candidateArtifactDigest,
       operationId:factoryReuse.operationId,replacements:{...factoryReuse.replacements},codehash:{...factoryReuse.codehash},
       verifiedBlockNumber:factoryReuse.blockNumber,verifiedBlockHash:factoryReuse.blockHash}} : {}),
+    ...(targetOwner ? {targetOwnerUpgrade:{version:1,candidateArtifactDigest:targetOwner.candidateArtifactDigest,
+      catalogDigest:trusted.targetOwnerUpgrade.catalogDigest,operationId:targetOwner.operationId,
+      replacements:{...targetOwner.replacements},codehash:{...targetOwner.codehash},
+      verifiedBlockNumber:targetOwner.blockNumber,verifiedBlockHash:targetOwner.blockHash}} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,
       roleMigrationStarted:roleState?.applied?.some(Boolean)===true}} : {}),

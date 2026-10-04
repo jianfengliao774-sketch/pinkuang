@@ -1,0 +1,38 @@
+{
+  "operation": null,
+  "readyAt": null,
+  "proposer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "authority": {
+    "address": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+    "codehash": "0x34845ff4b079ec7b4cc33c7f1f95a3e0e18a0b50f23c2022bf0ed1d0b2575ee8",
+    "deploymentTxHash": "0x8969a2dab6884f22eed17f99a327c8a127cf020b56325b04f424bc0a69f30110",
+    "administratorOne": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+    "administratorTwo": "0xeD2FCBe59EBe1754a3676aeb9CcfBA20f193FcbB",
+    "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619"
+  },
+  "minDelay": "172800",
+  "deployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "phase": "prepared",
+  "blockNumber": 125573741,
+  "blockHash": "0xe64eb0e9d0698215378e742446b066ee05beb42860bdfdaaf9ae6e17bb1e3082",
+  "checkedAt": "2026-10-03T23:39:09.538Z",
+  "baselineVerified": true,
+  "verifiedDeploymentNames": [],
+  "deployments": {},
+  "replacements": {},
+  "replacementDeploymentVerified": false,
+  "candidateArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+  "reviewCatalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba",
+  "codehash": {},
+  "codeUpgradeComplete": false,
+  "readOnly": true,
+  "chainActionsPerformed": false,
+  "rpcReads": {
+    "eth_chainId": 2,
+    "eth_getBlockByNumber": 5,
+    "eth_getCode": 24,
+    "eth_getStorageAt": 4,
+    "eth_call": 26
+  },
+  "durationMs": 17706
+}

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { forgeToolchain } from './foundry.mjs';
+import { firstoForkSuites, firstoForkTestCount, passedFirstoForkEvidence } from './firsto-fork-evidence.mjs';
 
 // Real SignedAsk V2 and the strict-settlement resale regressions require this
 // newer protocol fixture. Never run these as skipped tests at the old baseline.
@@ -37,12 +38,11 @@ const startedAt=new Date().toISOString(),result=spawnSync(executable,args,{cwd:b
 const output=((result.stdout??'')+(result.stderr??'')+(result.error?.message??''))
   .replaceAll(process.env.BSC_RPC_URL,'[BSC_RPC_URL]');
 // A skipped or accidentally empty suite must not become evidence that a real order executed.
-const passed=result.status===0 && /(?<!\d)14 tests passed, 0 failed, 0 skipped/.test(output)
-  && !/\[SKIP/.test(output);
+const passed=passedFirstoForkEvidence(output,result.status);
 writeFileSync(join(evidence,'firsto-fork.log'),output);
 writeFileSync(join(evidence,'summary.json'),JSON.stringify({startedAt,finishedAt:new Date().toISOString(),
   status:passed?'passed':'failed',exitCode:result.status??1,chainId:56,forkBlock:Number(block),
-  tests:['FirstoPoolForkTest','PoolSaleForkTest','PoolBurnForkTest','AuditMiningSettlementForkTest','BudgetPortfolioForkTest'],
-  expected:{passed:14,failed:0,skipped:0},source:'real public SignedAsk purchase and contract-maker strict settlement sales, including signed administrator review; local project deployment only'},null,2)+'\n');
+  tests:Object.keys(firstoForkSuites),
+  expected:{passed:firstoForkTestCount,failed:0,skipped:0,suites:firstoForkSuites},source:'real public SignedAsk purchase and contract-maker strict settlement sales, including signed administrator review; local project deployment only'},null,2)+'\n');
 console.log(output);
 if(!passed)process.exitCode=1;

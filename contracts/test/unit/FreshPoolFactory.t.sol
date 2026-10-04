@@ -8,6 +8,8 @@ import {PoolFactory} from "../../src/PoolFactory.sol";
 import {PoolVault} from "../../src/PoolVault.sol";
 import {ShareMarket} from "../../src/ShareMarket.sol";
 import {IPoolVault} from "../../src/interfaces/IPoolVault.sol";
+import {Addresses} from "../../script/Addresses.sol";
+import {PurchaseMockNft} from "../utils/PurchaseMocks.sol";
 
 contract FreshPoolFactoryTest is Test {
     FreshPoolFactory private factory;
@@ -15,6 +17,9 @@ contract FreshPoolFactoryTest is Test {
     function setUp() public {
         vm.chainId(56);
         vm.warp(1_800_000_000);
+        PurchaseMockNft nft = new PurchaseMockNft();
+        vm.etch(Addresses.TAPEOUT_CIRCUITS, address(nft).code);
+        PurchaseMockNft(Addresses.TAPEOUT_CIRCUITS).mint(address(this), 13043);
         AtomicDeployment coordinator = new AtomicDeployment();
         AtomicDeployment.Config memory config = AtomicDeployment.Config({
             ownerMultisig: address(this),

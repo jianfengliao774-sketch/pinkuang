@@ -147,7 +147,6 @@ abstract contract RewardsTestBase is FundingTestBase {
         defaultParams.fundingDeadline = uint64(block.timestamp + 7 days);
         defaultParams.purchaseDeadline = uint64(block.timestamp + 10 days);
         ++defaultParams.circuitId; // The earlier funding-only fixture retains its own permanent reservation.
-        pool = _createPool(defaultParams);
 
         vm.etch(Addresses.TAPEOUT_CIRCUITS, address(new PurchaseMockNft()).code);
         vm.etch(Addresses.BEM, address(new RewardsFaultBem()).code);
@@ -158,11 +157,13 @@ abstract contract RewardsTestBase is FundingTestBase {
         mining = PurchaseMockMining(payable(Addresses.MINING));
         market = PurchaseMockMarket(Addresses.CIRCUIT_MARKET);
         rewardId = defaultParams.circuitId;
+        nft.mint(REWARD_SELLER, rewardId);
+        pool = _createPool(defaultParams);
         _activate();
     }
 
     function _activate() internal {
-        nft.mint(REWARD_SELLER, rewardId);
+        assertEq(nft.ownerOf(rewardId), REWARD_SELLER);
         mining.configure(address(nft), rewardId, 0, 0);
         key = mining.minerKey(address(nft), rewardId);
         _fundPool();
@@ -179,6 +180,7 @@ abstract contract RewardsTestBase is FundingTestBase {
     function _disableExpiryForNewPool() internal {
         IPoolVault.PoolParams memory params = defaultParams;
         params.circuitId = ++rewardId;
+        nft.mint(REWARD_SELLER, rewardId);
         vm.prank(OPERATOR);
         pool = IFundingVault(IRewardsFactory(address(poolFactory)).createPoolWithExpiry(params, false));
         _activate();

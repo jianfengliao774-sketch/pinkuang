@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+  "sourceCommit": "9784000db2f9adf7775e0ebc232b76437f1fdef2",
+  "staticInputsLoaded": true,
+  "displayedFactory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "displayedDeployer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "displayedGasLimits": {
+    "PoolFunds": 2500000,
+    "FlexiblePurchase": 3590000,
+    "PoolVault": 6460000
+  },
+  "manualReadOnlyPreflightPassed": true,
+  "blockNumber": 125575400,
+  "blockHash": "0xea805835b1d7a6be420014c5e49d5e5a8d843c57fe4593648805983507be8d53",
+  "walletConnected": false,
+  "walletSendButtonsDisabled": true,
+  "chainActionsPerformed": false,
+  "codeUpgradeComplete": false
+}

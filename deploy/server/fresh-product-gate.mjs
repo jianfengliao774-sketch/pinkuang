@@ -79,6 +79,9 @@ export function createFreshProductGate(config,{trusted,factories,machineReader,f
     }
   };
   const graphIdentity=graph=>{
+    if (graph.targetOwnerUpgrade) need(trusted.targetOwnerUpgrade
+      && same(graph.targetOwnerUpgrade.catalogDigest,trusted.targetOwnerUpgrade.catalogDigest),
+      'Target-owner graph differs from the independently pinned runtime catalog.');
     const identity=freshGraphIdentity(graph);
     assertFreshIdentity(identity,{chainId:56,artifactDigest:m.artifactDigest,factory:m.factory,market:m.shareMarket,
       portfolioFactory:m.portfolioFactory,portfolioMarket:m.portfolioMarket,authority:m.authority,

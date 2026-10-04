@@ -23,6 +23,8 @@ import {SaleSettlement} from "./libraries/SaleSettlement.sol";
 import {PoolVaultState} from "./PoolVaultState.sol";
 import {PurchaseSelectionState} from "./PurchaseSelectionState.sol";
 import {PoolFunds} from "./libraries/PoolFunds.sol";
+import {TargetOwnerState} from "./TargetOwnerState.sol";
+import {TargetOwner} from "./libraries/TargetOwner.sol";
 
 /// @notice Integer BNB pools with atomic acquisition and bounded daily BEM accounting.
 /// @dev Linked libraries are reviewed with this implementation and fixed in its bytecode.
@@ -36,7 +38,8 @@ contract PoolVault is
     PoolSaleState,
     PoolVaultState,
     PurchaseSelectionState,
-    FirstoSaleState
+    FirstoSaleState,
+    TargetOwnerState
 {
     using Checkpoints for Checkpoints.Trace208;
 
@@ -79,40 +82,18 @@ contract PoolVault is
 
     function deposit(uint8 shares) external payable nonReentrant {
         VaultStorage storage s = _vaultStorage();
-        if (s.factory == address(0)) revert Unauthorized();
-        if (s.state != State.Funding) revert WrongState();
-        if (s.depositPaused) revert DepositPaused();
-        address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));
-        if (subscriber != address(0) && msg.sender != subscriber) revert Unauthorized();
-        if (block.timestamp >= s.params.fundingDeadline) revert DeadlinePassed();
-        if (shares == 0) revert InvalidShareCount();
-        if (shares > maxShares || balanceOf(msg.sender) + shares > maxShares) revert ShareOutOfRange();
-        if (totalSupply() + shares > TOTAL_SHARES) revert ExceedsTarget();
-        uint256 amount = uint256(shares) * s.unitPriceWei;
-        if (msg.value != amount) revert PaymentMismatch();
-        s.contributedWei[msg.sender] += amount;
-        s.totalRaised += amount;
+        uint256 amount = PoolFunds.recordDeposit(s, shares, balanceOf(msg.sender), totalSupply());
         _mint(msg.sender, shares);
         emit Deposited(msg.sender, shares, amount, s.totalRaised);
-        if (totalSupply() == TOTAL_SHARES) {
-            if (s.activeMembers.length < minMembers) revert NotEnoughMembers();
-            if (s.totalRaised != s.params.targetRaise) revert PaymentMismatch();
-            s.state = State.Funded;
-            emit Funded(s.totalRaised, totalSupply(), s.activeMembers.length);
-        }
+        if (totalSupply() == TOTAL_SHARES) PoolFunds.recordFullyFunded(s, totalSupply());
     }
 
     /// @notice Withdraws the full subscription into the caller's pull-payment balance.
     function withdrawDeposit() external nonReentrant {
         VaultStorage storage s = _vaultStorage();
-        if (s.state != State.Funding) revert WrongState();
         uint256 shares = balanceOf(msg.sender);
-        if (shares == 0) revert NotMember();
-        uint256 amount = s.contributedWei[msg.sender];
-        s.contributedWei[msg.sender] = 0;
-        s.totalRaised -= amount;
+        uint256 amount = PoolFunds.recordDepositWithdrawal(s, shares);
         _burn(msg.sender, shares);
-        _creditBnb(s, msg.sender, amount);
         // The entire pool contains 100 integer shares, so this uint8 cast is exact.
         emit DepositWithdrawn(msg.sender, uint8(shares), amount);
     }
@@ -121,9 +102,21 @@ contract PoolVault is
         PoolFunds.finalizeFailure(_vaultStorage());
     }
 
-    function _creditBnb(VaultStorage storage s, address member, uint256 amount) private {
-        s.bnbOwed[member] += amount;
-        s.totalBnbOwed += amount;
+    function targetOwnerVersion() external pure returns (uint8) {
+        return 1;
+    }
+
+    function targetOwner() external view returns (address originalOwner, bool configured, uint256 nonce) {
+        TargetOwnerStorage storage s = TargetOwner.state();
+        return (s.originalOwner, s.configured, s.nonce);
+    }
+
+    function configureTargetOwner(bytes calldata authorization) external nonReentrant {
+        PoolFunds.configureTargetOwner(_vaultStorage(), authorization);
+    }
+
+    function syncTargetAvailability() external nonReentrant returns (bool refunded) {
+        return PoolFunds.syncTargetAvailability(_vaultStorage());
     }
 
     function withdrawBnb() external nonReentrant {

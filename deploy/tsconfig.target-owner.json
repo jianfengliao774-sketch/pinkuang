@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/TargetOwnerUpgradeStandalone.tsx", "src/target-owner-upgrade-ui.ts", "src/target-owner-upgrade-ui.test.ts", "src/wallet.ts", "src/upgrade-transactions.ts", "vite.target-owner.config.ts"]
+}

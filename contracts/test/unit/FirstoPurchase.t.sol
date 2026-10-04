@@ -50,6 +50,10 @@ contract FirstoPurchaseTest is FundingTestBase {
         });
     }
 
+    function _initialReferenceOwner() internal override returns (address) {
+        return vm.addr(SELLER_KEY);
+    }
+
     function _prepareMiner(uint256 tokenId) private {
         nft.mint(seller, tokenId);
         mining.configure(address(nft), tokenId, 0, 21 * 1e8);

@@ -14,6 +14,7 @@ import {PoolVaultState} from "../PoolVaultState.sol";
 import {PurchaseSelectionState} from "../PurchaseSelectionState.sol";
 import {PurchaseValidation} from "./PurchaseValidation.sol";
 import {PoolFunds} from "./PoolFunds.sol";
+import {TargetOwner} from "./TargetOwner.sol";
 
 /// @notice Fixed purchase execution plus opt-in, immutable verified-capacity selection terms.
 /// @dev All value-moving calls are fixed protocol calls under Vault.nonReentrant. Reference pricing is not an oracle.
@@ -265,6 +266,9 @@ library FlexiblePurchase {
     function _requireWindow(PoolVaultState.VaultStorage storage s) private view {
         if (s.state != IPoolVault.State.Funded) revert IPoolVault.WrongState();
         if (block.timestamp >= s.params.purchaseDeadline) revert IPoolVault.DeadlinePassed();
+        // A replacement owner's new listing must not revive a fixed target after an external acquisition.
+        // Flexible selection explicitly opts out of the immutable reference-owner constraint.
+        TargetOwner.assertFundable(s);
     }
 
     function _requireQuality(address circuits, uint256 circuitId, uint128 minWeight)

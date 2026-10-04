@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "kind": "exact-source-bound-slither-review-v1",
+  "scannerExitCode": 255,
+  "counts": {
+    "Medium": 5,
+    "Low": 92,
+    "Informational": 55
+  },
+  "acceptedMediumFindings": [
+    {
+      "id": "3c4d4c3c0530fb2e49d832e6ab4655b1e3a6253cb1d68816e9752c299d8a2fcc",
+      "check": "incorrect-equality",
+      "reason": "Zero pool-share balance rejects a non-member. The self-call reads this Vault ERC20 balance; it is not an ETH or external-token balance target that donations can disrupt."
+    },
+    {
+      "id": "fd0b13bc7abb0621c833f661cf59620d675a56e2824c2fda6ec4187263c0c487",
+      "check": "incorrect-equality",
+      "reason": "Exactly 100 pool shares identifies the sole holder entitled to the unallocated integer remainder. This is the same condition used to settle the remainder in PoolFunds; omitting it would understate the liability."
+    },
+    {
+      "id": "2a077cd66d14ffca2b0e21d3974e1e4d24f4bf82eaa46e6abfafd566e8b26c09",
+      "check": "unused-return",
+      "reason": "receiveNative uses account for its bookkeeping, platform-fee transfer and Harvested event. Its four returns are accounting summaries, not success flags; any revert rolls back the sale atomically."
+    },
+    {
+      "id": "59dea589c5537c15d8858598ab4d0428a9f2e2b89f279ef93a9ee62c2a05d097",
+      "check": "unused-return",
+      "reason": "The source explicitly returns the four-value RewardAccounting.account tuple. Slither 0.11.5 retains its tuple-element lvalues despite the direct tuple return; the pool rewards tests verify every returned amount."
+    },
+    {
+      "id": "b209c203009cc7d21d587b5626f4b0214ba25040091a3cce36cec4de7ef274d9",
+      "check": "unused-return",
+      "reason": "The source explicitly returns the four-value FirstoSale.harvest tuple. This is the same tuple-return detector limitation; the pool rewards tests verify every returned amount."
+    }
+  ],
+  "unreviewedHighOrMedium": 0,
+  "sourceSha256": {
+    "contracts/src/PoolVault.sol": "e70eaf0552b678fc29e6d1c6661d55ceec6e5e6bc422def733a04c5b5969be1a",
+    "contracts/src/libraries/FirstoSale.sol": "1e4dfd3e35d62ed6c230cf6f2c9e5f5d3dfcbc2d57614f43883f07c192c960fc",
+    "contracts/src/libraries/SaleSettlement.sol": "f951d8a7ff40f268cbe3596947690d4882967c2f5ceacbc79768f41de78ab4d8",
+    "contracts/src/libraries/RewardAccounting.sol": "0538ce9d4e66d5b834bd18977ccb8aaae78d86ff2e3f0c0b0512120a44b096e1",
+    "contracts/src/libraries/PoolFunds.sol": "a2ccb8b7c80de71f27d178af1302b102cffd4faf55d1022ffb63447d9612a060"
+  },
+  "review": "docs/audits/2026-10-04/slither-findings-review.md"
+}

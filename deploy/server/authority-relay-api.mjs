@@ -132,6 +132,11 @@ export function authorityRelayConfiguration(env = process.env) {
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
     nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
+    genesisManifestPath: env.BEMINE_GENESIS_MANIFEST_PATH,
+    targetOwnerCatalogPath: env.BEMINE_TARGET_OWNER_CATALOG_PATH,
+    targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
+    trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
+    trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
     dbPath: env.DEPLOYMENT_JOURNAL_DB, recordPath: env.BEMINE_DEPLOYMENT_RECORD_PATH,
     bundlePath: env.BEMINE_PRODUCT_GENESIS_ARTIFACT_PATH,
     activationPath: env.BEMINE_PRODUCT_ACTIVATION_PATH };
@@ -222,6 +227,10 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     productActivationPath: config.activationPath, expectedGasWallet: config.expectedGasWallet,
     salePolicyCatalogPath: config.salePolicyCatalogPath, salePolicyArtifactPath: config.salePolicyArtifactPath,
     nativeSaleCatalogPath: config.nativeSaleCatalogPath, nativeSaleArtifactPath: config.nativeSaleArtifactPath,
+    genesisManifestPath: config.genesisManifestPath,
+    targetOwnerCatalogPath: config.targetOwnerCatalogPath, targetOwnerArtifactPath: config.targetOwnerArtifactPath,
+    trustedTargetOwnerCatalogDigest: config.trustedTargetOwnerCatalogDigest,
+    trustedTargetOwnerArtifactDigest: config.trustedTargetOwnerArtifactDigest,
   });
   if (!trusted?.freshAuthority || !trusted.bundle?.artifacts?.FreshPoolFactory)
     throw new Error('Authority relay requires a complete reviewed fresh activation.');

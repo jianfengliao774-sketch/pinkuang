@@ -46,6 +46,11 @@ export function configureFreshPurchase(options, env = process.env, dependencies 
     salePolicyArtifactPath: env.BEMINE_SALE_POLICY_ARTIFACT_PATH,
     nativeSaleCatalogPath: env.BEMINE_NATIVE_SALE_CATALOG_PATH,
     nativeSaleArtifactPath: env.BEMINE_NATIVE_SALE_ARTIFACT_PATH,
+    genesisManifestPath: env.BEMINE_GENESIS_MANIFEST_PATH,
+    targetOwnerCatalogPath: env.BEMINE_TARGET_OWNER_CATALOG_PATH,
+    targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
+    trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
+    trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
   });
   if (!trusted?.bundle?.artifacts?.FreshPoolFactory || !trusted?.freshAuthority
     || !same(options.factory, trusted.record.addresses.factory)

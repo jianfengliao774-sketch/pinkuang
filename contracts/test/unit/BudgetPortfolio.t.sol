@@ -113,6 +113,14 @@ contract BudgetPortfolioTest is FundingTestBase {
     }
 
     function _createBudgetPool(IPoolVault.PoolParams memory params) private returns (IFundingVault child) {
+        return _createBudgetPool(params, SELLER);
+    }
+
+    function _createBudgetPool(IPoolVault.PoolParams memory params, address seller)
+        private
+        returns (IFundingVault child)
+    {
+        nft.mint(seller, params.circuitId);
         vm.prank(OPERATOR);
         child = IFundingVault(poolFactory.createBudgetChildPool(params, address(project)));
     }
@@ -175,7 +183,7 @@ contract BudgetPortfolioTest is FundingTestBase {
     }
 
     function _list(uint256 id, uint96 price) private returns (uint256 listingId) {
-        nft.mint(SELLER, id);
+        assertEq(nft.ownerOf(id), SELLER);
         mining.configure(address(nft), id, 1_000, 100);
         vm.prank(SELLER);
         nft.approve(address(market), id);
@@ -290,9 +298,8 @@ contract BudgetPortfolioTest is FundingTestBase {
         params.circuitId += 10;
         params.targetRaise = 5.05 ether;
         params.priceCap = 5.05 ether;
-        IFundingVault child = _createBudgetPool(params);
         address maker = vm.addr(0xBEEF);
-        nft.mint(maker, params.circuitId);
+        IFundingVault child = _createBudgetPool(params, maker);
         mining.configure(address(nft), params.circuitId, 1_000, 100);
         address firsto = 0x33423244F9a5bF81b12B1a018aF6F4e079B97f29;
         FirstoSignedAskMock(firsto).configure(Addresses.PROTOCOL_FACTORY, 100, 1);
