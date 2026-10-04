@@ -54,11 +54,11 @@ try {
   try {
     await first.select();
     assert.equal(await page.getByLabel('矿机编号', { exact: true }).inputValue(), '16480');
-    assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '≈ 2.00000');
+    assert.equal(await page.getByLabel('购机价格上限（BNB）', { exact: true }).inputValue(), '≈ 2.0000');
     const funding = page.getByLabel('募集总额（BNB）', { exact: true });
-    assert.equal(await funding.inputValue(), '≈ 2.20000');
+    assert.equal(await funding.inputValue(), '≈ 2.2000');
     await funding.focus(); assert.equal(await funding.inputValue(), '2.2000000000000001');
-    await funding.blur(); assert.equal(await funding.inputValue(), '≈ 2.20000');
+    await funding.blur(); assert.equal(await funding.inputValue(), '≈ 2.2000');
     await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
     await page.getByRole('dialog', { name: '确认运营操作' }).waitFor();
     const previews = fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector));
@@ -67,12 +67,12 @@ try {
     assert.equal(params.circuitId, 16480n); assert.equal(params.priceCap, 2000000000000000001n); assert.equal(params.targetRaise, 2200000000000000100n);
     assert.equal(BigInt(previews[0].params[0].value), 0n); assert.equal(fixture.controls.sentTransactions.length, 0);
     const modal = page.getByRole('dialog', { name: '确认运营操作' });
-    assert.match(await modal.innerText(), /≈ 2\.20000 BNB/);
+    assert.match(await modal.innerText(), /≈ 2\.2000 BNB/);
     await modal.getByText('查看精确金额', { exact: true }).click();
     assert.match(await modal.innerText(), /2\.2000000000000001 BNB/);
     await page.screenshot({ path: join(output, 'automatic-quote-preview.png'), animations: 'disabled' });
     checks.push('verified quote -> exact official price and 100-share target -> zero-value unsigned createPool preview');
-    checks.push('automatic fundraising total displays five decimals, focus/blur preserves raw Wei, and preview reveals exact amount');
+    checks.push('automatic fundraising total displays four decimals, focus/blur preserves raw Wei, and preview reveals exact amount');
     await modal.getByRole('button', { name: '返回修改', exact: true }).click();
     await page.getByLabel('矿机编号', { exact: true }).fill('16481'); // Clears automatic mode, not the saved exact fundraising amount.
     await page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
@@ -91,19 +91,19 @@ try {
   try {
     const funding = manual.page.getByLabel('募集总额（BNB）', { exact: true });
     assert.equal(await funding.getAttribute('placeholder'), '例如 0.005');
-    await funding.fill('0.005494999999999900'); await funding.blur(); assert.equal(await funding.inputValue(), '≈ 0.00549');
-    await funding.focus(); await manual.page.waitForFunction(() => document.activeElement?.value === '0.005494999999999900');
-    await funding.fill('0.005495000000000100'); await funding.blur(); assert.equal(await funding.inputValue(), '≈ 0.00550');
+    await funding.fill('0.005449999999999900'); await funding.blur(); assert.equal(await funding.inputValue(), '≈ 0.0054');
+    await funding.focus(); await manual.page.waitForFunction(() => document.activeElement?.value === '0.005449999999999900');
+    await funding.fill('0.005450000000000100'); await funding.blur(); assert.equal(await funding.inputValue(), '≈ 0.0055');
     await manual.page.getByLabel('矿机编号', { exact: true }).fill('7');
     await manual.page.getByLabel('购机价格上限（BNB）', { exact: true }).fill('0.001234567890123456');
     await manual.page.getByRole('button', { name: '预览创建矿池', exact: true }).click();
     await manual.page.getByRole('dialog', { name: '确认运营操作' }).waitFor();
     const latest = manual.fixture.walletRequests.filter(item => item.method === 'eth_call' && item.params[0].data.startsWith(abi.PoolFactory.getFunction('createPool').selector)).at(-1);
     const [params] = abi.PoolFactory.parseTransaction(latest.params[0]).args;
-    assert.equal(params.targetRaise, 5495000000000100n); assert.equal(params.priceCap, 1234567890123456n);
+    assert.equal(params.targetRaise, 5450000000000100n); assert.equal(params.priceCap, 1234567890123456n);
     assert.equal(manual.fixture.controls.sentTransactions.length, 0);
-    await manual.page.screenshot({ path: join(output, 'fundraising-five-decimals-manual.png'), animations: 'disabled' });
-    checks.push('manual total displays five rounded decimals on blur but focus and unsigned calldata retain all 18 input decimals');
+    await manual.page.screenshot({ path: join(output, 'fundraising-four-decimals-manual.png'), animations: 'disabled' });
+    checks.push('manual total displays four rounded decimals on blur but focus and unsigned calldata retain all 18 input decimals');
   } finally { await manual.page.close(); }
 
   const stale = await preparePage();

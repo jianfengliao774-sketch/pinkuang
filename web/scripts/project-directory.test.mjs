@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { projectDirectory, projectDirectoryCategory, portfolioDirectoryRow } from '../lib/project-directory.mjs';
+import { projectDirectory, projectDirectoryCategory, portfolioDirectoryRow, projectSortState, projectSortValue,
+  projectTargetRaiseWei, toggleProjectSort } from '../lib/project-directory.mjs';
 const parent={kind:'portfolio',pool:'0x0000000000000000000000000000000000000901',state:0n,totalSupply:25n,
   unitPriceWei:10000000000000001n,budgetWei:1000000000000000100n,childCount:12n,activeChildCount:8n,memberCount:3n,spentWei:0n};
 const single={pool:'0x0000000000000000000000000000000000000101',name:'TapeOut',tokenId:'123',status:'Funding',funded:10,unitPriceWei:10000000000000000n};
@@ -75,4 +76,98 @@ test('a finished or refunding parent remains available from Overview, never a fu
     assert.equal(projectDirectory([],[{...parent,state}],{filter:'all'}).rows.length,1);
   }
   assert.equal(portfolioDirectoryRow({...parent,state:6n}).status,'Unknown');
+});
+
+test('total funding amount uses the original miner target or portfolio budget, not unit price or purchase cost',()=>{
+  const precise=900719925474099300001n;
+  assert.equal(projectTargetRaiseWei({...single,params:{targetRaise:precise},targetRaiseWei:2n}),precise);
+  assert.equal(projectTargetRaiseWei({...single,targetRaiseWei:precise.toString()}),precise);
+  assert.equal(projectTargetRaiseWei({...parent,spentWei:1n,params:{targetRaise:2n}}),parent.budgetWei);
+  assert.equal(projectTargetRaiseWei(single),null);
+  assert.equal(projectTargetRaiseWei({...single,params:{targetRaise:'1.2345 BNB'},targetRaiseWei:2n}),null);
+  assert.equal(projectTargetRaiseWei({...parent,budgetWei:null,spentWei:2n}),null);
+  const cheapShares={...single,pool:'low-target',unitPriceWei:precise,params:{targetRaise:10n}};
+  const expensiveTarget={...single,pool:'high-target',unitPriceWei:1n,params:{targetRaise:precise}};
+  const result=projectDirectory([expensiveTarget,cheapShares],[parent],{sort:'total'});
+  assert.deepEqual(result.rows.map(row=>row.pool),['low-target',parent.pool,'high-target']);
+  assert.equal(cheapShares.params.targetRaise,10n);
+  assert.equal(parent.budgetWei,1000000000000000100n);
+});
+
+test('every numeric column sorts raw integers in both directions with unknown values last',()=>{
+  const low=900719925474099300000n, high=low+1n;
+  const row=(pool,value)=>({...single,pool,tokenId:value?.toString()??null,totalSupply:value,
+    funded:value,members:value,memberCount:value,unitPriceWei:value,params:{targetRaise:value},
+    hashPower:value?.toString()??null,estimated24hAtomic:value,capacityWei:value});
+  const rows=[row('unknown',null),row('high',high),row('low',low)];
+  const options={capacityFor:r=>r.capacityWei,hashPowerFor:r=>r.hashPower,dailyFor:r=>r.estimated24hAtomic};
+  for(const field of ['funded','price','total','hash','daily','capacity','members','id']){
+    for(const direction of ['asc','desc']){
+      const result=projectDirectory(rows,[],{...options,sort:projectSortValue(field,direction)});
+      assert.deepEqual(result.rows.map(r=>r.pool),direction==='asc'?['low','high','unknown']:['high','low','unknown'],`${field} ${direction}`);
+    }
+  }
+  assert.deepEqual(rows.map(r=>r.pool),['unknown','high','low']);
+});
+
+test('formatted amounts, unsafe numbers and malformed metadata never become sort keys',()=>{
+  const rows=[{...single,pool:'formatted',unitPriceWei:'1,000.0000'},
+    {...single,pool:'unsafe',unitPriceWei:Number.MAX_SAFE_INTEGER+1},
+    {...single,pool:'negative',unitPriceWei:-1n},
+    {...single,pool:'known',unitPriceWei:0n}];
+  for(const sort of ['price','price-desc']){
+    assert.deepEqual(projectDirectory(rows,[],{sort}).rows.map(r=>r.pool),['known','formatted','unsafe','negative']);
+  }
+  for(const invalid of ['verified','1.25',NaN,-6n]){
+    const result=projectDirectory([{...single,pool:'unknown'},{...single,pool:'known'}],[],{
+      sort:'hash-desc',hashPowerFor:r=>r.pool==='known'?'6':invalid});
+    assert.equal(result.rows[0].pool,'known');
+  }
+});
+
+test('funded and participant sorting use the same original counters projected by the public rows',()=>{
+  const moreShares={...single,pool:'more-shares',totalSupply:75n,funded:1,memberCount:2n,members:99};
+  const moreMembers={...single,pool:'more-members',totalSupply:25n,funded:99,memberCount:3n,members:1};
+  assert.equal(projectDirectory([moreMembers,moreShares],[parent],{sort:'funded'}).rows[0].pool,'more-shares');
+  assert.equal(projectDirectory([moreMembers,moreShares],[],{sort:'members-desc'}).rows[0].pool,'more-members');
+  const projected=portfolioDirectoryRow(parent);
+  assert.equal(projected.funded,Number(parent.totalSupply));
+  assert.equal(projected.members,Number(parent.memberCount));
+  assert.equal(projected.funded,25);
+  assert.equal(projected.members,3);
+});
+
+test('miner type filtering is shared by Funding, Active, Listed and the grouped overview',()=>{
+  const rows=['Funding','Active','Listed'].flatMap((status,index)=>[
+    {...single,pool:`tape-${index}`,status},
+    {...single,pool:`behemoth-${index}`,name:'Behemoth',status}]);
+  for(const filter of ['Funding','Active','Listed','all']){
+    for(const minerType of ['TapeOut','Behemoth']){
+      const result=projectDirectory(rows,[parent],{filter,minerType});
+      assert.equal(result.rows.length,filter==='all'?3:1);
+      assert.ok(result.rows.every(r=>r.name===minerType&&r.kind!=='portfolio'));
+      assert.equal(result.counts.Funding,3);
+    }
+  }
+  assert.equal(projectDirectory(rows,[parent],{minerType:'all'}).rows.length,7);
+  assert.equal(projectDirectory(rows,[parent],{minerType:'TapeOut',query:'behemoth'}).rows.length,0);
+});
+
+test('header toggles and menu aliases share the exact field and direction',()=>{
+  assert.deepEqual(projectSortState('funded'),{field:'funded',direction:'desc'});
+  assert.deepEqual(projectSortState('funded-desc'),projectSortState('funded'));
+  assert.equal(toggleProjectSort('funded','funded'),'funded-asc');
+  assert.equal(toggleProjectSort('funded-asc','funded'),'funded');
+  for(const field of ['price','total','hash','daily','capacity','members','id']){
+    const ascending=toggleProjectSort('funded',field);
+    assert.deepEqual(projectSortState(ascending),{field,direction:'asc'});
+    const descending=toggleProjectSort(ascending,field);
+    assert.deepEqual(projectSortState(descending),{field,direction:'desc'});
+    assert.equal(toggleProjectSort(descending,field),ascending);
+  }
+  for(const invalid of [null,'unknown-desc','price-sideways','total-desc-extra']){
+    assert.deepEqual(projectSortState(invalid),{field:'funded',direction:'desc'});
+  }
+  assert.equal(projectSortValue('unknown','asc'),'funded');
+  assert.equal(projectSortValue('price','sideways'),'funded');
 });

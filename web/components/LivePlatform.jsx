@@ -31,6 +31,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   ChevronRight,
+  ChevronUp,
   ChevronDown,
   Menu,
   X,
@@ -50,7 +51,8 @@ import {
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
-import { projectDirectory, projectDirectoryCategory, projectMatchesStatus } from '../lib/project-directory.mjs';
+import { projectDirectory, projectDirectoryCategory, projectMatchesStatus, projectSortState, projectTargetRaiseWei, toggleProjectSort } from '../lib/project-directory.mjs';
+import './PoolCatalogDesktop.css';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import SiteOverview from "./SiteOverview";
@@ -393,6 +395,7 @@ export default function LivePlatform() {
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("Funding"),
     [sort, setSort] = useState("funded"),
+    [minerType, setMinerType] = useState("all"),
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares"),
     [operatorTab, setOperatorTab] = useState("publish");
@@ -2603,15 +2606,44 @@ export default function LivePlatform() {
         : group === "Active" ? ["miner", "shares", "unit", "members", "daily", "capacity", "actions"]
           : group === "Listed" ? ["miner", "status", "shares", "unit", "hash", "daily", "capacity", "actions"]
             : ["miner", "status", "shares", "unit", "daily", "capacity", "actions"];
+    const desktopColumns = catalog ? columns.map(column => column === 'unit' ? 'amount' : column) : columns;
     const titles = {
       miner: L("矿机 / 项目", "Miner / pool"), status: L("状态", "Status"),
       shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
       unit: L("每份金额", "Price per share"), hash: L("算力 H", "Hash power H"),
+      amount: L("总金额 / 每份金额", "Total / price per share"),
       members: L("参与人数", "Participants"),
       daily: holdings ? rewardPreview ? L('待领取 BEM（预计）', 'BEM to claim (estimated)')
         : L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
       capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
     };
+    const catalogSort = projectSortState(sort);
+    const sortFields = { miner: ['id'], shares: ['funded'], amount: ['total', 'price'], hash: ['hash'],
+      members: ['members'], daily: ['daily'], capacity: ['capacity'] };
+    const sortButton = (field, label) => {
+      const selected = catalogSort.field === field;
+      const nextDirection = selected && catalogSort.direction === 'asc' ? 'desc' : 'asc';
+      return <button type="button" className="live-catalog-sort" data-sort-field={field}
+        data-sort-direction={selected ? catalogSort.direction : 'none'}
+        aria-label={L(`${label}，${nextDirection === 'asc' ? '从低到高' : '从高到低'}排序`,
+          `Sort ${label} ${nextDirection === 'asc' ? 'ascending' : 'descending'}`)}
+        onClick={() => setSort(previous => toggleProjectSort(previous, field))}>
+        <span>{label}</span><span className="live-catalog-sort-arrows" aria-hidden="true">
+          <ChevronUp size={13} data-active={selected && catalogSort.direction === 'asc'}/>
+          <ChevronDown size={13} data-active={selected && catalogSort.direction === 'desc'}/>
+        </span>
+      </button>;
+    };
+    const catalogHeader = column => column === 'miner' ? <div className="live-catalog-miner-heading">
+      {sortButton('id', titles.miner)}
+      <select value={minerType} data-miner-type-filter="catalog" aria-label={L('矿机类型', 'Miner type')}
+        onChange={event => setMinerType(event.target.value)}>
+        <option value="all">{L('所有', 'All')}</option><option value="TapeOut">TapeOut</option>
+        <option value="Behemoth">Behemoth</option>
+      </select>
+    </div> : column === 'amount' ? <div className="live-catalog-amount-heading" aria-label={titles.amount}>
+      {sortButton('total', L('总金额', 'Total'))}{sortButton('price', titles.unit)}
+    </div> : sortFields[column] ? sortButton(sortFields[column][0], titles[column]) : titles[column];
     const summary = catalog && filter === 'all';
     const previewRows = new Map((rewardPreview?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
     const displayRows = rows.map(p => {
@@ -2635,6 +2667,10 @@ export default function LivePlatform() {
             status: <StateBadge state={p.status} L={L}/>,
             shares: <>{holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} / 100</>,
             unit: <>{displayPreciseAmount(p.unitPriceWei)} BNB</>,
+            amount: catalog ? <div className="live-catalog-amount">
+              <span data-project-amount="total">{displayPreciseAmount(projectTargetRaiseWei(p))} BNB</span>
+              <span data-project-amount="per-share">{displayPreciseAmount(p.unitPriceWei)} BNB</span>
+            </div> : null,
             hash: metadata?.hashPower ?? "—",
             members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
             daily: holdings ? rewardPreview ? <>
@@ -2647,7 +2683,7 @@ export default function LivePlatform() {
               ? `${displayPreciseAmount(quote.estimated24hAtomic, 8)} BEM`
               : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p),
             capacity: holdings ? <>{amount(p.bnbOwed)} BNB</> : currentPoolCapacityPrice(p) != null
-              ? displayPreciseAmount(currentPoolCapacityPrice(p))
+              ? displayPreciseAmount(currentPoolCapacityPrice(p), 18, catalog ? 2 : 4)
               : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
             actions: <div className="live-pool-row-actions">
               {holdings && p.kind !== 'portfolio' && p.status === 'Funding' && p.shares > 0n && <button className="btn secondary"
@@ -2732,9 +2768,14 @@ export default function LivePlatform() {
     return <>
       <div className={`table-wrap live-project-table-desktop${catalog ? " live-catalog-table" : ""}`}>
         <table>
-          <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
+          <thead><tr>{desktopColumns.map(column => <th key={column} data-project-column={column}
+            aria-sort={catalog && sortFields[column]?.includes(catalogSort.field)
+              ? catalogSort.direction === 'asc' ? 'ascending' : 'descending' : undefined}>
+            {catalog ? catalogHeader(column) : titles[column]}
+          </th>)}</tr></thead>
           <tbody>{displayRows.map(row => <tr key={row.key} data-project-kind={row.kind} data-project-address={row.key}>
-            {columns.map(column => <td key={column} className={["unit", "hash", "capacity"].includes(column) ? "num" : undefined}
+            {desktopColumns.map(column => <td key={column} data-project-column={column}
+              className={["unit", "amount", "hash", "capacity"].includes(column) ? "num" : undefined}
               title={row.columnTitle(column)}>{row.cells[column]}</td>)}
           </tr>)}</tbody>
         </table>
@@ -2962,8 +3003,10 @@ export default function LivePlatform() {
   };
   const renderProjectDirectory = page => {
     const directory = projectDirectory(mergePublishedProjects(pools, publishedProjects.current),
-      mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort,
-      capacityFor: row => currentPoolCapacityPrice(row) });
+      mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort, minerType,
+      capacityFor: row => currentPoolCapacityPrice(row),
+      hashPowerFor: row => currentPoolMetadata(row)?.hashPower,
+      dailyFor: row => currentPoolQuote(row)?.estimated24hAtomic });
     const updating = loading || busy || page.loading || boot.status === 'loading' || page.enabled && !page.loaded && !page.failed;
     const failed = readFailed || page.failed || !page.enabled && boot.status !== 'loading';
     const ready = !!source && page.loaded && !!page.source;
@@ -4592,8 +4635,8 @@ export default function LivePlatform() {
                           </div>
                           {modal.kind === 'fill' ? <p className="subtle-note">{L('网络 Gas 另计，以钱包显示为准。', 'Network Gas is additional. Review it in your wallet.')}</p> : <p className="inline-note">
                             {L(
-                              "金额显示至五位小数；不足 0.00001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
-                              "Amounts are displayed to five decimals; positive amounts below 0.00001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
+                              "金额显示至四位小数；不足 0.0001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
+                              "Amounts are displayed to four decimals; positive amounts below 0.0001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
                             )}
                           </p>}
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">

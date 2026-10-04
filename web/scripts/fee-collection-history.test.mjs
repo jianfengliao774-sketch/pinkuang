@@ -147,7 +147,7 @@ test('a verified stale global snapshot does not block independently live-proved 
   const value = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider });
   assert.equal(value.complete, true); assert.equal(value.rows.length, 1);
   assert.equal(value.rows[0].administrator, rotated); assert.equal(value.rows[0].blockNumber, 280n);
-  assert.equal(displayAmount(value.rows[0].bnbAmountWei), '0.01235');
+  assert.equal(displayAmount(value.rows[0].bnbAmountWei), '0.0123');
   assert(f.calls.some(call => call.method === 'eth_getCode' && call.params[1] === '0x12c'));
   assert(f.calls.filter(call => call.method === 'eth_call').every(call => call.params[1] === '0x12c'));
   assert(f.calls.some(call => call.method === 'eth_getTransactionReceipt' && call.params[0] === value.rows[0].transactionHash));
@@ -557,10 +557,10 @@ test('real HTTP proxy uses the existing index logs RPC when the product RPC reje
   assert.deepEqual(page.rows.map(row => row.administrator), [first, second]);
   assert(page.rows.every(row => row.administrator !== gasWallet), 'event recipients identify claimants, not relay receipt senders');
   assert.equal(page.rows[0].bnbAmountWei, 1000000000000000001n);
-  assert.equal(displayAmount(page.rows[0].bnbAmountWei), '1.00000');
-  assert.equal(displayAmount(page.rows[0].bemAmountWei), '1.23457');
-  assert.equal(displayAmount(page.rows[1].bnbAmountWei), '0.02000');
-  assert.equal(displayAmount(page.rows[1].bemAmountWei), '<0.00001');
+  assert.equal(displayAmount(page.rows[0].bnbAmountWei), '1.0000');
+  assert.equal(displayAmount(page.rows[0].bemAmountWei), '1.2346');
+  assert.equal(displayAmount(page.rows[1].bnbAmountWei), '0.0200');
+  assert.equal(displayAmount(page.rows[1].bemAmountWei), '<0.0001');
   assert.equal(page.rows[0].blockNumber, 49995n); assert.equal(page.rows[0].timestamp, timestamp(49995n));
   assert.equal(page.complete, false); assert(page.nextCursor);
   assert.equal(upstream.filter(call => call.url === logsUrl && call.method === 'eth_getLogs').length, 6,
@@ -589,7 +589,7 @@ test('real same-origin slow pagination survives pinned-state cache expiry on a n
   const older = await readFeeCollectionHistory({ config: f.config, provider: f.httpProvider, cursor: firstPage.nextCursor });
   assert.equal(older.complete, true); assert.equal(older.safeBlockNumber, 50000n);
   assert.equal(older.rows.length, 1); assert.equal(older.rows[0].administrator, second);
-  assert.equal(older.rows[0].blockNumber, 150n); assert.equal(displayAmount(older.rows[0].bnbAmountWei), '0.01235');
+  assert.equal(older.rows[0].blockNumber, 150n); assert.equal(displayAmount(older.rows[0].bnbAmountWei), '0.0123');
   const identity = f.calls.slice(before).filter(call => ['eth_getCode', 'eth_call'].includes(call.method));
   assert.equal(identity.length, 4); assert(identity.every(call => call.params[1] === '0xea60'));
   assert(f.calls.slice(before).some(call => call.method === 'eth_getBlockByNumber' && call.kind === 'main' && call.params[0] === '0xea60'),

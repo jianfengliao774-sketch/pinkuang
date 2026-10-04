@@ -25,7 +25,7 @@ export default function ShareSaleDialogContent({ pool, account, quantity, price,
               <div><dt>{L('出售钱包', 'Your wallet')}</dt><dd>{shortAddress(account)}</dd></div>
               <div><dt>{L('精确单价', 'Exact price per share')}</dt><dd>{price} BNB</dd></div>
             </dl>
-            <p>{L('金额显示五位小数，交易使用原始精确值。网络 Gas 以钱包显示为准。', 'Amounts display five decimals. Transactions use the exact values. Review network Gas in your wallet.')}</p>
+            <p>{L('金额显示四位小数，交易使用原始精确值。网络 Gas 以钱包显示为准。', 'Amounts display four decimals. Transactions use the exact values. Review network Gas in your wallet.')}</p>
           </details>
         </> : <>
           <div className="share-sale-available"><span>{L('可售份额', 'Available shares')}</span><strong>{pool.availableShares.toString()} {L('份', 'shares')}</strong>

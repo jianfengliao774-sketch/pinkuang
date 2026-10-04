@@ -76,12 +76,12 @@ try{
  await page.getByLabel('矿机编号',{exact:true}).fill('4460');
  const amount=page.getByLabel('募集总额（BNB）',{exact:true}),cap=page.getByLabel('购机价格上限（BNB）',{exact:true});
  await amount.fill('48.065');await cap.fill('43.695679475146443511');await page.getByLabel('募集截止（距当前小时）',{exact:true}).click();
- assert.equal(await cap.inputValue(),'≈ 43.69568');assert.match(await cap.getAttribute('title'),/43\.695679475146443511/);
+ assert.equal(await cap.inputValue(),'≈ 43.6957');assert.match(await cap.getAttribute('title'),/43\.695679475146443511/);
  await cap.focus();assert.equal(await cap.inputValue(),'43.695679475146443511');await page.getByLabel('募集截止（距当前小时）',{exact:true}).click();
  await create.click();const confirmation=page.getByRole('dialog',{name:'确认运营操作',exact:true});await confirmation.waitFor();
  assert.equal(state.walletRequests.includes('eth_call'),false);assert.equal(f.state.signatures.length,0);
  await confirmation.getByRole('button',{name:'返回修改',exact:true}).click();
- checks.push('creation explains disabled readiness, recovers, displays five decimals while preserving exact cap, and previews via public RPC even when extension reads fail');
+ checks.push('creation explains disabled readiness, recovers, displays four decimals while preserving exact cap, and previews via public RPC even when extension reads fail');
 
  function holdRead(name){let release,started;const began=new Promise(resolve=>started=resolve);
   state.readHolds.push({name,wait:()=>{started();return new Promise(resolve=>release=resolve);}});return{began,release:()=>release()};}

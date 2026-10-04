@@ -1,0 +1,81 @@
+@media (min-width: 761px) {
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="shares"],
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="amount"],
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="hash"],
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="members"],
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="daily"],
+  .live-platform .live-catalog-table :is(th, td)[data-project-column="capacity"] {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-sort {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 3px 0;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-sort:hover {
+    color: var(--brand-green, #315c4e);
+  }
+
+  .live-platform .live-catalog-table .live-catalog-sort-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    color: var(--muted);
+    opacity: .6;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-sort-arrows svg + svg { margin-top: -4px; }
+  .live-platform .live-catalog-table .live-catalog-sort-arrows svg[data-active="true"] {
+    color: var(--brand-green, #315c4e);
+    stroke-width: 3;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-miner-heading,
+  .live-platform .live-catalog-table .live-catalog-amount-heading,
+  .live-platform .live-catalog-table .live-catalog-amount {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-miner-heading {
+    align-items: flex-start;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-miner-heading select {
+    min-width: 110px;
+    max-width: 100%;
+    min-height: 30px;
+    padding: 2px 26px 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-amount-heading,
+  .live-platform .live-catalog-table .live-catalog-amount {
+    align-items: center;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-amount > span {
+    display: block;
+    white-space: nowrap;
+  }
+
+  .live-platform .live-catalog-table .live-catalog-amount > span + span {
+    color: var(--muted);
+  }
+}

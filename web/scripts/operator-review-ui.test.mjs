@@ -113,9 +113,9 @@ test('review and fee panels mount only their own forms and reads', async () => {
   }
 });
 
-test('inbox displays exact application identity and five-decimal amounts; approval preserves original Wei', async () => {
+test('inbox displays exact application identity and four-decimal amounts; approval preserves original Wei', async () => {
   const { ui, calls, select } = requestHost(); await ui.settle();
-  assert.match(text(ui.tree), /#13043/); assert.match(text(ui.tree), /0\.00500 BNB/);
+  assert.match(text(ui.tree), /#13043/); assert.match(text(ui.tree), /0\.0050 BNB/);
   button(ui, '查看申请').onClick(); ui.render();
   assert.equal(select.length, 1); assert.equal(button(ui, '签名批准').disabled, false);
   button(ui, '签名批准').onClick(); await ui.settle();
@@ -139,7 +139,7 @@ test('changed reference is shown for renewed review instead of signing stale ter
   const { ui, calls } = requestHost({ refresh: () => application({ referencePriceWei: 10000000000000000n }) });
   await ui.settle(); button(ui, '查看申请').onClick(); ui.render();
   button(ui, '签名批准').onClick(); await ui.settle();
-  assert.equal(calls.length, 0); assert.match(text(ui.tree), /已更新详情/); assert.match(text(ui.tree), /0\.01000 BNB/); ui.unmount();
+  assert.equal(calls.length, 0); assert.match(text(ui.tree), /已更新详情/); assert.match(text(ui.tree), /0\.0100 BNB/); ui.unmount();
 });
 
 test('wallet/page unmount cancels a pending approval read without calling the signing action', async () => {
@@ -262,11 +262,11 @@ function feeHost(options = {}) {
   return { ui, props, calls, reads, statuses, waits };
 }
 
-test('fee pane discovers all supplied sources automatically, without address input, and formats five decimals', async () => {
+test('fee pane discovers all supplied sources automatically, without address input, and formats four decimals', async () => {
   const { ui, calls, reads } = feeHost(); await ui.settle();
   assert.equal(reads.length, 1, 'initial refresh effects share one read');
   assert.equal(elements(ui.tree).some(node => ['input', 'select', 'textarea'].includes(node.type)), false);
-  assert.match(text(ui.tree), /0\.00500 BNB/); assert.match(text(ui.tree), /0\.04000 BEM/);
+  assert.match(text(ui.tree), /0\.0050 BNB/); assert.match(text(ui.tree), /0\.0400 BEM/);
   assert.match(text(ui.tree), /5 个有余额来源/);
   const history = () => elements(ui.tree).find(node => node.type?.name === 'HistoryPane')?.props;
   assert.equal(history().refreshKey, '0:0');
@@ -334,7 +334,7 @@ test('equivalent config reconstruction does not abort or duplicate an in-flight 
   const pending = deferred(); const { ui, props, reads } = feeHost({ read: () => pending.promise });
   ui.render({ ...props, config: { ...props.config } }); ui.render({ ...props, config: { ...props.config } });
   assert.equal(reads.length, 1); assert.equal(reads[0].signal.aborted, false);
-  pending.resolve(feePlan()); await ui.settle(); assert.match(text(ui.tree), /0\.00500 BNB/);
+  pending.resolve(feePlan()); await ui.settle(); assert.match(text(ui.tree), /0\.0050 BNB/);
   assert.equal(reads.length, 1); ui.unmount();
 });
 
@@ -368,9 +368,9 @@ test('identity change during cancelled balance scan starts new pane read immedia
   const { ui, props, calls, reads } = feeHost({ read: () => ++reading === 2 ? pending.promise : feePlan() });
   await ui.settle(); button(ui, '一键归集手续费').onClick(); ui.render();
   ui.render({ ...props, account: address(8) }); await ui.settle();
-  assert.equal(reads.length, 3); assert.match(text(ui.tree), /0\.00500 BNB/);
+  assert.equal(reads.length, 3); assert.match(text(ui.tree), /0\.0050 BNB/);
   pending.resolve({ ...feePlan(), totalBnbWei: 999000000000000000000n }); await ui.settle();
-  assert.doesNotMatch(text(ui.tree), /999\.00000/); assert.equal(calls.length, 0);
+  assert.doesNotMatch(text(ui.tree), /999\.0000/); assert.equal(calls.length, 0);
   assert.equal(button(ui, '一键归集手续费').disabled, false); ui.unmount();
 });
 
