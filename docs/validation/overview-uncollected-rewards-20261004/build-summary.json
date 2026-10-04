@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "kind": "fresh-v5-product-static-candidate",
+  "chainId": 56,
+  "basePath": "/bemine-v5",
+  "productFamily": "fresh-v4",
+  "publicOrigin": "https://bemine.cc.cd",
+  "publicUrl": "https://bemine.cc.cd/bemine-v5/",
+  "deployConsoleUrl": "https://tapeout.cc.cd/pinkuang-deploy-v5/",
+  "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+  "authority": "0xE549DDF776312c1Bf6E1DB0Ce647f92ca998953c",
+  "gasWallet": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+  "deployment": {
+    "txHash": "0x3832f45fefd27e791881664999cff1d76b6561bd604f7bd5e75e88ae94be332a",
+    "blockNumber": 125476240,
+    "blockHash": "0xa65cef31894ec2339a52e9e43452e72b647a46a4c0a0cdab8f08ddce7b08767e"
+  },
+  "sourceCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+  "frontendSourceHead": "c6dfcbbcfbd1841aecc51e9a507fa1c711b6080b",
+  "contentSha256": "ccd9f56e543428c7539d72f88261b192d3c5957f4b05fcca8860bb8ef4fa74b0",
+  "fileCount": 318,
+  "legacyManifestIncluded": false,
+  "activationAllowed": false,
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "machineSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "signerSourceHead": "c1c5b3a5cf318c1464c2bc4af99c2beea2588d94",
+  "archive": {
+    "sha256": "ae693829b3b2ef0d65c88748bf8991115b28696c9948254fa6fbdf6a589875e7",
+    "bytes": 16816913
+  },
+  "frontendReleaseManifestSha256": "f4cc3c1c624598890076fcbb10ab2458707ac66435bbe45aaa6b3d1c3f08dead",
+  "packagedFileCount": 319
+}

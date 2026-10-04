@@ -1,0 +1,18 @@
+{
+  "frontendSourceHead": "c6dfcbbcfbd1841aecc51e9a507fa1c711b6080b",
+  "commands": [
+    "node scripts/catalog-check.mjs",
+    "node scripts/bem-price-check.mjs",
+    "node scripts/review-policy-check.mjs",
+    "node --test scripts/*.test.mjs server/live-api.test.mjs"
+  ],
+  "cwd": "web",
+  "tests": 1138,
+  "passed": 1138,
+  "failed": 0,
+  "skipped": 0,
+  "cancelled": 0,
+  "logSha256": "e5151bcd55c4a600258b4d77e2d153e8814a0a2f46997f4f059466c0312bcbf7",
+  "productionBuildPassed": true,
+  "review": "Independent read-only review found no blocking issue in projection, unknown-value handling, transaction eligibility or read-cache behavior."
+}
