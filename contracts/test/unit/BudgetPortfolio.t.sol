@@ -15,7 +15,6 @@ import {PurchaseMockBem, PurchaseMockNft, PurchaseMockMining, PurchaseMockMarket
 import {Addresses} from "../../script/Addresses.sol";
 import {FirstoSignedAskMock} from "../utils/FirstoMocks.sol";
 import {IFirstoSignedAskExchange} from "../../src/interfaces/IFirstoExchange.sol";
-import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
 
 contract BudgetRoundAttacker {
     function expireThenPropose(BudgetPortfolioVault project, address child) external {
@@ -31,8 +30,6 @@ contract WrongLegacyBudgetFactory {
 }
 
 contract BudgetPortfolioTest is FundingTestBase {
-    using stdStorage for StdStorage;
-
     address private constant SELLER = address(0x5E11E2);
     BudgetPortfolioFactory private portfolios;
     BudgetPortfolioVault private project;
@@ -523,8 +520,8 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.settleChildSale(), 3.96 ether + 99);
         assertEq(uint256(project.state()), uint256(IPoolVault.State.Closed));
         assertEq(project.salePerShareWei(), 0.0396 ether);
-        assertEq(project.saleRemainderWei(), 99);
-        assertEq(project.bnbOwed(TREASURY), 0.05 ether);
+        assertEq(project.saleRemainderWei(), 0);
+        assertEq(project.bnbOwed(TREASURY), 0.05 ether + 99);
 
         vm.prank(ALICE);
         assertEq(project.withdrawBnb(), 7.146 ether);
@@ -537,7 +534,7 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(project.totalBnbOwed(), 0);
     }
 
-    function test_closedLegacyPortfolioTreasuryCanWithdrawPreviouslyStrandedRemainderOnce() public {
+    function test_finalSaleCreditsRemainderEvenAfterTreasuryAlreadyClaimedAcquisitionFee() public {
         _subscribe(ALICE, 60);
         _subscribe(BOB, 40);
         uint256 listing = _list(defaultParams.circuitId, 5 ether);
@@ -545,20 +542,20 @@ contract BudgetPortfolioTest is FundingTestBase {
         project.buyOfficial(address(pool), listing);
         vm.warp(block.timestamp + 10 days);
         project.finalizeAcquisition();
-        _completeChildSale(pool, 4 ether);
-        project.settleChildSale();
+        vm.prank(TREASURY);
+        assertEq(project.withdrawBnb(), 0.05 ether);
+        assertEq(project.bnbOwed(TREASURY), 0);
 
-        // Reconstruct the terminal accounting of a portfolio settled by the old implementation.
-        bytes32 remainderSlot = bytes32(stdstore.target(address(project)).sig("saleRemainderWei()").find());
-        vm.store(address(project), remainderSlot, bytes32(uint256(7)));
-        vm.deal(address(project), address(project).balance + 7);
+        _completeChildSale(pool, 4 ether + 99);
+        assertEq(project.settleChildSale(), 3.96 ether + 99);
+        assertEq(project.saleRemainderWei(), 0);
+        assertEq(project.bnbOwed(TREASURY), 99, "authority only calls withdraw for a positive owed amount");
         vm.prank(ALICE);
         project.withdrawBnb();
         vm.prank(BOB);
         project.withdrawBnb();
         vm.prank(TREASURY);
-        assertEq(project.withdrawBnb(), 0.05 ether + 7);
-        assertEq(project.saleRemainderWei(), 0);
+        assertEq(project.withdrawBnb(), 99);
         vm.prank(TREASURY);
         vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
         project.withdrawBnb();

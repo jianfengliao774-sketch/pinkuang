@@ -374,11 +374,6 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
 
     function withdrawBnb() external nonReentrant returns (uint256 amount) {
         _settleBnb(msg.sender, balanceOf(msg.sender));
-        if (msg.sender == treasury && state == IPoolVault.State.Closed) {
-            // Closed projects have no later sale; use the acquisition rounding recipient.
-            _creditBnb(treasury, saleRemainderWei);
-            saleRemainderWei = 0;
-        }
         amount = bnbOwed[msg.sender];
         if (amount == 0) revert NothingToClaim();
         bnbOwed[msg.sender] = 0;
@@ -538,7 +533,12 @@ contract BudgetPortfolioVault is ERC20Upgradeable, ReentrancyGuardUpgradeable, B
         childInfo[child].sold = true;
         activeChildCount -= 1;
         activeProposalId = 0;
-        if (activeChildCount == 0) state = IPoolVault.State.Closed;
+        if (activeChildCount == 0) {
+            // No later sale can carry the remainder; acquisition also assigns dust to treasury.
+            _creditBnb(treasury, saleRemainderWei);
+            saleRemainderWei = 0;
+            state = IPoolVault.State.Closed;
+        }
         emit ChildSaleSettled(child, net);
     }
 
