@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+// Execute the component's rewards read effect, without a wallet or live RPC.
+const source = await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8');
+const start = source.indexOf('  useEffect(() => {\n    let cancelled = false;\n    setUncollectedRewards(null);');
+const end = source.indexOf('\n  useEffect(', start + 1);
+assert(start >= 0 && end > start);
+const code = source.slice(start, end);
+const turn = () => new Promise(resolve => setImmediate(resolve));
+const account = '0x' + '11'.repeat(20), pool = '0x' + '22'.repeat(20);
+const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+function fixture(overrides = {}) {
+  const states = [], calls = [];
+  let release, cleanup;
+  const client = { readUncollectedRewards: input => {
+    calls.push(input); return new Promise(resolve => { release = resolve; });
+  } };
+  const context = { client, account, route: { route: 'rewards' }, positionsLoaded: true,
+    positionsAccount: account, positions: [{ pool }], rewardPoolsKey: pool,
+    rewardReadKey: 'factory:account:pool', refresh: 0, rewardsRefresh: 0,
+    uncollectedRequest: { current: null }, same,
+    setUncollectedRewards: value => states.push(value), ...overrides };
+  const run = changes => {
+    Object.assign(context, changes);
+    new Function(...Object.keys(context), 'useEffect', code)(...Object.values(context), fn => { cleanup = fn(); });
+    return cleanup;
+  };
+  return { context, client, states, calls, run, resolve: value => release(value) };
+}
+
+test('the rewards effect never reads miners for another route, disconnected wallet or mismatched positions', () => {
+  for (const changes of [{ route: { route: 'overview' } }, { account: null },
+    { positionsLoaded: false }, { positionsAccount: '0x' + '33'.repeat(20) }]) {
+    const f = fixture(changes); f.run(); assert.equal(f.calls.length, 0);
+  }
+});
+
+test('wallet/route cleanup discards the late financial result from the old request', async () => {
+  const f = fixture(), cleanup = f.run();
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.states.at(-1).status, 'loading');
+  cleanup(); f.resolve({ status: 'ready', totals: { totalEstimatedBEM: 100n } });
+  await turn(); assert.equal(f.states.at(-1).status, 'loading');
+});
+
+test('manual or confirmed-transaction revisions bypass TTL; unrelated display generations do not', async () => {
+  const f = fixture();
+  f.run(); assert.equal(f.calls[0].force, false);
+  f.resolve({ status: 'partial', items: [{ pool, uncollectedBEM: null }] }); await turn();
+  assert.equal(f.states.at(-1).requestKey, f.context.rewardReadKey);
+  assert.equal(f.states.at(-1).client, f.client);
+  f.run({ rewardsRefresh: 1 }); assert.equal(f.calls.at(-1).force, true);
+  f.resolve({ status: 'ready' }); await turn();
+  f.run(); assert.equal(f.calls.at(-1).force, false);
+  // These callbacks cannot be triggered by price/SSE/index timer revisions.
+  const dependencies = code.slice(code.lastIndexOf('}, ['));
+  assert(!dependencies.includes('displayRefreshKey'));
+  assert(!dependencies.includes('receiptDisplayRefresh'));
+  assert(!dependencies.includes('capacityNow'));
+  assert(!dependencies.includes('positionsReadSource'));
+});
