@@ -80,6 +80,7 @@ import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
 import { startWalletSession } from '../lib/wallet-session.mjs';
+import { startWalletRestore, saveWalletPreference, clearWalletPreference } from '../lib/wallet-reload.mjs';
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
@@ -280,7 +281,8 @@ export default function LivePlatform() {
     [client, setClient] = useState(null),
     [account, setAccount] = useState(null),
     [wallet, setWallet] = useState(null),
-    [walletChecking, setWalletChecking] = useState(false);
+    [walletChecking, setWalletChecking] = useState(false),
+    [walletRestoring, setWalletRestoring] = useState(true);
   const [wallets, setWallets] = useState([]),
     [walletUiReady, setWalletUiReady] = useState(false),
     [walletInfo, setWalletInfo] = useState(null),
@@ -288,6 +290,10 @@ export default function LivePlatform() {
     [connectionError, setConnectionError] = useState(""),
     [walletQr, setWalletQr] = useState(null);
   const qrConnector = useRef(null);
+  const walletRestore = useRef(null);
+  const restoredProvider = useRef(null);
+  const connectedSession = useRef(null);
+  const [walletConnectionRevision, setWalletConnectionRevision] = useState(0);
   const [pools, setPools] = useState([]),
     [positions, setPositions] = useState([]),
     [stats, setStats] = useState(null),
@@ -524,7 +530,7 @@ export default function LivePlatform() {
     && !connectingId && !connectionLock.current;
   const operatorServiceReady = config?.displayOnly === true && config.walletSessionReady !== false
     || config?.productFamily !== 'fresh-v4' || freshOperationsReady(config);
-  const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
+  const operatorAccess = walletRestoring || walletChecking ? 'checking' : !wallet || !account ? 'disconnected' : !config ? 'unavailable'
     : config.productFamily === 'fresh-v4' && !config.displayOnly && !freshIdentityReadable(config) ? 'unavailable'
     : hasOperatorAccess ? (config.displayOnly ? 'configured' : 'verified') : config.displayOnly ? 'denied' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
       : operator.status === 'error' ? 'unavailable' : 'denied';
@@ -576,10 +582,37 @@ export default function LivePlatform() {
   },[wallet,account,boot,client,walletRevision]);
 
   useEffect(() => {
-    const service = createWalletDiscovery(window, setWallets);
+    let active = true, restore;
+    const context = walletEpoch.current;
+    const service = createWalletDiscovery(window, entries => {
+      setWallets(entries);
+      restore?.refresh();
+    });
     discovery.current = service;
+    restore = startWalletRestore({ discovery: service, storage: displayStorage(),
+      isCurrent: () => active && context === walletEpoch.current && !connectedWallet.current
+        && !connectionLock.current && activeModal.current?.type !== 'connect-wallet',
+      onChecking: checking => { if (active) setWalletRestoring(checking); },
+      onSettled: () => { if (active) setWalletRestoring(false); },
+      onRecovered: ({ entry, provider, account: selected }) => {
+        walletEpoch.current++;
+        connectedWallet.current = provider;
+        connectedSession.current = { provider };
+        setWalletConnectionRevision(v => v + 1);
+        restoredProvider.current = provider;
+        clearWalletDisplay();
+        setWallet(provider); setWalletInfo({ ...entry, provider });
+        setAccount(getAddress(selected)); setWalletChecking(true); setWalletRestoring(false);
+        saveWalletPreference(displayStorage(), entry);
+      },
+    });
+    walletRestore.current = restore;
     setWalletUiReady(true);
-    return () => { service.destroy(); discovery.current = null; connectionLock.current = null; };
+    return () => {
+      active = false; restore.cancel();
+      if (walletRestore.current === restore) walletRestore.current = null;
+      service.destroy(); discovery.current = null; connectionLock.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -757,6 +790,9 @@ export default function LivePlatform() {
   }, [bootAttempt]);
   useEffect(() => {
     if (!wallet?.on || !account) return;
+    const verifyOnStart = restoredProvider.current === wallet;
+    restoredProvider.current = null;
+    const session = connectedSession.current;
     const invalidate = () => {
       if (connectedWallet.current !== wallet) return;
       epoch.current++;
@@ -769,8 +805,8 @@ export default function LivePlatform() {
         && activeModal.current === ticket.target) ticket.walletContext = walletEpoch.current;
       else setModal(null);
     };
-    return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true,
-      isCurrent: () => connectedWallet.current === wallet,
+    return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true, verifyOnStart,
+      isCurrent: () => connectedWallet.current === wallet && connectedSession.current === session,
       onInvalidate: invalidate,
       onChecking: () => setWalletChecking(true),
       onRecovered: ({ account: selected }) => {
@@ -780,12 +816,12 @@ export default function LivePlatform() {
       },
       onDisconnected: () => {
         setWalletChecking(false); setAccount(null); setWallet(null); setWalletInfo(null);
-        connectedWallet.current = null; clearWalletDisplay();
+        connectedWallet.current = null; connectedSession.current = null; clearWalletDisplay();
         setMessage(walletLanguage.current==='en' ? 'Wallet or network changed. Please reconnect.' : '钱包账户或网络已改变，请重新连接。');
         setRefresh(v => v + 1);
       },
     });
-  }, [wallet, account]);
+  }, [wallet, account, walletConnectionRevision]);
   useEffect(() => {
     setMemberTransactions(account && config?.displayOnly ? readMemberTransactions(config, account) : []);
   }, [account, config?.factory, config?.portfolioFactory, config?.displayOnly]);
@@ -1640,6 +1676,7 @@ export default function LivePlatform() {
   }, [client, route.route, route.pool, detailTab, account, yieldDays, displayRefreshKey]);
   function connect() {
     if (busy && !connectionLock.current) return;
+    walletRestore.current?.cancel(); setWalletRestoring(false);
     setConnectionError("");
     discovery.current?.refresh();
     setModal(connectionLock.current?.target || { type: "connect-wallet", reselectAccount: !!account });
@@ -1675,11 +1712,16 @@ export default function LivePlatform() {
       if (!current()) { if (remote && provider !== connectedWallet.current) await provider.disconnect?.().catch(() => {}); return; }
       walletEpoch.current++;
       connectedWallet.current = provider;
+      connectedSession.current = { provider };
+      setWalletConnectionRevision(v => v + 1);
+      restoredProvider.current = null;
       setWalletChecking(false);
       clearWalletDisplay();
       setWallet(provider);
       setWalletInfo({ ...entry, provider });
       setAccount(getAddress(owner));
+      if (remote) clearWalletPreference(displayStorage());
+      else saveWalletPreference(displayStorage(), entry);
       setPrepared(null);
       setModal(null);
       setPending(null);
@@ -4552,6 +4594,8 @@ export default function LivePlatform() {
                     secondary
                     disabled={busy}
                     onClick={() => {
+                      walletRestore.current?.cancel(); clearWalletPreference(displayStorage());
+                      setWalletRestoring(false);
                       if (walletInfo?.id === 'walletconnect') void qrConnector.current?.disconnect();
                       epoch.current++;
                       walletEpoch.current++;
@@ -4561,6 +4605,8 @@ export default function LivePlatform() {
                       setWalletChecking(false);
                       setWalletInfo(null);
                       connectedWallet.current = null;
+                      connectedSession.current = null;
+                      restoredProvider.current = null;
                       setPending(null);
                       clearWalletDisplay();
                       setModal(null);
