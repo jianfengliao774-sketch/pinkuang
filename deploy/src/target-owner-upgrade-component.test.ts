@@ -15,7 +15,7 @@ const compiled = ts.transpileModule(readFileSync(new URL('./TargetOwnerUpgradeSt
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 type Options = { source?: ui.TargetOwnerJournal; recoveryHash?: string; deniedLock?: boolean; jump48h?: boolean;
   beforeSendRead?: (f: any) => Promise<void>; afterBroadcast?: (f: any, hash: string) => void;
-  preflight?: (f: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number;
+  preflight?: (f: any, proofOptions: any) => Promise<void>; receiptStatus?: 0 | 1; pendingNonce?: number;
   walletInteger?: (count: number) => unknown };
 // Execute the actual component with deterministic hooks, wallet and read-only RPC adapters.
 // No browser, network, wallet extension or live chain is used by this test.
@@ -74,7 +74,7 @@ function fixture(options: Options = {}) {
     assert.deepEqual(Object.keys(deploymentsPrefix).filter(key => key !== name), names.slice(0, index)); return { data: `0x60${index.toString(16).padStart(2, '0')}` }; };
   const build = ({ replacements }: any) => { assert.equal(Object.keys(replacements).length, 3); return { timelock: a(8), operationId: h(50), scheduleData: '0x7000', executeData: '0x7001' }; };
   const proof = async (_provider: any, _common: any, proofOptions: any) => {
-    phases.push(proofOptions.phase); await options.preflight?.(f);
+    phases.push(proofOptions.phase); await options.preflight?.(f, proofOptions);
     assert.equal(Object.keys(proofOptions.deployments).length, names.filter(name => proofOptions.deployments[name]).length);
     return { blockNumber: 20, blockHash: h(20), operation: proofOptions.phase === 'prepared' ? null
       : proofOptions.phase === 'unscheduled' ? 'unscheduled' : proofOptions.phase === 'done' ? 'done'
@@ -115,6 +115,63 @@ function fixture(options: Options = {}) {
     unmount: () => cleanup.forEach(fn => fn()), receiptReads: () => receiptReads, find: (predicate: any) => walk(render(), predicate) };
   return f;
 }
+test('confirmed original receipt followed by component HTTP502 keeps its hash and readonly recovery never sends', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8));
+  source.deployments.PoolFunds = { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90) };
+  let unavailable = true;
+  const f = fixture({ source, preflight: async (current, proofOptions) => {
+    assert.equal(proofOptions.deployments.PoolFunds.address, ethers.getCreateAddress({ from: a(6), nonce: 0 }),
+      'component proof must include the original receipt-confirmed CREATE address');
+    assert.equal(proofOptions.deployments.PoolFunds.txHash, h(90));
+    assert.equal(current.journal().deployments.PoolFunds.status, 'submitted', 'receipt success alone cannot advance the durable journal');
+    assert.equal(current.state[11], '链上交易已确认，正在读取升级组件');
+    assert.equal(current.find((node: any) => node.props?.['data-testid'] === 'activation-state').props.children,
+      '链上交易已确认，正在读取升级组件');
+    if (unavailable) throw Object.assign(new Error('server response 502'), { code: 'SERVER_ERROR', info: { response: { statusCode: 502 } } });
+  } });
+  f.register(h(90), '0x6000', null); await f.recover();
+  assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source);
+  assert(f.receiptReads() >= 3, 'wait and canonical receipt rechecks completed before the failed component read');
+  assert.match(f.state[12], /链上交易已确认，原记录已保留/);
+  assert.match(f.state[12], /稍后点击“核对当前交易”；不会重复发送/);
+  assert.equal(f.find((node: any) => node.props?.['data-testid'] === 'activation-state').props.children,
+    '链上交易已确认，升级组件待核验');
+  unavailable = false; await f.recover();
+  assert.equal(f.sends.length, 0); assert.equal(f.journal().deployments.PoolFunds.status, 'confirmed');
+  assert.equal(f.journal().deployments.PoolFunds.txHash, h(90));
+  assert.equal(f.journal().deployments.PoolFunds.address, ethers.getCreateAddress({ from: a(6), nonce: 0 }));
+  assert.equal(f.journal().deployments.FlexiblePurchase, undefined);
+  assert.equal(f.state[12], ''); assert.match(f.state[13], /原交易已确认并保存/); f.unmount();
+});
+test('a later recovery must re-prove the original receipt before displaying its confirmed component phase', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8));
+  source.deployments.PoolFunds = { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90) };
+  const f = fixture({ source, preflight: async () => { throw new Error('server response 502'); } });
+  f.register(h(90), '0x6000', null); await f.recover();
+  assert.equal(f.find((node: any) => node.props?.['data-testid'] === 'activation-state').props.children,
+    '链上交易已确认，升级组件待核验');
+  f.provider.getTransactionReceipt = async () => { throw new Error('server response 502'); };
+  await f.recover(); assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source);
+  assert.equal(f.find((node: any) => node.props?.['data-testid'] === 'activation-state').props.children, '当前交易待确认');
+  assert.equal(f.state[12], 'server response 502'); f.unmount();
+});
+test('component integrity failure after a confirmed receipt remains explicit and cannot advance the original journal', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8));
+  source.deployments.PoolFunds = { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90) };
+  const failure = 'Reviewed deployed runtime differs: PoolFunds';
+  const f = fixture({ source, preflight: async () => { throw new Error(failure); } });
+  f.register(h(90), '0x6000', null); await f.recover();
+  assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source); assert.equal(f.state[12], failure); f.unmount();
+});
+test('wallet context cancellation clears the ephemeral confirmed-component phase without changing its submitted record', async () => {
+  const source = ui.newTargetOwnerJournal(context, h(8));
+  source.deployments.PoolFunds = { status: 'submitted', from: a(6), dataHash: ethers.keccak256('0x6000'), txHash: h(90) };
+  const f = fixture({ source, preflight: async current => { assert.equal(current.state[11], '链上交易已确认，正在读取升级组件');
+    current.dispatch('chainChanged', '0x1'); } });
+  f.register(h(90), '0x6000', null); await f.recover();
+  assert.equal(f.sends.length, 0); assert.deepEqual(f.journal(), source);
+  assert.equal(f.find((node: any) => node.props?.['data-testid'] === 'activation-state').props.children, '当前交易待确认'); f.unmount();
+});
 test('actual component automatically crosses confirmed PoolVault into schedule without duplicate full-graph reads', async () => {
   const f = fixture(); await f.click(); const item = f.journal();
   assert.equal(f.sends.length, 4); assert.equal(item.schedule.status, 'confirmed'); assert.equal(item.execute, undefined);
