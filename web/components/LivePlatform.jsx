@@ -85,7 +85,7 @@ import { startWalletRestore, saveWalletPreference, clearWalletPreference } from 
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
-import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, authorityStatusForRequest, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
+import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, authorityStatusForRequest, prefetchAuthorityNonce, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
 import ShareSaleDialogContent from './ShareSaleDialogContent';
 import TransactionResultDialog from './TransactionResultDialog';
@@ -111,6 +111,8 @@ import { readCurrentPoolMembers } from "../lib/live-members.mjs";
 import {
   connectWallet,
   authenticate,
+  preloadJournalSession,
+  invalidateJournalSession,
   readPending,
   sendProductTransaction,
   recoverPending,
@@ -539,6 +541,22 @@ export default function LivePlatform() {
   useEffect(() => {
     if (route.route === 'operator' && ['disconnected', 'denied'].includes(operatorAccess)) location.hash = 'home';
   }, [route.route, operatorAccess]);
+
+  useEffect(() => {
+    if (route.route !== 'operator' || !directAdministrator || !wallet || !account || !client?.provider
+      || config?.stage !== 'fresh-active' || publishingProject && !publishingProject.result) return;
+    let active = true;
+    const session = connectedSession.current, context = walletEpoch.current;
+    const controller = new AbortController();
+    const isCurrent = () => active && connectedSession.current === session && walletEpoch.current === context;
+    // One read on entry or a resolved publication, never a polling loop. Warm
+    // existing cookies without a login prompt; signing remains an explicit click.
+    void prefetchAuthorityNonce({ provider: wallet, readProvider: client.provider, config, account,
+      isCurrent, signal: controller.signal }).catch(() => {});
+    void preloadJournalSession({ provider: wallet, config, account, isCurrent }).catch(() => {});
+    return () => { active = false; controller.abort(); };
+  }, [route.route, directAdministrator, wallet, account, client, config, walletConnectionRevision,
+    !!publishingProject && !publishingProject.result, publishingProject?.result?.status]);
 
   useEffect(() => {
     // Only a real client, wallet account or page identity change retires user-action and members reads.
@@ -2034,7 +2052,7 @@ export default function LivePlatform() {
     if (creating && publishingProjectRef.current && !publishingProjectRef.current.result)
       throw new Error('上一笔项目发布正在确认，请先核对结果，请勿重复创建。');
     // A prepared signature is pinned during preview; confirmation must open the wallet without another read.
-    if (!preparedAuthority) await requireCurrentProductStage(config);
+    if (!preparedAuthority && !config.displayOnly) await requireCurrentProductStage(config);
     if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
     // The relay's durable journal/nonce checks serialize submissions. Its live
     // status RPC graph is recovery work, not a prerequisite for a wallet prompt.
@@ -2054,6 +2072,7 @@ export default function LivePlatform() {
     if (publication) setPublishingProject(publication);
     try { enteredRelay = true; onState?.({ status: 'submitting-authority' }); result = await submitAuthorityAction(config, account, command); }
     catch (problem) {
+      if ([401, 409].includes(problem.httpStatus)) invalidateJournalSession(wallet);
       // A status GET describes the latest shared Gas journal, which may still
       // be an older command. It cannot prove that this POST was accepted.
       if (problem.submissionRejected === true || [400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {

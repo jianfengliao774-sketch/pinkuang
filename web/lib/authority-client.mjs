@@ -142,7 +142,76 @@ const signaturePayload = signed => ({ types: { EIP712Domain: [
   { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' },
 ], ...signed.types }, primaryType: signed.primaryType, domain: signed.domain, message: signed.message });
 
-/** Preview only. Read the nonce/reservation now, then freeze the exact later wallet request. */
+const nonceCaches = new WeakMap();
+export const AUTHORITY_NONCE_CACHE_MS = 30_000;
+function nonceScope({ provider, config, account }) {
+  need(provider?.request && config?.displayOnly === true && config.stage === 'fresh-active'
+    && config.status === 'ready', '当前配置不支持预先准备管理员签名。');
+  const signer = getAddress(account), authority = getAddress(config.authority ?? config.manifest?.authority);
+  const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
+  need(signer !== ZeroAddress && authority !== ZeroAddress && pinned && same(pinned.address, authority)
+    && HASH.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
+  let scopes = nonceCaches.get(provider);
+  if (!scopes) { scopes = new Map(); nonceCaches.set(provider, scopes); }
+  const key = stable([signer, config]);
+  let scope = scopes.get(key);
+  if (!scope) {
+    scope = { entry: null, leases: new Set() }; scopes.set(key, scope);
+    if (scopes.size > 16) {
+      const oldest = scopes.keys().next().value;
+      for (const entry of scopes.get(oldest).leases) entry.consumed = true;
+      scopes.delete(oldest);
+    }
+  }
+  return { signer, authority, key, configKey: stable(config), scope };
+}
+
+/** One demand read, shared by this wallet/deployment/account. No timer or polling. */
+async function nonceEntry(input) {
+  const { provider, readProvider, config, account, readTimeoutMs = 8000,
+    isCurrent = () => true, signal } = input;
+  const { signer, authority, configKey, scope } = nonceScope(input);
+  need(isCurrent() && !signal?.aborted, '页面或钱包已改变，请重新预览。');
+  const now = Date.now(), cached = scope.entry;
+  for (const entry of scope.leases) if (entry.consumed || entry.readyAt && now - entry.readyAt >= 600_000) {
+    entry.consumed = true; scope.leases.delete(entry);
+  }
+  if (cached && !cached.consumed && (cached.task || now >= cached.readyAt && now < cached.expiresAt)) {
+    if (cached.task) await cached.task;
+    need(isCurrent() && !signal?.aborted && stable(config) === configKey && !cached.consumed,
+      '页面、钱包或签名序号已改变，请重新预览。');
+    return cached;
+  }
+  const entry = { consumed: false, readyAt: 0, expiresAt: 0, nonce: null, task: null };
+  scope.entry = entry; scope.leases.add(entry);
+  entry.task = boundedReadPreview(async ({ provider: reader }) => {
+    const raw = await reader.request({ method: 'eth_call', params: [{ to: authority,
+      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] });
+    const nonce = authorityAbi.decodeFunctionResult('nonces', raw)[0];
+    need(authorityAbi.encodeFunctionResult('nonces', [nonce]).toLowerCase() === raw.toLowerCase(),
+      '管理员签名序号返回值无效。');
+    need(stable(config) === configKey && !entry.consumed, '页面、钱包或签名序号已改变，请重新预览。');
+    entry.nonce = nonce; entry.readyAt = Date.now(); entry.expiresAt = entry.readyAt + AUTHORITY_NONCE_CACHE_MS;
+    return entry;
+  }, { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent, signal });
+  try { await entry.task; return entry; }
+  catch (problem) { if (scope.entry === entry) scope.entry = null; scope.leases.delete(entry); throw problem; }
+  finally { entry.task = null; }
+}
+
+/** Entering the workbench may prefetch once; callers choose when to refresh. */
+export async function prefetchAuthorityNonce(input) { return (await nonceEntry(input)).nonce; }
+
+/** Retire every prepared payload sharing this nonce before the wallet request. */
+export function invalidateAuthorityNonce(input, nonce) {
+  const { scope } = nonceScope(input);
+  for (const entry of scope.leases) if (nonce === undefined || entry.nonce === nonce) {
+    entry.consumed = true; scope.leases.delete(entry);
+    if (scope.entry === entry) scope.entry = null;
+  }
+}
+
+/** Preview only. Reuse a recent nonce and freeze the exact later wallet request. */
 export async function prepareAuthoritySignature({ provider, readProvider, config, account, kind, args,
   validitySeconds = 600, cacheLifetimeMs = 300000, readTimeoutMs = 8000,
   isCurrent = () => true, signal, onState }) {
@@ -156,14 +225,10 @@ export async function prepareAuthoritySignature({ provider, readProvider, config
   const pinned = config.freshAuthority ?? config.manifest?.freshAuthority;
   need(pinned && same(pinned.address, authority) && /^0x[\da-f]{64}$/i.test(pinned.codehash ?? ''), '管理员签名配置不完整。');
   const configKey = stable(config), argsKey = stable(args), capturedArgs = frozenCopy(args);
-  const reservation = creationReservation(config, kind, capturedArgs);
+  creationReservation(config, kind, capturedArgs); // Exact calldata validation is local; the contract checks availability.
   emit(onState, 'preparing-authority');
-  const [nonce] = await boundedReadPreview(async ({ provider: reader }) => Promise.all([
-    reader.request({ method: 'eth_call', params: [{ to: authority,
-      data: authorityAbi.encodeFunctionData('nonces', [signer]) }, 'latest'] })
-      .then(raw => authorityAbi.decodeFunctionResult('nonces', raw)[0]),
-    reservation ? requireMachineAvailable(reader, reservation) : null,
-  ]), { provider: readProvider, timeoutMs: readTimeoutMs, isCurrent, signal });
+  const entry = await nonceEntry({ provider, readProvider, config, account, readTimeoutMs, isCurrent, signal });
+  const nonce = entry.nonce;
   need(isCurrent() && !signal?.aborted && stable(config) === configKey && stable(args) === argsKey,
     '预览期间页面、钱包或操作参数已改变，请重新预览。');
   const createdAt = Date.now(), deadline = (BigInt(Math.floor(createdAt / 1000)) + BigInt(validitySeconds)).toString();
@@ -171,7 +236,7 @@ export async function prepareAuthoritySignature({ provider, readProvider, config
   const token = Object.freeze({});
   // The read signal may be aborted by its caller's normal cleanup after a successful
   // preview. Only page/wallet epochs govern the token after preparation completes.
-  preparedSignatures.set(token, { provider, signer, configKey, kind, argsKey, isCurrent, createdAt,
+  preparedSignatures.set(token, { provider, signer, configKey, kind, argsKey, isCurrent, createdAt, nonceEntry: entry,
     expiresAt: Math.min(createdAt + cacheLifetimeMs, Number(deadline) * 1000), signed,
     payload: JSON.stringify(signaturePayload(signed)),
     command: frozenCopy({ authority, expectedCodehash: pinned.codehash.toLowerCase(), kind,
@@ -195,8 +260,10 @@ export async function signPreparedAuthorityAction({ prepared, provider, config, 
   current();
   need(Date.now() >= stored.createdAt && Date.now() < stored.expiresAt,
     '管理员签名准备已过期，请重新预览。');
+  need(!stored.nonceEntry.consumed, '此签名序号已发起过钱包请求，请重新预览。');
   emit(onState, 'awaiting-admin-signature');
   current();
+  invalidateAuthorityNonce({ provider, config, account }, stored.nonceEntry.nonce);
   const signature = await stored.provider.request({ method: 'eth_signTypedData_v4',
     params: [stored.signer, stored.payload] });
   current();

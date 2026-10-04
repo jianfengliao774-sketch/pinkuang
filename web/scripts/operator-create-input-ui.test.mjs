@@ -290,8 +290,8 @@ test('verified creation reset clears stale form, selection and collapsed busy UI
   assert.equal(ui.field('矿机编号').value, ''); assert.equal(ui.field('矿机编号').disabled, false);
 });
 
-test('manual and imported flexible duplicate previews show the registered project without signing or refreshing quotes', async () => {
-  const occupied = address(9), data = dataFixture();
+test('manual and imported flexible previews skip duplicate reservation RPC and freeze the exact transaction', async () => {
+  const data = dataFixture();
   const checked = { quote: data.quote, reference: data.reference, chain: { collection: data.quote.collection,
     tokenId: data.quote.tokenId, registry: reservation(data.quote.tokenId), checkedAt: Date.now(), displayOnly: true } };
   const draft = quotes.operatorQuoteDraft(checked, { mode: 'createFlexiblePoolChecked' });
@@ -299,15 +299,15 @@ test('manual and imported flexible duplicate previews show the registered projec
     let reads = 0;
     const readProvider = { request: async ({ method, params }) => {
       reads++; assert.equal(method, 'eth_call'); assert.equal(params[1], 'latest');
-      assert.equal(abi.PoolFactory.parseTransaction(params[0]).name, 'machinePool');
-      return abi.PoolFactory.encodeFunctionResult('machinePool', [occupied]);
+      assert.equal(authorityNonce.parseTransaction(params[0]).name, 'nonces');
+      return authorityNonce.encodeFunctionResult('nonces', [7n]);
     } };
     const ui = fixture({ readProvider });
     if (flexible) { ui.button('单台矿机灵活替代').onClick(); ui.render(); ui.input('已核验矿机报价 JSON', JSON.stringify(draft)); }
     else fill(ui, { id: '7223' });
     await ui.button('预览创建矿池').onClick(); await ui.settle();
-    assert.equal(reads, 1); assert.equal(ui.results.length, 0);
-    assert.match(text(ui.tree), /已有拼矿项目/); assert.match(text(ui.tree), new RegExp(occupied));
-    assert.equal(elements(ui.tree).find(node => node.type === Dialog).props.title, '无法生成操作预览');
+    assert.equal(reads, 1); assert.equal(ui.results.length, 1);
+    assert.equal(elements(ui.tree).find(node => node.type === Dialog).props.title, '核对后前往钱包');
+    assert.equal(abi.PoolFactory.parseTransaction(ui.results[0].transaction).name, flexible ? 'createFlexiblePoolChecked' : 'createPool');
   }
 });

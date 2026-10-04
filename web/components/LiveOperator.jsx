@@ -116,8 +116,7 @@ export default function LiveOperator({ config, account, wallet, readProvider, op
       else input = { kind, pool, listingId, miningAction };
       check();
       setProgress(direct ? '正在生成操作预览…' : '正在核对链上条件，完成后显示确认窗口…');
-      const action = await prepareAdminAction({ provider, config, account, ...input,
-        ...(direct && autoSelection && creation ? { machineReservation: autoSelection.checked.chain.registry } : {}) });
+      const action = await prepareAdminAction({ provider, config, account, ...input });
       check();
       if (direct && config.stage === 'fresh-active') {
         const preparedAuthority = await prepareAuthoritySignature({

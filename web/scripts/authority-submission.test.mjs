@@ -4,7 +4,7 @@ import { Wallet, Interface, getAddress, ZeroAddress } from 'ethers';
 import { abi } from '../lib/chain-client.mjs';
 import { prepareAuthoritySubmission, signAuthorityAction, prepareAuthoritySignature,
   signPreparedAuthorityAction, authorityCommandData, authorityOperationId, authorityStatusForRequest,
-  submitAuthorityAction } from '../lib/authority-client.mjs';
+  submitAuthorityAction, prefetchAuthorityNonce, invalidateAuthorityNonce, AUTHORITY_NONCE_CACHE_MS } from '../lib/authority-client.mjs';
 import { prepareAuthorityCall } from '../../deploy/scripts/authority-relay.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 
@@ -51,7 +51,7 @@ test('wallet receives the exact signature before any slow session request; no si
     f.events.push('authenticate'); loginStarted(); await loginWait;
   } });
   await started;
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool', 'wallet:eth_signTypedData_v4', 'authenticate']);
+  assert.deepEqual(f.events, ['read:nonces', 'wallet:eth_signTypedData_v4', 'authenticate']);
   releaseLogin();
   const command = await work;
   assert.equal(command.nonce, '9'); assert.deepEqual(command.args, args);
@@ -64,7 +64,7 @@ test('a slow nonce read fails before signature; its late response cannot open a 
   await assert.rejects(work, error => error.code === 'read_timeout');
   finishes.forEach(finish => finish());
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
 });
 
 test('the read deadline never abandons or duplicates an outstanding wallet signature', async () => {
@@ -88,20 +88,11 @@ test('wallet changes before the read finishes prevent a late signature, and sess
   await new Promise(resolve => setImmediate(resolve)); current = false;
   finishes.forEach(finish => finish());
   await assert.rejects(work, error => error.code === 'read_cancelled');
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
   await assert.rejects(prepareAuthoritySubmission({ ...f.input, authenticate: async () => { throw Error('session offline'); } }), /session offline/);
 });
 
-test('an occupied miner never requests a signature or authentication', async () => {
-  const f = fixture({ pool: addr(24) }); let authenticated = false;
-  await assert.rejects(prepareAuthoritySubmission({ ...f.input,
-    authenticate: async () => { authenticated = true; } }), error =>
-    error.code === 'MachineAlreadyReserved' && error.pool === addr(24));
-  assert.equal(authenticated, false);
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
-});
-
-test('the exact signed miner is checked afresh for all five core creation selectors', async () => {
+test('all core creation selectors skip browser reservation reads and keep exact signed calldata', async () => {
   const params = abi.PoolFactory.parseTransaction({ data: args.data }).args[0];
   const flexible = { minVerifiedWeight: 12n, referencePriceWei: 70000n,
     targetDailyYieldAtomic: 456n, extraBps: 800n, referenceObservedAt: 1800000000n,
@@ -111,30 +102,10 @@ test('the exact signed miner is checked afresh for all five core creation select
     ['createFlexiblePoolChecked', [params, flexible, 42, 12]]]) {
     const f = fixture({ pool: addr(24) });
     const exactArgs = { target: core, data: abi.PoolFactory.encodeFunctionData(name, values) };
-    await assert.rejects(signAuthorityAction({ ...f.input, args: exactArgs }),
-      error => error.code === 'MachineAlreadyReserved');
-    assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+    const command = await signAuthorityAction({ ...f.input, args: exactArgs });
+    assert.equal(command.args.data, exactArgs.data);
+    assert.deepEqual(f.events, ['read:nonces', 'wallet:eth_signTypedData_v4']);
   }
-  // A prior available read is never retained as permission for a later click.
-  const f = fixture(); await signAuthorityAction(f.input);
-  let checks = 0;
-  await assert.rejects(signAuthorityAction({ ...f.input, readProvider: { request: input => {
-    if (input.params[0].to === core) { checks++; return registryAbi.encodeFunctionResult('machinePool', [addr(24)]); }
-    return f.input.readProvider.request(input);
-  } } }), error => error.code === 'MachineAlreadyReserved');
-  assert.equal(checks, 1); assert.equal(f.events.filter(event => event.startsWith('wallet:')).length, 1);
-});
-
-test('nonce and reservation start in parallel and a failed reservation never opens the wallet', async () => {
-  const f = fixture(); const started = []; let finishNonce;
-  const work = signAuthorityAction({ ...f.input, readProvider: { request: async input => {
-    started.push(input.params[0].to);
-    if (input.params[0].to === authority) return new Promise(resolve => { finishNonce = resolve; });
-    throw Error('registry unavailable');
-  } } });
-  await assert.rejects(work, /registry unavailable/);
-  assert.deepEqual(started, [authority, core]); assert.deepEqual(f.events, []);
-  finishNonce(nonceAbi.encodeFunctionResult('nonces', [9]));
 });
 
 test('noncreation approvals read only the nonce and no miner registry', async () => {
@@ -147,7 +118,7 @@ test('noncreation approvals read only the nonce and no miner registry', async ()
 test('preview prepares an opaque exact payload; confirmation signs with zero read RPC and agrees with the relay', async () => {
   const f = fixture(), prepared = await prepareAuthoritySignature(f.input);
   assert(Object.isFrozen(prepared)); assert.deepEqual(Object.keys(prepared), []);
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
   f.events.length = 0;
   const command = await prepareAuthoritySubmission({ ...f.input, prepared,
     config: structuredClone(config), args: { data: args.data, target: args.target },
@@ -176,13 +147,13 @@ test('prepared signatures reject forged or serialized tokens and changes to wall
     if (changed === 'args') input.args = { ...args, target: addr(99) };
     await assert.rejects(signPreparedAuthorityAction(input), /与预览不同/);
     await assert.rejects(signPreparedAuthorityAction({ ...f.input, prepared }), /失效或已使用/);
-    assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+    assert.deepEqual(f.events, ['read:nonces']);
   }
   const f = fixture(), prepared = await prepareAuthoritySignature(f.input);
   for (const forged of [{}, JSON.parse(JSON.stringify(prepared)), undefined, null]) {
     await assert.rejects(signPreparedAuthorityAction({ ...f.input, prepared: forged }), /失效或已使用/);
   }
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
 });
 
 test('a prepared token is consumed before a pending, rejected or unknown wallet request and cannot sign twice', async () => {
@@ -227,7 +198,7 @@ test('both preview and confirmation epochs remain binding after preparation', as
     if (change === 'confirm') confirmCurrent = false;
     await assert.rejects(signPreparedAuthorityAction({ ...f.input, prepared, isCurrent: () => confirmCurrent,
       onState: () => { if (change === 'onState') confirmCurrent = false; } }), /已改变/);
-    assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+    assert.deepEqual(f.events, ['read:nonces']);
   }
 });
 
@@ -238,7 +209,7 @@ test('successful outer read cleanup can abort its signal without invalidating th
     return prepareAuthoritySignature({ ...f.input, readProvider: provider, signal });
   }, { provider: f.input.readProvider });
   assert.equal(readSignal.aborted, true, 'the outer preview always aborts its read signal during cleanup');
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
   f.events.length = 0;
   const command = await signPreparedAuthorityAction({ ...f.input, prepared,
     readProvider: { request: () => assert.fail('confirmation must not read') } });
@@ -253,7 +224,7 @@ test('aborted or malformed nonce preparation never produces a token or opens the
   await new Promise(resolve => setImmediate(resolve)); controller.abort();
   await assert.rejects(work, error => error.code === 'read_cancelled');
   finish.forEach(resolve => resolve()); await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(f.events, ['read:nonces', 'read:machinePool']);
+  assert.deepEqual(f.events, ['read:nonces']);
   await assert.rejects(prepareAuthoritySignature({ ...f.input, readProvider: { request: async input =>
     input.params[0].to === authority ? '0x' : registryAbi.encodeFunctionResult('machinePool', [ZeroAddress]) } }));
   assert.equal(f.events.filter(event => event.startsWith('wallet:')).length, 0);

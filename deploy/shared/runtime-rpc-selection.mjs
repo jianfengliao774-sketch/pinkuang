@@ -60,8 +60,10 @@ async function readWithBackoff(rows, send, retryWait, isBatch) {
 class ReadBackoffRpcProvider extends JsonRpcProvider {
   #readQueue = Promise.resolve();
   #retryWait;
-  constructor(request, network, providerOptions, retryWait) {
+  #serializeReads;
+  constructor(request, network, providerOptions, retryWait, serializeReads = true) {
     super(request, network, providerOptions); this.#retryWait = retryWait;
+    this.#serializeReads = serializeReads;
   }
   _send(payload) {
     const rows = Array.isArray(payload) ? payload : [payload];
@@ -83,6 +85,9 @@ class ReadBackoffRpcProvider extends JsonRpcProvider {
       }
       return values;
     };
+    // Interactive signer reads form a small bounded concurrent group. They
+    // must not wait behind a historical graph scan or another read's backoff.
+    if (!this.#serializeReads) return run();
     const result = this.#readQueue.then(run);
     this.#readQueue = result.catch(() => {});
     return result;
@@ -133,29 +138,37 @@ export async function selectRuntimeRpcRequest(request, { env = process.env } = {
 
 /** Async worker startup: a single selected transport owns every nonce, receipt,
  * chain read and broadcast for the lifetime of this provider. */
-export async function createRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait } = {}) {
+export async function createRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait, serializeReads = true } = {}) {
   const selected = await selectRuntimeRpcRequest(request, { env });
-  return new ReadBackoffRpcProvider(selected.request, network, providerOptions, retryWait);
+  return new ReadBackoffRpcProvider(selected.request, network, providerOptions, retryWait, serializeReads);
 }
 
 class DeferredRuntimeRpcProvider extends ReadBackoffRpcProvider {
   #selection;
   #selected;
-  constructor(request, { env, network, providerOptions, retryWait }) {
-    super(request, network, { batchMaxCount: 1, ...providerOptions }, retryWait);
-    this.#selection = selectRuntimeRpcRequest(request, { env }).then(value => { this.#selected = value; return value; });
+  constructor(request, { env, network, providerOptions, retryWait, serializeReads, selection }) {
+    super(request, network, { batchMaxCount: 1, ...providerOptions }, retryWait, serializeReads);
+    this.#selection = (selection ?? selectRuntimeRpcRequest(request, { env }))
+      .then(value => { this.#selected = value; return value; });
     // Sync service construction can finish before its first awaited readiness
     // check. Preserve the failure for that check without an unhandled rejection.
     this.#selection.catch(() => {});
   }
   ready() { return this.#selection.then(() => undefined); }
+  // Separate queues, the same already selected transport and chain proof. This
+  // adds no second startup request and cannot silently choose another node.
+  forkReadLane({ providerOptions = {}, serializeReads = true, retryWait = wait } = {}) {
+    return new DeferredRuntimeRpcProvider(this._getConnection(), {
+      network: 56, providerOptions, retryWait, serializeReads, selection: this.#selection,
+    });
+  }
   _getConnection() { return this.#selected ? this.#selected.request.clone() : super._getConnection(); }
   async _send(payload) { await this.ready(); return super._send(payload); }
 }
 
 /** Sync service factory compatibility. Selection starts immediately, and all
  * provider I/O waits for it. A failed selection is sticky and fails closed. */
-export function createDeferredRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait } = {}) {
+export function createDeferredRuntimeRpcProvider(request, { env = process.env, network, providerOptions = {}, retryWait = wait, serializeReads = true } = {}) {
   const primary = typeof request === 'string' ? new FetchRequest(request) : request;
-  return new DeferredRuntimeRpcProvider(primary, { env, network, providerOptions, retryWait });
+  return new DeferredRuntimeRpcProvider(primary, { env, network, providerOptions, retryWait, serializeReads });
 }

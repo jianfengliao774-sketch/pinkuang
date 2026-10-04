@@ -702,13 +702,19 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   const prepared = command ? prepareAuthorityCall(command) : {
     authority: options.recoveryAuthority, expectedCodehash: options.recoveryCodehash,
   };
+  // Only the HTTP signer constructs this state after its one current-role and
+  // nonce read. CLI/recovery continue to perform their independent reads.
+  const fastState = options.fastSubmission === true && options.send && command
+    && !options.rebroadcastSigned && !options.cancelExpiredSigned && !options.rebroadcastCancel
+    && options.verifiedAuthorityState ? options.verifiedAuthorityState : null;
   if (!prepared.authority || ((options.send || !command) && !prepared.expectedCodehash))
     throw new Error('Authority recovery needs a reviewed address and codehash.');
   if (command && options.recoveryAuthority && !same(prepared.authority, options.recoveryAuthority))
     throw new Error('Recovery Authority differs from the command.');
   if (command && options.recoveryCodehash && prepared.expectedCodehash?.toLowerCase() !== options.recoveryCodehash)
     throw new Error('Recovery codehash differs from the command.');
-  if ((await provider.getNetwork()).chainId !== 56n) throw new Error('Authority relay only supports BSC mainnet.');
+  if (fastState ? fastState.chainId !== 56n
+    : (await provider.getNetwork()).chainId !== 56n) throw new Error('Authority relay only supports BSC mainnet.');
   if (options.acknowledgeFailure || options.acknowledgeReplacement || options.acknowledgeExpiredCancel) {
     const journalOptions = { factory: prepared.authority, pool: prepared.authority,
       transactionTarget: prepared.authority, journal: options.journal };
@@ -772,7 +778,10 @@ export async function runAuthorityRelay(provider, options, signer = null) {
       ? cancelExpiredSignedAuthority(provider, options, signer, prepared, journal, pendingResult)
       : manuallyRebroadcastAuthorityCancel(provider, options, signer, prepared, journal, pendingResult);
   }
-  const [code, first, second, gasWallet] = await Promise.all([
+  if (fastState && (!same(fastState.authority, prepared.authority)
+    || !same(fastState.account, prepared.signer))) throw new Error('Verified Authority state belongs to another action.');
+  const [code, first, second, gasWallet] = fastState
+    ? [fastState.code, fastState.first, fastState.second, fastState.gasWallet] : await Promise.all([
     provider.getCode(prepared.authority), authority.administratorOne(), authority.administratorTwo(), authority.gasWallet(),
   ]);
   if (code === '0x') throw new Error('Authority contract has no code.');
@@ -786,7 +795,7 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   // from durable calldata inside manuallyRebroadcastSigned, even when the
   // original administrator command JSON is no longer available.
   if (!options.rebroadcastSigned && prepared.deadline && BigInt(Math.floor(Date.now() / 1000)) > prepared.deadline) throw new Error('Administrator signature expired.');
-  if (prepared.signer && await authority.nonces(prepared.signer) !== prepared.nonce) {
+  if (prepared.signer && (fastState ? fastState.nonce : await authority.nonces(prepared.signer)) !== prepared.nonce) {
     throw new Error('Administrator signature nonce is not current.');
   }
   if (!options.send) return { status: 'read-only', kind: prepared.kind, authority: prepared.authority,
@@ -799,7 +808,8 @@ export async function runAuthorityRelay(provider, options, signer = null) {
   const [gasLimit, fee, balance, latestNonce, pendingNonce, latestBlock] = await Promise.all([
     authorityGasLimit(provider,
       { from: signer.address, to: prepared.authority, data: prepared.data, value: 0n }, options.gasLimit),
-    provider.getFeeData(), provider.getBalance(signer.address),
+    fastState ? provider.send('eth_gasPrice', []).then(value => ({ gasPrice: BigInt(value) }))
+      : provider.getFeeData(), provider.getBalance(signer.address),
     provider.getTransactionCount(signer.address, 'latest'), provider.getTransactionCount(signer.address, 'pending'),
     provider.getBlock('latest'),
   ]);
@@ -819,12 +829,14 @@ export async function runAuthorityRelay(provider, options, signer = null) {
     attempts: [{ kind: 'purchase', raw, hash, gasLimit: gasLimit.toString(), gasPrice: fee.gasPrice.toString(),
       createdAt: new Date().toISOString(), broadcastCount: 0 }] };
   writeJournal(options.journal, journal);
-  const [network, latestAgain, pendingAgain] = await Promise.all([
-    provider.getNetwork(), provider.getTransactionCount(signer.address, 'latest'),
-    provider.getTransactionCount(signer.address, 'pending'),
-  ]);
-  if (network.chainId !== 56n || latestAgain !== latestNonce || pendingAgain !== latestNonce) {
-    return { status: 'nonce-or-chain-changed-before-broadcast', hash };
+  if (!fastState) {
+    const [network, latestAgain, pendingAgain] = await Promise.all([
+      provider.getNetwork(), provider.getTransactionCount(signer.address, 'latest'),
+      provider.getTransactionCount(signer.address, 'pending'),
+    ]);
+    if (network.chainId !== 56n || latestAgain !== latestNonce || pendingAgain !== latestNonce) {
+      return { status: 'nonce-or-chain-changed-before-broadcast', hash };
+    }
   }
   journal.transaction.attempts[0].broadcastCount = 1;
   writeJournal(options.journal, journal);

@@ -8,7 +8,7 @@ import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { operatorCreateInput } from '../lib/operator-create-input.mjs';
 import { prepareAdminAction, sameAdminPurchasePreview } from '../lib/live-admin.mjs';
 import { preparePortfolioAction } from '../lib/live-portfolios.mjs';
-import { approvedOperatorCall, prepareAuthoritySignature, prepareAuthoritySubmission } from '../lib/authority-client.mjs';
+import { approvedOperatorCall, prepareAuthoritySignature, prepareAuthoritySubmission, prefetchAuthorityNonce } from '../lib/authority-client.mjs';
 import { portfolioFixture } from './portfolio-fixture.mjs';
 
 // Execute the shipped component handlers, including their actual preparation and
@@ -139,7 +139,7 @@ for (const portfolio of [false, true]) {
     const f = flow({ portfolio }); await f.create();
     assert(f.state.preview, f.state.error); assert.equal(f.state.busy, false);
     assert.equal(f.events.filter(event => event === 'read:nonce').length, 1);
-    assert.equal(f.events.filter(event => event === 'read:reservation').length, portfolio ? 0 : 2);
+    assert.equal(f.events.filter(event => event === 'read:reservation').length, 0);
     assert(!f.events.some(event => event.startsWith('wallet:')));
     f.events.length = 0; f.props.readProvider.request = forbidden('confirmation read RPC');
     await f.confirm();
@@ -182,10 +182,10 @@ test('canceling actual preparation prevents a late nonce reply from publishing a
   assert(!f.events.some(event => event.startsWith('wallet:')));
 });
 
-test('an occupied target fails the actual preview before requesting a wallet signature or journal login', async () => {
+test('actual preview skips duplicate browser reservation checks; the exact request goes to relay', async () => {
   const f = flow({ occupied: true }); await f.create();
-  assert.equal(f.state.preview, null); assert.match(f.state.error, /矿机|项目/);
-  assert.deepEqual(f.events, ['read:reservation']); assert.equal(f.commands.length, 0);
+  assert(f.state.preview, f.state.error); assert.deepEqual(f.events, ['read:nonce']);
+  await f.confirm(); assert.equal(f.commands.length, 1);
 });
 
 test('a wallet change while its signature dialog is open cannot forward that signature to authentication or relay', async () => {

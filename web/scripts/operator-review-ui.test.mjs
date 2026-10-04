@@ -230,16 +230,25 @@ test('expired, rejected and above-reference applications are visible but not rev
   }
 });
 
-test('leaving the review console during relay-status lookup cannot invoke its action', async () => {
+test('review confirmation invokes its action immediately without a second relay-status lookup', async () => {
   const pending = deferred(), actions = []; let reads = 0;
   const ui = host(consoleCode, 'default', { config, account: address(7), wallet: {}, mode: 'review',
-    onAction: async (...args) => actions.push(args) }, {
+    onAction: async (...args) => { actions.push(args); return { status: 'pending' }; } }, {
     '../lib/authority-client.mjs': { authorityActionStatus: () => ++reads === 1 ? Promise.resolve({ status: 'idle' }) : pending.promise },
   });
   await ui.settle();
   const inbox = elements(ui.tree).find(node => node.type?.name === 'RequestList');
-  const processing = inbox.props.onReview('reviewSale', { proposalId: '3' });
-  ui.unmount(); pending.resolve({ status: 'idle' }); await processing; assert.equal(actions.length, 0);
+  await inbox.props.onReview('reviewSale', { proposalId: '3' });
+  assert.equal(actions.length, 1); assert.equal(reads, 1); ui.unmount();
+});
+
+test('a stale review callback from an unmounted console cannot invoke its action', async () => {
+  const actions = [];
+  const ui = host(consoleCode, 'default', { config, account: address(7), wallet: {}, mode: 'review',
+    onAction: async (...args) => actions.push(args) });
+  await ui.settle();
+  const inbox = elements(ui.tree).find(node => node.type?.name === 'RequestList');
+  ui.unmount(); await inbox.props.onReview('reviewSale', { proposalId: '3' }); assert.equal(actions.length, 0);
 });
 
 const feeReceipt = (value, status = 'confirmed') => ({ kind: 'claimFees', hash: `0x${BigInt(value).toString(16).padStart(64, '0')}`, status });
