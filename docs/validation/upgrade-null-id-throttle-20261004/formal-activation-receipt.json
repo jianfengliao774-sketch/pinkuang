@@ -1,0 +1,9 @@
+{
+  "sourceHead": "a65f9e31dabeb240c16f4005c4f79a68302d4b04",
+  "active": "/var/www/bemine-v5/releases/assets-activity-a65f9e31dabe",
+  "previous": "/var/www/bemine-v5/releases/official-listing-capacity-80e754215a41",
+  "activatedAt": "2026-10-04T09:33:46.893329+00:00",
+  "runtimeRestarted": false,
+  "serviceProcessesUnchanged": true,
+  "publisherLockScope": "Cooperating publishers only; also checked active publishers and current/configuration/process CAS"
+}

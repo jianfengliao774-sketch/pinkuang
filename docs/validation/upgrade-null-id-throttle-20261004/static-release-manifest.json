@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "kind": "target-owner-upgrade-static-package-v1",
+  "preparedAt": "2026-10-04T09:31:49.070Z",
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "sourceDiffDigest": "505fd4f282dd84bba544fe3cf21744354467a532aead6259b4ffdce8a80d9be0",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedGenesisArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "trustedUpgradeArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+    "trustedReviewCatalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba"
+  },
+  "gasEvidenceDigest": "0x7f2f154c2c2d6814716273294240826f76a5c027aa37d4445016b74dbadbf48e",
+  "liveReviewEvidenceDigest": "0x9bb299f4580f4705bade2527bd83a67432ed765d9c90225601fb292b1034191b",
+  "liveReviewAnchor": {
+    "blockNumber": 125573741,
+    "blockHash": "0xe64eb0e9d0698215378e742446b066ee05beb42860bdfdaaf9ae6e17bb1e3082",
+    "checkedAt": "2026-10-03T23:39:09.538Z"
+  },
+  "entryPath": "/pinkuang-target-owner-upgrade/",
+  "files": {
+    "assets/target-owner-upgrade-B0G5ebXi.css": {
+      "bytes": 34763,
+      "sha256": "f3b321989498b87d3cfd6f96b7213da092bd8dc59dc8b2e3816cca11e889f11b"
+    },
+    "assets/target-owner-upgrade-CE82v1f4.js": {
+      "bytes": 557282,
+      "sha256": "f72ea876954ea12b4d46baeb94008b77aefebe968ee89a61940d3d45523ccfea"
+    },
+    "data/gasEvidence.json": {
+      "bytes": 3950,
+      "sha256": "29bb77532666ae0a7c78b1c727700f813c59d84e11ed6fd4864b0de2510014c1"
+    },
+    "data/genesisBundle.json": {
+      "bytes": 1423907,
+      "sha256": "47667cc5be2a649562e04d3915b471ef0b6b210426794dcfa0e34c1cb2bdb2ba"
+    },
+    "data/genesisRecord.json": {
+      "bytes": 39206,
+      "sha256": "3e0d86df860c91adc97ad96a71e5ed171aadc2cd51a0ec74f2b58380b08b6f93"
+    },
+    "data/liveReview.json": {
+      "bytes": 1441,
+      "sha256": "54db8e3cf81bdfc3688a81988a21881327b5a04351f73b7049b310e0bd51f7aa"
+    },
+    "data/reviewCatalog.json": {
+      "bytes": 1227576,
+      "sha256": "b659e1b5896c1449874e7cf8cf4d484e1a7e46ba198d48d1704a69632d2c9b02"
+    },
+    "data/trustedGenesisManifest.json": {
+      "bytes": 2799,
+      "sha256": "e0455e6d40c2bc4bd2d471ce4df222e03edfc6be1a0a529c91da6e9433363f97"
+    },
+    "data/upgradeBundle.json": {
+      "bytes": 1452805,
+      "sha256": "d5dfa455670fa13dc6e7d8fbeec64b97e794aea8a22710ab2b41458d39d12026"
+    },
+    "index.html": {
+      "bytes": 462,
+      "sha256": "734ed0afaaa67535e3ef99f5758e4fe366501ddaa43eaa403996c9ae7432c754"
+    }
+  },
+  "chainActionsPerformed": false,
+  "deployedOrActivated": false,
+  "legacyOwnerMigrationIncluded": false,
+  "rpcProxyRequired": "/pinkuang-target-owner-upgrade/api/rpc -> existing read-only RPC service"
+}

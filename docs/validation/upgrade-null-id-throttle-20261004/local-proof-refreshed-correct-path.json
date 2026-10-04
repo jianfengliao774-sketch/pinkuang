@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "phase": "prepared",
+  "blockNumber": 125653674,
+  "baselineVerified": true,
+  "elapsedMs": 15534,
+  "methods": {
+    "eth_chainId": 34,
+    "eth_getBlockByNumber": 6,
+    "eth_getCode": 24,
+    "eth_getStorageAt": 4,
+    "eth_call": 26
+  },
+  "failures": [],
+  "chainActionsPerformed": false,
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "readEndpoint": "candidate-loopback-4229",
+  "generatedAt": "2026-10-04T09:38:52.943Z"
+}

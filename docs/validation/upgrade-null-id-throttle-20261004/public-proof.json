@@ -1,0 +1,88 @@
+{
+  "ok": true,
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "endpoint": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/api/rpc",
+  "chainId": 56,
+  "blockNumber": 125654654,
+  "factoryCodehash": "0x37ee5f41b6c54959c6cfe10d4bf492abe3f98d59bf35d0971308d3e26e256931",
+  "implementationSlot": "0x000000000000000000000000e277615d720555839d48dba6bbdbb4eb6bd16bba",
+  "minDelaySeconds": 172800,
+  "receiptProbe": {
+    "kind": "historical confirmed genesis PoolFunds deployment, not user pending upgrade",
+    "txHash": "0x6b59c84ab5830871d1535a2c9bf1be15376c82993dd91afc9887cfa3716055e8",
+    "canonical": true
+  },
+  "requests": [
+    {
+      "method": "eth_chainId",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 950
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 672
+    },
+    {
+      "method": "eth_getCode",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 248
+    },
+    {
+      "method": "eth_getStorageAt",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 334
+    },
+    {
+      "method": "eth_call",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 682
+    },
+    {
+      "method": "eth_getTransactionByHash",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 949
+    },
+    {
+      "method": "eth_getTransactionReceipt",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 641
+    },
+    {
+      "method": "eth_getBlockByNumber",
+      "status": 200,
+      "matchedId": true,
+      "elapsedMs": 256
+    }
+  ],
+  "staticFiles": [
+    {
+      "path": "static-release-manifest.json",
+      "status": 200,
+      "sha256": "671aae5730093f3b293a7c1d23763c5270015843a9d712923d1f93e75bd6e9ee",
+      "bytes": 2946
+    },
+    {
+      "path": "index.html",
+      "status": 200,
+      "sha256": "734ed0afaaa67535e3ef99f5758e4fe366501ddaa43eaa403996c9ae7432c754",
+      "bytes": 462
+    },
+    {
+      "path": "assets/target-owner-upgrade-CE82v1f4.js",
+      "status": 200,
+      "sha256": "f72ea876954ea12b4d46baeb94008b77aefebe968ee89a61940d3d45523ccfea",
+      "bytes": 557282
+    }
+  ],
+  "elapsedMs": 5513,
+  "chainActionsPerformed": false,
+  "generatedAt": "2026-10-04T09:46:02.865Z"
+}

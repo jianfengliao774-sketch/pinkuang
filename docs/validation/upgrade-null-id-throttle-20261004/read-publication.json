@@ -1,0 +1,43 @@
+{
+  "published": true,
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "previousSourceCommit": "86d635e452cba857e820108c7218b8fc3cd5d237",
+  "helperBinding": {
+    "MainPID": "938255",
+    "NRestarts": "0",
+    "WorkingDirectory": "/srv/pinkuang-target-owner-read/releases/6841bf0132f600870b135e728ecb8ff5e882ee98",
+    "ActiveState": "active",
+    "SubState": "running",
+    "InvocationID": "0509dca94ed946609ddb35cf9d1da306"
+  },
+  "sourcePins": {
+    "deploy/server/live-data-proxy.mjs": "0840df9af1203aa4a4e41e80cad56d7b16866798da93cd2a0603e2bfb4864f65",
+    "deploy/server/target-owner-read-server.mjs": "c90487a4e6324eca8d7340fc21a56f852704db4ddf6b8139f34b180c2d7673d5",
+    "deploy/server/request-limiter.mjs": "c70933abb6c0c3a60c198ff2164105827f73d2915e837e009bc9a8035e9e3c64"
+  },
+  "onlyReadHelperRestarted": true,
+  "formalAndUpgradeStaticUnchanged": true,
+  "environmentUnchanged": true,
+  "nginxUnchanged": true,
+  "chainActionsPerformed": false,
+  "localProof": {
+    "ok": true,
+    "phase": "prepared",
+    "blockNumber": 125653674,
+    "baselineVerified": true,
+    "elapsedMs": 15534,
+    "methods": {
+      "eth_chainId": 34,
+      "eth_getBlockByNumber": 6,
+      "eth_getCode": 24,
+      "eth_getStorageAt": 4,
+      "eth_call": 26
+    },
+    "failures": [],
+    "chainActionsPerformed": false,
+    "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+    "readEndpoint": "candidate-loopback-4229",
+    "generatedAt": "2026-10-04T09:38:52.943Z"
+  },
+  "checkedAt": "2026-10-04T09:43:03.971798+00:00"
+}

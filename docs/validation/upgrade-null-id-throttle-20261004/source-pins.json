@@ -1,0 +1,8 @@
+{
+  "sourceCommit": "6841bf0132f600870b135e728ecb8ff5e882ee98",
+  "files": {
+    "deploy/server/live-data-proxy.mjs": "0840df9af1203aa4a4e41e80cad56d7b16866798da93cd2a0603e2bfb4864f65",
+    "deploy/server/target-owner-read-server.mjs": "c90487a4e6324eca8d7340fc21a56f852704db4ddf6b8139f34b180c2d7673d5",
+    "deploy/server/request-limiter.mjs": "c70933abb6c0c3a60c198ff2164105827f73d2915e837e009bc9a8035e9e3c64"
+  }
+}
