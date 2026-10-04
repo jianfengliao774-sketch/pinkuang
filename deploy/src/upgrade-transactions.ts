@@ -5,6 +5,28 @@ const same = (left: string, right: string) => getAddress(left) === getAddress(ri
 
 export class UncertainUpgradeSubmission extends Error {}
 
+/** Normalize exact wallet adapter integers before the strict chain proof parser sees them. */
+export function normalizeWalletRpcQuantity(value: unknown): string {
+  let integer: bigint;
+  if (typeof value === 'string' && value.length <= 80 && /^(?:0x[\da-f]+|\d+)$/i.test(value)) integer = BigInt(value);
+  else if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) integer = BigInt(value);
+  else throw new Error('钱包节点返回的整数无法精确读取，请重试或切换钱包节点。');
+  if (integer < 0n || integer >= (1n << 256n)) throw new Error('钱包节点返回的整数超出有效范围。');
+  return `0x${integer.toString(16)}`;
+}
+
+export function normalizeWalletRecoveryResult(method: string, value: unknown): unknown {
+  if (method === 'eth_getTransactionCount') return normalizeWalletRpcQuantity(value);
+  if (method !== 'eth_getBlockByNumber' || !value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const block = value as Record<string, unknown>;
+  const normalizeFields = (item: Record<string, unknown>, fields: string[]) => Object.fromEntries(
+    Object.entries(item).map(([key, field]) => [key, fields.includes(key) ? normalizeWalletRpcQuantity(field) : field]));
+  return { ...normalizeFields(block, ['number']), transactions: Array.isArray(block.transactions)
+    ? block.transactions.map(tx => tx && typeof tx === 'object' && !Array.isArray(tx)
+      ? normalizeFields(tx as Record<string, unknown>, ['nonce', 'value', 'chainId', 'blockNumber']) : tx)
+    : block.transactions };
+}
+
 export async function sendUpgradeTransaction(
   wallet: WalletProvider,
   transaction: { from: string; to?: string; data: string; nonce?: number },

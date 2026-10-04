@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "scope": "standalone upgrade explicit legacy deployment recovery",
+  "publishedAt": "2026-10-04T07:48:18.745923+00:00",
+  "url": "https://bemine.cc.cd/pinkuang-target-owner-upgrade/",
+  "sourceCommit": "78cb5f4f0a0e7b3c852ab4a4f9bebb184008f1a4",
+  "previousSourceCommit": "3b09f155789c83859de384e3d3d243dc2a561b4d",
+  "releaseDirectory": "/srv/pinkuang-target-owner-upgrade/releases/78cb5f4f0a0e7b3c852ab4a4f9bebb184008f1a4",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedGenesisArtifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+    "trustedUpgradeArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+    "trustedReviewCatalogDigest": "0x01ff90f9a074a6faeb71c452bd8ad36fc0989b143f68fe5240c4d6ece0c538ba"
+  },
+  "archiveSha256": "534e3fde8c49617482ce24a95dd4b3f460914682417d073bfb47064ecb9848ab",
+  "manifestSha256": "00abc6cc290a8ce37be95b5dcc081efb58f702742277e6b812b7d0efb936a849",
+  "verifiedFiles": [
+    "assets/target-owner-upgrade-B0G5ebXi.css",
+    "assets/target-owner-upgrade-nCzgF_Qp.js",
+    "data/gasEvidence.json",
+    "data/genesisBundle.json",
+    "data/genesisRecord.json",
+    "data/liveReview.json",
+    "data/reviewCatalog.json",
+    "data/trustedGenesisManifest.json",
+    "data/upgradeBundle.json",
+    "index.html"
+  ],
+  "retainedImmutableAssets": [
+    "assets/target-owner-upgrade-wT5pUdqv.js",
+    "assets/target-owner-upgrade-B-blP-HZ.js",
+    "assets/target-owner-upgrade-btLox2Nz.css"
+  ],
+  "servicesUnchanged": true,
+  "productUnchanged": true,
+  "nginxUnchanged": true,
+  "readOnlyRpcChainId": 56,
+  "chainActionsPerformed": false,
+  "codeUpgradeComplete": false
+}

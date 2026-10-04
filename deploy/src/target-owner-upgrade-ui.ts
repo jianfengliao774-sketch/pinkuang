@@ -16,6 +16,13 @@ export type TargetOwnerJournal = TargetOwnerContext & {
   deployments: Partial<Record<TargetOwnerName, UpgradeTransaction>>;
   schedule?: UpgradeTransaction; execute?: UpgradeTransaction;
   failedTransactions?: { step: TargetOwnerName | 'schedule' | 'execute'; transaction: UpgradeTransaction; evidence: FailedTargetOwnerReceipt }[];
+  abandonedUnknownDeployments?: AbandonedUnknownTargetOwnerDeployment[];
+};
+export type AbandonedUnknownTargetOwnerDeployment = {
+  step: TargetOwnerName; transaction: UpgradeTransaction;
+  reason: 'user-canceled-wallet-request'; acknowledged: true; checkedAt: string;
+  /** An observation made when archiving; this is never the unknown request's nonce. */
+  observedIntent: TargetOwnerIntent;
 };
 export type FailedTargetOwnerReceipt = { kind: 'target-owner-finalized-failed-transaction-v1'; chainId: 56; status: 0;
   txHash: string; from: string; to: string | null; value: '0'; dataHash: string; blockNumber: number; blockHash: string;
@@ -148,14 +155,16 @@ export function parseTargetOwnerJournal(value: unknown, context: TargetOwnerCont
   need(item && item.schemaVersion === 1 && item.kind === 'target-owner-upgrade-journal-v1'
     && targetOwnerJournalKey(item) === targetOwnerJournalKey(context), '升级记录与本页固定的正式图或候选产物不匹配。');
   need(Object.keys(item).every(key => ['factory', ...contextKeys, 'schemaVersion', 'kind', 'salt', 'delaySeconds',
-    'deployments', 'schedule', 'execute', 'failedTransactions'].includes(key)), '记录包含本次升级以外的操作。');
+    'deployments', 'schedule', 'execute', 'failedTransactions', 'abandonedUnknownDeployments'].includes(key)), '记录包含本次升级以外的操作。');
   need(hash(item.salt) && BigInt(item.salt) !== 0n && Number.isSafeInteger(item.delaySeconds) && item.delaySeconds >= 172800,
     '恢复记录需要非零 salt 和至少 48 小时。');
   need(item.deployments && typeof item.deployments === 'object' && !Array.isArray(item.deployments)
     && Object.keys(item.deployments).every(name => TARGET_OWNER_DEPLOYMENTS.includes(name as TargetOwnerName)), '只能恢复三个候选合约。');
   const addresses = new Set<string>(), transactions = new Set<string>(); let ended = false;
   function transaction(tx: UpgradeTransaction, deployment: boolean) {
-    need(tx && ['submitted', 'confirmed', 'uncertain'].includes(tx.status) && hash(tx.dataHash)
+    need(tx && typeof tx === 'object' && !Array.isArray(tx)
+      && Object.keys(tx).every(key => ['status', 'from', 'dataHash', 'txHash', 'address', 'intent'].includes(key))
+      && ['submitted', 'confirmed', 'uncertain'].includes(tx.status) && hash(tx.dataHash)
       && (tx.txHash === undefined || hash(tx.txHash)) && getAddress(tx.from) !== ZeroAddress, '升级交易字段无效。');
     need(tx.status === 'uncertain' || hash(tx.txHash), '已提交或确认交易缺少原交易哈希。');
     if (tx.intent !== undefined) validateTargetOwnerIntent(tx.intent);
@@ -190,7 +199,59 @@ export function parseTargetOwnerJournal(value: unknown, context: TargetOwnerCont
       && Number.isSafeInteger(evidence.blockNumber) && evidence.blockNumber > 0 && /^[1-9]\d*$/.test(evidence.gasUsed)
       && Number.isFinite(Date.parse(evidence.checkedAt)), '失败归档缺少匹配的最终规范回执。');
   }
+  need(item.abandonedUnknownDeployments === undefined || Array.isArray(item.abandonedUnknownDeployments)
+    && item.abandonedUnknownDeployments.length <= 100, '已关闭旧钱包请求的归档格式无效。');
+  let previousStep = -1;
+  const previousUnknown = new Map<TargetOwnerName, UpgradeTransaction>();
+  for (const abandoned of item.abandonedUnknownDeployments ?? []) {
+    need(abandoned && typeof abandoned === 'object' && !Array.isArray(abandoned)
+      && Object.keys(abandoned).length === 6
+      && Object.keys(abandoned).every(key => ['step', 'transaction', 'reason', 'acknowledged', 'checkedAt', 'observedIntent'].includes(key))
+      && TARGET_OWNER_DEPLOYMENTS.includes(abandoned.step), '只能归档本次三个候选合约的旧钱包请求。');
+    const index = TARGET_OWNER_DEPLOYMENTS.indexOf(abandoned.step), original = abandoned.transaction;
+    need(index >= previousStep && TARGET_OWNER_DEPLOYMENTS.slice(0, index)
+      .every(name => item.deployments[name]?.status === 'confirmed'), '旧钱包请求归档必须保留已确认的部署前缀和步骤顺序。');
+    previousStep = index;
+    need(original && typeof original === 'object' && !Array.isArray(original)
+      && Object.keys(original).length === 3
+      && Object.keys(original).every(key => ['status', 'from', 'dataHash'].includes(key))
+      && original.status === 'uncertain' && hash(original.dataHash) && getAddress(original.from) !== ZeroAddress,
+    '归档原请求只能是没有哈希、nonce 意图或地址的旧部署未知记录。');
+    need(abandoned.reason === 'user-canceled-wallet-request' && abandoned.acknowledged === true
+      && typeof abandoned.checkedAt === 'string' && Number.isFinite(Date.parse(abandoned.checkedAt))
+      && new Date(abandoned.checkedAt).toISOString() === abandoned.checkedAt, '旧钱包请求归档需要明确关闭确认和有效的观测时间。');
+    validateTargetOwnerIntent(abandoned.observedIntent);
+    const prior = previousUnknown.get(abandoned.step), active = item.deployments[abandoned.step];
+    for (const row of [prior, active]) if (row) need(getAddress(row.from) === getAddress(original.from)
+      && row.dataHash.toLowerCase() === original.dataHash.toLowerCase(), '旧请求归档与同一步骤的发送者或 calldata 摘要不匹配。');
+    previousUnknown.set(abandoned.step, original);
+  }
   return JSON.parse(JSON.stringify(item)) as TargetOwnerJournal;
+}
+
+/** Acknowledges a closed legacy wallet request, without claiming its transaction was found or failed.
+ * The caller must obtain currentIntent freshly and persist this result before allowing a later,
+ * separate click to prepare a new send. observedIntent is evidence of that observation only. */
+export function archiveLegacyTargetOwnerDeployment(source: TargetOwnerJournal, context: TargetOwnerContext, options: {
+  step: TargetOwnerName | 'schedule' | 'execute'; acknowledged: true; checkedAt: string; currentIntent: TargetOwnerIntent;
+}): TargetOwnerJournal {
+  const current = parseTargetOwnerJournal(source, context);
+  need(TARGET_OWNER_DEPLOYMENTS.includes(options.step as TargetOwnerName)
+    && targetOwnerPending(current) === options.step, '只能归档当前待核验的候选合约部署，不能解除治理交易。');
+  const step = options.step as TargetOwnerName, transaction = current.deployments[step]!;
+  need(transaction.status === 'uncertain' && transaction.txHash === undefined
+    && transaction.intent === undefined && transaction.address === undefined
+    && Object.keys(transaction).length === 3,
+  '已有交易哈希、发送意图或地址的请求必须恢复原交易，不能按旧钱包请求归档。');
+  need(options.acknowledged === true, '请先明确确认已关闭或取消原钱包请求。');
+  validateTargetOwnerIntent(options.currentIntent);
+  const next: TargetOwnerJournal = { ...current, deployments: { ...current.deployments },
+    abandonedUnknownDeployments: [...current.abandonedUnknownDeployments ?? [], {
+      step, transaction, reason: 'user-canceled-wallet-request', acknowledged: true,
+      checkedAt: options.checkedAt, observedIntent: options.currentIntent,
+    }] };
+  delete next.deployments[step];
+  return parseTargetOwnerJournal(next, context);
 }
 export function targetOwnerPending(journal: TargetOwnerJournal) {
   return TARGET_OWNER_DEPLOYMENTS.find(name => journal.deployments[name] && journal.deployments[name]?.status !== 'confirmed')
