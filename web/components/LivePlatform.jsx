@@ -87,6 +87,7 @@ import { loadProductConfig, loadProductDisplayConfig, validateCurrentProductGrap
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
 import { freshIdentityReadable, freshOperationsReady, freshReadClientIdentity } from '../lib/fresh-boot-recovery.mjs';
 import { assetOverview } from '../lib/asset-overview.mjs';
+import { assetPositionsWithBookedRewards, assetRewardPreview } from '../lib/asset-reward-preview.mjs';
 import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio-display-cache.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { readDeploymentAccount } from '../lib/deployment-account.mjs';
@@ -442,7 +443,7 @@ export default function LivePlatform() {
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
   refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading
-      || route.route === 'rewards' && uncollectedRewards?.status === 'loading',
+      || ['overview', 'rewards'].includes(route.route) && uncollectedRewards?.status === 'loading',
     busy, inputModal: !!modal, modal: !!modal || !!transactionResult, pending: !!pending,
     failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
@@ -1147,7 +1148,7 @@ export default function LivePlatform() {
     };
   }, [client, account, route.route, route.pool, marketTab, displayRefreshKey]);
 
-  // Pending output is read only for the loaded rewards page. Index/price ticks
+  // Pending output is read only for loaded overview/rewards pages. Index/price ticks
   // do not start paid per-miner reads; manual refresh and settled transactions do.
   const rewardPoolsKey = same(positionsAccount, account)
     ? [...new Set(positions.map(p => p.pool.toLowerCase()))].sort().join(',') : '';
@@ -1210,7 +1211,7 @@ export default function LivePlatform() {
   useEffect(() => {
     let cancelled = false;
     setUncollectedRewards(null);
-    if (route.route !== 'rewards' || !client?.readUncollectedRewards || !account
+    if (!['overview', 'rewards'].includes(route.route) || !client?.readUncollectedRewards || !account
       || !positionsLoaded || !same(positionsAccount, account)) return;
     const revision = `${refresh}:${rewardsRefresh}`;
     const previous = uncollectedRequest.current;
@@ -2515,7 +2516,7 @@ export default function LivePlatform() {
         const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
         if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) {
-          if (route.route === 'rewards') setRewardsRefresh(v => v + 1);
+          setRewardsRefresh(v => v + 1);
           setReceiptDisplayRefresh(v => v + 1); return;
         }
         setRefresh(v => v + 1);
@@ -2594,7 +2595,7 @@ export default function LivePlatform() {
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false, hideStatus = false, directory = null, category = null) => {
+  const poolTable = (rows, holdings = false, hideStatus = false, directory = null, category = null, rewardPreview = null) => {
     const catalog = route.route === "pools" && !holdings;
     const group = category ?? filter;
     const columns = !catalog ? ["miner", ...(hideStatus ? [] : ["status"]), "shares", "unit", "daily", "capacity", "actions"]
@@ -2607,12 +2608,15 @@ export default function LivePlatform() {
       shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
       unit: L("每份金额", "Price per share"), hash: L("算力 H", "Hash power H"),
       members: L("参与人数", "Participants"),
-      daily: holdings ? L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
+      daily: holdings ? rewardPreview ? L('待领取 BEM（预计）', 'BEM to claim (estimated)')
+        : L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
       capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
     };
     const summary = catalog && filter === 'all';
+    const previewRows = new Map((rewardPreview?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
     const displayRows = rows.map(p => {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+          const bemPreview = previewRows.get(p.pool.toLowerCase());
           const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
           const fundingBnbClaim = holdings && p.kind !== 'portfolio' && p.status === 'Funding'
             ? claimState(p, 'BNB', positionsReadSource) : null;
@@ -2633,7 +2637,13 @@ export default function LivePlatform() {
             unit: <>{displayPreciseAmount(p.unitPriceWei)} BNB</>,
             hash: metadata?.hashPower ?? "—",
             members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
-            daily: holdings ? <>{amount(p.claimableBEM,8)} BEM</> : quote
+            daily: holdings ? rewardPreview ? <>
+              <span>{amount(bemPreview?.totalEstimatedBEM ?? null, 8)} BEM</span>
+              <small className="live-order-state">{L('已入账', 'Booked')} {amount(bemPreview?.bookedBEM ?? null, 8)} BEM</small>
+              <small className="live-order-state">{p.kind === 'portfolio'
+                ? L('待归集收益见项目详情', 'See project details for uncollected output')
+                : <>{L('待归集（预计）', 'Uncollected (estimated)')} {amount(bemPreview?.uncollectedBEM ?? null, 8)} BEM</>}</small>
+            </> : <>{amount(p.claimableBEM,8)} BEM</> : quote
               ? `${displayPreciseAmount(quote.estimated24hAtomic, 8)} BEM`
               : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p),
             capacity: holdings ? <>{amount(p.bnbOwed)} BNB</> : currentPoolCapacityPrice(p) != null
@@ -3004,10 +3014,11 @@ export default function LivePlatform() {
   };
   const renderAssetOverview = page => {
     if (!account) return null;
-    const view = assetOverview({singlePositions:positions,portfolioRows:page.rows,
+    const view = assetOverview({singlePositions:assetPositionsWithBookedRewards(positions,rewardsView),portfolioRows:page.rows,
       singleLoaded:positionsLoaded && same(positionsAccount,account),portfolioLoaded:page.loaded,
       singleCursor:positionCursor,portfolioCursor:page.cursor,singleError:!!positionsReadError,portfolioError:page.failed || !page.enabled});
     const totals = view.complete ? view.totals : view.loadedTotals;
+    const rewardPreview = assetRewardPreview(view.scopeRows, rewardsView);
     const partial = view.partial;
     const historical = !config?.displayOnly && (positionsReadSource?.stale || page.source?.stale || boot.rechecking || walletChecking);
     const updating = positionsReadLoading || page.loading;
@@ -3016,8 +3027,10 @@ export default function LivePlatform() {
       {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton,
         L('查看项目持仓、已入账收益和待领取款项。','Positions, rewards and claimable funds.'))}
       <div className="metrics" data-asset-summary="unified">
-        <Metric primary title={historical?L('上次核验可领取','Previously verified BEM'):partial?L('已加载可领取','Loaded claimable BEM'):L('当前可领取','Claimable BEM')}
-          value={amount(totals.claimableBem,8)} unit="BEM"/>
+        <Metric primary title={historical?L('上次核验待领取 BEM（预计）','Previous BEM to claim (estimated)'):partial?L('已加载待领取 BEM（预计）','Loaded BEM to claim (estimated)'):L('待领取 BEM（预计）','BEM to claim (estimated)')}
+          value={view.loaded ? amount(rewardPreview.totals.totalEstimatedBEM,8) : '—'} unit="BEM"
+          note={<>{L('已入账', 'Booked')} {view.loaded ? amount(rewardPreview.totals.bookedBEM, 8) : '—'}
+            {' · '}{L('单矿机待归集', 'Uncollected single-pool BEM')} {view.loaded ? amount(rewardPreview.totals.uncollectedBEM, 8) : '—'}</>}/>
         <Metric title={historical?L('我的历史待领取 BNB','My previous claimable BNB'):partial?L('我的已加载待领取 BNB','My loaded claimable BNB'):L('我的待领取 BNB','My claimable BNB')}
           value={amount(totals.bnbOwed)} unit="BNB"/>
         <Metric title={partial?L('已加载持有项目','Loaded projects held'):L('持有项目','Projects held')}
@@ -3032,7 +3045,15 @@ export default function LivePlatform() {
           <button className="btn secondary" disabled={updating||busy||!!pending} onClick={()=>void page.load()}>{L('重新读取','Retry')}</button></div>}
         {updating&&view.rows.length>0&&<p className="subtle-note" role="status">{L('正在更新持仓…','Updating positions…')}</p>}
         {partial&&view.loaded&&<p className="subtle-note">{L('当前汇总仅包含已加载持仓。','The summary includes only loaded positions.')}</p>}
-        {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length})}
+        <p className="subtle-note" style={{ margin: '0 24px 20px' }} data-asset-rewards-status={rewardsView?.status ?? 'idle'}>{rewardsView?.status === 'loading'
+          ? L('正在读取待归集收益…', 'Reading uncollected output…')
+          : ['partial', 'unavailable'].includes(rewardsView?.status)
+            ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+            : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。', 'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection.')}
+          {rewardPreview.includesPortfolio && <> {L('多矿机项目仅计已入账收益，待归集收益见项目详情。', 'Portfolios include booked rewards only; see project details for uncollected output.')}</>}
+          {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
+        </p>
+        {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length},null,rewardPreview)}
         {more&&<div className="live-more"><Button secondary disabled={updating||busy||!!pending||page.failed||!!positionsReadError}
           onClick={()=>void Promise.allSettled([positionCursor!=null?thisMorePositions():Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>{L('加载更多','Load more')}</Button></div>}
       </section>

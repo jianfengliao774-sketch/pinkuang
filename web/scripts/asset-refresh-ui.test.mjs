@@ -23,7 +23,7 @@ function effect(marker, context) {
 }
 
 function automaticRefreshFixture() {
-  let now = 1000, check, stream, refreshes = 0, nextTimer = 0;
+  let now = 1000, check, stream, refreshes = 0, rewardRefreshes = 0, nextTimer = 0;
   const scheduled = new Map();
   const owner = '0x' + 'aa'.repeat(20), route = { route: 'overview' };
   class Source {
@@ -44,6 +44,7 @@ function automaticRefreshFixture() {
     Date: { now: () => now }, document: doc, window: { addEventListener() {}, removeEventListener() {} },
     setInterval: callback => { check = callback; return 1; }, clearInterval() {},
     setReceiptDisplayRefresh: () => refreshes++, setRefresh: () => assert.fail('No verified-chain generation changes.'),
+    setRewardsRefresh: update => { rewardRefreshes = update(rewardRefreshes); },
     submissionLock: { current: null }, setBootAttempt: () => assert.fail('No rebootstrap.'),
     fetchLiveJson: () => assert.fail('No product graph/RPC requests.'),
     startDisplayUpdates: (options, callbacks) => startDisplayUpdates(options, { ...callbacks,
@@ -64,7 +65,7 @@ function automaticRefreshFixture() {
     now = time;
   };
   return { context, scheduled, advance, push: revision => stream.emit(revision),
-    periodic: () => check(), count: () => refreshes,
+    periodic: () => check(), count: () => refreshes, rewardCount: () => rewardRefreshes,
     navigate(nextRoute, nextOwner = context.account) {
       stopPage?.(); context.route = nextRoute; context.account = nextOwner;
       context.routeIdentity.current = nextRoute;
@@ -97,11 +98,15 @@ test('periodic/focus and push share one automatic budget while the latest dirty 
 test('a push before the due timer records the shared timestamp and manual refresh remains immediate', () => {
   const f = automaticRefreshFixture();
   f.advance(16_000); f.push('before-timer'); f.advance(16_750); assert.equal(f.count(), 1);
+  assert.equal(f.rewardCount(), 0, 'Push must leave the per-miner read revision unchanged.');
   f.periodic(); assert.equal(f.count(), 1, 'The due timer must observe the preceding push.');
+  assert.equal(f.rewardCount(), 0);
   f.advance(17_000); f.manual(); assert.equal(f.count(), 2, 'Deliberate refresh bypasses automatic throttling.');
+  assert.equal(f.rewardCount(), 1, 'Manual overview refresh must also refresh estimated rewards.');
   assert.equal(f.context.lastPageRefresh.current.get(f.context.displayRefreshPage.current), 17_000);
   f.push('after-manual'); f.advance(17_750); assert.equal(f.count(), 2);
   f.advance(32_750); assert.equal(f.count(), 3, 'A manual refresh delays but does not discard a later dirty event.');
+  assert.equal(f.rewardCount(), 1, 'Later index/SSE events cannot start another per-miner read.');
   f.close();
 });
 
@@ -186,19 +191,20 @@ test('the actual manual overview refresh works with a pending receipt and refuse
   const end = source.indexOf('\n      }}\n      disabled=', start);
   assert(start > 0 && end > start);
   const code = source.slice(start + '      onClick={() => {'.length, end);
-  let refreshes = 0;
+  let refreshes = 0, rewardRefreshes = 0;
   const state = { current: { loading: false } };
   const context = { boot: { status: 'ready', displayOnly: true }, route: { route: 'overview' }, account: 'fixture',
     refreshState: state, portfolioRead: { current: {} }, submissionLock: { current: null },
     lastPageRefresh: { current: new Map() },
     displayRefreshPageKey,
-    setReceiptDisplayRefresh: () => refreshes++, setRefresh: () => assert.fail('Overview only uses cache GETs.'),
+    setReceiptDisplayRefresh: () => refreshes++, setRefresh: () => assert.fail('Overview uses dedicated display/read revisions.'),
+    setRewardsRefresh: update => { rewardRefreshes = update(rewardRefreshes); },
     setBootAttempt: () => assert.fail('A ready page does not rebootstrap.'),
     fetchLiveJson: () => assert.fail('No graph/RPC preflight on a cached refresh.'),
   };
   const click = new Function(...Object.keys(context), `return () => {${code}\n};`)(...Object.values(context));
-  click(); assert.equal(refreshes, 1);
-  state.current.loading = true; click(); assert.equal(refreshes, 1);
+  click(); assert.equal(refreshes, 1); assert.equal(rewardRefreshes, 1);
+  state.current.loading = true; click(); assert.equal(refreshes, 1); assert.equal(rewardRefreshes, 1);
 });
 
 test('the actual positions effect paints old rows immediately, then replaces waiting purchase with the server Active row', async () => {
