@@ -33,6 +33,16 @@ test('visible refund card preserves exact selected pool and existing transaction
   assert.equal(nodes(Notice({ ...props, blocked: true })).find(node => node.type === 'button').props.disabled, true);
   assert.equal(nodes(Notice({ ...props, readyFor: () => false })).find(node => node.type === 'button').props.disabled, true);
 });
+test('a delisted missing-order card shows the correct reason and retains the withdrawal button in both languages', () => {
+  const row=p(0n);row.targetAvailability={...row.targetAvailability,currentOwner:a(2),reason:'target_listing_unavailable',
+    listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}};
+  const calls=[],props={row,source:{indexedTimestamp:1200},readyFor:()=>true,onAction:(...args)=>calls.push(args)};
+  const zh=Notice({...props,L:(zh,en)=>zh}),en=Notice({...props,L:(zh,en)=>en});
+  assert.match(text(zh),/无有效卖单.*已下架/);assert.doesNotMatch(text(zh),/已转移|买走/);
+  assert.match(text(en),/no valid sell order/);assert.doesNotMatch(text(en),/was transferred/);
+  const button=nodes(zh).find(node=>node.type==='button');assert.equal(button.props.disabled,false);
+  button.props.onClick();assert.deepEqual(calls,[['withdrawDeposit',row]]);
+});
 test('English Funded card shows deadline and disables early opening, then enables only at the indexed deadline', () => {
   const props = { row: p(1n), source: { indexedTimestamp: 1499 }, L: (zh, en) => en, readyFor: () => true, onAction: () => {} };
   const before = Notice(props); assert.match(text(before), /not automatic or immediate/); assert.match(text(before), /Refund deadline not reached/);

@@ -17,7 +17,35 @@ const validBlockHash = value => /^0x[\da-f]{64}$/i.test(value ?? '');
 const stateNumber = value => typeof value === 'bigint' && value >= 0n && value <= 5n ? Number(value)
   : typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 5 ? value : null;
 
-/** Display decision from the same-origin indexed owner proof; it never changes contract state. */
+const freshTargetListingEvidence = (proof, now) => {
+  const evidence = proof?.listingEvidence, observed = Date.parse(evidence?.observedAt ?? '');
+  const validUntil = Date.parse(evidence?.validUntil ?? '');
+  return typeof evidence?.observedAt === 'string' && Number.isFinite(observed)
+    && new Date(observed).toISOString() === evidence.observedAt
+    && typeof evidence?.validUntil === 'string' && Number.isFinite(validUntil)
+    && new Date(validUntil).toISOString() === evidence.validUntil
+    && Number.isFinite(now) && observed <= now && now - observed <= 120_000 && now < validUntil;
+};
+/** A missing order is proven only by two successful, recent source checks. */
+export function confirmedMissingTargetListing(proof, now = Date.now()) {
+  return proof?.listingEvidence?.official === 'absent' && proof?.listingEvidence?.firsto === 'absent'
+    && freshTargetListingEvidence(proof, now);
+}
+/** A current sell order on either venue suffices, even if the other venue is unknown. */
+export function confirmedAvailableTargetListing(proof, now = Date.now()) {
+  return ['available', 'absent', 'unknown'].includes(proof?.listingEvidence?.official)
+    && ['available', 'absent', 'unknown'].includes(proof?.listingEvidence?.firsto)
+    && (proof.listingEvidence.official === 'available' || proof.listingEvidence.firsto === 'available')
+    && freshTargetListingEvidence(proof, now);
+}
+
+/** Used only after the target proof has established that the project is unavailable. */
+export const fundingTargetUnavailableText = row => row?.targetAvailability?.reason === 'target_listing_unavailable'
+  && sameAddress(row.targetAvailability.currentOwner, row.targetAvailability.originalOwner)
+  ? ['目标矿机当前无有效卖单，本项目已下架', 'The target miner has no valid sell order; this project was delisted']
+  : ['目标矿机已转移给其他持有人，本项目已下架', 'The target miner was transferred to another holder; this project was delisted'];
+
+/** Display decision from the same-origin owner and listing proof; it never changes contract state. */
 export function fundingTargetStatus(row) {
   const expectedState = row?.status === 'Funding' ? 0 : row?.status === 'Funded' ? 1 : null;
   if (expectedState === null || row?.kind === 'portfolio') return 'not_applicable';
@@ -35,8 +63,11 @@ export function fundingTargetStatus(row) {
   const current = validAddress(proof.currentOwner);
   if (!pool || !original || !current || sameAddress(current, pool))
     return 'unknown';
-  if (proof.status === 'available' && sameAddress(current, original)) return 'available';
+  if (proof.status === 'available' && sameAddress(current, original))
+    return proof.reason === 'target_listing_available' && !confirmedAvailableTargetListing(proof) ? 'unknown' : 'available';
   if (proof.status === 'unavailable' && !sameAddress(current, original)) return 'unavailable';
+  if (proof.status === 'unavailable' && proof.reason === 'target_listing_unavailable'
+    && sameAddress(current, original) && confirmedMissingTargetListing(proof)) return 'unavailable';
   return 'unknown';
 }
 /** Open a preview from the loaded page; the contract applies its own rules. */

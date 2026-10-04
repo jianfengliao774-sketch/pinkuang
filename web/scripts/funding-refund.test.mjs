@@ -21,6 +21,21 @@ test('delisted Funding target preserves personal shares, credits and withdrawal 
   assert.match(view.explanation[0], /确认后再点击领取/); assert.match(view.explanation[1], /After confirmation, claim BNB/);
   assert.doesNotMatch(view.title[0], /买走|已售/); assert.equal(notices([p]).length, 1);
 });
+test('missing-listing delisting preserves personal exits and notices without claiming the miner was sold', () => {
+  for(const [state,status] of [[0n,'Funding'],[1n,'Funded']]){
+    const p=row({state,status,targetAvailability:{...proof(state),currentOwner:a(2),reason:'target_listing_unavailable',
+      listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}}});
+    const view=fundingRefundView(p,source);
+    assert.equal(projectDirectory([p],[]).rows.length,0);
+    assert.equal(assetOverview({singlePositions:[p],singleLoaded:true,portfolioLoaded:true}).rows.length,1);
+    assert.equal(view.relevant,true);assert.equal(notices([p]).length,1);
+    assert.match(view.title[0],/无有效卖单.*已下架/);assert.doesNotMatch(view.title[0],/转移|买走|已售/);
+    assert.deepEqual(view.actions.map(action=>action.kind),state===0n?['withdrawDeposit']:['finalizeFailure']);
+    if(state===1n) assert.equal(view.actions[0].ready,false);
+    const credit={...p,shares:0n,bnbOwed:123n};
+    assert.deepEqual(fundingRefundView(credit,source).actions.map(action=>action.kind),['withdrawBnb']);
+  }
+});
 test('fully funded old pool waits for its exact chain purchase deadline; local clock does not authorize early refunds', () => {
   const p = row({ state: 1n, status: 'Funded', shares: 50n, targetAvailability: proof(1n) });
   const before = fundingRefundView(p, { indexedTimestamp: 1499 });

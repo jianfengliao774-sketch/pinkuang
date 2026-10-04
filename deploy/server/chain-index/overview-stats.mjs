@@ -12,7 +12,7 @@ const sourceUint = value => typeof value === 'string' ? uint(value) : null;
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** The product proxy already shares and caches exact display-only Firsto details. */
-export function overviewQuoteLoader({ fetcher = fetch, baseUrl = `http://127.0.0.1:${FRESH_RUNTIME.apiPort}/firsto-api` } = {}) {
+export function overviewQuoteLoader({ fetcher = fetch, baseUrl = `http://127.0.0.1:${FRESH_RUNTIME.apiPort}/firsto-api`, withDelivery = false } = {}) {
   const base = new URL(baseUrl);
   if (base.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(base.hostname)
     || base.pathname !== '/firsto-api' || base.search || base.hash || base.username || base.password)
@@ -31,7 +31,11 @@ export function overviewQuoteLoader({ fetcher = fetch, baseUrl = `http://127.0.0
       size += value.length; if (size > 2_000_000) { await reader.cancel(); throw new Error('Mining display quote too large.'); }
       chunks.push(value);
     }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const detail = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    // Delisting needs the original delivery time, including on proxy cache
+    // hits. Receiving an old cached body now must not make its evidence fresh.
+    return withDelivery ? { detail, fetchedAt: response.headers.get('x-firsto-fetched-at'),
+      responseDate: response.headers.get('x-firsto-response-date') } : detail;
   };
 }
 
