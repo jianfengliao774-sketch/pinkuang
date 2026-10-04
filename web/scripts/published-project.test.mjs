@@ -276,14 +276,15 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
   const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
   const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
   assert(relayStart > 0 && relayEnd > relayStart && sendStart > 0 && sendEnd > sendStart);
-  const calls = [], feedback = [], state = { job: null, busy: false }, walletEpoch = { current: 0 }, publishingProjectRef = { current: null };
+  const calls = [], feedback = [], sessionInvalidations = [], state = { job: null, busy: false }, walletEpoch = { current: 0 }, publishingProjectRef = { current: null };
   const context = { config: { ...f.config, stage: 'fresh-active', displayOnly: true }, isOperator: true,
     operatorServiceReady: true, wallet: { request: () => assert.fail('Tests cannot request real wallet actions.') },
     account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
     epoch: { current: 0 }, submissionLock: { current: null }, publishingProjectRef,
     rewardSendingBlocked: () => rewardBlocked,
     same: (a, b) => a?.toLowerCase() === b?.toLowerCase(), L: zh => zh, textError: error => error.message,
-    requireCurrentProductStage: async () => { calls.push('stage'); },
+    requireCurrentProductStage: async () => assert.fail('Direct creation must not fetch the product graph before signing.'),
+    invalidateJournalSession: provider => { assert.equal(provider, context.wallet); sessionInvalidations.push(provider); },
     prepareAuthoritySubmission: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
       assert.equal(input.args.target, f.config.factory); assert.equal(input.args.data, f.transaction.data);
       if (rejectSign) throw rejectSign; afterSign?.(walletEpoch);
@@ -305,7 +306,7 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
     handleResult: () => assert.fail('A relay hash cannot be normalized as a member transaction result.') };
   const send = new Function(...Object.keys(context), source.slice(relayStart, relayEnd) + source.slice(sendStart, sendEnd)
     + '\nreturn sendAdminAction;')(...Object.values(context));
-  return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, state, context };
+  return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, sessionInvalidations, state, context };
 }
 
 test('unresolved reward transaction blocks admin creation before signing or relaying', async () => {
@@ -323,7 +324,7 @@ test('actual admin creation registers exact creation intent and pending feedback
   assert.deepEqual(f.state.job.intent.expected, f.intent.expected); assert.equal(f.state.job.intent.nonce, '7');
   assert.equal(f.feedback.length, 1); assert.equal(f.feedback[0].options.creationPending, true);
   assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input), null);
-  assert.deepEqual(f.calls, ['stage', 'sign', 'authenticate', 'relay']);
+  assert.deepEqual(f.calls, ['sign', 'authenticate', 'relay']);
   assert.equal(f.state.busy, false); assert.equal(f.context.submissionLock.current, null);
 });
 
@@ -346,6 +347,7 @@ test('a 409 against an older confirmed relay record never registers a new projec
   assert.equal(f.state.job, null); assert.equal(f.feedback.length, 1);
   assert.equal(f.feedback[0].options.creationFailure, true);
   assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input, { source: 'wallet' }), null);
+  assert.deepEqual(f.sessionInvalidations, [f.context.wallet]);
 });
 
 test('an explicitly rejected new request never adopts the old failed transaction and allows a reviewed new attempt', async () => {
@@ -390,14 +392,16 @@ test('relay confirmed status alone stays locked until exact receipt verification
   f.state.job.result = await readPublishedProject({ provider: f.provider, intent: f.state.job.intent,
     status: { status: 'confirmed', hash: hash(20) } });
   await f.send(); assert.equal(f.calls.filter(value => value === 'sign').length, 2,
-    'A confirmed historical project is not a permanent NFT lock; the signer still checks current machinePool.');
+    'A confirmed historical project is not a permanent NFT lock; the factory checks its current reservation atomically.');
 });
 
 test('definite relay rejection clears only its own publication lock and permits a new reviewed attempt', async () => {
-  for (const httpStatus of [400, 409, 429]) {
+  for (const httpStatus of [400, 401, 409, 429]) {
     const f = await actualAdminCreation({ rejectRelay: Object.assign(Error('rejected before broadcast'), { httpStatus }) });
     await assert.rejects(f.send(), /rejected before broadcast/); assert.equal(f.context.publishingProjectRef.current, null);
     await assert.rejects(f.send(), /rejected before broadcast/);
     assert.equal(f.calls.filter(value => value === 'sign').length, 2); assert.equal(f.state.job, null);
+    assert.equal(f.sessionInvalidations.length, [401, 409].includes(httpStatus) ? 2 : 0,
+      'Only authentication or stale-session rejection invalidates the warmed wallet session.');
   }
 });

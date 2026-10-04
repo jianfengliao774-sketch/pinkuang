@@ -1,0 +1,13 @@
+# Administrator submission latency
+
+The production workbench opened the wallet without a confirmation-time simulation, but the signed command then passed through repeated deployment graphs, worker readiness checks and administrator role reads in both the public proxy and private signer. The RPC provider serialized even `Promise.all` reads. Background scans shared that queue, which could hold up interactive submissions.
+
+This release removes deployment/history/readiness proofs from interactive submission, keeps background scans in a separate provider lane, and performs the current Authority read once. The Gas price, balance, nonce and block reads run concurrently. The signed transaction is persisted and broadcast once without a second nonce preflight. Existing CLI recovery retains its original checks. Status polling uses the installed administrator admission list and reads transaction receipts only when needed; an idle journal needs no RPC.
+
+The browser prefetches one administrator nonce on entering the workbench and reuses it for 30 seconds without polling. Preview no longer repeats the NFT reservation lookup. Confirmation immediately requests the exact prepared wallet signature. Requesting a signature retires all prepared payloads sharing that nonce. Existing login cookies are warmed with a read-only request and reused for 60 seconds; generations prevent late responses from restoring an invalidated session. Session rejection never retries a signed command automatically.
+
+The private signer still verifies the current administrator, exact nonce and locally approved calldata, checks the current machine reservation once, and uses fixed Gas bounds. Filesystem transaction/wallet locks, finalized failure archival, cumulative Gas accounting, original transaction bytes and ambiguous-send recovery are preserved. Contract code, deployed addresses, worker services and the separate upgrade console are unchanged.
+
+Validation includes all web tests, focused backend tests and a local HTTP JSON-RPC fixture proving concurrent reads. The actual compiled workbench is tested with a held fake wallet and all subsequent RPC requests blocked: preview and confirmation must make zero additional RPC requests and dispatch the wallet promptly. These are local performance tests; they do not measure mainnet block confirmation or send real transactions.
+
+Publication uses separate overlays based on the exact public-service and signer releases already installed. Only the public API and private signer services are restarted. Production runtime and frontend manifests, service bindings and rollback evidence are recorded separately so unchanged worker code is never attributed to this release.

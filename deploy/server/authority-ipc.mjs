@@ -3,8 +3,8 @@ import { createServer as createHttpServer, request as httpRequest } from 'node:h
 import { chmodSync, existsSync, lstatSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { Readable } from 'node:stream';
-import { FetchRequest, Interface, JsonRpcProvider, getAddress } from 'ethers';
-import { reviewedSingleAdministrator, verifyCurrentAuthorityAdministrator } from './authority-role.mjs';
+import { Interface, getAddress } from 'ethers';
+import { reviewedSingleAdministrator } from './authority-role.mjs';
 import { JournalStore } from './journal-store.mjs';
 import { productGraphConfiguration } from './product-graph.mjs';
 import { createKeyedLimiter, createRequestLimiter } from './request-limiter.mjs';
@@ -269,13 +269,12 @@ export function createAuthorityRolePrefilter(provider, trusted, { now = Date.now
   };
 }
 
-/** Public process: authenticate a wallet session, then proxy one exact route. */
+/** Public process: authenticate a wallet session, then proxy one exact route.
+ * Current roles and the administrator nonce are read once by the signer. */
 export function createAuthorityRelayProxy(config, dependencies = {}) {
   if (!config) return null;
   if (!isAbsolute(config.socketPath) || !config.origin?.startsWith('https://'))
     throw new Error('Authority IPC proxy needs an absolute socket and exact HTTPS origin.');
-  if (config.freshProductRequired && typeof dependencies.verifyOperationalReadiness !== 'function')
-    throw new Error('Fresh product relay requires its independent graph and index gate.');
   const key = keyBytes(config.key);
   const store = dependencies.store ?? new JournalStore(config.dbPath);
   const transport = dependencies.transport ?? httpRequest;
@@ -287,17 +286,18 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
   });
   if (!dependencies.verifyAdministrator && !trusted?.freshAuthority)
     throw new Error('Authority IPC requires reviewed fresh Authority evidence.');
-  const rpcRequest = dependencies.verifyAdministrator ? null : new FetchRequest(config.rpcUrl);
-  if (rpcRequest) {
-    rpcRequest.timeout = 12_000;
-    rpcRequest.setThrottleParams({ maxAttempts: 1 });
-  }
-  const provider = rpcRequest ? new JsonRpcProvider(rpcRequest, 56,
-    { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 }) : null;
-  const verifyAdministrator = dependencies.verifyAdministrator
-    ?? (account => verifyCurrentAuthorityAdministrator(provider, trusted, account));
+  const reviewedAdministrators = trusted ? new Set([
+    trusted.freshAuthority.authority.administratorOne,
+    trusted.freshAuthority.authority.administratorTwo,
+  ].map(value => getAddress(value).toLowerCase())) : null;
+  // This local admission filter never consumes RPC or repeats the signer's
+  // authoritative current-role read. A role migration updates installed role
+  // evidence at activation, as do the website and the workers.
   const prefilterAdministrator = dependencies.prefilterAdministrator
-    ?? (provider ? createAuthorityRolePrefilter(provider, trusted) : async () => {});
+    ?? dependencies.verifyAdministrator ?? (async account => {
+      if (!reviewedAdministrators.has(getAddress(account).toLowerCase()))
+        fail(403, 'Administrator wallet is required.');
+    });
   const timeoutMs = dependencies.timeoutMs ?? 45_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 45_000)
     throw new Error('Authority IPC timeout exceeds the reviewed bound.');
@@ -315,8 +315,6 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
         const body = await bodyBytes(req);
         if (!allowSessionAccount(account.toLowerCase())) fail(429, 'Too many authority relay requests for this wallet.');
         await prefilterAdministrator(account);
-        await verifyAdministrator(account);
-        if (req.method === 'POST' && config.freshProductRequired) await dependencies.verifyOperationalReadiness();
         if (!allowAdministrator(account.toLowerCase())) fail(429, 'Too many authority relay requests for this administrator.');
         const assertion = signAuthorityAssertion(key, { account, method: req.method, path, body });
         const status = await new Promise((resolve, reject) => {
@@ -347,7 +345,7 @@ export function createAuthorityRelayProxy(config, dependencies = {}) {
           Number.isInteger(error.status) ? error.message : 'Authority signer is unavailable. Check status before retrying.');
       }
     },
-    close() { if (!dependencies.store) store.close(); provider?.destroy(); },
+    close() { if (!dependencies.store) store.close(); },
   };
 }
 
