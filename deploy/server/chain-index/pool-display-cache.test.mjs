@@ -7,6 +7,7 @@ import { Interface, ZeroAddress } from 'ethers';
 import { abi } from '../../../web/lib/chain-client.mjs';
 import { PoolDisplayCache, cacheDecode } from './pool-display-cache.mjs';
 import { createChainIndexServer } from './api.mjs';
+import { OFFICIAL_TARGET_MARKET } from './target-listing-evidence.mjs';
 const address=n=>'0x'+String(n).padStart(40,'0');
 const factory=address(1),lens=address(2),pool=address(3),account=address(4),market=address(5);
 const blockHash='0x'+'ab'.repeat(32);
@@ -15,6 +16,7 @@ const collection='0xb1024b89886b9a34aa4ff5f31c411d708b20a14c';
 const binding=new Interface(['function lens() view returns(address)','function factory() view returns(address)','function VERSION() view returns(uint256)']);
 const targetOwnerAbi=new Interface(['function ownerOf(uint256) view returns(address)']);
 const targetModeAbi=new Interface(['function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)']);
+const officialMarketAbi=new Interface(['function listingFor(address,uint256) view returns(uint256 id,address seller,uint96 price,bool valid)']);
 function fixture() {
   let fork=false,failed=false,calls=0,time=1000000,tokenId=12962n,state=2n,currentOwner=account,targetFailed=false;
   const position={shares:50n,claimableBEM:7n,bnbOwed:11n,contributedWei:55550000000000000n};
@@ -33,6 +35,10 @@ function fixture() {
     send:async(method,params)=>{
       calls++;if(failed) throw new Error('offline');if(method==='eth_chainId') return '0x38';
       assert.equal(method,'eth_call');
+      if(params[0].to===OFFICIAL_TARGET_MARKET) {
+        targetCalls.push('listing:'+params[1]);
+        return officialMarketAbi.encodeFunctionResult('listingFor',[0n,ZeroAddress,0n,false]);
+      }
       if(params[0].to===collection) {
         targetCalls.push('owner:'+params[1]);if(targetFailed)throw new Error('owner unavailable');
         return targetOwnerAbi.encodeFunctionResult('ownerOf',[params[1]==='0x5'?account:currentOwner]);
@@ -186,6 +192,28 @@ test('owner transfer availability is persisted on public and wallet rows, update
     f.nextBlock();f.failTarget();await reopened.refresh();assert.equal(reopened.snapshot().rows[pool].targetAvailability.status,'unknown');
     assert.equal(reopened.snapshot().rows[pool].state,0n,'unknown evidence never pretends cancellation or a refund');
   } finally {await cache.close();await reopened?.close();if(server)await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});}
+});
+
+test('confirmed missing asks retain participant shares, BNB credits and refund deadline with zero HTTP listing reads',async()=>{
+  const f=fixture();f.setState(0);let quoteCalls=0,server;
+  const cache=new PoolDisplayCache(f.index,f.provider,{lens,now:f.now,targetListingLoader:async()=>{
+    quoteCalls++;
+    return {fetchedAt:new Date(f.now()).toISOString(),responseDate:new Date(f.now()).toUTCString(),
+      detail:{asset:{collection,tokenId:'12962',owner:account,category:'official_mining',classification:'official_mining'},
+        orders:{signedAsks:[],asksAndOnchainBids:[]}}};
+  }});
+  try {
+    await cache.refresh();server=createChainIndexServer(f.index,{displayCache:cache});
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    const base=`http://127.0.0.1:${server.address().port}`,before=f.calls;
+    for(const route of ['/v1/display/pools',`/v1/display/pools/${pool}`,`/v1/display/positions/${account}`]) {
+      const result=JSON.parse(await (await fetch(base+route)).text(),cacheDecode),item=result.data.item??result.data.items[0];
+      assert.equal(item.targetAvailability.status,'unavailable');assert.equal(item.targetAvailability.reason,'target_listing_unavailable');
+      assert.equal(item.state,0n);assert.equal(item.params.purchaseDeadline,3000n);
+      if(route.includes('/positions/')) {assert.equal(item.shares,50n);assert.equal(item.bnbOwed,11n);}
+    }
+    assert.equal(f.calls,before);assert.equal(quoteCalls,1,'visitor reads do not fetch Firsto');
+  } finally {await cache.close();if(server)await new Promise(resolve=>server.close(resolve));}
 });
 
 test('target history uses its independently supplied verified transport while ordinary display calls retain their provider',async()=>{

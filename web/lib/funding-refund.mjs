@@ -1,4 +1,4 @@
-import { fundingTargetStatus } from './live-view.mjs';
+import { fundingTargetStatus, fundingTargetUnavailableText } from './live-view.mjs';
 
 const uint = value => typeof value === 'bigint' && value >= 0n ? value
   : typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? BigInt(value)
@@ -25,7 +25,7 @@ export function fundingRefundView(row, source = {}) {
     labelZh: '开启到期退款', labelEn: 'Enable expired-purchase refunds' });
   if (relevant && hasBnb) actions.push({ kind: 'withdrawBnb', ready: true,
     labelZh: '领取退款 / 待领取 BNB', labelEn: 'Claim refund / booked BNB' });
-  const title = unavailable ? ['目标矿机已转移给其他持有人，本项目已下架', 'The target miner was transferred to another holder; this project was delisted']
+  const title = unavailable ? fundingTargetUnavailableText(row)
     : ['项目已开启退款', 'Refunds are open for this project'];
   const explanation = unavailable && row.status === 'Funding' && hasShares
     ? ['先撤回认购，将本金记入待领取 BNB；确认后再点击领取 BNB，款项才会转入钱包。',

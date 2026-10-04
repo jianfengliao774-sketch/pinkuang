@@ -1,8 +1,10 @@
 import { Interface, ZeroAddress, getAddress, toBeHex, toQuantity } from 'ethers';
+import { OFFICIAL_TARGET_MARKET, firstoListingEvidence } from './target-listing-evidence.mjs';
 
 const nft = new Interface(['function ownerOf(uint256) view returns(address)',
   'event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)']);
 const mode = new Interface(['function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)']);
+const market = new Interface(['function listingFor(address,uint256) view returns(uint256 id,address seller,uint96 price,bool valid)']);
 const hash = value => /^0x[\da-f]{64}$/i.test(value ?? '');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 const address = value => getAddress(value).toLowerCase();
@@ -52,12 +54,14 @@ export function ownerAtCreation(blockEndOwner, transfers, creation, identity) {
 
 /** Display-only evidence. No cancellation, refund, wallet operation or HTTP-triggered RPC. */
 export class TargetAvailabilityTracker {
-  constructor(index, provider, { timeoutMs = 6000 } = {}) {
+  constructor(index, provider, { timeoutMs = 6000, listingLoader = null, now = Date.now } = {}) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 15_000)
       throw new Error('Invalid target availability timeout.');
     this.index = index; this.provider = provider; this.timeoutMs = timeoutMs;
+    this.listingLoader = listingLoader; this.now = now;
     this.entries = new Map(); this.inFlight = new Map();
     this.ownerObservations = new Map(); this.observedBlockHash = null;
+    this.officialObservations = new Map(); this.firstoObservations = new Map();
   }
   restore(saved) {
     if (saved?.schemaVersion !== 1 || !Array.isArray(saved.entries) || saved.entries.length > 500) return;
@@ -114,9 +118,56 @@ export class TargetAvailabilityTracker {
     }
     return result;
   }
+  async listingEvidence(identity, owner, source, requests) {
+    const result = { official: 'unknown', firsto: 'unknown', observedAt: null, validUntil: null };
+    // An old indexed block cannot prove a current official listing absent.
+    const now = this.now(), at = source.indexedTimestamp * 1000;
+    if (!Number.isSafeInteger(at) || at > now + 30_000 || now - at > 120_000) return result;
+    const key = `${identity.collection}:${identity.tokenId}:${source.indexedBlockHash}`;
+    try {
+      let status = this.officialObservations.get(key);
+      if (!status) {
+        const [id, seller, price, valid] = await this.call(OFFICIAL_TARGET_MARKET, market, 'listingFor',
+          [identity.collection, BigInt(identity.tokenId)], source.indexedThrough, source.indexedBlockHash, requests);
+        status = valid && id > 0n && price > 0n && same(seller, owner) ? 'available' : 'absent';
+        if (this.officialObservations.size >= 500) this.officialObservations.delete(this.officialObservations.keys().next().value);
+        this.officialObservations.set(key, status);
+      }
+      result.official = status;
+    } catch { /* An unavailable RPC does not mean no official listing. */ }
+    if (result.official === 'available') {
+      if (this.now() >= at + 120_000) return { ...result, official: 'unknown' };
+      result.observedAt = new Date(at).toISOString(); result.validUntil = new Date(at + 120_000).toISOString(); return result;
+    }
+    // One Firsto detail per NFT/owner per 30 seconds, shared across projects and
+    // wallets. Public HTTP requests still only read the materialized snapshot.
+    const firstoKey = `${identity.collection}:${identity.tokenId}:${owner}`;
+    let observation = this.firstoObservations.get(firstoKey);
+    if (!observation || now >= observation.nextReadAt) {
+      try {
+        const evidence = await this.read(`firsto:${firstoKey}`, async () => {
+          const delivery = await this.listingLoader(identity.collection, identity.tokenId);
+          return { ...firstoListingEvidence(delivery, { ...identity, owner }, this.now()),
+            validUntil: Math.min(Date.parse(delivery?.fetchedAt) + 60_000, Date.parse(delivery?.responseDate) + 120_000) };
+        });
+        const expiryMs = evidence.expiresAt === null || evidence.expiresAt === undefined
+          ? Infinity : Number(BigInt(evidence.expiresAt) * 1000n);
+        observation = { evidence, nextReadAt: Math.min(this.now() + 30_000, expiryMs,
+          evidence.status === 'unknown' ? Infinity : evidence.validUntil) };
+      } catch { observation = { evidence: { status: 'unknown', observedAt: null }, nextReadAt: this.now() + 30_000 }; }
+      if (this.firstoObservations.size >= 500) this.firstoObservations.delete(this.firstoObservations.keys().next().value);
+      this.firstoObservations.set(firstoKey, observation);
+    }
+    const firsto = observation.evidence;
+    result.firsto = firsto.status; result.observedAt = firsto.observedAt;
+    if (firsto.status !== 'unknown') result.validUntil = new Date(Math.min(at + 120_000, firsto.validUntil,
+      firsto.expiresAt == null ? Infinity : Number(BigInt(firsto.expiresAt) * 1000n))).toISOString();
+    if (this.now() >= at + 120_000) return { official: 'unknown', firsto: 'unknown', observedAt: null, validUntil: null };
+    return result;
+  }
   async capture(rows, directory, source) {
     if (!same(this.observedBlockHash, source.indexedBlockHash)) {
-      this.ownerObservations.clear(); this.observedBlockHash = source.indexedBlockHash;
+      this.ownerObservations.clear(); this.officialObservations.clear(); this.observedBlockHash = source.indexedBlockHash;
     }
     const metadata = new Map(directory.map(item => [address(item.address), item]));
     for (const pool of this.entries.keys()) if (!metadata.has(pool)) this.entries.delete(pool);
@@ -235,7 +286,17 @@ export class TargetAvailabilityTracker {
           this.ownerObservations.set(key, { owner: facts.currentOwner, blockNumber: source.indexedThrough });
         }
         if (same(owner, identity.pool)) { facts.status = 'not_applicable'; facts.reason = 'target_owned_by_pool'; }
-        else if (same(owner, entry.originalOwner)) { facts.status = 'available'; facts.reason = 'owner_unchanged'; }
+        else if (same(owner, entry.originalOwner)) {
+          facts.status = 'available'; facts.reason = 'owner_unchanged';
+          if (this.listingLoader) {
+            const evidence = await this.listingEvidence(identity, facts.currentOwner, source, requests);
+            facts.listingEvidence = evidence;
+            if (evidence.official === 'available' || evidence.firsto === 'available') facts.reason = 'target_listing_available';
+            else if (evidence.official === 'absent' && evidence.firsto === 'absent') {
+              facts.status = 'unavailable'; facts.reason = 'target_listing_unavailable';
+            } else { facts.status = 'unknown'; facts.reason = 'target_listing_unverified'; }
+          }
+        }
         else { facts.status = 'unavailable'; facts.reason = 'target_owner_changed'; }
       } catch { facts.status = 'unknown'; facts.currentOwner = null; facts.reason = 'current_owner_unverified'; }
     });

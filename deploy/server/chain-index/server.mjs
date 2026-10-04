@@ -243,7 +243,8 @@ export async function startChainIndex(config) {
   try {
     index = new ChainIndex(provider, config);
     if(config.lens) displayCache=new PoolDisplayCache(index,primary,{lens:config.lens,targetProvider:provider,path:join(dirname(config.dbPath),'pool-display-cache.json'),
-      quoteLoader:config.overviewQuoteLoader ?? overviewQuoteLoader(),onUpdate:()=>displayEvents?.publish()});
+      quoteLoader:config.overviewQuoteLoader ?? overviewQuoteLoader(),
+      targetListingLoader:config.targetListingLoader ?? overviewQuoteLoader({withDelivery:true}),onUpdate:()=>displayEvents?.publish()});
     if (config.portfolioFactory && config.portfolioMarket) portfolioReads = new PortfolioDisplayReads(index, primary, {
       path: config.dbPath === ':memory:' ? undefined : join(dirname(config.dbPath), 'portfolio-display-cache.json'),
     });

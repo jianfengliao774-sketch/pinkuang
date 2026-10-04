@@ -1,6 +1,7 @@
 import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { fetchLiveJson } from './live-config.mjs';
+import { confirmedMissingTargetListing, confirmedAvailableTargetListing } from './live-view.mjs';
 
 const nft = new Interface(['function ownerOf(uint256) view returns(address)']);
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -8,6 +9,7 @@ const requireValue = (value, message) => { if (!value) throw new Error(message);
 const decode = (_key, value) => value && typeof value === 'object' && Object.keys(value).length === 1
   && /^(0|[1-9]\d*)$/.test(value.$bemineBigInt ?? '') ? BigInt(value.$bemineBigInt) : value;
 const unavailable = '指定矿机已转移，当前项目已停止开放认购，请查看退款入口。';
+const unlisted = '指定矿机当前无有效卖单，本项目已下架并停止开放认购，请查看退款入口。';
 const unknown = '指定矿机的可购状态尚未确认，请刷新后重试；现有认购和退款权益保留。';
 
 /** Display checks cannot stop a direct contract call. The upgraded Vault must enforce this atomically. */
@@ -51,5 +53,10 @@ export async function assertFundingTargetAvailable({ provider, config, pool, par
   // Never authorize a new subscription from an old ownerOf result in a display snapshot.
   const [currentOwner] = await call(currentParams.circuits, nft, 'ownerOf', [currentParams.circuitId]);
   requireValue(currentOwner !== ZeroAddress && !same(currentOwner, target) && same(currentOwner, originalOwner), unavailable);
+  if (proof.status === 'unavailable') {
+    requireValue(proof.reason === 'target_listing_unavailable' && confirmedMissingTargetListing(proof), unknown);
+    throw new Error(unlisted);
+  }
+  if (proof.reason === 'target_listing_available') requireValue(confirmedAvailableTargetListing(proof), unknown);
   return Object.freeze({ ...proof, currentOwner, status: 'available', rechecked: true });
 }

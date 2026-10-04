@@ -100,6 +100,15 @@ test('overview quote reads reuse the local fixed product display route without R
     assert.throws(() => overviewQuoteLoader({ baseUrl }), /local product display proxy/);
 });
 
+test('listing quote delivery retains original fetch and response times instead of renewing cache age', async () => {
+  const fetchedAt='2026-10-04T14:00:00.000Z', responseDate='Sun, 04 Oct 2026 14:00:00 GMT';
+  const load=overviewQuoteLoader({withDelivery:true,fetcher:async()=>Response.json(detail(12962),{
+    headers:{'X-Firsto-Fetched-At':fetchedAt,'X-Firsto-Response-Date':responseDate}})});
+  const result=await load(collection,'12962');
+  assert.equal(result.fetchedAt,fetchedAt);assert.equal(result.responseDate,responseDate);
+  assert.equal(result.detail.asset.tokenId,'12962');
+});
+
 test('quote workers stay bounded and closing aborts pending display work', async () => {
   let active = 0, maximum = 0;
   const stats = new MiningOverviewStats({ quoteLoader: async (_circuits, id) => {

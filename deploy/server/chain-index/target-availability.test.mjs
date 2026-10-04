@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Interface, ZeroAddress, toBeHex } from 'ethers';
 import { TargetAvailabilityTracker, ownerAtCreation } from './target-availability.mjs';
+import { OFFICIAL_TARGET_MARKET } from './target-listing-evidence.mjs';
 
 const a = n => '0x' + n.toString(16).padStart(40, '0');
 const h = n => '0x' + n.toString(16).padStart(64, '0');
@@ -9,6 +10,7 @@ const pool = a(1), otherPool = a(2), collection = a(3), seller = a(4), buyer = a
 const nft = new Interface(['function ownerOf(uint256) view returns(address)',
   'event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)']);
 const mode = new Interface(['function flexiblePurchase() view returns(bool enabled,uint256 referenceCircuitId,(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest) config)']);
+const market = new Interface(['function listingFor(address,uint256) view returns(uint256 id,address seller,uint96 price,bool valid)']);
 const config = [0n, 0n, 0n, 0n, 0n, 0n, h(0)];
 const metadata = (address = pool, id = '11') => ({ address, createdBlock: 5, collection, circuitId: id });
 const row = (address = pool, id = 11n, state = 0n) => ({ pool: address, state,
@@ -23,8 +25,9 @@ const transfer = (from, to, { tokenId = 11n, txIndex = 3, logIndex = 6, blockHas
 function fixture() {
   const calls = [], logs = [], events = [creation()], owners = new Map([['11:5', seller], ['11:10', seller]]),
     modes = new Map([[pool, false]]), headers = new Map([[5, h(5)], [10, h(10)]]);
-  let fail = null, hang = null;
-  const source = { indexedThrough: 10, indexedBlockHash: h(10) };
+  let fail = null, hang = null, clock = 1_000_000, official = [0n, ZeroAddress, 0n, false], firstoFailed = false;
+  let asks = [];
+  const source = { indexedThrough: 10, indexedBlockHash: h(10), indexedTimestamp: 1000 };
   const index = { _header: block => ({ hash: headers.get(block) }), db: { prepare: () => ({ iterate: () => events }) } };
   const provider = {
     getBlock: async block => { calls.push({ name: 'header', block }); return { number: block, hash: headers.get(block) }; },
@@ -35,16 +38,26 @@ function fixture() {
     },
     send: async (method, [request, block]) => {
       assert.equal(method, 'eth_call');
-      const iface = request.to === collection ? nft : mode, decoded = iface.parseTransaction(request);
+      const iface = request.to === collection ? nft : request.to === OFFICIAL_TARGET_MARKET ? market : mode, decoded = iface.parseTransaction(request);
       const key = decoded.name === 'ownerOf' ? `${decoded.args[0]}:${Number(BigInt(block))}` : request.to;
       calls.push({ name: decoded.name, key, block });
       if (fail === key || fail === decoded.name) throw new Error('offline');
       if (hang === key) return new Promise(() => {});
       return iface.encodeFunctionResult(decoded.name, decoded.name === 'ownerOf' ? [owners.get(key)]
-        : [modes.get(key), 11n, config]);
+        : decoded.name === 'listingFor' ? official : [modes.get(key), 11n, config]);
     },
   };
-  return { index, provider, source, calls, logs, events, owners, modes, headers,
+  return { index, provider, source, calls, logs, events, owners, modes, headers, now: () => clock,
+    advance: n => { clock += n; source.indexedTimestamp = Math.floor(clock / 1000); },
+    official: value => { official = value; }, asks: value => { asks = value; },
+    failFirsto: value => { firstoFailed = value; },
+    listingLoader: async (collection, tokenId) => {
+      calls.push({ name: 'firsto', key: `${collection}:${tokenId}` });
+      if (firstoFailed) throw new Error('Firsto offline');
+      return { fetchedAt: new Date(clock).toISOString(), responseDate: new Date(clock).toUTCString(),
+        detail: { asset: { collection, tokenId, owner: seller, category: 'official_mining', classification: 'official_mining' },
+          orders: { signedAsks: asks, asksAndOnchainBids: [] } } };
+    },
     fail: key => { fail = key; }, hang: key => { hang = key; },
     nextBlock: () => { source.indexedThrough++; source.indexedBlockHash = h(source.indexedThrough);
       headers.set(source.indexedThrough, source.indexedBlockHash); },
@@ -64,6 +77,85 @@ test('fixed Funding and Funded compare canonical creation ownership without chan
     assert.equal(result.observedBlock, 11); assert.equal(result.observedBlockHash, h(11));
     assert.equal(result.chainState, state); assert.equal(current.state, state);
   }
+});
+
+test('fixed Funding and Funded delist only after both venues confirm no ask; state and creation proof stay intact', async () => {
+  for (const state of [0n, 1n]) {
+    const f = fixture(), tracker = f.tracker({ listingLoader: f.listingLoader, now: f.now }), input = row(pool, 11n, state);
+    const result = (await tracker.capture([input], [metadata()], f.source)).get(pool);
+    assert.equal(result.status, 'unavailable'); assert.equal(result.reason, 'target_listing_unavailable');
+    assert.equal(result.currentOwner, seller); assert.equal(result.originalOwner, seller);
+    assert.deepEqual(result.listingEvidence, { official: 'absent', firsto: 'absent', observedAt: new Date(f.now()).toISOString(),
+      validUntil: new Date(f.now()+60_000).toISOString() });
+    assert.equal(result.chainState, state); assert.equal(input.state, state);
+  }
+});
+
+test('a valid official ask skips Firsto; an official outage plus a valid Firsto ask remains available', async () => {
+  const f = fixture(), tracker = f.tracker({ listingLoader: f.listingLoader, now: f.now });
+  f.official([7n, seller, 20n, true]); f.failFirsto(true);
+  let result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'available'); assert.equal(result.reason, 'target_listing_available');
+  assert.equal(f.calls.filter(call => call.name === 'firsto').length, 0);
+  f.nextBlock(); f.owners.set('11:11', seller); f.fail('listingFor'); f.failFirsto(false);
+  f.asks([{ status: 'open', maker: seller, collection, tokenId: '11', priceWei: '20', expiry: '2000' }]);
+  result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'available'); assert.equal(result.listingEvidence.official, 'unknown');
+  assert.equal(result.listingEvidence.firsto, 'available');
+});
+
+test('an absent official ask with failed Firsto stays unknown, and relisting restores the catalog status', async () => {
+  const f = fixture(), tracker = f.tracker({ listingLoader: f.listingLoader, now: f.now }); f.failFirsto(true);
+  let result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'unknown'); assert.equal(result.reason, 'target_listing_unverified');
+  f.failFirsto(false); f.advance(30_000);
+  result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'unavailable');
+  f.nextBlock(); f.owners.set('11:11', seller); f.official([8n, seller, 20n, true]);
+  result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'available', 'a previous absence is not a permanent cancellation');
+});
+
+test('identical fixed targets share listing reads, cache Firsto for 30s, and flexible targets add none', async () => {
+  const f = fixture(), tracker = f.tracker({ listingLoader: f.listingLoader, now: f.now });
+  f.events.push(creation(otherPool)); f.modes.set(otherPool, false);
+  const rows = [row(), row(otherPool)], directory = [metadata(), metadata(otherPool)];
+  await tracker.capture(rows, directory, f.source); await tracker.capture(rows, directory, f.source);
+  assert.equal(f.calls.filter(call => call.name === 'listingFor').length, 1);
+  assert.equal(f.calls.filter(call => call.name === 'firsto').length, 1);
+  f.advance(29_000); await tracker.capture(rows, directory, f.source);
+  assert.equal(f.calls.filter(call => call.name === 'firsto').length, 1);
+  f.advance(1000); await tracker.capture(rows, directory, f.source);
+  assert.equal(f.calls.filter(call => call.name === 'firsto').length, 2);
+  const flex = fixture(); flex.modes.set(pool, true);
+  const result = (await flex.tracker({ listingLoader: flex.listingLoader, now: flex.now }).capture([row()], [metadata()], flex.source)).get(pool);
+  assert.equal(result.status, 'not_applicable');
+  assert.equal(flex.calls.filter(call => ['listingFor', 'firsto'].includes(call.name)).length, 0);
+});
+
+test('old indexed block cannot prove no listing; short-lived Firsto asks are refreshed at expiry', async () => {
+  const f = fixture(), tracker = f.tracker({ listingLoader: f.listingLoader, now: f.now }); f.source.indexedTimestamp = 879;
+  let result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'unknown');
+  assert.equal(f.calls.filter(call => ['listingFor', 'firsto'].includes(call.name)).length, 0);
+  f.source.indexedTimestamp = 1000;
+  f.asks([{ status: 'open', maker: seller, collection, tokenId: '11', priceWei: '20', expiry: '1001' }]);
+  result = (await tracker.capture([row()], [metadata()], f.source)).get(pool); assert.equal(result.status, 'available');
+  f.advance(1000); result = (await tracker.capture([row()], [metadata()], f.source)).get(pool);
+  assert.equal(result.status, 'unavailable'); assert.equal(f.calls.filter(call => call.name === 'firsto').length, 2);
+});
+
+test('near-expiry delivery cannot gain 30 more seconds of absence proof from the compact cache', async () => {
+  const f=fixture();let reads=0;
+  const loader=async (...args)=>{
+    reads++;const result=await f.listingLoader(...args);
+    result.fetchedAt=new Date(f.now()-59_000).toISOString();return result;
+  };
+  const tracker=f.tracker({listingLoader:loader,now:f.now});
+  assert.equal((await tracker.capture([row()],[metadata()],f.source)).get(pool).status,'unavailable');
+  f.advance(2000);f.failFirsto(true);
+  assert.equal((await tracker.capture([row()],[metadata()],f.source)).get(pool).status,'unknown');
+  assert.equal(reads,2,'original delivery freshness bounds the cached absence');
 });
 
 test('same-block sale after PoolCreated is reversed rather than mistaken for the original owner', async () => {

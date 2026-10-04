@@ -29,11 +29,12 @@ function decodeRow(raw) {
 /** Full on-chain display state is produced in the background, never on an HTTP request. */
 export class PoolDisplayCache {
   constructor(index, provider, { lens, path, now = Date.now, quoteLoader = null, onUpdate = null,
-    targetProvider = provider, targetAvailabilityTimeoutMs = 6000 } = {}) {
+    targetProvider = provider, targetAvailabilityTimeoutMs = 6000, targetListingLoader = null } = {}) {
     this.index=index; this.provider=provider; this.lens=getAddress(lens); this.path=path; this.now=now;
     this.value=null; this.running=null; this.stopped=false;
     this.miningOverview=new MiningOverviewStats({quoteLoader,now});
-    this.targetAvailability=new TargetAvailabilityTracker(index,targetProvider,{timeoutMs:targetAvailabilityTimeoutMs});
+    this.targetAvailability=new TargetAvailabilityTracker(index,targetProvider,{timeoutMs:targetAvailabilityTimeoutMs,
+      listingLoader:targetListingLoader,now});
     this.quoteRunning=null; this.onUpdate=onUpdate;
     try { const saved=JSON.parse(readFileSync(path,'utf8'),cacheDecode);
       if (saved.schemaVersion===1 && same(saved.source.factory,index.factory) && same(saved.source.market,index.market)

@@ -29,6 +29,22 @@ test('confirmed transferred fixed target is absent from every public catalog wit
   assert.equal(funded.status,'Funded');assert.equal(funded.state,1n);
 });
 
+test('a fixed target with no official or Firsto listing is hidden while ownership and personal data remain unchanged',()=>{
+  const row={...transferred,shares:40n,bnbOwed:15n,targetAvailability:{...transferred.targetAvailability,
+    currentOwner:transferred.targetAvailability.originalOwner,reason:'target_listing_unavailable',
+    listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}}};
+  for(const filter of ['Funding','all']){
+    const catalog=projectDirectory([row],[],{filter});
+    assert.equal(catalog.rows.length,0);assert.equal(catalog.counts.Funding,0);
+  }
+  assert.equal(row.state,0n);assert.equal(row.shares,40n);assert.equal(row.bnbOwed,15n);
+  for(const listingEvidence of [{...row.targetAvailability.listingEvidence,firsto:'unknown'},
+    {...row.targetAvailability.listingEvidence,observedAt:new Date(Date.now()-120001).toISOString()},
+    {...row.targetAvailability.listingEvidence,validUntil:new Date(Date.now()-1).toISOString()}]){
+    assert.equal(projectDirectory([{...row,targetAvailability:{...row.targetAvailability,listingEvidence}}],[],{filter:'Funding'}).rows.length,1);
+  }
+});
+
 test('unknown, flexible, and inconsistent transfer evidence are not hidden from Funding',()=>{
   const variants=[
     {...transferred,targetAvailability:{...transferred.targetAvailability,status:'unknown'}},

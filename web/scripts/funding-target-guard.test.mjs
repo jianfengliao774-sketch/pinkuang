@@ -56,6 +56,36 @@ test('cached available cannot authorize a deposit after an external buyer takes 
   await assert.rejects(prepareProductAction({ ...f, config, account, pool, kind: 'deposit', quantity: '1' }), /指定矿机已转移/);
   assert(!f.calls.includes('unitPriceWei'));
 });
+test('an unchanged owner cannot override two confirmed missing sell orders or authorize another deposit', async () => {
+  const availability={...proof,status:'unavailable',reason:'target_listing_unavailable',
+    listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}};
+  const f=fixture({availability});
+  await assert.rejects(prepareProductAction({...f,config,account,pool,kind:'deposit',quantity:'1'}),/当前无有效卖单/);
+  assert(!f.calls.includes('unitPriceWei'));assert.equal(f.http.length,1);
+  await assert.rejects(prepareProductAction({...fixture({availability,owner:buyer}),config,account,pool,kind:'deposit',quantity:'1'}),/已转移/);
+  for(const listingEvidence of [{...availability.listingEvidence,firsto:'unknown'},
+    {...availability.listingEvidence,observedAt:new Date(Date.now()-120001).toISOString()},
+    {...availability.listingEvidence,validUntil:new Date(Date.now()-1).toISOString()},
+    {...availability.listingEvidence,validUntil:undefined}]){
+    await assert.rejects(assertFundingTargetAvailable({...fixture({availability:{...availability,listingEvidence}}),config,pool}),/尚未确认/);
+  }
+});
+test('new available-listing proofs must still be fresh before preparing deposit calldata', async () => {
+  const availability={...proof,reason:'target_listing_available',
+    listingEvidence:{official:'unknown',firsto:'available',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}};
+  const current=fixture({availability});
+  await prepareProductAction({...current,config,account,pool,kind:'deposit',quantity:'1'});
+  assert.equal(current.http.length,1);assert.deepEqual(current.calls,['flexiblePurchase','params','ownerOf','unitPriceWei']);
+  for(const listingEvidence of [{...availability.listingEvidence,observedAt:new Date(Date.now()-120001).toISOString()},
+    {...availability.listingEvidence,firsto:'unknown'},
+    {...availability.listingEvidence,observedAt:'unknown'},
+    {...availability.listingEvidence,validUntil:new Date(Date.now()-1).toISOString()},
+    {...availability.listingEvidence,validUntil:undefined}]){
+    const stale=fixture({availability:{...availability,listingEvidence}});
+    await assert.rejects(prepareProductAction({...stale,config,account,pool,kind:'deposit',quantity:'1'}),/尚未确认/);
+    assert(!stale.calls.includes('unitPriceWei'));assert.equal(stale.http.length,1);
+  }
+});
 test('a sale after preview is detected by the next preparation before wallet submission', async () => {
   await prepareProductAction({ ...fixture(), config, account, pool, kind: 'deposit', quantity: '1' });
   await assert.rejects(prepareProductAction({ ...fixture({ owner: buyer }), config, account, pool, kind: 'deposit', quantity: '1' }), /已转移/);

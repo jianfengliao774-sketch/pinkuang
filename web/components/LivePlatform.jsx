@@ -140,6 +140,7 @@ import {
   currentMarketOrderActionReady,
   canOpenFundingAction,
   fundingTargetStatus,
+  fundingTargetUnavailableText,
 } from "../lib/live-view.mjs";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -2804,8 +2805,8 @@ export default function LivePlatform() {
             {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
             {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
             {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
-            {targetStatus === 'unavailable' && <small className="live-order-state">{L('目标矿机已转移给其他持有人，本项目已下架', 'The target miner was transferred to another holder; this project was delisted')}</small>}
-            {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机归属未确认，请刷新核对', 'Miner ownership is unconfirmed; refresh to check')}</small>}
+            {targetStatus === 'unavailable' && <small className="live-order-state">{L(...fundingTargetUnavailableText(p))}</small>}
+            {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机可购状态未确认，请刷新核对', 'Miner availability is unconfirmed; refresh to check')}</small>}
           </span></>;
           const cells = {
             miner: <button className="asset-cell" onClick={() => openDetails(p)}>
@@ -3798,7 +3799,7 @@ export default function LivePlatform() {
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
                   <StateBadge state={detail.status} L={L} />
-                  {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('指定矿机已转移', 'Target transferred')}</span>}
+                  {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('项目已下架', 'Project delisted')}</span>}
                   {refreshButton}
                 </div>
                 <FundingRefundNotice row={detail} source={source} L={L} readyFor={detailActionReadyFor}
@@ -3844,16 +3845,16 @@ export default function LivePlatform() {
                         </span>
                       </div>
                       {detailTargetStatus === 'unavailable' && detail.status === 'Funding' && <p className="subtle-note" role="status">
-                        {L('指定矿机已转移，已停止开放认购。只要项目仍未募满，已有认购即可撤回；如有已入账 BNB，可单独领取。',
-                          'The designated miner was transferred, so subscriptions are closed. Existing subscriptions can be withdrawn while the pool remains in Funding; any booked BNB can be claimed separately.')}
+                        {L(...fundingTargetUnavailableText(detail))}{L('。', '. ')}{L('已停止开放认购。只要项目仍未募满，已有认购即可撤回；如有已入账 BNB，可单独领取。',
+                          'Subscriptions are closed. Existing subscriptions can be withdrawn while the pool remains in Funding; any booked BNB can be claimed separately.')}
                       </p>}
                       {detailTargetStatus === 'unavailable' && detail.status === 'Funded' && <p className="subtle-note" role="status">
-                        {L('指定矿机已转移。现行合约需等待购机期限到期后，才可核对并开启退款；目前不会自动退款。',
-                          'The designated miner was transferred. Under the current contract, the purchase deadline must pass before a refund can be checked and opened; refunds do not start automatically.')}
+                        {L(...fundingTargetUnavailableText(detail))}{L('。', '. ')}{L('现行合约需等待购机期限到期后，才可核对并开启退款；目前不会自动退款。',
+                          'Under the current contract, the purchase deadline must pass before a refund can be checked and opened; refunds do not start automatically.')}
                       </p>}
                       {detailTargetStatus === 'unknown' && ['Funding', 'Funded'].includes(detail.status) && <p className="subtle-note" role="status">
-                        {L('指定矿机链上归属尚未确认，请刷新重试。确认前暂不开放认购。',
-                          'On-chain ownership of the designated miner is unconfirmed. Refresh to retry; subscriptions remain closed until confirmed.')}
+                        {L('指定矿机的可购状态尚未确认，请刷新重试。确认前暂不开放认购。',
+                          'Availability of the designated miner is unconfirmed. Refresh to retry; subscriptions remain closed until confirmed.')}
                       </p>}
                     </section>
                     <div className="tabs detail-tabs">
