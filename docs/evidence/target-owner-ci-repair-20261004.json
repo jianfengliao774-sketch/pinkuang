@@ -1,0 +1,103 @@
+{
+  "kind": "target-owner-ci-fixture-repair-local-evidence",
+  "checkedAt": "2026-10-04T00:41:20.343761+00:00",
+  "baseHead": "a5acd12c3b5c54801b45b85ad115b2f7d6cd2fae",
+  "deploymentOrWalletAction": false,
+  "productionPackageRebuilt": false,
+  "fullGitHubWorkflowPassedClaim": false,
+  "approvedCandidateArtifactDigest": "0xc9be5208ec97a0513d29c5f1d35a9e89f54c998b5994d2a291c09e5e496881e5",
+  "unchangedContractSourceAndFoundrySettings": true,
+  "publishedSource": {
+    "sourceCommit": "9784000db2f9adf7775e0ebc232b76437f1fdef2",
+    "sourceDiffDigest": "6ddfbb24cf0b8528d5ff7d9ae665e9d97fd326faf08fa14fe173a5f20433709e",
+    "fileCount": 40,
+    "headBytesMatchPublishedPackage": true
+  },
+  "fork": {
+    "chainId": 56,
+    "blockNumber": 124308679,
+    "suiteCounts": {
+      "FirstoPoolForkTest": 1,
+      "PoolSaleForkTest": 10,
+      "PoolBurnForkTest": 1,
+      "AuditMiningSettlementForkTest": 5,
+      "BudgetPortfolioForkTest": 1
+    },
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0,
+    "exitCode": 0,
+    "realProtocolFixture": true,
+    "localProjectDeploymentOnly": true
+  },
+  "releaseToolingNode": {
+    "nodeVersion": "24.19.0",
+    "command": "node --test ops/v2/*.test.mjs ops/v2/genesis-graph-compat/*.test.mjs ops/v3/*.test.mjs ops/v4/*.test.mjs server/notifications/*.test.mjs",
+    "workingDirectory": "deploy",
+    "passed": 90,
+    "failed": 0,
+    "skipped": 0
+  },
+  "web": {
+    "nodeVersion": "24.19.0",
+    "command": "pnpm --config.verify-deps-before-run=false run check",
+    "workingDirectory": "web",
+    "localDependencyMountsRetained": true,
+    "ciFrozenInstallUnchanged": true,
+    "passed": 1078,
+    "failed": 0,
+    "skipped": 0
+  },
+  "offlinePython": {
+    "platform": "macOS",
+    "locallyExecutedFiles": 15,
+    "testCount": 196,
+    "passed": 185,
+    "preExistingPlatformSkipped": 11,
+    "canonicalTempRecheck": "test-legacy-gas-drain.py: TMPDIR=/private/tmp, 26/26 passed after original macOS /var symlink rejection",
+    "linuxRootSuitesNotLocallyExecuted": [
+      "deploy/ops/v4/test-install-attestor.py",
+      "deploy/ops/v4/test-product-runtime.py"
+    ],
+    "allWorkflowLinuxRootRequirementsRetained": true
+  },
+  "strictEvidenceParser": {
+    "passed": 3,
+    "failed": 0,
+    "checks": [
+      "exact final summary",
+      "all five exact suite counts",
+      "nonzero process exit",
+      "no skips",
+      "no duplicate or missing suites"
+    ]
+  },
+  "historicalGenesisFixture": {
+    "sourceCommit": "8958edd1cf5fbf0402a4ae448782dd04f6e00e1e",
+    "artifactSourceCommit": "8c5598cf44fe8fb6174969eba12b3baa13f7942b",
+    "artifactDigest": "0x7617c81d718e2127be6b1878abad81d7a3c8bf9c4f8cb35bf85755e42df049d7",
+    "currentFreshGraphStillRejectedByOldRuntime": true
+  },
+  "evidence": {
+    "firstoForkSummary": {
+      "localEvidencePath": "/private/tmp/bemine-target-owner-firsto-fork-fixed-20261004/summary.json",
+      "sha256": "dde216d31d0344c2e0fd7eaf9f35348f4ed158ae6ea2803b4c9b826ec5cb6132"
+    },
+    "firstoForkRawLog": {
+      "localEvidencePath": "/private/tmp/bemine-target-owner-firsto-fork-fixed-20261004/firsto-fork.log",
+      "sha256": "9bdae14675134c9158926dea33872e6269326169352ed4cd9a7c7bbe4c8dadc2"
+    },
+    "releaseToolingNode24": {
+      "localEvidencePath": "/private/tmp/bemine-target-owner-release-tooling-node24-final-20261004.log",
+      "sha256": "6463bf249472b6ce01050fef302198eebde778f89a8edf278b16fd7ffda38a4b"
+    },
+    "productWebCheckNode24": {
+      "localEvidencePath": "/private/tmp/bemine-target-owner-ci-web-check-node24-final-20261004.log",
+      "sha256": "14aead33bf969016e9aa45c96a9279687bd59af2ae6f4aa4186c0dff3e087609"
+    },
+    "offlinePythonSummary": {
+      "localEvidencePath": "/private/tmp/bemine-target-owner-offline-python-final-20261004/summary.json",
+      "sha256": "39ba0a077622d0be9afb464f830b09f6819589cffd4b9e437c9d331d97bf1808"
+    }
+  }
+}
