@@ -5,13 +5,15 @@
 import { shareMotto } from './share-copy.mjs';
 import { makeArtworkShareUrl } from './share-landing.mjs';
 import { PUBLIC_SHARE_ORIGIN, isTrustedShareOrigin } from './public-share-origin.mjs';
-export const DEFAULT_PUBLIC_SHARE_BASE = `${PUBLIC_SHARE_ORIGIN}/bemine/`;
+import { fundingTargetStatus, fundingTargetUnavailableText } from './live-view.mjs';
+export const DEFAULT_PUBLIC_SHARE_BASE = PUBLIC_SHARE_ORIGIN === 'https://bemine.cc.cd'
+  ? `${PUBLIC_SHARE_ORIGIN}/` : `${PUBLIC_SHARE_ORIGIN}/bemine/`;
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
 const HASH = /^0x[0-9a-f]{64}$/i;
 const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
 const STATES = new Set(['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding']);
 const COLLECTION_NAMES = new Set(['TapeOut', 'Behemoth']);
-export const validShareBasePath = value => typeof value === 'string' && /^\/bemine(?:-[a-z0-9_-]+)?\/?$/.test(value);
+export const validShareBasePath = value => value === '/' || typeof value === 'string' && /^\/bemine(?:-[a-z0-9_-]+)?\/?$/.test(value);
 
 /** Keep generated invitations on the same deployed product version. */
 export function publicShareBaseForPath(basePath = '') {
@@ -30,8 +32,9 @@ export function validatePublicBaseUrl(value) {
   if (typeof value !== 'string' || value !== value.trim() || /[\\\s]/u.test(value)) return null;
   try {
     const url = new URL(value);
+    const rawPath = value.match(/^https:\/\/[^/?#]+(\/[^?#]*)?/u)?.[1] || '/';
     if (url.protocol !== 'https:' || !isTrustedShareOrigin(url.origin) || url.username || url.password
-      || url.search || url.hash || !validShareBasePath(url.pathname)) return null;
+      || url.search || url.hash || rawPath !== url.pathname || !validShareBasePath(url.pathname)) return null;
     url.pathname = `${url.pathname.replace(/\/$/,'')}/`;
     return url.href;
   } catch { return null; }
@@ -68,7 +71,21 @@ function identifier(value) {
   return BigInt(text).toString();
 }
 
-function projectStatus(project, english) {
+function targetShareStatus(project) {
+  // Demo/legacy share data has no on-chain target proof. Formal projections
+  // explicitly include it, including undefined when the latest read failed.
+  if (!Object.hasOwn(project, 'targetAvailability')) return 'not_applicable';
+  return fundingTargetStatus({ ...project, pool: project.poolAddress,
+    status: project.state, state: project.chainState });
+}
+
+function projectStatus(project, english, targetStatus) {
+  if (targetStatus === 'unavailable') return `${fundingTargetUnavailableText(project)[english ? 1 : 0]}${english
+    ? '. Subscriptions are closed. Existing participants can view withdrawal and refund options.'
+    : '。已停止认购，已有参与者可查看撤回与退款入口。'}`;
+  if (targetStatus === 'unknown') return english
+    ? 'Target availability is being checked. View the latest project and refund status.'
+    : '目标矿机可购状态待核对，请查看项目及退款进展。';
   const remaining = Number.isInteger(project.remainingShares) && project.remainingShares >= 0
     && project.remainingShares <= 100 ? project.remainingShares : null;
   if (project.state === 'Funding') {
@@ -96,16 +113,22 @@ export function createProjectShare({ publicBaseUrl, project, confirmation, local
   const english = locale === 'en';
   const confirmed = isConfirmedDeposit(confirmation, project.poolAddress);
   const title = `${project.name} #${id}`;
-  const status = projectStatus(project, english);
+  const targetStatus = targetShareStatus(project);
+  const status = projectStatus(project, english, targetStatus);
   const opening = confirmed
     ? (english ? `I've joined ${title} on BEMine.` : `我已参与拼矿 BEMine 的 ${title}。`)
     : (english ? `Explore ${title} on BEMine.` : `一起了解拼矿 BEMine 的 ${title}。`);
   const canSubscribe = project.state === 'Funding' && Number.isInteger(project.remainingShares)
-    && project.remainingShares > 0 && project.remainingShares <= 100;
+    && project.remainingShares > 0 && project.remainingShares <= 100
+    && ['available', 'not_applicable'].includes(targetStatus);
   const motto = shareMotto(locale, mottoIndex, canSubscribe);
   const text = `${opening}\n${motto}\n${status}`;
   // X counts CJK characters more heavily. Keep its composer concise, even for a uint256 circuit ID.
-  const xStatus = canSubscribe
+  const xStatus = targetStatus === 'unavailable'
+    ? (english ? 'Delisted. Subscriptions closed; participant refunds remain accessible.' : '项目已下架，停止认购；已有参与者仍可查看退款入口。')
+    : targetStatus === 'unknown'
+      ? (english ? 'Target availability unconfirmed. View the latest project status.' : '目标可购状态待核对，请查看项目最新状态。')
+      : canSubscribe
     ? (english ? `${project.remainingShares}/100 shares available. Check the latest status.` : `剩余 ${project.remainingShares}/100 份，以最新进度为准。`)
     : (english ? 'View the latest project status.' : '查看项目最新进展。');
   const xText = `BEMine · ${title}\n${motto}\n${xStatus}`;
@@ -116,7 +139,7 @@ export function createProjectShare({ publicBaseUrl, project, confirmation, local
     return target.href;
   };
   return {
-    title, text, xText, motto, url, projectUrl, copyText: `${text}\n${url}`, confirmed, status, canSubscribe,
+    title, text, xText, motto, url, projectUrl, copyText: `${text}\n${url}`, confirmed, status, canSubscribe, targetStatus,
     stateKnown: STATES.has(project.state),
     telegramUrl: intent('https://t.me/share/url', 'tg'),
     xUrl: intent('https://x.com/intent/tweet', 'x', xText),

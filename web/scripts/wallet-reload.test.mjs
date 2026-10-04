@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { WALLET_PREFERENCE_KEY, readWalletPreference, saveWalletPreference,
   clearWalletPreference, startWalletRestore } from '../lib/wallet-reload.mjs';
+import { migrateWalletPreference } from '../lib/wallet-reload.mjs';
 
 const account = '0x7674fa446D42b1f7f150DC5e678cc525d275Ea53';
 const other = '0x0000000000000000000000000000000000000002';
@@ -53,6 +54,22 @@ test('preferences persist only stable selection metadata, ignoring temporary ID,
     { version: 1, source: 'eip6963', rdns: 'io.metamask', brandId: 'metamask' });
   assert.deepEqual(readWalletPreference(s), JSON.parse(s.getItem(WALLET_PREFERENCE_KEY)));
   clearWalletPreference(s); assert.equal(readWalletPreference(s), null);
+});
+
+test('a late EIP announcement migrates only the same selected provider and brand for F5 restoration', async () => {
+  const store = storage(), selected = wallet({ source: 'legacy', rdns: '' });
+  saveWalletPreference(store, selected.entry);
+  const announced = { ...selected.entry, source: 'eip6963', rdns: 'io.metamask' };
+  assert.equal(migrateWalletPreference(store, selected.provider, [announced]), true);
+  const f = fixture({ store, entries: [announced], remembered: false }); await drain();
+  assert.equal(f.events.at(-1).reason, 'restored');
+  assert.equal(f.events.find(item => item.type === 'recovered').provider, selected.provider);
+  for (const entry of [{ ...announced, provider: wallet().provider }, { ...announced, brandId: 'okx' },
+    { ...announced, rdns: 'com.fake.wallet' }]) {
+    saveWalletPreference(store, selected.entry);
+    assert.equal(migrateWalletPreference(store, selected.provider, [entry]), false);
+    assert.equal(readWalletPreference(store).source, 'legacy');
+  }
 });
 
 test('malformed, unsupported, missing and inaccessible storage fail closed without crashing', () => {

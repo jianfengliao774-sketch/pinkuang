@@ -81,12 +81,18 @@ export async function readMiningState(provider, options) {
   if (!block || !Number.isSafeInteger(block.number)) throw new Error('Latest block unavailable.');
   const at = { blockTag: block.number };
   const factory = new Contract(options.factory, factoryAbi, provider), pool = new Contract(options.pool, poolAbi, provider);
-  const [registered, bound, state, params, operator] = await Promise.all([
-    factory.isPool(options.pool, at), pool.factory(at), pool.state(at), pool.params(at), factory.operator(at),
+  // A non-Active pool needs no mining action. Read its lifecycle first so a
+  // Funding/Listed/Closed pool does not pay for four unrelated identity reads.
+  // Every Active snapshot still verifies registration, collection and ownership
+  // before it can reach either the read-only monitor or a signing path.
+  const state = await pool.state(at);
+  const identity = { chainId: 56, factory: options.factory, pool: options.pool };
+  if (state !== 2n) return { status: 'pool-not-active', ...identity, blockNumber: block.number, state };
+  const [registered, bound, params, operator] = await Promise.all([
+    factory.isPool(options.pool, at), pool.factory(at), pool.params(at), factory.operator(at),
   ]);
   if (!registered || !same(bound, options.factory)) throw new Error('Pool is not registered with this factory.');
   if (!OFFICIAL_COLLECTIONS.some(item => same(item, params.circuits))) throw new Error('Pool uses an unsupported NFT collection.');
-  if (state !== 2n) return { status: 'pool-not-active', blockNumber: block.number, state };
   const nft = new Contract(params.circuits, nftAbi, provider), mining = new Contract(MINING, miningAbi, provider);
   const [owner, key] = await Promise.all([nft.ownerOf(params.circuitId, at), mining.minerKey(params.circuits, params.circuitId, at)]);
   if (!same(owner, options.pool)) throw new Error('Pool does not own the actual acquired NFT.');
@@ -94,7 +100,7 @@ export async function readMiningState(provider, options) {
     mining.getMiner(key, at), mining.STOP_COOLDOWN(at), mining.armedAt(key, at),
   ]);
   if (!same(miner.circuits, params.circuits) || miner.circuitId !== params.circuitId) throw new Error('Mining record identifies another NFT.');
-  return { ...miningDecision(miner, block.number, cooldown), blockNumber: block.number, blockHash: block.hash,
+  return { ...miningDecision(miner, block.number, cooldown), ...identity, blockNumber: block.number, blockHash: block.hash,
     blockGasLimit: block.gasLimit, circuits: params.circuits, circuitId: params.circuitId, miner, key, armedAt, operator };
 }
 
@@ -181,15 +187,33 @@ async function submitAction(provider, options, signer, journal, stage, data, gas
   }
 }
 
-export async function runMiningCycle(provider, options, signer = null, fetcher = fetch) {
+export async function runMiningCycle(provider, options, signer = null, fetcher = fetch, readonlySnapshot = null) {
   const journal = readJournal(options.journal, options);
   assertStage(journal, options);
   const pending = await reconcilePending(provider, options, journal);
   if (pending) return pending; // Never sign another transaction until this one is BSC-finalized.
   if (journal.transaction?.phase === 'reverted' || journal.transaction?.phase === 'cancelled'
     || journal.transaction?.phase === 'cancel-reverted') return { status: 'previous-mining-transaction-failed-review-required' };
-  const state = await readMiningState(provider, options);
-  if (state.status === 'pool-not-active') return state;
+  // The supervisor may reuse the snapshot it just inspected for a non-signing
+  // monitor. A real send always rereads the live state after nonce recovery.
+  // A caller-supplied snapshot can never authorize a wallet transaction.
+  if (!options.send && readonlySnapshot && (readonlySnapshot.chainId !== 56
+    || !same(readonlySnapshot.factory ?? '', options.factory) || !same(readonlySnapshot.pool ?? '', options.pool)))
+    throw new Error('Mining observation does not match this pool.');
+  const state = !options.send && readonlySnapshot ? readonlySnapshot : await readMiningState(provider, options);
+  if (state.status === 'pool-not-active') {
+    // reconcilePending above has already proved finality. Preserve signed bytes,
+    // receipt and fee ledger, but retire the completed follow-up when the pool
+    // has left Active (including a temporary whole-miner listing). Delisting can
+    // later resume a fresh monitoring pass without monopolizing the supervisor.
+    if (options.send && journal.transaction?.phase === 'confirmed'
+      && ['arming', 'starting'].includes(journal.miningStage)) {
+      journal.miningStage = 'monitoring'; journal.armRetries = 0;
+      writeJournal(options.journal, journal);
+      return { ...state, followupResolved: true };
+    }
+    return state;
+  }
   let caller = state.operator;
   if (options.authority) {
     if (!same(state.operator, options.authority)) throw new Error('Factory operator is not the configured authority.');

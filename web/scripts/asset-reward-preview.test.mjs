@@ -1,13 +1,64 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assetOverview } from '../lib/asset-overview.mjs';
-import { assetPositionsWithBookedRewards, assetRewardPreview } from '../lib/asset-reward-preview.mjs';
+import { assetPositionsWithBookedRewards, assetRewardPreview, rewardPreviewForPosition } from '../lib/asset-reward-preview.mjs';
+import { claimDisplayState } from '../lib/claim-display.mjs';
 
 const pool = n => `0x${n.toString(16).padStart(40, '0')}`;
 const single = (n, bookedBEM = 5n) => ({ pool: pool(n), kind: 'single', claimableBEM: bookedBEM, shares: 50n });
 const ready = (n, bookedBEM, uncollectedBEM) => ({ pool: pool(n), status: 'ready',
   bookedBEM, uncollectedBEM, totalEstimatedBEM: bookedBEM + uncollectedBEM });
 const view = (...items) => ({ canonical: true, items });
+
+function scoped({ indexedBlock = 101, rewardBlock = 100n, booked = 0n, shares = 50n, state = 2n } = {}) {
+  const blockHash = `0x${'a'.repeat(64)}`, account = pool(9), factory = pool(8);
+  return { context: { account, factory, source: { indexedThrough: indexedBlock, indexedBlockHash: blockHash } },
+    snapshot: { canonical: true, account, factory, chainId: 56n, blockNumber: rewardBlock, blockHash,
+      items: [{ ...ready(1, booked, 20n), blockNumber: rewardBlock, blockHash, shares, state }] } };
+}
+
+test('a newer indexed balance cannot be replaced by an older zero reward snapshot or disable its claim', () => {
+  const { context, snapshot } = scoped();
+  const row = { ...single(1, 100000000n), state: 2n };
+  const projected = assetPositionsWithBookedRewards([row], snapshot, context)[0];
+  assert.equal(projected.claimableBEM, 100000000n);
+  assert.equal(claimDisplayState({ pool: row.pool, account: context.account, currency: 'BEM',
+    balance: projected.claimableBEM, balanceBlock: context.source.indexedThrough }).canClaim, true);
+  const preview = assetRewardPreview([row], snapshot, context);
+  assert.equal(preview.totals.bookedBEM, 100000000n);
+  assert.equal(preview.totals.uncollectedBEM, null, 'Old pending output is not added to a later harvest.');
+});
+
+test('a newer zero balance remains zero after a claim; unchanged historical pending keeps its old block', () => {
+  const { context, snapshot } = scoped({ booked: 5n });
+  const claimed = { ...single(1, 0n), state: 2n };
+  assert.equal(assetPositionsWithBookedRewards([claimed], snapshot, context)[0].claimableBEM, 0n);
+  const unchanged = { ...single(1, 5n), state: 2n };
+  const reward = rewardPreviewForPosition(unchanged, snapshot, context);
+  assert.equal(reward.blockNumber, 100n); assert.equal(reward.balanceBlock, 101n);
+  assert.equal(reward.uncollectedBEM, 20n);
+});
+
+test('reward identity, same-height fork, shares, state and unknown new balances fail without substituting zero', () => {
+  const row = { ...single(1, 5n), state: 2n };
+  const { context, snapshot } = scoped({ booked: 5n });
+  const cases = [
+    { snapshot: { ...snapshot, account: pool(10) } },
+    { snapshot: { ...snapshot, factory: pool(10) } },
+    { snapshot: { ...snapshot, blockHash: `0x${'b'.repeat(64)}` } },
+    { row: { ...row, shares: 51n } }, { row: { ...row, state: 4n } }, { row: { ...row, claimableBEM: null } },
+    { row: { ...row, shares: null } },
+    { context: { ...context, source: { ...context.source, indexedThrough: 100, indexedBlockHash: `0x${'b'.repeat(64)}` } } },
+    { row: { ...row, claimableBEM: 8n }, context: { ...context, source: { ...context.source, indexedThrough: 100 } } },
+  ];
+  for (const poison of cases) {
+    const current = poison.row ?? row;
+    const preview = assetRewardPreview([current], poison.snapshot ?? snapshot, poison.context ?? context);
+    assert.equal(preview.items[0].status, 'unknown');
+    assert.equal(preview.items[0].bookedBEM, current.claimableBEM);
+    assert.equal(preview.items[0].uncollectedBEM, null);
+  }
+});
 
 test('canonical preview replaces stale booked balances instead of double-counting a later harvest', () => {
   const rows = [single(1, 30n)];

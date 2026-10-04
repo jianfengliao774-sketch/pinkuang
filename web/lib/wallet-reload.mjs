@@ -44,6 +44,18 @@ export function saveWalletPreference(storage, entry) {
   catch { clearWalletPreference(storage); return false; }
 }
 
+/** A late announcement may rename the exact provider already selected by the
+ * user. Migrate only that object and the same reviewed brand, never brand-only
+ * candidates or another extension wrapper. */
+export function migrateWalletPreference(storage, provider, entries) {
+  const preference = readWalletPreference(storage);
+  if (preference?.source !== 'legacy' || !provider || !Array.isArray(entries)) return false;
+  const matches = entries.filter(entry => entry?.provider === provider && entry.source === 'eip6963'
+    && entry.brandId === preference.brandId && WALLET_BRANDS.find(item => item.id === entry.brandId)
+      ?.rdns.includes(String(entry.rdns).toLowerCase()));
+  return matches.length === 1 && saveWalletPreference(storage, matches[0]);
+}
+
 export function clearWalletPreference(storage) {
   try { storage.removeItem(WALLET_PREFERENCE_KEY); return true; }
   catch { return false; }
