@@ -10,7 +10,9 @@ test('catalog sharing opens the public directory, independent of a wallet or sel
     assert.equal(link.searchParams.get('url'), model.url);
     assert.equal(link.searchParams.get('text'), `${model.title}\n${model.text}`);
   }
-  assert.match(createCatalogShare({ publicBaseUrl: 'https://tapeout.cc.cd/bemine-v5/', locale: 'en' }).text, /one share/);
+  assert.equal(model.title, '爱“拼”才会赢 · BEMine');
+  assert.equal(model.text, '矿机除了打和买，还可以拼~');
+  assert.match(createCatalogShare({ publicBaseUrl: 'https://tapeout.cc.cd/bemine-v5/', locale: 'en' }).text, /together/);
 });
 test('catalog sharing rejects untrusted origins, private parameters and unrelated paths', () => {
   for (const publicBaseUrl of ['https://example.com/bemine-v5/', 'http://tapeout.cc.cd/bemine-v5/',

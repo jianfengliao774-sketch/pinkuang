@@ -58,6 +58,7 @@ import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
 import { projectDirectory, projectDirectoryCategory, projectMatchesStatus, projectSortState, projectTargetRaiseWei, toggleProjectSort } from '../lib/project-directory.mjs';
 import './PoolCatalogDesktop.css';
+import './AssetOverviewPromo.css';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
 import FundingRefundNotice from './FundingRefundNotice';
@@ -2723,7 +2724,7 @@ export default function LivePlatform() {
       <span>{titles.miner}</span>
       <select value={minerType} data-miner-type-filter="catalog" aria-label={L('矿机类型', 'Miner type')}
         onChange={event => setMinerType(event.target.value)}>
-        <option value="all">{L('所有', 'All')}</option><option value="TapeOut">TapeOut</option>
+        <option value="all">All</option><option value="TapeOut">TapeOut</option>
         <option value="Behemoth">Behemoth</option>
       </select>
     </div> : sortFields[column] ? sortButton(sortFields[column][0], titles[column]) : titles[column];
@@ -3097,13 +3098,9 @@ export default function LivePlatform() {
       <MobileFinancialCards rows={rows} empty={empty} variant="orders" L={L}/>
     </>;
   };
-  const shareCatalog = async () => {
+  const shareCatalog = () => {
     const model = createCatalogShare({ publicBaseUrl, locale });
     if (!model) return;
-    if (typeof navigator.share === 'function') {
-      try { await navigator.share({ title: model.title, text: model.text, url: model.url }); return; }
-      catch (error) { if (error?.name === 'AbortError') return; }
-    }
     setModal({ type: 'catalog-share' });
   };
   const renderProjectDirectory = page => {
@@ -3119,18 +3116,14 @@ export default function LivePlatform() {
     return <>
       {heading(L('参与拼矿', 'Join a pool'), L('从一份开始，共持 BEM 矿机。', 'Start with one share. Own BEM miners together.'), refreshButton)}
       <div className="live-project-intro">
-      <div className="live-project-summary">
-        {['Funding', 'Active', 'Listed'].map(status => <button key={status}
-          className={filter === status ? 'selected' : ''} aria-pressed={filter === status} onClick={()=>setFilter(status)}>
-          <span>{L(...statuses[status])}</span>
-          <strong>{ready && !updating && !failed && directory.all.every(row=>row.status!=='Unknown') ? directory.counts[status] : '—'}</strong>
-        </button>)}
-      </div>
-      <button type="button" className="live-catalog-promo" onClick={() => void shareCatalog()}
-        aria-label={L('参与拼矿，分享本页面', 'Join a pool. Share this page')} title={L('点击分享本页面', 'Click to share this page')}>
-        <img src={`${basePath}/images/pool-catalog-promo-20261004.png`} width="2164" height="727"
-          alt={L('参与拼矿，从一份开始，共持 BEM 矿机', 'Start with one share. Own BEM miners together.')}/>
-        <span><Share2 size={15}/>{L('分享本页', 'Share this page')}</span>
+      <button type="button" className="live-catalog-promo" onClick={shareCatalog}
+        aria-label={L('爱“拼”才会赢，分享本页面', 'Better together. Share this page')} title={L('点击分享本页面', 'Click to share this page')}>
+        <img src={`${basePath}/images/pool-catalog-promo-20261004-v2.webp`} width="1600" height="565" alt=""/>
+        <span className="live-catalog-promo-copy">
+          <strong>{L('爱“拼”才会赢', 'Better together')}</strong>
+          <small>{L('矿机除了打和买，还可以拼~', 'Build, buy, or own a miner together~')}</small>
+        </span>
+        <span className="live-catalog-promo-share"><Share2 size={16}/>{L('分享本页', 'Share this page')}</span>
       </button>
       </div>
       <section className="panel live-pool-directory" data-project-directory="unified" aria-busy={!!updating}>
@@ -3202,20 +3195,25 @@ export default function LivePlatform() {
         </div>)}
       </section>}
       <section className="panel holdings" data-asset-directory="unified" aria-busy={updating}>
-        <div className="section-head"><div><h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
-          <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p></div></div>
+        <div className="live-asset-promo">
+          <img src={`${basePath}/images/asset-overview-promo-20261004.webp`} width="1600" height="585" alt="" loading="lazy"/>
+          <div className="live-asset-promo-copy">
+            <h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
+            <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p>
+            <p className="subtle-note" data-asset-rewards-status={rewardsView?.status ?? 'idle'}>{rewardsView?.status === 'loading'
+              ? L('正在读取待归集收益…', 'Reading uncollected output…')
+              : ['partial', 'unavailable'].includes(rewardsView?.status)
+                ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+                : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。', 'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection.')}
+              {rewardPreview.includesPortfolio && <> {L('多矿机项目仅计已入账收益，待归集收益见项目详情。', 'Portfolios include booked rewards only; see project details for uncollected output.')}</>}
+              {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
+            </p>
+          </div>
+        </div>
         {page.error&&<div className="portfolio-error" role="alert"><p>{L('部分项目读取失败，已读取持仓仍可查看。','Some projects could not be loaded; available positions remain visible.')}</p>
           <button className="btn secondary" disabled={updating||busy||!!pending} onClick={()=>void page.load()}>{L('重新读取','Retry')}</button></div>}
         {updating&&view.rows.length>0&&<p className="subtle-note" role="status">{L('正在更新持仓…','Updating positions…')}</p>}
         {partial&&view.loaded&&<p className="subtle-note">{L('当前汇总仅包含已加载持仓。','The summary includes only loaded positions.')}</p>}
-        <p className="subtle-note" style={{ margin: '0 24px 20px' }} data-asset-rewards-status={rewardsView?.status ?? 'idle'}>{rewardsView?.status === 'loading'
-          ? L('正在读取待归集收益…', 'Reading uncollected output…')
-          : ['partial', 'unavailable'].includes(rewardsView?.status)
-            ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
-            : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。', 'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection.')}
-          {rewardPreview.includesPortfolio && <> {L('多矿机项目仅计已入账收益，待归集收益见项目详情。', 'Portfolios include booked rewards only; see project details for uncollected output.')}</>}
-          {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
-        </p>
         {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length},null,rewardPreview)}
         {more&&<div className="live-more"><Button secondary disabled={updating||busy||!!pending||page.failed||!!positionsReadError}
           onClick={()=>void Promise.allSettled([positionCursor!=null?thisMorePositions():Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>{L('加载更多','Load more')}</Button></div>}
@@ -3880,52 +3878,40 @@ export default function LivePlatform() {
                           ))}
                         </dl>
                         <div className="live-actions live-detail-refund-actions">
-                          {account &&
-                            detail.status === "Funding" &&
-                            detail.shares >= 1n && (
+                          <div className="live-detail-refund-buttons">
+                            {["Funding", "Funded"].includes(detail.status) && (
                               <Button
                                 secondary
-                                className="btn secondary live-invite-friends"
+                                disabled={!detailActionReadyFor('finalizeFailure') || !account}
                                 onClick={() =>
-                                  setModal({ type: "share", pool: detail })
+                                  openAction("finalizeFailure", detail)
                                 }
                               >
-                                <Share2 size={17} />
-                                {L("邀请朋友一起拼矿", "Invite friends to mine together")}
+                                {L("核对到期退款", "Check refund eligibility")}
                               </Button>
                             )}
-                          {["Funding", "Funded"].includes(detail.status) && (
-                            <Button
-                              secondary
-                              disabled={!detailActionReadyFor('finalizeFailure') || !account}
-                              onClick={() =>
-                                openAction("finalizeFailure", detail)
-                              }
-                            >
-                              {L("核对到期退款", "Check refund eligibility")}
-                            </Button>
-                          )}
-                        <p className="subtle-note live-detail-output-note">
-                          {L(
-                            "实际产出随矿机和协议状态变化；已入账权益可由本人随时领取。",
-                            "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
-                          )}
-                        </p>
-                          {detail.status === "Funding" &&
-                            detail.shares > 0n && (
-                              <Button
-                                secondary
-                                disabled={!detailActionReadyFor('withdrawDeposit')}
-                                onClick={() =>
-                                  openAction("withdrawDeposit", detail)
-                                }
-                              >
-                                {L(
-                                  "撤回本次项目认购",
-                                  "Withdraw this subscription",
-                                )}
-                              </Button>
+                            {detail.status === "Funding" &&
+                              detail.shares > 0n && (
+                                <Button
+                                  secondary
+                                  disabled={!detailActionReadyFor('withdrawDeposit')}
+                                  onClick={() =>
+                                    openAction("withdrawDeposit", detail)
+                                  }
+                                >
+                                  {L(
+                                    "撤回本次认购",
+                                    "Withdraw this subscription",
+                                  )}
+                                </Button>
+                              )}
+                          </div>
+                          <p className="subtle-note live-detail-output-note" lang={locale === 'en' ? 'en' : 'zh-CN'}>
+                            {L(
+                              "实际产出随矿机和协议状态变化；已入账权益可由本人随时领取。",
+                              "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
                             )}
+                          </p>
                         </div>
                       </section>
                     )}
