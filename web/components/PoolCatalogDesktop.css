@@ -41,7 +41,6 @@
   }
 
   .live-platform .live-catalog-table .live-catalog-miner-heading,
-  .live-platform .live-catalog-table .live-catalog-amount-heading,
   .live-platform .live-catalog-table .live-catalog-amount {
     display: flex;
     flex-direction: column;
@@ -49,25 +48,31 @@
   }
 
   .live-platform .live-catalog-table .live-catalog-miner-heading {
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
   }
 
   .live-platform .live-catalog-table .live-catalog-miner-heading select {
-    min-width: 110px;
+    width: 115px;
+    min-width: 0;
     max-width: 100%;
-    min-height: 30px;
-    padding: 2px 26px 2px 8px;
+    min-height: 34px;
+    padding: 4px 23px 4px 7px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface);
     color: var(--ink);
     font: inherit;
     font-size: 14px;
+    text-align: center;
+    text-align-last: center;
   }
 
-  .live-platform .live-catalog-table .live-catalog-amount-heading,
   .live-platform .live-catalog-table .live-catalog-amount {
     align-items: center;
+    gap: 6px;
   }
 
   .live-platform .live-catalog-table .live-catalog-amount > span {
@@ -77,5 +82,80 @@
 
   .live-platform .live-catalog-table .live-catalog-amount > span + span {
     color: var(--muted);
+    font-size: 14px;
   }
+
+  .live-platform .live-pool-directory .live-catalog-table table { table-layout: fixed; min-width: 1040px; }
+  .live-platform .live-catalog-table :is(th, td) { padding: 20px 12px; vertical-align: middle; }
+  .live-platform .live-catalog-table th { height: 74px; padding-block: 16px; }
+  .live-platform .live-catalog-table th[data-project-column="miner"] { width: 24%; }
+  .live-platform .live-catalog-table th[data-project-column="shares"] { width: 10%; }
+  .live-platform .live-catalog-table th[data-project-column="capacity"] { width: 10%; }
+  .live-platform .live-catalog-table th[data-project-column="hash"] { width: 8%; }
+  .live-platform .live-catalog-table th[data-project-column="members"] { width: 8%; }
+  .live-platform .live-catalog-table th[data-project-column="daily"] { width: 15%; }
+  .live-platform .live-catalog-table th[data-project-column="amount"] { width: 19%; }
+  .live-platform .live-catalog-table th[data-project-column="actions"] { width: 14%; }
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="miner"] { width: 22%; }
+  .live-platform .live-catalog-table th[data-project-column="status"] { width: 9%; text-align: center; }
+  .live-platform .live-catalog-table td[data-project-column="status"] { text-align: center; }
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="shares"],
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="capacity"] { width: 9%; }
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="hash"] { width: 7%; }
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="daily"],
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="actions"] { width: 13%; }
+  .live-platform .live-catalog-table table[data-catalog-category="Listed"] th[data-project-column="amount"] { width: 18%; }
+  .live-platform .live-catalog-table .asset-cell { max-width: 100%; }
+  .live-platform .live-catalog-table .asset-cell > span { min-width: 0; }
+  .live-platform .live-catalog-table .asset-cell strong { white-space: normal; overflow-wrap: anywhere; }
+  .live-platform .live-catalog-table .live-view-miner {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 42px; padding: 9px 12px; border: 1px solid #bdcbbd; border-radius: 8px;
+    background: var(--surface); color: var(--blue); font-weight: 600; font-size: 15px;
+  }
+}
+
+.live-platform .live-pool-directory .tabs { gap: 20px; border-bottom: 0; padding-block: 2px; }
+.live-platform .live-pool-directory .tabs button {
+  min-height: 44px; padding: 10px 16px; border: 1px solid transparent;
+  border-radius: 8px; line-height: 1.5; white-space: nowrap;
+}
+.live-platform .live-pool-directory .tabs button.selected {
+  background: var(--brand-gold); border-color: var(--brand-gold); color: #2c3933;
+}
+.live-platform .live-project-intro {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 20px; align-items: stretch; margin-bottom: 24px;
+}
+.live-platform .live-project-intro .live-project-summary { gap: 12px; margin: 0; }
+.live-platform .live-project-intro .live-project-summary button { padding: 16px; align-items: center; gap: 8px; font-size: 15px; }
+.live-platform .live-project-intro .live-project-summary .selected {
+  background: var(--brand-gold); color: #2c3933; border-color: var(--brand-gold); box-shadow: none;
+}
+.live-platform .live-catalog-promo {
+  position: relative; display: block; padding: 0; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 12px; background: #f4ede1; cursor: pointer;
+}
+.live-platform .live-catalog-promo img { display: block; width: 100%; height: auto; }
+.live-platform .live-catalog-promo > span {
+  position: absolute; bottom: 8px; right: 10px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px; border-radius: 6px; background: #203e36; color: #e8d3aa; font-size: 12px;
+}
+.live-platform :is(.live-catalog-promo, .live-view-miner):hover { border-color: var(--blue); }
+.live-platform :is(.live-catalog-promo, .live-view-miner, .live-catalog-sort):focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 3px;
+}
+@media (max-width: 1100px) {
+  .live-platform .live-project-intro { grid-template-columns: 1fr; gap: 12px; }
+  .live-platform .live-project-intro .live-project-summary button { min-height: 70px; }
+  .live-platform .live-catalog-promo { max-width: 560px; justify-self: end; width: 100%; }
+}
+@media (max-width: 760px) {
+  .live-platform .live-project-intro { margin-bottom: 18px; }
+  .live-platform .live-project-intro .live-project-summary { gap: 8px; }
+  .live-platform .live-project-intro .live-project-summary button { padding: 12px 8px; font-size: 14px; }
+  .live-platform .live-project-intro .live-project-summary strong { font-size: 23px; }
+  .live-platform .live-pool-directory .tabs { gap: 12px; }
+  .live-platform .live-pool-directory .tabs button { padding-inline: 12px; }
+  .live-platform .live-catalog-promo > span { bottom: 6px; right: 6px; font-size: 11px; padding: 3px 6px; }
 }

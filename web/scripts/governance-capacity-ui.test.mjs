@@ -34,6 +34,7 @@ function harness({prepareWait,actionWait,snapshotOverride={},configOverride={},p
     react: hooks,
     '../lib/capacity-input.mjs': capacity,
     '../app/live-governance.css': {},
+    './LiveGovernanceLayout.css': {},
     './FirstoSaleReferenceAction': {__esModule:true,default:ReferenceAction},
     '../lib/live-governance.mjs': {
       fetchNativeFirstoPublication:publicationReader,

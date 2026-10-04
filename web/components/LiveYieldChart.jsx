@@ -1,5 +1,6 @@
 import { amount } from "../lib/live-view.mjs";
 import { yieldChartModel } from "../lib/yield-history.mjs";
+import "./LiveYieldChart.css";
 
 export default function LiveYieldChart({ data, locale, days = 7, onDays, loading = false, error = '', stale = false }) {
   const L = (zh, en) => (locale === "en" ? en : zh);
@@ -8,7 +9,7 @@ export default function LiveYieldChart({ data, locale, days = 7, onDays, loading
     maximum = model?.maximum ?? 1n, total = model?.total ?? null, claimed = model?.claimed ?? null;
   const shownDays = model?.days ?? days, switching = !!model && shownDays !== days;
   return (
-    <section className="panel live-yield" aria-busy={loading}>
+    <section className="panel live-yield live-yield-compact" aria-busy={loading}>
       <div className="section-head">
         <div>
           <h2>{portfolio ? L("项目收益归集", "Output collected into the portfolio") : L("矿池收益归集", "Output collected into the pool")}</h2>

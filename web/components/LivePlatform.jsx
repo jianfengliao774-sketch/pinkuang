@@ -1,6 +1,10 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
+import { activityTimeUtc8 } from '../lib/activity-time.mjs';
+import { createCatalogShare } from '../lib/catalog-share.mjs';
+import PoolCatalogShare from './PoolCatalogShare';
+import './PoolDetailLayout.css';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
 import { claimDisplayState } from '../lib/claim-display.mjs';
@@ -2620,19 +2624,23 @@ export default function LivePlatform() {
         : group === "Active" ? ["miner", "shares", "unit", "members", "daily", "capacity", "actions"]
           : group === "Listed" ? ["miner", "status", "shares", "unit", "hash", "daily", "capacity", "actions"]
             : ["miner", "status", "shares", "unit", "daily", "capacity", "actions"];
-    const desktopColumns = catalog ? columns.map(column => column === 'unit' ? 'amount' : column) : columns;
+    const desktopColumns = !catalog ? columns
+      : group === 'Funding' ? ['miner', 'shares', 'capacity', 'hash', 'daily', 'amount', 'actions']
+        : group === 'Active' ? ['miner', 'shares', 'capacity', 'members', 'daily', 'amount', 'actions']
+          : group === 'Listed' ? ['miner', 'status', 'shares', 'capacity', 'hash', 'daily', 'amount', 'actions']
+            : ['miner', 'status', 'shares', 'capacity', 'daily', 'amount', 'actions'];
     const titles = {
       miner: L("矿机 / 项目", "Miner / pool"), status: L("状态", "Status"),
       shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
       unit: L("每份金额", "Price per share"), hash: L("算力 H", "Hash power H"),
-      amount: L("总金额 / 每份金额", "Total / price per share"),
+      amount: L("总金额", "Total"),
       members: L("参与人数", "Participants"),
       daily: holdings ? rewardPreview ? L('待领取 BEM（预计）', 'BEM to claim (estimated)')
         : L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
       capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
     };
     const catalogSort = projectSortState(sort);
-    const sortFields = { miner: ['id'], shares: ['funded'], amount: ['total', 'price'], hash: ['hash'],
+    const sortFields = { shares: ['funded'], amount: ['total'], hash: ['hash'],
       members: ['members'], daily: ['daily'], capacity: ['capacity'] };
     const sortButton = (field, label) => {
       const selected = catalogSort.field === field;
@@ -2649,14 +2657,12 @@ export default function LivePlatform() {
       </button>;
     };
     const catalogHeader = column => column === 'miner' ? <div className="live-catalog-miner-heading">
-      {sortButton('id', titles.miner)}
+      <span>{titles.miner}</span>
       <select value={minerType} data-miner-type-filter="catalog" aria-label={L('矿机类型', 'Miner type')}
         onChange={event => setMinerType(event.target.value)}>
         <option value="all">{L('所有', 'All')}</option><option value="TapeOut">TapeOut</option>
         <option value="Behemoth">Behemoth</option>
       </select>
-    </div> : column === 'amount' ? <div className="live-catalog-amount-heading" aria-label={titles.amount}>
-      {sortButton('total', L('总金额', 'Total'))}{sortButton('price', titles.unit)}
     </div> : sortFields[column] ? sortButton(sortFields[column][0], titles[column]) : titles[column];
     const summary = catalog && filter === 'all';
     const previewRows = new Map((rewardPreview?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
@@ -2684,7 +2690,7 @@ export default function LivePlatform() {
             unit: <>{displayPreciseAmount(p.unitPriceWei)} BNB</>,
             amount: catalog ? <div className="live-catalog-amount">
               <span data-project-amount="total">{displayPreciseAmount(projectTargetRaiseWei(p))} BNB</span>
-              <span data-project-amount="per-share">{displayPreciseAmount(p.unitPriceWei)} BNB</span>
+              <span data-project-amount="per-share">{L(`(每份${displayPreciseAmount(p.unitPriceWei)} BNB)`, `(${displayPreciseAmount(p.unitPriceWei)} BNB / share)`)}</span>
             </div> : null,
             hash: metadata?.hashPower ?? "—",
             members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
@@ -2728,7 +2734,7 @@ export default function LivePlatform() {
                   : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares locked')
                     : L('当前不可挂牌', 'Listing unavailable')}</span>
               </small>}
-              <button className="text-button" onClick={() => openDetails(p)}>
+              <button className={`text-button${catalog ? " live-view-miner" : ""}`} onClick={() => openDetails(p)}>
                 {holdings ? <><span className="live-desktop-copy">{p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}</span><span className="live-mobile-copy">{L('查看', 'View')}</span></>
                   : p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}<ArrowRight size={16}/>
               </button>
@@ -2785,7 +2791,7 @@ export default function LivePlatform() {
       );
     return <>
       <div className={`table-wrap live-project-table-desktop${catalog ? " live-catalog-table" : ""}`}>
-        <table>
+        <table data-catalog-category={catalog ? group : undefined}>
           <thead><tr>{desktopColumns.map(column => <th key={column} data-project-column={column}
             aria-sort={catalog && sortFields[column]?.includes(catalogSort.field)
               ? catalogSort.direction === 'asc' ? 'ascending' : 'descending' : undefined}>
@@ -3021,6 +3027,15 @@ export default function LivePlatform() {
       <MobileFinancialCards rows={rows} empty={empty} variant="orders" L={L}/>
     </>;
   };
+  const shareCatalog = async () => {
+    const model = createCatalogShare({ publicBaseUrl, locale });
+    if (!model) return;
+    if (typeof navigator.share === 'function') {
+      try { await navigator.share({ title: model.title, text: model.text, url: model.url }); return; }
+      catch (error) { if (error?.name === 'AbortError') return; }
+    }
+    setModal({ type: 'catalog-share' });
+  };
   const renderProjectDirectory = page => {
     const directory = projectDirectory(mergePublishedProjects(pools, publishedProjects.current),
       mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort, minerType,
@@ -3033,18 +3048,25 @@ export default function LivePlatform() {
     const canLoadMore = poolCursor != null || page.cursor != null;
     return <>
       {heading(L('参与拼矿', 'Join a pool'), L('从一份开始，共持 BEM 矿机。', 'Start with one share. Own BEM miners together.'), refreshButton)}
+      <div className="live-project-intro">
       <div className="live-project-summary">
         {['Funding', 'Active', 'Listed'].map(status => <button key={status}
-          className={filter === status ? 'selected' : ''} onClick={()=>setFilter(status)}>
+          className={filter === status ? 'selected' : ''} aria-pressed={filter === status} onClick={()=>setFilter(status)}>
           <span>{L(...statuses[status])}</span>
           <strong>{ready && !updating && !failed && directory.all.every(row=>row.status!=='Unknown') ? directory.counts[status] : '—'}</strong>
-          <small>{L('已加载项目', 'loaded projects')}</small>
         </button>)}
+      </div>
+      <button type="button" className="live-catalog-promo" onClick={() => void shareCatalog()}
+        aria-label={L('参与拼矿，分享本页面', 'Join a pool. Share this page')} title={L('点击分享本页面', 'Click to share this page')}>
+        <img src={`${basePath}/images/pool-catalog-promo-20261004.png`} width="2164" height="727"
+          alt={L('参与拼矿，从一份开始，共持 BEM 矿机', 'Start with one share. Own BEM miners together.')}/>
+        <span><Share2 size={15}/>{L('分享本页', 'Share this page')}</span>
+      </button>
       </div>
       <section className="panel live-pool-directory" data-project-directory="unified" aria-busy={!!updating}>
         <div className="live-toolbar">
           <div className="tabs">{[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale'],['all','项目总览','Overview']].map(([id,zh,en])=>
-            <button key={id} className={filter===id?'selected':''} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
+            <button key={id} className={filter===id?'selected':''} aria-pressed={filter===id} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
           <div className="live-search"><Search size={17}/><input aria-label={L('搜索矿机或地址','Search miner or address')}
             placeholder={L('矿机编号 / 项目地址','Miner ID / project address')} value={query} onChange={event=>setQuery(event.target.value)}/></div>
           <PoolSortMenu value={sort} onChange={setSort} locale={locale}/>
@@ -3181,7 +3203,7 @@ export default function LivePlatform() {
       const contract = row.contract ?? row.address ?? row.pool;
       const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
       const transactionUrl = explorerTransaction(hash);
-      return { key: `${hash}-${row.logIndex ?? i}`, block: row.blockNumber,
+      return { key: `${hash}-${row.logIndex ?? i}`, time: activityTimeUtc8(row.timestamp), block: row.blockNumber,
         operation: <ActivityOperation row={row} locale={locale} />,
         amounts: activityAmounts(row).map(item => ({ key: item.kind, label: L(...amountLabels[item.kind]),
           value: <>{displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</> })),
@@ -3201,6 +3223,7 @@ export default function LivePlatform() {
         <table>
           <thead>
             <tr>
+              <th>{L("时间 (UTC+8)", "Time (UTC+8)")}</th>
               <th>{L("区块", "Block")}</th>
               <th>{L("操作 / 说明", "Operation / description")}</th>
               <th>{L("金额 / 费用", "Amount / fee")}</th>
@@ -3210,6 +3233,7 @@ export default function LivePlatform() {
           </thead>
           <tbody>
             {rows.map(row => <tr key={row.key}>
+              <td className="live-activity-time">{row.time ? <time dateTime={row.time.iso}>{row.time.label}</time> : "—"}</td>
               <td>{row.block}</td>
               <td>{row.operation}</td>
               <td>{row.amounts.length ? row.amounts.map((item, index) => <span key={item.key}>
@@ -3223,7 +3247,10 @@ export default function LivePlatform() {
       </div>
       <div className="live-mobile-activity">
         {rows.map(row => <article className="live-mobile-activity-row" key={row.key}>
-          <header className="live-mobile-activity-heading"><span>{L("区块", "Block")} #{row.block}</span></header>
+          <header className="live-mobile-activity-heading">
+            <span>{L("时间 (UTC+8)", "Time (UTC+8)")} {row.time ? <time dateTime={row.time.iso}>{row.time.label}</time> : "—"}</span>
+            <span>{L("区块", "Block")} #{row.block}</span>
+          </header>
           {row.operation}
           <dl className="live-mobile-activity-amounts">
             {row.amounts.length ? row.amounts.map(item => <div key={item.key}>
@@ -3640,13 +3667,6 @@ export default function LivePlatform() {
                   <StateBadge state={detail.status} L={L} />
                   {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('指定矿机已转移', 'Target transferred')}</span>}
                   {refreshButton}
-                  <button
-                    className="text-button detail-record"
-                    onClick={() => setModal({ type: "share", pool: detail })}
-                  >
-                    <Share2 size={17} />
-                    {L("邀请朋友", "Invite friends")}
-                  </button>
                 </div>
                 <FundingRefundNotice row={detail} source={source} L={L} readyFor={detailActionReadyFor}
                   blocked={busy || !!pending || !account} onAction={openAction}/>
@@ -3785,18 +3805,13 @@ export default function LivePlatform() {
                             </div>
                           ))}
                         </dl>
-                        <p className="subtle-note">
-                          {L(
-                            "实际产出随矿机和协议状态变化。已入账权益可由本人随时领取。",
-                            "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
-                          )}
-                        </p>
-                        <div className="live-actions">
+                        <div className="live-actions live-detail-refund-actions">
                           {account &&
                             detail.status === "Funding" &&
                             detail.shares >= 1n && (
                               <Button
                                 secondary
+                                className="btn secondary live-invite-friends"
                                 onClick={() =>
                                   setModal({ type: "share", pool: detail })
                                 }
@@ -3816,6 +3831,12 @@ export default function LivePlatform() {
                               {L("核对到期退款", "Check refund eligibility")}
                             </Button>
                           )}
+                        <p className="subtle-note live-detail-output-note">
+                          {L(
+                            "实际产出随矿机和协议状态变化；已入账权益可由本人随时领取。",
+                            "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
+                          )}
+                        </p>
                           {detail.status === "Funding" &&
                             detail.shares > 0n && (
                               <Button
@@ -3844,9 +3865,6 @@ export default function LivePlatform() {
                           loading={yieldLoading}
                           error={yieldError}
                         />
-                        <section className="panel live-section">
-                          {activityTable()}
-                        </section>
                       </>
                     )}
                     {detailTab === "vote" && renderGovernance()}
@@ -4026,6 +4044,7 @@ export default function LivePlatform() {
                       )}
                       <Button
                         secondary
+                        className="btn secondary live-invite-friends"
                         onClick={() =>
                           setModal({ type: "share", pool: detail })
                         }
@@ -4044,6 +4063,9 @@ export default function LivePlatform() {
                       </span>
                     </div>
                   </aside>
+                  {detailTab === "records" && <section className="panel live-section live-detail-records">
+                    {activityTable()}
+                  </section>}
                 </div>
               </>
             ))}
@@ -4394,13 +4416,13 @@ export default function LivePlatform() {
           }}
         >
           <section
-            className={`modal live-modal${['share','portfolio-share'].includes(modal.type) ? " live-share-modal" : ""}${modal.type === 'action' && modal.kind === 'list' ? ' live-sale-modal' : ''}`}
+            className={`modal live-modal${['share','portfolio-share','catalog-share'].includes(modal.type) ? " live-share-modal" : ""}${modal.type === 'action' && modal.kind === 'list' ? ' live-sale-modal' : ''}`}
             ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="live-dialog-title"
           >
-            {!['share','portfolio-share'].includes(modal.type) && (
+            {!['share','portfolio-share','catalog-share'].includes(modal.type) && (
               <button
                 className="modal-close icon-button"
                 disabled={modal.type === "connect-wallet" ? false : busy}
@@ -4426,6 +4448,9 @@ export default function LivePlatform() {
               <><h2 id="live-dialog-title" className="sr-only">{L('分享多矿机项目', 'Share a multi-miner portfolio')}</h2>
                 <PortfolioProjectShare locale={locale} publicBaseUrl={publicBaseUrl} project={modal.pool}
                   confirmation={modal.confirmation} onDismiss={() => setModal(null)} /></>
+            ) : modal.type === "catalog-share" ? (
+              <><h2 id="live-dialog-title" className="sr-only">{L('分享参与拼矿页面', 'Share the pool directory')}</h2>
+                <PoolCatalogShare locale={locale} publicBaseUrl={publicBaseUrl} onDismiss={() => setModal(null)}/></>
             ) : modal.type === "share" ? (
               <>
                 <h2 id="live-dialog-title" className="sr-only">

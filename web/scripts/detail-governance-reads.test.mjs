@@ -167,7 +167,7 @@ test('the actual vote component owns its read and its real parent callback suppl
     snapshotShares: 0n, purchaseCost: 40_400_000_000_000_000n, candidates: [], activeProposalId: 0n,
     listedProposalId: 0n, salePrice: ui.result.data.salePrice, saleReference: { available: false } };
   const child = { exports: {} };
-  const modules = { react: hooks, '../lib/capacity-input.mjs': capacity, '../app/live-governance.css': {},
+  const modules = { react: hooks, '../lib/capacity-input.mjs': capacity, '../app/live-governance.css': {}, './LiveGovernanceLayout.css': {},
     './FirstoSaleReferenceAction': { __esModule: true, default: () => null },
     '../lib/live-governance.mjs': {
       readGovernanceSnapshot: async (_provider, options) => { childReads.push(options); return snapshot; },

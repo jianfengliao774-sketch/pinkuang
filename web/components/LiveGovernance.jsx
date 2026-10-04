@@ -9,6 +9,7 @@ import { fetchNativeFirstoPublication, proposalReferenceRecord, prepareGovernanc
 import { createUiContext } from '../lib/ui-context.mjs';
 import FirstoSaleReferenceAction from './FirstoSaleReferenceAction';
 import '../app/live-governance.css';
+import './LiveGovernanceLayout.css';
 
 const short = value => value ? `${value.slice(0, 8)}…${value.slice(-6)}` : '—';
 const errorText = problem => problem?.shortMessage || problem?.message || '出售治理请求未完成。';
@@ -248,9 +249,15 @@ export default function LiveGovernance({ config, account, wallet, pools = [], di
     && publication.askHash?.toLowerCase() === snapshot.nativeFirstoSale.orderHash?.toLowerCase();
   const reviewPricePercent = snapshot?.saleReviewThresholdBps == null ? null : Number(snapshot.saleReviewThresholdBps) / 100;
   return <section className="live-section live-governance" aria-label="真实整机出售治理">
-    <div className="live-section-head"><div><h2>整机出售治理</h2><p>{config?.stage === 'genesis'
-      ? '创世矿池按链上购机成本判定折价：地址过半，折价至少 60 份赞成；其他价格份额过半。'
-      : `同轮报价共用投票快照。赞成人数与份额均须严格过半；执行挂牌须有当前 Firsto 参考价。${reviewPricePercent == null ? '仅低于参考价规定比例的报价需要平台审核。' : `仅售价低于参考价的 ${reviewPricePercent}% 时须经平台审核。`}`}</p></div><button className="live-gov-refresh" disabled={busy || !config || !poolValue} onClick={() => void refresh({ force: true })}><RefreshCw size={15}/>刷新治理</button></div>
+    <div className="live-section-head">
+      <div className="live-governance-title-row">
+        <h2>整机出售治理</h2>
+        <button className="live-gov-refresh" disabled={busy || !config || !poolValue} onClick={() => void refresh({ force: true })}><RefreshCw size={15}/>刷新治理</button>
+      </div>
+      <p>{config?.stage === 'genesis'
+        ? '创世矿池按链上购机成本判定折价：地址过半，折价至少 60 份赞成；其他价格份额过半。'
+        : `同轮报价共用投票快照。赞成人数与份额均须严格过半；执行挂牌须有当前 Firsto 参考价。${reviewPricePercent == null ? '仅低于参考价规定比例的报价需要平台审核。' : `仅售价低于参考价的 ${reviewPricePercent}% 时须经平台审核。`}`}</p>
+    </div>
     {error && !previewVisible && <div className="live-gov-error" role="alert"><CircleAlert size={16}/>{error}</div>}
     <div className="live-gov-selector"><label>矿池地址<input value={poolValue} readOnly={!!selectedPool} list="live-governance-pools" onChange={event => { requests.current.invalidate(); setPoolInput(event.target.value); }} placeholder="0x…"/></label><datalist id="live-governance-pools">{pools.map(pool => <option value={pool} key={pool}/>)}</datalist><span>{config?.displayOnly ? '选择矿池，查看提案并参与投票。' : '只有经过链上 Factory 注册核对的池可操作。'}</span></div>
     {!snapshot && <p className="live-gov-muted">{config?.displayOnly ? '选择矿池，读取提案与余额。' : '选择矿池并读取。页面不从浏览器缓存恢复提案或余额。'}</p>}

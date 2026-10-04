@@ -1125,8 +1125,8 @@ body:has(.preview-banner) .page-footer {
 .live-platform .live-record-page-jump { font-size: 16px; }
 .live-price-metric .metric-note { white-space: normal; }
 .live-platform .detail-layout > .purchase-panel {
-  position: sticky; top: 92px; max-height: calc(100dvh - 112px);
-  overflow-y: auto; overscroll-behavior: contain;
+  position: static; max-height: none;
+  overflow-y: visible; overscroll-behavior: auto;
 }
 @media (max-width: 760px) {
   .live-platform .topbar { align-items: center; flex-wrap: nowrap; gap: 6px; }

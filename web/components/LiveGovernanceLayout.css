@@ -1,0 +1,22 @@
+.live-governance > .live-section-head > .live-governance-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.live-governance > .live-section-head > .live-governance-title-row > h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.live-governance > .live-section-head > .live-governance-title-row > .live-gov-refresh {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.live-governance > .live-section-head > p {
+  margin: 8px 0 0;
+}

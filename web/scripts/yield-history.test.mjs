@@ -19,7 +19,7 @@ const code=(await transform(await readFile(new URL('../components/LiveYieldChart
 })).code;
 const require=createRequire(import.meta.url),module={exports:{}};
 new Function('require','module','exports',code)(name=>name==='../lib/live-view.mjs'?{amount:displayAmount}
-  :name==='../lib/yield-history.mjs'?{yieldChartModel}:require(name),module,module.exports);
+  :name==='../lib/yield-history.mjs'?{yieldChartModel}:name==='./LiveYieldChart.css'?{}:require(name),module,module.exports);
 const Chart=module.exports.default;
 function elements(node) {
   if(Array.isArray(node))return node.flatMap(elements);
