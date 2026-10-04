@@ -76,6 +76,9 @@ test('v4 product origin defaults to the existing site and keeps the protected co
   const product = prepareFreshProductBuild(manifest, { publicOrigin: 'https://bemine.cc.cd' });
   assert.equal(product.publicOrigin, 'https://bemine.cc.cd');
   assert.equal(product.publicUrl, 'https://bemine.cc.cd/bemine-v4/');
+  const formal = prepareFreshProductBuild(manifest, { publicOrigin: 'https://bemine.cc.cd', version: '5' });
+  assert.equal(formal.basePath, '/bemine-v5');
+  assert.equal(formal.publicUrl, 'https://bemine.cc.cd/');
   assert.equal(product.basePath, legacy.basePath);
   assert.equal(product.manifestSha256, legacy.manifestSha256);
   assert.equal(product.deployConsoleUrl, 'https://tapeout.cc.cd/pinkuang-deploy-v4/');

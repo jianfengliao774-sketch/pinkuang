@@ -1,0 +1,89 @@
+{
+  "published": true,
+  "sourceHead": "716254c3fc540a5273070c9d1b1db6d7003696bd",
+  "publishedAt": "2026-10-04T16:41:09.008331+00:00",
+  "summarySha256": "33d7bd9c564ae8a2de9b09e355fdfa97824942a4398f809e0094a50fac2fb558",
+  "frontend": "/var/www/bemine-v5/releases/audit-fixes-716254c3fc54",
+  "mining": "/srv/pinkuang-v5/releases/v5-audit-mining-716254c3fc54",
+  "overlayFiles": {
+    "scripts/mining-keeper.mjs": "e416a37395caa68b13bea90bd69a4b44506fd1de7ea180436b7f906a9bf317a6",
+    "scripts/mining-supervisor.mjs": "0e017321ee73f3b49146216dfc52cfb8d56673ca47ede69ea511c2becfe4048d"
+  },
+  "onlyMiningRestarted": true,
+  "contractUpgradeApplied": false,
+  "nginxChanged": false,
+  "journalFilesPreserved": true,
+  "frontendManifestPreserved": true,
+  "proof": {
+    "canonicalRedirects": true,
+    "frontendManifestPreserved": true,
+    "hashedScripts": [
+      {
+        "sha256": "6c5ff215d941ee2326dfd56220802c6d9714b25bc0befc1cfe6e699b6f14a2f1",
+        "url": "/bemine-v5/_next/static/chunks/2065-ce492bf514c4682b.js"
+      },
+      {
+        "sha256": "af6187e364caf1751fab5109fae902d00511f1d3f5a651ff8e71a58f55579d0f",
+        "url": "/bemine-v5/_next/static/chunks/26873907-6fe6a446a5ee1852.js"
+      },
+      {
+        "sha256": "6d293bda71f8e2f0d28bcfad447a51fbd5e4161b3ad04fbe3446cbce594e4606",
+        "url": "/bemine-v5/_next/static/chunks/364-4e16420c7c0c046b.js"
+      },
+      {
+        "sha256": "edeae849aac3c189a9727845fbeadfb347774ec65b8c8739f58f66d891fbb3fa",
+        "url": "/bemine-v5/_next/static/chunks/391-d5a05a0fbec24272.js"
+      },
+      {
+        "sha256": "ae782ae98d6980fdb249de0d372e75d508c07731d7d61ccf88de7b1c8f270019",
+        "url": "/bemine-v5/_next/static/chunks/4937-ad624447608c88d5.js"
+      },
+      {
+        "sha256": "76614a2b4dc21041efd25d2a11a489866a3b967a2c469544e9020765aac327c7",
+        "url": "/bemine-v5/_next/static/chunks/5058-3776ab6db00c5321.js"
+      },
+      {
+        "sha256": "327ead77063769e01e50ac28ed285231ef3277fb83d20c8330738189512d18b2",
+        "url": "/bemine-v5/_next/static/chunks/5082-b586dcb5a3fe4b46.js"
+      },
+      {
+        "sha256": "20bddd22f5fea72fb9ede405f9c813d6261640b8b6f57855e968dfbf044ab34e",
+        "url": "/bemine-v5/_next/static/chunks/7155-a059d711cd2e70cd.js"
+      },
+      {
+        "sha256": "616ced2f26e220470edb24285bda137298752929230aecce228c377071215c27",
+        "url": "/bemine-v5/_next/static/chunks/7756-2c0149da74f58de4.js"
+      },
+      {
+        "sha256": "e0d7d2ee43a001ad8772702e5a1fdcab206ff7a36a6474ef4ab1ae7b69c40405",
+        "url": "/bemine-v5/_next/static/chunks/8666-2be0c3cf50c40984.js"
+      },
+      {
+        "sha256": "051cbdc6742204b5d0e02eb79cec737bfb2e913044b3b8c00c8d0daaa49b9687",
+        "url": "/bemine-v5/_next/static/chunks/9818-2966f307cd310f26.js"
+      },
+      {
+        "sha256": "5aff9ed9de9b25c1da799f473f0b12f32fd5606011e21c514ca27c15e73bb644",
+        "url": "/bemine-v5/_next/static/chunks/app/page-a7493f2803b2cafc.js"
+      },
+      {
+        "sha256": "29cec26dc43c7fe4e6a5205d300c669440c150d3f82f5fda5ac81ebc38b19be7",
+        "url": "/bemine-v5/_next/static/chunks/main-app-4576e2521811cd20.js"
+      },
+      {
+        "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683",
+        "url": "/bemine-v5/_next/static/chunks/polyfills-42372ed130431b0a.js"
+      },
+      {
+        "sha256": "440a8a8e2c97b2a4d2645210c0578f2cbd9b389bbaec8b3efe10f1c4c27ab370",
+        "url": "/bemine-v5/_next/static/chunks/webpack-fa5152482cf8ec7f.js"
+      }
+    ],
+    "pages": {
+      "/": "8d61c0638eccd25b86c7cc5a304244cd0c16c0363d94f6d552acd97f1427d4f6",
+      "/live": "2e3ec16026b0b106315eb8170941eb3c61de570b745db1a242eef144817732b5"
+    }
+  },
+  "contentSha256": "f49266d1f28bbda268a86ef08150bffa99a708f5f1a50b779cd5a9500b627ade",
+  "releaseMetadataSha256": "a34de83926aa4231be894ec78f8ff848157413240ac7b5fae7c82815961cca4c"
+}

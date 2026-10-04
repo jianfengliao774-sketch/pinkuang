@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { automaticDisplayRefreshDue, canReuseDisplayRead, displayRefreshPageKey, displayRefreshPaused } from '../lib/display-refresh-policy.mjs';
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
+import { appendDisplayPage, loadedDisplayPages, refreshDisplayPages } from '../lib/display-pagination.mjs';
 import { displayListSnapshot, displayOnlySnapshot } from '../lib/display-snapshot.mjs';
 import { viewPool } from '../lib/live-view.mjs';
 import { createLiveBrowserFixture } from './live-browser-fixture.mjs';
@@ -17,7 +18,8 @@ function effect(marker, context) {
   const end = source.indexOf('\n  useEffect(', start + 1);
   assert(start >= 0 && end > start, marker);
   let cleanup;
-  const scope = { displayReads: { current: new Set() }, ...context, useEffect: fn => { cleanup = fn(); } };
+  const scope = { displayReads: { current: new Set() }, appendDisplayPage, loadedDisplayPages, refreshDisplayPages,
+    ...context, useEffect: fn => { cleanup = fn(); } };
   new Function(...Object.keys(scope), source.slice(start, end))(...Object.values(scope));
   return cleanup;
 }
@@ -421,14 +423,18 @@ test('a home stats read releases its shared lock on success and on failure so th
   }
 });
 
-test('expanded personal pages stay pinned only while the same account still owns that displayed window', async () => {
+test('expanded personal pages refresh all loaded rows silently while retaining account ownership', async () => {
   const fixture = createLiveBrowserFixture(), owner = fixture.account, row = fixture.rows[0];
+  const chainSource = { chainId: 56, factory: fixture.manifest.factory, market: fixture.manifest.shareMarket,
+    indexedThrough: 102, indexedTimestamp: 1800000000, indexedBlockHash: `0x${'a'.repeat(64)}` };
+  const second = { ...row, pool: `0x${'12'.repeat(20)}` };
   const client = { manifest: fixture.manifest }, state = {}, memory = { expanded: true, savedAt: Date.now(),
-    refresh: '0:0', result: { items: [row], nextCursor: 'old-cursor', marketBnbOwed: 0n, source: {} } };
+    refresh: '0:0', result: { items: [row, second], nextCursor: null, marketBnbOwed: 0n, source: chainSource, loadedPages: 2 } };
   let reads = 0;
-  client.readDisplayPositions = async () => { reads++; return memory.result; };
+  client.readDisplayPositions = async options => { reads++; return { ...memory.result,
+    items: [{ ...(options.cursor ? second : row), state: 2n }], nextCursor: options.cursor ? null : 20, loadedPages: undefined }; };
   const context = { client, account: owner, route: { route: 'overview' }, config: { displayOnly: true },
-    positionsAccount: owner, positions: [row, row], same: (a,b) => a?.toLowerCase() === b?.toLowerCase(),
+    positionsAccount: owner, positions: [row, second], same: (a,b) => a?.toLowerCase() === b?.toLowerCase(),
     displayRefreshKey: '0:1', readCache: { current: new WeakMap([[client,new Map([[`positions:${owner.toLowerCase()}`,memory]])]]) },
     positionsReadEpoch: { current: 0 }, displayReads: { current: new Set() }, displayListSnapshot, viewPool,
     displayOnlySnapshot: value => value, readPageSnapshot: () => null, displayStorage: () => null,
@@ -436,19 +442,21 @@ test('expanded personal pages stay pinned only while the same account still owns
     invalidateDisplayOnReorg() {}, textError: e => e.message, retryReadRound: read => Promise.resolve().then(read) };
   for (const name of ['PositionsReadError','PositionsReadSource','Positions','PositionCursor','PositionsLoaded',
     'PositionsAccount','PositionsReadLoading','MarketCredit','Source']) context[`set${name}`] = value => { state[name] = value; };
-  const pinned = effect("if (!client) return;\n    const personalPage", context); await turn();
-  assert.equal(reads, 0); assert.equal(state.Positions, undefined); pinned?.();
-  assert.equal(context.positionsReadEpoch.current, 0, 'Deferring a display tick preserves any already-started next-page read.');
+  const refreshed = effect("if (!client) return;\n    const personalPage", context);
+  assert.equal(state.Positions.length, 2, 'Cached expanded rows stay visible during the GET.');
+  assert.equal(state.PositionsReadLoading, false);
+  await turn(); assert.equal(reads, 2); assert.equal(state.Positions.length, 2);
+  assert(state.Positions.every(item => item.status === 'Active')); refreshed?.();
   context.displayRefreshKey = '1:1';
   const settled = effect("if (!client) return;\n    const personalPage", context); await turn();
-  assert.equal(reads, 1, 'A confirmed transaction generation must reload balances even on an expanded window.');
+  assert.equal(reads, 4, 'A confirmed transaction generation reloads every already-loaded page.');
   const settledRevision = context.positionsReadEpoch.current; settled?.();
   assert.equal(context.positionsReadEpoch.current, settledRevision, 'Completed display cleanup does not cancel later pagination.');
   // A -> B -> A clears the visible account, even though A's historical cache is still expanded.
   context.positionsAccount = null; context.positions = [];
   const restored = effect("if (!client) return;\n    const personalPage", context); await turn();
-  assert.equal(reads, 1, 'Returning to this account may restore its now-current first page without another GET.');
-  assert.equal(state.PositionsAccount, owner); assert.equal(state.Positions.length, 1);
+  assert.equal(reads, 4, 'Returning to this account restores its now-current merged window without another GET.');
+  assert.equal(state.PositionsAccount, owner); assert.equal(state.Positions.length, 2);
   restored?.();
 });
 

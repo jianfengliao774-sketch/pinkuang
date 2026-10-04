@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Interface } from 'ethers';
-import { acquireWalletLock, readJournal, writeJournal } from './purchase-keeper.mjs';
-import { awaitingWallet, parseSupervisorArguments, poolReviewRequired, prioritizePools, publishSupervisorReadiness, reportOperatorReview,
+import { acquireWalletLock, OFFICIAL_COLLECTIONS, readJournal, writeJournal } from './purchase-keeper.mjs';
+import { awaitingWallet, INACTIVE_POOL_RETRY_MS, parseSupervisorArguments, poolReviewRequired, prioritizePools, publishSupervisorReadiness, reportOperatorReview,
   runSupervisorCycle, walletReviewRequired } from './mining-supervisor.mjs';
 
 const factory = '0x1111111111111111111111111111111111111111';
@@ -143,11 +143,13 @@ test('Funding pools do not reserve the shared wallet or create a mining journal'
 
 test('already-mining pools still run identity checks without obtaining a signing lane', async t => {
   const { options, state, signer, dependencies } = setup(t);
-  dependencies.readMiningState = async () => ({ status: 'mining-active' });
+  const snapshot = { status: 'mining-active' };
+  dependencies.readMiningState = async () => snapshot;
   dependencies.acquireWalletLock = () => assert.fail('No mining transaction is needed');
-  dependencies.runMiningCycle = async (_provider, current, currentSigner) => {
+  dependencies.runMiningCycle = async (_provider, current, currentSigner, _fetcher, observed) => {
     assert.equal(current.send, false);
     assert.equal(currentSigner, null);
+    assert.equal(observed, snapshot, 'the checked snapshot is reused only in non-signing mode');
     return { status: 'mining-active' };
   };
   assert.equal((await runSupervisorCycle({}, options, signer, state, dependencies)).checked, 2);
@@ -253,4 +255,78 @@ test('recoverable wallet waits preserve but never extend the last verified readi
   assert.equal(published, 0);
   assert.equal(publishSupervisorReadiness(heartbeat, proof, { status: 'scanned', results: [] }), true);
   assert.equal(published, 1);
+});
+
+test('inactive pools wait thirty seconds and resume a complete Active check when their state changes', async t => {
+  const { options, state, signer, dependencies } = setup(t);
+  let now = 1000, active = false, reads = 0, monitored = 0;
+  dependencies.now = () => now;
+  dependencies.readMiningState = async (_provider, current) => {
+    reads++;
+    return current.pool === pools[0] && active ? { status: 'mining-active' }
+      : { status: 'pool-not-active', state: 0n, blockNumber: 123 };
+  };
+  dependencies.acquireWalletLock = () => assert.fail('observation must not reserve the shared wallet');
+  dependencies.runMiningCycle = async (_provider, current, currentSigner, _fetcher, snapshot) => {
+    monitored++; assert.equal(current.send, false); assert.equal(currentSigner, null);
+    assert.equal(snapshot.status, 'mining-active'); return { status: 'mining-active' };
+  };
+  assert.equal((await runSupervisorCycle({}, options, signer, state, dependencies)).checked, 2);
+  assert.equal(reads, 2); assert.equal(state.cooldowns.get(pools[0]), now + INACTIVE_POOL_RETRY_MS);
+  active = true; now += INACTIVE_POOL_RETRY_MS - 1;
+  const waiting = await runSupervisorCycle({}, options, signer, state, dependencies);
+  assert.equal(waiting.checked, 0); assert.equal(waiting.status, 'waiting-pool-retry');
+  assert.equal(publishSupervisorReadiness({ publish: () => assert.fail('a cooling scan must not renew readiness'),
+    clear: () => assert.fail('a cooling scan must not clear the last readiness') }, { graph: {}, block: {} }, waiting), false);
+  assert.equal(reads, 2);
+  now++;
+  assert.equal((await runSupervisorCycle({}, options, signer, state, dependencies)).checked, 2);
+  assert.equal(reads, 4); assert.equal(monitored, 1);
+});
+
+test('unresolved nonce reconciliation bypasses inactive cooldown and quarantine', () => {
+  const journals = new Map([[pools[0], { miningStage: 'arming', transaction: { phase: 'broadcast' } }]]);
+  assert.deepEqual(prioritizePools(pools, pool => journals.get(pool) ?? {}, 0, 10,
+    new Set([pools[0]]), new Map([[pools[0], 60_000]]), 1000).selected, [pools[0]]);
+  journals.set(pools[1], { transaction: { phase: 'signed' } });
+  assert.throws(() => prioritizePools(pools, pool => journals.get(pool), 0, 10,
+    new Set(pools), new Map(pools.map(pool => [pool, 60_000])), 1000), /Multiple mining journals/);
+});
+
+test('a finalized arm followed by listing preserves its journal but no longer starves another miner', async t => {
+  const { options, state, signer, dependencies } = setup(t);
+  let now = 1000; dependencies.now = () => now;
+  const path = join(options.journalDir, `${pools[0]}.json`);
+  const arm = new Interface(['function mine(bytes)']).encodeFunctionData('mine', [
+    new Interface(['function arm(address,uint256)']).encodeFunctionData('arm', [OFFICIAL_COLLECTIONS[0], 1])]);
+  const journal = pendingJournal(path, pools[0], signer, arm);
+  Object.assign(journal.transaction, { phase: 'confirmed', finality: 'bsc-finalized', blockNumber: 100,
+    blockHash: '0x' + 'cd'.repeat(32), finalizedBlockNumber: 102, finalizedBlockHash: '0x' + 'ef'.repeat(32) });
+  writeJournal(path, journal); const savedTransaction = structuredClone(journal.transaction);
+  const stateApi = new Interface(['function state() view returns(uint8)']);
+  let stateReads = 0;
+  const provider = { getNetwork: async () => ({ chainId: 56n }),
+    getBlock: async () => ({ number: 123, hash: '0x' + 'ab'.repeat(32) }),
+    call: async request => { stateReads++; assert.equal(stateApi.parseTransaction(request).name, 'state');
+      return stateApi.encodeFunctionResult('state', [3]); } };
+  const observations = [];
+  dependencies.readMiningState = async (_provider, current) => {
+    observations.push(current.pool);
+    return current.pool === pools[0] ? { status: 'pool-not-active', state: 3n, blockNumber: 123 }
+      : { status: 'mining-active', chainId: 56, pool: current.pool, factory,
+        blockNumber: 123, operator: factory, circuits: OFFICIAL_COLLECTIONS[0], circuitId: 1n,
+        miner: { optimal: false, verifWeight: 1n, unverWeight: 0n } };
+  };
+  const first = await runSupervisorCycle(provider, options, signer, state, dependencies);
+  assert.equal(first.checked, 1); assert.equal(first.results[0].followupResolved, true);
+  assert.equal(stateReads, 1); assert.deepEqual(observations, []);
+  assert.equal(readJournal(path, { factory, pool: pools[0] }).miningStage, 'monitoring');
+  assert.deepEqual(readJournal(path, { factory, pool: pools[0] }).transaction, savedTransaction);
+  const second = await runSupervisorCycle(provider, options, signer, state, dependencies);
+  assert.deepEqual(second.results.map(row => row.pool), [pools[1]]);
+  assert.equal(second.results[0].status, 'mining-active');
+  now += INACTIVE_POOL_RETRY_MS;
+  assert.equal((await runSupervisorCycle(provider, options, signer, state, dependencies)).checked, 2);
+  assert.equal(stateReads, 1, 'ordinary non-signing snapshot reuse repeats no full mining RPC');
+  assert.deepEqual(readJournal(path, { factory, pool: pools[0] }).transaction, savedTransaction);
 });

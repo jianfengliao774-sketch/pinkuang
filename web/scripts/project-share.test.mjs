@@ -169,3 +169,50 @@ test('confirmed subscription does not invent live availability when the latest r
     assert.equal(share.status, locale === 'en' ? 'View the latest project status.' : '查看项目最新状态。');
   }
 });
+
+test('root public URLs preserve project identity and reject injected paths', () => {
+  const root = new URL(DEFAULT_PUBLIC_SHARE_BASE).origin + '/';
+  assert.equal(validatePublicBaseUrl(root), root);
+  const share = model({ publicBaseUrl: root });
+  assert.equal(new URL(share.projectUrl).pathname, '/');
+  assert.equal(new URL(share.projectUrl).hash, `#detail/${pool}`);
+  assert.equal(new URL(share.url).pathname, '/share/original.html');
+  for (const suffix of ['/nested/../', '/%2e%2e/', '/?redirect=https://evil.example', '/#home', '//'])
+    assert.equal(validatePublicBaseUrl(new URL(root).origin + suffix), null);
+});
+
+const targetProof = (status, change = {}) => ({ purchaseMode: 'fixed', status,
+  chainState: 0, creationBlock: 10, observedBlock: 20,
+  creationBlockHash: hash, observedBlockHash: hash,
+  originalOwner: other, currentOwner: status === 'unavailable' ? `0x${'d5'.repeat(20)}` : other,
+  ...change });
+const formalProject = (proof) => ({ ...project, chainState: 0n, kind: 'single', targetAvailability: proof });
+
+test('delisted invitations retain project/refund access without advertising subscription', () => {
+  for (const locale of ['zh', 'en']) {
+    const share = model({ locale, project: formalProject(targetProof('unavailable')) });
+    assert.equal(share.canSubscribe, false);
+    assert.equal(share.targetStatus, 'unavailable');
+    assert.match(share.status, locale === 'en' ? /delisted.*refund/i : /已下架.*退款/);
+    assert.match(share.xText, locale === 'en' ? /Delisted.*refund/i : /已下架.*退款/);
+    assert.doesNotMatch(share.xText, /剩余|shares available/);
+    assert.equal(new URL(share.projectUrl).hash, `#detail/${pool}`);
+  }
+});
+
+test('unknown or expired target evidence never creates a subscribe invitation', () => {
+  const absent = targetProof('unavailable', { currentOwner: other, reason: 'target_listing_unavailable',
+    listingEvidence: { official: 'absent', firsto: 'absent' }, observedAt: Date.now()-90_000, validUntil: Date.now()-1 });
+  for (const proof of [undefined, { status: 'unknown' }, absent, targetProof('available', { chainState: 1 })]) {
+    const share = model({ project: formalProject(proof) });
+    assert.equal(share.canSubscribe, false);
+    assert.equal(share.targetStatus, 'unknown');
+    assert.match(share.xText, /待核对/);
+    assert.doesNotMatch(share.xText, /剩余/);
+  }
+});
+
+test('current available fixed and explicit flexible projects still permit invitation', () => {
+  for (const proof of [targetProof('available'), targetProof('not_applicable', { purchaseMode: 'flexible' })])
+    assert.equal(model({ project: formalProject(proof) }).canSubscribe, true);
+});

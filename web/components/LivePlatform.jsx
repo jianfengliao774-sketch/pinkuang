@@ -15,6 +15,7 @@ import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, p
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { automaticDisplayRefreshDue, canReuseDisplayRead, displayRefreshPageKey, displayRefreshPaused } from '../lib/display-refresh-policy.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
+import { appendDisplayPage, loadedDisplayPages, refreshDisplayPages } from '../lib/display-pagination.mjs';
 import { startReceiptDisplayCatchup } from '../lib/receipt-display-refresh.mjs';
 import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
 import { directMemberTransaction, readMemberReceipt, readMemberTransactions, saveMemberTransactions, sendMemberWalletTransaction } from '../lib/member-wallet-transactions.mjs';
@@ -81,7 +82,7 @@ import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
 import { startWalletSession } from '../lib/wallet-session.mjs';
-import { startWalletRestore, saveWalletPreference, clearWalletPreference } from '../lib/wallet-reload.mjs';
+import { startWalletRestore, saveWalletPreference, clearWalletPreference, migrateWalletPreference } from '../lib/wallet-reload.mjs';
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
@@ -98,7 +99,7 @@ import { loadProductConfig, loadProductDisplayConfig, validateCurrentProductGrap
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
 import { freshIdentityReadable, freshOperationsReady, freshReadClientIdentity } from '../lib/fresh-boot-recovery.mjs';
 import { assetOverview } from '../lib/asset-overview.mjs';
-import { assetPositionsWithBookedRewards, assetRewardPreview } from '../lib/asset-reward-preview.mjs';
+import { assetPositionsWithBookedRewards, assetRewardPreview, rewardPreviewForPosition } from '../lib/asset-reward-preview.mjs';
 import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio-display-cache.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { readDeploymentAccount } from '../lib/deployment-account.mjs';
@@ -606,6 +607,7 @@ export default function LivePlatform() {
     const context = walletEpoch.current;
     const service = createWalletDiscovery(window, entries => {
       setWallets(entries);
+      if (connectedWallet.current) migrateWalletPreference(displayStorage(), connectedWallet.current, entries);
       restore?.refresh();
     });
     discovery.current = service;
@@ -1141,9 +1143,8 @@ export default function LivePlatform() {
     const silent = config?.displayOnly && cached
       && loadedRoute === route.route + (route.pool ? `/${route.pool}` : '')
       && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase();
-    if (silent && saved?.expanded && typeof saved.refresh === 'string'
-      && saved.refresh.split(':')[0] === displayRefreshKey.split(':')[0])
-      return () => { cancelled = true; pageReadEpoch.current++; };
+    const catalogPages = config?.displayOnly && saved?.expanded
+      ? loadedDisplayPages(saved.result.catalog, pools.length) : 1;
     const readTicket = {};
     const showResult = result => {
       if (result.catalog) {
@@ -1189,7 +1190,12 @@ export default function LivePlatform() {
       if (cached) showResult(cached);
     };
     async function load() {
-      return readPageRound(client, { route, account, marketTab });
+      const result = await readPageRound(client, { route, account, marketTab });
+      if (result.catalog && catalogPages > 1) result.catalog = await refreshDisplayPages(result.catalog, {
+        read: options => (client.readDisplayPools ?? client.readPools)(options),
+        options: { account: account || ZeroAddress }, pageCount: catalogPages, isCurrent: current,
+      });
+      return result;
     }
     displayReads.current.add(readTicket);
     retryReadRound(load, { isCurrent: current, onAttempt: clearRound,
@@ -1200,7 +1206,8 @@ export default function LivePlatform() {
           let entries = pageCache.current.get(client);
           if (!entries) { entries = new Map(); pageCache.current.set(client, entries); }
           entries.delete(pageKey);
-          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, refresh: displayRefreshKey, result });
+          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, refresh: displayRefreshKey, result,
+            expanded: result.catalog?.loadedPages > 1 });
           if (entries.size > 8) entries.delete(entries.keys().next().value);
           writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
           writePoolDisplaySnapshots(displayStorage(), client.manifest, result, account);
@@ -1266,9 +1273,8 @@ export default function LivePlatform() {
     const reuseBackgroundPositions = config?.displayOnly && !personalPage && memory && same(positionsAccount, account)
       && backgroundAge >= 0 && backgroundAge < 60_000 && typeof memory.refresh === 'string'
       && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0];
-    if (config?.displayOnly && memory?.expanded && typeof memory.refresh === 'string'
-      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0] && same(positionsAccount, account)
-      && positions.length > memory.result.items.length) return () => { cancelled = true; };
+    const positionPages = config?.displayOnly && memory?.expanded && same(positionsAccount, account)
+      ? loadedDisplayPages(memory.result, positions.length) : 1;
     const cached = displayListSnapshot(memory && (Date.now() - memory.savedAt < 120_000 || reuseBackgroundPositions)
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1292,7 +1298,13 @@ export default function LivePlatform() {
     ++positionsReadEpoch.current;
     displayReads.current.add(readTicket);
     setPositionsReadLoading(!silent);
-    retryReadRound(() => (client.readDisplayPositions ?? client.readPositions)({ account }), { isCurrent: () => !cancelled })
+    retryReadRound(async () => {
+      const result = await (client.readDisplayPositions ?? client.readPositions)({ account });
+      return positionPages > 1 ? refreshDisplayPages(result, {
+        read: options => (client.readDisplayPositions ?? client.readPositions)(options), options: { account },
+        pageCount: positionPages, isCurrent: () => !cancelled,
+      }) : result;
+    }, { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setPositions(result.items.map(viewPool));
@@ -1304,7 +1316,7 @@ export default function LivePlatform() {
         if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result, expanded: result.loadedPages > 1 });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setPositionsReadError(textError(error)); } })
@@ -1341,10 +1353,9 @@ export default function LivePlatform() {
     }
     const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
     const memory = readCache.current.get(client)?.get(cacheKey);
-    if (config?.displayOnly && memory?.expanded && typeof memory.refresh === 'string'
-      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0]
+    const orderPages = config?.displayOnly && memory?.expanded
       && marketOrderIdentity === `${marketTab}:${account?.toLowerCase() || ''}`
-      && orders.length > memory.result.items.length) return () => { cancelled = true; };
+      ? loadedDisplayPages(memory.result, orders.length) : 1;
     const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1364,7 +1375,14 @@ export default function LivePlatform() {
     ++marketOrdersEpoch.current;
     displayReads.current.add(readTicket);
     setMarketOrdersLoading(!silent);
-    retryReadRound(() => (client.readDisplayOrders ?? client.readOrders)(marketTab === 'mine' ? { seller: account } : { active: true }),
+    retryReadRound(async () => {
+      const options = marketTab === 'mine' ? { seller: account } : { active: true };
+      const result = await (client.readDisplayOrders ?? client.readOrders)(options);
+      return orderPages > 1 ? refreshDisplayPages(result, {
+        read: next => (client.readDisplayOrders ?? client.readOrders)(next), options,
+        pageCount: orderPages, isCurrent: () => !cancelled,
+      }) : result;
+    },
       { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1374,7 +1392,7 @@ export default function LivePlatform() {
         setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result, expanded: result.loadedPages > 1 });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setMarketOrdersError(textError(error)); } })
@@ -1741,7 +1759,10 @@ export default function LivePlatform() {
       setWalletInfo({ ...entry, provider });
       setAccount(getAddress(owner));
       if (remote) clearWalletPreference(displayStorage());
-      else saveWalletPreference(displayStorage(), entry);
+      else {
+        saveWalletPreference(displayStorage(), entry);
+        migrateWalletPreference(displayStorage(), provider, discovery.current?.getWallets());
+      }
       setPrepared(null);
       setModal(null);
       setPending(null);
@@ -2555,10 +2576,14 @@ export default function LivePlatform() {
           source,
         });
         if (revision !== epoch.current) return false;
-        setPools((old) => [...old, ...result.items.map(viewPool)]);
-        setPoolCursor(result.nextCursor);
         const saved = pageCache.current.get(client)?.get(pageDisplayKey(route, account, marketTab));
-        if (saved) saved.expanded = true;
+        if (saved?.result?.catalog) {
+          const catalog = appendDisplayPage(saved.result.catalog, result);
+          saved.result = { ...saved.result, catalog }; saved.expanded = true;
+          setPools(mergePublishedProjects(catalog.items.map(viewPool), publishedProjects.current));
+          writeDisplaySnapshot(displayStorage(), client.manifest, pageDisplayKey(route, account, marketTab), saved.result);
+        } else setPools((old) => [...old, ...result.items.map(viewPool)]);
+        setPoolCursor(result.nextCursor);
       } else if (kind === "positions") {
         const result = await (client.readDisplayPositions ?? client.readPositions)({
           account,
@@ -2566,10 +2591,13 @@ export default function LivePlatform() {
           source: positionsReadSource,
         });
         if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return false;
-        setPositions((old) => [...old, ...result.items.map(viewPool)]);
-        setPositionCursor(result.nextCursor);
         const saved = readCache.current.get(client)?.get(`positions:${account?.toLowerCase()}`);
-        if (saved) saved.expanded = true;
+        if (saved) {
+          saved.result = appendDisplayPage(saved.result, result); saved.expanded = true;
+          setPositions(saved.result.items.map(viewPool));
+          writeDisplaySnapshot(displayStorage(), client.manifest, `positions:${account?.toLowerCase()}`, saved.result);
+        } else setPositions((old) => [...old, ...result.items.map(viewPool)]);
+        setPositionCursor(result.nextCursor);
       } else if (kind === "orders") {
         const result = await (client.readDisplayOrders ?? client.readOrders)({
           ...(marketTab === "mine" ? { seller: account } : { active: true }),
@@ -2577,10 +2605,14 @@ export default function LivePlatform() {
           source: marketOrderSource,
         });
         if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return false;
-        setOrders((old) => [...old, ...result.items]);
-        setOrderCursor(result.nextCursor);
         const saved = readCache.current.get(client)?.get(marketTab === 'mine' ? `orders:${account?.toLowerCase()}` : 'orders:active');
-        if (saved) saved.expanded = true;
+        if (saved) {
+          saved.result = appendDisplayPage(saved.result, result); saved.expanded = true;
+          setOrders(saved.result.items);
+          writeDisplaySnapshot(displayStorage(), client.manifest,
+            marketTab === 'mine' ? `orders:${account?.toLowerCase()}` : 'orders:active', saved.result);
+        } else setOrders((old) => [...old, ...result.items]);
+        setOrderCursor(result.nextCursor);
       } else {
         const result = await client.readActivity({
           pool: route.route === "detail" ? route.pool : undefined,
@@ -2656,9 +2688,6 @@ export default function LivePlatform() {
         if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
         if (refreshState.current.loading || displayReads.current.size || portfolioRead.current.busy || submissionLock.current) return;
         setRecordsPage(0);
-        const catalog = pageCache.current.get(client)?.get(pageDisplayKey(route, account, marketTab));
-        if (catalog) catalog.expanded = false;
-        for (const entry of readCache.current.get(client)?.values() || []) entry.expanded = false;
         const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
         if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) {
@@ -2700,8 +2729,10 @@ export default function LivePlatform() {
   const poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
   const rewardsView = uncollectedRewards?.client === client && uncollectedRewards?.requestKey === rewardReadKey
     ? uncollectedRewards : null;
-  const rewardEstimate = rewardsView?.totals?.totalEstimatedBEM ?? null;
-  const rewardEstimates = new Map((rewardsView?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
+  const rewardContext = { source: positionsReadSource, account, factory: client?.manifest?.factory };
+  const singleRewardPreview = assetRewardPreview(positions.map(p => ({ ...p, kind: 'single' })), rewardsView, rewardContext);
+  const rewardEstimate = rewardsView?.canonical ? singleRewardPreview.totals.totalEstimatedBEM : null;
+  const rewardEstimates = new Map(positions.map(p => [p.pool.toLowerCase(), rewardPreviewForPosition(p, rewardsView, rewardContext)]));
   const currentPoolQuote = p => {
     const quote = p && poolCapacity[p.pool.toLowerCase()];
     return quote?.requestKey === capacityRequestKey(poolCapacityInput(p)) && quote.available && quote.validUntil > capacityNow
@@ -2729,6 +2760,11 @@ export default function LivePlatform() {
     name: p.name,
     circuitId: p.tokenId,
     state: p.status,
+    chainState: p.state,
+    kind: p.kind,
+    params: p.params,
+    targetAvailability: p.targetAvailability,
+    flexiblePurchase: p.flexiblePurchase,
     remainingShares: p.remaining,
   });
   const moreButton = (cursor, kind) =>
@@ -2950,7 +2986,7 @@ export default function LivePlatform() {
       const estimate = rewardEstimates.get(p.pool.toLowerCase());
       const bookedRow = estimate?.status === 'ready' ? { ...p, claimableBEM: estimate.bookedBEM } : p;
       const bemClaim = claimState(bookedRow, 'BEM', estimate?.status === 'ready'
-        ? { indexedThrough: estimate.blockNumber } : positionsReadSource);
+        ? { indexedThrough: estimate.balanceBlock ?? estimate.blockNumber } : positionsReadSource);
       const cells = {
         miner: <>
           <button
@@ -3224,11 +3260,11 @@ export default function LivePlatform() {
   };
   const renderAssetOverview = page => {
     if (!account) return null;
-    const view = assetOverview({singlePositions:assetPositionsWithBookedRewards(positions,rewardsView),portfolioRows:page.rows,
+    const view = assetOverview({singlePositions:assetPositionsWithBookedRewards(positions,rewardsView,rewardContext),portfolioRows:page.rows,
       singleLoaded:positionsLoaded && same(positionsAccount,account),portfolioLoaded:page.loaded,
       singleCursor:positionCursor,portfolioCursor:page.cursor,singleError:!!positionsReadError,portfolioError:page.failed || !page.enabled});
     const totals = view.complete ? view.totals : view.loadedTotals;
-    const rewardPreview = assetRewardPreview(view.scopeRows, rewardsView);
+    const rewardPreview = assetRewardPreview(view.scopeRows, rewardsView, rewardContext);
     const partial = view.partial;
     const historical = !config?.displayOnly && (positionsReadSource?.stale || page.source?.stale || boot.rechecking || walletChecking);
     const updating = positionsReadLoading || page.loading;
@@ -3237,8 +3273,10 @@ export default function LivePlatform() {
       {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton,
         L('查看项目持仓、已入账收益和待领取款项。','Positions, rewards and claimable funds.'))}
       <div className="metrics" data-asset-summary="unified">
-        <Metric primary title={historical?L('上次核验待领取 BEM（预计）','Previous BEM to claim (estimated)'):partial?L('已加载待领取 BEM（预计）','Loaded BEM to claim (estimated)'):L('待领取 BEM（预计）','BEM to claim (estimated)')}
-          value={view.loaded ? amount(rewardPreview.totals.totalEstimatedBEM,8) : '—'} unit="BEM"
+        <Metric primary title={rewardPreview.totals.totalEstimatedBEM == null
+          ? partial ? L('已加载可领取 BEM（已入账）','Loaded claimable BEM (booked)') : L('可领取 BEM（已入账）','Claimable BEM (booked)')
+          : historical?L('上次核验待领取 BEM（预计）','Previous BEM to claim (estimated)'):partial?L('已加载待领取 BEM（预计）','Loaded BEM to claim (estimated)'):L('待领取 BEM（预计）','BEM to claim (estimated)')}
+          value={view.loaded ? amount(rewardPreview.totals.totalEstimatedBEM ?? rewardPreview.totals.bookedBEM,8) : '—'} unit="BEM"
           note={<>{L('已入账', 'Booked')} {view.loaded ? amount(rewardPreview.totals.bookedBEM, 8) : '—'}
             {' · '}{L('单矿机待归集', 'Uncollected single-pool BEM')} {view.loaded ? amount(rewardPreview.totals.uncollectedBEM, 8) : '—'}</>}/>
         <Metric title={historical?L('我的历史待领取 BNB','My previous claimable BNB'):partial?L('我的已加载待领取 BNB','My loaded claimable BNB'):L('我的待领取 BNB','My claimable BNB')}
@@ -4205,11 +4243,12 @@ export default function LivePlatform() {
               <div className="metrics">
                 <Metric
                   primary
-                  title={L('单矿机待领取 BEM（预计）', 'Single-miner BEM rewards (estimated)')}
-                  value={amount(rewardEstimate, 8)}
+                  title={rewardEstimate == null ? L('单矿机可领取 BEM（已入账）', 'Single-miner claimable BEM (booked)')
+                    : L('单矿机待领取 BEM（预计）', 'Single-miner BEM rewards (estimated)')}
+                  value={amount(rewardEstimate ?? (positionsLoaded ? singleRewardPreview.totals.bookedBEM : null), 8)}
                   unit="BEM"
-                  note={<>{L('已入账', 'Booked')} {amount(rewardsView?.totals?.bookedBEM ?? null, 8)}
-                    {' · '}{L('待归集', 'Uncollected')} {amount(rewardsView?.totals?.uncollectedBEM ?? null, 8)}</>}
+                  note={<>{L('已入账', 'Booked')} {amount(positionsLoaded ? singleRewardPreview.totals.bookedBEM : null, 8)}
+                    {' · '}{L('待归集', 'Uncollected')} {amount(singleRewardPreview.totals.uncollectedBEM, 8)}</>}
                 />
                 <Metric
                   title={L("单矿机待领取 BNB", "Single-miner claimable BNB")}
@@ -4252,6 +4291,9 @@ export default function LivePlatform() {
                     ? L('正在读取待归集收益…', 'Reading uncollected output…')
                     : ['partial', 'unavailable'].includes(rewardsView?.status)
                       ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+                      : rewardsView?.canonical && singleRewardPreview.totals.uncollectedBEM == null
+                        ? L('收益或持仓已有变化，待归集估算显示为 —，可刷新重新读取；已入账余额已按当前结果显示。',
+                          'Rewards or positions changed. Refresh the unavailable pending estimate; booked balances reflect the current read.')
                       : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。仅汇总已加载矿池。',
                         'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection. Includes loaded pools only.')}
                   {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}

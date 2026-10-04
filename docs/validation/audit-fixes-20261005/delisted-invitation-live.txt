@@ -1,0 +1,3 @@
+Browser tab: 19, Title: "拼矿 BEMine · 矿机资产服务", URL: "https://bemine.cc.cd/#detail/0x858D23a23a42A56B84154ee16De2c7eFDFD32170".
+There has been no change in the accessibility tree.
+The focused UI element is 7 button 收起分享
