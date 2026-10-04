@@ -24,7 +24,8 @@ async function fixture(t, options = {}) {
 }
 
 test('configuration uses only fixed operator destinations and existing journal RPC fallback', () => {
-  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, logsRpcUrl: null, fallbackRpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
+  assert.deepEqual(liveDataProxyConfiguration({}), { rpcUrl: null, logsRpcUrl: null, fallbackRpcUrl: null,
+    transactionRpcUrl: null, indexUrl: 'http://127.0.0.1:4180/' });
   assert.equal(liveDataProxyConfiguration({ DEPLOYMENT_JOURNAL_RPC_URL: 'https://bsc.example/rpc' }).rpcUrl, 'https://bsc.example/rpc');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', DEPLOYMENT_JOURNAL_RPC_URL: 'https://b.test' }).rpcUrl, 'https://a.test/');
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test' }).logsRpcUrl, 'https://a.test/');
@@ -35,9 +36,12 @@ test('configuration uses only fixed operator destinations and existing journal R
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', CHAIN_INDEX_LOGS_RPC_URL: 'https://a.test/' }).fallbackRpcUrl, null);
   assert.equal(liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: 'https://a.test', BEMINE_READ_FALLBACK_RPC_URL: 'https://backup.test/rpc' }).fallbackRpcUrl,
     'https://backup.test/rpc');
+  assert.equal(liveDataProxyConfiguration({ BEMINE_READ_TRANSACTION_RPC_URL: 'https://transactions.test/rpc?fixed=operator' }).transactionRpcUrl,
+    'https://transactions.test/rpc?fixed=operator');
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_RPC_URL: value }));
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ CHAIN_INDEX_LOGS_RPC_URL: value }));
   for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_FALLBACK_RPC_URL: value }));
+  for (const value of ['file:///etc/passwd', 'https://user:password@rpc.test', 'https://rpc.test/#secret']) assert.throws(() => liveDataProxyConfiguration({ BEMINE_READ_TRANSACTION_RPC_URL: value }));
   assert.throws(() => liveDataProxyConfiguration({ BEMINE_INDEX_URL: 'http://127.0.0.1:4180?url=http://evil.test' }));
 });
 
@@ -1109,4 +1113,208 @@ test('upstream error details are not reflected to visitors', async t => {
       : json({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'private-key-or-secret-url' } });
   } });
   const result = await f.post(rpc('eth_blockNumber')); assert.equal(result.status, 200); assert(!(await result.text()).includes('private-key-or-secret-url'));
+});
+
+test('a dedicated transaction node serves only hash and receipt reads while archive proofs stay primary', async t => {
+  const transactionRpcUrl = 'https://transactions.test/fixed-path';
+  const f = await fixture(t, { transactionRpcUrl, upstream: (url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    const result = request.method === 'eth_getTransactionByHash' ? { hash: transactionHash }
+      : request.method === 'eth_getTransactionReceipt' ? { transactionHash }
+      : request.method === 'eth_getBlockByNumber' ? { number: '0xa', hash: transactionHash, timestamp: '0xa' }
+      : '0x1234';
+    return json({ jsonrpc: '2.0', id: request.id, result });
+  } });
+  for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt'])
+    assert.equal((await f.post(rpc(method, [transactionHash]))).status, 200);
+  for (const request of [rpc('eth_getBlockByNumber', ['0xa', false]), rpc('eth_call', [{ to: address, data: '0xab' }, '0xa']),
+    rpc('eth_call', [{ to: address, data: '0xab' }, 'latest']), rpc('eth_getCode', [address, '0xa']),
+    rpc('eth_getCode', [address, 'latest']), rpc('eth_getStorageAt', [address, '0x0', '0xa']),
+    rpc('eth_getStorageAt', [address, '0x0', 'latest']), rpc('eth_blockNumber')])
+    assert.equal((await f.post(request)).status, 200);
+  assert.deepEqual(requestsAt(f, transactionRpcUrl).map(request => request.method),
+    ['eth_chainId', 'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
+  assert.deepEqual(requestsAt(f, 'https://operator-rpc.test/key').map(request => request.method),
+    ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_call', 'eth_getCode', 'eth_getCode',
+      'eth_getStorageAt', 'eth_getStorageAt', 'eth_blockNumber']);
+  assert.equal((await f.post(rpc('eth_getTransactionCount', [address, 'latest']))).status, 403);
+  assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', true]))).status, 400);
+  assert.equal(requestsAt(f, transactionRpcUrl).length, 3);
+});
+
+test('dedicated transaction identity is independent, shared briefly and required again after its TTL', async t => {
+  let clock = 100000, results = 0;
+  const transactionRpcUrl = 'https://transactions.test/fixed-path';
+  const f = await fixture(t, { now: () => clock, transactionRpcUrl, fallbackRpcUrl: backupRpc,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url !== transactionRpcUrl) return htmlGateway();
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      results++;
+      return json({ jsonrpc: '2.0', id: request.id,
+        result: results === 1 ? null : { transactionHash, blockNumber: '0xa' } });
+    } });
+  const first = await f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+  assert.equal(first.status, 200); assert.equal((await first.json()).result, null);
+  const second = await f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+  assert.equal(second.status, 200); assert.equal((await second.json()).result.transactionHash, transactionHash);
+  assert.equal(requestsAt(f, transactionRpcUrl).filter(request => request.method === 'eth_chainId').length, 1);
+  clock += 5001;
+  assert.equal((await f.post(rpc('eth_getTransactionReceipt', [transactionHash]))).status, 200);
+  assert.equal(requestsAt(f, transactionRpcUrl).filter(request => request.method === 'eth_chainId').length, 2);
+  assert.equal(requestsAt(f, transactionRpcUrl).filter(request => request.method === 'eth_getTransactionReceipt').length, 3);
+  assert.equal(requestsAt(f, 'https://operator-rpc.test/key').length, 0, 'archive failure cannot reroute transaction data');
+  assert.equal(requestsAt(f, backupRpc).length, 0, 'dedicated transaction reads cannot use the old fallback');
+});
+
+test('dedicated transaction chain proof rejects wrong chain, id, envelope and HTTP failures before lookup', async t => {
+  const transactionRpcUrl = 'https://transactions.test/fixed-path';
+  for (const fault of ['wrong-chain', 'wrong-id', 'missing-envelope', 'error', 'http-failure']) {
+    const f = await fixture(t, { transactionRpcUrl, fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      assert.equal(url, transactionRpcUrl);
+      const request = JSON.parse(init.body); assert.equal(request.method, 'eth_chainId');
+      if (fault === 'wrong-chain') return json({ jsonrpc: '2.0', id: request.id, result: '0x1' });
+      if (fault === 'wrong-id') return json({ jsonrpc: '2.0', id: request.id + 1, result: '0x38' });
+      if (fault === 'missing-envelope') return json({ result: '0x38' });
+      if (fault === 'error') return json({ jsonrpc: '2.0', id: request.id,
+        error: { code: -32000, message: 'unavailable' } });
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x38' }, 503);
+    } });
+    for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt'])
+      assert.equal((await f.post(rpc(method, [transactionHash]))).status, 502, fault);
+    assert.deepEqual(requestsAt(f, transactionRpcUrl).map(request => request.method), ['eth_chainId', 'eth_chainId']);
+  }
+});
+
+test('dedicated transaction data rejects invalid envelopes without retrying another node', async t => {
+  const transactionRpcUrl = 'https://transactions.test/fixed-path';
+  for (const fault of ['wrong-id', 'missing-envelope', 'error-null', 'both', 'http-failure', 'contract-error']) {
+    const f = await fixture(t, { transactionRpcUrl, fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      assert.equal(url, transactionRpcUrl);
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      if (fault === 'wrong-id') return json({ jsonrpc: '2.0', id: request.id + 1, result: { transactionHash } });
+      if (fault === 'missing-envelope') return json({ result: { transactionHash } });
+      if (fault === 'error-null') return json({ jsonrpc: '2.0', id: request.id, error: null });
+      if (fault === 'both') return json({ jsonrpc: '2.0', id: request.id, result: { transactionHash },
+        error: { code: -32000, message: 'rejected' } });
+      if (fault === 'http-failure') return json({ jsonrpc: '2.0', id: request.id, result: { transactionHash } }, 503);
+      return json({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'private-reason' } });
+    } });
+    const response = await f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+    assert.equal(response.status, fault === 'contract-error' ? 200 : 502, fault);
+    if (fault === 'contract-error') assert.deepEqual((await response.json()).error,
+      { code: -32000, message: 'Upstream rejected the read request.' });
+    assert.deepEqual(requestsAt(f, transactionRpcUrl).map(request => request.method),
+      ['eth_chainId', 'eth_getTransactionReceipt']);
+    assert.equal(requestsAt(f, 'https://operator-rpc.test/key').length, 0);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+  }
+});
+
+test('failed transaction chain reproof invalidates an earlier in-flight lookup', async t => {
+  let clock = 100000, rejectIdentity = false, resumeLookup, lookupStarted;
+  const transactionRpcUrl = 'https://transactions.test/fixed-path';
+  const lookupGate = new Promise(resolve => { resumeLookup = resolve; });
+  const started = new Promise(resolve => { lookupStarted = resolve; });
+  const f = await fixture(t, { now: () => clock, transactionRpcUrl, upstream: async (url, init) => {
+    assert.equal(url, transactionRpcUrl);
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: rejectIdentity ? '0x1' : '0x38' });
+    if (request.method === 'eth_getTransactionReceipt') {
+      lookupStarted(); await lookupGate;
+      return json({ jsonrpc: '2.0', id: request.id, result: { transactionHash } });
+    }
+    throw new Error('A failed chain reproof must not issue another data read.');
+  } });
+  const first = f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+  await started;
+  clock += 5001; rejectIdentity = true;
+  assert.equal((await f.post(rpc('eth_getTransactionByHash', [transactionHash]))).status, 502);
+  resumeLookup();
+  assert.equal((await first).status, 502);
+  assert.deepEqual(requestsAt(f, transactionRpcUrl).map(request => request.method),
+    ['eth_chainId', 'eth_getTransactionReceipt', 'eth_chainId']);
+});
+
+test('archive retries one identified per-second CUPS error on the same node after chain reproof', async t => {
+  const diagnostics = []; let reads = 0;
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, fallbackRpcUrl: backupRpc,
+    onRpcDiagnostic: item => diagnostics.push(item), upstream: (url, init) => {
+      assert.equal(url, 'https://operator-rpc.test/key');
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      if (++reads === 1) return json({ jsonrpc: '2.0', id: request.id,
+        error: { code: -32005, message: 'Compute Units Per Second capacity exceeded: private-key-or-secret-url' } }, 429);
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  const response = await f.post(rpc('eth_getCode', [address, '0xa']));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result, '0x6000');
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
+    ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
+  assert.equal(requestsAt(f, backupRpc).length, 0);
+  assert(diagnostics.some(item => item.category === 'archive-cups-retry' && item.status === 429
+    && item.errorCode === -32005 && item.idMatches === true));
+  assert(!JSON.stringify(diagnostics).includes('private-key-or-secret-url'));
+  assert(!JSON.stringify(diagnostics).includes('operator-rpc.test'));
+  assert(!JSON.stringify(diagnostics).includes(address));
+});
+
+test('archive retries one non-RPC gateway response after chain reproof', async t => {
+  let reads = 0;
+  const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      assert.equal(url, 'https://operator-rpc.test/key');
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      if (++reads === 1) return htmlGateway();
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+    } });
+  assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 200);
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
+    ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
+  assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('archive never retries monthly quota, malformed envelope, contract error or mislabeled RPC body', async t => {
+  const faults = [
+    () => json({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'Your account ran out of cu' } }, 429),
+    () => json({ jsonrpc: '2.0', id: 2,
+      error: { code: -32005, message: 'Compute Units Per Second capacity exceeded' } }, 429),
+    () => json({ jsonrpc: '2.0', id: 1, error: null }, 429),
+    () => json({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'execution reverted' } }),
+    () => new Response('{"jsonrpc":"2.0","id":1,"error":{}}',
+      { status: 502, headers: { 'content-type': 'text/html' } }),
+    () => new Response('bad json', { status: 502, headers: { 'content-type': 'application/json' } }),
+  ];
+  for (const fault of faults) {
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+      fallbackRpcUrl: backupRpc, upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : fault();
+      } });
+    await f.post(rpc('eth_getCode', [address, '0xa']));
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_getCode']);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+  }
+});
+
+test('archive retry is bounded to one attempt and refuses data when same-node chain reproof fails', async t => {
+  for (const reproofValid of [true, false]) {
+    let chainChecks = 0;
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+      upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id,
+          result: ++chainChecks === 1 || reproofValid ? '0x38' : '0x1' });
+        return json({ jsonrpc: '2.0', id: request.id,
+          error: { code: -32005, message: 'Compute Units Per Second capacity exceeded' } }, 429);
+      } });
+    assert.equal((await f.post(rpc('eth_getCode', [address, '0xa']))).status, 502);
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), reproofValid
+      ? ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']
+      : ['eth_chainId', 'eth_getCode', 'eth_chainId']);
+  }
 });
