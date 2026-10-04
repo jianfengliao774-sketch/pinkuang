@@ -1,0 +1,45 @@
+{
+  "published": true,
+  "sourceHead": "80e754215a41e6ab627eda58a050b3b807c551cf",
+  "previous": "/var/www/bemine-v5/releases/gentle-refresh-b61a835a50ba",
+  "current": "/var/www/bemine-v5/releases/official-listing-capacity-80e754215a41",
+  "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+  "buildContentSha256": "66584a201b4f65504fbbf4a0d3a48ab83525b4edef3944599a31d36eb528690e",
+  "contentSha256": "7b086f38332f5592fd2cdc6dafd01b249b42f1dafea5de691737286545692656",
+  "fileCount": 879,
+  "retainedImmutableChunks": 561,
+  "runtimeServicesUnchanged": true,
+  "nginxUnchanged": true,
+  "backendAndUpgradeConsoleUnchanged": true,
+  "checkedAt": "2026-10-04T09:02:34.436068+00:00",
+  "httpChecks": {
+    "/": {
+      "status": 200,
+      "sha256": "cf1cca800a6fc13b0333495d158458ff2235925799c0eef8a66417a32c9419f2"
+    },
+    "/?lang=zh#operator": {
+      "status": 200,
+      "sha256": "cf1cca800a6fc13b0333495d158458ff2235925799c0eef8a66417a32c9419f2"
+    },
+    "/mobile-review.html": {
+      "status": 200,
+      "sha256": "e0b4729a5028abf483b7816e1dcc5fc2d95576e5e1ba27a3184e99acf4e6fadc"
+    },
+    "/preview.html": {
+      "status": 200,
+      "sha256": "eaa24060c8379da7e2206be4b3a854288f9cd1ec0d6f1a1b43862c5b4738dd00"
+    },
+    "/pinkuang-target-owner-upgrade/": {
+      "status": 200,
+      "sha256": "b4391696a98abace87741af464f54947fc9f511096222ce46a40ae0fc40711ac"
+    },
+    "/bemine-v5/api/chain-index/v1/display/stats": {
+      "status": 200,
+      "sha256": "c1064a29e499b9e18d3ccbbb16b74fa6fb31b9235f698804b3ac0edeb9752d1c"
+    },
+    "/bemine-v5/api/journal/product-graph": {
+      "status": 200,
+      "sha256": "151aed01e7fc941bde7c3b52e806490f5daa00897503d3c34d1e0ef93d303d80"
+    }
+  }
+}

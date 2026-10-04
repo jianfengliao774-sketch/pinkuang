@@ -1,0 +1,217 @@
+{
+  "url": "https://bemine.cc.cd/#pools",
+  "observedAt": "2026-10-04T09:03:46.282Z",
+  "rows": [
+    [
+      {
+        "text": "矿机 / 项目\n所有\nTapeOut\nBehemoth",
+        "title": null
+      },
+      {
+        "text": "已募集",
+        "title": null
+      },
+      {
+        "text": "日产能价",
+        "title": null
+      },
+      {
+        "text": "算力 H",
+        "title": null
+      },
+      {
+        "text": "预计日产 BEM",
+        "title": null
+      },
+      {
+        "text": "总金额",
+        "title": null
+      },
+      {
+        "text": "",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "B\nBehemoth #1228\nTask 249",
+        "title": null
+      },
+      {
+        "text": "4 / 100",
+        "title": null
+      },
+      {
+        "text": "7.17",
+        "title": "当前 Firsto 挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "126",
+        "title": null
+      },
+      {
+        "text": "0.5832 BEM",
+        "title": null
+      },
+      {
+        "text": "4.6440 BNB\n(每份0.0464 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "T\nTapeOut #16761\nTask 173",
+        "title": null
+      },
+      {
+        "text": "0 / 100",
+        "title": null
+      },
+      {
+        "text": "7.39",
+        "title": "当前官网挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "278",
+        "title": null
+      },
+      {
+        "text": "1.2874 BEM",
+        "title": null
+      },
+      {
+        "text": "10.4720 BNB\n(每份0.1047 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "T\nTapeOut #16735\nTask 220",
+        "title": null
+      },
+      {
+        "text": "0 / 100",
+        "title": null
+      },
+      {
+        "text": "7.85",
+        "title": "当前 Firsto 挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "61",
+        "title": null
+      },
+      {
+        "text": "0.2825 BEM",
+        "title": null
+      },
+      {
+        "text": "2.4640 BNB\n(每份0.0246 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "B\nBehemoth #2393\nTask 220",
+        "title": null
+      },
+      {
+        "text": "0 / 100",
+        "title": null
+      },
+      {
+        "text": "7.67",
+        "title": "当前官网挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "102",
+        "title": null
+      },
+      {
+        "text": "0.4717 BEM",
+        "title": null
+      },
+      {
+        "text": "3.9820 BNB\n(每份0.0398 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "T\nTapeOut #14281\nTask 178",
+        "title": null
+      },
+      {
+        "text": "0 / 100",
+        "title": null
+      },
+      {
+        "text": "—\n暂无有效挂单",
+        "title": "本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "50",
+        "title": null
+      },
+      {
+        "text": "0.2316 BEM",
+        "title": null
+      },
+      {
+        "text": "1.9628 BNB\n(每份0.0196 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ],
+    [
+      {
+        "text": "T\nTapeOut #14277\nTask 114",
+        "title": null
+      },
+      {
+        "text": "0 / 100",
+        "title": null
+      },
+      {
+        "text": "—\n暂无有效挂单",
+        "title": "本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)"
+      },
+      {
+        "text": "50",
+        "title": null
+      },
+      {
+        "text": "0.2316 BEM",
+        "title": null
+      },
+      {
+        "text": "1.9628 BNB\n(每份0.0196 BNB)",
+        "title": null
+      },
+      {
+        "text": "查看矿机",
+        "title": null
+      }
+    ]
+  ],
+  "chainActionsPerformed": false
+}

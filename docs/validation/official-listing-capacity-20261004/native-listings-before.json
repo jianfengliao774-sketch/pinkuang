@@ -1,0 +1,27 @@
+{
+  "rows": [
+    {
+      "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+      "tokenId": "14281",
+      "listingId": "0",
+      "seller": "0x0000000000000000000000000000000000000000",
+      "priceWei": "0",
+      "valid": false,
+      "owner": "0x642FAb3b5557031A67Bf611Db19F64205f7fD3a1",
+      "sellerIsOwner": false
+    },
+    {
+      "collection": "0xb1024b89886b9a34aa4ff5f31c411d708b20a14c",
+      "tokenId": "14277",
+      "listingId": "0",
+      "seller": "0x0000000000000000000000000000000000000000",
+      "priceWei": "0",
+      "valid": false,
+      "owner": "0x642FAb3b5557031A67Bf611Db19F64205f7fD3a1",
+      "sellerIsOwner": false
+    }
+  ],
+  "requestCount": 5,
+  "observedAt": "2026-10-04T08:48:46.881Z",
+  "chainActionsPerformed": false
+}
