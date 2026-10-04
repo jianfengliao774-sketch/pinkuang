@@ -133,6 +133,9 @@ test('only the matching canonical finalized status0 transaction releases the sam
   assert.equal(recovered.failedTransactions?.[0].evidence.status, 0); assert.equal(recovered.failedTransactions?.[0].transaction.txHash, h(90));
   assert.equal(item.deployments.PoolFunds?.status, 'submitted');
   assert.throws(() => archiveTargetOwnerFailure(item, 'PoolFunds', { ...failure.evidence, txHash: h(91) }, context), /另一笔/);
+  const hashless = { ...item, deployments: { PoolFunds: { ...item.deployments.PoolFunds!, status: 'uncertain' as const, txHash: undefined } } };
+  assert.throws(() => archiveTargetOwnerFailure(hashless, 'PoolFunds', failure!.evidence, context), /发送结果仍未知/);
+  assert.equal(targetOwnerPending(hashless), 'PoolFunds');
 });
 test('unknown, mismatched failed transactions, noncanonical inclusion and reorg never release retry', async () => {
   const expected = { from: a(6), dataHash: keccak256('0x6000') };

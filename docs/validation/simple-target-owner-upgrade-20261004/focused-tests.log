@@ -1,0 +1,37 @@
+✔ actual component automatically crosses confirmed PoolVault into schedule without duplicate full-graph reads (9.313916ms)
+✔ actual component stops after schedule confirmation even when its finalized clock jumped 48 hours (27.388667ms)
+✔ actual component stops when wallet account event arrives during a pre-send wallet read (1.561667ms)
+✔ broadcast hash remains durable after wallet context cancellation; no following candidate is sent (0.871166ms)
+✔ storage conflict after broadcast preserves changed record and exposes original hash for copying (0.731375ms)
+✔ write failure after broadcast keeps uncertain intent and exposes its returned hash (0.636458ms)
+✔ another tab holding Web Lock, or a storage event during preflight, prevents every wallet send (0.893375ms)
+✔ older identical-initcode successful or failed CREATE cannot clear a hashless unknown intent or send any next transaction (1.551667ms)
+✔ known matching failed transaction is archived but retry requires a later fresh click (3.080375ms)
+✔ one click sends three candidates then schedule, never execute even after a 48-hour suspension (2.793042ms)
+✔ partial prefix resumes only the missing CREATEs; original pending hash is recovered before any new send (0.477416ms)
+✔ hashless unknown send, unfinished receipt and failed receipt stop instead of retrying (0.69525ms)
+✔ execute requires a new click with a confirmed schedule and currently ready chain operation (0.2095ms)
+✔ cancellation in asynchronous inspection, recovery or wallet submission prevents every later send (1.846041ms)
+✔ last candidate recovery requests full operation classification, unlike incomplete deployment prefixes (0.050667ms)
+✔ receipt waiting reads only original receipt and, only after inclusion, finalized head (0.264166ms)
+✔ receipt read failure and context cancellation stop the bounded wait immediately (0.231208ms)
+✔ journal namespace binds independent old record, manifest, catalog and candidate pins (2.67625ms)
+✔ uncertain send is durable, blocks all retries and restores only its confirmed prefix (1.045875ms)
+✔ confirmed local rows require original hashes and cannot assert unconfirmed addresses (0.423708ms)
+✔ journal rejects unrelated Factory, role migration, zero salt and shortened wait (0.3695ms)
+✔ scheduled and executed rows require all three receipts and a confirmed prior schedule (0.487791ms)
+✔ deployment completion never opens activation; waiting, changed signer and pending sends stay blocked (0.073292ms)
+✔ wallet send follows durable intent, and post-send storage failure preserves uncertainty (0.264542ms)
+✔ failed durable write never reaches wallet, explicit rejection restores, ambiguous submission stays blocked (0.292667ms)
+✔ actual candidate CREATE gas plan is bounded and never treats local EVM addresses as production deployments (2.521666ms)
+✔ candidate wallet CREATE sends its measured fixed ceiling without estimate or simulation (0.261208ms)
+✔ only the matching canonical finalized status0 transaction releases the same retry step and preserves evidence (6.189083ms)
+✔ unknown, mismatched failed transactions, noncanonical inclusion and reorg never release retry (0.600917ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 649.581792
