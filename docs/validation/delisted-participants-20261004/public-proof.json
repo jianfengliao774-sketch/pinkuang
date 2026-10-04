@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "checkedAt": "2026-10-04T03:48:30.319022+00:00",
+  "origin": "https://bemine.cc.cd",
+  "frontendSourceHead": "b5321379da78814ef9cb57f894724c441357ad58",
+  "runtimeSourceHead": "23b48e6adb2a19810eb287a67add5f40b4fb94b9",
+  "factory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9",
+  "artifactDigest": "0xbe37228e94095440e9cde68ae7b5e605b75154a5c7453d58b796ddb2925ec927",
+  "manifestSha256": "0xc1e46426f96b858013c4485461f265021bf5e4c483be8a1591ad7563dcea112d",
+  "checks": [
+    {
+      "path": "/",
+      "sha256": "87aeb99ed6133df20758a3987578372edddb121e4bdf56eaca387ab796d549ff"
+    },
+    {
+      "path": "/live",
+      "sha256": "ab577e4fa271642154c223aac57833174fd9b9648996b2bd8254bc49a051af10"
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/7756-080a0ecf32fd2f95.js",
+      "sha256": "d79a675ca46ef744faba995505fc9ea6268d6421a6d238997c151dc7cb062c91",
+      "features": [
+        "Refund deadline not reached"
+      ]
+    },
+    {
+      "path": "/bemine-v5/_next/static/chunks/app/page-827c1abcb2492fc8.js",
+      "sha256": "218da536379f3ce439d93abd8e6f83a11697d8f0d19ddceaf75921a562575fff",
+      "features": [
+        "目标矿机已转移给其他持有人，本项目已下架",
+        "项目下架与退款提醒",
+        "Current subscription principal",
+        "Refund deadline not reached",
+        "领取退款 / 待领取 BNB"
+      ]
+    }
+  ],
+  "scope": "Public static bytes, release identity and feature presence; no chain writes or paid RPC."
+}

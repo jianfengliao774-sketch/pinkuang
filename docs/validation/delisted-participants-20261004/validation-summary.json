@@ -1,0 +1,37 @@
+{
+  "frontendSourceHead": "b5321379da78814ef9cb57f894724c441357ad58",
+  "tests": [
+    {
+      "command": "node --test --test-reporter=tap scripts/*.test.mjs server/live-api.test.mjs (cwd web)",
+      "counts": {
+        "tests": 1150,
+        "pass": 1150,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "tapSha256": "f5e968363cb4b6ef120bffe5977b21f7dc8279ba23dd1d8e7bdfccf73a1985fb"
+    },
+    {
+      "command": "node --test --test-reporter=tap deploy/server/chain-index/pool-display-cache.test.mjs deploy/server/chain-index/target-availability.test.mjs",
+      "counts": {
+        "tests": 22,
+        "pass": 22,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "tapSha256": "e2a50e529d81d607ee7e63672bc5e575b50ed92eaf5c173d236aac5861a02e33"
+    }
+  ],
+  "browserFixtureChecks": 11,
+  "browserFixtureSynthetic": true,
+  "chainTransactions": 0,
+  "otherValidation": [
+    "Catalog, BEM price and review policy checks passed",
+    "Five publisher tests passed",
+    "Offline release switch, retained chunks and failed-proof rollback smoke test passed",
+    "Next webpack static build and package verification passed"
+  ],
+  "limits": "Synthetic browser and fixture HTTP regressions; no real participant refund transaction was signed or executed."
+}
