@@ -78,6 +78,7 @@ def publish(incoming):
  try:
   atomic(DROPIN,override);changed=True
   run('systemctl','daemon-reload');run('systemctl','restart',SERVICE);run('systemctl','is-active',SERVICE)
+  need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(rpc_release),'Running read service did not adopt reviewed release')
   need(rpc('eth_chainId',[])=='0x38','Read service chain differs')
   block=rpc('eth_getBlockByNumber',['latest',False]);tag=block['number']
   account='0x042B23288E2316DFb6503488292FD0Ad2F811Ae7'
