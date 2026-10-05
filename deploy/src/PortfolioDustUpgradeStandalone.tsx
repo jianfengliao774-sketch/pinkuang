@@ -7,6 +7,8 @@ import {preparePortfolioDustDeployment,buildPortfolioDustPlan,validatePortfolioD
 import {newPortfolioDustJournal,parsePortfolioDustJournal,portfolioDustJournalKey,verifyPortfolioDustReceipt,assertPortfolioDustConfirmedState} from '../shared/portfolio-dust-journal.mjs';
 // @ts-ignore Shared nonce proof is independently tested against stale wallet views.
 import {readPortfolioDustNonce} from '../shared/portfolio-dust-nonce.mjs';
+// @ts-ignore Shared pacing preserves every proof and RPC error.
+import {pacePortfolioDustRpc} from '../shared/portfolio-dust-rpc.mjs';
 import {discoverWallets,messageOf,readWallet,switchToBsc,type WalletOption} from './wallet';
 import './portfolio-dust.css';
 type Json=Record<string,any>;
@@ -16,7 +18,8 @@ const short=(s:string)=>`${s.slice(0,9)}…${s.slice(-6)}`;
 const stringify=(v:unknown)=>JSON.stringify(v,(_,x)=>typeof x==='bigint'?x.toString():x);
 const salt=()=>`0x${Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('')}`;
 function provider() {const request=new FetchRequest(new URL(release.rpcPath,location.href).href);request.timeout=18000;
-  return new JsonRpcProvider(request,56,{staticNetwork:true,batchMaxCount:1,cacheTimeout:-1});}
+  const p=new JsonRpcProvider(request,56,{staticNetwork:true,batchMaxCount:1,cacheTimeout:-1});
+  p.send=pacePortfolioDustRpc(p.send.bind(p));return p;}
 async function loadConfig() {const response=await fetch('./data/config.json',{cache:'no-store',redirect:'error'});
   if(!response.ok) throw new Error('部署配置暂时无法读取，请稍后重试。');
   const bytes=await response.arrayBuffer(),digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
@@ -50,6 +53,7 @@ export function PortfolioDustUpgradeStandalone() {
       if(!lock)throw new Error('另一标签正在处理本次部署，请使用原标签继续。');
       const raw=localStorage.getItem(portfolioDustJournalKey(config));journalRef.current=raw?parsePortfolioDustJournal(JSON.parse(raw),config):null;setJournal(journalRef.current);await action();});}
   async function inspect(row:Json|null) {if(!config)throw new Error('部署产物尚未读取。');const p=provider();
+    setMessage('正在读取链上合约与升级进度，请稍候…');
     try{const replacement=row?.transactions.deploy?.status==='confirmed'?row.transactions.deploy.address:undefined;
       const result=await validatePortfolioDustChain(p,config,{replacement,salt:row?.salt,delaySeconds:row?.delaySeconds});setProof(result);return result;
     }finally{p.destroy();}}
@@ -118,7 +122,7 @@ export function PortfolioDustUpgradeStandalone() {
       {error&&<p role="alert" className="message error">{error}</p>}<p role="status" className="message">{message}</p>
       <label>选择钱包<select aria-label="选择钱包" value={wallet?.id??wallets[0]?.id??''} disabled={busy} onChange={e=>setWallet(wallets.find(w=>w.id===e.target.value)??null)}>
         {!wallets.length&&<option value="">未发现扩展钱包，请使用 Chrome 或钱包浏览器</option>}{wallets.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-      <button className="primary" disabled={busy||!config} onClick={()=>void start()}>{busy?'正在处理，请按钱包提示确认…':pending?'核对原交易并继续':txs.schedule?.status==='confirmed'?'核对部署进度':'开始部署并排程'}</button>
+      <button className="primary" disabled={busy||!config} onClick={()=>void start()}>{busy?'正在处理…':pending?'核对原交易并继续':txs.schedule?.status==='confirmed'?'核对部署进度':'开始部署并排程'}</button>
       <p className="detail">{account?`当前钱包 ${account} · ${chain===56?'BSC 主网':'请切换 BSC 主网'}`:`部署账户：${config?.deployer??'读取中'}`}</p>
       {(['deploy','schedule'] as const).map(step=>txs[step]?.txHash&&<div className="tx" key={step}>{step==='deploy'?'补丁部署':'升级排程'} · {txs[step].status==='confirmed'?'链上已确认':'待确认'} <a href={`https://bscscan.com/tx/${txs[step].txHash}`} target="_blank" rel="noreferrer">{short(txs[step].txHash)}</a></div>)}
       {pending&&<details open><summary>核对原交易</summary><p>交易记录保留在本浏览器。原请求未确认时不会重复发送。</p><input aria-label="原交易哈希" placeholder="原交易哈希 0x…（钱包未返回时填写）" value={recoveryHash} onChange={e=>setRecoveryHash(e.target.value)}/></details>}

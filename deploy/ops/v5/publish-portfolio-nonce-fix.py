@@ -48,6 +48,54 @@ def read_archive(path,inventory):
    files[member.name]=tar.extractfile(member).read()
  need(set(files)==set(inventory) and all(sha(data)==inventory[name] for name,data in files.items()),'Release inventory differs')
  return files
+def publish_read(incoming):
+ """Replace only the current dedicated read runtime and preserve its existing override."""
+ pins=json.loads((incoming/'pins.json').read_text())
+ for key in ['proxySourceCommit','expectedProxySourceCommit']:need(re.fullmatch('[a-f0-9]{40}',pins[key]),'Invalid read release commit')
+ prior=OLD_RPC.parent/pins['expectedProxySourceCommit'];release=OLD_RPC.parent/pins['proxySourceCommit']
+ need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(prior),'Read service moved')
+ need(run('systemctl','show',SERVICE,'-p','InvocationID','--value')==pins['expectedInvocation'],'Read service restarted during preparation')
+ need(sha((prior/'deploy/server/live-data-proxy.mjs').read_bytes())==pins['expectedProxySha256'],'Current read runtime differs')
+ previous_override=DROPIN.read_bytes();need(sha(previous_override)==pins['expectedDropinSha256'],'Current override differs')
+ candidate=(incoming/'live-data-proxy.mjs').read_bytes();need(sha(candidate)==pins['proxySha256'],'Read patch digest differs')
+ need(not release.exists(),'Read release exists; inspect original outcome before retry')
+ routing=pathlib.Path('/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf');route_sha=sha(routing.read_bytes())
+ need(route_sha=='03e77deead7df6eeb1f8d786a0d0e0f992f7a04eb68ecf927937cd74b5de53c9','Routes changed')
+ env=pathlib.Path('/etc/pinkuang-target-owner-read.env');env_sha=sha(env.read_bytes())
+ protected=[STATIC/'current',pathlib.Path('/srv/pinkuang-target-owner-upgrade/current'),pathlib.Path('/var/www/bemine-v5/current')]
+ preserved={str(p):(str(p.resolve(strict=True)),sha((p/'index.html').read_bytes())) for p in protected}
+ for name,digest in OLD_RPC_FILES.items():
+  data=candidate if name.endswith('/live-data-proxy.mjs') else (prior/name).read_bytes()
+  if not name.endswith('/live-data-proxy.mjs'):need(sha(data)==digest,'Read bootstrap or limiter changed')
+  atomic(release/name,data)
+ run('/usr/bin/node','--check',str(release/'deploy/server/live-data-proxy.mjs'))
+ run('/usr/bin/node','--check',str(release/'deploy/server/target-owner-read-server.mjs'))
+ override=f'[Service]\nWorkingDirectory={release}\nExecStart=\nExecStart=/usr/bin/node {release}/deploy/server/target-owner-read-server.mjs\n'.encode()
+ changed=False
+ try:
+  atomic(DROPIN,override);changed=True
+  run('systemctl','daemon-reload');run('systemctl','restart',SERVICE);run('systemctl','is-active',SERVICE)
+  need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(release),'Read runtime did not change')
+  need(rpc('eth_chainId',[])=='0x38','Read chain differs')
+  block=rpc('eth_getBlockByNumber',['finalized',False]);tag=block['number']
+  delay=rpc('eth_call',[{'to':'0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97','data':'0xf27a0c92'},tag])
+  need(isinstance(delay,str) and re.fullmatch('0x[0-9a-fA-F]{64}',delay) and int(delay,16)>=172800,'Archive smoke returned no Timelock minimum')
+  account='0x042B23288E2316DFb6503488292FD0Ad2F811Ae7'
+  confirmed=rpc('eth_getTransactionCount',[account,tag]);pending=rpc('eth_getTransactionCount',[account,'pending'])
+  for value in [confirmed,pending]:need(isinstance(value,str) and re.fullmatch(r'0x(?:0|[1-9a-f][0-9a-f]*)',value,re.I),'Nonce response invalid')
+  canonical=rpc('eth_getBlockByNumber',[tag,False]);need(canonical['hash']==block['hash'],'Read proof anchor changed')
+  need(sha(routing.read_bytes())==route_sha and sha(env.read_bytes())==env_sha,'Routes or protected environment changed')
+  for path,(target,digest) in preserved.items():
+   p=pathlib.Path(path);need(str(p.resolve(strict=True))==target and sha((p/'index.html').read_bytes())==digest,'Preserved website changed')
+  receipt={'kind':'upgrade-archive-throttle-read-publication-v1','proxySourceCommit':pins['proxySourceCommit'],
+   'proxySha256':pins['proxySha256'],'priorRpcRelease':str(prior),'rpcRelease':str(release),
+   'nonceProof':{'blockNumber':int(tag,16),'blockHash':block['hash'],'confirmed':int(confirmed,16),'pending':int(pending,16)},
+   'minDelay':int(delay,16),'readServiceInvocation':run('systemctl','show',SERVICE,'-p','InvocationID','--value'),
+   'allWebsitesUnchanged':True,'routesAndProtectedEnvironmentUnchanged':True,'chainActionsPerformed':False}
+  atomic(incoming/'publication.json',(json.dumps(receipt,indent=2)+'\n').encode());print(json.dumps(receipt))
+ except BaseException:
+  if changed:atomic(DROPIN,previous_override);run('systemctl','daemon-reload');run('systemctl','restart',SERVICE)
+  raise
 def publish_ui(incoming):
  """A subsequent UI-only correction preserves the already-installed proxy."""
  pins=json.loads((incoming/'pins.json').read_text())
@@ -143,5 +191,7 @@ if __name__=='__main__':
  need(os.geteuid()==0,'Publication requires the server operator')
  with open('/run/pinkuang-portfolio-entry.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);incoming=pathlib.Path(sys.argv[1]).resolve(strict=True)
-  if json.loads((incoming/'pins.json').read_text()).get('mode')=='static-ui':publish_ui(incoming)
+  mode=json.loads((incoming/'pins.json').read_text()).get('mode')
+  if mode=='static-ui':publish_ui(incoming)
+  elif mode=='read-service':publish_read(incoming)
   else:publish(incoming)
