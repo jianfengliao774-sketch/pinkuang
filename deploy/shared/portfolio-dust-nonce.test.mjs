@@ -54,8 +54,14 @@ test('uncertain/submitted intents require original receipt recovery before any n
     await assert.rejects(readPortfolioDustNonce({...f,transactions:{deploy:{status,nonce:'170'}}}),e=>e.code==='ORIGINAL');
     assert.equal(f.calls.length,0);}
 });
+test('exact integer wallet formats normalize without weakening independent canonical proof',async()=>{
+  for(const value of [170,170n,'170','0x00aa','0x'+('0'.repeat(62))+'aa']) {
+    const r=row(170);r.wl=value;r.wp=value;assert.equal((await readPortfolioDustNonce(fixture([r]))).nonce,'170');}
+  for(const value of [170,170n,'170','0x00aa']) {const r=row(170);r.confirmed=value;
+    await assert.rejects(readPortfolioDustNonce(fixture([r])),e=>e.code==='INVALID');}
+});
 test('malformed responses are separate from pending and never produce a nonce',async()=>{
-  for(const value of [170,null,'170','0x00aa','0xzz','0x20000000000000']) {
+  for(const value of [null,undefined,-1,-1n,170.5,NaN,Infinity,'-170','170.0','1.7e2','0xzz','0x20000000000000',{},'0x'+('0'.repeat(130))+'aa']) {
     const r=row(170);r.wp=value;await assert.rejects(readPortfolioDustNonce(fixture([r])),e=>e.code==='INVALID');}
 });
 test('reorg during read fails closed and RPC transport errors are not pending claims',async()=>{

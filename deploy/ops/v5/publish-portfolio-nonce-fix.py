@@ -48,6 +48,41 @@ def read_archive(path,inventory):
    files[member.name]=tar.extractfile(member).read()
  need(set(files)==set(inventory) and all(sha(data)==inventory[name] for name,data in files.items()),'Release inventory differs')
  return files
+def publish_ui(incoming):
+ """A subsequent UI-only correction preserves the already-installed proxy."""
+ pins=json.loads((incoming/'pins.json').read_text())
+ for key in ['sourceCommit','proxySourceCommit','expectedStaticCommit']:need(re.fullmatch('[a-f0-9]{40}',pins[key]),'Invalid release commit')
+ need(sha((incoming/'static.tgz').read_bytes())==pins['archiveSha256'],'Static archive differs')
+ files=read_archive(incoming/'static.tgz',pins['files'])
+ need(all(re.fullmatch(r'(index.html|release.json|data/config.json|assets/[a-zA-Z0-9_.-]+\.(js|css))',name) for name in files),'Unexpected static file')
+ prior=STATIC/'releases'/pins['expectedStaticCommit'];current=STATIC/'current'
+ need(str(current.resolve(strict=True))==str(prior) and sha((prior/'index.html').read_bytes())==pins['expectedIndexSha256'],'Current UI differs')
+ need(sha(files['data/config.json'])==CONFIG_SHA and sha((prior/'data/config.json').read_bytes())==CONFIG_SHA,'Journal or signing config changed')
+ rpc_release=OLD_RPC.parent/pins['proxySourceCommit']
+ need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(rpc_release),'Read service changed')
+ need(sha((rpc_release/'deploy/server/live-data-proxy.mjs').read_bytes())==pins['proxySha256'],'Read service digest differs')
+ routing=pathlib.Path('/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf');route_sha=sha(routing.read_bytes())
+ need(route_sha=='03e77deead7df6eeb1f8d786a0d0e0f992f7a04eb68ecf927937cd74b5de53c9','Routes changed')
+ protected=[pathlib.Path('/srv/pinkuang-target-owner-upgrade/current'),pathlib.Path('/var/www/bemine-v5/current')]
+ preserved={str(p):(str(p.resolve(strict=True)),sha((p/'index.html').read_bytes())) for p in protected}
+ invocation=run('systemctl','show',SERVICE,'-p','InvocationID','--value')
+ release=STATIC/'releases'/pins['sourceCommit'];need(not release.exists(),'Release already exists; inspect original outcome')
+ for name,data in files.items():atomic(release/name,data)
+ try:
+  link(current,release)
+  for name,data in files.items():need(sha(fetch(URL+('' if name=='index.html' else name)))==sha(data),'Published file differs')
+  need(sha(routing.read_bytes())==route_sha and run('systemctl','show',SERVICE,'-p','InvocationID','--value')==invocation,'Read service or routes changed')
+  for path,(target,digest) in preserved.items():
+   p=pathlib.Path(path);need(str(p.resolve(strict=True))==target and sha((p/'index.html').read_bytes())==digest,'Original entry changed')
+  receipt={'kind':'portfolio-wallet-format-ui-publication-v1','url':URL,'sourceCommit':pins['sourceCommit'],
+   'proxySourceCommit':pins['proxySourceCommit'],'configSha256':CONFIG_SHA,'proxySha256':pins['proxySha256'],
+   'archiveSha256':pins['archiveSha256'],'staticRelease':str(release),'readServiceInvocation':invocation,
+   'originalCoreEntryUnchanged':True,'formalProductUnchanged':True,'readServiceUnchanged':True,
+   'signingConfigAndJournalKeyUnchanged':True,'chainActionsPerformed':False}
+  atomic(incoming/'publication.json',(json.dumps(receipt,indent=2)+'\n').encode());print(json.dumps(receipt))
+ except BaseException:
+  if current.resolve()==release:link(current,prior)
+  raise
 def publish(incoming):
  pins=json.loads((incoming/'pins.json').read_text())
  for key in ['sourceCommit','proxySourceCommit']:need(re.fullmatch('[a-f0-9]{40}',pins[key]),'Invalid source commit')
@@ -107,4 +142,6 @@ def publish(incoming):
 if __name__=='__main__':
  need(os.geteuid()==0,'Publication requires the server operator')
  with open('/run/pinkuang-portfolio-entry.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);publish(pathlib.Path(sys.argv[1]).resolve(strict=True))
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);incoming=pathlib.Path(sys.argv[1]).resolve(strict=True)
+  if json.loads((incoming/'pins.json').read_text()).get('mode')=='static-ui':publish_ui(incoming)
+  else:publish(incoming)

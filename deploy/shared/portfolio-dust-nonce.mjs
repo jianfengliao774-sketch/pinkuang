@@ -7,10 +7,17 @@ const address = /^0x[\da-f]{40}$/i;
 export class PortfolioNonceError extends Error {
   constructor(code,message,observation=null) { super(message); this.code=code; this.observation=observation; }
 }
-function count(value,source) {
-  if(typeof value!=='string'||!quantity.test(value)||BigInt(value)>BigInt(Number.MAX_SAFE_INTEGER))
-    throw new PortfolioNonceError('INVALID',`${source}返回的交易序号格式异常，尚未发送交易。`);
-  return BigInt(value);
+function count(value,source,{wallet=false}={}) {
+  // Injected wallets sometimes expose a padded hex quantity, a decimal string
+  // or an already-decoded integer. Normalize only exact non-negative integers;
+  // the independent JSON-RPC witness must still be canonical.
+  let parsed;
+  if(wallet&&typeof value==='number'&&Number.isSafeInteger(value)&&value>=0) parsed=BigInt(value);
+  else if(wallet&&typeof value==='bigint'&&value>=0n) parsed=value;
+  else if(typeof value==='string'&&value.length<=(wallet?130:64)&&(wallet?/^(?:0x[\da-f]+|0|[1-9]\d*)$/i.test(value):quantity.test(value))) parsed=BigInt(value);
+  if(parsed===undefined||parsed>BigInt(Number.MAX_SAFE_INTEGER))
+    throw new PortfolioNonceError('INVALID',`${source}返回的交易序号格式异常（${typeof value}${typeof value==='string'?`，长度 ${value.length}`:''}），尚未发送交易。`);
+  return parsed;
 }
 function block(value) {
   if(!value||typeof value.number!=='string'||!quantity.test(value.number)||!hash.test(value.hash??'')||BigInt(value.number)<1n||BigInt(value.number)>BigInt(Number.MAX_SAFE_INTEGER))
@@ -33,7 +40,7 @@ export async function readPortfolioDustNonce({wallet,rpc,account,transactions={}
       wallet.request({method:'eth_getTransactionCount',params:[account,'pending']}),
     ]);
     const confirmed=count(confirmedRaw,'只读节点'),pending=count(pendingRaw,'只读节点'),
-      walletLatest=count(walletLatestRaw,'钱包节点'),walletPending=count(walletPendingRaw,'钱包节点');
+      walletLatest=count(walletLatestRaw,'钱包节点',{wallet:true}),walletPending=count(walletPendingRaw,'钱包节点',{wallet:true});
     const canonical=block(await rpc('eth_getBlockByNumber',[anchor.number,false]));
     if(canonical.number!==anchor.number||canonical.hash!==anchor.hash)
       throw new PortfolioNonceError('REORG','核对期间区块发生变化，请重新核对；尚未发送交易。');
