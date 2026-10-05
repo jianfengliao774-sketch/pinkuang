@@ -22,3 +22,5 @@ deploy/*.tsbuildinfo
 deploy/keeper-state/
 deploy/keeper-journal/
 deploy/.local/
+deploy/.portfolio-dust-release/
+deploy/dist-portfolio-dust/
