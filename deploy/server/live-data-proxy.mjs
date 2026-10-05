@@ -16,11 +16,14 @@ const MAX_ARCHIVE_RETRY_WAIT_MS = 4_000;
 export const FEES_CLAIMED_TOPIC = '0x1ac537f0ad67b64ac68a04587ff3a4cb6977de22eb2c37ee560897a92c6d07c7';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const ownKeys = (value, allowed) => isRecord(value) && Object.keys(value).every(key => allowed.includes(key));
+const quotaMessage = message => /\b(?:quota|monthly|daily|ran out of (?:cu|compute units)|(?:credits?|compute units) (?:exhausted|depleted))\b/i.test(message);
 // Messages are used only to classify a refusal; diagnostics never retain them.
 const rpcErrorKind = value => {
   const message = isRecord(value?.error) && typeof value.error.message === 'string' ? value.error.message : '';
-  if (/\b(?:quota|monthly|ran out of (?:cu|compute units)|(?:credits?|compute units) (?:exhausted|depleted))\b/i.test(message)) return 'quota';
+  if (quotaMessage(message)) return 'quota';
   if (/\b(?:compute units per second capacity|cups capacity)\b/i.test(message)) return 'cups';
+  // NodeReal documents this exact message as its request-method rate limit.
+  if (message.trim().toLowerCase() === 'limit exceeded') return 'method-rate';
   return 'other';
 };
 const BLOCK = value => ['latest', 'safe', 'finalized', 'earliest'].includes(value) || typeof value === 'string' && QUANTITY.test(value);
@@ -200,13 +203,14 @@ async function fetchJson(url, options, { fetcher, timeoutMs, maxResponseBytes })
       const temporaryStatus = [429, 502, 503, 504].includes(response.status);
       // Even a mislabeled RPC object is not a transport-only gateway response.
       const body = temporaryStatus ? await readText() : '';
-      const noRpcBody = temporaryStatus && !/"(?:jsonrpc|id|result|error)"\s*:/.test(body);
+      const quota = quotaMessage(body);
+      const noRpcBody = temporaryStatus && !quota && !/"(?:jsonrpc|id|result|error)"\s*:/.test(body);
       throw new ProxyError(502, 'Upstream returned invalid JSON content.',
-        { transportFailure: true, upstreamStatus: response.status, noRpcBody });
+        { transportFailure: !quota, upstreamStatus: response.status, noRpcBody });
     }
     const text = await readText();
     let value; try { value = JSON.parse(text); } catch { throw new ProxyError(502, 'Upstream returned invalid JSON.',
-      { transportFailure: true, upstreamStatus: response.status }); }
+      { transportFailure: !quotaMessage(text), upstreamStatus: response.status }); }
     requireValue(isRecord(value), 502, 'Upstream returned an invalid object.', { upstreamStatus: response.status });
     return { status: response.status, value };
   };
@@ -345,11 +349,12 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   // a read/chain answer. Every final response still requires the exact id.
   const transientArchiveThrottle = (reply, payload) => {
     const value = reply.value;
+    const kind = rpcErrorKind(value);
     const identified = Object.hasOwn(value, 'id') && (value.id === payload.id
       || reply.status === 429 && value.id === null);
     return [200, 429, 503].includes(reply.status) && value.jsonrpc === '2.0' && identified
       && !Object.hasOwn(value, 'result') && isRecord(value.error) && value.error.code === -32005
-      && rpcErrorKind(value) === 'cups';
+      && (kind === 'cups' || reply.status === 429 && kind === 'method-rate');
   };
   const remainingArchiveTime = deadline => {
     if (deadline === null) return timeoutMs;
@@ -446,7 +451,9 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
       if (!temporary) throw error;
     }
     if (!temporary) return first;
-    diagnose(payload, first ?? { status: transportStatus }, first ? 'archive-cups-retry' : 'archive-transport-retry');
+    diagnose(payload, first ?? { status: transportStatus }, first
+      ? rpcErrorKind(first.value) === 'method-rate' ? 'archive-method-rate-retry' : 'archive-cups-retry'
+      : 'archive-transport-retry');
     return retryArchiveRead(payload, read, deadline);
   };
   const ensureFallbackBscChain = async (deadline = null) => {

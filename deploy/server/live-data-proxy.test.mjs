@@ -1390,6 +1390,102 @@ test('archive retries one non-RPC gateway response after chain reproof', async t
   assert.equal(requestsAt(f, backupRpc).length, 0);
 });
 
+test('only exact HTTP429 method-rate refusals retry once on the archive after fresh BSC proof', async t => {
+  for (const nullId of [false, true]) {
+    const diagnostics = []; let reads = 0;
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, fallbackRpcUrl: backupRpc,
+      onRpcDiagnostic: item => diagnostics.push(item), upstream: (url, init) => {
+        assert.equal(url, 'https://operator-rpc.test/key');
+        const request = JSON.parse(init.body);
+        if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+        if (++reads === 1) return json({ jsonrpc: '2.0', id: nullId ? null : request.id,
+          error: { code: -32005, message: 'limit exceeded' } }, 429);
+        return json({ jsonrpc: '2.0', id: request.id, result: '0x6000' });
+      } });
+    const response = await f.post({ ...rpc('eth_getCode', [address, '0xa']), id: 'method-witness' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 'method-witness', result: '0x6000' });
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
+      ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+    assert(diagnostics.some(item => item.category === 'archive-method-rate-retry'
+      && item.errorKind === 'method-rate' && item.status === 429 && item.errorCode === -32005));
+    assert(!JSON.stringify(diagnostics).includes('limit exceeded'));
+  }
+});
+
+test('method-rate allowance rejects other statuses, envelopes, error codes and ambiguous limit messages', async t => {
+  const fault = (overrides = {}, status = 429) => json({ jsonrpc: '2.0', id: null,
+    error: { code: -32005, message: 'limit exceeded' }, ...overrides }, status);
+  const faults = [
+    () => fault({}, 200), () => fault({}, 503), () => fault({ id: 1 }, 503),
+    () => fault({ jsonrpc: '1.0' }), () => fault({ id: 2 }), () => fault({ result: '0x6000' }),
+    () => json({ jsonrpc: '2.0', error: { code: -32005, message: 'limit exceeded' } }, 429),
+    () => fault({ error: { code: -32000, message: 'limit exceeded' } }),
+    () => fault({ error: { code: '-32005', message: 'limit exceeded' } }),
+    ...['Rate limit reached', 'limit exceeded for requests', 'batch size exceed limit 500',
+      'logs count exceeds the limit 50000', 'response size limit exceeded',
+      'Monthly quota exceeded; limit exceeded', 'Daily credit limit exceeded; CUPS capacity exceeded',
+      'Your account ran out of cu', 'Compute units depleted; CUPS capacity exceeded']
+      .map(message => () => fault({ error: { code: -32005, message } })),
+  ].map(read => ({ read, status: 502 }));
+  faults.push({ read: () => fault({ id: 1 }, 200), status: 200 });
+  for (const { read, status } of faults) {
+    const diagnostics = [];
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, fallbackRpcUrl: backupRpc,
+      onRpcDiagnostic: item => diagnostics.push(item), upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : read();
+      } });
+    const response = await f.post(rpc('eth_getCode', [address, 'latest']));
+    assert.equal(response.status, status);
+    assert(Object.hasOwn(await response.json(), 'error'));
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_getCode']);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+    assert(!diagnostics.some(item => item.category.startsWith('archive-') && item.category.endsWith('-retry')));
+  }
+});
+
+test('method-rate retry refuses a second null-id refusal and a failed same-node chain reproof', async t => {
+  for (const reproofValid of [false, true]) {
+    let chainChecks = 0;
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, fallbackRpcUrl: backupRpc,
+      upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id,
+          result: ++chainChecks === 1 || reproofValid ? '0x38' : '0x1' });
+        return json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'limit exceeded' } }, 429);
+      } });
+    assert.equal((await f.post(rpc('eth_getCode', [address, 'latest']))).status, 502);
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), reproofValid
+      ? ['eth_chainId', 'eth_getCode', 'eth_chainId', 'eth_getCode']
+      : ['eth_chainId', 'eth_getCode', 'eth_chainId']);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+  }
+});
+
+test('explicit non-JSON quota exhaustion never retries or switches primary nodes for live or pinned reads', async t => {
+  for (const tag of ['latest', '0xa']) for (const [body, contentType] of [
+    ['Monthly quota exhausted', 'text/plain'],
+    ['<html>Daily credits exhausted; CUPS capacity exceeded</html>', 'text/html'],
+    ['Monthly compute units depleted', 'application/json'],
+  ]) {
+    const diagnostics = [];
+    const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, fallbackRpcUrl: backupRpc,
+      onRpcDiagnostic: item => diagnostics.push(item), upstream: (_url, init) => {
+        const request = JSON.parse(init.body);
+        return request.method === 'eth_chainId' ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' })
+          : new Response(body, { status: 429, headers: { 'content-type': contentType } });
+      } });
+    const response = await f.post(rpc('eth_getCode', [address, tag]));
+    assert.equal(response.status, 502);
+    assert(!JSON.stringify(await response.json()).includes(body));
+    assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method), ['eth_chainId', 'eth_getCode']);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+    assert(!diagnostics.some(item => item.category === 'archive-transport-retry'));
+  }
+});
+
 test('HTTP429 null-id CUPS is only a refusal signal and the successful retry retains the exact caller id', async t => {
   const diagnostics = []; let reads = 0;
   const f = await fixture(t, { retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
