@@ -50,6 +50,117 @@ const htmlGateway = () => new Response('<html>Bad Gateway</html>', { status: 502
 const latestCall = () => rpc('eth_call', [{ to: address, data: '0xab' }, 'latest']);
 const requestsAt = (f, destination) => f.calls.filter(call => call.url === destination).map(call => JSON.parse(call.init.body));
 
+test('nonce witnesses accept only an address and a valid single block tag without adding write RPCs', () => {
+  for (const tag of ['latest', 'pending', 'safe', 'finalized', 'earliest', '0x0', '0xa']) {
+    const request = rpc('eth_getTransactionCount', [address, tag]);
+    assert.deepEqual(validateReadRpc(request), request);
+  }
+  for (const params of [[], [address], [address, 'latest', 'extra'], [null, 'latest'],
+    ['0x1234', 'latest'], [address, null], [address, 10], [address, '0x00'], [address, '0x0a'],
+    [address, '10'], [address, { blockHash: transactionHash }], [address, 'pending;eth_sendTransaction']])
+    assert.throws(() => validateReadRpc(rpc('eth_getTransactionCount', params)), /Invalid read-only RPC parameters/);
+  for (const method of ['eth_sendTransaction', 'eth_sendRawTransaction', 'personal_sign', 'eth_sign', 'wallet_sendCalls'])
+    assert.throws(() => validateReadRpc(rpc(method, [address, 'latest'])), /not enabled/);
+});
+
+test('all nonce views are uncached primary reads, including explicit block numbers', async t => {
+  let nonceReads = 0;
+  const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+    assert.notEqual(url, backupRpc);
+    const request = JSON.parse(init.body);
+    return json({ jsonrpc: '2.0', id: request.id, result: request.method === 'eth_chainId' ? '0x38' : `0x${(++nonceReads).toString(16)}` });
+  } });
+  for (const tag of ['latest', 'pending', 'safe', 'finalized', '0xa']) for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await f.post(rpc('eth_getTransactionCount', [address, tag]));
+    assert.equal(response.status, 200); assert.equal(response.headers.get('x-bemine-server-cache'), null);
+    assert.equal((await response.json()).result, `0x${nonceReads.toString(16)}`);
+  }
+  assert.equal(nonceReads, 10); assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('nonce result validation rejects malformed and unsafe counts without caching errors or using fallback', async t => {
+  let result, nonceReads = 0;
+  const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+    assert.notEqual(url, backupRpc);
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    nonceReads++; return json({ jsonrpc: '2.0', id: request.id, result });
+  } });
+  const invalid = ['0x', '0x00', '0x01', '-1', '7', 7, null, {}, [], '0x20000000000000'];
+  for (const value of invalid) {
+    result = value;
+    const response = await f.post(rpc('eth_getTransactionCount', [address, '0xa']));
+    assert.equal(response.status, 502); assert.match((await response.json()).error, /canonical safe integer/);
+  }
+  for (const value of ['0x0', '0x1', '0x1fffffffffffff']) {
+    result = value;
+    const response = await f.post(rpc('eth_getTransactionCount', [address, '0xa']));
+    assert.equal(response.status, 200); assert.equal((await response.json()).result, value);
+  }
+  assert.equal(nonceReads, invalid.length + 3); assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('nonce transport and identity failures never route to the backup node', async t => {
+  for (const identityFails of [false, true]) {
+    const f = await fixture(t, { fallbackRpcUrl: backupRpc, upstream: (url, init) => {
+      assert.notEqual(url, backupRpc);
+      const request = JSON.parse(init.body);
+      return request.method === 'eth_chainId' && !identityFails
+        ? json({ jsonrpc: '2.0', id: request.id, result: '0x38' }) : htmlGateway();
+    } });
+    for (const tag of ['latest', 'pending', '0xa'])
+      assert.equal((await f.post(rpc('eth_getTransactionCount', [address, tag]))).status, 502);
+    assert.equal(requestsAt(f, backupRpc).length, 0);
+  }
+});
+
+test('nonce witnesses retain archive-only routing and bounded null-id throttle recovery with a dedicated transaction node', async t => {
+  const transactionRpcUrl = 'https://transactions-nonce.test/fixed'; let nonceReads = 0;
+  const f = await fixture(t, { transactionRpcUrl, fallbackRpcUrl: backupRpc,
+    retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1, upstream: (url, init) => {
+      assert.equal(url, 'https://operator-rpc.test/key');
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+      assert.equal(request.method, 'eth_getTransactionCount');
+      if (++nonceReads === 1) return json({ jsonrpc: '2.0', id: null, error: { code: -32005,
+        message: 'Your compute units per second capacity exceeded' } }, 429);
+      return json({ jsonrpc: '2.0', id: request.id, result: '0x7' });
+    } });
+  const response = await f.post({ ...rpc('eth_getTransactionCount', [address, 'pending']), id: 'nonce-witness' });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 'nonce-witness', result: '0x7' });
+  assert.deepEqual(f.calls.map(call => JSON.parse(call.init.body).method),
+    ['eth_chainId', 'eth_getTransactionCount', 'eth_chainId', 'eth_getTransactionCount']);
+  assert.equal(requestsAt(f, transactionRpcUrl).length, 0); assert.equal(requestsAt(f, backupRpc).length, 0);
+});
+
+test('an explicit-block nonce read invalidates headers before and after the read without caching the nonce', async t => {
+  let nonceStarted, releaseNonce, headerReads = 0, nonceReads = 0;
+  const started = new Promise(resolve => { nonceStarted = resolve; }), gate = new Promise(resolve => { releaseNonce = resolve; });
+  const f = await fixture(t, { upstream: async (_url, init) => {
+    const request = JSON.parse(init.body);
+    if (request.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: request.id, result: '0x38' });
+    if (request.method === 'eth_getBlockByNumber') {
+      headerReads++; return json({ jsonrpc: '2.0', id: request.id, result: feeAnchor(request.params[0]) });
+    }
+    assert.equal(request.method, 'eth_getTransactionCount'); nonceReads++;
+    if (nonceReads === 1) { nonceStarted(); await gate; }
+    return json({ jsonrpc: '2.0', id: request.id, result: '0x7' });
+  } });
+  const header = rpc('eth_getBlockByNumber', ['0xa', false]), nonce = rpc('eth_getTransactionCount', [address, '0xa']);
+  await f.post(header);
+  assert.equal((await f.post({ ...header, id: 2 })).headers.get('x-bemine-server-cache'), 'hit');
+  const pending = f.post(nonce); await started;
+  const during = await f.post({ ...header, id: 3 });
+  assert.equal(during.headers.get('x-bemine-server-cache'), null, 'pre-read invalidation discards the older cached header');
+  releaseNonce(); assert.equal((await pending).status, 200);
+  const after = await f.post({ ...header, id: 4 });
+  assert.equal(after.headers.get('x-bemine-server-cache'), null, 'a header read during nonce lookup cannot certify its post-read state');
+  assert.equal(headerReads, 3);
+  const secondNonce = await f.post({ ...nonce, id: 5 });
+  assert.equal(secondNonce.headers.get('x-bemine-server-cache'), null); assert.equal(nonceReads, 2);
+});
+
 test('healthy latest reads do not contact the configured transport fallback or cache latest answers', async t => {
   const f = await fixture(t, { logsRpcUrl: backupRpc, upstream: (url, init) => {
     assert.notEqual(url, backupRpc);
@@ -409,9 +520,10 @@ test('uncached fee ranges reject log-node errors, missing blocks and wrong canon
   assert.equal(f.calls.filter(call => JSON.parse(call.init.body).method === 'eth_getCode').length, 1);
 });
 
-test('all eight read methods accept exact bounded parameters; unknown/write/batch/override routes fail closed', () => {
+test('all nine read methods accept exact bounded parameters; unknown/write/batch/override routes fail closed', () => {
   const calls = [rpc(), rpc('eth_blockNumber'), rpc('eth_getBlockByNumber', ['0xa', false]), rpc('eth_getCode', [address, 'latest']),
     rpc('eth_getTransactionByHash', [transactionHash]), rpc('eth_getTransactionReceipt', [transactionHash]),
+    rpc('eth_getTransactionCount', [address, 'latest']),
     rpc('eth_getStorageAt', [address, '0x0', '0xa']), rpc('eth_call', [{ to: address, data: '0xab' }, '0xa'])];
   for (const input of calls) assert.equal(validateReadRpc(input).method, input.method);
   assert.equal(validateReadRpc(calls.at(-1)).params[0].gas, '0x1c9c380');
@@ -1131,14 +1243,14 @@ test('a dedicated transaction node serves only hash and receipt reads while arch
   for (const request of [rpc('eth_getBlockByNumber', ['0xa', false]), rpc('eth_call', [{ to: address, data: '0xab' }, '0xa']),
     rpc('eth_call', [{ to: address, data: '0xab' }, 'latest']), rpc('eth_getCode', [address, '0xa']),
     rpc('eth_getCode', [address, 'latest']), rpc('eth_getStorageAt', [address, '0x0', '0xa']),
-    rpc('eth_getStorageAt', [address, '0x0', 'latest']), rpc('eth_blockNumber')])
+    rpc('eth_getStorageAt', [address, '0x0', 'latest']), rpc('eth_blockNumber'),
+    rpc('eth_getTransactionCount', [address, 'latest']), rpc('eth_getTransactionCount', [address, 'pending'])])
     assert.equal((await f.post(request)).status, 200);
   assert.deepEqual(requestsAt(f, transactionRpcUrl).map(request => request.method),
     ['eth_chainId', 'eth_getTransactionByHash', 'eth_getTransactionReceipt']);
   assert.deepEqual(requestsAt(f, 'https://operator-rpc.test/key').map(request => request.method),
     ['eth_chainId', 'eth_getBlockByNumber', 'eth_call', 'eth_call', 'eth_getCode', 'eth_getCode',
-      'eth_getStorageAt', 'eth_getStorageAt', 'eth_blockNumber']);
-  assert.equal((await f.post(rpc('eth_getTransactionCount', [address, 'latest']))).status, 403);
+      'eth_getStorageAt', 'eth_getStorageAt', 'eth_blockNumber', 'eth_getTransactionCount', 'eth_getTransactionCount']);
   assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', true]))).status, 400);
   assert.equal(requestsAt(f, transactionRpcUrl).length, 3);
 });
