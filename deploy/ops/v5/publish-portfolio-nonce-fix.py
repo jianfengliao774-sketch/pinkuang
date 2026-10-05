@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Update the signing UI and its dedicated read proxy; never send a transaction."""
-import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tarfile, tempfile, urllib.request
+import fcntl, hashlib, json, os, pathlib, re, socket, subprocess, sys, tarfile, tempfile, time, urllib.request
 
 STATIC = pathlib.Path('/srv/pinkuang-portfolio-upgrade')
 OLD_STATIC = STATIC/'releases/a08759f1d4dbca9a958faee1adf90fd6ab1f9087'
@@ -19,6 +19,14 @@ sha = lambda data: hashlib.sha256(data).hexdigest()
 def need(ok,message):
  if not ok: raise RuntimeError(message)
 def run(*args): return subprocess.run(args,check=True,capture_output=True,text=True).stdout.strip()
+def wait_read_listening():
+ deadline=time.monotonic()+5
+ while True:
+  try:
+   with socket.create_connection(('127.0.0.1',4228),timeout=0.3):return
+  except OSError:
+   need(time.monotonic()<deadline,'Read service did not begin listening')
+   time.sleep(0.1)
 def atomic(path,data):
  path.parent.mkdir(parents=True,exist_ok=True)
  fd,name=tempfile.mkstemp(dir=path.parent,prefix='.nonce-stage-')
@@ -58,16 +66,21 @@ def publish_read(incoming):
  need(sha((prior/'deploy/server/live-data-proxy.mjs').read_bytes())==pins['expectedProxySha256'],'Current read runtime differs')
  previous_override=DROPIN.read_bytes();need(sha(previous_override)==pins['expectedDropinSha256'],'Current override differs')
  candidate=(incoming/'live-data-proxy.mjs').read_bytes();need(sha(candidate)==pins['proxySha256'],'Read patch digest differs')
- need(not release.exists(),'Read release exists; inspect original outcome before retry')
  routing=pathlib.Path('/etc/nginx/snippets/pinkuang-target-owner-upgrade.conf');route_sha=sha(routing.read_bytes())
  need(route_sha=='03e77deead7df6eeb1f8d786a0d0e0f992f7a04eb68ecf927937cd74b5de53c9','Routes changed')
  env=pathlib.Path('/etc/pinkuang-target-owner-read.env');env_sha=sha(env.read_bytes())
  protected=[STATIC/'current',pathlib.Path('/srv/pinkuang-target-owner-upgrade/current'),pathlib.Path('/var/www/bemine-v5/current')]
  preserved={str(p):(str(p.resolve(strict=True)),sha((p/'index.html').read_bytes())) for p in protected}
+ staged={}
  for name,digest in OLD_RPC_FILES.items():
   data=candidate if name.endswith('/live-data-proxy.mjs') else (prior/name).read_bytes()
   if not name.endswith('/live-data-proxy.mjs'):need(sha(data)==digest,'Read bootstrap or limiter changed')
-  atomic(release/name,data)
+  staged[name]=data
+ if release.exists():
+  existing={str(p.relative_to(release)) for p in release.rglob('*') if p.is_file()}
+  need(existing==set(staged) and all(sha((release/name).read_bytes())==sha(data) for name,data in staged.items()),'Existing stage differs from reviewed read release')
+ else:
+  for name,data in staged.items():atomic(release/name,data)
  run('/usr/bin/node','--check',str(release/'deploy/server/live-data-proxy.mjs'))
  run('/usr/bin/node','--check',str(release/'deploy/server/target-owner-read-server.mjs'))
  override=f'[Service]\nWorkingDirectory={release}\nExecStart=\nExecStart=/usr/bin/node {release}/deploy/server/target-owner-read-server.mjs\n'.encode()
@@ -75,6 +88,7 @@ def publish_read(incoming):
  try:
   atomic(DROPIN,override);changed=True
   run('systemctl','daemon-reload');run('systemctl','restart',SERVICE);run('systemctl','is-active',SERVICE)
+  wait_read_listening()
   need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(release),'Read runtime did not change')
   need(rpc('eth_chainId',[])=='0x38','Read chain differs')
   block=rpc('eth_getBlockByNumber',['finalized',False]);tag=block['number']
@@ -94,7 +108,10 @@ def publish_read(incoming):
    'allWebsitesUnchanged':True,'routesAndProtectedEnvironmentUnchanged':True,'chainActionsPerformed':False}
   atomic(incoming/'publication.json',(json.dumps(receipt,indent=2)+'\n').encode());print(json.dumps(receipt))
  except BaseException:
-  if changed:atomic(DROPIN,previous_override);run('systemctl','daemon-reload');run('systemctl','restart',SERVICE)
+  if changed:
+   atomic(DROPIN,previous_override);run('systemctl','daemon-reload');run('systemctl','restart',SERVICE)
+   run('systemctl','is-active',SERVICE);wait_read_listening()
+   need(run('systemctl','show',SERVICE,'-p','WorkingDirectory','--value')==str(prior),'Rollback did not restore the original read service')
   raise
 def publish_ui(incoming):
  """A subsequent UI-only correction preserves the already-installed proxy."""
