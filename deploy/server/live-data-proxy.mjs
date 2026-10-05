@@ -65,6 +65,8 @@ export function validateReadRpc(payload, { feeHistoryLogScope } = {}) {
     eth_blockNumber: () => p.length === 0,
     eth_getTransactionByHash: () => p.length === 1 && typeof p[0] === 'string' && HASH.test(p[0]),
     eth_getTransactionReceipt: () => p.length === 1 && typeof p[0] === 'string' && HASH.test(p[0]),
+    eth_getTransactionCount: () => p.length === 2 && typeof p[0] === 'string' && ADDRESS.test(p[0])
+      && (BLOCK(p[1]) || p[1] === 'pending'),
     eth_getBlockByNumber: () => p.length === 2 && BLOCK(p[0]) && p[1] === false,
     eth_getCode: () => p.length === 2 && typeof p[0] === 'string' && ADDRESS.test(p[0]) && BLOCK(p[1]),
     eth_getStorageAt: () => p.length === 3 && typeof p[0] === 'string' && ADDRESS.test(p[0])
@@ -277,6 +279,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   let fallbackChainUntil = 0, fallbackChainProof = null, primaryUnavailableUntil = 0;
   // Latest display calls and transaction receipts do not introduce a second
   // node into pinned block/cache proofs or the scoped fee-history path.
+  // Nonce witnesses always stay on the primary, including the pending view.
   const fallbackEligible = payload => ['eth_getTransactionByHash', 'eth_getTransactionReceipt'].includes(payload.method)
     || ['eth_call', 'eth_getCode'].includes(payload.method) && payload.params[1] === 'latest'
     || payload.method === 'eth_getStorageAt' && payload.params[2] === 'latest';
@@ -321,7 +324,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   const feeLogKey = payload => payload.method === 'eth_getLogs' ? JSON.stringify([payload.method, payload.params]) : null;
   const pinnedBlockKey = payload => {
     const tag = payload.method === 'eth_getStorageAt' ? payload.params[2]
-      : ['eth_call', 'eth_getCode'].includes(payload.method) ? payload.params[1] : null;
+      : ['eth_call', 'eth_getCode', 'eth_getTransactionCount'].includes(payload.method) ? payload.params[1] : null;
     return typeof tag === 'string' && QUANTITY.test(tag) ? canonicalBlockTag(tag) : null;
   };
   const invalidateHeaderForPinnedRead = tag => {
@@ -461,6 +464,10 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         requireValue(status === 200 && value.jsonrpc === '2.0' && value.id === payload.id
           && (Object.hasOwn(value, 'result') !== Object.hasOwn(value, 'error')), 502, 'RPC response did not match the read request.');
         const normalized = value.error ? { error: { code: -32000, message: 'Upstream rejected the read request.' } } : { result: value.result };
+        if (payload.method === 'eth_getTransactionCount' && !value.error)
+          requireValue(typeof normalized.result === 'string' && QUANTITY.test(normalized.result)
+            && BigInt(normalized.result) <= BigInt(Number.MAX_SAFE_INTEGER),
+          502, 'Upstream transaction count is not a canonical safe integer.');
         if (payload.method === 'eth_getLogs' && !value.error)
           requireValue(validFeeLogs(normalized.result, payload.params[0]), 502, 'Upstream fee history is outside the pinned event scope.');
         const canonical = !created.invalidated && epoch === chainEpoch && payload.method === 'eth_getBlockByNumber'

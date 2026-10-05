@@ -5,6 +5,8 @@ import {FetchRequest,JsonRpcProvider,getAddress,keccak256,toQuantity} from 'ethe
 import {preparePortfolioDustDeployment,buildPortfolioDustPlan,validatePortfolioDustChain} from '../shared/portfolio-dust-plan.mjs';
 // @ts-ignore Shared journal is validated before any wallet request.
 import {newPortfolioDustJournal,parsePortfolioDustJournal,portfolioDustJournalKey,verifyPortfolioDustReceipt,assertPortfolioDustConfirmedState} from '../shared/portfolio-dust-journal.mjs';
+// @ts-ignore Shared nonce proof is independently tested against stale wallet views.
+import {readPortfolioDustNonce} from '../shared/portfolio-dust-nonce.mjs';
 import {discoverWallets,messageOf,readWallet,switchToBsc,type WalletOption} from './wallet';
 import './portfolio-dust.css';
 type Json=Record<string,any>;
@@ -25,6 +27,7 @@ export function PortfolioDustUpgradeStandalone() {
   const [account,setAccount]=useState(''),[chain,setChain]=useState(0),[journal,setJournal]=useState<Json|null>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('正在读取固定部署产物…');
   const [recoveryHash,setRecoveryHash]=useState(''),[proof,setProof]=useState<Json|null>(null);
+  const [nonceProof,setNonceProof]=useState<Json|null>(null);
   const busyRef=useRef(false),journalRef=useRef<Json|null>(null),configRef=useRef<Json|null>(null);
   useEffect(()=>discoverWallets(setWallets),[]);
   useEffect(()=>{let alive=true;void loadConfig().then(value=>{if(!alive)return;configRef.current=value;setConfig(value);
@@ -32,7 +35,7 @@ export function PortfolioDustUpgradeStandalone() {
     journalRef.current=row;setJournal(row);setMessage('准备就绪。点击下方按钮，按钱包提示确认两笔交易。');
   }).catch(e=>{if(alive)setError(messageOf(e));});return()=>{alive=false;};},[]);
   useEffect(()=>{if(!wallet)return;let alive=true;
-    const update=()=>{setProof(null);void readWallet(wallet.provider).then(state=>{if(alive){setAccount(state?getAddress(state.address):'');setChain(state?.chainId??0);}}).catch(e=>{if(alive)setError(messageOf(e));});};
+    const update=()=>{setProof(null);setNonceProof(null);void readWallet(wallet.provider).then(state=>{if(alive){setAccount(state?getAddress(state.address):'');setChain(state?.chainId??0);}}).catch(e=>{if(alive)setError(messageOf(e));});};
     update();wallet.provider.on?.('accountsChanged',update);wallet.provider.on?.('chainChanged',update);
     return()=>{alive=false;wallet.provider.removeListener?.('accountsChanged',update);wallet.provider.removeListener?.('chainChanged',update);};},[wallet]);
   useEffect(()=>{if(!config)return;const key=portfolioDustJournalKey(config),update=(event:StorageEvent)=>{if(event.key!==key)return;
@@ -70,14 +73,17 @@ export function PortfolioDustUpgradeStandalone() {
     if(!step)return true;const original=row.transactions[step],hash=original.txHash||recoveryHash.trim();
     if(!/^0x[\da-f]{64}$/i.test(hash))throw new Error('钱包尚未返回原哈希。请保留原请求；可在下方填入钱包中的交易哈希进行核对。');
     const done=await checkOriginal(step,row,hash);if(!done)setMessage('原交易正在等待链上确认。不会重复发送。');return done;}
+  async function inspectNonce(selected:WalletOption,row:Json|null,from=config?.deployer) {if(!config)throw new Error('配置未读取。');
+    const p=provider();try{return await readPortfolioDustNonce({wallet:selected.provider,rpc:(method:string,params:unknown[])=>p.send(method,params),
+      account:from,transactions:row?.transactions??{},onObservation:setNonceProof});}finally{p.destroy();}}
   async function send(step:'deploy'|'schedule',row:Json,selected:WalletOption) {
     const request=requestFor(step,row),accounts=await selected.provider.request({method:'eth_accounts'}),chainId=await selected.provider.request({method:'eth_chainId'});
     if(!Array.isArray(accounts)||!same(accounts[0],request.from)||Number(chainId)!==56)throw new Error('请连接页面指定的部署账户，并切换到 BSC 主网。');
-    const [latest,pending]=await Promise.all(['latest','pending'].map(tag=>selected.provider.request({method:'eth_getTransactionCount',params:[request.from,tag]})));
-    if(typeof latest!=='string'||typeof pending!=='string'||!/^0x[\da-f]+$/i.test(latest)||!/^0x[\da-f]+$/i.test(pending)||BigInt(latest)!==BigInt(pending))throw new Error('该钱包有其它待确认交易，请先在钱包中处理原交易。');
-    const intent={status:'uncertain',from:request.from,dataHash:keccak256(request.data),nonce:BigInt(latest).toString()};
+    setMessage('正在核对钱包与链上的交易序号…');
+    const liveNonce=await inspectNonce(selected,row,request.from);
+    const intent={status:'uncertain',from:request.from,dataHash:keccak256(request.data),nonce:liveNonce.nonce};
     save({...row,transactions:{...row.transactions,[step]:intent}});setMessage(step==='deploy'?'请在钱包确认批量矿池补丁部署。':'补丁部署已确认。请在钱包确认 48 小时升级排程。');
-    let hash:unknown;try{hash=await selected.provider.request({method:'eth_sendTransaction',params:[{...request,value:'0x0',nonce:toQuantity(BigInt(latest))}]});}
+    let hash:unknown;try{hash=await selected.provider.request({method:'eth_sendTransaction',params:[{...request,value:'0x0',nonce:toQuantity(BigInt(liveNonce.nonce))}]});}
     catch(e){if((e as any)?.code===4001||(e as any)?.code==='ACTION_REJECTED')save(row);throw e;}
     if(typeof hash!=='string'||!/^0x[\da-f]{64}$/i.test(hash))throw new Error('钱包没有返回交易哈希，原请求已保留。请使用核对原交易，不要重复部署。');
     const submitted={...row,transactions:{...row.transactions,[step]:{...intent,status:'submitted',txHash:hash}}};save(submitted);
@@ -116,10 +122,13 @@ export function PortfolioDustUpgradeStandalone() {
       <p className="detail">{account?`当前钱包 ${account} · ${chain===56?'BSC 主网':'请切换 BSC 主网'}`:`部署账户：${config?.deployer??'读取中'}`}</p>
       {(['deploy','schedule'] as const).map(step=>txs[step]?.txHash&&<div className="tx" key={step}>{step==='deploy'?'补丁部署':'升级排程'} · {txs[step].status==='confirmed'?'链上已确认':'待确认'} <a href={`https://bscscan.com/tx/${txs[step].txHash}`} target="_blank" rel="noreferrer">{short(txs[step].txHash)}</a></div>)}
       {pending&&<details open><summary>核对原交易</summary><p>交易记录保留在本浏览器。原请求未确认时不会重复发送。</p><input aria-label="原交易哈希" placeholder="原交易哈希 0x…（钱包未返回时填写）" value={recoveryHash} onChange={e=>setRecoveryHash(e.target.value)}/></details>}
-      <details><summary>合约与进度</summary><p className="detail">Factory：{config?.manifest.portfolioFactory}<br/>升级对象：{config?.manifest.portfolioBeacon}<br/>实现：{txs.deploy?.address??'尚未部署'}<br/>来源：{release.sourceCommit}<br/>检查区块：{proof?.blockNumber??'开始时自动读取'}</p>
+      <details><summary>合约与进度</summary><p className="detail">Factory：{config?.manifest.portfolioFactory}<br/>升级对象：{config?.manifest.portfolioBeacon}<br/>实现：{txs.deploy?.address??'尚未部署'}<br/>来源：{release.sourceCommit}<br/>检查区块：{proof?.blockNumber??'开始时自动读取'}{nonceProof&&<><br/>交易序号：链上 {nonceProof.confirmed} / 待确认 {nonceProof.pending}；钱包 {nonceProof.walletLatest} / {nonceProof.walletPending}</>}</p>
         <button className="secondary" disabled={busy||!config} onClick={()=>void withRun(async()=>{const row=journalRef.current,live=await inspect(row);
           if(row?.transactions.schedule?.status==='confirmed'&&live.operation==='unscheduled')throw new Error('原升级排程已被取消或当前不可读取，记录保留；请核对原链上操作。');
-          setMessage(`只读核对完成，区块 #${live.blockNumber}。${live.readyAt?` 最早启用：${new Date(Number(live.readyAt)*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}（北京时间）。`:''}`);})}>只读核对进度</button>
+          let nonce='';const selected=wallet??wallets[0];
+          if(selected&&!pending&&txs.schedule?.status!=='confirmed') {const state=await readWallet(selected.provider);
+            if(state?.chainId===56&&same(state.address,config?.deployer)) {const result=await inspectNonce(selected,row);nonce=` 钱包与链上交易序号已同步（${result.nonce}）。`;}}
+          setMessage(`只读核对完成，区块 #${live.blockNumber}。${nonce}${live.readyAt?` 最早启用：${new Date(Number(live.readyAt)*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}（北京时间）。`:''}`);})}>只读核对进度</button>
       </details>
     </section><p>部署新实现不会立即改变旧项目；升级须经过链上等待期。此入口只提交本次批量矿池补丁，不发送资金认购或领取交易。</p>
   </main>;
