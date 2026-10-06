@@ -19,6 +19,7 @@ const lock = new Interface(['function schedule(address,uint256,bytes,bytes32,byt
   'function execute(address,uint256,bytes,bytes32,bytes32) payable']);
 const address = value => { const result = getAddress(value); need(result !== ZeroAddress, 'Zero address.'); return result; };
 const predecessorCache = new WeakMap();
+const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
 
 /** Derive the current mixed graph from the reviewed predecessor, never from caller-supplied addresses. */
 export function firstoBatchPredecessor(input) {
@@ -42,7 +43,7 @@ export function firstoBatchPredecessor(input) {
     const runtime = reviewedUpgradeBytecode.expectedRuntime(artifact, links, addresses[name], immutableAddress);
     nodes[name] = { address: addresses[name], artifact, links, immutableAddress, codehash: keccak256(runtime) };
   }
-  const value = { approved, baseline, addresses, nodes };
+  const value = freeze({ approved, baseline: JSON.parse(JSON.stringify(baseline)), addresses, nodes });
   predecessorCache.set(input.priorCoreCatalog, { identity, value }); return value;
 }
 
