@@ -1,0 +1,7 @@
+# Dedicated upgrade archive fallback — 2026-10-06
+
+Runtime e81e962af9050ef1e1ba43e30b4218c6ea02ccfa is published in the dedicated read service. The existing explicit archive-retry opt-in enables a single, uncached fallback to the operator-configured independent transaction node for numeric/safe/finalized block, code, storage and call reads. A strict HTTP429/-32005 refusal (including null-id refusals) or transport failure may trigger the alternate; successful responses still require exact identity and JSON-RPC IDs. Paid-node refusals are not repeatedly retried. Clearly malformed JSON/envelopes, business reverts, wrong chain and wrong IDs are rejected.
+
+Fallback binds the read to a numeric canonical block, verifies its hash before and after, and compares both the request's prior canonical-witness snapshot and the live witness map. Alternate data does not enter response caches or coalescing. Nonce/pending and dedicated transaction/receipt proof paths retain their existing behavior. The request's 14-second budget covers body parsing, queueing, chain proof, fallback and local/cache returns.
+
+116/116 proxy, read-server and fee-history tests passed, with independent review. The adjacent publication receipt proves finalized block, Timelock minimum delay and confirmed/pending nonce 172/172; all websites, routes and protected environment remained unchanged during this read-service publication. No wallet request or chain write was performed. Portal UI resilience and browser verification are separately recorded in PR #65.
