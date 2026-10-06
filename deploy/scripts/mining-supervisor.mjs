@@ -14,6 +14,7 @@ const json = value => JSON.stringify(value, (_key, item) => typeof item === 'big
 const unresolved = journal => journal.transaction && !['confirmed', 'reverted', 'cancelled', 'cancel-reverted'].includes(journal.transaction.phase);
 const followup = journal => ['arming', 'starting'].includes(journal.miningStage)
   && journal.transaction?.phase === 'confirmed';
+export const INACTIVE_POOL_RETRY_MS = 30_000;
 export const walletReviewRequired = status => /unknown|nonce-or-chain-changed|operator-wallet-has-pending-transaction/.test(status ?? '');
 export const poolReviewRequired = status => /review-required|inactive-requires-review/.test(status ?? '');
 const ordinaryWalletWait = new Set(['operator-wallet-has-pending-transaction', 'pending-receipt',
@@ -25,7 +26,7 @@ const walletContention = error => error.message === 'Wallet has an unresolved tr
 export const awaitingWallet = result => result.results?.some(row => row.walletWait === true) === true;
 /** A waiting scan keeps the last heartbeat, but cannot renew proof of readiness. */
 export function publishSupervisorReadiness(heartbeat, proof, result) {
-  if (awaitingWallet(result)) return false;
+  if (awaitingWallet(result) || result.status === 'waiting-pool-retry') return false;
   heartbeat.publish(proof.graph, proof.block, result);
   return true;
 }
@@ -40,10 +41,16 @@ export function reportOperatorReview(result, send, log = console.error) {
 }
 
 export function prioritizePools(pools, journalFor, cursor, batch = 10, quarantined = new Set(), cooldowns = new Map(), now = Date.now()) {
+  // Read cooldowns only postpone ordinary observations. A newly pending nonce
+  // must take its owning journal's recovery lane even if that pool was inactive
+  // or quarantined on the previous pass.
+  const pending = pools.filter(pool => unresolved(journalFor(pool)));
+  if (pending.length > 1) throw new Error('Multiple mining journals need the same operator wallet; resolve them manually.');
+  if (pending.length) return { selected: pending, nextCursor: cursor };
   const eligible = pools.filter(pool => !quarantined.has(pool) && (cooldowns.get(pool) ?? 0) <= now);
   const urgent = eligible.filter(pool => {
     const journal = journalFor(pool);
-    return unresolved(journal) || followup(journal);
+    return followup(journal);
   });
   if (urgent.length > 1) throw new Error('Multiple mining journals need the same operator wallet; resolve them manually.');
   if (urgent.length) return { selected: urgent, nextCursor: cursor };
@@ -126,6 +133,7 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
           assertStage(existing, poolOptions);
           const snapshot = await (dependencies.readMiningState ?? readMiningState)(provider, poolOptions);
           if (snapshot.status === 'pool-not-active') {
+            state.cooldowns.set(pool, (dependencies.now?.() ?? Date.now()) + INACTIVE_POOL_RETRY_MS);
             results.push({ pool, ...snapshot });
             continue;
           }
@@ -133,8 +141,10 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
             // Reuse the keeper's identity/quality checks. This invocation
             // cannot sign even if the pool changes state during the reads.
             const observed = await (dependencies.runMiningCycle ?? runMiningCycle)(provider,
-              { ...poolOptions, send: false }, null);
+              { ...poolOptions, send: false }, null, undefined, snapshot);
             if (!['dry-run-arming', 'dry-run-starting'].includes(observed.status)) {
+              if (observed.status === 'pool-not-active')
+                state.cooldowns.set(pool, (dependencies.now?.() ?? Date.now()) + INACTIVE_POOL_RETRY_MS);
               results.push({ pool, ...observed });
               if (poolReviewRequired(observed.status)) state.quarantined.set(pool, observed.status);
               continue;
@@ -153,6 +163,8 @@ export async function runSupervisorCycle(provider, options, signer, state, depen
       const result = await (dependencies.runMiningCycle ?? runMiningCycle)(provider, poolOptions, signer);
       const record = { pool, ...result };
       results.push(record);
+      if (result.status === 'pool-not-active')
+        state.cooldowns.set(pool, (dependencies.now?.() ?? Date.now()) + INACTIVE_POOL_RETRY_MS);
       const pending = options.send && unresolved(journalFor(pool));
       if (options.send && ordinaryWalletWait.has(result.status)
         && (pending || result.status === 'operator-wallet-has-pending-transaction')) {

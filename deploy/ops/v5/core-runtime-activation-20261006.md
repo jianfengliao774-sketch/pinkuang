@@ -17,6 +17,9 @@ It also preserves deployed signer fixes from `ea3b647ac715618855cdba68491bd22ec5
 parallel interactive RPC reads, existing-journal-only failure recovery,
 finalized failure archival, and bounded fast administrator submission. The
 overlapping signer API and IPC modules retain the target-owner catalog pins.
+It also preserves deployed mining monitor and nonce-followup fixes from
+`716254c3fc540a5273070c9d1b1db6d7003696bd`; its two runtime module files
+match the live mining service byte-for-byte before catalog adaptation.
 The existing chain-index release `f86aa63a2425` stays in place; its target
 availability fixes must not be replaced with this package's index entrypoint.
 
