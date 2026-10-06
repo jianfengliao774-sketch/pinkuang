@@ -273,6 +273,16 @@ export function createAuthorityRelayService(config, dependencies = {}) {
     ?? provider.forkReadLane({
       providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
     });
+  // Machine readiness is a full historical graph proof. Keep its bounded
+  // read-only calls off both the signing provider and the serial scan lane.
+  const needsMachineProofProvider = config.requireMachineReadiness && !dependencies.machineReadiness;
+  const ownMachineProofProvider = needsMachineProofProvider && !dependencies.machineProofProvider
+    && !dependencies.backgroundProvider && !dependencies.provider;
+  const machineProofProvider = needsMachineProofProvider
+    ? dependencies.machineProofProvider ?? (ownMachineProofProvider
+      ? provider.forkReadLane({ providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+        serializeReads: false, readOnly: true, maxConcurrentReads: 4 }) : backgroundProvider)
+    : null;
   const verifyGraph = dependencies.verifyGraph ?? verifyProductGraph;
   const readReclaimState = dependencies.readReclaimState ?? (async (poolAddress, blockNumber) => {
     const overrides = blockNumber ? { blockTag: blockNumber } : {};
@@ -319,14 +329,14 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   }
   const allowAccountRequest = createKeyedLimiter({ windowMs: 60_000, perKey: 30, maxKeys: 32 });
 
-  async function freshGraph() {
-    if (BigInt(await backgroundProvider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
-    const block = await backgroundProvider.getBlock('latest');
+  async function freshGraph(readProvider = backgroundProvider) {
+    if (BigInt(await readProvider.send('eth_chainId', [])) !== 56n) fail(503, 'RPC is not BSC mainnet.');
+    const block = await readProvider.getBlock('latest');
     if (!block || !Number.isSafeInteger(block.number) || !HASH.test(block.hash ?? '')
       || !Number.isSafeInteger(block.timestamp)
       || Math.abs(Math.floor(Date.now() / 1000) - block.timestamp) > 90)
       fail(503, 'Current BSC block is unavailable.');
-    const graph = await verifyGraph(backgroundProvider, trusted.record.addresses.factory, trusted, block);
+    const graph = await verifyGraph(readProvider, trusted.record.addresses.factory, trusted, block);
     if (!graph.freshAuthority || !graph.freshFactoryVerified
       || !same(graph.freshAuthority.address, trusted.freshAuthority.authority.address)
       || graph.freshAuthority.codehash.toLowerCase()
@@ -339,7 +349,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
   // Without an explicit pin, readiness still requires this signer's own release.
   const machineReadiness = config.requireMachineReadiness
     ? (dependencies.machineReadiness ?? (dependencies.createMachineReadiness ?? createFreshMachineReadiness)({
-      provider: backgroundProvider,verifyGraph:freshGraph,sourceHead:workerSourceHead,
+      provider: machineProofProvider,verifyGraph:()=>freshGraph(machineProofProvider),sourceHead:workerSourceHead,
     })) : null;
 
   function rate(account) {
@@ -551,6 +561,7 @@ export function createAuthorityRelayService(config, dependencies = {}) {
       await referencePublisher?.close();
       await Promise.allSettled([...inFlight]);
       await journalQueue;
+      if (ownMachineProofProvider) await machineProofProvider.settleAndDestroy();
       store.close();
       if (!dependencies.provider) provider.destroy();
       if (!dependencies.backgroundProvider && !dependencies.provider) backgroundProvider.destroy();

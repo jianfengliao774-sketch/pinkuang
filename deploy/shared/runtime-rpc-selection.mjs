@@ -61,12 +61,60 @@ class ReadBackoffRpcProvider extends JsonRpcProvider {
   #readQueue = Promise.resolve();
   #retryWait;
   #serializeReads;
-  constructor(request, network, providerOptions, retryWait, serializeReads = true) {
+  #readOnly;
+  #maxConcurrentReads;
+  #activeReads = 0;
+  #queuedReads = [];
+  #unsettledReads = new Set();
+  #closed = false;
+  constructor(request, network, providerOptions, retryWait, serializeReads = true,
+    { readOnly = false, maxConcurrentReads = null } = {}) {
     super(request, network, providerOptions); this.#retryWait = retryWait;
     this.#serializeReads = serializeReads;
+    check(!readOnly || serializeReads === false && Number.isSafeInteger(maxConcurrentReads)
+      && maxConcurrentReads >= 1 && maxConcurrentReads <= 4,
+    'Read-only proof lane requires an explicit one-to-four request concurrency bound.');
+    check(readOnly || maxConcurrentReads === null,
+      'A concurrency bound is only available to a read-only proof lane.');
+    this.#readOnly = readOnly; this.#maxConcurrentReads = maxConcurrentReads;
+  }
+  #boundedRead(run) {
+    const result = new Promise((resolve, reject) => {
+      const start = () => {
+        if (this.#closed || this.destroyed) { reject(new Error('Read-only proof lane is closed.')); return; }
+        this.#activeReads += 1;
+        void Promise.resolve().then(run).then(
+          value => { this.#finishRead(); resolve(value); },
+          error => { this.#finishRead(); reject(error); });
+      };
+      if (this.#closed || this.destroyed) reject(new Error('Read-only proof lane is closed.'));
+      else if (this.#activeReads < this.#maxConcurrentReads) start();
+      else this.#queuedReads.push({ start, reject });
+    });
+    this.#unsettledReads.add(result);
+    void result.then(() => this.#unsettledReads.delete(result), () => this.#unsettledReads.delete(result));
+    return result;
+  }
+  #finishRead() {
+    this.#activeReads -= 1;
+    if (!this.#closed) this.#queuedReads.shift()?.start();
+  }
+  destroy() {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const queued of this.#queuedReads.splice(0))
+      queued.reject(new Error('Read-only proof lane is closed.'));
+    super.destroy();
+  }
+  async settleAndDestroy() {
+    const pending = [...this.#unsettledReads];
+    this.destroy();
+    await Promise.allSettled(pending);
   }
   _send(payload) {
     const rows = Array.isArray(payload) ? payload : [payload];
+    if (this.#readOnly) check(rows.length === 1 && pureRead(rows),
+      'Read-only proof lane blocked a non-read or batched RPC method.');
     // Writes, signing methods, unknown methods and mixed batches preserve the
     // original one-attempt transport. They never enter a read retry queue.
     if (!pureRead(rows)) return super._send(payload);
@@ -85,6 +133,7 @@ class ReadBackoffRpcProvider extends JsonRpcProvider {
       }
       return values;
     };
+    if (this.#readOnly) return this.#boundedRead(run);
     // Interactive signer reads form a small bounded concurrent group. They
     // must not wait behind a historical graph scan or another read's backoff.
     if (!this.#serializeReads) return run();
@@ -146,8 +195,11 @@ export async function createRuntimeRpcProvider(request, { env = process.env, net
 class DeferredRuntimeRpcProvider extends ReadBackoffRpcProvider {
   #selection;
   #selected;
-  constructor(request, { env, network, providerOptions, retryWait, serializeReads, selection }) {
-    super(request, network, { batchMaxCount: 1, ...providerOptions }, retryWait, serializeReads);
+  #outstandingSends = new Set();
+  constructor(request, { env, network, providerOptions, retryWait, serializeReads, selection,
+    readOnly = false, maxConcurrentReads = null }) {
+    super(request, network, { batchMaxCount: 1, ...providerOptions }, retryWait, serializeReads,
+      { readOnly, maxConcurrentReads });
     this.#selection = (selection ?? selectRuntimeRpcRequest(request, { env }))
       .then(value => { this.#selected = value; return value; });
     // Sync service construction can finish before its first awaited readiness
@@ -157,13 +209,24 @@ class DeferredRuntimeRpcProvider extends ReadBackoffRpcProvider {
   ready() { return this.#selection.then(() => undefined); }
   // Separate queues, the same already selected transport and chain proof. This
   // adds no second startup request and cannot silently choose another node.
-  forkReadLane({ providerOptions = {}, serializeReads = true, retryWait = wait } = {}) {
+  forkReadLane({ providerOptions = {}, serializeReads = true, retryWait = wait,
+    readOnly = false, maxConcurrentReads = null } = {}) {
     return new DeferredRuntimeRpcProvider(this._getConnection(), {
-      network: 56, providerOptions, retryWait, serializeReads, selection: this.#selection,
+      network: 56, providerOptions, retryWait, serializeReads, readOnly,
+      maxConcurrentReads, selection: this.#selection,
     });
   }
   _getConnection() { return this.#selected ? this.#selected.request.clone() : super._getConnection(); }
-  async _send(payload) { await this.ready(); return super._send(payload); }
+  async _send(payload) {
+    const send=(async()=>{await this.ready();return super._send(payload);})();
+    this.#outstandingSends.add(send);
+    try{return await send;}finally{this.#outstandingSends.delete(send);}
+  }
+  async settleAndDestroy() {
+    const pending=[...this.#outstandingSends];
+    await super.settleAndDestroy();
+    await Promise.allSettled(pending);
+  }
 }
 
 /** Sync service factory compatibility. Selection starts immediately, and all

@@ -53,6 +53,85 @@ test('worker defaults retain batching in bounded four-read groups while an expli
 const rpc = (id, method = 'eth_call') => ({ jsonrpc: '2.0', id, method,
   params: method === 'eth_call' ? [{ to: '0x' + '1'.repeat(40), data: '0x' }, 'latest'] : ['0x00'] });
 const quota = { code: -32005, message: 'Your account has exceeded its Compute Units Per Second capacity.' };
+async function until(predicate) {
+  const deadline=Date.now()+1500;
+  while(!predicate()) {
+    if(Date.now()>deadline)assert.fail('Expected RPC concurrency was not reached.');
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
+}
+
+test('a dedicated proof lane shares one node, caps four reads and rejects every write method',async()=>{
+  let release;const held=new Promise(resolve=>{release=resolve;});
+  let active=0,highWater=0;const started=[],methods=[];
+  const server=createServer(async(req,res)=>{
+    const parts=[];for await(const part of req)parts.push(part);
+    const row=JSON.parse(Buffer.concat(parts).toString());methods.push(row.method);
+    if(row.method==='eth_call'&&row.params[0].data!=='0xff'){
+      started.push(row.params[0].data);active++;highWater=Math.max(highWater,active);
+      try{await held;}finally{active--;}
+    }
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({jsonrpc:'2.0',id:row.id,result:row.method==='eth_chainId'?'0x38':'0x1234'}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const request=new FetchRequest(`http://127.0.0.1:${server.address().port}`);request.timeout=1000;
+  const provider=createDeferredRuntimeRpcProvider(request,{network:56,serializeReads:false,
+    providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1}});
+  const background=provider.forkReadLane({providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1}});
+  const proof=provider.forkReadLane({providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1},
+    serializeReads:false,readOnly:true,maxConcurrentReads:4});
+  try{
+    await Promise.all([provider.ready(),background.ready(),proof.ready()]);
+    assert.deepEqual(methods,['eth_chainId'],'all lanes share the selected node and startup proof');
+    const reads=Array.from({length:8},(_,index)=>proof.send('eth_call',[
+      {to:'0x'+'1'.repeat(40),data:`0x0${index}`},'latest']));
+    const outcomes=Promise.allSettled(reads);
+    await until(()=>started.length===4);
+    assert.equal(highWater,4);assert.equal(started.length,4,'queued proof reads have not reached the node');
+    assert.equal(await background.send('eth_call',[{to:'0x'+'1'.repeat(40),data:'0xff'},'latest']),'0x1234',
+      'serial scan lane remains independent of the proof queue');
+    await assert.rejects(proof.send('eth_sendRawTransaction',['0x00']),/read-only/i);
+    await assert.rejects(proof.send('personal_sign',['0x00']),/read-only/i);
+    await assert.rejects(proof._send([rpc(501),rpc(502)]),/read-only|batched/i);
+    assert.equal(methods.some(method=>method==='eth_sendRawTransaction'||method==='personal_sign'),false);
+    release();
+    assert.deepEqual((await outcomes).map(row=>row.status),Array(8).fill('fulfilled'));
+    assert.equal(highWater,4);assert.equal(started.length,8);
+  }finally{release();await proof.settleAndDestroy();background.destroy();provider.destroy();
+    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+
+test('closing a bounded proof lane rejects queued reads and waits for started reads to settle',async()=>{
+  let release;const held=new Promise(resolve=>{release=resolve;});let started=0;
+  const server=createServer(async(req,res)=>{
+    const parts=[];for await(const part of req)parts.push(part);
+    const row=JSON.parse(Buffer.concat(parts).toString());
+    if(row.method==='eth_call'){started++;await held;}
+    res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify({jsonrpc:'2.0',id:row.id,result:row.method==='eth_chainId'?'0x38':'0x1234'}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const request=new FetchRequest(`http://127.0.0.1:${server.address().port}`);request.timeout=1000;
+  const provider=createDeferredRuntimeRpcProvider(request,{network:56,serializeReads:false,
+    providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1}});
+  const proof=provider.forkReadLane({providerOptions:{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1},
+    serializeReads:false,readOnly:true,maxConcurrentReads:2});
+  try{
+    await proof.ready();
+    const reads=Array.from({length:3},(_,index)=>proof.send('eth_call',[
+      {to:'0x'+'1'.repeat(40),data:`0x0${index}`},'latest']));
+    const outcomes=Promise.allSettled(reads);
+    await until(()=>started===2);
+    const closing=proof.settleAndDestroy();
+    release();await closing;
+    const result=await outcomes;
+    assert.equal(result[2].status,'rejected');
+    assert.match(String(result[2].reason?.message),/closed/);
+    assert.equal(started,2,'a queued read never starts after close');
+  }finally{release();await proof.settleAndDestroy();provider.destroy();
+    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
 
 test('interactive concurrent reads do not wait for a blocked sibling or independent background read lane',async()=>{
   let release,entered;const waiting=new Promise(resolve=>{release=resolve;});

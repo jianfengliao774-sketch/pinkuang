@@ -21,7 +21,7 @@ const sign = async (wallet,authority,kind,args,nonce,deadline) => {
 };
 
 function fixture({registered=true,relayHandler=null,lockJournal=null,lockWallet=null,authenticateAccount=null,singleAdmin=false,runtimeRpc=null,
-  machineReadiness=null,stateRead=null,graphRead=null,useActualState=false}={}) {
+  machineReadiness=null,machineReadinessFactory=null,stateRead=null,graphRead=null,useActualState=false}={}) {
   const directory = mkdtempSync(join(tmpdir(),'authority-relay-test-'));
   const admin = Wallet.createRandom(), gas = Wallet.createRandom();
   const authority = address(31), factory = address(32), budget = address(33), market = address(34), pool = address(35);
@@ -29,7 +29,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,lockWallet=
   const second = singleAdmin ? admin.address : address(36);
   const config = {origin:'https://example.test',rpcUrl:'https://example.test/rpc',journal:join(directory,'authority.json'),
     expectedGasWallet:gas.address,maxGasWei:10n**18n,maxGasPrice:3n*10n**9n,
-    ...(machineReadiness ? { requireMachineReadiness: true } : {}),
+    ...(machineReadiness || machineReadinessFactory ? { requireMachineReadiness: true } : {}),
     ...(runtimeRpc ? {rpcUrl:runtimeRpc.primary,readFallbackRpcUrl:runtimeRpc.backup} : {})};
   const params = '(address circuits,uint256 circuitId,uint256 targetRaise,uint256 priceCap,address directSeller,uint256 directPrice,uint64 fundingDeadline,uint64 purchaseDeadline)';
   const flexible = '(uint128 minVerifiedWeight,uint256 referencePriceWei,uint256 targetDailyYieldAtomic,uint16 extraBps,uint64 referenceObservedAt,uint64 referenceBlock,bytes32 referenceDigest)';
@@ -74,6 +74,7 @@ function fixture({registered=true,relayHandler=null,lockJournal=null,lockWallet=
     ...(authenticateAccount ? {authenticateAccount} : {}),
     verifyGraph:graphRead??(async()=>graph),loadCredential:()=>gas.privateKey,
     ...(machineReadiness ? { machineReadiness } : {}),
+    ...(machineReadinessFactory ? { createMachineReadiness:machineReadinessFactory } : {}),
     readReclaimState:async target=>({registered:registered && target===pool,factory,
       mining:'0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46',minerKey:hash(333)}),
     ...(useActualState ? {} : { readAuthorityState:stateRead ? (...args)=>stateRead({...roleState,nonce:0n},...args)
@@ -241,6 +242,27 @@ async function localRpcPair({backupChain='0x38',primaryResultError=false}={}) {
   return {primary:await url('primary'),backup:await url('backup'),calls,
     close:async()=>{for(const server of servers){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}}};
 }
+
+test('machine graph uses its own read-only lane on the signer-selected node',async()=>{
+  const rpc=await localRpcPair();let f,machineOptions,graphProvider;
+  try{
+    f=fixture({runtimeRpc:rpc,machineReadinessFactory:options=>{
+      machineOptions=options;return options.verifyGraph;
+    },graphRead:async provider=>{
+      graphProvider=provider;
+      return {freshAuthority:{address:f.authority,codehash:f.codehash},freshFactoryVerified:true,
+        addresses:f.trusted.record.addresses};
+    }});
+    const graph=await f.service.readiness();
+    assert.equal(graph.freshFactoryVerified,true);
+    assert.strictEqual(graphProvider,machineOptions.provider,
+      'machine graph and worker/drain reads use the same isolated proof lane');
+    await assert.rejects(machineOptions.provider.send('eth_sendRawTransaction',['0x00']),/read-only/i);
+    assert.deepEqual(rpc.calls.primary,['eth_chainId']);
+    assert.equal(rpc.calls.backup.includes('eth_sendRawTransaction'),false,
+      'the read-only lane cannot broadcast on the selected backup');
+  }finally{await f?.close();await rpc.close();}
+});
 
 test('actual relay provider fixes its startup BSC backup after HTML403 and never reselects on submission failure',async()=>{
   const rpc=await localRpcPair();let f;
