@@ -3,6 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { createLiveDataProxy, liveDataProxyConfiguration } from './live-data-proxy.mjs';
 
+export const TARGET_OWNER_READ_PROXY_LIMITS = Object.freeze({
+  maxConcurrent: 4, maxConcurrentPerClient: 4, retryArchiveRateLimit: true,
+  archiveReadStartIntervalMs: 100, archiveReadMaxConcurrent: 4,
+  pinnedRpcTtlMs: 15 * 60 * 1000,
+});
+
 export function targetOwnerReadServerConfiguration(env = process.env) {
   const raw = env.TARGET_OWNER_READ_PORT ?? '4228';
   if (typeof raw !== 'string' || !/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) > 65535)
@@ -36,7 +42,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // header proof stays on the configured archive node; fee logs are disabled.
   const server = createTargetOwnerReadServer(createLiveDataProxy({ rpcUrl: config.rpcUrl,
     transactionRpcUrl: config.transactionRpcUrl, logsRpcUrl: config.rpcUrl, fallbackRpcUrl: null,
-    maxConcurrent: 4, maxConcurrentPerClient: 2, retryArchiveRateLimit: true,
+    ...TARGET_OWNER_READ_PROXY_LIMITS,
     onRpcDiagnostic: item => console.error(JSON.stringify({ event: 'target-owner-read-rpc', ...item })) }));
   server.listen(port, host, () => console.log(`Target-owner read RPC listening on ${host}:${port}`));
 }

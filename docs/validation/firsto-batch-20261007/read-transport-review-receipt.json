@@ -1,0 +1,21 @@
+{
+  "sourceHead": "93c77656dd1cb36c2d06c82ce8e9c39517c352c1",
+  "sourceFiles": {
+    "deploy/server/live-data-proxy.mjs": "71d8522ea0abf40d8f534e9ced58dd011eef7253de76e01b558438230e303e95",
+    "deploy/server/target-owner-read-server.mjs": "f23826f8deda3ab778238069464fb618d0cad305d8917ba2dcef49f72f5ae025"
+  },
+  "independentHttpTests": {
+    "passed": 12,
+    "failed": 0,
+    "log": "/private/tmp/bemine-read-transport-review-20261007/independent-12-tests.log"
+  },
+  "peerTests": {
+    "passed": 124,
+    "failed": 0,
+    "independentlyRepeated": false
+  },
+  "review": "No safety blocker: exact nonquota HTTP429 refusal token permits only E to E+1 at unchanged fork; fixed alternate chain56, captured before identity proof; numeric pre/post canonical hashes + per-request knownAnchors; stable epoch/fork through whole proof; no alternate result cache. Wrong chain/malformed and concurrent failure/fork tests fail closed.",
+  "siblingObservation": "Legitimate sibling started at old epoch returns502 after handled refusal invalidation; a new pure read recovers. Do not loosen proof guard; only bounded overall-deadline pure-read retry may absorb.",
+  "productionActions": "None; no external RPC requests or wallet sends.",
+  "performanceLimit": "Remote cold proof still unproven. First recorded fresh100ms/max4 proof failed after14 archive calls in5284ms; synthetic passes do not establish service capacity. 142unique start-floor14.2s at100ms;1100ms floor156.2s rejected."
+}

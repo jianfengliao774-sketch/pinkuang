@@ -1,0 +1,24 @@
+{
+  "ok": false,
+  "code": "SERVER_ERROR",
+  "elapsedMs": 5284,
+  "physical": {
+    "archive": {
+      "eth_chainId:200": 1,
+      "eth_getBlockByNumber:200": 10,
+      "eth_call:200": 1,
+      "eth_getBlockByNumber:429": 1,
+      "eth_chainId:429": 1
+    },
+    "transaction": {},
+    "other": {}
+  },
+  "peakArchive": 1,
+  "archiveStarts": 14,
+  "minArchiveStartSpacingMs": 104,
+  "diagnostics": {
+    "{\"method\":\"eth_getBlockByNumber\",\"status\":429,\"errorCode\":-32005,\"errorKind\":\"other\",\"category\":\"archive-refusal-retry\"}": 1,
+    "{\"method\":\"eth_chainId\",\"status\":429,\"errorCode\":-32005,\"errorKind\":\"other\",\"category\":\"archive-retry-chain-failed\"}": 1,
+    "{\"method\":\"eth_chainId\",\"status\":null,\"errorCode\":null,\"errorKind\":\"other\",\"category\":\"archive-retry-chain-read-failed\"}": 1
+  }
+}

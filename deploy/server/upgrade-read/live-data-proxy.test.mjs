@@ -60,6 +60,60 @@ const alternateAnswer = request => json({ jsonrpc: '2.0', id: request.id,
     : request.method === 'eth_getBlockByNumber' ? feeAnchor(['safe', 'finalized'].includes(request.params[0]) ? '0xa' : request.params[0])
     : request.method === 'eth_getStorageAt' ? transactionHash : '0x6000' });
 
+test('opted-in archive lane bounds concurrency and spaces starts without delaying transaction reads', async t => {
+  let active = 0, peak = 0;
+  const archiveStarts = [], transactionStarts = [];
+  const f = await fixture(t, { retryArchiveRateLimit: true, archiveReadStartIntervalMs: 20,
+    archiveReadMaxConcurrent: 2,
+    maxConcurrent: 5, maxConcurrentPerClient: 5, transactionRpcUrl: archiveFallbackNode,
+    upstream: async (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url === archiveFallbackNode) {
+        transactionStarts.push(Date.now());
+        return alternateAnswer(request);
+      }
+      archiveStarts.push(Date.now());
+      active++; peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 45));
+      active--;
+      return alternateAnswer(request);
+    } });
+  const addresses = Array.from({ length: 4 }, (_, i) => `0x${String(i + 1).repeat(40)}`);
+  const reads = addresses.map((item, i) => f.post({ ...rpc('eth_getCode', [item, '0xa']), id: i + 1 }));
+  const receipt = f.post(rpc('eth_getTransactionReceipt', [transactionHash]));
+  const responses = await Promise.all([...reads, receipt]);
+  assert(responses.every(response => response.status === 200));
+  assert.equal(peak, 2);
+  assert.equal(archiveStarts.length, 5, 'one shared archive identity proof and four exact code reads');
+  for (let i = 1; i < archiveStarts.length; i++)
+    assert(archiveStarts[i] - archiveStarts[i - 1] >= 17, 'archive starts must be paced globally');
+  assert.equal(transactionStarts.length, 2, 'separate transaction chain proof and receipt stay off archive lane');
+  assert(transactionStarts[1] < archiveStarts.at(-1), 'transaction read must not wait for all archive work');
+});
+
+test('archive lane expires a queued read without starting it after its deadline', async t => {
+  let releaseFirst, firstStarted;
+  const gate = new Promise(resolve => { releaseFirst = resolve; });
+  const started = new Promise(resolve => { firstStarted = resolve; });
+  let dataStarts = 0;
+  const f = await fixture(t, { retryArchiveRateLimit: true, archiveReadStartIntervalMs: 1,
+    timeoutMs: 35, maxConcurrent: 3, maxConcurrentPerClient: 3,
+    upstream: async (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return alternateAnswer(request);
+      dataStarts++;
+      if (dataStarts === 1) { firstStarted(); await gate; }
+      return alternateAnswer(request);
+    } });
+  const first = f.post(rpc('eth_getCode', [address, '0xa']));
+  await started;
+  const queued = f.post({ ...rpc('eth_getCode', [`0x${'22'.repeat(20)}`, '0xa']), id: 2 });
+  assert.equal((await queued).status, 504);
+  releaseFirst();
+  await first;
+  assert.equal(dataStarts, 1, 'expired queued request must never start upstream');
+});
+
 test('opted-in archive refusals pace one non-quota retry before the fixed-node proof', async t => {
   for (const message of ['Monthly quota exceeded', 'limit exceeded', 'CUPS capacity exceeded', 'private unknown refusal']) {
     for (const id of [null, 1]) {
@@ -150,6 +204,48 @@ test('one paced retry still fails closed when an old pinned code is unavailable 
     ['eth_chainId', 'eth_getBlockByNumber', 'eth_getCode']);
   assert.equal(requestsAt(f, archiveFallbackNode).find(request => request.method === 'eth_getCode').params[1], '0xa');
   assert(!JSON.stringify(await response.json()).includes('missing trie node'));
+});
+
+test('a nonquota archive identity refusal can recover an exact header on the separately proven read node', async t => {
+  let archiveChain = 0;
+  const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode,
+    retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+    upstream: (url, init) => {
+      const request = JSON.parse(init.body);
+      if (url === archiveFallbackNode) return alternateAnswer(request);
+      if (request.method === 'eth_chainId') return ++archiveChain === 1
+        ? alternateAnswer(request) : archiveRefusal(null, 'opaque short-window refusal');
+      return archiveRefusal(null, 'opaque short-window refusal');
+    } });
+  const response = await f.post(rpc('eth_getBlockByNumber', ['0xa', false]));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result.hash, transactionHash);
+  assert.deepEqual(requestsAt(f, 'https://operator-rpc.test/key').map(request => request.method),
+    ['eth_chainId', 'eth_getBlockByNumber', 'eth_chainId']);
+  assert.deepEqual(requestsAt(f, archiveFallbackNode).map(request => request.method),
+    ['eth_chainId', 'eth_getBlockByNumber', 'eth_getBlockByNumber']);
+});
+
+test('wrong-chain, malformed and quota archive reproof cannot escape through the alternate node', async t => {
+  const failures = [
+    request => json({ jsonrpc: '2.0', id: request.id, result: '0x1' }),
+    request => json({ jsonrpc: '2.0', id: null, result: '0x38' }),
+    request => archiveRefusal(null, 'Monthly quota exceeded'),
+  ];
+  for (const failedProof of failures) {
+    let archiveChain = 0;
+    const f = await fixture(t, { transactionRpcUrl: archiveFallbackNode,
+      retryArchiveRateLimit: true, rateLimitRetryDelayMs: 1,
+      upstream: (url, init) => {
+        const request = JSON.parse(init.body);
+        if (url === archiveFallbackNode) throw new Error('Unproven fallback must not start.');
+        if (request.method === 'eth_chainId') return ++archiveChain === 1
+          ? alternateAnswer(request) : failedProof(request);
+        return archiveRefusal(null, 'opaque short-window refusal');
+      } });
+    assert.equal((await f.post(rpc('eth_getBlockByNumber', ['0xa', false]))).status, 502);
+    assert.deepEqual(requestsAt(f, archiveFallbackNode), []);
+  }
 });
 
 test('cold archive identity refusal uses independently proven alternate identity without certifying the primary', async t => {
@@ -1238,6 +1334,34 @@ test('server reuses exact pinned reads while live headers and latest simulations
   clock += 1000;
   await f.post(pinned);
   assert.equal(reads, 6, 'a pinned result expires at its TTL');
+});
+
+test('long exact-block cache retains fresh header proofs and clears after a changed canonical hash', async t => {
+  let clock = 100_000, codeReads = 0, headerHash = `0x${'ab'.repeat(32)}`;
+  const f = await fixture(t, { now: () => clock, pinnedRpcTtlMs: 15 * 60 * 1000,
+    upstream: (_url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.method === 'eth_chainId') return alternateAnswer(request);
+      if (request.method === 'eth_getBlockByNumber') return json({ jsonrpc: '2.0', id: request.id,
+        result: { number: '0xa', hash: headerHash, timestamp: '0x10' } });
+      assert.equal(request.method, 'eth_getCode');
+      return json({ jsonrpc: '2.0', id: request.id, result: ++codeReads === 1 ? '0x6000' : '0x6001' });
+    } });
+  const code = rpc('eth_getCode', [address, '0xa']);
+  const header = rpc('eth_getBlockByNumber', ['0xa', false]);
+  assert.equal((await (await f.post(code)).json()).result, '0x6000');
+  assert.equal((await (await f.post(header)).json()).result.hash, headerHash);
+  clock += 899_999;
+  const cached = await f.post({ ...code, id: 2 });
+  assert.equal(cached.headers.get('x-bemine-server-cache'), 'hit');
+  assert.equal(codeReads, 1);
+  headerHash = `0x${'cd'.repeat(32)}`;
+  const freshHeader = await f.post({ ...header, id: 3 });
+  assert.equal(freshHeader.headers.get('x-bemine-server-cache'), null,
+    'a pinned read must invalidate a prior numeric header');
+  assert.equal((await freshHeader.json()).result.hash, headerHash);
+  assert.equal((await (await f.post({ ...code, id: 4 })).json()).result, '0x6001');
+  assert.equal(codeReads, 2, 'reorganization must clear a cached pinned result');
 });
 
 test('local BSC chain ID requires a recent upstream proof and never caches a wrong chain', async t => {

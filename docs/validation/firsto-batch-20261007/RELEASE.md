@@ -9,7 +9,7 @@ successor preserves its core Funds and every other graph node; FirstoSale keeps
 the original genesis Funds link. Only FlexiblePurchase and PoolVault are
 replaced. The portfolio sale-remainder pending upgrade remains unchanged.
 
-The current chain was independently read after the upgrade-read transport fix:
+The current chain was independently read during preparation:
 finalized block 126094747, hash
 `0x51b25f5039bf1e5cea1af6e130a8ef954210fabe2aded29e669b482ff8bd51db`.
 Full `prepared` proof passed in 34,608 ms through the public read-only route.
@@ -17,6 +17,12 @@ Full `prepared` proof passed in 34,608 ms through the public read-only route.
 `0x8028149b33e5bcd51b19b329740e513168e8611d28e7ae0cd84b5015e09065a6`.
 This proves the preserved current graph, not deployment or activation of this
 new candidate.
+
+Deployment chronology: this successful proof preceded the effective read-unit
+switch. An earlier drop-in was overridden by `nonce-proof.conf`; the effective
+`zz-firsto-batch-read.conf` switch occurred at 2026-10-07 00:56:42 CST. A later
+full cold read still encountered an archive throttle. The earlier success is
+graph evidence, not evidence that the transport change eliminated the 502s.
 
 Protocol source: [BscScan verified code](https://bscscan.com/address/0x3F58C9cbce933c76158B2A29B0d612c46546Dc43#code).
 The compilation with solc 0.8.24 matches the deployed 11,524-byte runtime after

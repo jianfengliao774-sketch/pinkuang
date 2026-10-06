@@ -230,6 +230,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   indexUrl = 'http://127.0.0.1:4180', fetcher = globalThis.fetch,
   timeoutMs = 10000, maxRequestBytes = 65536, maxResponseBytes = 1048576, maxConcurrent = 24,
   retryArchiveRateLimit = false, rateLimitRetryDelayMs = 1100,
+  archiveReadStartIntervalMs = 0, archiveReadMaxConcurrent = 1,
   onRpcDiagnostic = () => {},
   // A portfolio page can issue ~104 independent reads at once. Allow one
   // page's burst while bounding each client's share of the global wait queue.
@@ -246,6 +247,11 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     maxQueuedPerClient, maxConcurrentPerClient, queueTimeoutMs, pinnedRpcTtlMs, chainIdTtlMs, headerTtlMs,
     rateLimitRetryDelayMs }))
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${key} must be a positive integer.`);
+  if (!Number.isSafeInteger(archiveReadStartIntervalMs) || archiveReadStartIntervalMs < 0
+    || archiveReadStartIntervalMs > 2000 || archiveReadStartIntervalMs && !retryArchiveRateLimit
+    || !Number.isSafeInteger(archiveReadMaxConcurrent) || archiveReadMaxConcurrent < 1
+    || archiveReadMaxConcurrent > 8)
+    throw new Error('Archive read pacing settings are invalid.');
   if (typeof retryArchiveRateLimit !== 'boolean' || rateLimitRetryDelayMs > 2000 || typeof onRpcDiagnostic !== 'function')
     throw new Error('Archive rate-limit retry settings are invalid.');
   if (!Number.isSafeInteger(maxQueued) || maxQueued < 0) throw new Error('maxQueued must be a nonnegative integer.');
@@ -322,6 +328,51 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
   let fallbackChainUntil = 0, fallbackChainProof = null, primaryUnavailableUntil = 0;
   let transactionChainUntil = 0, transactionChainProof = null, transactionEpoch = 0;
   let archiveRetryWave = null;
+  let archiveActive = 0, nextArchiveReadAt = 0, archiveStartTimer = null;
+  const archiveQueue = [];
+  const pumpArchiveQueue = () => {
+    if (archiveStartTimer) { clearTimeout(archiveStartTimer); archiveStartTimer = null; }
+    while (archiveActive < archiveReadMaxConcurrent && archiveQueue.length) {
+      const current = Date.now();
+      if (current < nextArchiveReadAt) {
+        archiveStartTimer = setTimeout(pumpArchiveQueue, nextArchiveReadAt - current);
+        return;
+      }
+      const entry = archiveQueue.shift();
+      clearTimeout(entry.timer);
+      if (entry.deadline <= current) {
+        entry.reject(new ProxyError(504, 'Read-only archive lane timed out.'));
+        continue;
+      }
+      archiveActive++;
+      nextArchiveReadAt = current + archiveReadStartIntervalMs;
+      entry.resolve();
+    }
+    if (archiveQueue.length && archiveActive < archiveReadMaxConcurrent)
+      archiveStartTimer = setTimeout(pumpArchiveQueue, Math.max(1, nextArchiveReadAt - Date.now()));
+  };
+  const awaitArchiveTurn = async (work, timeout) => {
+    if (!archiveReadStartIntervalMs) return work(timeout);
+    const deadline = Date.now() + timeout;
+    await new Promise((resolve, reject) => {
+      requireValue(archiveQueue.length < 32, 503, 'Read-only archive lane is busy.');
+      const entry = { resolve, reject, deadline, timer: null };
+      entry.timer = setTimeout(() => {
+        const index = archiveQueue.indexOf(entry);
+        if (index < 0) return;
+        archiveQueue.splice(index, 1);
+        reject(new ProxyError(504, 'Read-only archive lane timed out.'));
+        pumpArchiveQueue();
+      }, timeout);
+      archiveQueue.push(entry);
+      pumpArchiveQueue();
+    });
+    try {
+      const remaining = deadline - Date.now();
+      requireValue(remaining > 0, 504, 'Read-only archive lane timed out.');
+      return await work(remaining);
+    } finally { archiveActive--; pumpArchiveQueue(); }
+  };
   // Only the explicitly opted-in upgrade service may use its independently
   // configured transaction node for a bounded, uncached archive read.
   const archiveReadFallbackEnabled = retryArchiveRateLimit && !!transactionRpcUrl && transactionRpcUrl !== rpcUrl;
@@ -350,8 +401,10 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     || ['eth_call', 'eth_getCode'].includes(payload.method) && payload.params[1] === 'latest'
     || payload.method === 'eth_getStorageAt' && payload.params[2] === 'latest';
   const fetchRpcJson = async (destination, payload, readTimeoutMs = timeoutMs) => {
-    const reply = await fetchJson(destination, { method: 'POST', body: JSON.stringify(payload) },
-      { fetcher, timeoutMs: readTimeoutMs, maxResponseBytes });
+    const body = JSON.stringify(payload);
+    const read = allowedMs => fetchJson(destination, { method: 'POST', body },
+      { fetcher, timeoutMs: allowedMs, maxResponseBytes });
+    const reply = destination === rpcUrl ? await awaitArchiveTurn(read, readTimeoutMs) : await read(readTimeoutMs);
     // A JSON-RPC error is a business answer, even if a node uses HTTP 5xx for it.
     const rpcReply = Object.hasOwn(reply.value, 'jsonrpc') || Object.hasOwn(reply.value, 'id')
       || Object.hasOwn(reply.value, 'result') || isRecord(reply.value.error) && typeof reply.value.error.code === 'number';
@@ -418,12 +471,22 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
               && typeof value.result === 'string' && /^0x[\da-f]+$/i.test(value.result)
               && BigInt(value.result) === 56n && !Object.hasOwn(value, 'error');
             if (!valid) diagnose(request, proof, 'archive-retry-chain-failed');
-            requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.');
+            requireValue(valid, 502, 'Read-only RPC is not BSC mainnet.', {
+              // A second exact archive 429 refusal can use the independently
+              // proven fixed read node. Wrong-chain and malformed responses
+              // still fail closed and can never certify a retry.
+              readFallbackRefusal: archiveRefusal(proof, request) && rpcErrorKind(value) !== 'quota',
+            });
             wave.proofUntil = verifiedChainUntil = now() + chainIdTtlMs;
           } catch (error) {
             if (error instanceof ProxyError) diagnose(request, { status: error.upstreamStatus }, 'archive-retry-chain-read-failed');
             wave.proofFailure = error;
-            verifiedChainUntil = 0; clearReadCaches(); throw error;
+            const beforeClear = chainEpoch, beforeFork = forkEpoch;
+            verifiedChainUntil = 0; clearReadCaches();
+            if (error instanceof ProxyError && error.readFallbackRefusal)
+              error.archiveRefusalEpochTransition = Object.freeze({ from: beforeClear, to: chainEpoch,
+                fork: beforeFork });
+            throw error;
           } finally { wave.proofPending = false; }
         })();
       }
@@ -626,9 +689,16 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     requireValue(valid, 502, 'Read-only archive fallback is not BSC mainnet.');
     remainingArchiveTime(deadline);
   };
-  const readArchiveFallback = async (payload, deadline, { chainProven = false, knownAnchors } = {}) => {
-    if (!chainProven) await proveArchiveReadFallback(deadline);
+  const readArchiveFallback = async (payload, deadline,
+    { chainProven = false, knownAnchors, expectedEpoch = null, expectedForkEpoch = null, onVerified } = {}) => {
     const epoch = chainEpoch, startedForkEpoch = forkEpoch, sequence = ++headerSequence;
+    requireValue(expectedEpoch === null || expectedEpoch === epoch, 502,
+      'Read-only RPC chain changed during request.');
+    requireValue(expectedForkEpoch === null || expectedForkEpoch === forkEpoch, 502,
+      'Read-only RPC fork changed during request.');
+    if (!chainProven) await proveArchiveReadFallback(deadline);
+    requireValue(epoch === chainEpoch && startedForkEpoch === forkEpoch, 502,
+      'Read-only RPC chain changed during request.');
     const strictRead = async request => {
       const reply = await fetchRpcJson(transactionRpcUrl, request, remainingArchiveTime(deadline)), value = reply.value;
       const valid = reply.status === 200 && value.jsonrpc === '2.0' && value.id === request.id
@@ -678,6 +748,7 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
     // known hash. Record only a proven, unchanged anchor; never cache its data.
     requireValue(observeHeader(after, sequence), 502, 'Archive fallback canonical block changed during request.');
     invalidateHeaderForPinnedRead(tag);
+    onVerified?.({ epoch, forkEpoch: startedForkEpoch });
     return response;
   };
   // A fixed BSC URL is still a configuration claim, not chain evidence. Verify
@@ -739,13 +810,28 @@ export function createLiveDataProxy({ rpcUrl, logsRpcUrl = rpcUrl, fallbackRpcUr
         const dataRead = allowReadFallback ? (async () => {
           if (destination === transactionRpcUrl) {
             created.usedReadFallback = true;
-            return readArchiveFallback(payload, deadline, { chainProven: true, knownAnchors });
+            return readArchiveFallback(payload, deadline,
+              { chainProven: true, knownAnchors, expectedEpoch: created.epoch,
+                expectedForkEpoch: created.forkEpoch });
           }
           try { return await fetchArchiveRpcJson(payload, deadline, { allowReadFallback: true }); }
           catch (error) {
             if (!canReadFallback(error)) throw error;
+            const transition = error.archiveRefusalEpochTransition;
+            if (transition) requireValue(error.readFallbackRefusal
+              && transition.from === created.epoch && transition.to === transition.from + 1
+              && transition.to === chainEpoch && transition.fork === created.forkEpoch
+              && transition.fork === forkEpoch, 502, 'Read-only RPC chain changed during request.');
             created.usedReadFallback = true;
-            return readArchiveFallback(payload, deadline, { knownAnchors });
+            return readArchiveFallback(payload, deadline, { knownAnchors,
+              expectedEpoch: transition ? transition.to : created.epoch,
+              expectedForkEpoch: created.forkEpoch,
+              onVerified: proof => {
+                // Only a completed independent chain + pre/post-header proof
+                // may bridge the cache epoch cleared by an archive refusal.
+                // The outer guard still rejects any later epoch/fork change.
+                if (transition) created.epoch = proof.epoch;
+              } });
           }
         })() : created.isFeeLog || !allowTransportFallback
           ? retryArchiveRateLimit && !created.isFeeLog && destination === rpcUrl

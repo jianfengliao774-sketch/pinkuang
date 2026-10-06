@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createLiveDataProxy } from './live-data-proxy.mjs';
-import { createTargetOwnerReadServer, targetOwnerReadServerConfiguration } from './target-owner-read-server.mjs';
+import { createTargetOwnerReadServer, targetOwnerReadServerConfiguration, TARGET_OWNER_READ_PROXY_LIMITS } from './target-owner-read-server.mjs';
 
 const transactionHash = `0x${'ab'.repeat(32)}`;
 const rpc = (method, params = []) => ({ jsonrpc: '2.0', id: 7, method, params });
 
 test('target-owner read server binds loopback and accepts only a strict positive port', () => {
+  assert.deepEqual(TARGET_OWNER_READ_PROXY_LIMITS, { maxConcurrent: 4, maxConcurrentPerClient: 4,
+    retryArchiveRateLimit: true, archiveReadStartIntervalMs: 100, archiveReadMaxConcurrent: 4,
+    pinnedRpcTtlMs: 900000 });
   assert.deepEqual(targetOwnerReadServerConfiguration({}), { host: '127.0.0.1', port: 4228 });
   assert.deepEqual(targetOwnerReadServerConfiguration({ HOST: '0.0.0.0', TARGET_OWNER_READ_PORT: '4321' }),
     { host: '127.0.0.1', port: 4321 });

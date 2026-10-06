@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "phase": "prepared",
+  "baselineVerified": true,
+  "elapsedMs": 32752,
+  "physical": {
+    "archive": {
+      "eth_chainId:200": 7,
+      "eth_getBlockByNumber:200": 30,
+      "eth_call:200": 60,
+      "eth_getCode:200": 55,
+      "eth_getCode:429": 1,
+      "eth_getStorageAt:200": 8,
+      "eth_getStorageAt:429": 2,
+      "eth_call:429": 4
+    },
+    "transaction": {},
+    "other": {
+      "eth_chainId:200": 1,
+      "eth_getTransactionByHash:200": 10,
+      "eth_getTransactionReceipt:200": 10
+    }
+  },
+  "peakArchive": 4,
+  "archiveStarts": 167,
+  "minArchiveStartSpacingMs": 100,
+  "diagnostics": {
+    "{\"method\":\"eth_getCode\",\"status\":429,\"errorCode\":-32005,\"errorKind\":\"other\",\"category\":\"archive-refusal-retry\"}": 1,
+    "{\"method\":\"eth_getStorageAt\",\"status\":429,\"errorCode\":-32005,\"errorKind\":\"other\",\"category\":\"archive-refusal-retry\"}": 2,
+    "{\"method\":\"eth_call\",\"status\":429,\"errorCode\":-32005,\"errorKind\":\"other\",\"category\":\"archive-refusal-retry\"}": 4
+  }
+}
