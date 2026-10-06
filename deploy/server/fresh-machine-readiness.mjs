@@ -5,6 +5,29 @@ import { FRESH_RUNTIME,FRESH_WORKER_ROOT,FRESH_WORKER_UNITS,FRESH_LEGACY_DRAIN_P
   freshGraphIdentity,validateFreshWorker,need,same,HASH } from '../shared/fresh-runtime-identity.mjs';
 
 const execute=promisify(execFile);
+const JOURNAL_READ_CONCURRENCY=4;
+// A rejected read must not leave another already-started proof read running
+// after readiness has returned an error.
+async function settleReads(reads) {
+  const results=await Promise.allSettled(reads.map(read=>Promise.resolve().then(read)));
+  const failed=results.find(result=>result.status==='rejected');
+  if(failed)throw failed.reason;
+  return results.map(result=>result.value);
+}
+
+async function verifyJournalRows(rows,verify) {
+  let next=0,failed=false,reason;
+  const lanes=Array.from({length:Math.min(JOURNAL_READ_CONCURRENCY,rows.length)},async()=>{
+    while(!failed && next<rows.length) {
+      const row=rows[next++];
+      try { await verify(row); }
+      catch(error) { if(!failed){failed=true;reason=error;} }
+    }
+  });
+  await Promise.all(lanes);
+  if(failed)throw reason;
+}
+
 export async function freshUnitState(name) {
   need(/^pinkuang-[a-z0-9-]+\.service$/.test(name),'Unreviewed readiness unit name.');
   const {stdout}=await execute('/usr/bin/systemctl',['show',name,
@@ -36,24 +59,24 @@ export async function verifyFreshLegacyDrain(provider,identity,{readDrain=()=>pr
       && (unit.LoadState==='not-found' || ['disabled','masked'].includes(unit.UnitFileState)),
     'An old Gas sender remains active or enabled.');
   }
-  const [latest,pending,finalized]=await Promise.all([provider.getTransactionCount(identity.gasWallet,'latest'),
-    provider.getTransactionCount(identity.gasWallet,'pending'),provider.getBlock('finalized')]);
+  const [latest,pending,finalized]=await settleReads([()=>provider.getTransactionCount(identity.gasWallet,'latest'),
+    ()=>provider.getTransactionCount(identity.gasWallet,'pending'),()=>provider.getBlock('finalized')]);
   need(finalized?.hash && latest>=proof.cutoverNonce && (allowCurrentPending ? pending>=latest : latest===pending),'Gas nonce drain is not current.');
   need(proof.cutoverNonce===0 ? proof.journals.length===0 : proof.journals.length>0
     && Math.max(...proof.journals.map(row=>row.nonce))+1===proof.cutoverNonce,'Old terminal nonce coverage differs.');
-  for(const row of proof.journals){
+  await verifyJournalRows(proof.journals,async row=>{
     need(/^[0-9a-f]{64}$/i.test(row.journalSha256 ?? '') && HASH.test(row.txHash)
       && HASH.test(row.blockHash) && Number.isSafeInteger(row.nonce) && row.nonce>=0
       && Number.isSafeInteger(row.blockNumber) && row.blockNumber>0
       && ['confirmed','reverted','cancelled','cancel-reverted'].includes(row.phase),'An old journal is not terminal.');
-    const [tx,receipt,block]=await Promise.all([provider.getTransaction(row.txHash),
-      provider.getTransactionReceipt(row.txHash),provider.getBlock(row.blockNumber)]);
+    const [tx,receipt,block]=await settleReads([()=>provider.getTransaction(row.txHash),
+      ()=>provider.getTransactionReceipt(row.txHash),()=>provider.getBlock(row.blockNumber)]);
     need(tx?.chainId===56n && same(tx.from,identity.gasWallet) && tx.nonce===row.nonce
       && receipt && receipt.status===(['confirmed','cancelled'].includes(row.phase)?1:0) && same(receipt.hash,row.txHash) && same(tx.hash,row.txHash) && receipt.blockNumber===row.blockNumber
       && same(receipt.blockHash,row.blockHash) && same(block?.hash,row.blockHash)
       && row.blockNumber<=finalized.number && row.nonce<proof.cutoverNonce,
     'An old Gas journal lacks canonical finalized transaction proof.');
-  }
+  });
   return {cutoverNonce:proof.cutoverNonce,currentNonce:latest,oldSendersDisabled:true};
 }
 
@@ -65,15 +88,16 @@ export function createFreshMachineReadiness({provider,verifyGraph,sourceHead=fre
     if(task)return task;
     task=(async()=>{
       const graph=await verifyGraph(),identity=freshGraphIdentity(graph);
-      const workers={};
-      for(const role of Object.keys(FRESH_WORKER_UNITS)){
+      const workerProofs=Object.keys(FRESH_WORKER_UNITS).map(role=>async()=>{
         const pulse=validateFreshWorker(readWorker(role),{role,sourceHead,identity,
           unit:await unitState(FRESH_WORKER_UNITS[role]),now:now()});
         const block=await provider.getBlock(pulse.blockNumber);
         need(same(block?.hash,pulse.blockHash),'Worker readiness block changed.');
-        workers[role]={...pulse};
-      }
-      const drain=await verifyFreshLegacyDrain(provider,identity,{unitState,...drainOptions});
+        return [role,{...pulse}];
+      });
+      const [workerRows,drain]=await settleReads([()=>settleReads(workerProofs),
+        ()=>verifyFreshLegacyDrain(provider,identity,{unitState,...drainOptions})]);
+      const workers=Object.fromEntries(workerRows);
       need(same((await provider.getBlock(graph.blockNumber))?.hash,graph.blockHash),'Readiness graph block changed.');
       return {schemaVersion:1,ready:true,relayEnabled:true,attestOnly:false,sourceHead,
         identity,checkedAt:now(),workers,drain};
