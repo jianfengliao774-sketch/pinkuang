@@ -1,0 +1,43 @@
+{
+  "kind": "firsto-current-batch-local-fork-fill-v1",
+  "checkedAtUtc": "2026-10-06T16:25:31.786Z",
+  "chainId": 56,
+  "sourceBlock": 126091631,
+  "sourceBlockHash": "0x3248cbc5b4ff2bf101a36dd6859693e10d2db0a6fc2b46524bd37cbfb877d4ba",
+  "sourceCodeKeccak": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+  "collection": "0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C",
+  "tokenId": "6128",
+  "exchange": "0x3F58C9cbce933c76158B2A29B0d612c46546Dc43",
+  "orderId": "0xf34f0fb6f87aa11280f04aa902ffdc7234164eaeca718feaa0f4711be744646d",
+  "priceWei": "69120000000000000",
+  "takerFeeWei": "691200000000000",
+  "valueWei": "69811200000000000",
+  "before": {
+    "owner": "0xd18B9615388AfACf2c95282980c6B84A235a32a8",
+    "approved": true,
+    "invalidated": false,
+    "batchHashMatches": true,
+    "leafHashMatches": true,
+    "feeEpoch": "1",
+    "feeBps": "100"
+  },
+  "localTransaction": {
+    "hash": "0x85c4937086b57a66716aa7ddc324c6da25c67c9c6c858a3ff52f7b51c623672d",
+    "status": 1,
+    "gasUsed": "174746"
+  },
+  "after": {
+    "owner": "0x7000000000000000000000000000000000000101",
+    "invalidated": true,
+    "payoutIncreaseWei": "69120000000000000",
+    "accruedFeesIncreaseWei": "691200000000000"
+  },
+  "checks": {
+    "nftTransferred": true,
+    "leafConsumed": true,
+    "payoutExact": true,
+    "feeAccruedExact": true
+  },
+  "remoteReadRpcCalls": 87,
+  "mainnetTransactionsByAudit": 0
+}

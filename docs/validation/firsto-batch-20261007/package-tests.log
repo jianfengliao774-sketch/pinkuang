@@ -1,0 +1,12 @@
+✔ fixed ten public inputs and exactly referenced assets pass, including the published renamed entry (8.837458ms)
+✔ both HTML entries and an unreferenced asset containing dummy secret text are rejected (12.471167ms)
+✔ nonlocal module or style, inline script, event handler and embedded execution are rejected (24.751041ms)
+✔ private files, allowed-name symlinks, tampered pinned JSON, missing pins and unreviewed sender fail (14.078042ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 102.23525

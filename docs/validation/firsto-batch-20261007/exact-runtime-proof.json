@@ -1,0 +1,144 @@
+{
+  "kind": "firsto-bscscan-solc-exact-runtime-v1",
+  "checkedAtUtc": "2026-10-06T16:30:36.609Z",
+  "chainId": 56,
+  "block": {
+    "number": 126092361,
+    "hash": "0x95750da91213e12c82f42078eee1f9bc4a9151dd4d51350f280fa3626d57814c"
+  },
+  "address": "0x3F58C9cbce933c76158B2A29B0d612c46546Dc43",
+  "input": {
+    "bscscanArchiveSha256": "b8f32b210167d59b231040067db85c69aa21be77217d58780e51b70bacb76fc9",
+    "solcStandardInputSha256": "b5a688b2587bf1400b28b3d8cb61f350d29cdee702a7758a309c031d8c111eff",
+    "sourceCount": 21,
+    "sourceSha256": {
+      "@openzeppelin/contracts/interfaces/IERC1271.sol": "2d17bba201aa2f9c55e317315b872272a60361848dfceb6b1e77081265c79a27",
+      "@openzeppelin/contracts/interfaces/IERC5267.sol": "f89772d2d4fafcbef8b73bb10ee9a3373edec2eedb2f1b302320915b351dc3d1",
+      "@openzeppelin/contracts/token/ERC721/IERC721.sol": "ff0eb9902bf0ac099205615fac90eacf34fae637571b05aab3ea35dea53d5f17",
+      "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol": "eafee3ffdc7cb2fba4bf6bd16fb28f8e5b4679742e81c2ad42a1b1df5c179feb",
+      "@openzeppelin/contracts/utils/Context.sol": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+      "@openzeppelin/contracts/utils/Panic.sol": "270fc8401c1a13fae6a7a4a2dd6e381b95d658896701e51f0d3e2688acab3dec",
+      "@openzeppelin/contracts/utils/Pausable.sol": "2c26130748f06552c65ca74d89eaf78c9324a3cbac3ba6fdbadaa8beba0cb0b4",
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol": "32fbb1c908ec1b4de85cc1bb10091aebd5816ffe80dfdd5ca5e084fbea67a462",
+      "@openzeppelin/contracts/utils/ShortStrings.sol": "542d5dfe5e4375d83f2e3b5246b2d0d7507406a4b582844dbc73bd31ed2faa83",
+      "@openzeppelin/contracts/utils/StorageSlot.sol": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778",
+      "@openzeppelin/contracts/utils/Strings.sol": "2db7d21151644c57f75ed3ab55e87f3cf7fbf587a65345650fd740e2cfd50be3",
+      "@openzeppelin/contracts/utils/cryptography/ECDSA.sol": "0964ddd02f4a7a8cf9ba130e3aeead588ca3d425d5bc13cc4221358c69108ed0",
+      "@openzeppelin/contracts/utils/cryptography/EIP712.sol": "c20e0789a53610b2551058e0bd556dcd2caa20a7457348c3c73df037fba88861",
+      "@openzeppelin/contracts/utils/cryptography/Hashes.sol": "ecdbce11c5ecdf32b306e26b8ab1b878327c08154b4ccd04518b6b64b298cf31",
+      "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol": "a174525c74ab5d2f066206ec9cebb6b3c618384c53ec35ad224ac1fbbf06b3f0",
+      "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol": "936a89f512d5da84b0896b66d2398f2bea9eefdf2afa788af5265fcd74302693",
+      "@openzeppelin/contracts/utils/introspection/IERC165.sol": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca",
+      "@openzeppelin/contracts/utils/math/Math.sol": "92fee281fd46a1b058b190cf21d6b1a528f0433a907850ae1c9bcf36c5c0cd98",
+      "@openzeppelin/contracts/utils/math/SafeCast.sol": "9769274bf53f26a7c7896c526ea1980dc9bea5bf5c2a5fd04870008c4afc1de9",
+      "@openzeppelin/contracts/utils/math/SignedMath.sol": "1ed50b1056af886752f0fb48a0165d381e69bb4a4b18b893b066dc144a7e08d7",
+      "src/CircuitBatchAskExchangeV1.sol": "c11e741b5edaf16de2cbfa844857fd2da40ae95361283155e1b237ae123c0f6c"
+    },
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 500
+      },
+      "evmVersion": "paris",
+      "outputSelection": {
+        "*": {
+          "*": [
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "devdoc",
+            "userdoc",
+            "metadata",
+            "abi"
+          ]
+        }
+      }
+    }
+  },
+  "compiler": {
+    "version": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "errors": 0,
+    "metadataSha256": "e539d17a59e95bc1a8b8fdf62d81ef8e5d79170d2def9d540cbb3517902c8536",
+    "metadataBytes": 24651,
+    "metadataCidDerivation": "IPFS UnixFS File DAG-PB SHA-256 CIDv0",
+    "metadataCid": "QmXzeTkjb2GkUiKpdG61qyGGTMqCdk7PMJ1kN7iQ1gpkCv",
+    "metadataCidMatchesOnchain": true
+  },
+  "runtime": {
+    "compiledBytes": 11524,
+    "deployedBytes": 11524,
+    "deployedRawKeccak": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+    "immutableReferences": [
+      {
+        "astId": "7607",
+        "offset": 1416,
+        "length": 32,
+        "deployedHex": "0x00000000000000000000000068224f668083c29e9800be2a646d42d18cedf7e2"
+      },
+      {
+        "astId": "2555",
+        "offset": 7147,
+        "length": 32,
+        "deployedHex": "0x46697273746f20436972637569742042617463682041736b0000000000000018"
+      },
+      {
+        "astId": "2558",
+        "offset": 7197,
+        "length": 32,
+        "deployedHex": "0x3100000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "astId": "7607",
+        "offset": 8094,
+        "length": 32,
+        "deployedHex": "0x00000000000000000000000068224f668083c29e9800be2a646d42d18cedf7e2"
+      },
+      {
+        "astId": "7607",
+        "offset": 8410,
+        "length": 32,
+        "deployedHex": "0x00000000000000000000000068224f668083c29e9800be2a646d42d18cedf7e2"
+      },
+      {
+        "astId": "7607",
+        "offset": 8759,
+        "length": 32,
+        "deployedHex": "0x00000000000000000000000068224f668083c29e9800be2a646d42d18cedf7e2"
+      },
+      {
+        "astId": "2548",
+        "offset": 9054,
+        "length": 32,
+        "deployedHex": "0x0000000000000000000000003f58c9cbce933c76158b2a29b0d612c46546dc43"
+      },
+      {
+        "astId": "2546",
+        "offset": 9096,
+        "length": 32,
+        "deployedHex": "0x0000000000000000000000000000000000000000000000000000000000000038"
+      },
+      {
+        "astId": "2544",
+        "offset": 9138,
+        "length": 32,
+        "deployedHex": "0xa15a255ea26074b52eaf62edebe60cde3c7e4a8872de20f2561f2c8ae9e5ace7"
+      },
+      {
+        "astId": "2550",
+        "offset": 9219,
+        "length": 32,
+        "deployedHex": "0x791416bb215f4813a838f5cdd2a6a0bacdd55af50cb726da644598d73fec47f7"
+      },
+      {
+        "astId": "2552",
+        "offset": 9259,
+        "length": 32,
+        "deployedHex": "0xc89efdaa54c0f20c7adf612882df0950f5a951637e0307cdcb4c672f298b8bc6"
+      }
+    ],
+    "nonImmutableDiffCount": 0,
+    "firstNonImmutableDiffOffset": null,
+    "exactRuntimeMatch": true,
+    "onchainCborLength": 51,
+    "onchainMetadataCid": "QmXzeTkjb2GkUiKpdG61qyGGTMqCdk7PMJ1kN7iQ1gpkCv"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "firsto-batch-offline-create-gas-review-v1",
+  "measuredAt": "2026-10-06T16:33:13.524Z",
+  "pins": {
+    "trustedGenesisRecordDigest": "0x4aeef3a06351f9dc6b18a85c4a8e34899792bebb38886e0d050bbf3695e41d00",
+    "trustedGenesisManifestDigest": "0x3870f0f8c06092b6418c2bd2ab522414ee4091bb937215b6ea97f4283bd25196",
+    "trustedPriorCoreCatalogDigest": "0x86b6b453a87948e1d7b53463512ebcedbe727a952367e0704e8a16ba576347bc",
+    "trustedUpgradeArtifactDigest": "0x53eb55a2d538c138b1d0334498431c04a3c435384f13a788112cd73493aaeea9",
+    "trustedProtocolReviewDigest": "0xc5f021f196c478b03cb1ff4ffb40a205b1f8a1d3603a9353a5c4ef48e08f20e0",
+    "trustedReviewCatalogDigest": "0x71d98bcd7314d23d18c1d9c057a8a0a9ba587fd349a72f5471f7e138e834ce33"
+  },
+  "environment": {
+    "disposableLoopbackEvm": true,
+    "forked": false,
+    "chainId": 56,
+    "productionTransactions": false,
+    "anvilVersion": "1.7.1",
+    "sendGasCeiling": "9000000",
+    "ethEstimateGasCalls": 0
+  },
+  "margin": {
+    "percent": 20,
+    "absoluteGas": 50000,
+    "roundUpGas": 10000
+  },
+  "deployments": [
+    {
+      "name": "FlexiblePurchase",
+      "address": "0x367cDC26AaC16D91F1262aAEbA1e6B8263a3f01c",
+      "localTransactionHash": "0x27eb59180afc31b59e6d6eba844ec5a9f66b801545a0f5162d3e73d830a51ea3",
+      "nonce": 0,
+      "dataHash": "0x678947db059126ec2a341d1e000089dddc3888e45cdb598f970a3ead3345f793",
+      "initcodeBytes": 18917,
+      "gasUsed": "4132701",
+      "gasLimit": "5010000",
+      "blockHash": "0x100d0080cf6c57c437e4614d734e6677131b20b162c0e7f4ede81913f155e5a8",
+      "blockNumber": 1,
+      "runtimeBytes": 18864,
+      "runtimeCodehash": "0xd3123201910bbbfea0c225a5edb034c94cf1e6db7db625b4fb7e58f233190594",
+      "libraries": {
+        "PoolFunds": "0x1bE05BE7D954F780E768d931fA0207739F80421D",
+        "PurchaseValidation": "0x7e9f55608B6f00899c61e75A763E86a2ce670A74"
+      },
+      "constructorArgs": []
+    },
+    {
+      "name": "PoolVault",
+      "address": "0xf4cE5CDE7c1e6Fb13BcF1a78eAa9c24E0a20e257",
+      "localTransactionHash": "0x86ff66c883771bde4b9b170276206b4537e9cb9b3972513b94e2ca90a44e4798",
+      "nonce": 1,
+      "dataHash": "0x48eb797638b183f5e4c23d45f776cdb3b78b2d1967979597423170c57d0056b8",
+      "initcodeBytes": 24734,
+      "gasUsed": "5340989",
+      "gasLimit": "6460000",
+      "blockHash": "0x8b6f80c44d04eae6544d9030e7503e5465b7177d5090dc5b91256259d71107d7",
+      "blockNumber": 2,
+      "runtimeBytes": 24316,
+      "runtimeCodehash": "0x711e51563ddcc6e5c5eee375ccd42eeeb970c98678b012b9471bceb00fa1ddf6",
+      "libraries": {
+        "FirstoSale": "0x6b80f98020c5BB4106A86Bca4378E5CBBb200C21",
+        "FlexiblePurchase": "0x367cDC26AaC16D91F1262aAEbA1e6B8263a3f01c",
+        "MiningOperations": "0x99A5F0f6E780D147EcCC053EDBE1BDB7d93d561e",
+        "PoolFunds": "0x1bE05BE7D954F780E768d931fA0207739F80421D",
+        "RewardAccounting": "0x86645E27b55cA9fFf0bE5DD9B8dc066E19251823",
+        "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+        "SaleSettlement": "0x5550e1d8936C96318A74f812318D3DBfc3244dcB",
+        "ShareCheckpoints": "0xcc32d834457aBFc23c310CFcbAEb3267799B8A70"
+      },
+      "constructorArgs": [
+        "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9"
+      ]
+    }
+  ],
+  "fixedCeilingsTested": true,
+  "preservedFactory": "0xCFc7D864DeB615bE04C7f6ac62875c2092C5b1B9"
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "kind": "firsto-batch-exact-source-review-v1",
+  "chainId": 56,
+  "exchange": "0x3F58C9cbce933c76158B2A29B0d612c46546Dc43",
+  "runtimeCodehash": "0x84072ba0b149f0cb72a8d1be49797ba293206d931407eeb2a25eeaf9f28db0b0",
+  "exactRuntimeMatch": true,
+  "localFillVerified": true,
+  "primarySource": "https://bscscan.com/address/0x3F58C9cbce933c76158B2A29B0d612c46546Dc43#code",
+  "compiler": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+  "sourceArchiveSha256": "b8f32b210167d59b231040067db85c69aa21be77217d58780e51b70bacb76fc9",
+  "solcInputSha256": "b5a688b2587bf1400b28b3d8cb61f350d29cdee702a7758a309c031d8c111eff",
+  "metadataCid": "QmXzeTkjb2GkUiKpdG61qyGGTMqCdk7PMJ1kN7iQ1gpkCv",
+  "exactRuntimeEvidenceDigest": "0xad7c425482f31971967f8efe43cf1bbaec810bc15a9037acfa399a761de81d3b",
+  "localFillEvidenceDigest": "0xa4d69d59bd38ccbb267fa6f040ac87c9119dda7bb4c9d8a2a77b67f76f49bd5a",
+  "localFillSourceBlock": 126091631,
+  "localFillSourceBlockHash": "0x3248cbc5b4ff2bf101a36dd6859693e10d2db0a6fc2b46524bd37cbfb877d4ba",
+  "mainnetTransactionsByAudit": 0
+}

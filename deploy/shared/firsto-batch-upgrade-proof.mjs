@@ -360,6 +360,9 @@ export async function verifyFirstoBatchUpgrade(p, trusted, suppliedBlock) {
   if (!providers) { providers = new WeakMap(); completedCache.set(approved, providers); }
   const cached = providers.get(p);
   if (cached) {
+    const protocol = validateFirstoBatchUpgradeReview(input).protocol;
+    need(same(keccak256(await p.getCode(protocol.exchange, block.number)), protocol.runtimeCodehash),
+      'Cached Firsto batch protocol runtime differs from the exact source review.');
     const cachedBlock = await p.getBlock(cached.blockNumber);
     need(cachedBlock?.number === cached.blockNumber && same(cachedBlock.hash, cached.blockHash), 'Cached completion block changed.');
     const [factory, version, batchVersion, done] = await settleReads([read(p, cached.replacements.PoolVault, 'OFFICIAL_FACTORY', [], block),

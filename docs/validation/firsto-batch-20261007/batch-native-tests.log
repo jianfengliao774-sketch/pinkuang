@@ -1,0 +1,11 @@
+✔ completed two-component batch successor retains native sale with genesis Funds and preserved FirstoSale (5933.994542ms)
+✔ batch native compatibility rejects JSON completion and missing or changed native ABI (11000.634ms)
+✔ batch native compatibility separately binds original Funds and old FirstoSale runtime after completion (12445.262459ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 29489.006958
