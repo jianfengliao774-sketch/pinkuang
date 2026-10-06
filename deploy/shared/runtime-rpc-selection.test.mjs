@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { FetchRequest } from 'ethers';
-import { createDeferredRuntimeRpcProvider, createRuntimeRpcProvider, selectRuntimeRpcRequest } from './runtime-rpc-selection.mjs';
+import { createDeferredRuntimeRpcProvider, createFixedReadOnlyRpcProvider, createRuntimeRpcProvider, selectRuntimeRpcRequest } from './runtime-rpc-selection.mjs';
 
 async function pair(primaryReply, backupReply = () => ({ result: '0x38' })) {
   const calls = { primary: [], backup: [] }, batchSizes = { primary: [], backup: [] }, servers = [];
@@ -60,6 +60,41 @@ async function until(predicate) {
     await new Promise(resolve=>setTimeout(resolve,10));
   }
 }
+
+test('fixed read-only transport retries bounded rate limits and recovers on the same node without startup selection', async () => {
+  let healthy = false;
+  const f = await pair(() => healthy ? { result: '0x1234' } : { http: 429 });
+  const delays = [], provider = createFixedReadOnlyRpcProvider(f.request, {
+    network: 56, providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+    retryWait: async ms => { delays.push(ms); },
+  });
+  try {
+    assert.equal(f.calls.primary.length, 0, 'no sticky startup identity request');
+    await assert.rejects(provider._send(rpc(501)), error => {
+      assert.equal(error.info.responseStatus.startsWith('429'), true);
+      assert.doesNotMatch(error.message, /exceeded maximum retry limit/);
+      return true;
+    });
+    assert.deepEqual(delays, [1100, 2200]);
+    assert.equal(f.calls.primary.length, 3);
+    healthy = true;
+    assert.deepEqual(await provider._send(rpc(502)), [{ jsonrpc: '2.0', id: 502, result: '0x1234' }]);
+    assert.equal(f.calls.primary.length, 4);
+    assert.equal(f.calls.backup.length, 0);
+    assert.deepEqual(f.calls.primary.map(row => row.method), Array(4).fill('eth_call'));
+    await assert.rejects(async () => provider._send(rpc(503, 'eth_sendRawTransaction')), /read-only/i);
+    await assert.rejects(async () => provider._send([rpc(504), rpc(505)]), /read-only|batched/i);
+    assert.equal(f.calls.primary.length, 4, 'writes and batches never reach the node');
+  } finally { await provider.settleAndDestroy(); await f.close(); }
+});
+
+test('fixed read-only factory rejects invalid concurrency bounds', () => {
+  for (const maxConcurrentReads of [0, 5, null, 1.5]) {
+    assert.throws(() => createFixedReadOnlyRpcProvider('http://127.0.0.1:1', {
+      network: 56, providerOptions: { staticNetwork: true }, maxConcurrentReads,
+    }), /one-to-four/);
+  }
+});
 
 test('a dedicated proof lane shares one node, caps four reads and rejects every write method',async()=>{
   let release;const held=new Promise(resolve=>{release=resolve;});

@@ -20,6 +20,7 @@ import { legacyFactoryConfiguration, verifyCreationCutover } from './creation-cu
 import { clientAddress, createRequestLimiter } from './request-limiter.mjs';
 import { verifyGasSignerAttestation } from '../shared/gas-signer-attestation.mjs';
 import { firstoAskPublisherConfiguration, createFirstoAskApiWorker, trackFirstoAsks } from './firsto-ask-publisher.mjs';
+import { createFixedReadOnlyRpcProvider } from '../shared/runtime-rpc-selection.mjs';
 export { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI } from './portfolio-intent.mjs';
 
 const MAX_BODY = 64 * 1024;
@@ -904,6 +905,20 @@ export function createBoundedOfficialProvider(url, timeoutMs = OFFICIAL_RPC_TIME
   return new JsonRpcProvider(request, 56, { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 });
 }
 
+/** Public graph reads share the configured paid node, with four outstanding
+ * read requests at most. Same-node rate-limit backoff never authorizes writes,
+ * another endpoint, or reuse of a stale proof for transaction permission. */
+export function createPublicOfficialReadProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
+  const request = new FetchRequest(url);
+  request.timeout = timeoutMs;
+  request.setThrottleParams({ maxAttempts: 1 });
+  request.retryFunc = async () => false;
+  return createFixedReadOnlyRpcProvider(request, {
+    network: 56, providerOptions: { staticNetwork: true, cacheTimeout: -1, batchMaxCount: 1 },
+    maxConcurrentReads: 4,
+  });
+}
+
 /** The signing RPC must not batch independent graph checks: some BSC endpoints
  * return incomplete batch responses, which otherwise reject valid intents. */
 export function createProductVerifierProvider(url, timeoutMs = OFFICIAL_RPC_TIMEOUT_MS) {
@@ -1002,7 +1017,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
   let productIntentWindow = -1;
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
   const officialRpcUrl = readRpcUrl ?? rpcUrl;
-  const officialProvider = suppliedProvider ?? (officialRpcUrl ? createBoundedOfficialProvider(officialRpcUrl) : null);
+  const officialProvider = suppliedProvider ?? (officialRpcUrl ? createPublicOfficialReadProvider(officialRpcUrl) : null);
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
@@ -2065,7 +2080,7 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
       await Promise.allSettled([...inFlight]);
       store.close();
       if (!suppliedProvider) provider?.destroy();
-      if (officialProvider !== provider) officialProvider?.destroy();
+      if (!suppliedProvider && officialProvider !== provider) await officialProvider?.settleAndDestroy();
     },
   };
 }

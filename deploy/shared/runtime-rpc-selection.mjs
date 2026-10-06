@@ -192,6 +192,18 @@ export async function createRuntimeRpcProvider(request, { env = process.env, net
   return new ReadBackoffRpcProvider(selected.request, network, providerOptions, retryWait, serializeReads);
 }
 
+/** Fixed public read transport: no startup selection and no fallback. Its
+ * callers retain their explicit chain and canonical-block proof on every
+ * verification, and a transient read failure cannot lock out later reads. */
+export function createFixedReadOnlyRpcProvider(request, { network, providerOptions = {}, retryWait = wait,
+  maxConcurrentReads = 4 } = {}) {
+  check(Number.isSafeInteger(maxConcurrentReads) && maxConcurrentReads >= 1 && maxConcurrentReads <= 4,
+    'Read-only proof lane requires an explicit one-to-four request concurrency bound.');
+  const primary = singleAttempt(typeof request === 'string' ? new FetchRequest(request) : request);
+  return new ReadBackoffRpcProvider(primary, network, { batchMaxCount: 1, ...providerOptions },
+    retryWait, false, { readOnly: true, maxConcurrentReads });
+}
+
 class DeferredRuntimeRpcProvider extends ReadBackoffRpcProvider {
   #selection;
   #selected;

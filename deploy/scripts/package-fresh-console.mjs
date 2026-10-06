@@ -68,6 +68,8 @@ export const RUNTIME_MODULES = Object.freeze([
   "shared/gas-signer-attestation.mjs",
   "shared/initialization-proof.mjs",
   "shared/integrated-upgrade-plan.mjs",
+  "shared/read-only-rpc-fallback.mjs",
+  "shared/runtime-rpc-selection.mjs",
   "shared/target-owner-upgrade-plan.mjs",
   "shared/target-owner-upgrade-proof.mjs",
   "src/firsto-purchase.mjs"
