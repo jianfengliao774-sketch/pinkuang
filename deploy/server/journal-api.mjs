@@ -10,6 +10,7 @@ import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../src/firsto-purchase
 import { fetchOfficialCandidates } from '../scripts/official-market-discovery.mjs';
 import { PRODUCT_PORTFOLIO_ABI, PRODUCT_PORTFOLIO_FACTORY_ABI, verifyPortfolioIntent } from './portfolio-intent.mjs';
 import { verifyControlledFirstoSale } from './firsto-sale-preflight.mjs';
+import { hasVerifiedNativeSaleCapability, verifiedNativeSaleCompatibility } from '../shared/native-sale-compatibility.mjs';
 import { readBudgetCandidates } from './budget-candidates.mjs';
 import { isFreshWalletAction } from '../shared/fresh-wallet-actions.mjs';
 import { freshProductConfiguration, createFreshProductGate, FRESH_AUTHORITY_ONLY } from './fresh-product-gate.mjs';
@@ -383,7 +384,7 @@ export async function verifyProductIntent(provider, record, allowedFactories, gr
     // the reviewed upgrade has actually become the verified chain graph.
     if (decoded.name === 'createBudgetChildPool' && !graph?.securityUpgrade)
       fail(409, 'Budget child creation requires the verified upgraded Factory.');
-    if (decoded.name === 'delist' && graph?.nativeSaleUpgrade?.version !== 1)
+    if (decoded.name === 'delist' && !hasVerifiedNativeSaleCapability(graph, { factory: record.factory }))
       fail(409, 'Delisting requires the verified native-sale upgrade.');
     await verifyCreationCutover(provider, record, decoded, block, legacyFactory, fail,
       { freshGraphVerified: graph?.freshFactoryVerified === true && Boolean(graph?.freshAuthority) });
@@ -1553,6 +1554,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
+        ...(verifiedNativeSaleCompatibility(graph)
+          ? {nativeSaleCompatibility:graph.nativeSaleCompatibility} : {}),
         // Publish only the completed graph verifier's capability. The private
         // operator catalog, governance salt and recovery records are not an API.
         ...(graph.targetOwnerUpgrade ? {targetOwnerUpgrade:{

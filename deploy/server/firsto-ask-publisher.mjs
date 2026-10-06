@@ -2,6 +2,7 @@
 import { dirname, isAbsolute } from 'node:path';
 import { Contract, Interface, getAddress } from 'ethers';
 import { createFirstoNativeAsk, parseFirstoNativeAskPublication, findFirstoNativeAskRecord } from '../shared/firsto-native-ask.mjs';
+import { hasVerifiedNativeSaleCapability } from '../shared/native-sale-compatibility.mjs';
 import { readFirstoAskJournal, writeFirstoAskJournal, writeFirstoAskStatus, firstoAskMessages,
   pendingFirstoSaleIntentFromDatabase, acquireFirstoAskJournalLock } from './firsto-ask-publisher-store.mjs';
 
@@ -125,7 +126,7 @@ export function createFirstoAskPublisher({ config, provider, factory, verifyDepl
     try {
       const journal = read(config.journal, { factory, exchange: FIRSTO_ASK_EXCHANGE });
       const graph = await verifyDeployment();
-      if (graph?.nativeSaleUpgrade?.version !== 1) {
+      if (!hasVerifiedNativeSaleCapability(graph, { factory })) {
         status.enabled = false; status.updatedAt = new Date(now()).toISOString();
         for (const pool of pools) row(pool, 'upgrade-required');
         publishStatus(config.statusPath, status); return;

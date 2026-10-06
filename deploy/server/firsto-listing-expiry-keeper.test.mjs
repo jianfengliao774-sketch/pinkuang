@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Interface, Transaction, Wallet, keccak256, parseEther } from 'ethers';
+import { nativeSaleCompatibilityFixture } from '../shared/native-sale-compatibility-test-fixture.mjs';
 import { createFirstoListingExpiryKeeper, firstoExpiryKeeperConfiguration, readFirstoListingExpiry,
   assertFirstoExpiryJournal, FIRSTO_EXPIRY_CALLDATA, trackFirstoListingExpiry } from './firsto-listing-expiry-keeper.mjs';
 
@@ -39,7 +40,7 @@ function fixture(options = {}) {
       assert(path.endsWith(`${pool}.json`)); if (options.busy) throw Error('Wallet has an unresolved transaction in another pool journal. Reconcile that journal first.');
       return () => {}; },
     readJournal: (_path, scope) => structuredClone(journals.get(scope.pool) ?? { version: 1, chainId: 56,
-      factory, pool: scope.pool, transactionTarget: scope.pool, transaction: null, gasSpentWei: '0', gasReceipts: {} }),
+      factory: scope.factory, pool: scope.pool, transactionTarget: scope.pool, transaction: null, gasSpentWei: '0', gasReceipts: {} }),
     writeJournal: (_path, value) => { journals.set(value.pool, structuredClone(value)); writes.push(structuredClone(value)); },
     reconcilePending: async (_provider, scope, journal) => options.reconcile ? options.reconcile(scope, journal)
       : journal.transaction && !['confirmed', 'reverted'].includes(journal.transaction.phase) ? { status: 'pending-receipt' } : null,
@@ -48,9 +49,9 @@ function fixture(options = {}) {
     publishStatus: (_path, value) => observations.push(structuredClone(value)),
   };
   const create = () => createFirstoListingExpiryKeeper({ config, provider, signer: { getAddress: () => wallet.getAddress(),
-    signTransaction: async request => { signatures++; return wallet.signTransaction(request); } }, factory,
+    signTransaction: async request => { signatures++; return wallet.signTransaction(request); } }, factory: options.graph?.factory ?? factory,
     verifyDeployment: async () => options.graphError ? Promise.reject(Error('unapproved graph'))
-      : options.oldGraph ? {} : { nativeSaleUpgrade: { version: 1 } }, dependencies });
+      : options.graphReader ? options.graphReader() : options.graph ?? (options.oldGraph ? {} : { nativeSaleUpgrade: { version: 1 } }), dependencies });
   const keeper = create();
   return { keeper, create, config, provider, wallet, state, journals, writes, observations,
     get signatures() { return signatures; }, get broadcasts() { return broadcasts; }, get laneChecks() { return laneChecks; },
@@ -69,6 +70,26 @@ test('expiry signs only exact permissionless calldata and reserves the existing 
   assert.equal(f.row.status, 'pending'); assert.equal(f.journal.transaction.expiry.listedProposalId, '7');
   assert(f.writes.some(value => value.transaction?.phase === 'signed' && value.transaction.attempts[0].broadcastCount === 0));
   assert.equal(f.journal.transaction.to, pool); assert.equal(f.journal.transaction.value, '0'); await f.keeper.close();
+});
+
+test('verified successor expiry keeps exact wallet lane and calldata; missing proof stays closed before signing', async () => {
+  const reviewed = await nativeSaleCompatibilityFixture(), graph = await reviewed.makeGraph();
+  const f = fixture({ graph }); await f.keeper.tick();
+  assert.equal(f.signatures, 1); assert.equal(f.broadcasts, 1); assert.equal(f.laneChecks, 1);
+  assert.equal(f.journal.transaction.data, FIRSTO_EXPIRY_CALLDATA); await f.keeper.close();
+  for (const denied of [structuredClone(graph), { ...graph, nativeSaleCompatibility: undefined },
+    { ...graph, transactionReady: false }, { ...graph, codehash: {} }]) {
+    const blocked = fixture({ graph: denied }); await blocked.keeper.tick();
+    assert.equal(blocked.signatures, 0); assert.equal(blocked.broadcasts, 0);
+    assert.equal(blocked.keeper.snapshot().enabled, false); await blocked.keeper.close();
+  }
+});
+
+test('successor capability is rechecked after wallet lane acquisition and before expiry signing', async () => {
+  const reviewed = await nativeSaleCompatibilityFixture(), graph = await reviewed.makeGraph(); let checks = 0;
+  const f = fixture({ graph, graphReader: () => ++checks === 1 ? graph : structuredClone(graph) });
+  await assert.rejects(f.keeper.tick(), /graph is no longer active/);
+  assert.equal(f.signatures, 0); assert.equal(f.broadcasts, 0); assert.equal(f.laneChecks, 1); await f.keeper.close();
 });
 
 test('old graphs, unsupported pools, unexpired or closed listings never sign or broadcast', async () => {

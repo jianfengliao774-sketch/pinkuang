@@ -12,7 +12,7 @@ const originalManifest = json('../../web/public/data/frontend-manifest.json');
 const hash = value => keccak256(toUtf8Bytes(value));
 const dependencies = { PoolFunds: [], FlexiblePurchase: ['PoolFunds', 'PurchaseValidation'],
   PoolVault: ['FirstoSale', 'FlexiblePurchase', 'MiningOperations', 'PoolFunds', 'RewardAccounting', 'SaleGovernance', 'SaleSettlement', 'ShareCheckpoints'] };
-function artifact(name) {
+function artifact(name, vaultAbi = []) {
   let code = `0x${name === 'PoolVault' ? '6000' : `73${'0'.repeat(40)}6000`}`, refs = {};
   for (const dep of dependencies[name]) {
     const start = (code.length - 2) / 2; code += `__$${hash(dep).slice(2, 36)}$__`;
@@ -21,7 +21,7 @@ function artifact(name) {
   const start = (code.length - 2) / 2;
   return { contractName: name, abi: name === 'PoolVault' ? [{ type: 'constructor', stateMutability: 'nonpayable', inputs: [{ name: 'officialFactory_', type: 'address' }] },
     { type: 'function', name: 'OFFICIAL_FACTORY', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-    { type: 'function', name: 'targetOwnerVersion', stateMutability: 'pure', inputs: [], outputs: [{ type: 'uint8' }] }] : [],
+    { type: 'function', name: 'targetOwnerVersion', stateMutability: 'pure', inputs: [], outputs: [{ type: 'uint8' }] }, ...vaultAbi] : [],
     bytecode: code + '6000', deployedBytecode: code + (name === 'PoolVault' ? '0'.repeat(64) : '') + '00',
     linkReferences: structuredClone(refs), deployedLinkReferences: refs, immutableReferences: name === 'PoolVault' ? { factory: [{ start, length: 32 }] } : {} };
 }
@@ -42,11 +42,11 @@ const abi = new Interface([
 ]);
 
 /** Self-contained FakeProvider fixture; no RPC endpoints, accounts, signing or deploy operations. */
-export function createTargetOwnerFixture({ phase = 'done', waiting = false, aliases = true, splitMarkets = false, proposer } = {}) {
+export function createTargetOwnerFixture({ phase = 'done', waiting = false, aliases = true, splitMarkets = false, proposer, vaultAbi = [] } = {}) {
   const record = structuredClone(original), manifest = structuredClone(originalManifest), old = record.addresses;
   if (proposer) record.input.ownerMultisig = proposer; // Synthetic independently pinned test identity only.
   const authorityCode = '0x60006001'; manifest.freshAuthority.codehash = keccak256(authorityCode);
-  const candidate = { schemaVersion: 1, artifacts: Object.fromEntries(targetOwnerUpgradeDeploymentOrder.map(name => [name, artifact(name)])) };
+  const candidate = { schemaVersion: 1, artifacts: Object.fromEntries(targetOwnerUpgradeDeploymentOrder.map(name => [name, artifact(name, vaultAbi)])) };
   const a = { ...old };
   if (splitMarkets) { a.PortfolioShareMarketImplementation = old.ShareMarket; a.ShareMarket = `0x${(0x995510).toString(16).padStart(40, '0')}`; }
   if (aliases) for (const [index, name] of ['PoolVault', 'FirstoSale', 'SaleGovernance', 'SaleSettlement'].entries()) a[name] = `0x${(0x995500 + index).toString(16).padStart(40, '0')}`;

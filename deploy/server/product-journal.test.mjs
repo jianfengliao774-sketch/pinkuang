@@ -11,6 +11,7 @@ import { createJournalService, createProductVerifierProvider, verifyProductInten
 import { JournalStore } from './journal-store.mjs';
 import { parseFirstoSignedAsk } from '../src/firsto-purchase.mjs';
 import { signedSource,firstoProvider,collection,now } from '../scripts/fixtures/firsto-order.mjs';
+import { nativeSaleCompatibilityFixture } from '../shared/native-sale-compatibility-test-fixture.mjs';
 const addr = n => getAddress(`0x${n.toString(16).padStart(40,'0')}`);
 const hash = n => `0x${n.toString(16).padStart(64,'0')}`;
 const factory = addr(1), pool = addr(2), market = addr(3), wallet = Wallet.createRandom(), account = wallet.address.toLowerCase();
@@ -206,6 +207,27 @@ test('early delisting uses only the upgraded pool action with exact zero value a
   await assert.rejects(verifyWithGraph(p.provider, record, allow, upgraded), /registered/);
   p.state.registered = true;
   await assert.rejects(verifyWithGraph(p.provider, { ...record, action: { kind: 'vote' } }, allow, upgraded), /calldata must match/);
+});
+
+test('successor native proof enables delisting without weakening registration, exact value or nonce checks', async () => {
+  const reviewed = await nativeSaleCompatibilityFixture(), graph = await reviewed.makeGraph();
+  const record = { ...intent('delist', [0, 0, 7, false], '0'), factory: graph.factory }, p = proof(record);
+  const send = p.provider.send.bind(p.provider);
+  p.provider.send = async (method, params) => {
+    if (method === 'eth_call' && !params[0].from) {
+      const parsed = views.parseTransaction(params[0]);
+      if (['factory', 'OFFICIAL_FACTORY'].includes(parsed?.name)) return views.encodeFunctionResult(parsed.name, [graph.factory]);
+    }
+    return send(method, params);
+  };
+  const allow = new Set([graph.factory.toLowerCase()]);
+  await verifyWithGraph(p.provider, record, allow, async () => graph);
+  for (const denied of [structuredClone(graph), { ...graph, nativeSaleCompatibility: undefined }, { ...graph, transactionReady: false }])
+    await assert.rejects(verifyWithGraph(p.provider, record, allow, async () => denied), /verified native-sale upgrade/);
+  await assert.rejects(verifyWithGraph(p.provider, { ...record, value: '1' }, allow, async () => graph), /cannot send BNB/);
+  p.state.registered = false; await assert.rejects(verifyWithGraph(p.provider, record, allow, async () => graph), /registered/);
+  p.state.registered = true; p.state.nonce++; await assert.rejects(verifyWithGraph(p.provider, record, allow, async () => graph), /nonce/);
+  assert.equal(p.state.simulations, 0); assert.equal(p.state.estimates, 0);
 });
 
 test('share fill charges the buyer separately and rejects the old one-sided value', async()=>{

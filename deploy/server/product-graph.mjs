@@ -6,6 +6,7 @@ import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared
 import { validateFreshNativeSaleCatalog, verifyFreshNativeSale } from '../shared/fresh-native-sale-proof.mjs';
 import { validateFreshFactoryReuseCatalog, verifyFreshFactoryReuse, factoryReuseRuntimeMatches } from '../shared/fresh-factory-reuse-proof.mjs';
 import { validateTargetOwnerUpgradeCatalog, verifyTargetOwnerUpgrade } from '../shared/target-owner-upgrade-proof.mjs';
+import { verifyNativeSaleCompatibility } from '../shared/native-sale-compatibility.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
   integratedUpgradeDeploymentOrder, validateIntegratedPostCodeGraphAgainstChain,
@@ -472,6 +473,8 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
       'Reviewed hardware-wallet bootstrap operation is not complete.');
   }
   check((await provider.getBlock(block.number))?.hash===block.hash,'Chain changed during product graph verification.');
+  const nativeSaleCompatibility=targetOwner && !budget
+    ? await verifyNativeSaleCompatibility(provider,{upgrade:targetOwner,review:trusted.targetOwnerUpgrade,block}) : null;
   return {factory:budget ? a.portfolioFactory : a.factory,productKind:budget ? 'budget' : 'pool',
     ...(integrated ? {legacyFactory:a.factory,portfolioFactory:a.portfolioFactory} : {}),
     operator:budget ? currentRoles?.budgetOperator ?? record.input.operator
@@ -488,6 +491,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     ...(nativeSale ? {nativeSaleUpgrade:{version:1,candidateArtifactDigest:nativeSale.candidateArtifactDigest,
       operationId:nativeSale.operationId,replacements:{...nativeSale.replacements},codehash:{...nativeSale.codehash},
       verifiedBlockNumber:nativeSale.blockNumber,verifiedBlockHash:nativeSale.blockHash}} : {}),
+    ...(nativeSaleCompatibility ? {nativeSaleCompatibility} : {}),
     ...(factoryReuse ? {factoryReuseUpgrade:{version:1,candidateArtifactDigest:factoryReuse.candidateArtifactDigest,
       operationId:factoryReuse.operationId,replacements:{...factoryReuse.replacements},codehash:{...factoryReuse.codehash},
       verifiedBlockNumber:factoryReuse.blockNumber,verifiedBlockHash:factoryReuse.blockHash}} : {}),

@@ -21,7 +21,7 @@ const publicCapability = {
   verifiedBlockHash: hash(104),
 };
 
-async function fixture({ capability = true, rejected = false } = {}) {
+async function fixture({ capability = true, rejected = false, nativeClaim } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'journal-target-owner-capability-'));
   const initial = record.steps.find(step => step.id === 'initialize');
   const block = { number: initial.receipt.blockNumber + 100, hash: hash(901), timestamp: 1_700_000_100 };
@@ -55,6 +55,7 @@ async function fixture({ capability = true, rejected = false } = {}) {
         artifactDigest: record.artifactDigest, addresses: record.addresses,
         codehash: Object.fromEntries(Object.entries(record.verification.code).map(([name, row]) => [name, row.codehash])),
         freshFactoryVerified: true, freshAuthority: authority,
+        ...(nativeClaim ? { nativeSaleUpgrade: { version: 1 }, nativeSaleCompatibility: nativeClaim } : {}),
         ...(capability ? { targetOwnerUpgrade: { ...publicCapability,
           // Deliberately attach private fields to guard the API serialization boundary.
           salt: 'private-governance-salt', catalog: { secret: 'private-review-record' },
@@ -99,6 +100,17 @@ test('an absent or failed upgraded graph cannot advertise target-owner capabilit
       if (options.rejected) assert.equal(f.service.currentProductGraphSnapshot(), null);
     } finally { await f.close(); }
   }
+});
+
+test('public native compatibility cannot be forged with JSON even beside an older native-sale capability', async () => {
+  const f = await fixture({ nativeClaim: { version: 1, kind: 'native-firsto-sale-compatibility-v1', salt: 'private-salt' } });
+  try {
+    const response = await fetch(f.url); assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.nativeSaleCompatibility, undefined); assert.equal(body.nativeSaleUpgrade.version, 1);
+    assert.equal(JSON.stringify(body).includes('private-'), false);
+    assert.equal((await fetch(`${f.url}?nativeSaleCompatibility=1`)).status, 400);
+  } finally { await f.close(); }
 });
 
 test('retained target-owner capability is display-only after current proof transport fails', async () => {
