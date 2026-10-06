@@ -989,6 +989,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
   salePolicyCatalogPath, salePolicyArtifactPath,
   nativeSaleCatalogPath, nativeSaleArtifactPath,
   targetOwnerCatalogPath, targetOwnerArtifactPath, trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest,
+  firstoBatchCatalogPath, firstoBatchArtifactPath, firstoBatchProtocolReviewPath,
+  trustedFirstoBatchCatalogDigest, trustedFirstoBatchArtifactDigest, trustedFirstoBatchProtocolReviewDigest,
   firstoAskPublisher = null, firstoAskPublisherDependencies,
   gasWalletAddressReader, gasWalletProofReader, freshConsolePreGenesis = false,
   freshStage2Hold = true, freshProduct = null, freshProductReadinessReader } = {}) {
@@ -1028,7 +1030,9 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
     integratedUpgradeArtifact,genesisManifestPath,genesisManifest,
     productActivationPath:freshActivationEvidencePath,expectedGasWallet,salePolicyCatalogPath,salePolicyArtifactPath,
     nativeSaleCatalogPath,nativeSaleArtifactPath,
-    targetOwnerCatalogPath,targetOwnerArtifactPath,trustedTargetOwnerCatalogDigest,trustedTargetOwnerArtifactDigest});
+    targetOwnerCatalogPath,targetOwnerArtifactPath,trustedTargetOwnerCatalogDigest,trustedTargetOwnerArtifactDigest,
+    firstoBatchCatalogPath,firstoBatchArtifactPath,firstoBatchProtocolReviewPath,
+    trustedFirstoBatchCatalogDigest,trustedFirstoBatchArtifactDigest,trustedFirstoBatchProtocolReviewDigest});
   if (gasWalletAddressReader !== undefined && typeof gasWalletAddressReader !== 'function')
     throw new Error('Gas wallet credential address reader is invalid.');
   if (gasWalletProofReader !== undefined && typeof gasWalletProofReader !== 'function')
@@ -1569,6 +1573,13 @@ export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secur
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
+        ...(graph.firstoBatchPurchase?.active === true ? {firstoBatchPurchase:{
+          version:graph.firstoBatchPurchase.version,protocolReviewed:true,active:true,
+          implementation:graph.firstoBatchPurchase.implementation,
+          candidateArtifactDigest:graph.firstoBatchPurchase.candidateArtifactDigest,
+          catalogDigest:graph.firstoBatchPurchase.catalogDigest,operationId:graph.firstoBatchPurchase.operationId,
+          verifiedBlockNumber:graph.firstoBatchPurchase.verifiedBlockNumber,
+          verifiedBlockHash:graph.firstoBatchPurchase.verifiedBlockHash}} : {}),
         ...(verifiedNativeSaleCompatibility(graph)
           ? {nativeSaleCompatibility:graph.nativeSaleCompatibility} : {}),
         // Publish only the completed graph verifier's capability. The private
@@ -2126,6 +2137,12 @@ export function journalConfiguration(env = process.env) {
     targetOwnerArtifactPath: env.BEMINE_TARGET_OWNER_ARTIFACT_PATH,
     trustedTargetOwnerCatalogDigest: env.BEMINE_TARGET_OWNER_CATALOG_DIGEST,
     trustedTargetOwnerArtifactDigest: env.BEMINE_TARGET_OWNER_ARTIFACT_DIGEST,
+    firstoBatchCatalogPath: env.BEMINE_FIRSTO_BATCH_CATALOG_PATH,
+    firstoBatchArtifactPath: env.BEMINE_FIRSTO_BATCH_ARTIFACT_PATH,
+    firstoBatchProtocolReviewPath: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_PATH,
+    trustedFirstoBatchCatalogDigest: env.BEMINE_FIRSTO_BATCH_CATALOG_DIGEST,
+    trustedFirstoBatchArtifactDigest: env.BEMINE_FIRSTO_BATCH_ARTIFACT_DIGEST,
+    trustedFirstoBatchProtocolReviewDigest: env.BEMINE_FIRSTO_BATCH_PROTOCOL_REVIEW_DIGEST,
     expectedGasWallet: env.BEMINE_EXPECTED_GAS_WALLET,
     secureCookies: production || origin.startsWith('https://') || env.DEPLOYMENT_JOURNAL_SECURE_COOKIES === '1' };
 }

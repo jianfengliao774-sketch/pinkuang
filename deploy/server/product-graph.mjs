@@ -6,6 +6,7 @@ import { validateFreshSalePolicyCatalog, verifyFreshSalePolicy } from '../shared
 import { validateFreshNativeSaleCatalog, verifyFreshNativeSale } from '../shared/fresh-native-sale-proof.mjs';
 import { validateFreshFactoryReuseCatalog, verifyFreshFactoryReuse, factoryReuseRuntimeMatches } from '../shared/fresh-factory-reuse-proof.mjs';
 import { validateTargetOwnerUpgradeCatalog, verifyTargetOwnerUpgrade } from '../shared/target-owner-upgrade-proof.mjs';
+import { validateFirstoBatchUpgradeCatalog, verifyFirstoBatchUpgrade } from '../shared/firsto-batch-upgrade-proof.mjs';
 import { verifyNativeSaleCompatibility } from '../shared/native-sale-compatibility.mjs';
 import {
   buildIntegratedUpgradePlan, buildIntegratedProposerBootstrapPlan, buildIntegratedRoleMigrationPlan,
@@ -73,7 +74,10 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
   salePolicyCatalogPath, salePolicyCatalog, salePolicyArtifactPath, salePolicyArtifact,
   nativeSaleCatalogPath, nativeSaleCatalog, nativeSaleArtifactPath, nativeSaleArtifact,
   targetOwnerCatalogPath, targetOwnerCatalog, targetOwnerArtifactPath, targetOwnerArtifact,
-  trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest }={}) {
+  trustedTargetOwnerCatalogDigest, trustedTargetOwnerArtifactDigest,
+  firstoBatchCatalogPath, firstoBatchCatalog, firstoBatchArtifactPath, firstoBatchArtifact,
+  firstoBatchProtocolReviewPath, firstoBatchProtocolReview, trustedFirstoBatchProtocolReviewDigest,
+  trustedFirstoBatchCatalogDigest, trustedFirstoBatchArtifactDigest }={}) {
   if (!record && !recordPath) return null;
   record ??= load(recordPath); bundle ??= load(bundlePath);
   const targetOwnerConfigured=Boolean(targetOwnerCatalog || targetOwnerCatalogPath || targetOwnerArtifact
@@ -237,6 +241,21 @@ export function productGraphConfiguration({ recordPath, bundlePath, record, bund
           trustedUpgradeArtifactDigest:trustedTargetOwnerArtifactDigest,
         },{trustedCatalogDigest:trustedTargetOwnerCatalogDigest});
     }
+    if (firstoBatchCatalog || firstoBatchCatalogPath || firstoBatchArtifact || firstoBatchArtifactPath
+      || trustedFirstoBatchCatalogDigest || trustedFirstoBatchArtifactDigest) {
+      check(trusted.targetOwnerUpgrade && (firstoBatchCatalog || firstoBatchCatalogPath)
+        && (firstoBatchArtifact || firstoBatchArtifactPath) && (firstoBatchProtocolReview || firstoBatchProtocolReviewPath)
+        && HASH.test(trustedFirstoBatchCatalogDigest ?? '') && HASH.test(trustedFirstoBatchArtifactDigest ?? '')
+        && HASH.test(trustedFirstoBatchProtocolReviewDigest ?? ''), 'Firsto batch upgrade requires the independently pinned completed core and protocol review.');
+      const catalog=firstoBatchCatalog ?? load(firstoBatchCatalogPath), prior=trusted.targetOwnerUpgrade;
+      check(same(catalog.candidateArtifactDigest,trustedFirstoBatchArtifactDigest), 'Firsto batch artifact pin differs.');
+      trusted.firstoBatchUpgrade=validateFirstoBatchUpgradeCatalog(catalog, firstoBatchArtifact ?? load(firstoBatchArtifactPath), {
+        ...prior.input, priorCoreCatalog:prior.catalog, priorCoreBundle:prior.bundle,
+        trustedPriorCoreCatalogDigest:prior.catalogDigest,
+        protocolReview:firstoBatchProtocolReview ?? load(firstoBatchProtocolReviewPath),
+        trustedProtocolReviewDigest:trustedFirstoBatchProtocolReviewDigest,
+      }, {trustedCatalogDigest:trustedFirstoBatchCatalogDigest});
+    }
     return trusted;
   }
   // Defensive clone: consumers cannot modify the trusted evidence through a browser record.
@@ -374,8 +393,12 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
     a={...a,...nativeSale.replacements};
   }
   if (factoryReuse) a={...a,...factoryReuse.replacements};
-  const targetOwner=await verifyTargetOwnerUpgrade(provider,trusted,block);
-  const targetBaseline=trusted.targetOwnerUpgrade?.catalog?.reviewCatalog?.nodes;
+  const firstoBatch=await verifyFirstoBatchUpgrade(provider,trusted,block);
+  // The original verifier recognizes only its own terminal pointer. Its completion
+  // is proved historically by the independently reviewed batch successor.
+  const targetOwner=firstoBatch ?? await verifyTargetOwnerUpgrade(provider,trusted,block);
+  const coreReview=firstoBatch ? trusted.firstoBatchUpgrade : trusted.targetOwnerUpgrade;
+  const targetBaseline=coreReview?.catalog?.reviewCatalog?.nodes;
   if (targetBaseline) a={...a,...Object.fromEntries(Object.entries(targetBaseline).map(([name,node])=>[name,node.address])),
     PoolFactory:targetBaseline.FreshPoolFactory.address,
     portfolioVaultImplementation:targetBaseline.BudgetPortfolioVault.address,
@@ -387,10 +410,10 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   const policyNames=salePolicy ? ['SaleGovernance','PoolVault','BudgetPortfolioVault','ShareMarket'] : [];
   const nativeNames=nativeSale ? ['SaleSettlement','FirstoSale','PoolVault'] : [];
   const reuseName=name=>factoryReuse && ['PoolFactory','FreshPoolFactory'].includes(name);
-  const targetNames=targetOwner ? ['PoolFunds','FlexiblePurchase','PoolVault'] : [];
+  const targetNames=targetOwner ? firstoBatch ? ['FlexiblePurchase','PoolVault'] : ['PoolFunds','FlexiblePurchase','PoolVault'] : [];
   const targetNode=name=>targetBaseline?.[name==='PoolFactory' ? 'FreshPoolFactory' : name];
   const artifactFor=name=>name==='PoolFactory' && freshFactory ? 'FreshPoolFactory' : artifacts[name] ?? name;
-  const sourceFor=name=>targetNames.includes(name) ? trusted.targetOwnerUpgrade.bundle
+  const sourceFor=name=>targetNames.includes(name) ? coreReview.bundle
     : targetNode(name) ? {artifacts:{[name]:targetNode(name).artifact,[artifactFor(name)]:targetNode(name).artifact}}
     : reuseName(name) ? trusted.freshFactoryReuse.bundle : nativeNames.includes(name) ? trusted.freshNativeSale.bundle : policyNames.includes(name) ? trusted.freshSalePolicy.bundle : candidateActive ? upgradedNames.includes(name) ? security.bundle : bundle
     : trusted.upgradeRecord && !upgradedNames.includes(name) ? trusted.genesisBundle : bundle;
@@ -454,7 +477,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   await settleReads([['factory','PoolFactory'],['shareMarket','ShareMarket'],...(integrated
     ? [['portfolioFactory','BudgetPortfolioFactory'],['portfolioShareMarket','ShareMarket']] : [])].map(async([name,implementation])=>{
     const slot=await provider.getStorage(a[name],SLOT,block.number);
-    const targetImplementation=trusted.targetOwnerUpgrade?.catalog?.implementations?.[name];
+    const targetImplementation=coreReview?.catalog?.implementations?.[name];
     const expected=targetImplementation ? targetBaseline[targetImplementation].address
       :name==='portfolioShareMarket' && salePolicy ? record.addresses.ShareMarket : a[implementation];
     check(/^0x0{24}[\da-f]{40}$/i.test(slot) && same(`0x${slot.slice(-40)}`,expected),`Reviewed implementation changed: ${name}.`);
@@ -474,7 +497,7 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
   }
   check((await provider.getBlock(block.number))?.hash===block.hash,'Chain changed during product graph verification.');
   const nativeSaleCompatibility=targetOwner && !budget
-    ? await verifyNativeSaleCompatibility(provider,{upgrade:targetOwner,review:trusted.targetOwnerUpgrade,block}) : null;
+    ? await verifyNativeSaleCompatibility(provider,{upgrade:targetOwner,review:coreReview,block}) : null;
   return {factory:budget ? a.portfolioFactory : a.factory,productKind:budget ? 'budget' : 'pool',
     ...(integrated ? {legacyFactory:a.factory,portfolioFactory:a.portfolioFactory} : {}),
     operator:budget ? currentRoles?.budgetOperator ?? record.input.operator
@@ -496,9 +519,13 @@ export async function verifyProductGraph(provider, factory, trusted, block) {
       operationId:factoryReuse.operationId,replacements:{...factoryReuse.replacements},codehash:{...factoryReuse.codehash},
       verifiedBlockNumber:factoryReuse.blockNumber,verifiedBlockHash:factoryReuse.blockHash}} : {}),
     ...(targetOwner ? {targetOwnerUpgrade:{version:1,candidateArtifactDigest:targetOwner.candidateArtifactDigest,
-      catalogDigest:trusted.targetOwnerUpgrade.catalogDigest,operationId:targetOwner.operationId,
+      catalogDigest:coreReview.catalogDigest,operationId:targetOwner.operationId,
       replacements:{...targetOwner.replacements},codehash:{...targetOwner.codehash},
       verifiedBlockNumber:targetOwner.blockNumber,verifiedBlockHash:targetOwner.blockHash}} : {}),
+    ...(firstoBatch && !budget ? {firstoBatchPurchase:{version:1,protocolReviewed:true,active:true,
+      implementation:firstoBatch.replacements.PoolVault,candidateArtifactDigest:firstoBatch.candidateArtifactDigest,
+      catalogDigest:coreReview.catalogDigest,operationId:firstoBatch.operationId,
+      verifiedBlockNumber:block.number,verifiedBlockHash:block.hash}} : {}),
     ...(candidateActive ? {securityUpgrade:{operationId:security.plan.operationId,
       roleWiringComplete:roleState?.roleWiringComplete===true,
       roleMigrationStarted:roleState?.applied?.some(Boolean)===true}} : {}),

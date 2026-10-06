@@ -2,6 +2,8 @@ import { Interface, keccak256 } from 'ethers';
 import { buildDigest, evidenceDigest, settleReads } from './firsto-upgrade-proof.mjs';
 import { reviewedUpgradeBytecode } from './integrated-upgrade-plan.mjs';
 import { targetOwnerVerifiedUpgrade } from './target-owner-upgrade-proof.mjs';
+import { firstoBatchVerifiedUpgrade } from './firsto-batch-upgrade-proof.mjs';
+import { FIRSTO_BATCH_UPGRADE_KIND } from './firsto-batch-upgrade-plan.mjs';
 
 const KIND = 'native-firsto-sale-compatibility-v1';
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
@@ -20,17 +22,19 @@ const bindings = new Interface(['function implementation() view returns(address)
  * This only accepts the internally branded, independently pinned target-owner proof;
  * public capability JSON and caller-supplied versions cannot create this proof. */
 export async function verifyNativeSaleCompatibility(provider, { upgrade, review, block }) {
-  const completed = targetOwnerVerifiedUpgrade(upgrade);
+  const batch = review?.catalog?.kind === FIRSTO_BATCH_UPGRADE_KIND;
+  const completed = batch ? firstoBatchVerifiedUpgrade(upgrade) : targetOwnerVerifiedUpgrade(upgrade);
   const catalog = review?.catalog, nodes = catalog?.reviewCatalog?.nodes, factory = catalog?.reviewCatalog?.bindings?.factory;
   need(completed.codeUpgradeComplete === true && same(completed.catalogDigest, review?.catalogDigest)
     && same(completed.reviewCatalogDigest, evidenceDigest(catalog?.reviewCatalog))
     && same(completed.candidateArtifactDigest, buildDigest(review?.bundle)), 'Native compatibility evidence differs from the completed upgrade.');
   need(Number.isSafeInteger(block?.number) && block.number >= completed.blockNumber
     && /^0x[\da-f]{64}$/i.test(block.hash ?? ''), 'Native compatibility requires a current canonical block.');
-  const vault = completed.replacements.PoolVault, firsto = nodes.FirstoSale, oldFunds = nodes.PoolFunds;
+  const vault = completed.replacements.PoolVault, firsto = nodes.FirstoSale,
+    oldFunds = batch ? review.input.priorCoreCatalog.reviewCatalog.nodes.PoolFunds : nodes.PoolFunds;
   need(same(oldFunds.address, review.input.genesisRecord.addresses.PoolFunds)
     && same(firsto.links?.PoolFunds, oldFunds.address), 'Native compatibility must retain the original FirstoSale PoolFunds link.');
-  for (const name of ['PoolFunds', 'FlexiblePurchase', 'PoolVault'])
+  for (const name of batch ? ['FlexiblePurchase', 'PoolVault'] : ['PoolFunds', 'FlexiblePurchase', 'PoolVault'])
     need(same(completed.replacements[name], catalog.deployments[name]?.address), 'Native compatibility replacement differs from the completed catalog.');
   const artifact = review.bundle.artifacts.PoolVault, abi = new Interface(artifact.abi);
   for (const expected of native.fragments) {
