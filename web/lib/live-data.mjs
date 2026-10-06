@@ -7,6 +7,7 @@ import { readSaleReference, readSaleReview, saleExecutionGate, saleReferenceStat
 import { readMiningOverviewStats } from './mining-overview.mjs';
 import { readDisplayCache, DISPLAY_CACHE_TIMEOUT_MS } from './display-cache-transport.mjs';
 import { createUncollectedRewardReader } from './uncollected-rewards.mjs';
+import { attachTargetOwnerFundingStatus } from './target-owner-funding.mjs';
 
 const bindings = new Interface(['function owner() view returns(address)', 'function factory() view returns(address)',
   'function timelock() view returns(address)', 'function lens() view returns(address)', 'function shareMarket() view returns(address)',
@@ -857,5 +858,9 @@ export function createLiveDataClient(config, { provider, fetcher = globalThis.fe
         accountClaimedAtomic: account ? exact(row.accountClaimedAtomic, 'accountClaimedAtomic') : null }; });
     return Object.freeze({ source, data: Object.freeze({ ...data, buckets, accountUnclaimedDailyAccrual: null }) });
   }
-  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readUncollectedRewards, readDisplayPool, readDisplayPools, readDisplayPositions, readDisplayOrders, readDisplayStats, readPools, readPool, readPositions, readStats, readOrders, readGovernance, readActivity, readYield });
+  const owned = read => async (...args) => attachTargetOwnerFundingStatus(await read(...args), { provider: rpc, config });
+  return Object.freeze({ manifest, provider: rpc, verifyDeployment, readUncollectedRewards,
+    readDisplayPool: owned(readDisplayPool), readDisplayPools: owned(readDisplayPools), readDisplayPositions: owned(readDisplayPositions),
+    readDisplayOrders, readDisplayStats, readPools: owned(readPools), readPool: owned(readPool), readPositions: owned(readPositions),
+    readStats, readOrders, readGovernance, readActivity, readYield });
 }

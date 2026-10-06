@@ -143,6 +143,7 @@ import {
   fundingTargetStatus,
   fundingTargetUnavailableText,
 } from "../lib/live-view.mjs";
+import { targetOwnerGuardEnabled, targetOwnerFundingBlocked, targetOwnerFundingText } from '../lib/target-owner-funding.mjs';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const minimumSharePriceWei = 10000000000000n;
@@ -1003,6 +1004,9 @@ export default function LivePlatform() {
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
+    if (kind === 'deposit' && targetOwnerFundingBlocked(pool, config)) {
+      setError(L(...targetOwnerFundingText(pool?.targetOwnerFunding?.status))); return;
+    }
     if (route.route === 'detail' && ['deposit', 'completeFirstoSale', 'finalizeFailure',
       'withdrawDeposit', 'claim', 'withdrawBnb', 'list'].includes(kind) && !detailActionReadyFor(kind)) return;
     if (['overview', 'rewards', 'market'].includes(route.route)
@@ -2375,7 +2379,7 @@ export default function LivePlatform() {
         await connectJournal({ inspect: false, onState: progress });
       }
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
-      if (target.kind === 'deposit' && config.fundingTargetGuard === true) {
+      if (target.kind === 'deposit' && (config.fundingTargetGuard === true || targetOwnerGuardEnabled(config))) {
         // Recheck after the preview: the intended NFT may have been sold while this dialog was open.
         const checked = await prepareProductAction({ provider: wallet, config, account: owner,
           pool: confirmed.pool, kind: 'deposit', quantity: confirmed.quantity,
@@ -2832,6 +2836,7 @@ export default function LivePlatform() {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
           const bemPreview = previewRows.get(p.pool.toLowerCase());
           const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
+          const ownerBlocked = targetOwnerFundingBlocked(p, config);
           const refundView = holdings ? fundingRefundView(p, positionsReadSource) : null;
           const compactFundingHolding = holdings && route.route === 'overview' && p.status === 'Funding';
           const fundingBnbClaim = holdings && p.kind !== 'portfolio' && ['Funding', 'Funded', 'Refunding'].includes(p.status)
@@ -2841,6 +2846,7 @@ export default function LivePlatform() {
             {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
             {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
             {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
+            {ownerBlocked && <small className="live-order-state" role="status">{L(...targetOwnerFundingText(p.targetOwnerFunding?.status))}</small>}
             {targetStatus === 'unavailable' && <small className="live-order-state">{L(...fundingTargetUnavailableText(p))}</small>}
             {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机可购状态未确认，请刷新核对', 'Miner availability is unconfirmed; refresh to check')}</small>}
           </span></>;
@@ -3509,6 +3515,7 @@ export default function LivePlatform() {
   const marketOrderNeedsConnection = !wallet || !account;
   const marketOrderConnectReady = marketTab === 'shares' && !!client && config?.status === 'ready';
   const detailTargetStatus = config?.indexBaseUrl ? fundingTargetStatus(detail) : 'not_applicable';
+  const detailOwnerBlocked = targetOwnerFundingBlocked(detail, config);
   const participantNotices = participantFundingNotices(positions, { account, positionsAccount, source: positionsReadSource });
 
   return (
@@ -3840,6 +3847,10 @@ export default function LivePlatform() {
                   {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('项目已下架', 'Project delisted')}</span>}
                   {refreshButton}
                 </div>
+                {detailOwnerBlocked && <p className="live-order-state" role="status">
+                  {L(...targetOwnerFundingText(detail.targetOwnerFunding?.status))}{L('。现有份额和退款权益保留；撤回认购、开启退款和领取 BNB 的入口仍在本页。',
+                    '. Existing shares and refund rights are preserved. Withdrawal, refund-opening and BNB claim actions remain on this page.')}
+                </p>}
                 <FundingRefundNotice row={detail} source={source} L={L} readyFor={detailActionReadyFor}
                   blocked={busy || !!pending || !account} onAction={openAction}/>
                 <div className="detail-layout">

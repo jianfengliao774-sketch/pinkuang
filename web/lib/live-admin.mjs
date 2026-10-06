@@ -4,6 +4,7 @@ import { GENESIS_ARTIFACT_DIGEST } from './live-config.mjs';
 import { loadOperatorQuote, readMachineRegistry, readOfficialMinerOnchain } from './operator-quotes.mjs';
 import { pollMarketDiscovery } from './discovery-poll.mjs';
 import { decodeFirstoOrder, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
+import { assertTargetOwnerConfigured } from './target-owner-funding.mjs';
 
 const need = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -184,6 +185,8 @@ export async function prepareAdminAction(input) {
   const { provider, config, account, kind, params = {}, subscriber, flexible, expectedTaskId, expectedReferenceWeight, pool, listingId, miningAction, firstoOrder } = input;
   const ctx = await context(provider, config, account), { from, factory, request, call, tag, status } = ctx;
   need(status.isOperator, '仅当前运营钱包可操作。');
+  if (['autoPurchase', 'buyFromFirsto', 'buyFromMarket', 'buyAlternativeFromMarket'].includes(kind))
+    await assertTargetOwnerConfigured({ provider, config, pool, blockTag: tag });
   let transaction, normalizedParams, frozenFirstoOrder, details = {}, resolvedKind = kind;
   let selectedListingId = listingId;
   const tx = (to, contract, name, args) => Object.freeze({ chainId: '0x38', from, to,

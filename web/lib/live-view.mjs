@@ -2,6 +2,7 @@ import { getAddress, ZeroAddress } from 'ethers';
 import { displayAmount } from './amount-display.mjs';
 import { freshUserExitReady } from './fresh-user-exits.mjs';
 import { freshWalletActionReady } from './fresh-wallet-actions.mjs';
+import { targetOwnerFundingBlocked } from './target-owner-funding.mjs';
 
 export const POOL_STATES = ['Funding', 'Funded', 'Active', 'Listed', 'Closed', 'Refunding'];
 export const shortAddress = value => typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) ? `${value.slice(0, 6)}…${value.slice(-4)}` : '—';
@@ -108,6 +109,7 @@ export function currentMarketOrderActionReady({ route, marketTab, readIdentity, 
 /** Subscription also needs current pool eligibility; action preparation rechecks the chain. */
 export function canOpenFundingAction({ detail, ...context }) {
   return currentDetailActionReady({ ...context, action: 'deposit' })
+    && !targetOwnerFundingBlocked(detail, context.config)
     && (!context.config?.indexBaseUrl || ['available', 'not_applicable'].includes(fundingTargetStatus(detail)))
     && (context.config?.displayOnly === true || detail?.trusted === true) && detail.depositPaused === false
     && typeof detail.remaining === 'number' && Number.isFinite(detail.remaining)

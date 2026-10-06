@@ -2,6 +2,7 @@ import { Interface, ZeroAddress, getAddress } from 'ethers';
 import { abi } from './chain-client.mjs';
 import { fetchLiveJson } from './live-config.mjs';
 import { confirmedMissingTargetListing, confirmedAvailableTargetListing } from './live-view.mjs';
+import { assertTargetOwnerConfigured } from './target-owner-funding.mjs';
 
 const nft = new Interface(['function ownerOf(uint256) view returns(address)']);
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -18,6 +19,7 @@ export const fundingTargetGuardEnabled = config => config?.fundingTargetGuard ==
 /** Only one selected fixed target is read; the server supplies a shared historical owner proof. */
 export async function assertFundingTargetAvailable({ provider, config, pool, params,
   fetcher = globalThis.fetch, blockTag = 'latest' }) {
+  await assertTargetOwnerConfigured({ provider, config, pool, blockTag });
   if (!fundingTargetGuardEnabled(config)) return null;
   const target = getAddress(pool);
   const call = async (to, contract, method, args = []) => contract.decodeFunctionResult(method,
