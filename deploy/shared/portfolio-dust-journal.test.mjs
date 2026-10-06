@@ -31,6 +31,12 @@ test('recovery verifies exact nonce/data/canonical inclusion and final failures'
   await assert.rejects(verifyPortfolioDustReceipt(provider({blockHash:h(11)}),h(5),intent));
   await assert.rejects(verifyPortfolioDustReceipt(provider({receipt:{contractAddress:a(3)}}),h(5),intent));
 });
+test('CREATE identity cannot use schedule wrapper support to accept any contract call',async()=>{
+  await assert.rejects(verifyPortfolioDustReceipt(provider({tx:{to:'0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3'}}),h(5),intent),
+    /原交易与本次固定部署步骤不符/);
+  for(const tx of [{chainId:1n},{from:a(99)},{value:1n}])
+    await assert.rejects(verifyPortfolioDustReceipt(provider({tx}),h(5),intent),/原交易与本次固定部署步骤不符/);
+});
 test('confirmed schedule cannot hide cancellation or a state node behind its receipt',()=>{
   const receipt={success:true,blockNumber:10},proof={replacementVerified:true,blockNumber:11,operation:'waiting'};
   assert.doesNotThrow(()=>assertPortfolioDustConfirmedState('schedule',receipt,proof));
