@@ -44,6 +44,37 @@ export function transactionExplorerUrl(hash) {
   return HASH.test(hash ?? '') ? `https://bscscan.com/tx/${hash}` : null;
 }
 
+/** An earlier journal transaction is evidence about that operation, never this new request. */
+export function authorityRejectionResult(input, { locale = 'zh', action } = {}) {
+  const relay = input?.relayResult;
+  if (input?.submissionRejected !== true || relay?.accepted !== false) return null;
+  const L = (zh, en) => locale === 'en' ? en : zh;
+  const hash = HASH.test(relay.hash ?? '') ? relay.hash : null;
+  const previousFailed = relay.status === 'failed' && relay.reason === 'transaction-reverted';
+  const reason = previousFailed
+    ? L('旧交易执行已回滚，原操作未完成。', 'The earlier transaction reverted; its action did not complete.')
+    : L('旧操作的链上结果仍需核对。', 'The earlier operation still needs its on-chain result checked.');
+  const guidance = previousFailed && relay.archived === true
+    ? L('旧失败已核验并归档。本次创建请求未发送；请核对矿机是否已有项目，重新预览后再签名创建。',
+      'The earlier failure is verified and archived. This creation request was not sent; check whether the miner already has a project, then preview and sign a new request.')
+    : L('本次新请求未被接受。请核对旧操作状态，结果不明时不要重复创建。',
+      'This new request was not accepted. Check the earlier operation; do not retry creation while its outcome is unknown.');
+  return { kind: previousFailed ? 'failed' : 'pending', reason: 'publication', action, hash,
+    key: `${relay.requestId}:rejected`,
+    title: L(previousFailed ? '旧操作失败，本次创建未发送' : '本次请求未被接受',
+      previousFailed ? 'Earlier operation failed; this creation was not sent' : 'This request was not accepted'),
+    message: `${reason} ${guidance}` };
+}
+
+export function authorityPreviousFailureNotice(input, locale = 'zh') {
+  const previous = input?.previousFailure;
+  if (input?.accepted !== true || previous?.archived !== true || previous.status !== 'reverted'
+    || !HASH.test(previous.hash ?? '') || !HASH.test(previous.operationId ?? '')) return null;
+  return { hash: previous.hash, message: locale === 'en'
+    ? 'The earlier transaction reverted and has been verified and archived. The new request was accepted separately; this does not confirm creation.'
+    : '旧交易执行已回滚，失败已核验并归档。本次新请求已单独接受，尚不代表项目创建成功。' };
+}
+
 function transactionHash(input) {
   return [input?.transactionHash, input?.hash, input?.record?.hash,
     input?.receipt?.transactionHash, input?.receipt?.hash]

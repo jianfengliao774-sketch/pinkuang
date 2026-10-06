@@ -12,7 +12,7 @@ import { publishedProjectIntent, readPublishedProject, readPublishedPoolDisplay,
 import { createLiveBrowserFixture } from './live-browser-fixture.mjs';
 import * as transactionResult from '../lib/transaction-result.mjs';
 import * as dialogScroll from '../lib/dialog-scroll-lock.mjs';
-import { approvedOperatorCall } from '../lib/authority-client.mjs';
+import { approvedOperatorCall, authorityCommandData, authorityStatusForRequest } from '../lib/authority-client.mjs';
 import { sameUnsignedIntent } from '../lib/ui-context.mjs';
 
 const address = n => getAddress(`0x${n.toString(16).padStart(40, '0')}`);
@@ -22,7 +22,8 @@ function fixture() {
   const config = { ...f.manifest, authority: address(10), gasWallet: address(11), portfolioFactory: address(12) };
   const transaction = { from: account, to: config.factory, value: '0x0', chainId: '0x38',
     data: abi.PoolFactory.encodeFunctionData('createPool', [row.params]) };
-  const command = { kind: 'executeApprovedOperation', nonce: '7', args: { target: config.factory, data: transaction.data } };
+  const command = { authority: config.authority, kind: 'executeApprovedOperation', nonce: '7',
+    deadline: '1000000', signature: '0x' + '11'.repeat(65), args: { target: config.factory, data: transaction.data } };
   const intent = publishedProjectIntent(config, transaction, { account, command });
   const log = (contract, target, name, args) => ({ address: target,
     ...contract.encodeEventLog(contract.getEvent(name), args), transactionHash: hash(20), blockHash: hash(100) });
@@ -34,8 +35,7 @@ function fixture() {
     ] };
   const tx = { hash: hash(20), from: config.gasWallet, to: config.authority,
     blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
-    input: abi.PlatformAuthority.encodeFunctionData('executeApprovedOperation',
-      [config.factory, transaction.data, 7n, 1000000n, '0x']) };
+    input: authorityCommandData(command) };
   const reads = [], provider = { request: async request => { reads.push(request);
     if (request.method === 'eth_getTransactionReceipt') return receipt;
     if (request.method === 'eth_getTransactionByHash') return tx;
@@ -101,6 +101,17 @@ test('a reverted creation reports failure only for the matching original signed 
     status: { status: 'failed', hash: hash(20) } }), /不属于本次/);
 });
 
+test('old failed signatures with reused nonce and identical Factory calldata cannot fail a new creation', async () => {
+  const f = fixture(); f.receipt.status = '0x0'; f.receipt.logs = [];
+  for (const changed of [{ deadline: '1000001' }, { signature: '0x' + '22'.repeat(65) }]) {
+    const intent = publishedProjectIntent(f.config, f.transaction, { account: f.account, command: { ...f.command, ...changed } });
+    assert.equal(intent.nonce, f.intent.nonce); assert.equal(intent.callData, f.intent.callData);
+    assert.notEqual(intent.operationId, f.intent.operationId);
+    await assert.rejects(readPublishedProject({ provider: f.provider, intent,
+      status: { status: 'failed', hash: hash(20) } }), /不属于本次签名内容/);
+  }
+});
+
 test('budget creation uses the separate Factory event and a new pool address for the same asset stays distinct', async () => {
   const f = fixture(), newPool = address(40);
   const transaction = { ...f.transaction, to: f.config.portfolioFactory,
@@ -112,8 +123,7 @@ test('budget creation uses the separate Factory event and a new pool address for
   f.receipt.logs = [log(abi.PlatformAuthority, f.config.authority, 'AdminAction',
     [f.account, id('APPROVED_OPERATION'), transaction.to, 7]),
     log(abi.BudgetPortfolioFactory, transaction.to, 'PortfolioCreated', [newPool, 10000n, 9000n, 20n])];
-  f.tx.input = abi.PlatformAuthority.encodeFunctionData('executeApprovedOperation',
-    [transaction.to, transaction.data, 7n, 1000000n, '0x']);
+  f.tx.input = authorityCommandData(command);
   const result = await readPublishedProject({ provider: f.provider, intent, status: { status: 'confirmed', hash: hash(20) } });
   assert.equal(result.poolAddress, newPool); assert.equal(result.projectKind, 'portfolio');
   assert.equal(mergePublishedProjects([{ pool: f.row.pool, tokenId: '16736', status: 'Closed' }],
@@ -128,14 +138,14 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   const timers = [], results = [], state = { pools: [], refresh: 0, resetKey: 0, job: null };
   const client = { manifest: f.f.manifest, provider: f.provider,
     readDisplayPool: async () => { throw Object.assign(Error('missing new cache row'), { code: 'http_unavailable' }); } };
-  const job = { intent: f.intent, hash: hash(20), initialStatus: { status: 'pending', hash: hash(20) },
+  const job = { intent: f.intent, hash: hash(20), initialStatus: { status: 'pending', hash: hash(20), operationId: f.intent.operationId },
     client, account: f.account, config: f.config, startedAt: Date.now() };
   const publishedProjects = { current: [] }, context = {
     publishingProject: job, client, config: f.config, account: f.account, same: (a, b) => a.toLowerCase() === b.toLowerCase(),
     showTransactionResult: result => results.push(result), setOperatorRefresh: () => {},
     setCreationResetKey: fn => { state.resetKey = fn(state.resetKey); },
     setRefresh: fn => { state.refresh = fn(state.refresh); },
-    authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20) }),
+    authorityStatusForRequest, authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20), operationId: f.intent.operationId }),
     readPublishedProject, readPublishedPoolDisplay, viewPool, publishedProjects,
     mergePublishedProjects, setPools: fn => { state.pools = fn(state.pools); },
     setPublishingProject: value => { state.job = value; },
@@ -156,7 +166,7 @@ test('the actual LivePlatform publication effect replaces pending feedback and m
   cleanup();
   // A previous account's unresolved receipt cannot erase a newer account's task.
   let release;
-  job.result = null; job.initialStatus = { status: 'confirmed', hash: hash(20) };
+  job.result = null; job.initialStatus = { status: 'confirmed', hash: hash(20), operationId: f.intent.operationId };
   const newerJob = { account: address(99) }; state.job = newerJob;
   client.provider = { request: request => {
     if (request.method === 'eth_getTransactionByHash') return f.tx;
@@ -183,7 +193,7 @@ test('a hashless timed-out publication cannot adopt the previous confirmed statu
     account: f.account, same: (a, b) => a.toLowerCase() === b.toLowerCase(),
     showTransactionResult: result => results.push(result), setOperatorRefresh: () => {}, setRefresh: () => {},
     setCreationResetKey: () => assert.fail('An older result cannot reset the active creation form.'),
-    authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20) }), readPublishedProject,
+    authorityStatusForRequest, authorityActionStatus: async () => ({ status: 'confirmed', hash: hash(20), operationId: f.intent.operationId }), readPublishedProject,
     readPublishedPoolDisplay: () => assert.fail('An older creation cannot become a displayed project.'),
     viewPool, publishedProjects: { current: [] }, mergePublishedProjects,
     setPools: value => rows.push(value), setPublishingProject: () => assert.fail('The unresolved intent must remain.'),
@@ -194,8 +204,35 @@ test('a hashless timed-out publication cannot adopt the previous confirmed statu
     fn => { effect = fn; }, fn => { timers.push(fn); return timers.length; }, () => {}, ...Object.values(context));
   const cleanup = effect(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(job.result, undefined); assert.equal(results.length, 0); assert.equal(rows.length, 0);
-  assert.deepEqual(f.reads.map(read => read.method), ['eth_getTransactionReceipt', 'eth_getTransactionByHash']);
+  assert.deepEqual(f.reads, [], 'An unrelated journal operation cannot trigger receipt adoption.');
   assert.equal(timers.length, 1, 'The existing timeout guard keeps the unresolved creation available for another poll.');
+  cleanup();
+});
+
+test('actual polling retains a hashless new creation when the latest journal is an older failed signature', async () => {
+  const f = fixture(), source = await readFile(new URL('../components/LivePlatform.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('  useEffect(() => {\n    const job = publishingProject;');
+  const end = source.indexOf('  async function submitFreshAuthority', start);
+  const intent = publishedProjectIntent(f.config, f.transaction, { account: f.account,
+    command: { ...f.command, deadline: '1000001' } });
+  const client = { provider: { request: () => assert.fail('Unrelated old failure must not trigger receipt reads.') } };
+  const job = { intent, hash: null, client, account: f.account, config: f.config, startedAt: Date.now() };
+  const timers = [], context = { publishingProject: job, client, config: f.config, account: f.account,
+    same: (a, b) => a.toLowerCase() === b.toLowerCase(), authorityStatusForRequest,
+    authorityActionStatus: async () => ({ status: 'failed', reason: 'transaction-reverted', archived: true,
+      hash: hash(20), operationId: f.intent.operationId }), readPublishedProject,
+    showTransactionResult: () => assert.fail('The old failure cannot be displayed as this creation result.'),
+    setPublishingProject: () => assert.fail('The new unresolved request cannot be cleared.'),
+    setCreationResetKey: () => assert.fail(), setOperatorRefresh: () => {}, setRefresh: () => {},
+    readPublishedPoolDisplay: () => assert.fail(), readPortfolioDisplayRow: () => assert.fail(),
+    viewPool, mergePublishedProjects, publishedProjects: { current: [] }, publishedPortfolios: { current: [] },
+    setPools: () => assert.fail(), rememberPortfolioDisplay: () => assert.fail(), setMessage: () => {}, L: zh => zh };
+  let effect;
+  new Function('useEffect', 'setTimeout', 'clearTimeout', ...Object.keys(context), source.slice(start, end))(
+    fn => { effect = fn; }, fn => { timers.push(fn); return timers.length; }, () => {}, ...Object.values(context));
+  const cleanup = effect(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(job.hash, null); assert.equal(job.result, undefined); assert.equal(timers.length, 1);
+  await timers.shift()(); assert.equal(job.result, undefined); assert.equal(timers.length, 1);
   cleanup();
 });
 
@@ -221,8 +258,11 @@ test('the real result dialog exposes address and directory actions only after co
     projectAddress: address(40), projectKind: 'single', hash: hash(20) } }));
   assert(success.includes(address(40))); assert(success.includes('查看项目')); assert(success.includes('前往项目大厅'));
   const pending = renderToStaticMarkup(React.createElement(Component, { result: { kind: 'pending', reason: 'publication',
-    title: '项目正在发布', message: '等待链上确认', projectAddress: address(40), hash: hash(20) } }));
+    title: '项目正在发布', message: '等待链上确认', projectAddress: address(40), hash: hash(20),
+    previousFailure: { hash: hash(19), message: '旧失败已核验；新请求尚未确认创建' } } }));
   assert(pending.includes('等待链上确认')); assert(!pending.includes('查看项目')); assert(!pending.includes(address(40)));
+  assert(pending.includes('交易哈希')); assert(pending.includes(hash(20))); assert(pending.includes('旧失败交易'));
+  assert(pending.includes(hash(19))); assert(pending.includes('新请求尚未确认创建'));
   assert.deepEqual(targets, [body, body], 'Results escape the operator panel stacking context through the body portal.');
   } finally {
     if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
@@ -236,14 +276,15 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
   const relayStart = source.indexOf('  async function submitFreshAuthority('), relayEnd = source.indexOf('  async function sendFreshAuthority(', relayStart);
   const sendStart = source.indexOf('  async function sendAdminAction('), sendEnd = source.indexOf('  async function recover()', sendStart);
   assert(relayStart > 0 && relayEnd > relayStart && sendStart > 0 && sendEnd > sendStart);
-  const calls = [], feedback = [], state = { job: null, busy: false }, walletEpoch = { current: 0 }, publishingProjectRef = { current: null };
+  const calls = [], feedback = [], sessionInvalidations = [], state = { job: null, busy: false }, walletEpoch = { current: 0 }, publishingProjectRef = { current: null };
   const context = { config: { ...f.config, stage: 'fresh-active', displayOnly: true }, isOperator: true,
     operatorServiceReady: true, wallet: { request: () => assert.fail('Tests cannot request real wallet actions.') },
     account: f.account, client: { provider: f.provider }, busy: false, pending: null, walletEpoch,
     epoch: { current: 0 }, submissionLock: { current: null }, publishingProjectRef,
     rewardSendingBlocked: () => rewardBlocked,
     same: (a, b) => a?.toLowerCase() === b?.toLowerCase(), L: zh => zh, textError: error => error.message,
-    requireCurrentProductStage: async () => { calls.push('stage'); },
+    requireCurrentProductStage: async () => assert.fail('Direct creation must not fetch the product graph before signing.'),
+    invalidateJournalSession: provider => { assert.equal(provider, context.wallet); sessionInvalidations.push(provider); },
     prepareAuthoritySubmission: async input => { calls.push('sign'); assert.equal(input.kind, 'executeApprovedOperation');
       assert.equal(input.args.target, f.config.factory); assert.equal(input.args.data, f.transaction.data);
       if (rejectSign) throw rejectSign; afterSign?.(walletEpoch);
@@ -265,7 +306,7 @@ async function actualAdminCreation({ result = { status: 'pending', hash: hash(20
     handleResult: () => assert.fail('A relay hash cannot be normalized as a member transaction result.') };
   const send = new Function(...Object.keys(context), source.slice(relayStart, relayEnd) + source.slice(sendStart, sendEnd)
     + '\nreturn sendAdminAction;')(...Object.values(context));
-  return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, state, context };
+  return { ...f, send: () => send({ kind: 'createPool', transaction: f.transaction }), calls, feedback, sessionInvalidations, state, context };
 }
 
 test('unresolved reward transaction blocks admin creation before signing or relaying', async () => {
@@ -283,7 +324,7 @@ test('actual admin creation registers exact creation intent and pending feedback
   assert.deepEqual(f.state.job.intent.expected, f.intent.expected); assert.equal(f.state.job.intent.nonce, '7');
   assert.equal(f.feedback.length, 1); assert.equal(f.feedback[0].options.creationPending, true);
   assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input), null);
-  assert.deepEqual(f.calls, ['stage', 'sign', 'authenticate', 'relay']);
+  assert.deepEqual(f.calls, ['sign', 'authenticate', 'relay']);
   assert.equal(f.state.busy, false); assert.equal(f.context.submissionLock.current, null);
 });
 
@@ -306,6 +347,18 @@ test('a 409 against an older confirmed relay record never registers a new projec
   assert.equal(f.state.job, null); assert.equal(f.feedback.length, 1);
   assert.equal(f.feedback[0].options.creationFailure, true);
   assert.equal(transactionResult.normalizeTransactionResult(f.feedback[0].input, { source: 'wallet' }), null);
+  assert.deepEqual(f.sessionInvalidations, [f.context.wallet]);
+});
+
+test('an explicitly rejected new request never adopts the old failed transaction and allows a reviewed new attempt', async () => {
+  const problem = Object.assign(Error('new request not accepted; old operation reverted'), { httpStatus: 200,
+    submissionRejected: true, relayResult: { accepted: false, hash: hash(19), status: 'failed', reason: 'transaction-reverted' } });
+  const f = await actualAdminCreation({ rejectRelay: problem });
+  await assert.rejects(f.send(), /new request not accepted/);
+  assert.equal(f.state.job, null); assert.equal(f.feedback[0].input.relayResult.hash, hash(19));
+  assert.equal(f.feedback[0].options.creationFailure, true);
+  await assert.rejects(f.send(), /new request not accepted/);
+  assert.equal(f.calls.filter(value => value === 'sign').length, 2);
 });
 
 test('actual creation signature failure and wallet change cannot register a published project or resend', async () => {
@@ -339,14 +392,16 @@ test('relay confirmed status alone stays locked until exact receipt verification
   f.state.job.result = await readPublishedProject({ provider: f.provider, intent: f.state.job.intent,
     status: { status: 'confirmed', hash: hash(20) } });
   await f.send(); assert.equal(f.calls.filter(value => value === 'sign').length, 2,
-    'A confirmed historical project is not a permanent NFT lock; the signer still checks current machinePool.');
+    'A confirmed historical project is not a permanent NFT lock; the factory checks its current reservation atomically.');
 });
 
 test('definite relay rejection clears only its own publication lock and permits a new reviewed attempt', async () => {
-  for (const httpStatus of [400, 409, 429]) {
+  for (const httpStatus of [400, 401, 409, 429]) {
     const f = await actualAdminCreation({ rejectRelay: Object.assign(Error('rejected before broadcast'), { httpStatus }) });
     await assert.rejects(f.send(), /rejected before broadcast/); assert.equal(f.context.publishingProjectRef.current, null);
     await assert.rejects(f.send(), /rejected before broadcast/);
     assert.equal(f.calls.filter(value => value === 'sign').length, 2); assert.equal(f.state.job, null);
+    assert.equal(f.sessionInvalidations.length, [401, 409].includes(httpStatus) ? 2 : 0,
+      'Only authentication or stale-session rejection invalidates the warmed wallet session.');
   }
 });

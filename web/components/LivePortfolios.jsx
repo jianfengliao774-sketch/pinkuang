@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { formatEther, ZeroAddress } from 'ethers';
+import { approvedOperatorCall, prepareAuthoritySignature } from '../lib/authority-client.mjs';
 import { abi, uint } from '../lib/chain-client.mjs';
 import { applyMarketOrderFeedback, marketOrderFeedback } from '../lib/market-order-feedback.mjs';
 import { Layers3, RefreshCw, ArrowRight, ChevronDown } from 'lucide-react';
@@ -31,7 +32,7 @@ const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowe
 const brief = error => error?.shortMessage || error?.message || '预算项目读取未完成。';
 const officialPriceWithFeeCeiling = value => { const price=BigInt(value); return price+(price+99n)/100n; };
 const recentPages = new Map();
-const PAGE_REUSE_MS = 15_000;
+const PAGE_REUSE_MS = 30_000;
 let pendingPageReads = new WeakMap();
 const recentCapacityReferences = new Map();
 const recentMarketCredits = new Map(), recentMarketOrders = new Map();
@@ -70,7 +71,7 @@ function PortfolioSaleStatus({candidate,stage,locale}){
 export default function LivePortfolios({ config, provider, client, locale, account, wallet, mode = 'pools', initialPool, disabled, onConnect, onSend, onSendQueue, onAuthenticateQueue, onShare, onBuyChild, onReadStateChange, onSourceReorg, renderDirectory, operatorVerified = false, refreshKey = 0, displayRefreshKey = refreshKey, marketTransactions = [] }) {
   const T=text=>portfolioText(locale,text);
   const [rows,setRows]=useState([]),[cursor,setCursor]=useState(null),[selected,setSelected]=useState(null),[operator,setOperator]=useState(null),[listingSource,setListingSource]=useState(null);
-  const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
+  const [loading,setLoading]=useState(false),[revalidating,setRevalidating]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[preview,setPreview]=useState(null);
   const [readRetry,setReadRetry]=useState(null),[readFailed,setReadFailed]=useState(false);
   const [freshRead,setFreshRead]=useState(false);
   const [selectedProof,setSelectedProof]=useState(null);
@@ -83,7 +84,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const [editingAmount,setEditingAmount]=useState(null);
   const inputAmount=(name,value)=>{if(editingAmount===name||!value)return value;try{return fundingAmount(value).display;}catch{return value;}};
   const [dailyReference,setDailyReference]=useState(null),[dailyReferenceError,setDailyReferenceError]=useState(''),[capacitySample,setCapacitySample]=useState(null),[capacityBusy,setCapacityBusy]=useState(false);
-  const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null);
+  const context=useRef({}), sequence=useRef(0), refreshSeen=useRef(null), displayRead=useRef(null), expandedChildren=useRef(new Set());
   // A refresh generation invalidates current action proof, not the last verified
   // display. Keep that display addressable while the visible page revalidates.
   const cacheKey=JSON.stringify([config?.artifactDigest,config?.stage,config?.productFamily,config?.displayOnly===true,
@@ -97,7 +98,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   const marketCreditKey=JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',config?.displayOnly?refreshKey:null]);
   const marketOrderKey=pool=>JSON.stringify([config?.artifactDigest,config?.portfolioMarket,account?.toLowerCase() || '',pool?.toLowerCase(),config?.displayOnly?refreshKey:null]);
   if(context.current.identity!==identity || context.current.provider!==provider || context.current.wallet!==wallet){
-    sequence.current++;context.current={identity,provider,wallet};
+    sequence.current++;displayRead.current=null;expandedChildren.current.clear();context.current={identity,provider,wallet};
   }
   const enabled=config?.kind==='integrated-v2' && provider;
   const mine=['overview','rewards'].includes(mode);
@@ -134,10 +135,10 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       targetType:kind==='marketWithdraw'?'portfolioMarket':'portfolio'});
   };
   useEffect(() => {
-    onReadStateChange?.({ busy: busy || loading || !!preview, failed: readFailed, current: freshRead,
+    onReadStateChange?.({ busy: busy || loading || !!preview || revalidating, failed: readFailed, current: freshRead,
       source: loadedIdentity === identity ? listingSource : null });
     return () => onReadStateChange?.({ busy: false, failed: false, current: false, source: null });
-  }, [busy, loading, readFailed, preview, freshRead, loadedIdentity, identity, listingSource]);
+  }, [busy, loading, revalidating, readFailed, preview, freshRead, loadedIdentity, identity, listingSource]);
   useEffect(()=>{setListingQuantity(selectedCurrent?.availableShares>0n?selectedCurrent.availableShares.toString():'1');setPrice('');},[selectedCurrent?.pool]);
   useEffect(()=>{
     setMarketCredit(null);setMarketCreditError('');setMarketCreditLoading(false);
@@ -160,15 +161,16 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     setSelected(initialPool?cachedDetail || cached?.items[0] || null:null);setChild(initialPool?(cachedDetail || cached?.items[0])?.children.find(item=>!item.sold)?.pool || '':'');
     setPreview(null);setError('');setReadRetry(null);setReadFailed(false);setFreshRead(reusable);setSelectedProof(reusable&&restoredDetail
       ?{identity,provider,wallet,pool:restoredDetail.pool}:null);
-    setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);
+    setOperator(cached?.operator || null);setCursor(cached?.nextCursor ?? null);setBusy(false);setLoading(false);setRevalidating(false);
     if(enabled && (!mine || account) && !reusable)void load();},[identity,provider,wallet]);
   useEffect(()=>()=>{sequence.current++;},[]);
   useEffect(()=>{
-    if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:displayRefreshKey};return;}
-    if(refreshSeen.current.key===displayRefreshKey||preview||busy||loading)return;
-    refreshSeen.current={identity,key:displayRefreshKey};
-    if(enabled&&(!mine||account))void load();
-  },[identity,displayRefreshKey,preview,busy,loading]);
+    if(refreshSeen.current?.identity!==identity){refreshSeen.current={identity,key:displayRefreshKey,refreshKey};return;}
+    if(refreshSeen.current.key===displayRefreshKey||preview||busy||loading||displayRead.current)return;
+    const silent=config?.displayOnly===true&&refreshSeen.current.refreshKey===refreshKey;
+    refreshSeen.current={identity,key:displayRefreshKey,refreshKey};
+    if(enabled&&(!mine||account))void load(0,{silent});
+  },[identity,displayRefreshKey,refreshKey,preview,busy,loading,revalidating]);
   async function refreshCapacity(active=()=>true,force=false){
     setCapacityBusy(true);
     try{
@@ -196,10 +198,16 @@ export default function LivePortfolios({ config, provider, client, locale, accou
     onAttempt:progress=>{if(current(ticket)){setReadFailed(false);setReadRetry(progress.attempt>1?progress:null);}},
     onRetry:progress=>{if(current(ticket))setReadRetry(progress);}});}
 
-  async function load(nextCursor=0){
-    const ticket=++sequence.current,selectedPool=!nextCursor&&mode==='portfolio'?selectedCurrent?.pool:null;
-    if(!nextCursor)setSelectedProof(null);
-    setLoading(true);setError('');
+  async function load(nextCursor=0,{silent=false}={}){
+    if(displayRead.current)return;
+    // Expanded directories retain their cursor/source; do not mix a fresh first page into that window.
+    if(silent && !initialPool && rows.length>(recentPages.get(cacheKey)?.result.items.length || 0))return;
+    if(silent && selectedCurrent && expandedChildren.current.has(selectedCurrent.pool.toLowerCase()))return;
+    const ticket=++sequence.current,read={identity,provider,wallet};displayRead.current=read;setRevalidating(silent);
+    onReadStateChange?.({busy:true,failed:readFailed,current:freshRead,source:listingSource});
+    const selectedPool=!nextCursor&&(silent||mode==='portfolio')?selectedCurrent?.pool:null;
+    if(!nextCursor&&!silent)setSelectedProof(null);
+    if(!silent){setLoading(true);setError('');}
     try{
       const result=await retryRead(()=>sharedPageRead(provider,
         JSON.stringify([cacheKey,displayRefreshKey,nextCursor,selectedPool?.toLowerCase() || '']),async()=>{
@@ -213,6 +221,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       }),ticket);
       if(result===READ_CANCELLED||!current(ticket))return;
       const {selectedDetail,...page}=result;
+      if(!silent&&selectedCurrent)expandedChildren.current.delete(selectedCurrent.pool.toLowerCase());
       if(initialPool&&page.items[0])rememberPortfolioDisplay(config,page.items[0],account,Date.now(),config.displayOnly?refreshKey:0);
       if(selectedDetail)rememberPortfolioDisplay(config,selectedDetail,account,Date.now(),config.displayOnly?refreshKey:0);
       setFreshRead(initialPool ? !!page.items[0] : !!page.source && (page.source.displayOnly === true || page.source.stale !== true));
@@ -222,14 +231,15 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         if(recentPages.size>8)recentPages.delete(recentPages.keys().next().value);
         writeDisplaySnapshot(displayStorage(),config?.manifest || config,`portfolios:${cacheKey}`,page);}
       setRows(previous=>nextCursor? [...previous,...result.items.filter(item=>!previous.some(p=>same(p.pool,item.pool)))]:result.items);
-      setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setListingSource(result.source || null);
+      setReadFailed(false);setLoadedIdentity(identity);setCursor(result.nextCursor);setOperator(result.operator);if(!nextCursor){setListingSource(result.source || null);
         setSelected(initialPool?result.items[0]:selectedDetail);
         const children=initialPool?result.items[0]?.children:selectedDetail?.children;
         if(children)setChild(previous=>children.some(c=>same(c.pool,previous))?previous:children.find(c=>!c.sold)?.pool || '');}
-    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setError(brief(problem));setReadFailed(true);}}
-    finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
+    }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);if(!silent)setError(brief(problem));setReadFailed(true);}}
+    finally{if(displayRead.current===read){displayRead.current=null;setRevalidating(false);onReadStateChange?.({busy:false,failed:readFailed,current:freshRead,source:listingSource});}if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function select(row){
+    expandedChildren.current.delete(row.pool.toLowerCase());
     const ticket=++sequence.current;setLoading(true);setError('');setPreview(null);setSelectedProof(null);setOrders([]);setOrderPool(null);setOrderCursor(null);setOrderSource(null);
     if(!readPortfolioDisplay(config,row.pool,account,Date.now(),config.displayOnly?refreshKey:0))rememberPortfolioDisplay(config,row,account,Date.now(),config.displayOnly?refreshKey:0);
     const cached=readPortfolioDisplay(config,row.pool,account,Date.now(),config.displayOnly?refreshKey:0);
@@ -245,7 +255,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   async function moreChildren(){
     if(!selectedCurrent)return;const ticket=++sequence.current;setLoading(true);setError('');
     try{const more=await retryRead(()=>readPortfolioDisplayChildren(config,provider,selectedCurrent,BigInt(selectedCurrent.children.length)),ticket);
-      if(more!==READ_CANCELLED&&current(ticket))setSelected({...selectedCurrent,children:[...selectedCurrent.children,...more]});
+      if(more!==READ_CANCELLED&&current(ticket)){expandedChildren.current.add(selectedCurrent.pool.toLowerCase());setSelected({...selectedCurrent,children:[...selectedCurrent.children,...more]});}
     }catch(problem){if(current(ticket)){invalidateDisplayOnReorg(problem);setError(brief(problem));setReadFailed(true);}}finally{if(current(ticket)){setLoading(false);setReadRetry(null);}}
   }
   async function loadMarketCredit(force=false){
@@ -282,7 +292,14 @@ export default function LivePortfolios({ config, provider, client, locale, accou
   async function prepare(action,pool=selectedCurrent?.pool){
     if(actionFrozen(action.kind))return;
     if(!account || !wallet){onConnect?.();return;}const ticket=++sequence.current;setBusy(true);setError('');setReadFailed(false);setPreview(null);
-    try{const input={config,provider:wallet,account,pool,action};const result=await preparePortfolioAction(input);
+    try{const input={config,provider:wallet,account,pool,action};let result=await preparePortfolioAction(input);
+      if (config?.displayOnly && config.stage === 'fresh-active' && action.kind === 'createPortfolio') {
+        if (!current(ticket)) return;
+        const preparedAuthority = await prepareAuthoritySignature({ provider: wallet, readProvider: provider,
+          config, account, kind: 'executeApprovedOperation', args: approvedOperatorCall(config, result.transaction),
+          isCurrent: () => current(ticket) });
+        result = { ...result, preparedAuthority };
+      }
       if(current(ticket))setPreview({input:{...input, action: {...action, ...(result.procurement ? { expectedPurchaseWei: result.procurement.priceWei.toString(), frozenOrder: result.procurement.frozenOrder } : {}), ...(result.marketTrade?.seller ? {expectedSeller:result.marketTrade.seller,expectedPricePerUnitWei:result.marketTrade.pricePerUnitWei.toString()}: {})}},result,identity,ticket});
     }catch(problem){if(current(ticket))setError(brief(problem));}finally{if(current(ticket))setBusy(false);}
   }
@@ -320,9 +337,9 @@ export default function LivePortfolios({ config, provider, client, locale, accou
       {error&&<div className="portfolio-error" role="alert"><p>{T(error)}</p>{readFailed&&<button className="btn secondary" disabled={busy || loading || disabled} onClick={()=>void load()}>{locale==='en'?'Retry portfolio data':'重新读取预算项目'}</button>}</div>}
       {loading&&<p role="status">{readRetry?(locale==='en'?`Portfolio data is temporarily unavailable. Retrying automatically (${readRetry.attempt}/${readRetry.maxAttempts})…`:`预算数据暂时未就绪，正在自动重试（${readRetry.attempt}/${readRetry.maxAttempts}）…`):locale==='en'?'Loading portfolios…':'正在读取预算项目…'}</p>}
       {mode==='operator'&&isOperator&&<section id="multi-miner-create" className="portfolio-create"><h3>{T("创建多矿机预算项目")}</h3><p>{T("预算项目固定 100 份；总预算、单机绝对上限及换算后的每 H 限价写入合约，采购不能突破这些链上限额。")}</p><p>{T("先创建共享 100 份的预算项目；募满后在项目中设置本批最多采购台数（1–20 台），从当前合格挂单逐台核验并买入。矿机可能在募集期间售出，因此创建时不锁定具体编号；同一项目可用剩余预算继续采购下一批。")}</p>
-        <p>{T('Firsto 市场参考日产能价')}: <strong>{dailyReference&&!referenceIssue(dailyReference)?`${amount(dailyReference.dailyCapacityPriceWei,18,5)} BNB / (BEM / 天)`:'—'}</strong>{dailyReference&&!referenceIssue(dailyReference)?` · ${new Date(dailyReference.observedAt).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:dailyReferenceError?` · ${dailyReferenceError}`:''} <button className="btn secondary" disabled={capacityBusy} onClick={()=>void refreshCapacity(()=>true,true)}>{T('刷新市场产能')}</button></p>
+        <p>{T('Firsto 市场参考日产能价')}: <strong>{dailyReference&&!referenceIssue(dailyReference)?`${amount(dailyReference.dailyCapacityPriceWei)} BNB / (BEM / 天)`:'—'}</strong>{dailyReference&&!referenceIssue(dailyReference)?` · ${new Date(dailyReference.observedAt).toLocaleString(locale==='en'?'en-GB':'zh-CN')}`:dailyReferenceError?` · ${dailyReferenceError}`:''} <button className="btn secondary" disabled={capacityBusy} onClick={()=>void refreshCapacity(()=>true,true)}>{T('刷新市场产能')}</button></p>
         <p>{T('输入日产能价上限后，系统按当前 Firsto 样本的最低日产出 / H 比率向下折算为链上每 H 上限；合约不会随未来产能变化自动更新。')}</p>
-        <div className="portfolio-actions"><label>{T("募集预算（BNB）")}<input inputMode="decimal" placeholder="0.00500" value={inputAmount('budget',budget)} onFocus={()=>setEditingAmount('budget')} onBlur={()=>setEditingAmount(null)} onChange={e=>setBudget(e.target.value)}/></label><label>{T("单机价格上限（BNB）")}<input inputMode="decimal" value={inputAmount('cap',cap)} onFocus={()=>setEditingAmount('cap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setCap(e.target.value)}/></label><label>{T("日产能价上限（BNB / (BEM / 天)）")}<input inputMode="decimal" placeholder="9.00000" value={inputAmount('dailyCap',dailyCap)} onFocus={()=>setEditingAmount('dailyCap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setDailyCap(e.target.value)}/></label><label>{T("募集期（小时）")}<input inputMode="numeric" value={fundHours} onChange={e=>setFundHours(e.target.value)}/></label><label>{T("募集结束后购机期（小时）")}<input inputMode="numeric" value={buyHours} onChange={e=>setBuyHours(e.target.value)}/></label><button className="btn" disabled={createFrozen} onClick={()=>{
+        <div className="portfolio-actions"><label>{T("募集预算（BNB）")}<input inputMode="decimal" placeholder="0.0050" value={inputAmount('budget',budget)} onFocus={()=>setEditingAmount('budget')} onBlur={()=>setEditingAmount(null)} onChange={e=>setBudget(e.target.value)}/></label><label>{T("单机价格上限（BNB）")}<input inputMode="decimal" value={inputAmount('cap',cap)} onFocus={()=>setEditingAmount('cap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setCap(e.target.value)}/></label><label>{T("日产能价上限（BNB / (BEM / 天)）")}<input inputMode="decimal" placeholder="9.0000" value={inputAmount('dailyCap',dailyCap)} onFocus={()=>setEditingAmount('dailyCap')} onBlur={()=>setEditingAmount(null)} onChange={e=>setDailyCap(e.target.value)}/></label><label>{T("募集期（小时）")}<input inputMode="numeric" value={fundHours} onChange={e=>setFundHours(e.target.value)}/></label><label>{T("募集结束后购机期（小时）")}<input inputMode="numeric" value={buyHours} onChange={e=>setBuyHours(e.target.value)}/></label><button className="btn" disabled={createFrozen} onClick={()=>{
           let fields;try{fields=portfolioCreateForm({budget,absoluteCap:cap,dailyCap,capacitySample, fundHours,buyHours});setBudget(fields.budget);}
           catch(problem){setError(brief(problem));return;}
           const now=BigInt(Math.floor(Date.now()/1000)),fundingDeadline=now+BigInt(fundHours)*3600n;
@@ -350,7 +367,7 @@ export default function LivePortfolios({ config, provider, client, locale, accou
         {selectedCurrent.children.length<Number(selectedCurrent.childCount)&&<button className="btn secondary" disabled={browseFrozen} onClick={()=>void moreChildren()}>{T("加载更多子矿机")}</button>}
         {!selectedCurrent.children.length&&<p>{T("该项目尚未购入矿机。")}</p>}
         {onShare&&<button className="btn secondary" disabled={frozen} onClick={()=>onShare(selectedCurrent)}>{locale==='en'?'Share this portfolio':'分享预算项目'}</button>}
-        <PortfolioCapacity key={`${selectedCurrent.pool}:${selectedCurrent.blockHash}`} config={config} provider={provider} portfolio={selectedCurrent} locale={locale}/>
+        <PortfolioCapacity key={`${identity}:${selectedCurrent.pool}`} config={config} provider={provider} portfolio={selectedCurrent} locale={locale}/>
         {client&&<PortfolioHistory key={`${selectedCurrent.pool}:${account || ''}`} client={client} config={config} pool={selectedCurrent.pool} account={account} locale={locale} refreshKey={refreshKey}/>}
         {mode==='operator'&&isOperator&&selectedCurrent.state===1n&&onSendQueue&&<BudgetPurchaseQueue config={config} provider={provider} wallet={wallet} account={account} portfolio={selectedCurrent} disabled={frozen} onSend={onSendQueue} onAuthenticate={onAuthenticateQueue} onComplete={()=>void select(selectedCurrent)} locale={locale}/>}
 

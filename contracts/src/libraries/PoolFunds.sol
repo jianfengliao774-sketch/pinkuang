@@ -3,8 +3,9 @@ pragma solidity 0.8.24;
 
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {IPoolVault} from "../interfaces/IPoolVault.sol";
+import {IPoolVault, IPoolFactoryRoles} from "../interfaces/IPoolVault.sol";
 import {PoolVaultState} from "../PoolVaultState.sol";
+import {TargetOwner} from "./TargetOwner.sol";
 
 /// @notice Existing BNB liabilities and purchase surplus, in the guarded Vault context.
 /// @dev Vault retains mint/burn, NFT verification and each nonReentrant entry point.
@@ -12,6 +13,7 @@ library PoolFunds {
     uint256 private constant TOTAL_SHARES = 100;
 
     event Failed(uint8 reason);
+    event Funded(uint256 totalRaised, uint256 totalShares, uint256 memberCount);
     event BnbWithdrawn(address indexed user, uint256 amount);
     event Purchased(uint256 cost, uint8 path, uint256 listingId);
     event PurchaseSurplusSettled(address indexed user, uint256 shares, uint256 amount);
@@ -38,6 +40,7 @@ library PoolFunds {
         s.params = params;
         s.unitPriceWei = params.targetRaise / TOTAL_SHARES;
         s.state = IPoolVault.State.Funding;
+        TargetOwner.initialize(s);
     }
 
     /// @notice Wallet metadata identifies both the collection and the intended miner.
@@ -56,6 +59,74 @@ library PoolFunds {
         } else {
             revert IPoolVault.WrongState();
         }
+        _recordFailure(s, reason);
+    }
+
+    /// @dev Existing deposit conditions and accounting. Vault supplies its actual balances and mints under nonReentrant.
+    function recordDeposit(PoolVaultState.VaultStorage storage s, uint8 shares, uint256 memberShares, uint256 supply)
+        external
+        returns (uint256 amount)
+    {
+        if (s.factory == address(0)) revert IPoolVault.Unauthorized();
+        if (s.state != IPoolVault.State.Funding) revert IPoolVault.WrongState();
+        if (s.depositPaused) revert IPoolVault.DepositPaused();
+        TargetOwner.assertFundable(s);
+        address subscriber = IPoolFactoryRoles(s.factory).designatedSubscriber(address(this));
+        if (subscriber != address(0) && msg.sender != subscriber) revert IPoolVault.Unauthorized();
+        if (block.timestamp >= s.params.fundingDeadline) revert IPoolVault.DeadlinePassed();
+        if (shares == 0) revert IPoolVault.InvalidShareCount();
+        if (shares > TOTAL_SHARES || memberShares + shares > TOTAL_SHARES) revert IPoolVault.ShareOutOfRange();
+        if (supply + shares > TOTAL_SHARES) revert IPoolVault.ExceedsTarget();
+        amount = uint256(shares) * s.unitPriceWei;
+        if (msg.value != amount) revert IPoolVault.PaymentMismatch();
+        s.contributedWei[msg.sender] += amount;
+        s.totalRaised += amount;
+    }
+
+    function recordFullyFunded(PoolVaultState.VaultStorage storage s, uint256 supply) external {
+        if (s.activeMembers.length < 1) revert IPoolVault.NotEnoughMembers();
+        if (supply != TOTAL_SHARES || s.totalRaised != s.params.targetRaise) revert IPoolVault.PaymentMismatch();
+        s.state = IPoolVault.State.Funded;
+        emit Funded(s.totalRaised, supply, s.activeMembers.length);
+    }
+
+    /// @dev Existing full-subscription withdrawal; Vault burns the verified caller's shares after accounting.
+    function recordDepositWithdrawal(PoolVaultState.VaultStorage storage s, uint256 shares)
+        external
+        returns (uint256 amount)
+    {
+        if (s.state != IPoolVault.State.Funding) revert IPoolVault.WrongState();
+        if (shares == 0) revert IPoolVault.NotMember();
+        amount = s.contributedWei[msg.sender];
+        s.contributedWei[msg.sender] = 0;
+        s.totalRaised -= amount;
+        _credit(s, msg.sender, amount);
+    }
+
+    function configureTargetOwner(PoolVaultState.VaultStorage storage s, bytes calldata encoded) external {
+        if (encoded.length != 512) revert IPoolVault.InvalidTargetOwnerAuthorization();
+        (
+            IPoolVault.TargetOwnerAuthorization memory authorization,
+            bytes memory signatureOne,
+            bytes memory signatureTwo
+        ) = abi.decode(encoded, (IPoolVault.TargetOwnerAuthorization, bytes, bytes));
+        if (
+            signatureOne.length != 65 || signatureTwo.length != 65
+                || keccak256(encoded) != keccak256(abi.encode(authorization, signatureOne, signatureTwo))
+        ) {
+            revert IPoolVault.InvalidTargetOwnerAuthorization();
+        }
+        TargetOwner.configure(s, authorization, signatureOne, signatureTwo);
+    }
+
+    function syncTargetAvailability(PoolVaultState.VaultStorage storage s) external returns (bool refunded) {
+        if (s.state != IPoolVault.State.Funding && s.state != IPoolVault.State.Funded) revert IPoolVault.WrongState();
+        if (!TargetOwner.unavailable(s)) return false;
+        _recordFailure(s, 2);
+        return true;
+    }
+
+    function _recordFailure(PoolVaultState.VaultStorage storage s, uint8 reason) private {
         if (s.refundsRecorded) revert IPoolVault.WrongState();
         s.state = IPoolVault.State.Refunding;
         s.refundsRecorded = true;

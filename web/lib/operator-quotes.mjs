@@ -6,6 +6,7 @@ import { QUOTE_BASE } from './quote-base.mjs';
 import { uint, referenceQuote } from './chain-client.mjs';
 import { parseFirstoSignedAsk, verifyFirstoSignedAsk } from '../../deploy/src/firsto-purchase.mjs';
 import { readMachineReservation } from '../../deploy/shared/machine-reservation.mjs';
+import { AMOUNT_DISPLAY_PLACES } from './amount-display.mjs';
 
 const MARKET = '0x6feEbbEbC07BcB90bd1Ac8b0CF9BaA4f0fF2B46f';
 const MINING = '0x7E2E0DC66a3bD9103E69b766afA62d9f7b697b46';
@@ -31,7 +32,7 @@ function minerEligibilityIssue(miner) {
 export { QUOTE_BASE };
 export const QUOTE_SOURCE = 'https://tapeout.firsto.ai/circuits';
 /** Exact BNB per estimated daily BEM for the displayed market ask; never use the fundraising reserve. */
-export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = 5) {
+export function listingDailyCapacityPrice(priceWei, estimated24hAtomic, decimals = AMOUNT_DISPLAY_PLACES) {
   if (priceWei == null || estimated24hAtomic == null) return null;
   const price = uint(priceWei), yieldAtomic = uint(estimated24hAtomic);
   if (price === 0n || yieldAtomic === 0n) return null;

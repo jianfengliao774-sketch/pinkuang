@@ -36,7 +36,8 @@ export function prepareFreshProductBuild(manifest, { publicOrigin = defaultPubli
   const manifestSha256 = freshManifestDigest(manifest);
   const checked = validateFreshManifest(manifest, manifestSha256);
   return Object.freeze({ basePath: `/bemine-v${version}`, productFamily: 'fresh-v4',
-    publicOrigin: origin, publicUrl: `${origin}/bemine-v${version}/`,
+    publicOrigin: origin, publicUrl: version === '5' && origin === 'https://bemine.cc.cd'
+      ? `${origin}/` : `${origin}/bemine-v${version}/`,
     deployConsoleUrl: version === '5' ? 'https://tapeout.cc.cd/pinkuang-deploy-v5/' : deployConsoleUrl,
     manifestSha256, artifactDigest: checked.artifactDigest,
     factory: checked.factory, portfolioFactory: checked.portfolioFactory,

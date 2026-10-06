@@ -3,6 +3,7 @@ import { abi, uint, poolKey, readPoolSnapshot, personalPoolAction } from './chai
 import { readGovernanceSnapshot, governanceAction, nativeGovernanceViews } from './live-governance.mjs';
 import { settleReadRound } from './read-retry.mjs';
 import { FIRSTO_SIGNED_EXCHANGE } from '../../deploy/src/firsto-purchase.mjs';
+import { assertFundingTargetAvailable } from './funding-target-guard.mjs';
 
 const assert = (value, message) => { if (!value) throw new Error(message); };
 const same = (a, b) => getAddress(a) === getAddress(b);
@@ -47,7 +48,9 @@ async function prepareDirectAction(input, { from, market }) {
   }
   const target = address(pool), details = { pool: target };
   if (kind === 'deposit') {
-    const qty = shareQuantity(quantity), unitPriceWei = uint(await call(target, abi.PoolVault, 'unitPriceWei'));
+    const qty = shareQuantity(quantity);
+    await assertFundingTargetAvailable({ provider, config: input.config, pool: target, fetcher: input.fetcher });
+    const unitPriceWei = uint(await call(target, abi.PoolVault, 'unitPriceWei'));
     assert(unitPriceWei > 0n, '认购金额不可用 / Subscription amount unavailable.');
     return finish(tx(target, abi.PoolVault, kind, [qty], uint(unitPriceWei * qty)), { ...details, quantity: qty, unitPriceWei });
   }
@@ -129,7 +132,7 @@ function id(value) {
  */
 export async function prepareProductAction({ provider, config, account, pool, kind, quantity, price, proposalId, support, orderId,
   priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId, expectedPriceWei, expectedFeeBps, expectedFeeEpoch,
-  expectedSeller, expectedPricePerUnitWei, delistAction, cancellationId, expectedListedProposalId }) {
+  expectedSeller, expectedPricePerUnitWei, delistAction, cancellationId, expectedListedProposalId, fetcher = globalThis.fetch }) {
   assert(ACTIONS.has(kind), '不支持的操作 / Unsupported action.');
   assert(config?.status === 'ready' && [56, 56n, '56', '0x38'].includes(config.chainId ?? config.manifest?.chainId), '尚未配置正式 BSC 部署 / Verified BSC deployment required.');
   assert(config.manifest?.chainId === undefined || config.manifest.chainId === 56, '部署清单网络不一致 / Manifest chain mismatch.');
@@ -147,7 +150,7 @@ export async function prepareProductAction({ provider, config, account, pool, ki
   if (config.displayOnly === true) return prepareDirectAction({ provider, config, account, pool, kind, quantity, price,
     proposalId, support, orderId, priceWei, refPriceWei, refAt, expectedPool, expectedAccount, expectedProposalId,
     expectedPriceWei, expectedFeeBps, expectedFeeEpoch, expectedSeller, expectedPricePerUnitWei,
-    delistAction, cancellationId, expectedListedProposalId }, { from, factory, market });
+    delistAction, cancellationId, expectedListedProposalId, fetcher }, { from, factory, market });
   const request = (method, params = []) => provider.request({ method, params });
   const { chain, block } = await settleReadRound({
     chain: () => request('eth_chainId'),
@@ -249,6 +252,7 @@ export async function prepareProductAction({ provider, config, account, pool, ki
     if (kind === 'withdrawBnb') assert(row.bnbOwed !== null && row.bnbOwed > 0n, '可领取 BNB 待核对或为零 / No verified withdrawable BNB.');
     if (kind === 'deposit') assert(row.unitPriceWei !== null && row.unitPriceWei > 0n && row.shares !== null
       && row.shares + qty <= 100n, '认购金额或持仓待核对 / Subscription amount or balance unavailable.');
+    if (kind === 'deposit') await assertFundingTargetAvailable({ provider, config, pool: target, params: row.params, blockTag, fetcher });
     return finish(personalPoolAction(snapshot, target, from, kind, qty), { ...details, quantity: qty });
   }
   if (kind === 'list') {

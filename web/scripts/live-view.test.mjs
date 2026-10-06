@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {amount,viewPool,parseProductRoute,sumKnown,exportActivityCsv,explorerTransaction,
  canOpenFundingAction,currentDetailActionReady} from '../lib/live-view.mjs';
-import { currentPositionsActionReady, currentMarketOrderActionReady } from '../lib/live-view.mjs';
+import { currentPositionsActionReady, currentMarketOrderActionReady, fundingTargetStatus, confirmedMissingTargetListing,
+ confirmedAvailableTargetListing } from '../lib/live-view.mjs';
 test('display preserves large integer digits and distinguishes unavailable from zero',()=>{
- assert.equal(amount(null),'—');assert.equal(amount(0n),'0.00000');assert.equal(amount(1n),'<0.00001');
+ assert.equal(amount(null),'—');assert.equal(amount(0n),'0.0000');assert.equal(amount(1n),'<0.0001');
  assert.equal(amount(900719925474099312345000000000000001n,18,18),'900,719,925,474,099,312.345000000000000001');
  assert.equal(amount(123456789n,8,8),'1.23456789');
  assert.equal(sumKnown([{shares:10n},{shares:null}],'shares'),null);
@@ -36,6 +37,90 @@ test('a cached or unverified Funding detail cannot invite wallet connection or s
    {productFamily:'fresh-v4',operationalReady:true,stale:true},
    {productFamily:'fresh-v4',operationalReady:true,transactionReady:false}])
    assert.equal(canOpenFundingAction({...ready,config}),false);
+});
+test('formal Funding CTA requires a current indexed fixed target or an explicit flexible exemption',()=>{
+ const pool='0x0000000000000000000000000000000000000101';
+ const owner='0x0000000000000000000000000000000000000201';
+ const next='0x0000000000000000000000000000000000000202';
+ const proof={status:'available',purchaseMode:'fixed',originalOwner:owner,currentOwner:owner,
+   observedBlock:101,observedBlockHash:`0x${'a'.repeat(64)}`,
+   creationBlock:100,creationBlockHash:`0x${'b'.repeat(64)}`,chainState:0n};
+ const detail={pool,state:0n,status:'Funding',trusted:true,depositPaused:false,remaining:5,targetAvailability:proof};
+ const ready={client:{},config:{displayOnly:true,status:'ready',indexBaseUrl:'https://example.test/api/chain-index'},source:{},
+   cachedPage:false,loading:false,busy:false,loadedRoute:`detail/${pool}`,routePool:pool,detailPool:pool,
+   loadedAccount:'0xB',account:'0xB',detail};
+ assert.equal(fundingTargetStatus(detail),'available');
+ assert.equal(canOpenFundingAction(ready),true);
+ for(const change of [null,{...proof,status:'unknown'},
+   {...proof,status:'unavailable',currentOwner:next},
+   {...proof,status:'available',currentOwner:next},
+   {...proof,status:'available',observedBlockHash:null}]) {
+   const changed={...detail,targetAvailability:change};
+   assert.equal(canOpenFundingAction({...ready,detail:changed}),false);
+ }
+ const sold={...detail,targetAvailability:{...proof,status:'unavailable',currentOwner:next}};
+ assert.equal(fundingTargetStatus(sold),'unavailable');
+ const unlisted={...detail,targetAvailability:{...proof,status:'unavailable',reason:'target_listing_unavailable',
+   listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}}};
+ assert.equal(fundingTargetStatus(unlisted),'unavailable');
+ assert.equal(canOpenFundingAction({...ready,detail:unlisted}),false);
+ const listed={...detail,targetAvailability:{...proof,reason:'target_listing_available',
+   listingEvidence:{official:'available',firsto:'unknown',observedAt:new Date().toISOString(),validUntil:new Date(Date.now()+60000).toISOString()}}};
+ assert.equal(fundingTargetStatus(listed),'available');
+ assert.equal(canOpenFundingAction({...ready,detail:listed}),true);
+ const staleListed={...listed,targetAvailability:{...listed.targetAvailability,
+   listingEvidence:{...listed.targetAvailability.listingEvidence,observedAt:new Date(Date.now()-120001).toISOString()}}};
+ assert.equal(fundingTargetStatus(staleListed),'unknown');
+ assert.equal(canOpenFundingAction({...ready,detail:staleListed}),false);
+ const flexible={...detail,targetAvailability:{...proof,status:'not_applicable',purchaseMode:'flexible',
+   originalOwner:null,currentOwner:null}};
+  assert.equal(fundingTargetStatus(flexible),'not_applicable');
+  assert.equal(canOpenFundingAction({...ready,detail:flexible}),true);
+ assert.equal(canOpenFundingAction({...ready,detail:{...flexible,targetAvailability:{...flexible.targetAvailability,
+   observedBlockHash:null}}}),false);
+ assert.equal(canOpenFundingAction({...ready,config:{},detail:{...detail,targetAvailability:null}}),true,
+   'legacy configurations are not retroactively forced to supply a new backend field');
+ assert.equal(viewPool({...detail,params:null,totalSupply:10n}).status,'Funding');
+ assert.deepEqual(viewPool({...detail,params:null,totalSupply:10n}).targetAvailability,proof);
+});
+test('only two recent successful missing-order checks prove a listing delisting',()=>{
+ const now=Date.now();
+ const proof={listingEvidence:{official:'absent',firsto:'absent',observedAt:new Date(now).toISOString(),validUntil:new Date(now+120001).toISOString()}};
+ assert.equal(confirmedMissingTargetListing(proof,now),true);
+ assert.equal(confirmedMissingTargetListing(proof,now+120000),true);
+ assert.equal(confirmedMissingTargetListing(proof,now+120001),false);
+ assert.equal(confirmedMissingTargetListing(proof,now-1),false);
+ for(const evidence of [null,{...proof.listingEvidence,official:'unknown'},
+   {...proof.listingEvidence,firsto:'unknown'},{...proof.listingEvidence,official:'available'},
+   {...proof.listingEvidence,firsto:'available'},{...proof.listingEvidence,observedAt:'yesterday'},
+   {...proof.listingEvidence,observedAt:String(now)}]){
+  assert.equal(confirmedMissingTargetListing({listingEvidence:evidence},now),false);
+ }
+});
+test('a listing proof needs a recent available venue and never trusts a stale open order',()=>{
+ const now=Date.now(),observedAt=new Date(now).toISOString(),validUntil=new Date(now+120001).toISOString();
+ for(const evidence of [{official:'available',firsto:'unknown',observedAt,validUntil},
+   {official:'absent',firsto:'available',observedAt,validUntil},{official:'available',firsto:'available',observedAt,validUntil}]){
+  const proof={listingEvidence:evidence};assert.equal(confirmedAvailableTargetListing(proof,now),true);
+  assert.equal(confirmedAvailableTargetListing(proof,now+120000),true);
+  assert.equal(confirmedAvailableTargetListing(proof,now+120001),false);
+  assert.equal(confirmedAvailableTargetListing(proof,now-1),false);
+ }
+ for(const evidence of [{official:'absent',firsto:'absent',observedAt},
+   {official:'unknown',firsto:'unknown',observedAt},{official:'available',firsto:'invalid',observedAt},
+   {official:'available',firsto:'unknown',observedAt:'yesterday'},null]){
+  assert.equal(confirmedAvailableTargetListing({listingEvidence:evidence},now),false);
+ }
+});
+test('both listing decisions expire at the backend deadline even with a fresh observation timestamp',()=>{
+ const now=Date.now(),observedAt=new Date(now).toISOString(),validUntil=new Date(now+60000).toISOString();
+ for(const [check,official] of [[confirmedMissingTargetListing,'absent'],[confirmedAvailableTargetListing,'available']]){
+  const proof={listingEvidence:{official,firsto:'absent',observedAt,validUntil}};
+  assert.equal(check(proof,now+59999),true);assert.equal(check(proof,now+60000),false);
+  for(const invalid of [undefined,null,'unknown',String(now+60000)]){
+   assert.equal(check({listingEvidence:{...proof.listingEvidence,validUntil:invalid}},now),false);
+  }
+ }
 });
 test('all detail action previews require current page and operational v4 graph',()=>{
  const base={client:{},config:{productFamily:'fresh-v4',operationalReady:true,stale:false},

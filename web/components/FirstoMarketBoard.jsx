@@ -76,7 +76,7 @@ export default function FirstoMarketBoard({ refreshKey = 0 }) {
     return { ...row, unavailable,
       venueText: venue(row.venue, locale), quotedAt: time(row.observedAt, locale),
       sellerPrice: unavailable ? '—' : formatMarketAmount(row.sellerPriceWei),
-      dailyBem: unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8, 5),
+      dailyBem: unavailable ? '—' : formatMarketAmount(row.estimated24hAtomic, 8),
       capacityPrice: unavailable ? text(locale, '暂不可用', 'Unavailable') : formatMarketAmount(row.dailyCapacityPriceWei),
     };
   }) ?? [];

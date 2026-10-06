@@ -6,6 +6,7 @@ export const WBNB_USDT_POOL = '0x172fcd41e0913e95784454622d1c3724f546f849';
 export const BEM_POOL = '0x28b12792f9d81bd529bc5572434e861c9edbbbc2';
 export const PRICE_MAX_AGE_MS = 60_000;
 export const PRICE_REFRESH_MS = 15_000;
+export const PRICE_DISPLAY_REFRESH_MS = 30_000;
 export function calculateBnbUsdt(sqrtPriceX96) {
   // This pool's token0 is USDT and token1 is WBNB, both with 18 decimals.
   // slot0 expresses WBNB per USDT, so invert for USDT per WBNB.

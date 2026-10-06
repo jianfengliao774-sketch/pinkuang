@@ -29,8 +29,8 @@ test('Firsto board floors the real 16736 ask and separately priced buyer total',
     ask: { ...data.quote.ask, priceWei: '15000000000000000', buyerCostWei: '15150000000000000' } }, data.now);
   assert.equal(quote.dailyCapacityPriceWei, '3472222222222222222');
   assert.equal(quote.buyerDailyCapacityPriceWei, '3506944444444444444');
-  assert.equal(formatMarketAmount(quote.dailyCapacityPriceWei), '3.47222');
-  assert.equal(formatMarketAmount(quote.buyerDailyCapacityPriceWei), '3.50694');
+  assert.equal(formatMarketAmount(quote.dailyCapacityPriceWei), '3.4722');
+  assert.equal(formatMarketAmount(quote.buyerDailyCapacityPriceWei), '3.5069');
   assert.equal(dailyCapacityPriceWei('1', '3'), '33333333');
   assert.equal(dailyCapacityPriceWei('3', '3'), '100000000');
 });

@@ -46,7 +46,7 @@ test('anonymous current and cached stats expose exact miner count and gross BEM 
   for (const result of [await f.client.readStats(), await f.client.readDisplayStats()]) {
     assert.equal(result.data.currentlyActivePoolCount, 1n);
     assert.equal(result.data.estimatedDailyBemAtomic, 432000n);
-    assert.equal(displayAmount(result.data.estimatedDailyBemAtomic, 8), '0.00432');
+    assert.equal(displayAmount(result.data.estimatedDailyBemAtomic, 8), '0.0043');
     assert.equal(result.data.miningOverview.quotedMinerCount, 1n);
     assert.equal(result.source.transactionReady, false);
   }
@@ -72,7 +72,7 @@ test('complete empty inventory reports exact zero; large atomic values and bound
   const empty = readMiningOverviewStats({ ...initial, currentlyActivePoolCount: '0', estimatedDailyBemAtomic: '0',
     miningOverview: { ...initial.miningOverview, quotedMinerCount: '0', observedAt: null } });
   assert.equal(empty.currentlyActivePoolCount, 0n);
-  assert.equal(displayAmount(empty.estimatedDailyBemAtomic, 8), '0.00000');
+  assert.equal(displayAmount(empty.estimatedDailyBemAtomic, 8), '0.0000');
   const stale = readMiningOverviewStats({ ...initial, estimatedDailyBemAtomic: '9007199254740993123456789',
     miningOverview: { ...initial.miningOverview, staleQuoteMinerCount: '1' } });
   assert.equal(stale.estimatedDailyBemAtomic, 9007199254740993123456789n);
@@ -82,7 +82,7 @@ test('complete empty inventory reports exact zero; large atomic values and bound
 test('malformed or contradictory mining estimates cannot become exact public totals', () => {
   const initial = stats();
   for (const changed of [
-    { currentlyActivePoolCount: 1 }, { estimatedDailyBemAtomic: '0.00432' },
+    { currentlyActivePoolCount: 1 }, { estimatedDailyBemAtomic: '0.0043' },
     { estimatedDailyBemAtomic: '-1' }, { currentlyActivePoolCount: null },
     { miningOverview: { ...initial.miningOverview, basis: 'claimable_member_output' } },
     { miningOverview: { ...initial.miningOverview, missingMinerCount: '1' } },

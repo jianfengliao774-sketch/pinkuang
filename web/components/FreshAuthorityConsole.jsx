@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { authorityActionStatus } from '../lib/authority-client.mjs';
+import { authorityActionStatus, prefetchAuthorityNonce } from '../lib/authority-client.mjs';
 import SaleReviewRequests from './SaleReviewRequests';
 import FeeCollection from './FeeCollection';
 import FirstoSaleReferenceAction from './FirstoSaleReferenceAction';
@@ -30,12 +30,13 @@ export default function FreshAuthorityConsole({ config, account, wallet, provide
     if (disabled || busy) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const latest = await authorityActionStatus(config, account);
       if (!mounted.current) return null;
-      setStatus(latest);
-      if (latest?.status && !['idle','confirmed','failed'].includes(latest.status))
+      if (status?.status && !['idle','confirmed','failed'].includes(status.status))
         throw new Error('上笔管理员代付交易尚未确认；先核对状态，不能重复发送。');
       const result = await onAction(kind, args);
+      if (config.displayOnly && ['confirmed', 'failed'].includes(result?.status))
+        void prefetchAuthorityNonce({ provider: wallet, readProvider: provider, config, account,
+          isCurrent: () => mounted.current }).catch(() => {});
       setStatus(result);
       setNotice(result?.hash ? `Gas 钱包已提交交易：${result.hash}` : '签名已提交；请刷新状态核对结果。');
       setReviewRefresh(value => value + 1);

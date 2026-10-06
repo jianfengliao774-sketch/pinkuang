@@ -76,6 +76,27 @@ export function validatePinnedGenesis(input) {
   return manifest;
 }
 
+/** Optional verified-service metadata only selects an additional business guard. */
+function validateTargetOwnerUpgrade(input, verifiedBlockNumber) {
+  if (input === undefined) return null;
+  insist(input && input.version === 1
+    && ['candidateArtifactDigest', 'catalogDigest', 'operationId', 'verifiedBlockHash'].every(key => hash(input[key]))
+    && safeInteger(input.verifiedBlockNumber) && input.verifiedBlockNumber <= verifiedBlockNumber,
+  'product_graph', '矿机归属升级的核验信息无效。');
+  const replacements = {}, codehash = {};
+  for (const key of ['PoolFunds', 'FlexiblePurchase', 'PoolVault']) {
+    replacements[key] = liveAddress(input.replacements?.[key]);
+    insist(hash(input.codehash?.[key]), 'product_graph', '矿机归属升级缺少运行代码摘要。');
+    codehash[key] = input.codehash[key].toLowerCase();
+  }
+  insist(new Set(Object.values(replacements).map(value => value.toLowerCase())).size === 3,
+    'product_graph', '矿机归属升级组件地址重复。');
+  return Object.freeze({ version: 1, candidateArtifactDigest: input.candidateArtifactDigest.toLowerCase(),
+    catalogDigest: input.catalogDigest.toLowerCase(), operationId: input.operationId.toLowerCase(),
+    replacements: Object.freeze(replacements), codehash: Object.freeze(codehash),
+    verifiedBlockNumber: input.verifiedBlockNumber, verifiedBlockHash: input.verifiedBlockHash.toLowerCase() });
+}
+
 /** The product service verifies the chain; the browser also binds its result to both compiled ABIs. */
 export function validateProductGraph(input, genesis = pinnedGenesis) {
   insist(input && input.status === 'verified' && input.chainId === 56 && PRODUCT_STAGES.includes(input.stage),
@@ -142,6 +163,7 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
     insist(same(manifest[key], genesis[key]) && same(manifest.codehash[key], genesis.codehash[key]),
       'product_graph', `${key} 与已发布的原始部署不一致。`);
   }
+  const targetOwnerUpgrade = validateTargetOwnerUpgrade(input.targetOwnerUpgrade, input.verifiedBlockNumber);
   return Object.freeze({ stage: input.stage, manifest, artifactDigest: expectedDigest,
     operationId: input.operationId ?? null, verifiedBlockNumber: input.verifiedBlockNumber,
     verifiedBlockHash: input.verifiedBlockHash.toLowerCase(), operationalReady: input.operationalReady,
@@ -149,7 +171,8 @@ export function validateProductGraph(input, genesis = pinnedGenesis) {
     ...(input.transactionReady === false ? { transactionReady: false } : {}),
     ...(stale ? { refreshing: input.refreshing, snapshotAgeMs: input.snapshotAgeMs } : {}),
     stageActivationBlock: input.stageActivationBlock, stageActivationHash: input.stageActivationHash.toLowerCase(),
-    ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),freshFactoryVerified:true} : {}) });
+    ...(fresh ? {freshAuthority:Object.freeze({...input.freshAuthority}),freshFactoryVerified:true} : {}),
+    ...(targetOwnerUpgrade ? { targetOwnerUpgrade } : {}) });
 }
 
 /** Bounded JSON fetch; redirects and credentials to other origins are never followed. */
@@ -218,6 +241,7 @@ export async function loadLiveConfig({ fetcher = globalThis.fetch, basePath = ''
     ...(graph.stale ? { refreshing: graph.refreshing, snapshotAgeMs: graph.snapshotAgeMs } : {}),
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
     ...(graph.freshAuthority ? {freshAuthority:graph.freshAuthority,freshFactoryVerified:true} : {}),
+    ...(graph.targetOwnerUpgrade ? { targetOwnerUpgrade: graph.targetOwnerUpgrade } : {}),
     origin, basePath: base, manifestUrl,
     indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
 }

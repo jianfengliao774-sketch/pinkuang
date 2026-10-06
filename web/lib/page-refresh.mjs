@@ -1,7 +1,6 @@
-// Business pages can refresh server materialized GETs more often without
-// increasing the cadence of verified chain, quote or wallet reads.
+// Only the mounted page refreshes. Forms and paid action/quote readers keep their own triggers.
 export function refreshIntervalMs(route, { displayOnly = false } = {}) {
-  if (displayOnly === true && ['overview', 'rewards', 'detail', 'portfolio'].includes(route)) return 15_000;
+  if (displayOnly === true && ['home', 'pools', 'market', 'detail', 'overview', 'rewards', 'governance', 'records', 'portfolio'].includes(route)) return 30_000;
   if (['market', 'detail'].includes(route)) return 30_000;
   if (['home', 'pools', 'overview', 'rewards', 'governance', 'records', 'portfolio'].includes(route)) return 60_000;
   return null;

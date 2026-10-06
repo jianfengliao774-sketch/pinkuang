@@ -49,6 +49,8 @@ function uniquePositions(rows) {
  * `loadedTotals` is only the explicitly labelled loaded subset, not the account
  * total. Unknown fields stay null. Shares belong to each parent once, and BEM
  * only includes rewards booked into the parent, never its children's balances.
+ * `scopeRows` retains the same de-duplicated scope before empty balances are
+ * hidden, so separate pending-output displays cannot mistake unknown for zero.
  */
 export function assetOverview({ singlePositions = [], portfolioRows = [],
   singleLoaded = false, portfolioLoaded = false,
@@ -63,12 +65,13 @@ export function assetOverview({ singlePositions = [], portfolioRows = [],
   }).map(row => position(row, 'single')) : [];
   // Keep funding shares and zero-share historic claims. A failed/unknown value
   // remains visible rather than being interpreted as an empty position.
-  const rows = uniquePositions([...singles, ...parents]).filter(row =>
+  const scopeRows = uniquePositions([...singles, ...parents]);
+  const rows = scopeRows.filter(row =>
     ['shares', 'claimableBem', 'bnbOwed'].some(field => row[field] == null || row[field] > 0n));
   const loaded = singleLoaded || portfolioLoaded;
   const complete = singleLoaded && portfolioLoaded && !singleError && !portfolioError
     && singleCursor == null && portfolioCursor == null;
   const loadedTotals = loaded ? Object.fromEntries(fields.map(field => [field, sum(rows, field)])) : emptyTotals();
-  return { rows, complete, partial: !complete, loaded,
+  return { rows, scopeRows, complete, partial: !complete, loaded,
     totals: complete ? { ...loadedTotals } : emptyTotals(), loadedTotals };
 }

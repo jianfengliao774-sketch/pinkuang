@@ -16,9 +16,9 @@ const normalizeChain = value => {
  * read-only probes establish that the same account and chain are still active. */
 export function startWalletSession({ provider, account, chainId = 56,
   onInvalidate, onChecking, onRecovered, onDisconnected,
-  followAccountChanges = false,
+  followAccountChanges = false, verifyOnStart = false,
   isCurrent = () => true, schedule = setTimeout, unschedule = clearTimeout }) {
-  let expectedAccount = normalizeAccount(account), selectedAccount = account, revision = 0;
+  let expectedAccount = normalizeAccount(account), selectedAccount = account, revision = 0, probeRevision = 0;
   const expectedChain = normalizeChain(chainId);
   if (!expectedAccount || !expectedChain || typeof provider?.request !== 'function'
     || typeof provider?.on !== 'function') throw new TypeError('A connected wallet account and chain are required.');
@@ -43,17 +43,22 @@ export function startWalletSession({ provider, account, chainId = 56,
     };
     cancelProbe = () => finish(null);
     deadline = schedule(() => finish(null), WALLET_SESSION_READ_TIMEOUT_MS);
+    const request = method => {
+      if (settled || !current()) return undefined;
+      return provider.request({ method });
+    };
     Promise.all([
-      Promise.resolve().then(() => provider.request({ method: 'eth_accounts' })),
-      Promise.resolve().then(() => provider.request({ method: 'eth_chainId' })),
+      Promise.resolve().then(() => request('eth_accounts')),
+      Promise.resolve().then(() => request('eth_chainId')),
     ]).then(([accounts, chain]) => finish({ accounts, chain }), () => finish(null));
   });
   const probe = async () => {
     if (!current() || state !== 'checking') return;
-    const version = revision;
+    const version = revision, checkedVersion = probeRevision;
     attempts++;
-    const result = await readIdentity();
+    const read = await readIdentity();
     if (!current() || state !== 'checking' || version !== revision) return;
+    const result = checkedVersion === probeRevision ? read : null;
     if (result) {
       if (Array.isArray(result.accounts) && result.accounts.length === 0) { disconnect('account'); return; }
       const selected = Array.isArray(result.accounts) ? normalizeAccount(result.accounts[0]) : null;
@@ -70,7 +75,12 @@ export function startWalletSession({ provider, account, chainId = 56,
     retryTimer = schedule(() => { retryTimer = undefined; void probe(); }, WALLET_SESSION_RETRY_DELAYS[attempts]);
   };
   const recheck = (reason = 'transport') => {
-    if (!current() || state === 'checking') return;
+    if (!current()) return;
+    if (state === 'checking') {
+      // A new interruption retires old identity responses without resetting
+      // attempts or extending an already queued retry's deadline.
+      probeRevision++; cancelProbe?.(); return;
+    }
     state = 'checking'; attempts = 0;
     onInvalidate({ reason });
     onChecking();
@@ -101,6 +111,9 @@ export function startWalletSession({ provider, account, chainId = 56,
   const connected = value => chainChanged(value?.chainId);
   const listeners = { accountsChanged, chainChanged, disconnect: () => recheck(), connect: connected };
   for (const [event, listener] of Object.entries(listeners)) provider.on(event, listener);
+  // The restore controller cannot observe the interval before this watcher
+  // mounts. Install every listener before verifying that handoff identity.
+  if (verifyOnStart) recheck('restore');
   return () => {
     state = 'stopped'; clear();
     const remove = provider.removeListener || provider.off;

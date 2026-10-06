@@ -1,6 +1,11 @@
 "use client";
 import { readPageRound } from '../lib/live-page.mjs';
 import { activityAmounts } from '../lib/activity-summary.mjs';
+import { activityCompactTimeUtc8 } from '../lib/activity-time.mjs';
+import { createCatalogShare } from '../lib/catalog-share.mjs';
+import PoolCatalogShare from './PoolCatalogShare';
+import './PoolDetailLayout.css';
+import './ActivityRecordLayout.css';
 import { activityPage, appendActivityPage, loadActivityPage } from '../lib/activity-pagination.mjs';
 import { cachedYieldWindow, readYieldWindow } from '../lib/yield-history.mjs';
 import { claimDisplayState } from '../lib/claim-display.mjs';
@@ -10,6 +15,7 @@ import { displayListSnapshot, displayOnlySnapshot, invalidateDisplaySnapshots, p
 import { pageRefreshDue, refreshIntervalMs } from '../lib/page-refresh.mjs';
 import { automaticDisplayRefreshDue, canReuseDisplayRead, displayRefreshPageKey, displayRefreshPaused } from '../lib/display-refresh-policy.mjs';
 import { startDisplayUpdates } from '../lib/display-updates.mjs';
+import { appendDisplayPage, loadedDisplayPages, refreshDisplayPages } from '../lib/display-pagination.mjs';
 import { startReceiptDisplayCatchup } from '../lib/receipt-display-refresh.mjs';
 import { awaitingTransactionFinality } from '../lib/transaction-notice.mjs';
 import { directMemberTransaction, readMemberReceipt, readMemberTransactions, saveMemberTransactions, sendMemberWalletTransaction } from '../lib/member-wallet-transactions.mjs';
@@ -31,6 +37,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   ChevronRight,
+  ChevronUp,
   ChevronDown,
   Menu,
   X,
@@ -50,9 +57,13 @@ import {
 import { useI18n } from "../lib/i18n";
 import BrandMark from "./BrandMark";
 import PoolSortMenu from "./PoolSortMenu";
-import { projectDirectory, projectMatchesStatus } from '../lib/project-directory.mjs';
+import { projectDirectory, projectDirectoryCategory, projectMatchesStatus, projectSortState, projectTargetRaiseWei, toggleProjectSort } from '../lib/project-directory.mjs';
+import './PoolCatalogDesktop.css';
+import './AssetOverviewPromo.css';
 import MoreServicesNotice from "./MoreServicesNotice";
 import Notifications from "./Notifications";
+import FundingRefundNotice from './FundingRefundNotice';
+import { fundingRefundView, participantFundingNotices } from '../lib/funding-refund.mjs';
 import SiteOverview from "./SiteOverview";
 import BemPriceStat from "./BemPriceStat";
 import LiveYieldChart from "./LiveYieldChart";
@@ -71,14 +82,15 @@ import { walletConnectEnabled, walletConnectForPage } from "../lib/walletconnect
 import WalletConnectModal, { WalletIcon } from "./WalletConnectModal";
 import { createWalletDiscovery, walletConnectionError } from "../lib/wallet-discovery.mjs";
 import { startWalletSession } from '../lib/wallet-session.mjs';
+import { startWalletRestore, saveWalletPreference, clearWalletPreference, migrateWalletPreference } from '../lib/wallet-reload.mjs';
 import { sameUnsignedIntent } from "../lib/ui-context.mjs";
 import { READ_CANCELLED, retryReadRound, settleReadRound } from "../lib/read-retry.mjs";
 import { prepareAdminAction, readOperatorStatus, sameAdminPurchasePreview } from "../lib/live-admin.mjs";
-import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
+import { approvedOperatorCall, approvedPortfolioPurchase, authorityActionStatus, authorityStatusForRequest, prefetchAuthorityNonce, prepareAuthoritySubmission, submitAuthorityAction } from "../lib/authority-client.mjs";
 import ProjectShare from "./ProjectShare";
 import ShareSaleDialogContent from './ShareSaleDialogContent';
 import TransactionResultDialog from './TransactionResultDialog';
-import { normalizeTransactionResult } from '../lib/transaction-result.mjs';
+import { authorityPreviousFailureNotice, authorityRejectionResult, normalizeTransactionResult } from '../lib/transaction-result.mjs';
 import { applyMarketOrderFeedback, marketOrderFeedback } from '../lib/market-order-feedback.mjs';
 import { publicShareBaseForPath } from "../lib/project-share.mjs";
 import { resolveDeployConsoleUrl } from "../lib/deploy-console-url.mjs";
@@ -87,6 +99,7 @@ import { loadProductConfig, loadProductDisplayConfig, validateCurrentProductGrap
 import { validateFreshManifest } from '../lib/fresh-product-config.mjs';
 import { freshIdentityReadable, freshOperationsReady, freshReadClientIdentity } from '../lib/fresh-boot-recovery.mjs';
 import { assetOverview } from '../lib/asset-overview.mjs';
+import { assetPositionsWithBookedRewards, assetRewardPreview, rewardPreviewForPosition } from '../lib/asset-reward-preview.mjs';
 import { rememberPortfolioDisplay, readPortfolioDisplay } from '../lib/portfolio-display-cache.mjs';
 import { boundedReadPreview } from '../lib/bounded-read-preview.mjs';
 import { readDeploymentAccount } from '../lib/deployment-account.mjs';
@@ -99,6 +112,8 @@ import { readCurrentPoolMembers } from "../lib/live-members.mjs";
 import {
   connectWallet,
   authenticate,
+  preloadJournalSession,
+  invalidateJournalSession,
   readPending,
   sendProductTransaction,
   recoverPending,
@@ -125,7 +140,10 @@ import {
   currentPositionsActionReady,
   currentMarketOrderActionReady,
   canOpenFundingAction,
+  fundingTargetStatus,
+  fundingTargetUnavailableText,
 } from "../lib/live-view.mjs";
+import { targetOwnerGuardEnabled, targetOwnerFundingBlocked, targetOwnerFundingText } from '../lib/target-owner-funding.mjs';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const minimumSharePriceWei = 10000000000000n;
@@ -269,7 +287,8 @@ export default function LivePlatform() {
     [client, setClient] = useState(null),
     [account, setAccount] = useState(null),
     [wallet, setWallet] = useState(null),
-    [walletChecking, setWalletChecking] = useState(false);
+    [walletChecking, setWalletChecking] = useState(false),
+    [walletRestoring, setWalletRestoring] = useState(true);
   const [wallets, setWallets] = useState([]),
     [walletUiReady, setWalletUiReady] = useState(false),
     [walletInfo, setWalletInfo] = useState(null),
@@ -277,6 +296,10 @@ export default function LivePlatform() {
     [connectionError, setConnectionError] = useState(""),
     [walletQr, setWalletQr] = useState(null);
   const qrConnector = useRef(null);
+  const walletRestore = useRef(null);
+  const restoredProvider = useRef(null);
+  const connectedSession = useRef(null);
+  const [walletConnectionRevision, setWalletConnectionRevision] = useState(0);
   const [pools, setPools] = useState([]),
     [positions, setPositions] = useState([]),
     [stats, setStats] = useState(null),
@@ -330,6 +353,9 @@ export default function LivePlatform() {
   const [rewardCollection, setRewardCollection] = useState(null);
   const [rewardRecovery, setRewardRecovery] = useState(null);
   const [rewardRecoveryHash, setRewardRecoveryHash] = useState('');
+  const [uncollectedRewards, setUncollectedRewards] = useState(null);
+  const [rewardsRefresh, setRewardsRefresh] = useState(0);
+  const uncollectedRequest = useRef(null);
   const rewardRecoveryRef = useRef(null), rewardStop = useRef(false);
   const rewardIdentity = useRef(null), rewardMounted = useRef(true);
   const [transactionResults, setTransactionResults] = useState([]);
@@ -345,13 +371,16 @@ export default function LivePlatform() {
   const shownTransactionResults = useRef(new Set());
   const transactionResult = transactionResults[0] ?? null;
   function showTransactionResult(input, options) {
-    let result = normalizeTransactionResult(input, { locale, ...options });
+    let result = authorityRejectionResult(input, { locale, ...options }) || normalizeTransactionResult(input, { locale, ...options });
     if (!result && options?.creationPending) result = { kind: 'pending', reason: 'publication', hash: input?.hash,
       title: L('项目正在发布', 'Publishing project'),
-      message: L('交易已提交，正在等待链上确认。确认成功后会显示项目地址，请勿重复发布。',
-        'Transaction submitted. The project address will appear after confirmation. Do not submit it again.') };
+      message: input?.hash ? L('交易已提交，正在等待链上确认。确认成功后会显示项目地址，请勿重复发布。',
+        'Transaction submitted. The project address will appear after confirmation. Do not submit it again.')
+        : L('签名已发送，代付服务是否接受本次请求尚未确认。请核对状态，不要重复创建。',
+          'The signature was sent, but acceptance by the relay is unconfirmed. Check the status; do not repeat creation.') };
     if (!result && options?.creationFailure) result = { kind: 'failed', reason: 'publication',
       title: L('项目发布失败', 'Project publication failed'), message: textError(input) };
+    if (result && options?.creationPending) result = { ...result, previousFailure: authorityPreviousFailureNotice(input, locale) };
     if (result && input?.poolAddress && input?.status === 'confirmed') result = { ...result,
       projectAddress: input.poolAddress, projectKind: input.projectKind, reason: 'publication',
       title: L('项目发布成功', 'Project published'),
@@ -385,12 +414,15 @@ export default function LivePlatform() {
   const [query, setQuery] = useState(""),
     [filter, setFilter] = useState("Funding"),
     [sort, setSort] = useState("funded"),
+    [minerType, setMinerType] = useState("all"),
     [detailTab, setDetailTab] = useState("asset"),
     [marketTab, setMarketTab] = useState("shares"),
     [operatorTab, setOperatorTab] = useState("publish");
   const [expandedProjectRows, setExpandedProjectRows] = useState(() => new Set());
   const mobileDirectoryReturn = useRef(null);
   const epoch = useRef(0),
+    pageReadEpoch = useRef(0),
+    displayReads = useRef(new Set()),
     pageCache = useRef(new WeakMap()),
     readCache = useRef(new WeakMap()),
     positionsReadEpoch = useRef(0),
@@ -420,6 +452,7 @@ export default function LivePlatform() {
     invalidateDisplaySnapshots(displayStorage(), service.manifest);
     invalidateDisplaySnapshots(sessionDisplayStorage(), service.manifest);
     clearRecentPortfolioDisplays();
+    clearWalletDisplay(); setPrepared(null);
     pageCache.current.delete(service);
     readCache.current.delete(service);
   };
@@ -434,7 +467,8 @@ export default function LivePlatform() {
     setSource(null); setPositionsReadSource(null); setMarketOrderSource(null); setActivityReadSource(null);
     setLoadedAccount(null); setLoadedRoute(''); setCachedPage(false);
   };
-  refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading,
+  refreshState.current = { loading: loading || revalidating || positionsReadLoading || marketOrdersLoading || activityReadLoading
+      || ['overview', 'rewards'].includes(route.route) && uncollectedRewards?.status === 'loading',
     busy, inputModal: !!modal, modal: !!modal || !!transactionResult, pending: !!pending,
     failed: readFailed || !!positionsReadError || !!marketOrdersError || !!activityReadError };
   activeModal.current = modal;
@@ -502,7 +536,7 @@ export default function LivePlatform() {
     && !connectingId && !connectionLock.current;
   const operatorServiceReady = config?.displayOnly === true && config.walletSessionReady !== false
     || config?.productFamily !== 'fresh-v4' || freshOperationsReady(config);
-  const operatorAccess = !wallet || !account ? 'disconnected' : !config ? 'unavailable'
+  const operatorAccess = walletRestoring || walletChecking ? 'checking' : !wallet || !account ? 'disconnected' : !config ? 'unavailable'
     : config.productFamily === 'fresh-v4' && !config.displayOnly && !freshIdentityReadable(config) ? 'unavailable'
     : hasOperatorAccess ? (config.displayOnly ? 'configured' : 'verified') : config.displayOnly ? 'denied' : !operatorContextCurrent || operator.status === 'checking' || connectingId ? 'checking'
       : operator.status === 'error' ? 'unavailable' : 'denied';
@@ -512,12 +546,34 @@ export default function LivePlatform() {
   }, [route.route, operatorAccess]);
 
   useEffect(() => {
+    if (route.route !== 'operator' || !directAdministrator || !wallet || !account || !client?.provider
+      || config?.stage !== 'fresh-active' || publishingProject && !publishingProject.result) return;
+    let active = true;
+    const session = connectedSession.current, context = walletEpoch.current;
+    const controller = new AbortController();
+    const isCurrent = () => active && connectedSession.current === session && walletEpoch.current === context;
+    // One read on entry or a resolved publication, never a polling loop. Warm
+    // existing cookies without a login prompt; signing remains an explicit click.
+    void prefetchAuthorityNonce({ provider: wallet, readProvider: client.provider, config, account,
+      isCurrent, signal: controller.signal }).catch(() => {});
+    void preloadJournalSession({ provider: wallet, config, account, isCurrent }).catch(() => {});
+    return () => { active = false; controller.abort(); };
+  }, [route.route, directAdministrator, wallet, account, client, config, walletConnectionRevision,
+    !!publishingProject && !publishingProject.result, publishingProject?.result?.status]);
+
+  useEffect(() => {
+    // Only a real client, wallet account or page identity change retires user-action and members reads.
+    epoch.current++;
+    return () => { epoch.current++; };
+  }, [client, account, route.route, route.pool]);
+
+  useEffect(() => {
     if (!client || !boot.displayOnly) return;
     return startDisplayUpdates(boot, {
       isPaused: () => {
         const state = refreshState.current;
-        return displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy,
-          pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(routeIdentity.current.route) && recordsPageRef.current > 0 })
+        return displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0,
+          pastFirstRecordsPage: recordsPageRef.current > 0 })
           || !automaticDisplayRefreshDue({ lastAttempt: lastPageRefresh.current.get(displayRefreshPage.current),
             now: Date.now(), failed: state.failed || portfolioRead.current.failed });
       },
@@ -548,10 +604,38 @@ export default function LivePlatform() {
   },[wallet,account,boot,client,walletRevision]);
 
   useEffect(() => {
-    const service = createWalletDiscovery(window, setWallets);
+    let active = true, restore;
+    const context = walletEpoch.current;
+    const service = createWalletDiscovery(window, entries => {
+      setWallets(entries);
+      if (connectedWallet.current) migrateWalletPreference(displayStorage(), connectedWallet.current, entries);
+      restore?.refresh();
+    });
     discovery.current = service;
+    restore = startWalletRestore({ discovery: service, storage: displayStorage(),
+      isCurrent: () => active && context === walletEpoch.current && !connectedWallet.current
+        && !connectionLock.current && activeModal.current?.type !== 'connect-wallet',
+      onChecking: checking => { if (active) setWalletRestoring(checking); },
+      onSettled: () => { if (active) setWalletRestoring(false); },
+      onRecovered: ({ entry, provider, account: selected }) => {
+        walletEpoch.current++;
+        connectedWallet.current = provider;
+        connectedSession.current = { provider };
+        setWalletConnectionRevision(v => v + 1);
+        restoredProvider.current = provider;
+        clearWalletDisplay();
+        setWallet(provider); setWalletInfo({ ...entry, provider });
+        setAccount(getAddress(selected)); setWalletChecking(true); setWalletRestoring(false);
+        saveWalletPreference(displayStorage(), entry);
+      },
+    });
+    walletRestore.current = restore;
     setWalletUiReady(true);
-    return () => { service.destroy(); discovery.current = null; connectionLock.current = null; };
+    return () => {
+      active = false; restore.cancel();
+      if (walletRestore.current === restore) walletRestore.current = null;
+      service.destroy(); discovery.current = null; connectionLock.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -729,6 +813,9 @@ export default function LivePlatform() {
   }, [bootAttempt]);
   useEffect(() => {
     if (!wallet?.on || !account) return;
+    const verifyOnStart = restoredProvider.current === wallet;
+    restoredProvider.current = null;
+    const session = connectedSession.current;
     const invalidate = () => {
       if (connectedWallet.current !== wallet) return;
       epoch.current++;
@@ -741,8 +828,8 @@ export default function LivePlatform() {
         && activeModal.current === ticket.target) ticket.walletContext = walletEpoch.current;
       else setModal(null);
     };
-    return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true,
-      isCurrent: () => connectedWallet.current === wallet,
+    return startWalletSession({ provider: wallet, account, chainId: 56, followAccountChanges: true, verifyOnStart,
+      isCurrent: () => connectedWallet.current === wallet && connectedSession.current === session,
       onInvalidate: invalidate,
       onChecking: () => setWalletChecking(true),
       onRecovered: ({ account: selected }) => {
@@ -752,12 +839,12 @@ export default function LivePlatform() {
       },
       onDisconnected: () => {
         setWalletChecking(false); setAccount(null); setWallet(null); setWalletInfo(null);
-        connectedWallet.current = null; clearWalletDisplay();
+        connectedWallet.current = null; connectedSession.current = null; clearWalletDisplay();
         setMessage(walletLanguage.current==='en' ? 'Wallet or network changed. Please reconnect.' : '钱包账户或网络已改变，请重新连接。');
         setRefresh(v => v + 1);
       },
     });
-  }, [wallet, account]);
+  }, [wallet, account, walletConnectionRevision]);
   useEffect(() => {
     setMemberTransactions(account && config?.displayOnly ? readMemberTransactions(config, account) : []);
   }, [account, config?.factory, config?.portfolioFactory, config?.displayOnly]);
@@ -818,7 +905,7 @@ export default function LivePlatform() {
         const state = refreshState.current;
         return { ...receiptDisplayState.current, portfolioSource: portfolioRead.current.source,
           visible: document.visibilityState === 'visible',
-          busy: displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy }),
+          busy: displayRefreshPaused(state, { displayOnly: true, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0 }),
           pastFirstRecordsPage: ['overview', 'records', 'rewards'].includes(route.route) && recordsPageRef.current > 0 };
       },
       // This separate generation updates materialized GETs. Governance,
@@ -917,6 +1004,9 @@ export default function LivePlatform() {
       || (['overview', 'rewards', 'market'].includes(route.route)
       && ['claim', 'withdrawBnb', 'marketWithdraw', 'harvest', 'list'].includes(kind)
       && (positionsReadLoading || !!positionsReadError))) return;
+    if (kind === 'deposit' && targetOwnerFundingBlocked(pool, config)) {
+      setError(L(...targetOwnerFundingText(pool?.targetOwnerFunding?.status))); return;
+    }
     if (route.route === 'detail' && ['deposit', 'completeFirstoSale', 'finalizeFailure',
       'withdrawDeposit', 'claim', 'withdrawBnb', 'list'].includes(kind) && !detailActionReadyFor(kind)) return;
     if (['overview', 'rewards', 'market'].includes(route.route)
@@ -960,9 +1050,10 @@ export default function LivePlatform() {
   const actionLabel = (kind) => L(...(actionNames[kind] || [kind, kind]));
   const poolCapacityInput = row => ({ manifest: client?.manifest, factory: config?.factory,
     pool: row?.pool, pricePerUnitWei: row?.unitPriceWei, displayOnly: config?.displayOnly,
-    params: row?.params, allowUnownedTarget: ['Funding', 'Funded'].includes(row?.status) });
+    params: row?.params, allowUnownedTarget: ['Funding', 'Funded'].includes(row?.status),
+    includeOfficialAsk: ['pools', 'detail'].includes(route.route) && ['Funding', 'Funded'].includes(row?.status) });
   const orderCapacityInput = order => ({ manifest: client?.manifest, factory: config?.factory,
-    pool: order?.pool, pricePerUnitWei: order?.pricePerUnitWei, displayOnly: config?.displayOnly });
+    pool: order?.pool, pricePerUnitWei: order?.pricePerUnitWei, displayOnly: config?.displayOnly, includeOfficialAsk: false });
   const capacityCell = (order) => {
     const saved = orderCapacity[order.pool?.toLowerCase()];
     const capacity = saved?.requestKey === capacityRequestKey(orderCapacityInput(order)) ? saved : null;
@@ -982,13 +1073,13 @@ export default function LivePlatform() {
     const page = displayRefreshPageKey(route, account);
     lastPageRefresh.current.set(page, Date.now());
     const check = () => {
-      if (['overview', 'records', 'rewards'].includes(route.route) && recordsPage > 0) return;
+      if (recordsPage > 0) return;
       const state = refreshState.current;
       const now = Date.now();
       if (!pageRefreshDue({ route: route.route, lastAttempt: lastPageRefresh.current.get(page), now,
         displayOnly: config?.displayOnly,
         visible: document.visibilityState === 'visible',
-        busy: displayRefreshPaused(state, { displayOnly: config?.displayOnly, portfolioBusy: portfolioRead.current.busy }),
+        busy: displayRefreshPaused(state, { displayOnly: config?.displayOnly, portfolioBusy: portfolioRead.current.busy, displayReading: displayReads.current.size > 0 }),
         failed: state.failed || portfolioRead.current.failed })) return;
       lastPageRefresh.current.set(page, now);
       if (config?.displayOnly) setReceiptDisplayRefresh(value => value + 1);
@@ -1035,8 +1126,8 @@ export default function LivePlatform() {
       return;
     }
     let cancelled = false;
-    const revision = ++epoch.current;
-    const current = () => !cancelled && revision === epoch.current;
+    const revision = ++pageReadEpoch.current;
+    const current = () => !cancelled && revision === pageReadEpoch.current;
     const accountKey = account?.toLowerCase() || '';
     const pageKey = pageDisplayKey(route, account, marketTab);
     const cache = pageCache.current.get(client);
@@ -1053,6 +1144,12 @@ export default function LivePlatform() {
     const sharedDisplay = shared && displayOnlySnapshot(shared.result, client.manifest, shared.savedAt);
     const cached = recent(saved) ? displayOnlySnapshot(saved.result, client.manifest, saved.savedAt)
       : persisted || (sharedDisplay?.catalog ? { catalog: sharedDisplay.catalog } : null);
+    const silent = config?.displayOnly && cached
+      && loadedRoute === route.route + (route.pool ? `/${route.pool}` : '')
+      && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase();
+    const catalogPages = config?.displayOnly && saved?.expanded
+      ? loadedDisplayPages(saved.result.catalog, pools.length) : 1;
+    const readTicket = {};
     const showResult = result => {
       if (result.catalog) {
         setPools(mergePublishedProjects(result.catalog.items.map(viewPool), publishedProjects.current));
@@ -1072,9 +1169,10 @@ export default function LivePlatform() {
       setLoadedRoute(route.route + (route.pool ? `/${route.pool}` : ''));
       setCachedPage(false); setLoading(false); setRevalidating(false);
       setError(''); setReadRetry(null); setReadFailed(false);
-      return () => { cancelled = true; epoch.current++; };
+      return () => { cancelled = true; pageReadEpoch.current++; };
     }
     const clearRound = progress => {
+      if (silent) return;
       setReadRetry(progress.attempt > 1 ? progress : null);
       setReadFailed(false);
       setCachedPage(!!cached);
@@ -1096,36 +1194,45 @@ export default function LivePlatform() {
       if (cached) showResult(cached);
     };
     async function load() {
-      return readPageRound(client, { route, account, marketTab });
+      const result = await readPageRound(client, { route, account, marketTab });
+      if (result.catalog && catalogPages > 1) result.catalog = await refreshDisplayPages(result.catalog, {
+        read: options => (client.readDisplayPools ?? client.readPools)(options),
+        options: { account: account || ZeroAddress }, pageCount: catalogPages, isCurrent: current,
+      });
+      return result;
     }
+    displayReads.current.add(readTicket);
     retryReadRound(load, { isCurrent: current, onAttempt: clearRound,
-      onRetry: progress => { if (current()) setReadRetry(progress); } })
+      onRetry: progress => { if (current() && !silent) setReadRetry(progress); } })
       .then((result) => {
         if (result === READ_CANCELLED || !current()) return;
         if (result.catalog || result.detail) {
           let entries = pageCache.current.get(client);
           if (!entries) { entries = new Map(); pageCache.current.set(client, entries); }
           entries.delete(pageKey);
-          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, refresh: displayRefreshKey, result });
+          entries.set(pageKey, { savedAt: Date.now(), account: accountKey, refresh: displayRefreshKey, result,
+            expanded: result.catalog?.loadedPages > 1 });
           if (entries.size > 8) entries.delete(entries.keys().next().value);
           writeDisplaySnapshot(displayStorage(), client.manifest, pageKey, result);
           writePoolDisplaySnapshots(displayStorage(), client.manifest, result, account);
         }
         showResult(result);
-        if (result.detail) setDetailPreview(null);
+        setReadFailed(false);
+        if (result.detail && !silent) setDetailPreview(null);
         setCachedPage(false);
       })
       .catch((e) => {
         if (current()) {
           invalidateDisplayOnReorg(client, e);
-          setError(textError(e));
+          if (!silent) setError(textError(e));
           setReadFailed(true);
           // A failed revalidation must not turn the last verified display into
           // an apparent empty account. Transaction paths still require fresh reads.
-          setCachedPage(!!cached);
+          if (!silent) setCachedPage(!!cached);
         }
       })
       .finally(() => {
+        displayReads.current.delete(readTicket);
         if (current()) {
           setLoading(false);
           setRevalidating(false);
@@ -1134,26 +1241,45 @@ export default function LivePlatform() {
         }
       });
     return () => {
+      displayReads.current.delete(readTicket);
       cancelled = true;
-      epoch.current++;
+      pageReadEpoch.current++;
     };
   }, [client, account, route.route, route.pool, marketTab, displayRefreshKey]);
 
+  // Pending output is read only for loaded overview/rewards pages. Index/price ticks
+  // do not start paid per-miner reads; manual refresh and settled transactions do.
+  const rewardPoolsKey = same(positionsAccount, account)
+    ? [...new Set(positions.map(p => p.pool.toLowerCase()))].sort().join(',') : '';
+  const rewardReadKey = client && account
+    ? `${client.manifest.factory.toLowerCase()}:${account.toLowerCase()}:${rewardPoolsKey}` : '';
+
   useEffect(() => {
-    if (!client || !['overview', 'rewards', 'governance', 'market'].includes(route.route)) return;
+    if (!client) return;
+    const personalPage = ['overview', 'rewards', 'governance', 'market', 'notifications'].includes(route.route);
+    // Once a formal wallet is connected, its cached positions can notify even on the homepage.
+    if (!personalPage && (!config?.displayOnly || !client.readDisplayPositions)) return;
+    // The notifications page reuses materialized personal rows; never add per-pool RPC reads.
+    if (route.route === 'notifications' && (!config?.displayOnly || !client.readDisplayPositions)) return;
     let cancelled = false;
-    ++positionsReadEpoch.current;
     const owner = account?.toLowerCase();
     setPositionsReadError('');
-    setPositionsReadSource(null);
+
     if (!owner) {
+      ++positionsReadEpoch.current;
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
       setPositionsReadLoading(false);
       return;
     }
     const cacheKey = `positions:${owner}`;
     const memory = readCache.current.get(client)?.get(cacheKey);
-    const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
+    const backgroundAge = memory ? Date.now() - memory.savedAt : NaN;
+    const reuseBackgroundPositions = config?.displayOnly && !personalPage && memory && same(positionsAccount, account)
+      && backgroundAge >= 0 && backgroundAge < 60_000 && typeof memory.refresh === 'string'
+      && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0];
+    const positionPages = config?.displayOnly && memory?.expanded && same(positionsAccount, account)
+      ? loadedDisplayPages(memory.result, positions.length) : 1;
+    const cached = displayListSnapshot(memory && (Date.now() - memory.savedAt < 120_000 || reuseBackgroundPositions)
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
     if (cached) {
@@ -1167,12 +1293,22 @@ export default function LivePlatform() {
     } else {
       setPositions([]); setPositionCursor(null); setPositionsLoaded(false); setPositionsAccount(null);
     }
-    if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
+    if (config?.displayOnly && cached && (canReuseDisplayRead(memory, displayRefreshKey)
+      || reuseBackgroundPositions)) {
       setPositionsReadLoading(false);
-      return () => { cancelled = true; ++positionsReadEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setPositionsReadLoading(true);
-    retryReadRound(() => (client.readDisplayPositions ?? client.readPositions)({ account }), { isCurrent: () => !cancelled })
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++positionsReadEpoch.current;
+    displayReads.current.add(readTicket);
+    setPositionsReadLoading(!silent);
+    retryReadRound(async () => {
+      const result = await (client.readDisplayPositions ?? client.readPositions)({ account });
+      return positionPages > 1 ? refreshDisplayPages(result, {
+        read: options => (client.readDisplayPositions ?? client.readPositions)(options), options: { account },
+        pageCount: positionPages, isCurrent: () => !cancelled,
+      }) : result;
+    }, { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
         setPositions(result.items.map(viewPool));
@@ -1184,27 +1320,46 @@ export default function LivePlatform() {
         if (['overview', 'rewards', 'governance'].includes(route.route)) setSource(result.source);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result, expanded: result.loadedPages > 1 });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setPositionsReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setPositionsReadLoading(false); });
-    return () => { cancelled = true; ++positionsReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setPositionsReadLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, displayRefreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUncollectedRewards(null);
+    if (!['overview', 'rewards'].includes(route.route) || !client?.readUncollectedRewards || !account
+      || !positionsLoaded || !same(positionsAccount, account)) return;
+    const revision = `${refresh}:${rewardsRefresh}`;
+    const previous = uncollectedRequest.current;
+    const force = previous?.client === client && previous.key === rewardReadKey
+      && previous.revision !== revision;
+    uncollectedRequest.current = { client, key: rewardReadKey, revision };
+    setUncollectedRewards({ status: 'loading', requestKey: rewardReadKey, client });
+    client.readUncollectedRewards({ account, positions, force })
+      .then(result => { if (!cancelled) setUncollectedRewards({ ...result, requestKey: rewardReadKey, client }); })
+      .catch(() => { if (!cancelled) setUncollectedRewards({ status: 'unavailable', requestKey: rewardReadKey, client }); });
+    return () => { cancelled = true; };
+  }, [client, account, route.route, positionsLoaded, positionsAccount, rewardPoolsKey, refresh, rewardsRefresh]);
 
   useEffect(() => {
     if (!client || route.route !== 'market') return;
     let cancelled = false;
-    ++marketOrdersEpoch.current;
     setMarketOrdersError('');
-    setMarketOrderSource(null);
-    setMarketOrderIdentity('');
+
     if (marketTab === 'whole' || (marketTab === 'mine' && !account)) {
+      ++marketOrdersEpoch.current;
       setOrders([]); setOrderCursor(null); setMarketOrdersLoading(false);
       return;
     }
     const cacheKey = marketTab === 'mine' ? `orders:${account.toLowerCase()}` : 'orders:active';
     const memory = readCache.current.get(client)?.get(cacheKey);
+    const orderPages = config?.displayOnly && memory?.expanded
+      && marketOrderIdentity === `${marketTab}:${account?.toLowerCase() || ''}`
+      ? loadedDisplayPages(memory.result, orders.length) : 1;
     const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1218,10 +1373,20 @@ export default function LivePlatform() {
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
       setMarketOrdersLoading(false);
-      return () => { cancelled = true; ++marketOrdersEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setMarketOrdersLoading(true);
-    retryReadRound(() => (client.readDisplayOrders ?? client.readOrders)(marketTab === 'mine' ? { seller: account } : { active: true }),
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++marketOrdersEpoch.current;
+    displayReads.current.add(readTicket);
+    setMarketOrdersLoading(!silent);
+    retryReadRound(async () => {
+      const options = marketTab === 'mine' ? { seller: account } : { active: true };
+      const result = await (client.readDisplayOrders ?? client.readOrders)(options);
+      return orderPages > 1 ? refreshDisplayPages(result, {
+        read: next => (client.readDisplayOrders ?? client.readOrders)(next), options,
+        pageCount: orderPages, isCurrent: () => !cancelled,
+      }) : result;
+    },
       { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1231,29 +1396,34 @@ export default function LivePlatform() {
         setMarketOrderIdentity(`${marketTab}:${account?.toLowerCase() || ''}`);
         let entries = readCache.current.get(client);
         if (!entries) { entries = new Map(); readCache.current.set(client, entries); }
-        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result });
+        entries.set(cacheKey, { savedAt: Date.now(), refresh: displayRefreshKey, result, expanded: result.loadedPages > 1 });
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setMarketOrdersError(textError(error)); } })
-      .finally(() => { if (!cancelled) setMarketOrdersLoading(false); });
-    return () => { cancelled = true; ++marketOrdersEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setMarketOrdersLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, marketTab, displayRefreshKey]);
 
   useEffect(() => {
     if (!client || !['records', 'overview', 'rewards'].includes(route.route)) return;
     let cancelled = false;
-    ++activityReadEpoch.current;
     const owner = route.route === 'records' ? undefined : account;
-    setRecordsPage(0);
+    const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
+    const memory = readCache.current.get(client)?.get(cacheKey);
+    if (config?.displayOnly && recordsPageRef.current > 0 && loadedRoute === route.route
+      && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase()
+      && typeof memory?.refresh === 'string' && memory.refresh.split(':')[0] === displayRefreshKey.split(':')[0])
+      return () => { cancelled = true; };
+    if (!config?.displayOnly) setRecordsPage(0);
     setActivityReadError('');
-    setActivityReadSource(null);
+
     setActivityTotals({ totalCount: null, overviewTotalCount: null });
     if (route.route !== 'records' && !owner) {
+      ++activityReadEpoch.current;
       setActivity([]); setActivityCursor(null); setActivityReadLoading(false);
       return;
     }
-    const cacheKey = `activity:${owner?.toLowerCase() || 'public'}`;
-    const memory = readCache.current.get(client)?.get(cacheKey);
+
     const cached = displayListSnapshot(memory && Date.now() - memory.savedAt < 120_000
       ? displayOnlySnapshot(memory.result, client.manifest, memory.savedAt)
       : readPageSnapshot(displayStorage(), client.manifest, cacheKey));
@@ -1268,9 +1438,12 @@ export default function LivePlatform() {
     }
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey)) {
       setActivityReadLoading(false);
-      return () => { cancelled = true; ++activityReadEpoch.current; };
+      return () => { cancelled = true; };
     }
-    setActivityReadLoading(true);
+    const silent = config?.displayOnly && !!cached, readTicket = {};
+    ++activityReadEpoch.current;
+    displayReads.current.add(readTicket);
+    setActivityReadLoading(!silent);
     retryReadRound(() => client.readActivity({ account: owner, limit: 50 }), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1285,8 +1458,8 @@ export default function LivePlatform() {
         writeDisplaySnapshot(displayStorage(), client.manifest, cacheKey, result);
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
-    return () => { cancelled = true; ++activityReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setActivityReadLoading(false); });
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, account, route.route, displayRefreshKey]);
 
   useEffect(() => {
@@ -1301,6 +1474,7 @@ export default function LivePlatform() {
     setStatsSource(cached?.source ?? null);
     if (config?.displayOnly && cached && canReuseDisplayRead(memory, displayRefreshKey))
       return () => { cancelled = true; };
+    const readTicket = {}; displayReads.current.add(readTicket);
     retryReadRound(() => (client.readDisplayStats ?? client.readStats)(), { isCurrent: () => !cancelled })
       .then(result => {
         if (cancelled || result === READ_CANCELLED) return;
@@ -1311,8 +1485,9 @@ export default function LivePlatform() {
         entries.set('stats', { savedAt: Date.now(), refresh: displayRefreshKey, result });
         writeDisplaySnapshot(displayStorage(), client.manifest, 'stats', result);
       })
-      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } });
-    return () => { cancelled = true; };
+      .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setStatsReadError(textError(error)); } })
+      .finally(() => displayReads.current.delete(readTicket));
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, route.route, displayRefreshKey]);
 
   function readCachedSection(key, reader, { refreshToken = refresh } = {}) {
@@ -1370,20 +1545,26 @@ export default function LivePlatform() {
   useEffect(() => {
     if (!client || route.route !== 'detail' || !route.pool || !detail || loading) return;
     let cancelled = false;
-    ++activityReadEpoch.current;
     const pool = route.pool;
     const activityKey = `pool-activity:${pool.toLowerCase()}`;
     const saved = readCache.current.get(client)?.get(activityKey);
+    if (config?.displayOnly && recordsPageRef.current > 0
+      && loadedRoute === `detail/${pool}` && (loadedAccount || '').toLowerCase() === (account || '').toLowerCase()
+      && typeof saved?.refresh === 'string'
+      && saved.refresh.split(':')[0] === displayRefreshKey.split(':')[0]) return;
     const currentActivity = config?.displayOnly && saved?.refresh === displayRefreshKey
       && Date.now() - saved.savedAt < 120_000 ? saved.result : null;
-    const activityCache = currentActivity ?? readPageSnapshot(displayStorage(), client.manifest, activityKey);
-    setActivityReadError(''); setActivityReadLoading(!currentActivity);
+    const activityCache = currentActivity ?? (config?.displayOnly && saved?.result && Date.now() - saved.savedAt < 120_000
+      ? displayOnlySnapshot(saved.result, client.manifest, saved.savedAt)
+      : readPageSnapshot(displayStorage(), client.manifest, activityKey));
+    const silent = config?.displayOnly && !!activityCache, readTicket = {};
+    setActivityReadError(''); setActivityReadLoading(!currentActivity && !silent);
     if (activityCache) { setActivity(activityCache.items); setActivityCursor(activityCache.nextCursor);
       setActivityReadSource(activityCache.source);
       setActivityTotals({ totalCount: activityCache.totalCount, overviewTotalCount: activityCache.overviewTotalCount }); }
     else { setActivity([]); setActivityCursor(null); setActivityReadSource(null);
       setActivityTotals({ totalCount: null, overviewTotalCount: null }); }
-    if (!currentActivity) void readCachedSection(activityKey, () => client.readActivity({ pool }), { refreshToken: displayRefreshKey })
+    if (!currentActivity) { ++activityReadEpoch.current; displayReads.current.add(readTicket); void readCachedSection(activityKey, () => client.readActivity({ pool }), { refreshToken: displayRefreshKey })
       .then(result => {
         if (!cancelled) { setActivity(result.items); setActivityCursor(result.nextCursor);
           setActivityReadSource(result.source);
@@ -1394,8 +1575,8 @@ export default function LivePlatform() {
           writeDisplaySnapshot(displayStorage(), client.manifest, activityKey, result); }
       })
       .catch(error => { if (!cancelled) { invalidateDisplayOnReorg(client, error); setActivityReadError(textError(error)); } })
-      .finally(() => { if (!cancelled) setActivityReadLoading(false); });
-    return () => { cancelled = true; ++activityReadEpoch.current; };
+      .finally(() => { displayReads.current.delete(readTicket); if (!cancelled) setActivityReadLoading(false); }); }
+    return () => { displayReads.current.delete(readTicket); cancelled = true; };
   }, [client, config?.displayOnly, account, route.route, route.pool, !!detail, loading, displayRefreshKey]);
 
   useEffect(() => { setRecordsPage(0); }, [client, route.route, route.pool, account]);
@@ -1473,7 +1654,8 @@ export default function LivePlatform() {
 
   async function readPoolCapacityQuote(row, force, provider) {
     const input = poolCapacityInput(row);
-    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei);
+    const savedQuote = force ? null : readCapacityDisplay(displayStorage(), client.manifest, row.pool, row.unitPriceWei,
+      { includeOfficialAsk: input.includeOfficialAsk });
     const result = await capacityRequests.current.read(input,
       () => readShareDailyCapacityPrice(provider, input), { force, savedQuote });
     if (result.available) writeCapacityDisplay(displayStorage(), client.manifest, result);
@@ -1536,6 +1718,7 @@ export default function LivePlatform() {
   }, [client, route.route, route.pool, detailTab, account, yieldDays, displayRefreshKey]);
   function connect() {
     if (busy && !connectionLock.current) return;
+    walletRestore.current?.cancel(); setWalletRestoring(false);
     setConnectionError("");
     discovery.current?.refresh();
     setModal(connectionLock.current?.target || { type: "connect-wallet", reselectAccount: !!account });
@@ -1571,11 +1754,19 @@ export default function LivePlatform() {
       if (!current()) { if (remote && provider !== connectedWallet.current) await provider.disconnect?.().catch(() => {}); return; }
       walletEpoch.current++;
       connectedWallet.current = provider;
+      connectedSession.current = { provider };
+      setWalletConnectionRevision(v => v + 1);
+      restoredProvider.current = null;
       setWalletChecking(false);
       clearWalletDisplay();
       setWallet(provider);
       setWalletInfo({ ...entry, provider });
       setAccount(getAddress(owner));
+      if (remote) clearWalletPreference(displayStorage());
+      else {
+        saveWalletPreference(displayStorage(), entry);
+        migrateWalletPreference(displayStorage(), provider, discovery.current?.getWallets());
+      }
       setPrepared(null);
       setModal(null);
       setPending(null);
@@ -1834,10 +2025,11 @@ export default function LivePlatform() {
       if (job.submitting) { timer = setTimeout(poll, 3000); return; }
       try {
         if (!job.result) {
-          const status = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
+          const latest = job.initialStatus ?? await authorityActionStatus(job.config, job.account);
           if (!current()) return;
           job.initialStatus = null;
-          if ((!job.hash || same(status.hash, job.hash)) && ['confirmed', 'failed'].includes(status.status)) {
+          const status = authorityStatusForRequest(latest, job.intent.operationId, job.hash);
+          if (status && ['confirmed', 'failed'].includes(status.status)) {
             job.result = await readPublishedProject({ provider: job.client.provider, intent: job.intent,
               status, hash: job.hash || status.hash });
             if (!current()) return;
@@ -1876,7 +2068,7 @@ export default function LivePlatform() {
     poll();
     return () => { cancelled = true; clearTimeout(timer); };
   }, [publishingProject, client, config?.factory, config?.authority, config?.artifactDigest, account]);
-  async function submitFreshAuthority(kind, args, current, creationTransaction, onState) {
+  async function submitFreshAuthority(kind, args, current, creationTransaction, onState, preparedAuthority) {
     let enteredRelay = false;
     try {
     if (config?.stage !== 'fresh-active' || !isOperator || !wallet || !account || !operatorServiceReady)
@@ -1885,12 +2077,14 @@ export default function LivePlatform() {
       && [config.factory, config.portfolioFactory].some(target => target && same(target, args.target));
     if (creating && publishingProjectRef.current && !publishingProjectRef.current.result)
       throw new Error('上一笔项目发布正在确认，请先核对结果，请勿重复创建。');
-    await requireCurrentProductStage(config);
+    // A prepared signature is pinned during preview; confirmation must open the wallet without another read.
+    if (!preparedAuthority && !config.displayOnly) await requireCurrentProductStage(config);
     if (!current()) throw new Error('页面或钱包已改变，请重新预览。');
     // The relay's durable journal/nonce checks serialize submissions. Its live
     // status RPC graph is recovery work, not a prerequisite for a wallet prompt.
     const command = await prepareAuthoritySubmission({ provider: wallet,
       readProvider: client?.provider ?? createReadOnlyHttpProvider(config), config, account, kind, args,
+      prepared: preparedAuthority,
       isCurrent: current, onState, authenticate: options => connectJournal({ inspect: false, ...options }) });
     const creation = creationTransaction ? publishedProjectIntent(config, creationTransaction, { account, command }) : null;
     if (!current()) throw new Error('签名期间页面或钱包已改变；请先核对管理员代付状态。');
@@ -1904,16 +2098,17 @@ export default function LivePlatform() {
     if (publication) setPublishingProject(publication);
     try { enteredRelay = true; onState?.({ status: 'submitting-authority' }); result = await submitAuthorityAction(config, account, command); }
     catch (problem) {
+      if ([401, 409].includes(problem.httpStatus)) invalidateJournalSession(wallet);
       // A status GET describes the latest shared Gas journal, which may still
       // be an older command. It cannot prove that this POST was accepted.
-      if ([400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {
+      if (problem.submissionRejected === true || [400, 401, 403, 404, 405, 409, 413, 415, 429].includes(problem.httpStatus)) {
         if (publication && publishingProjectRef.current === publication) setPublishingProject(null);
         throw Object.assign(problem, { beforeWalletSubmission: true });
       }
       if (publication && publishingProjectRef.current === publication) {
         publication.submitting = false; setPublishingProject({ ...publication });
       }
-      throw Object.assign(new Error('签名已发送，代付结果暂未返回；请核对状态后再操作。'), { cause: problem });
+      throw Object.assign(new Error('签名已发送，本次请求是否被接受尚未确认；请核对状态，不要重复创建。'), { cause: problem });
     }
     if (publication && publishingProjectRef.current === publication) {
       publication.hash = result.hash ?? null; publication.initialStatus = result; publication.submitting = false;
@@ -1964,7 +2159,7 @@ export default function LivePlatform() {
         : await preparePortfolioAction({ ...input, config, provider: wallet, account });
       if (!current() || !sameUnsignedIntent(confirmed.transaction, checked.transaction)) throw new Error('交易内容已改变，请重新预览。');
       if (config?.stage === 'fresh-active' && checked.action.kind === 'createPortfolio')
-        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current, checked.transaction);
+        return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction), current, checked.transaction, undefined, checked.preparedAuthority);
       if (config?.stage === 'fresh-active' && ['buyOfficial', 'buyFirsto'].includes(checked.action.kind)) {
         const command = approvedPortfolioPurchase(config, checked);
         return await submitFreshAuthority(command.kind, command.args, current);
@@ -2184,6 +2379,15 @@ export default function LivePlatform() {
         await connectJournal({ inspect: false, onState: progress });
       }
       if (!current()) throw new Error(L("页面或钱包已改变，请重新预览。", "Page or wallet changed. Preview again."));
+      if (target.kind === 'deposit' && (config.fundingTargetGuard === true || targetOwnerGuardEnabled(config))) {
+        // Recheck after the preview: the intended NFT may have been sold while this dialog was open.
+        const checked = await prepareProductAction({ provider: wallet, config, account: owner,
+          pool: confirmed.pool, kind: 'deposit', quantity: confirmed.quantity,
+          expectedPool: confirmed.pool, expectedAccount: owner });
+        if (!current() || checked.transaction.to.toLowerCase() !== confirmed.transaction.to.toLowerCase()
+          || checked.transaction.data !== confirmed.transaction.data || checked.transaction.value !== confirmed.transaction.value)
+          throw new Error(L('认购状态或金额已变化，请重新预览。', 'Subscription state or amount changed. Preview again.'));
+      }
       // Member calls hand the exact preview to the wallet immediately; the
       // journal remains only for operations that actually require that service.
       const result = await (member ? sendMemberWalletTransaction : sendProductTransaction)({
@@ -2266,7 +2470,7 @@ export default function LivePlatform() {
           && !(checked.kind === 'mine' && checked.miningAction === 'reclaim'))
           throw new Error('单机采购与挖矿准备、启动由独立服务执行；此处只接受精确建池或回收签名。');
         return await submitFreshAuthority('executeApprovedOperation', approvedOperatorCall(config, checked.transaction,
-          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current, checked.kind === 'mine' ? null : checked.transaction, progress);
+          { pool: checked.kind === 'mine' ? checked.pool : undefined }), current, checked.kind === 'mine' ? null : checked.transaction, progress, checked.preparedAuthority);
       }
       const result = await sendProductTransaction({ provider: wallet, config,
         transaction: checked.transaction, action: { kind: checked.kind },
@@ -2376,7 +2580,13 @@ export default function LivePlatform() {
           source,
         });
         if (revision !== epoch.current) return false;
-        setPools((old) => [...old, ...result.items.map(viewPool)]);
+        const saved = pageCache.current.get(client)?.get(pageDisplayKey(route, account, marketTab));
+        if (saved?.result?.catalog) {
+          const catalog = appendDisplayPage(saved.result.catalog, result);
+          saved.result = { ...saved.result, catalog }; saved.expanded = true;
+          setPools(mergePublishedProjects(catalog.items.map(viewPool), publishedProjects.current));
+          writeDisplaySnapshot(displayStorage(), client.manifest, pageDisplayKey(route, account, marketTab), saved.result);
+        } else setPools((old) => [...old, ...result.items.map(viewPool)]);
         setPoolCursor(result.nextCursor);
       } else if (kind === "positions") {
         const result = await (client.readDisplayPositions ?? client.readPositions)({
@@ -2385,7 +2595,12 @@ export default function LivePlatform() {
           source: positionsReadSource,
         });
         if (revision !== epoch.current || positionsRevision !== positionsReadEpoch.current) return false;
-        setPositions((old) => [...old, ...result.items.map(viewPool)]);
+        const saved = readCache.current.get(client)?.get(`positions:${account?.toLowerCase()}`);
+        if (saved) {
+          saved.result = appendDisplayPage(saved.result, result); saved.expanded = true;
+          setPositions(saved.result.items.map(viewPool));
+          writeDisplaySnapshot(displayStorage(), client.manifest, `positions:${account?.toLowerCase()}`, saved.result);
+        } else setPositions((old) => [...old, ...result.items.map(viewPool)]);
         setPositionCursor(result.nextCursor);
       } else if (kind === "orders") {
         const result = await (client.readDisplayOrders ?? client.readOrders)({
@@ -2394,7 +2609,13 @@ export default function LivePlatform() {
           source: marketOrderSource,
         });
         if (revision !== epoch.current || ordersRevision !== marketOrdersEpoch.current) return false;
-        setOrders((old) => [...old, ...result.items]);
+        const saved = readCache.current.get(client)?.get(marketTab === 'mine' ? `orders:${account?.toLowerCase()}` : 'orders:active');
+        if (saved) {
+          saved.result = appendDisplayPage(saved.result, result); saved.expanded = true;
+          setOrders(saved.result.items);
+          writeDisplaySnapshot(displayStorage(), client.manifest,
+            marketTab === 'mine' ? `orders:${account?.toLowerCase()}` : 'orders:active', saved.result);
+        } else setOrders((old) => [...old, ...result.items]);
         setOrderCursor(result.nextCursor);
       } else {
         const result = await client.readActivity({
@@ -2469,10 +2690,15 @@ export default function LivePlatform() {
       secondary
       onClick={() => {
         if (boot.status !== 'ready') { setBootAttempt(v => v + 1); return; }
-        if (refreshState.current.loading || portfolioRead.current.busy || submissionLock.current) return;
+        if (refreshState.current.loading || displayReads.current.size || portfolioRead.current.busy || submissionLock.current) return;
+        setRecordsPage(0);
         const page = displayRefreshPageKey(route, account);
         lastPageRefresh.current.set(page, Date.now());
-        if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) { setReceiptDisplayRefresh(v => v + 1); return; }
+        if (boot.displayOnly && ['overview', 'rewards'].includes(route.route)) {
+          setRefresh(v => v + 1);
+          setRewardsRefresh(v => v + 1);
+          setReceiptDisplayRefresh(v => v + 1); return;
+        }
         setRefresh(v => v + 1);
         if (boot.displayOnly) return;
         // Refresh page data immediately; only rebootstrap the page if the
@@ -2504,10 +2730,13 @@ export default function LivePlatform() {
       {L("刷新", "Refresh")}
     </Button></div>
   );
-  const claimable = positionsLoaded
-      ? sumKnown(positions, "claimableBEM")
-      : null,
-    poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const poolBnb = positionsLoaded ? sumKnown(positions, "bnbOwed") : null;
+  const rewardsView = uncollectedRewards?.client === client && uncollectedRewards?.requestKey === rewardReadKey
+    ? uncollectedRewards : null;
+  const rewardContext = { source: positionsReadSource, account, factory: client?.manifest?.factory };
+  const singleRewardPreview = assetRewardPreview(positions.map(p => ({ ...p, kind: 'single' })), rewardsView, rewardContext);
+  const rewardEstimate = rewardsView?.canonical ? singleRewardPreview.totals.totalEstimatedBEM : null;
+  const rewardEstimates = new Map(positions.map(p => [p.pool.toLowerCase(), rewardPreviewForPosition(p, rewardsView, rewardContext)]));
   const currentPoolQuote = p => {
     const quote = p && poolCapacity[p.pool.toLowerCase()];
     return quote?.requestKey === capacityRequestKey(poolCapacityInput(p)) && quote.available && quote.validUntil > capacityNow
@@ -2535,6 +2764,11 @@ export default function LivePlatform() {
     name: p.name,
     circuitId: p.tokenId,
     state: p.status,
+    chainState: p.state,
+    kind: p.kind,
+    params: p.params,
+    targetAvailability: p.targetAvailability,
+    flexiblePurchase: p.flexiblePurchase,
     remainingShares: p.remaining,
   });
   const moreButton = (cursor, kind) =>
@@ -2548,7 +2782,7 @@ export default function LivePlatform() {
         </Button>
       </div>
     ) : null;
-  const poolTable = (rows, holdings = false, hideStatus = false, directory = null, category = null) => {
+  const poolTable = (rows, holdings = false, hideStatus = false, directory = null, category = null, rewardPreview = null) => {
     const catalog = route.route === "pools" && !holdings;
     const group = category ?? filter;
     const columns = !catalog ? ["miner", ...(hideStatus ? [] : ["status"]), "shares", "unit", "daily", "capacity", "actions"]
@@ -2556,22 +2790,65 @@ export default function LivePlatform() {
         : group === "Active" ? ["miner", "shares", "unit", "members", "daily", "capacity", "actions"]
           : group === "Listed" ? ["miner", "status", "shares", "unit", "hash", "daily", "capacity", "actions"]
             : ["miner", "status", "shares", "unit", "daily", "capacity", "actions"];
+    const desktopColumns = !catalog ? columns
+      : group === 'Funding' ? ['miner', 'shares', 'capacity', 'hash', 'daily', 'amount', 'actions']
+        : group === 'Active' ? ['miner', 'shares', 'capacity', 'members', 'daily', 'amount', 'actions']
+          : group === 'Listed' ? ['miner', 'status', 'shares', 'capacity', 'hash', 'daily', 'amount', 'actions']
+            : ['miner', 'status', 'shares', 'capacity', 'daily', 'amount', 'actions'];
     const titles = {
       miner: L("矿机 / 项目", "Miner / pool"), status: L("状态", "Status"),
       shares: holdings ? L("我的份额", "My shares") : L("已募集", "Funded"),
       unit: L("每份金额", "Price per share"), hash: L("算力 H", "Hash power H"),
+      amount: L("总金额", "Total"),
       members: L("参与人数", "Participants"),
-      daily: holdings ? L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
+      daily: holdings ? rewardPreview ? L('待领取 BEM（预计）', 'BEM to claim (estimated)')
+        : L("可领取 BEM", "Claimable BEM") : L("预计日产 BEM", "Estimated BEM / day"),
       capacity: holdings ? L("待领取 BNB", "Claimable BNB") : L("日产能价", "Daily capacity price"), actions: "",
     };
+    const catalogSort = projectSortState(sort);
+    const sortFields = { shares: ['funded'], amount: ['total'], hash: ['hash'],
+      members: ['members'], daily: ['daily'], capacity: ['capacity'] };
+    const sortButton = (field, label) => {
+      const selected = catalogSort.field === field;
+      const nextDirection = selected && catalogSort.direction === 'asc' ? 'desc' : 'asc';
+      return <button type="button" className="live-catalog-sort" data-sort-field={field}
+        data-sort-direction={selected ? catalogSort.direction : 'none'}
+        aria-label={L(`${label}，${nextDirection === 'asc' ? '从低到高' : '从高到低'}排序`,
+          `Sort ${label} ${nextDirection === 'asc' ? 'ascending' : 'descending'}`)}
+        onClick={() => setSort(previous => toggleProjectSort(previous, field))}>
+        <span>{label}</span><span className="live-catalog-sort-arrows" aria-hidden="true">
+          <ChevronUp size={13} data-active={selected && catalogSort.direction === 'asc'}/>
+          <ChevronDown size={13} data-active={selected && catalogSort.direction === 'desc'}/>
+        </span>
+      </button>;
+    };
+    const catalogHeader = column => column === 'miner' ? <div className="live-catalog-miner-heading">
+      <span>{titles.miner}</span>
+      <select value={minerType} data-miner-type-filter="catalog" aria-label={L('矿机类型', 'Miner type')}
+        onChange={event => setMinerType(event.target.value)}>
+        <option value="all">All</option><option value="TapeOut">TapeOut</option>
+        <option value="Behemoth">Behemoth</option>
+      </select>
+    </div> : sortFields[column] ? sortButton(sortFields[column][0], titles[column]) : titles[column];
     const summary = catalog && filter === 'all';
+    const previewRows = new Map((rewardPreview?.items ?? []).map(p => [p.pool.toLowerCase(), p]));
     const displayRows = rows.map(p => {
           const metadata = currentPoolMetadata(p), quote = currentPoolQuote(p);
+          const bemPreview = previewRows.get(p.pool.toLowerCase());
+          const targetStatus = config?.indexBaseUrl ? fundingTargetStatus(p) : 'not_applicable';
+          const ownerBlocked = targetOwnerFundingBlocked(p, config);
+          const refundView = holdings ? fundingRefundView(p, positionsReadSource) : null;
+          const compactFundingHolding = holdings && route.route === 'overview' && p.status === 'Funding';
+          const fundingBnbClaim = holdings && p.kind !== 'portfolio' && ['Funding', 'Funded', 'Refunding'].includes(p.status)
+            ? claimState(p, 'BNB', positionsReadSource) : null;
           const identity = <><Chip pool={p}/><span>
             <strong>{p.kind === 'portfolio' ? L('多矿机项目', 'Multi-miner project') : `${p.name} #${p.tokenId}`}</strong>
             {p.kind !== 'portfolio' && <small>{catalog ? `Task ${metadata?.taskId ?? "—"}` : `${shortAddress(p.pool)}${metadata?.taskId != null ? ` · Task ${metadata.taskId}` : ""}`}</small>}
             {p.kind === 'portfolio' && !catalog && <small>{shortAddress(p.pool)}</small>}
             {p.kind === 'portfolio' && <small>{L(`${p.childCount} 台已购 · ${p.activeChildCount} 台运行`, `${p.childCount} purchased · ${p.activeChildCount} operating`)}</small>}
+            {ownerBlocked && <small className="live-order-state" role="status">{L(...targetOwnerFundingText(p.targetOwnerFunding?.status))}</small>}
+            {targetStatus === 'unavailable' && <small className="live-order-state">{L(...fundingTargetUnavailableText(p))}</small>}
+            {targetStatus === 'unknown' && <small className="live-order-state">{L('指定矿机可购状态未确认，请刷新核对', 'Miner availability is unconfirmed; refresh to check')}</small>}
           </span></>;
           const cells = {
             miner: <button className="asset-cell" onClick={() => openDetails(p)}>
@@ -2580,20 +2857,44 @@ export default function LivePlatform() {
             status: <StateBadge state={p.status} L={L}/>,
             shares: <>{holdings ? (p.shares?.toString() ?? "—") : (p.funded ?? "—")} / 100</>,
             unit: <>{displayPreciseAmount(p.unitPriceWei)} BNB</>,
+            amount: catalog ? <div className="live-catalog-amount">
+              <span data-project-amount="total">{displayPreciseAmount(projectTargetRaiseWei(p))} BNB</span>
+              <span data-project-amount="per-share">{L(`(每份${displayPreciseAmount(p.unitPriceWei)} BNB)`, `(${displayPreciseAmount(p.unitPriceWei)} BNB / share)`)}</span>
+            </div> : null,
             hash: metadata?.hashPower ?? "—",
             members: p.members == null ? "—" : `${p.members} ${L("人", "people")}`,
-            daily: holdings ? <>{amount(p.claimableBEM,8)} BEM</> : quote
+            daily: holdings ? rewardPreview ? <>
+              <span>{amount(bemPreview?.totalEstimatedBEM ?? null, 8)} BEM</span>
+              <small className="live-order-state">{L('已入账', 'Booked')} {amount(bemPreview?.bookedBEM ?? null, 8)} BEM</small>
+              <small className="live-order-state">{p.kind === 'portfolio'
+                ? L('待归集收益见项目详情', 'See project details for uncollected output')
+                : <>{L('待归集（预计）', 'Uncollected (estimated)')} {amount(bemPreview?.uncollectedBEM ?? null, 8)} BEM</>}</small>
+            </> : <>{amount(p.claimableBEM,8)} BEM</> : quote
               ? `${displayPreciseAmount(quote.estimated24hAtomic, 8)} BEM`
               : p.kind === 'portfolio' ? L('详情查看', 'See details') : poolQuotePlaceholder(p),
             capacity: holdings ? <>{amount(p.bnbOwed)} BNB</> : currentPoolCapacityPrice(p) != null
-              ? displayPreciseAmount(currentPoolCapacityPrice(p))
-              : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
+              ? displayPreciseAmount(currentPoolCapacityPrice(p), 18, catalog ? 2 : 4)
+              : quote?.includeOfficialAsk ? <><span>—</span><small className="live-order-state">{quote.officialAskStatus === 'unavailable'
+                ? L('价格暂不可用', 'Price unavailable') : L('暂无有效挂单', 'No valid listing')}</small></>
+                : p.kind === 'portfolio' || quote ? '—' : poolQuotePlaceholder(p),
             actions: <div className="live-pool-row-actions">
-              {holdings && p.kind !== 'portfolio' && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
+              {holdings && p.kind !== 'portfolio' && p.status === 'Funding' && p.shares > 0n && <button className="btn secondary"
+                disabled={!positionsActionReadyFor('withdrawDeposit') || busy || !!pending}
+                onClick={() => openAction('withdrawDeposit', p)}>{L('撤回认购', 'Withdraw subscription')}</button>}
+              {refundView?.unavailable && p.status === 'Funded' && p.shares > 0n && <button className="btn"
+                disabled={!positionsActionReadyFor('finalizeFailure') || busy || !!pending || refundView.deadlineReached !== true}
+                onClick={() => openAction('finalizeFailure', p)}>{L('开启到期退款', 'Enable expired-purchase refunds')}</button>}
+              {fundingBnbClaim && !compactFundingHolding && (p.shares > 0n || fundingBnbClaim.canClaim) && <button className="btn secondary"
+                  disabled={!positionsActionReadyFor('withdrawBnb') || busy || !!pending
+                    || !fundingBnbClaim.canClaim}
+                  onClick={() => openAction('withdrawBnb', p)}>
+                  {L(fundingBnbClaim.labelZh, fundingBnbClaim.labelEn)}
+                </button>}
+              {holdings && p.kind !== 'portfolio' && !compactFundingHolding && p.shares > 0n && <button className="btn secondary" disabled={!positionsActionsReady || busy || !!pending || !shareListingView(p).allowed}
                 onClick={() => openAction('list', p)} aria-label={L(`挂单 ${p.name} #${p.tokenId}`, `List ${p.name} #${p.tokenId}`)}>
                   <span className="live-desktop-copy">{L('挂单出售', 'List shares')}</span><span className="live-mobile-copy">{L('挂单', 'List')}</span>
               </button>}
-              {holdings && p.kind !== 'portfolio' && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state"
+              {holdings && p.kind !== 'portfolio' && !compactFundingHolding && p.shares > 0n && !shareListingView(p).allowed && <small className="live-order-state"
                 title={p.status === 'Funding' || p.status === 'Funded' ? L('购机并开始挖矿后可挂牌', 'Listing opens after purchase and mining starts')
                   : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares are locked')
                     : L('当前状态不可挂牌', 'Listing unavailable in this state')}>
@@ -2604,7 +2905,7 @@ export default function LivePlatform() {
                   : p.status === 'Active' && p.availableShares === 0n ? L('份额已锁定', 'Shares locked')
                     : L('当前不可挂牌', 'Listing unavailable')}</span>
               </small>}
-              <button className="text-button" onClick={() => openDetails(p)}>
+              <button className={`text-button${catalog ? " live-view-miner" : ""}`} onClick={() => openDetails(p)}>
                 {holdings ? <><span className="live-desktop-copy">{p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}</span><span className="live-mobile-copy">{L('查看', 'View')}</span></>
                   : p.kind === 'portfolio' ? L('查看项目', 'View project') : L('查看矿机', 'View miner')}<ArrowRight size={16}/>
               </button>
@@ -2612,7 +2913,11 @@ export default function LivePlatform() {
           };
           const columnTitle = column => !holdings && column === "daily" && !config?.displayOnly && quote?.cached
                 ? L('此前核验的展示数据，仍在有效期内', 'Previously verified display data, still within its validity window')
-                : !holdings && column === "capacity" ? !config?.displayOnly && quote?.cached
+                : !holdings && column === "capacity" ? quote?.includeOfficialAsk && quote.minerAskSource === 'official'
+                  ? L('当前官网挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'Current official listing price / this miner estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
+                  : quote?.includeOfficialAsk && quote.minerAskSource === 'firsto'
+                    ? L('当前 Firsto 挂单价 ÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'Current Firsto listing price / this miner estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
+                    : !config?.displayOnly && quote?.cached
                   ? L('此前核验的本机价格 ÷ 本机预计日产出；单位：BNB / (BEM/天)', 'Previously verified miner price / its estimated daily output; unit: BNB / (BEM/day)')
                   : L('本机挂牌价（挖矿中按实际购机成本）÷ 本机预计日产出；不含募集预留金。单位：BNB / (BEM/天)', 'This miner asking price (actual acquisition cost while mining) / its estimated daily output, excluding funding reserves. Unit: BNB / (BEM/day)')
                   : undefined;
@@ -2661,10 +2966,15 @@ export default function LivePlatform() {
       );
     return <>
       <div className={`table-wrap live-project-table-desktop${catalog ? " live-catalog-table" : ""}`}>
-        <table>
-          <thead><tr>{columns.map(column => <th key={column}>{titles[column]}</th>)}</tr></thead>
+        <table data-catalog-category={catalog ? group : undefined}>
+          <thead><tr>{desktopColumns.map(column => <th key={column} data-project-column={column}
+            aria-sort={catalog && sortFields[column]?.includes(catalogSort.field)
+              ? catalogSort.direction === 'asc' ? 'ascending' : 'descending' : undefined}>
+            {catalog ? catalogHeader(column) : titles[column]}
+          </th>)}</tr></thead>
           <tbody>{displayRows.map(row => <tr key={row.key} data-project-kind={row.kind} data-project-address={row.key}>
-            {columns.map(column => <td key={column} className={["unit", "hash", "capacity"].includes(column) ? "num" : undefined}
+            {desktopColumns.map(column => <td key={column} data-project-column={column}
+              className={["unit", "amount", "hash", "capacity"].includes(column) ? "num" : undefined}
               title={row.columnTitle(column)}>{row.cells[column]}</td>)}
           </tr>)}</tbody>
         </table>
@@ -2679,6 +2989,10 @@ export default function LivePlatform() {
   };
   const claimTable = () => {
     const rows = positions.map(p => {
+      const estimate = rewardEstimates.get(p.pool.toLowerCase());
+      const bookedRow = estimate?.status === 'ready' ? { ...p, claimableBEM: estimate.bookedBEM } : p;
+      const bemClaim = claimState(bookedRow, 'BEM', estimate?.status === 'ready'
+        ? { indexedThrough: estimate.balanceBlock ?? estimate.blockNumber } : positionsReadSource);
       const cells = {
         miner: <>
           <button
@@ -2687,9 +3001,14 @@ export default function LivePlatform() {
           >
             {p.name} #{p.tokenId}
           </button>
+          <FundingRefundNotice row={p} source={positionsReadSource} L={L} compact readyFor={positionsActionReadyFor}
+            blocked={busy || !!pending} onAction={openAction}/>
         </>,
         bem: <>
-          {amount(p.claimableBEM, 8)}
+          {amount(bookedRow.claimableBEM, 8)}
+        </>,
+        uncollected: <>
+          {amount(estimate?.uncollectedBEM ?? null, 8)}
         </>,
         bnb: <>
           {amount(p.bnbOwed)}
@@ -2698,10 +3017,10 @@ export default function LivePlatform() {
           <div className="live-actions">
             <Button
               secondary
-              disabled={!positionsActionReadyFor('claim') || busy || !claimState(p, 'BEM', positionsReadSource).canClaim}
-              onClick={() => openAction("claim", p)}
+              disabled={!positionsActionReadyFor('claim') || busy || !bemClaim.canClaim}
+              onClick={() => openAction("claim", bookedRow)}
             >
-              {L(claimState(p, 'BEM', positionsReadSource).labelZh, claimState(p, 'BEM', positionsReadSource).labelEn)}
+              {L(bemClaim.labelZh, bemClaim.labelEn)}
             </Button>
             <Button
               secondary
@@ -2725,6 +3044,7 @@ export default function LivePlatform() {
       return { key: p.pool, cells, identity: cells.miner,
         fields: [
           { key: 'bem', label: L("可领取 BEM", "Claimable BEM"), value: cells.bem },
+          { key: 'uncollected', label: L("待归集 BEM（预计）", "Uncollected BEM (estimated)"), value: cells.uncollected },
           { key: 'bnb', label: L("待领取 BNB", "Claimable BNB"), value: cells.bnb }
         ], actions: cells.actions };
     });
@@ -2741,13 +3061,14 @@ export default function LivePlatform() {
           <thead>
             <tr>
               <th>{L("矿机", "Miner")}</th>
-              <th>BEM</th>
+              <th>{L('已入账 BEM', 'Booked BEM')}</th>
+              <th>{L('待归集 BEM（预计）', 'Uncollected BEM (estimated)')}</th>
               <th>BNB</th>
               <th>{L("操作", "Actions")}</th>
             </tr>
           </thead>
           <tbody>{rows.map(row => <tr key={row.key}>
-            {['miner', 'bem', 'bnb', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
+            {['miner', 'bem', 'uncollected', 'bnb', 'actions'].map(column => <td key={column}>{row.cells[column]}</td>)}
           </tr>)}</tbody>
         </table>
         {!rows.length && empty}
@@ -2881,28 +3202,38 @@ export default function LivePlatform() {
       <MobileFinancialCards rows={rows} empty={empty} variant="orders" L={L}/>
     </>;
   };
+  const shareCatalog = () => {
+    const model = createCatalogShare({ publicBaseUrl, locale });
+    if (!model) return;
+    setModal({ type: 'catalog-share' });
+  };
   const renderProjectDirectory = page => {
     const directory = projectDirectory(mergePublishedProjects(pools, publishedProjects.current),
-      mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort,
-      capacityFor: row => currentPoolCapacityPrice(row) });
+      mergePublishedProjects(page.rows, publishedPortfolios.current), { filter, query, sort, minerType,
+      capacityFor: row => currentPoolCapacityPrice(row),
+      hashPowerFor: row => currentPoolMetadata(row)?.hashPower,
+      dailyFor: row => currentPoolQuote(row)?.estimated24hAtomic });
     const updating = loading || busy || page.loading || boot.status === 'loading' || page.enabled && !page.loaded && !page.failed;
     const failed = readFailed || page.failed || !page.enabled && boot.status !== 'loading';
     const ready = !!source && page.loaded && !!page.source;
     const canLoadMore = poolCursor != null || page.cursor != null;
     return <>
       {heading(L('参与拼矿', 'Join a pool'), L('从一份开始，共持 BEM 矿机。', 'Start with one share. Own BEM miners together.'), refreshButton)}
-      <div className="live-project-summary">
-        {['Funding', 'Active', 'Listed'].map(status => <button key={status}
-          className={filter === status ? 'selected' : ''} onClick={()=>setFilter(status)}>
-          <span>{L(...statuses[status])}</span>
-          <strong>{ready && !updating && !failed && directory.all.every(row=>row.status!=='Unknown') ? directory.counts[status] : '—'}</strong>
-          <small>{L('已加载项目', 'loaded projects')}</small>
-        </button>)}
+      <div className="live-project-intro">
+      <button type="button" className="live-catalog-promo" onClick={shareCatalog}
+        aria-label={L('爱“拼”才会赢，分享本页面', 'Better together. Share this page')} title={L('点击分享本页面', 'Click to share this page')}>
+        <img src={`${basePath}/images/pool-catalog-promo-20261004-v2.webp`} width="1600" height="565" alt=""/>
+        <span className="live-catalog-promo-copy">
+          <strong>{L('爱“拼”才会赢', 'Better together')}</strong>
+          <small>{L('矿机除了打和买，还可以拼~', 'Build, buy, or own a miner together~')}</small>
+        </span>
+        <span className="live-catalog-promo-share"><Share2 size={16}/>{L('分享本页', 'Share this page')}</span>
+      </button>
       </div>
       <section className="panel live-pool-directory" data-project-directory="unified" aria-busy={!!updating}>
         <div className="live-toolbar">
           <div className="tabs">{[['Funding','募集中','Funding'],['Active','挖矿中','Operating'],['Listed','整机出售中','For sale'],['all','项目总览','Overview']].map(([id,zh,en])=>
-            <button key={id} className={filter===id?'selected':''} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
+            <button key={id} className={filter===id?'selected':''} aria-pressed={filter===id} onClick={()=>setFilter(id)}>{L(zh,en)}</button>)}</div>
           <div className="live-search"><Search size={17}/><input aria-label={L('搜索矿机或地址','Search miner or address')}
             placeholder={L('矿机编号 / 项目地址','Miner ID / project address')} value={query} onChange={event=>setQuery(event.target.value)}/></div>
           <PoolSortMenu value={sort} onChange={setSort} locale={locale}/>
@@ -2922,9 +3253,9 @@ export default function LivePlatform() {
               {poolTable(rows, false, false, {loading:updating, failed, ready, total:directory.all.length},id)}
             </section>;
           })}
-          {directory.rows.some(row => !['Funding','Funded','Active','Listed'].includes(row.status)) && <section className="live-directory-group" data-project-category="other">
+          {directory.rows.some(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))) && <section className="live-directory-group" data-project-category="other">
             <h2>{L('其他项目','Other projects')}</h2>
-            {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed'].includes(row.status)),false,false,null,'other')}
+            {poolTable(directory.rows.filter(row => !['Funding','Funded','Active','Listed','unavailable'].includes(projectDirectoryCategory(row))),false,false,null,'other')}
           </section>}
         </div> : poolTable(directory.rows, false, filter === 'Funding', {loading:updating, failed, ready, total:directory.all.length})}
         {canLoadMore && <div className="live-more"><Button secondary disabled={updating || failed || busy || !!pending}
@@ -2935,10 +3266,11 @@ export default function LivePlatform() {
   };
   const renderAssetOverview = page => {
     if (!account) return null;
-    const view = assetOverview({singlePositions:positions,portfolioRows:page.rows,
+    const view = assetOverview({singlePositions:assetPositionsWithBookedRewards(positions,rewardsView,rewardContext),portfolioRows:page.rows,
       singleLoaded:positionsLoaded && same(positionsAccount,account),portfolioLoaded:page.loaded,
       singleCursor:positionCursor,portfolioCursor:page.cursor,singleError:!!positionsReadError,portfolioError:page.failed || !page.enabled});
     const totals = view.complete ? view.totals : view.loadedTotals;
+    const rewardPreview = assetRewardPreview(view.scopeRows, rewardsView, rewardContext);
     const partial = view.partial;
     const historical = !config?.displayOnly && (positionsReadSource?.stale || page.source?.stale || boot.rechecking || walletChecking);
     const updating = positionsReadLoading || page.loading;
@@ -2947,8 +3279,12 @@ export default function LivePlatform() {
       {heading(L('资产总览','My portfolio'),L('查看单矿机与多矿机项目的持仓、已入账收益和待领取款项。','Single-miner and multi-miner positions, booked rewards and claimable proceeds.'),refreshButton,
         L('查看项目持仓、已入账收益和待领取款项。','Positions, rewards and claimable funds.'))}
       <div className="metrics" data-asset-summary="unified">
-        <Metric primary title={historical?L('上次核验可领取','Previously verified BEM'):partial?L('已加载可领取','Loaded claimable BEM'):L('当前可领取','Claimable BEM')}
-          value={amount(totals.claimableBem,8)} unit="BEM"/>
+        <Metric primary title={rewardPreview.totals.totalEstimatedBEM == null
+          ? partial ? L('已加载可领取 BEM（已入账）','Loaded claimable BEM (booked)') : L('可领取 BEM（已入账）','Claimable BEM (booked)')
+          : historical?L('上次核验待领取 BEM（预计）','Previous BEM to claim (estimated)'):partial?L('已加载待领取 BEM（预计）','Loaded BEM to claim (estimated)'):L('待领取 BEM（预计）','BEM to claim (estimated)')}
+          value={view.loaded ? amount(rewardPreview.totals.totalEstimatedBEM ?? rewardPreview.totals.bookedBEM,8) : '—'} unit="BEM"
+          note={<>{L('已入账', 'Booked')} {view.loaded ? amount(rewardPreview.totals.bookedBEM, 8) : '—'}
+            {' · '}{L('单矿机待归集', 'Uncollected single-pool BEM')} {view.loaded ? amount(rewardPreview.totals.uncollectedBEM, 8) : '—'}</>}/>
         <Metric title={historical?L('我的历史待领取 BNB','My previous claimable BNB'):partial?L('我的已加载待领取 BNB','My loaded claimable BNB'):L('我的待领取 BNB','My claimable BNB')}
           value={amount(totals.bnbOwed)} unit="BNB"/>
         <Metric title={partial?L('已加载持有项目','Loaded projects held'):L('持有项目','Projects held')}
@@ -2956,14 +3292,35 @@ export default function LivePlatform() {
         <Metric title={partial?L('已加载持有份额','Loaded shares held'):L('持有份额','Shares held')}
           value={totals.shares?.toString()??'—'} unit={L('份','shares')}/>
       </div>
+      {view.rows.some(p => fundingRefundView(p, positionsReadSource).relevant) && <section className="panel live-section" data-participant-refunds>
+        <div className="section-head"><h2>{L('下架项目与退款', 'Delisted projects and refunds')}</h2></div>
+        {view.rows.filter(p => fundingRefundView(p, positionsReadSource).relevant).map(p => <div key={p.pool} className="participant-refund-project">
+          <button className="text-button" onClick={() => openDetails(p)}>{p.name} #{p.tokenId} · {L('查看项目', 'View project')}</button>
+          <FundingRefundNotice row={p} source={positionsReadSource} L={L} readyFor={positionsActionReadyFor}
+            blocked={busy || !!pending} onAction={openAction}/>
+        </div>)}
+      </section>}
       <section className="panel holdings" data-asset-directory="unified" aria-busy={updating}>
-        <div className="section-head"><div><h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
-          <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p></div></div>
+        <div className="live-asset-promo">
+          <img src={`${basePath}/images/asset-overview-promo-20261004.webp`} width="1600" height="585" alt="" loading="lazy"/>
+          <div className="live-asset-promo-copy">
+            <h2>{L('我的矿机与项目权益','My miners and project entitlements')}</h2>
+            <p>{L('单矿机和多矿机项目统一显示；包含清仓后仍待领取的权益。','Single and multi-miner projects together, including former positions with claimable balances.')}</p>
+            <p className="subtle-note" data-asset-rewards-status={rewardsView?.status ?? 'idle'}>{rewardsView?.status === 'loading'
+              ? L('正在读取待归集收益…', 'Reading uncollected output…')
+              : ['partial', 'unavailable'].includes(rewardsView?.status)
+                ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+                : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。', 'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection.')}
+              {rewardPreview.includesPortfolio && <> {L('多矿机项目仅计已入账收益，待归集收益见项目详情。', 'Portfolios include booked rewards only; see project details for uncollected output.')}</>}
+              {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
+            </p>
+          </div>
+        </div>
         {page.error&&<div className="portfolio-error" role="alert"><p>{L('部分项目读取失败，已读取持仓仍可查看。','Some projects could not be loaded; available positions remain visible.')}</p>
           <button className="btn secondary" disabled={updating||busy||!!pending} onClick={()=>void page.load()}>{L('重新读取','Retry')}</button></div>}
         {updating&&view.rows.length>0&&<p className="subtle-note" role="status">{L('正在更新持仓…','Updating positions…')}</p>}
         {partial&&view.loaded&&<p className="subtle-note">{L('当前汇总仅包含已加载持仓。','The summary includes only loaded positions.')}</p>}
-        {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length})}
+        {poolTable(view.rows,true,false,{loading:updating,failed:!!positionsReadError||page.failed,ready:view.loaded,total:view.rows.length},null,rewardPreview)}
         {more&&<div className="live-more"><Button secondary disabled={updating||busy||!!pending||page.failed||!!positionsReadError}
           onClick={()=>void Promise.allSettled([positionCursor!=null?thisMorePositions():Promise.resolve(),page.cursor!=null?page.load(page.cursor):Promise.resolve()])}>{L('加载更多','Load more')}</Button></div>}
       </section>
@@ -3020,15 +3377,15 @@ export default function LivePlatform() {
       const contract = row.contract ?? row.address ?? row.pool;
       const contractUrl = isAddress(contract) ? explorerAddress(contract) : null;
       const transactionUrl = explorerTransaction(hash);
-      return { key: `${hash}-${row.logIndex ?? i}`, block: row.blockNumber,
+      return { key: `${hash}-${row.logIndex ?? i}`, time: activityCompactTimeUtc8(row.timestamp), block: row.blockNumber,
         operation: <ActivityOperation row={row} locale={locale} />,
         amounts: activityAmounts(row).map(item => ({ key: item.kind, label: L(...amountLabels[item.kind]),
           value: <>{displayPreciseAmount(item.amount, item.decimals)} {item.symbol}</> })),
         contract: contractUrl ? <a className="text-button" href={contractUrl}
           title={contract} target="_blank" rel="noopener noreferrer">
-          {shortAddress(contract)}<ArrowUpRight size={14} /></a> : "—",
+          <span className="live-activity-link-label">{shortAddress(contract)}</span><ArrowUpRight size={14} /></a> : "—",
         transaction: transactionUrl ? <a className="text-button" href={transactionUrl}
-          target="_blank" rel="noopener noreferrer">{hash.slice(0, 10)}…<ArrowUpRight size={14} /></a> : "—" };
+          title={hash} target="_blank" rel="noopener noreferrer"><span className="live-activity-link-label">{hash.slice(0, 10)}…</span><ArrowUpRight size={14} /></a> : "—" };
     });
     const empty = <Empty title={activityReadLoading
       ? L('正在读取记录…', 'Loading records…')
@@ -3038,23 +3395,29 @@ export default function LivePlatform() {
     return <>
       <div className="table-wrap live-activity-table-desktop">
         <table>
+          <colgroup>{['time', 'block', 'operation', 'amount', 'contract', 'transaction'].map(column =>
+            <col key={column} data-activity-column={column} />)}</colgroup>
           <thead>
             <tr>
-              <th>{L("区块", "Block")}</th>
-              <th>{L("操作 / 说明", "Operation / description")}</th>
-              <th>{L("金额 / 费用", "Amount / fee")}</th>
-              <th>{L("合约", "Contract")}</th>
-              <th>{L("链上记录", "Transaction")}</th>
+              <th data-activity-column="time">{L("时间 (UTC+8)", "Time (UTC+8)")}</th>
+              <th data-activity-column="block">{L("区块", "Block")}</th>
+              <th data-activity-column="operation">{L("操作 / 说明", "Operation / description")}</th>
+              <th data-activity-column="amount">{L("金额 / 费用", "Amount / fee")}</th>
+              <th data-activity-column="contract">{L("合约", "Contract")}</th>
+              <th data-activity-column="transaction">{L("链上记录", "Transaction")}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(row => <tr key={row.key}>
-              <td>{row.block}</td>
-              <td>{row.operation}</td>
-              <td>{row.amounts.length ? row.amounts.map((item, index) => <span key={item.key}>
-                {index > 0 ? " · " : ""}{item.label}{" "}{item.value}</span>) : "—"}</td>
-              <td>{row.contract}</td>
-              <td>{row.transaction}</td>
+              <td className="live-activity-time" data-activity-column="time">{row.time ? <time dateTime={row.time.iso} title={row.time.fullLabel}>
+                <span className="date">{row.time.date}</span>{" "}<span className="clock">{row.time.clock}</span>
+              </time> : "—"}</td>
+              <td data-activity-column="block">{row.block}</td>
+              <td data-activity-column="operation">{row.operation}</td>
+              <td data-activity-column="amount">{row.amounts.length ? row.amounts.map(item => <span className="live-activity-amount-line" key={item.key}>
+                {item.label}{" "}{item.value}</span>) : "—"}</td>
+              <td data-activity-column="contract">{row.contract}</td>
+              <td data-activity-column="transaction">{row.transaction}</td>
             </tr>)}
           </tbody>
         </table>
@@ -3062,7 +3425,10 @@ export default function LivePlatform() {
       </div>
       <div className="live-mobile-activity">
         {rows.map(row => <article className="live-mobile-activity-row" key={row.key}>
-          <header className="live-mobile-activity-heading"><span>{L("区块", "Block")} #{row.block}</span></header>
+          <header className="live-mobile-activity-heading">
+            <span>{L("时间 (UTC+8)", "Time (UTC+8)")} {row.time ? <time dateTime={row.time.iso}>{row.time.label}</time> : "—"}</span>
+            <span>{L("区块", "Block")} #{row.block}</span>
+          </header>
           {row.operation}
           <dl className="live-mobile-activity-amounts">
             {row.amounts.length ? row.amounts.map(item => <div key={item.key}>
@@ -3148,6 +3514,9 @@ export default function LivePlatform() {
     account, wallet, loading: marketOrdersLoading, error: marketOrdersError, order });
   const marketOrderNeedsConnection = !wallet || !account;
   const marketOrderConnectReady = marketTab === 'shares' && !!client && config?.status === 'ready';
+  const detailTargetStatus = config?.indexBaseUrl ? fundingTargetStatus(detail) : 'not_applicable';
+  const detailOwnerBlocked = targetOwnerFundingBlocked(detail, config);
+  const participantNotices = participantFundingNotices(positions, { account, positionsAccount, source: positionsReadSource });
 
   return (
     <div
@@ -3256,7 +3625,11 @@ export default function LivePlatform() {
               <span>{L("加入官方 Telegram 群", "Join official Telegram group")}</span>
               <ExternalLink className="live-community-external" size={14} aria-hidden="true" />
             </a>
-            <button className="appearance-toggle" aria-label={L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/></button>
+            <button className="appearance-toggle participant-notification-bell" aria-label={participantNotices.length
+              ? L(`通知中心，${participantNotices.length} 个已加载项目需要查看退款`, `Notifications, ${participantNotices.length} loaded projects have refund updates`)
+              : L("通知中心", "Notifications")} title={L("通知中心", "Notifications")} disabled={busy} onClick={() => go("notifications")}><Bell size={17}/>
+              {participantNotices.length > 0 && <span className="participant-notification-count">{participantNotices.length}</span>}
+            </button>
             <button
               className="appearance-toggle"
               aria-label={L("切换外观", "Change appearance")}
@@ -3298,6 +3671,8 @@ export default function LivePlatform() {
           <Notifications key={`${config?.factory || ''}:${account || ''}:${walletRevision}`}
             account={account} wallet={wallet} config={config} locale={locale} route={route.route}
             positions={same(positionsAccount, account) ? positions : []} detail={same(loadedAccount, account) ? detail : null} claim={notificationClaim}
+            participantNotices={participantNotices} positionsSource={positionsReadSource} positionsLoading={positionsReadLoading} positionsError={positionsReadError}
+            positionsHaveMore={positionCursor != null} onMorePositions={() => more('positions')}
             blocked={busy || !!modal} onConnect={connect} onOpen={() => go('notifications')}
             isCurrent={() => connectedWallet.current === wallet && walletEpoch.current === walletRevision}/>
           {boot.status !== "ready" && boot.status !== "loading" && (
@@ -3469,15 +3844,15 @@ export default function LivePlatform() {
                     <small>{shortAddress(detail.pool)}</small>
                   </div>
                   <StateBadge state={detail.status} L={L} />
+                  {detailTargetStatus === 'unavailable' && <span className="badge unknown funding-unavailable"><i />{L('项目已下架', 'Project delisted')}</span>}
                   {refreshButton}
-                  <button
-                    className="text-button detail-record"
-                    onClick={() => setModal({ type: "share", pool: detail })}
-                  >
-                    <Share2 size={17} />
-                    {L("邀请朋友", "Invite friends")}
-                  </button>
                 </div>
+                {detailOwnerBlocked && <p className="live-order-state" role="status">
+                  {L(...targetOwnerFundingText(detail.targetOwnerFunding?.status))}{L('。现有份额和退款权益保留；撤回认购、开启退款和领取 BNB 的入口仍在本页。',
+                    '. Existing shares and refund rights are preserved. Withdrawal, refund-opening and BNB claim actions remain on this page.')}
+                </p>}
+                <FundingRefundNotice row={detail} source={source} L={L} readyFor={detailActionReadyFor}
+                  blocked={busy || !!pending || !account} onAction={openAction}/>
                 <div className="detail-layout">
                   <div className="detail-main">
                     <section className="panel detail-summary">
@@ -3518,6 +3893,18 @@ export default function LivePlatform() {
                             : '—'} BEM
                         </span>
                       </div>
+                      {detailTargetStatus === 'unavailable' && detail.status === 'Funding' && <p className="subtle-note" role="status">
+                        {L(...fundingTargetUnavailableText(detail))}{L('。', '. ')}{L('已停止开放认购。只要项目仍未募满，已有认购即可撤回；如有已入账 BNB，可单独领取。',
+                          'Subscriptions are closed. Existing subscriptions can be withdrawn while the pool remains in Funding; any booked BNB can be claimed separately.')}
+                      </p>}
+                      {detailTargetStatus === 'unavailable' && detail.status === 'Funded' && <p className="subtle-note" role="status">
+                        {L(...fundingTargetUnavailableText(detail))}{L('。', '. ')}{L('现行合约需等待购机期限到期后，才可核对并开启退款；目前不会自动退款。',
+                          'Under the current contract, the purchase deadline must pass before a refund can be checked and opened; refunds do not start automatically.')}
+                      </p>}
+                      {detailTargetStatus === 'unknown' && ['Funding', 'Funded'].includes(detail.status) && <p className="subtle-note" role="status">
+                        {L('指定矿机的可购状态尚未确认，请刷新重试。确认前暂不开放认购。',
+                          'Availability of the designated miner is unconfirmed. Refresh to retry; subscriptions remain closed until confirmed.')}
+                      </p>}
                     </section>
                     <div className="tabs detail-tabs">
                       {[
@@ -3601,52 +3988,41 @@ export default function LivePlatform() {
                             </div>
                           ))}
                         </dl>
-                        <p className="subtle-note">
-                          {L(
-                            "实际产出随矿机和协议状态变化。已入账权益可由本人随时领取。",
-                            "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
-                          )}
-                        </p>
-                        <div className="live-actions">
-                          {account &&
-                            detail.status === "Funding" &&
-                            detail.shares >= 1n && (
+                        <div className="live-actions live-detail-refund-actions">
+                          <div className="live-detail-refund-buttons">
+                            {["Funding", "Funded"].includes(detail.status) && (
                               <Button
                                 secondary
+                                disabled={!detailActionReadyFor('finalizeFailure') || !account}
                                 onClick={() =>
-                                  setModal({ type: "share", pool: detail })
+                                  openAction("finalizeFailure", detail)
                                 }
                               >
-                                <Share2 size={17} />
-                                {L("邀请朋友一起拼矿", "Invite friends to mine together")}
+                                {L("核对到期退款", "Check refund eligibility")}
                               </Button>
                             )}
-                          {["Funding", "Funded"].includes(detail.status) && (
-                            <Button
-                              secondary
-                              disabled={!detailActionReadyFor('finalizeFailure') || !account}
-                              onClick={() =>
-                                openAction("finalizeFailure", detail)
-                              }
-                            >
-                              {L("核对到期退款", "Check refund eligibility")}
-                            </Button>
-                          )}
-                          {detail.status === "Funding" &&
-                            detail.shares > 0n && (
-                              <Button
-                                secondary
-                                disabled={!detailActionReadyFor('withdrawDeposit')}
-                                onClick={() =>
-                                  openAction("withdrawDeposit", detail)
-                                }
-                              >
-                                {L(
-                                  "撤回本次项目认购",
-                                  "Withdraw this subscription",
-                                )}
-                              </Button>
+                            {detail.status === "Funding" &&
+                              detail.shares > 0n && (
+                                <Button
+                                  secondary
+                                  disabled={!detailActionReadyFor('withdrawDeposit')}
+                                  onClick={() =>
+                                    openAction("withdrawDeposit", detail)
+                                  }
+                                >
+                                  {L(
+                                    "撤回本次认购",
+                                    "Withdraw this subscription",
+                                  )}
+                                </Button>
+                              )}
+                          </div>
+                          <p className="subtle-note live-detail-output-note" lang={locale === 'en' ? 'en' : 'zh-CN'}>
+                            {L(
+                              "实际产出随矿机和协议状态变化；已入账权益可由本人随时领取。",
+                              "Actual output varies with the miner and protocol. Booked rewards remain available for personal withdrawal.",
                             )}
+                          </p>
                         </div>
                       </section>
                     )}
@@ -3660,9 +4036,6 @@ export default function LivePlatform() {
                           loading={yieldLoading}
                           error={yieldError}
                         />
-                        <section className="panel live-section">
-                          {activityTable()}
-                        </section>
                       </>
                     )}
                     {detailTab === "vote" && renderGovernance()}
@@ -3842,6 +4215,7 @@ export default function LivePlatform() {
                       )}
                       <Button
                         secondary
+                        className="btn secondary live-invite-friends"
                         onClick={() =>
                           setModal({ type: "share", pool: detail })
                         }
@@ -3860,6 +4234,9 @@ export default function LivePlatform() {
                       </span>
                     </div>
                   </aside>
+                  {detailTab === "records" && <section className="panel live-section live-detail-records">
+                    {activityTable()}
+                  </section>}
                 </div>
               </>
             ))}
@@ -3877,15 +4254,12 @@ export default function LivePlatform() {
               <div className="metrics">
                 <Metric
                   primary
-                  title={!config?.displayOnly && positionsReadSource?.stale
-                    ? L("上次核验可领取 BEM", "BEM claim at last verification")
-                    : L("单矿机可领取 BEM", "Single-miner claimable BEM")}
-                  value={amount(claimable, 8)}
+                  title={rewardEstimate == null ? L('单矿机可领取 BEM（已入账）', 'Single-miner claimable BEM (booked)')
+                    : L('单矿机待领取 BEM（预计）', 'Single-miner BEM rewards (estimated)')}
+                  value={amount(rewardEstimate ?? (positionsLoaded ? singleRewardPreview.totals.bookedBEM : null), 8)}
                   unit="BEM"
-                  note={L(
-                    "已加载矿池 · 不含待归集",
-                    "Loaded pools · excludes uncollected output",
-                  )}
+                  note={<>{L('已入账', 'Booked')} {amount(positionsLoaded ? singleRewardPreview.totals.bookedBEM : null, 8)}
+                    {' · '}{L('待归集', 'Uncollected')} {amount(singleRewardPreview.totals.uncollectedBEM, 8)}</>}
                 />
                 <Metric
                   title={L("单矿机待领取 BNB", "Single-miner claimable BNB")}
@@ -3916,12 +4290,6 @@ export default function LivePlatform() {
                     <Button disabled={busy || !!pending || !!rewardRecovery || !positions.length
                       || !positionsActionReadyFor('harvest') || !positionsActionReadyFor('claim')}
                       onClick={() => void collectRewards('collect-and-claim')}>{L('一键归集并领取', 'Collect and claim')}</Button>
-                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
-                      || !positionsActionReadyFor('harvest')}
-                      onClick={() => void collectRewards('collect-only')}>{L('一键归集', 'Collect all loaded')}</Button>
-                    <Button secondary disabled={busy || !!pending || !!rewardRecovery || !positions.length
-                      || !positionsActionReadyFor('claim')}
-                      onClick={() => void collectRewards('claim-only')}>{L('一键领取', 'Claim all loaded')}</Button>
                   </div>}
                 </div>
                 {config?.displayOnly && <p className="inline-note" style={{ margin: '0 24px 20px' }}>{L(
@@ -3929,6 +4297,18 @@ export default function LivePlatform() {
                   'Processes the loaded single-miner pools below. Confirm each transaction and pay Gas; zero claims are skipped. Market proceeds and portfolios are claimed separately.')}
                   {!!positionCursor && <> {L('还有未加载矿机，请先加载更多。', 'More pools are not loaded. Load more first.')}</>}
                 </p>}
+                <p className="subtle-note" style={{ margin: '0 24px 20px' }} data-uncollected-rewards-status={rewardsView?.status ?? 'idle'}>
+                  {rewardsView?.status === 'loading'
+                    ? L('正在读取待归集收益…', 'Reading uncollected output…')
+                    : ['partial', 'unavailable'].includes(rewardsView?.status)
+                      ? L('部分待归集收益暂时无法读取，显示为 —；请刷新重试。', 'Some uncollected output is unavailable and shown as —. Refresh to retry.')
+                      : rewardsView?.canonical && singleRewardPreview.totals.uncollectedBEM == null
+                        ? L('收益或持仓已有变化，待归集估算显示为 —，可刷新重新读取；已入账余额已按当前结果显示。',
+                          'Rewards or positions changed. Refresh the unavailable pending estimate; booked balances reflect the current read.')
+                      : L('待归集收益已扣除 1% 平台费，按当前持仓预计；归集后按实际入账领取。仅汇总已加载矿池。',
+                        'Uncollected output estimates your current share after the 1% platform fee. Claim the actual booked balance after collection. Includes loaded pools only.')}
+                  {rewardsView?.canonical && rewardsView?.timestamp != null && <> {L('更新于', 'Updated')} {new Date(Number(rewardsView.timestamp) * 1000).toLocaleTimeString(locale === 'en' ? 'en-US' : 'zh-CN')}</>}
+                </p>
                 {(rewardCollection || rewardRecovery) && <RewardCollectionStatus locale={locale}
                   run={{ ...(rewardCollection || { status: 'stopped', account, result: { reason: 'unknown', steps: [] } }),
                     recovery: rewardRecovery, ...(rewardRecovery?.status === 'invalid' ? { result: { reason: 'error', error: rewardRecovery.error } } : {}) }}
@@ -4107,11 +4487,14 @@ export default function LivePlatform() {
               operator={operator} disabled={busy || !!pending || !operatorServiceReady} onSend={sendAdminAction}
               creationPending={!!publishingProject && !publishingProject.result} creationResetKey={creationResetKey}
               creationPendingReason={publishingProject && !same(publishingProject.account, account)
-                ? `请切回钱包 ${publishingProject.account} 核对上一笔项目发布结果。` : undefined}
+                ? `请切回钱包 ${publishingProject.account} 核对上一笔项目发布结果。`
+                : publishingProject && !publishingProject.hash ? '签名已发送，但本次请求是否被接受尚未确认。请刷新核对状态，不要重复创建。' : undefined}
               disabledReason={!operatorServiceReady ? L('交易服务恢复中，暂不能预览或签名；恢复后会自动启用。', 'Transaction services are recovering; previews and signatures will resume after verification.')
                 : pending ? L('请先核对上一笔交易结果。', 'Verify the previous transaction first.') : undefined}
               gasFeeWei={transactionGasWei}
-              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1); }}/>}
+              onRefresh={() => { setOperatorRefresh(value => value + 1); setRefresh(value => value + 1);
+                const job = publishingProjectRef.current;
+                if (job && !job.submitting && !job.result) setPublishingProject({ ...job, startedAt: Date.now() }); }}/>}
             <LivePortfolios config={config} provider={client?.provider} account={account} wallet={wallet} mode="operator" locale={locale} operatorVerified={isPortfolioOperator}
               disabled={busy || !!pending || !!publishingProject && !publishingProject.result || !operatorServiceReady} onConnect={connect} onSend={sendPortfolio} marketTransactions={memberTransactions}
               onSourceReorg={problem => invalidateDisplayOnReorg(client, problem)}
@@ -4208,13 +4591,13 @@ export default function LivePlatform() {
           }}
         >
           <section
-            className={`modal live-modal${['share','portfolio-share'].includes(modal.type) ? " live-share-modal" : ""}${modal.type === 'action' && modal.kind === 'list' ? ' live-sale-modal' : ''}`}
+            className={`modal live-modal${['share','portfolio-share','catalog-share'].includes(modal.type) ? " live-share-modal" : ""}${modal.type === 'action' && modal.kind === 'list' ? ' live-sale-modal' : ''}`}
             ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="live-dialog-title"
           >
-            {!['share','portfolio-share'].includes(modal.type) && (
+            {!['share','portfolio-share','catalog-share'].includes(modal.type) && (
               <button
                 className="modal-close icon-button"
                 disabled={modal.type === "connect-wallet" ? false : busy}
@@ -4240,6 +4623,9 @@ export default function LivePlatform() {
               <><h2 id="live-dialog-title" className="sr-only">{L('分享多矿机项目', 'Share a multi-miner portfolio')}</h2>
                 <PortfolioProjectShare locale={locale} publicBaseUrl={publicBaseUrl} project={modal.pool}
                   confirmation={modal.confirmation} onDismiss={() => setModal(null)} /></>
+            ) : modal.type === "catalog-share" ? (
+              <><h2 id="live-dialog-title" className="sr-only">{L('分享参与拼矿页面', 'Share the pool directory')}</h2>
+                <PoolCatalogShare locale={locale} publicBaseUrl={publicBaseUrl} onDismiss={() => setModal(null)}/></>
             ) : modal.type === "share" ? (
               <>
                 <h2 id="live-dialog-title" className="sr-only">
@@ -4267,6 +4653,8 @@ export default function LivePlatform() {
                     secondary
                     disabled={busy}
                     onClick={() => {
+                      walletRestore.current?.cancel(); clearWalletPreference(displayStorage());
+                      setWalletRestoring(false);
                       if (walletInfo?.id === 'walletconnect') void qrConnector.current?.disconnect();
                       epoch.current++;
                       walletEpoch.current++;
@@ -4276,6 +4664,8 @@ export default function LivePlatform() {
                       setWalletChecking(false);
                       setWalletInfo(null);
                       connectedWallet.current = null;
+                      connectedSession.current = null;
+                      restoredProvider.current = null;
                       setPending(null);
                       clearWalletDisplay();
                       setModal(null);
@@ -4486,8 +4876,8 @@ export default function LivePlatform() {
                           </div>
                           {modal.kind === 'fill' ? <p className="subtle-note">{L('网络 Gas 另计，以钱包显示为准。', 'Network Gas is additional. Review it in your wallet.')}</p> : <p className="inline-note">
                             {L(
-                              "金额显示至五位小数；不足 0.00001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
-                              "Amounts are displayed to five decimals; positive amounts below 0.00001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
+                              "金额显示至四位小数；不足 0.0001 的正金额会标为小于该值。交易仍使用原始精确值，请在钱包核对金额与 Gas；以链上确认为准。",
+                              "Amounts are displayed to four decimals; positive amounts below 0.0001 are marked as less than that value. Transactions retain their exact values. Review the amount and Gas in your wallet; completion requires on-chain confirmation.",
                             )}
                           </p>}
                           {busy && transactionStage && <p className="wallet-connect-status" role="status" aria-live="polite">

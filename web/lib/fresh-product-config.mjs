@@ -44,7 +44,8 @@ export function validateFreshProductGraph(input, pinnedManifest) {
 export async function loadFreshDisplayConfig({ fetcher = globalThis.fetch,
   basePath = '', origin = globalThis.location?.origin,
   manifestSha256 = process.env.NEXT_PUBLIC_V4_MANIFEST_SHA256,
-  pinnedManifest: suppliedManifest, rpcUrl, allowedRpcOrigins = [] } = {}) {
+  pinnedManifest: suppliedManifest, rpcUrl, allowedRpcOrigins = [],
+  targetOwnerGuardVersion = process.env.NEXT_PUBLIC_TARGET_OWNER_GUARD_VERSION } = {}) {
   insist(typeof origin === 'string' && /^https?:\/\//.test(origin) && new URL(origin).origin === origin,
     'invalid_config', '缺少可信网站来源。');
   insist(/^\/bemine-v[45]\/?$/.test(basePath),
@@ -82,7 +83,9 @@ export async function loadFreshDisplayConfig({ fetcher = globalThis.fetch,
     freshFactoryVerified: false, freshAuthority: pinnedManifest.freshAuthority,
     origin, basePath: base, manifestUrl,
     productGraphUrl: `${origin}${base}/api/journal/product-graph`,
-    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
+    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href,
+    fundingTargetGuard: base === '/bemine-v5',
+    ...(targetOwnerGuardVersion === '1' ? { targetOwnerGuardVersion: 1 } : {}) });
 }
 
 /** /bemine-v4/ uses a separate static manifest and the v4-only API namespace. */
@@ -121,6 +124,8 @@ export async function loadFreshLiveConfig({ fetcher = globalThis.fetch,
     ...(graph.stale ? { refreshing: graph.refreshing, snapshotAgeMs: graph.snapshotAgeMs } : {}),
     stageActivationBlock: graph.stageActivationBlock, stageActivationHash: graph.stageActivationHash,
     freshAuthority: graph.freshAuthority, freshFactoryVerified: true,
+    ...(graph.targetOwnerUpgrade ? { targetOwnerUpgrade: graph.targetOwnerUpgrade } : {}),
     origin, basePath: base, manifestUrl,
-    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href });
+    indexBaseUrl: `${origin}${base}/api/chain-index`, journalBase: `${base}/api/journal`, rpcUrl: rpc.href,
+    fundingTargetGuard: base === '/bemine-v5' });
 }
