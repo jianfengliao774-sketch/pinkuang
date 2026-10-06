@@ -109,10 +109,10 @@ contract FirstoPurchaseTest is FundingTestBase {
         _buy();
     }
 
-    function test_batchAndUnknownRoutesStayDisabled() public {
+    function test_unknownRoutesStayDisabled() public {
         _fundPool();
         vm.expectRevert(IPoolVault.UnverifiedPurchaseRoute.selector);
-        pool.buyFromFirsto(1, _order());
+        pool.buyFromFirsto(2, _order());
         vm.expectRevert(IPoolVault.UnverifiedPurchaseRoute.selector);
         pool.buyFromFirsto(255, _order());
         _assertUnchanged();

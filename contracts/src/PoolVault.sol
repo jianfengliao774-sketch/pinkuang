@@ -134,6 +134,11 @@ contract PoolVault is
         FlexiblePurchase.buy(_vaultStorage(), listingId, true);
     }
 
+    /// @notice Version of the fixed single-leaf BatchAsk purchase route, not third-party source provenance.
+    function firstoBatchPurchaseVersion() external pure returns (uint16) {
+        return 1;
+    }
+
     function buyFromFirsto(uint8 kind, bytes calldata encodedOrder) external nonReentrant {
         FlexiblePurchase.buyFirsto(_vaultStorage(), kind, encodedOrder);
     }
