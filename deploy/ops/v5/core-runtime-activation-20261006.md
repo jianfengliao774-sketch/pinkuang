@@ -42,3 +42,25 @@ Existing private signer journals and wallet-pointer state stay in place. Do not
 start a worker until its pending journal and prior sender drain have been
 checked. The live portfolio Beacon and old-pool owner migration are separate
 work and are not changed by this runtime assembly.
+
+## Public proof provider repair
+
+The completed core batch executed at BSC block 126058586 on 2026-10-06.
+The configured journal RPC can read current Beacon state but rejects historical
+`implementation()` calls at the execute block and its preceding block. These
+reads are required by the reviewed upgrade proof; suppressing them would hide
+a real change in upgrade identity. The existing `BEMINE_READ_RPC_URL` supports
+those reads and completed the full current graph proof with the original
+9-second, no-retry, static-network provider at finalized block 126063231.
+
+The public official proof provider now selects that configured read RPC and
+follows the existing journal RPC fallback when it is unset. The signing provider
+continues using `DEPLOYMENT_JOURNAL_RPC_URL`. Public product graph responses
+include only the verified target-owner capability's public fields; catalog salts
+and private recovery records remain excluded. Stale display snapshots keep
+transaction and operational readiness disabled.
+
+Validation: 70 journal, integrated graph, official-candidate and capability
+regressions passed, including a two-endpoint test in which historical calls fail
+on the journal RPC and succeed on the read RPC. The prior runtime assembly's
+208 regression checks remain recorded separately.

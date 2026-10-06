@@ -960,7 +960,7 @@ export function createPinnedSigningGraphVerifier(graphVerifier, trustedProduct, 
   };
 }
 
-export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = false,
+export function createJournalService({ dbPath, origin, rpcUrl, readRpcUrl, secureCookies = false,
   provider: suppliedProvider, currentArtifactDigest, assertSigningInputsCurrent = () => {}, allowedProductFactories = [], productDeploymentRecordPath,
   productDeploymentRecord, productArtifactBundle, productArtifactBundlePath, productGraphVerifier, legacyFactory,
   officialCandidateDiscovery = fetchOfficialCandidates, officialSnapshotFetch = fetch, budgetCandidateDiscovery = readBudgetCandidates,
@@ -1000,7 +1000,8 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
   const productIntentAccounts = new Map();
   let productIntentWindow = -1;
   const provider = suppliedProvider ?? (rpcUrl ? createProductVerifierProvider(rpcUrl) : null);
-  const officialProvider = suppliedProvider ? suppliedProvider : rpcUrl ? createBoundedOfficialProvider(rpcUrl) : null;
+  const officialRpcUrl = readRpcUrl ?? rpcUrl;
+  const officialProvider = suppliedProvider ?? (officialRpcUrl ? createBoundedOfficialProvider(officialRpcUrl) : null);
   if (!Array.isArray(allowedProductFactories) || allowedProductFactories.length > 32) throw new Error('Invalid product Factory allowlist.');
   const productFactories = new Set(allowedProductFactories.map(identity));
   if (productFactories.has('0x0000000000000000000000000000000000000000')) throw new Error('Zero product Factory is forbidden.');
@@ -1552,6 +1553,19 @@ export function createJournalService({ dbPath, origin, rpcUrl, secureCookies = f
         operationId:graph.securityUpgrade?.operationId ?? null,
         ...(graph.salePolicyUpgrade ? {salePolicyUpgrade:graph.salePolicyUpgrade} : {}),
         ...(graph.nativeSaleUpgrade ? {nativeSaleUpgrade:graph.nativeSaleUpgrade} : {}),
+        // Publish only the completed graph verifier's capability. The private
+        // operator catalog, governance salt and recovery records are not an API.
+        ...(graph.targetOwnerUpgrade ? {targetOwnerUpgrade:{
+          version:graph.targetOwnerUpgrade.version,
+          candidateArtifactDigest:graph.targetOwnerUpgrade.candidateArtifactDigest,
+          catalogDigest:graph.targetOwnerUpgrade.catalogDigest,
+          operationId:graph.targetOwnerUpgrade.operationId,
+          replacements:Object.fromEntries(['PoolFunds','FlexiblePurchase','PoolVault']
+            .map(name=>[name,graph.targetOwnerUpgrade.replacements[name]])),
+          codehash:Object.fromEntries(['PoolFunds','FlexiblePurchase','PoolVault']
+            .map(name=>[name,graph.targetOwnerUpgrade.codehash[name]])),
+          verifiedBlockNumber:graph.targetOwnerUpgrade.verifiedBlockNumber,
+          verifiedBlockHash:graph.targetOwnerUpgrade.verifiedBlockHash}} : {}),
         ...(graph.freshAuthority ? {freshAuthority:{address:graph.freshAuthority.address,
           codehash:graph.freshAuthority.codehash,activationBlock:graph.freshAuthority.activationBlock,
           activationHash:graph.freshAuthority.activationHash,
@@ -2058,8 +2072,10 @@ export function journalConfiguration(env = process.env) {
   const dbPath = env.DEPLOYMENT_JOURNAL_DB || (!production && fileURLToPath(new URL('../.local/journal.sqlite', import.meta.url)));
   const origin = env.DEPLOYMENT_JOURNAL_ORIGIN || (!production && 'http://127.0.0.1:4173');
   const rpcUrl = env.DEPLOYMENT_JOURNAL_RPC_URL;
+  const readRpcUrl = env.BEMINE_READ_RPC_URL;
   if (!dbPath || !origin || production && !rpcUrl) throw new Error('Production journal requires explicit DB, origin and BSC RPC URL.');
   if (rpcUrl && !/^https:\/\//.test(rpcUrl)) throw new Error('Journal BSC RPC URL must use HTTPS.');
+  if (readRpcUrl && !/^https:\/\//.test(readRpcUrl)) throw new Error('Product read RPC URL must use HTTPS.');
   if (production && !/^https:\/\//.test(origin)) throw new Error('Production journal origin must use HTTPS.');
   if (env.BEMINE_FRESH_CONSOLE_PRE_GENESIS !== undefined
     && !['0','1'].includes(env.BEMINE_FRESH_CONSOLE_PRE_GENESIS))
@@ -2067,7 +2083,7 @@ export function journalConfiguration(env = process.env) {
   if (env.BEMINE_FRESH_STAGE2_HOLD !== undefined
     && !['0','1'].includes(env.BEMINE_FRESH_STAGE2_HOLD))
     throw new Error('BEMINE_FRESH_STAGE2_HOLD must be 0 or 1.');
-  return { dbPath, origin, rpcUrl,
+  return { dbPath, origin, rpcUrl, readRpcUrl,
     firstoAskPublisher: firstoAskPublisherConfiguration(env, { dbPath }),
     freshConsolePreGenesis: env.BEMINE_FRESH_CONSOLE_PRE_GENESIS === '1',
     // Missing configuration must never enable the seven Authority writes.
