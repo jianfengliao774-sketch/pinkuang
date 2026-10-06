@@ -1,0 +1,19 @@
+{
+  "sourceHead": "42edd72b1f781b38070245fbe3f3dcf3a1c45ffa",
+  "baseRetryCommit": "87f35f72c37564e95b83ad336d88554e9bc169a1",
+  "files": {
+    "deploy/src/FirstoBatchUpgradeStandalone.tsx": "60c56094edc63410294af92f3de3268fe04eb7b16a850f1d34d610313b3a278f",
+    "deploy/src/firsto-batch-read-provider.test.ts": "c8daee6db296704252a3fcf73e7c503e9cf047107d5554cc00cbba2e635d246d"
+  },
+  "independentFinalHttpTests": {
+    "passed": 16,
+    "failed": 0,
+    "log": "/private/tmp/bemine-firsto-portal-retry-review-20261007/final-16-tests.log"
+  },
+  "independentAdditionalThreeRpcErrorStatusCases": {
+    "passed": 3,
+    "failed": 0
+  },
+  "verdict": "Approve static portal: at most one exact pure-read HTTP retry only429502503 within shared15s,100ms backoff; RPC-shaped errors/malformedJSON do not retry; plainproxygatewayerrors may retry; cancellation and destruction abort request/backoff; original60s session bounds unchanged; walletrequests remain independent and never wrapped. No safety blocker.",
+  "actions": "Local code review and loopbackHTTP tests only. No production changes or remoteRPC/chainwallet sends."
+}
