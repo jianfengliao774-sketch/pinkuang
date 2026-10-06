@@ -114,3 +114,11 @@ The final root integration passed 63 focused tests, with 16 actual loopback HTTP
 cases. Independent review also passed those 16 final cases plus three additional
 contract-error status cases. See `portal-read-review-receipt.json` and
 `portal-final-tests.log`. This publication does not deploy or activate a contract.
+
+The final static entry was atomically published from source `09dd5ba80a287a570d1a0e4791f853fb50c6284a`
+at https://bemine.cc.cd/pinkuang-firsto-batch-upgrade/. All 13 HTTPS public files
+returned 200 with exact package hashes, expected MIME and no-store. The new RPC
+route returned chain 56. The main homepage hash and pending portfolio signing
+entry were preserved. See `final-publication-receipt.json`. User signatures and
+48-hour scheduling/execution are still required; agents performed no mainnet
+transactions and product batch capability remains disabled until completion.
