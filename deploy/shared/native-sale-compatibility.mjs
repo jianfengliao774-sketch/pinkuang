@@ -46,19 +46,23 @@ export async function verifyNativeSaleCompatibility(provider, { upgrade, review,
     OriginalPoolFunds: reviewedUpgradeBytecode.expectedRuntime(oldFunds.artifact, oldFunds.links, oldFunds.address, oldFunds.immutableAddress),
   };
   const addresses = { PoolVault: vault, FirstoSale: firsto.address, OriginalPoolFunds: oldFunds.address };
-  const codes = Object.fromEntries(await settleReads(Object.entries(addresses).map(async ([name, address]) =>
-    [name, await provider.getCode(address, block.number)])));
+  const tag = `0x${block.number.toString(16)}`;
+  const read = async (to, iface, method) => iface.decodeFunctionResult(method, await provider.send('eth_call',
+    [{ to, data: iface.encodeFunctionData(method) }, tag]))[0];
+  // These reads depend only on the completed pinned evidence and the same
+  // block tag. Launch code and binding reads together, then validate every
+  // result before the final canonical-block check can create a capability.
+  const [codeEntries, pointer, immutable, version, chain] = await settleReads([
+    settleReads(Object.entries(addresses).map(async ([name, address]) =>
+      [name, await provider.getCode(address, block.number)])),
+    read(catalog.reviewCatalog.bindings.beacon, bindings, 'implementation'), read(vault, bindings, 'OFFICIAL_FACTORY'),
+    read(vault, native, 'nativeFirstoSaleVersion'), provider.send('eth_chainId', []),
+  ]);
+  const codes = Object.fromEntries(codeEntries);
   for (const name of Object.keys(expectedCodes)) need(same(codes[name], expectedCodes[name]), `Native compatibility exact runtime changed: ${name}.`);
   need(same(keccak256(codes.PoolVault), completed.codehash.PoolVault)
     && same(keccak256(codes.FirstoSale), firsto.codehash)
     && same(keccak256(codes.OriginalPoolFunds), oldFunds.codehash), 'Native compatibility reviewed codehash changed.');
-  const tag = `0x${block.number.toString(16)}`;
-  const read = async (to, iface, method) => iface.decodeFunctionResult(method, await provider.send('eth_call',
-    [{ to, data: iface.encodeFunctionData(method) }, tag]))[0];
-  const [pointer, immutable, version, chain] = await settleReads([
-    read(catalog.reviewCatalog.bindings.beacon, bindings, 'implementation'), read(vault, bindings, 'OFFICIAL_FACTORY'),
-    read(vault, native, 'nativeFirstoSaleVersion'), provider.send('eth_chainId', []),
-  ]);
   need(same(pointer, vault) && same(immutable, factory) && version === 1n && BigInt(chain) === 56n,
     'Native compatibility current Beacon, Factory, version or chain changed.');
   need(same((await provider.getBlock(block.number))?.hash, block.hash), 'Native compatibility block changed during verification.');
