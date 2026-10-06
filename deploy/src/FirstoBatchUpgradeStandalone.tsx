@@ -73,6 +73,16 @@ export function createFirstoBatchReadProvider(url: string, signal?: AbortSignal,
           request.setThrottleParams({ maxAttempts: 1 }); request.retryFunc = async () => false;
           const response = await request.send(); alive();
           if (attempt === 0 && [429, 502, 503].includes(response.statusCode)) {
+            // An RPC response is already a result, even if a gateway labels it
+            // with a temporary HTTP status. Retry only a transport failure.
+            const shaped = (value: any): boolean => value && typeof value === 'object'
+              && (['jsonrpc', 'id', 'result'].some(key => Object.hasOwn(value, key))
+                || value.error && typeof value.error === 'object' && Object.hasOwn(value.error, 'code'));
+            let rpcResponse: boolean;
+            try { const value = response.bodyJson; rpcResponse = Array.isArray(value) ? value.some(shaped) : !!shaped(value); }
+            catch { try { rpcResponse = /^\s*[\[{]/.test(response.bodyText); }
+              catch { rpcResponse = true; } }
+            if (rpcResponse) response.assertOk();
             // All attempts share one deadline, including this short backoff.
             await new Promise<void>((resolve, reject) => { rejectWait = reject;
               waitTimer = setTimeout(resolve, 100); });

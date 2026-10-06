@@ -65,6 +65,28 @@ for (const kind of ['403', 'rpc-revert', 'malformed']) test(`${kind} is never re
   try { await assert.rejects(f.provider().send('eth_call', [{ to: '0x' + '11'.repeat(20), data: '0x12345678' }, '0x500']));
     assert.equal(f.requests.length, 1); } finally { await f.close(); }
 });
+for (const status of [429, 502, 503]) test(`JSON-RPC contract error under HTTP ${status} is never retried`, async () => {
+  const f = await fixture((request, _index, response) => { response.writeHead(status, { 'content-type': 'application/json' })
+    .end(JSON.stringify({ jsonrpc: '2.0', id: request.payload.id,
+      error: { code: 3, message: 'execution reverted', data: '0x' } })); });
+  try { await assert.rejects(f.provider().send('eth_call', [{ to: '0x' + '11'.repeat(20), data: '0x12345678' }, '0x500']));
+    assert.equal(f.requests.length, 1); } finally { await f.close(); }
+});
+test('ordinary proxy error strings still recover once, while invalid RPC-shaped responses never retry', async () => {
+  for (const body of [JSON.stringify({ error: 'Read-only RPC chain changed temporarily.' }),
+    JSON.stringify({ jsonrpc: '2.0', id: 'incorrect-id', result: '0x38' }), '{"jsonrpc":', '{bad json',
+    JSON.stringify({ error: { code: -32603, message: 'invalid RPC response' } })]) {
+    const f = await fixture((request, index, response) => { if (index === 1)
+      response.writeHead(502, { 'content-type': 'application/json' }).end(body);
+      else result(response, request, '0x38'); });
+    try {
+      const provider = f.provider();
+      if (body.includes('chain changed')) { assert.equal(await provider.send('eth_chainId', []), '0x38');
+        assert.equal(f.requests.length, 2); assert.equal(f.requests[0].body, f.requests[1].body); }
+      else { await assert.rejects(provider.send('eth_chainId', [])); assert.equal(f.requests.length, 1); }
+    } finally { await f.close(); }
+  }
+});
 test('second attempt shares the first attempt total deadline rather than receiving a fresh timeout', async () => {
   const f = await fixture(async (request, index, response) => {
     await delay(index === 1 ? 120 : 240);
