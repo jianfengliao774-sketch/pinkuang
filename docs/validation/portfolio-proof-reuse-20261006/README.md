@@ -14,3 +14,5 @@ Validation: 105 tests passed across plan, journal, nonce, pacing, workflow, exac
 - Candidate signing configuration and browser journal key remain unchanged. Publication changes only the portfolio portal; no read service restart, route change, product release change, or chain action.
 
 [MetaMask official Delegation Framework v1.3.0 deployments](https://github.com/MetaMask/delegation-framework/releases/tag/v1.3.0) identify the fixed DelegationManager used by this transaction.
+
+Chrome verification after publication: reloaded the existing user tab once; its saved original schedule reconciled automatically with no wallet signing request. Both steps display confirmed and the expected 2026-10-08 09:12:09 deadline. See `browser-verification.json` and `chrome-schedule-restored.png`.
