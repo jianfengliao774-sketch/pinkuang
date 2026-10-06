@@ -9,7 +9,14 @@ const hash=value=>keccak256(toUtf8Bytes(value));
 const same=(a,b)=>a.toLowerCase()===b.toLowerCase();
 
 function fixture(phase='done',splitMarkets=false){
-  const f=createTargetOwnerFixture({phase,splitMarkets}),input=f.input,record=input.genesisRecord,bundle=input.genesisBundle;
+  const vaultAbi=new Interface([
+    'function nativeFirstoSaleVersion() pure returns(uint8)',
+    'function nativeFirstoAsk() view returns(tuple(address maker,address collection,uint256 tokenId,uint256 nonce,uint128 price,uint64 expiry,address payoutRecipient,uint16 feeBps,uint256 feeEpoch,uint16 schemaVersion) ask,bytes32 orderHash,bool active)',
+    'function delist(uint8 action,uint256 cancellationId,uint256 expectedListedProposalId,bool support) returns(uint256)',
+    'function delistingProposal(uint256 id) view returns(uint256,address,uint256,uint48,uint64,uint256,uint256,uint256,uint256,uint256,bool,bool)',
+    'function cancelExpired()',
+  ]).fragments.map(fragment=>JSON.parse(fragment.format('json')));
+  const f=createTargetOwnerFixture({phase,splitMarkets,vaultAbi}),input=f.input,record=input.genesisRecord,bundle=input.genesisBundle;
   const a=record.addresses,authority=input.reviewCatalog.authority;
   // Actual artifact shape is sufficient here; pinned views below bind every
   // constructor immutable independently, as the real verifier requires.
@@ -54,7 +61,7 @@ function fixture(phase='done',splitMarkets=false){
     const iface=new Interface(artifact.abi),parsed=iface.parseTransaction({data:tx.data});
     const methodName=parsed.name;
     if(methodName==='eip712Domain')return authorityAbi.encodeFunctionResult(methodName,['0x0f','BEMine Platform Authority','1',56n,authority.address,ZeroHash,[]]);
-    const values={deployed:true,deployer:record.account,predictedFactory:a.factory,predictedPortfolioFactory:a.portfolioFactory,
+    const values={nativeFirstoSaleVersion:1n,deployed:true,deployer:record.account,predictedFactory:a.factory,predictedPortfolioFactory:a.portfolioFactory,
       VERSION:1n,feeBps:100n,buyerFeeBps:100n,MINIMUM_DELAY:172800n,legacyFactory:a.factory,
       beacon:name==='portfolioFactory'?a.portfolioBeacon:a.beacon,shareMarket:name==='portfolioFactory'?a.portfolioShareMarket:a.shareMarket,
       PROPOSER_ROLE:hash('PROPOSER_ROLE'),CANCELLER_ROLE:hash('CANCELLER_ROLE'),EXECUTOR_ROLE:hash('EXECUTOR_ROLE'),DEFAULT_ADMIN_ROLE:ZeroHash};
