@@ -1,0 +1,16 @@
+{
+  "kind": "portfolio-wallet-format-ui-publication-v1",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "sourceCommit": "79f465b3092c653ea4acfc2357ef9ebbb52a9a8c",
+  "proxySourceCommit": "7ed6fad646234474d8db23dd662c58652abc519f",
+  "configSha256": "c01ad9d1e877c3003fb57b0dc129d6998c861684e05eb15f8ec33008e443bd83",
+  "proxySha256": "fb0c3a4247f8ce3e045a02d591d5bcb93432649e43d96696071d5cfd2808e67d",
+  "archiveSha256": "0cef3795f6aeb4543203be8478956c2066be3761c4267710c482f17d7fb2ad87",
+  "staticRelease": "/srv/pinkuang-portfolio-upgrade/releases/79f465b3092c653ea4acfc2357ef9ebbb52a9a8c",
+  "readServiceInvocation": "a6d86d32c2bc4e63ba730554e941f991",
+  "originalCoreEntryUnchanged": true,
+  "formalProductUnchanged": true,
+  "readServiceUnchanged": true,
+  "signingConfigAndJournalKeyUnchanged": true,
+  "chainActionsPerformed": false
+}
