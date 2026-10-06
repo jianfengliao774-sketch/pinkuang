@@ -9,6 +9,7 @@ import { validateTargetOwnerUpgradePreflight } from '../shared/target-owner-upgr
 import { discoverWallets, messageOf, readWallet, switchToBsc, type WalletOption, type WalletState } from './wallet';
 import { normalizeWalletRecoveryResult } from './upgrade-transactions';
 import { TARGET_OWNER_DEPLOYMENTS, confirmedTargetOwnerDeployments, newTargetOwnerJournal, parseTargetOwnerJournal,
+  parseTargetOwnerImportFile,
   targetOwnerJournalKey, targetOwnerPending, runTargetOwnerUpgradeSequence, waitForTargetOwnerFinality, targetOwnerRecoveryPhase, submitTargetOwnerUpgrade, targetOwnerReviewedGas,
   verifyTargetOwnerRecoveryReceipt, VerifiedTargetOwnerTransactionFailure, archiveTargetOwnerFailure,
   prepareTargetOwnerIntent, assertTargetOwnerIntentCurrent, discoverTargetOwnerTransaction, archiveLegacyTargetOwnerDeployment,
@@ -424,9 +425,8 @@ export function TargetOwnerUpgradeStandalone() {
     });
   }); }
   async function importJournal(file: File, restoreReady = false) { await run('恢复升级记录', async session => {
-    if (!context || file.size > 100000) throw new Error('恢复记录过大或升级文件尚未就绪。');
-    const value = JSON.parse(await file.text()); session.assertCurrent();
-    const imported = parseTargetOwnerJournal(value.journal || value, context);
+    if (!context) throw new Error('升级文件尚未就绪。');
+    const imported = await parseTargetOwnerImportFile(file, context); session.assertCurrent();
     await session.lock(async existing => {
       if (existing && restoreReady) {
         const selected = walletRef.current ?? wallets[0]; if (!selected) throw new Error('请连接原部署钱包。');

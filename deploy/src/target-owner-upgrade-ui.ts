@@ -235,6 +235,22 @@ export function parseTargetOwnerJournal(value: unknown, context: TargetOwnerCont
   return JSON.parse(JSON.stringify(item)) as TargetOwnerJournal;
 }
 
+/** Full exports include a large, informational plan; only the validated journal is restored. */
+export async function parseTargetOwnerImportFile(file: Pick<Blob, 'size' | 'text'>,
+  context: TargetOwnerContext): Promise<TargetOwnerJournal> {
+  const maxFileBytes = 512 * 1024, maxJournalBytes = 100000;
+  need(Number.isSafeInteger(file.size) && file.size > 0 && file.size <= maxFileBytes,
+    '恢复文件超过 512 KiB，或文件为空。');
+  const contents = await file.text();
+  need(new TextEncoder().encode(contents).byteLength <= maxFileBytes, '恢复文件超过 512 KiB。');
+  const value: unknown = JSON.parse(contents);
+  const candidate = value && typeof value === 'object' && 'journal' in value ? value.journal : value;
+  const journal = parseTargetOwnerJournal(candidate, context);
+  need(new TextEncoder().encode(JSON.stringify(journal)).byteLength <= maxJournalBytes,
+    '升级记录超过 100,000 字节，不能保存。');
+  return journal;
+}
+
 /** Acknowledges a closed legacy wallet request, without claiming its transaction was found or failed.
  * The caller must obtain currentIntent freshly and persist this result before allowing a later,
  * separate click to prepare a new send. observedIntent is evidence of that observation only. */
