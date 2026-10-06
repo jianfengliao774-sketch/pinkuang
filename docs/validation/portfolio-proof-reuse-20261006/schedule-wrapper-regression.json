@@ -1,0 +1,22 @@
+{
+  "kind": "portfolio-dust-wrapped-schedule-offline-regression",
+  "chainActionsPerformed": false,
+  "rpcRequestsPerformed": 0,
+  "transactionHash": "0xe328b1082d4b61acfade27755e5fef5c29aec4da5a3ad83876463d6f96fc0202",
+  "nonce": 171,
+  "success": true,
+  "envelopeKind": "wrapped",
+  "operationId": "0x8ae3fceccde348445cdef62041cba8861fccecc9b2a347a213da3503da72709b",
+  "scheduleDataHash": "0x0372f031b11aebf10a460814fbd0026f13fdf2849e8845754d0749d3abdb0697",
+  "blockNumber": 125969938,
+  "blockHash": "0xb655ed6fdfcf54c176d969352227e0834c10f5c2e489c67952d946e0dbb1d6c2",
+  "runtimeAnchor": {
+    "blockNumber": 125970674,
+    "blockHash": "0x66a1a603bb9d84dfb29b7fc21a413fe39d26dd67925d37eb6c7926f23a667b0d"
+  },
+  "exactInnerSchedule": true,
+  "exactCallScheduled": true,
+  "exactCallSalt": true,
+  "canonicalReceiptInclusion": true,
+  "privateSaltAndSignaturesOmitted": true
+}

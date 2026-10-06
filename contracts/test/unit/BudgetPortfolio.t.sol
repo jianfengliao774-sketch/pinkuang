@@ -507,6 +507,61 @@ contract BudgetPortfolioTest is FundingTestBase {
         assertEq(address(project).balance, 0);
     }
 
+    function test_finalChildSaleRemainderIsWithdrawableAndConservesProceeds() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+
+        _completeChildSale(pool, 4 ether + 99);
+        assertEq(project.settleChildSale(), 3.96 ether + 99);
+        assertEq(uint256(project.state()), uint256(IPoolVault.State.Closed));
+        assertEq(project.salePerShareWei(), 0.0396 ether);
+        assertEq(project.saleRemainderWei(), 0);
+        assertEq(project.bnbOwed(TREASURY), 0.05 ether + 99);
+
+        vm.prank(ALICE);
+        assertEq(project.withdrawBnb(), 7.146 ether);
+        vm.prank(BOB);
+        assertEq(project.withdrawBnb(), 4.764 ether);
+        vm.prank(TREASURY);
+        assertEq(project.withdrawBnb(), 0.05 ether + 99);
+        assertEq(project.saleRemainderWei(), 0);
+        assertEq(address(project).balance, 0);
+        assertEq(project.totalBnbOwed(), 0);
+    }
+
+    function test_finalSaleCreditsRemainderEvenAfterTreasuryAlreadyClaimedAcquisitionFee() public {
+        _subscribe(ALICE, 60);
+        _subscribe(BOB, 40);
+        uint256 listing = _list(defaultParams.circuitId, 5 ether);
+        vm.prank(OPERATOR);
+        project.buyOfficial(address(pool), listing);
+        vm.warp(block.timestamp + 10 days);
+        project.finalizeAcquisition();
+        vm.prank(TREASURY);
+        assertEq(project.withdrawBnb(), 0.05 ether);
+        assertEq(project.bnbOwed(TREASURY), 0);
+
+        _completeChildSale(pool, 4 ether + 99);
+        assertEq(project.settleChildSale(), 3.96 ether + 99);
+        assertEq(project.saleRemainderWei(), 0);
+        assertEq(project.bnbOwed(TREASURY), 99, "authority only calls withdraw for a positive owed amount");
+        vm.prank(ALICE);
+        project.withdrawBnb();
+        vm.prank(BOB);
+        project.withdrawBnb();
+        vm.prank(TREASURY);
+        assertEq(project.withdrawBnb(), 99);
+        vm.prank(TREASURY);
+        vm.expectRevert(BudgetPortfolioVault.NothingToClaim.selector);
+        project.withdrawBnb();
+        assertEq(address(project).balance, 0);
+    }
+
     function test_closedChildClaimFailureDoesNotBlockSaleProceedsAndCanRetry() public {
         _subscribe(ALICE, 60);
         _subscribe(BOB, 40);

@@ -1,0 +1,21 @@
+{
+  "kind": "portfolio-read-resilience-browser-v1",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "browser": "user Chrome tab 102360658",
+  "uiSourceCommit": "d4fede17fdf3f7450359100c4a9f7cb355ea4e60",
+  "readSourceCommit": "e81e962af9050ef1e1ba43e30b4218c6ea02ccfa",
+  "observed": {
+    "deploymentConfirmed": true,
+    "scheduleConfirmed": true,
+    "readyAtCst": "2026-10-08 09:12:09",
+    "errorAlertPresent": false,
+    "progressButtonEnabled": true
+  },
+  "actions": [
+    "reload published page",
+    "read accessibility state",
+    "save full-page screenshot"
+  ],
+  "walletRequestsByAgent": false,
+  "chainWrites": false
+}

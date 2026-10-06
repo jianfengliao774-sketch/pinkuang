@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "kind": "portfolio-dust-independent-artifact-review-v1",
+  "sourceCommit": "325119c82589da26cbd9ff5ea6b4503148a585c3",
+  "branch": "codex/fix-portfolio-dust-20261005",
+  "pullRequest": "https://github.com/jianfengliao774-sketch/pinkuang/pull/65",
+  "configuration": {
+    "solc": "0.8.24+commit.e11b9ed9.Emscripten.clang",
+    "optimizerEnabled": true,
+    "optimizerRuns": 1,
+    "evmVersion": "shanghai",
+    "viaIR": false,
+    "openzeppelinVersion": "5.0.2"
+  },
+  "candidateArtifactDigest": "0x6b666afc43efd0e91f2e3f1b72b1699227dafb600c7df1d79bf4fc46703a5c70",
+  "candidateArtifactHash": "0x1efab9c5df8705acd284b6034066a09ba0486071035fcaa5e928328c82718502",
+  "configEvidenceDigest": "0xb50c20b86b8ee68c1eaacdbadc28bc905c7a7aa88e5e7d1b7c3704084b0f41cf",
+  "bindings": {
+    "portfolioFactory": "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065",
+    "SaleGovernance": "0x64F116956E5647791F491da28BAdc645859d4Baf"
+  },
+  "constructorArgs": [
+    "0x533199B4E535C03BBAB4EC3fcf9B69aD16936065"
+  ],
+  "linkedRuntimeCodehash": "0x0ebfcb7243b2808904b178e743be4bc2c90c95dc358df46305ad59d08a1df3a6",
+  "initcodeKeccak256": "0x7f2764c0bc32003febbb96d44f1628b38c599525c069379df3d6d42cff8c050c",
+  "eip170": {
+    "runtimeBytes": 24507,
+    "limit": 24576,
+    "margin": 69
+  },
+  "initcodeWithConstructorArgsBytes": 24961,
+  "storageCompatibility": {
+    "baselineCommit": "6361bff1247e7297b96d2659145a0e7256e6765c",
+    "candidateCommit": "325119c82589da26cbd9ff5ea6b4503148a585c3",
+    "abiEqual": true,
+    "linearStorageEqual": true,
+    "linearFieldCount": 30,
+    "namespacedGovernanceSourceEqual": true,
+    "rewardLedgerSourceEqual": true,
+    "namespaceSource": "contracts/src/BudgetGovernanceState.sol"
+  },
+  "unitTests": {
+    "passed": 36,
+    "failed": 0,
+    "skipped": 0
+  },
+  "deploymentDryRun": {
+    "network": "local-only",
+    "chainId": 31337,
+    "gasUsed": "5380686",
+    "recommendedGasLimit": "6500000",
+    "runtimeMatches": true
+  },
+  "chainProof": {
+    "anchor": {
+      "blockNumber": 125857881,
+      "blockHash": "0xe1e6fa4e959c7c4759113d6747463d7e33364807d7072909b74184c442de1922",
+      "timestamp": 1791198688
+    },
+    "library": {
+      "name": "SaleGovernance",
+      "address": "0x64F116956E5647791F491da28BAdc645859d4Baf",
+      "codehash": "0x071b1384c10187efb8f265586428d39aa382b8aebcae4ec96b1d7a6c94342f93",
+      "runtimeVerified": true
+    },
+    "roles": {
+      "originalProposer": {
+        "address": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+        "role": "PROPOSER_ROLE",
+        "enabled": true
+      },
+      "administratorOne": {
+        "address": "0x7674fa446D42b1f7f150DC5e678cc525d275Ea53",
+        "role": "PROPOSER_ROLE",
+        "enabled": false
+      },
+      "administratorTwo": {
+        "address": "0xeD2FCBe59EBe1754a3676aeb9CcfBA20f193FcbB",
+        "role": "PROPOSER_ROLE",
+        "enabled": false
+      },
+      "gasWallet": {
+        "address": "0xA285d1933e32b5990625aC1F5BEa205Cf2606619",
+        "role": "PROPOSER_ROLE",
+        "enabled": false
+      },
+      "openExecutor": {
+        "address": "0x0000000000000000000000000000000000000000",
+        "role": "EXECUTOR_ROLE",
+        "enabled": true
+      }
+    },
+    "constructorEthCallRuntimeMatches": true,
+    "estimatedDeploymentGas": "5424557"
+  },
+  "activation": {
+    "target": "0x8BFF2080B0B04CfDaCBeb05696b07a0cC480c1Ae",
+    "method": "upgradeTo(address)",
+    "timelock": "0x2c0AaE63302A7bF7caF5322Cdfc9da67d4ec8F97",
+    "delaySeconds": 172800,
+    "proposer": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "deploymentsRequired": [
+      "BudgetPortfolioVault"
+    ],
+    "libraryDeploymentRequired": false,
+    "storageMigrationRequired": false,
+    "initializerRequired": false,
+    "existingCoreOwnerUpgradeMustRemainUnchanged": true,
+    "safestTool": "Dedicated portfolio-dust portal using reviewedUpgradeBytecode/integratedUpgradeDeploymentData plus single Timelock schedule/execute. Existing target-owner, integrated and fresh-active upgrade UIs cannot safely be used directly because their scope includes other contracts."
+  },
+  "limitation": "Only future final-child settlements receive the remainder credit. No recovery of old Closed projects with zero treasury debt.",
+  "fileSha256": {
+    "BudgetPortfolioVault.initcode.hex": "52a22873afbe70a5b1012b1a377ebdad8d11eab9c3568535741b474f4a005889",
+    "BudgetPortfolioVault.linked.json": "d56f2ac0a53cf455f86da9ae61d3ed5743a2701e9791697569db4867e94cf104",
+    "BudgetPortfolioVault.runtime.hex": "14146a774cb64222d067e5445c5b64c25960d26312cb7e501e48cd292a099020",
+    "BudgetPortfolioVault.unlinked.json": "13771fa196d63a3d1ff4cb600974dbe45ea91a3045a4d5e82823ca4da99c333b",
+    "binding-proof.json": "d5da8b123d39d0804a386c80f2fe932f5613aa0db7feab42d2bb7cff318c5781",
+    "candidate-artifacts.json": "5602576ceaa5e8243165120603c8dc27dab5604e1daa9da7fbc6167002fc1f56",
+    "chain-read.json": "90e8125df134749569ab01a0842417fbe364bf973799ede709f225988b193acf",
+    "config.json": "c01ad9d1e877c3003fb57b0dc129d6998c861684e05eb15f8ec33008e443bd83",
+    "dry-run-local.json": "aa482e61f43f3d2ba1df91f014a1a7c4fe2665ff70c0dd71736d54770d6d2354",
+    "storage-compatibility.json": "1a475c7e55603138e8dde104021ac97acafd3f408866b9dd7b9ecb7ed5da9227",
+    "storage-layout.baseline.json": "08fb72b4116fca383def0b90f0bd23dc925f5a9ca0198f9388ec049b155be645",
+    "storage-layout.candidate.json": "a601ca449519a704c10ebb0bcdb31b93ff4fd5b16f65e5a2353bcc780e01ba56",
+    "unit-tests.log": "f94b932af0be8a3f45392f249e1d2ff41c60999c981be93cf1ffc868d8558965"
+  }
+}

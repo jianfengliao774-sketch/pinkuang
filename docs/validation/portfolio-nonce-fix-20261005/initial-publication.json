@@ -1,0 +1,23 @@
+{
+  "kind": "portfolio-nonce-fix-publication-v1",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "sourceCommit": "748038df539471ca719962839559ac8285335f5d",
+  "proxySourceCommit": "41b12acf195b8f901f1d5ca04f9f8a61002214c6",
+  "configSha256": "c01ad9d1e877c3003fb57b0dc129d6998c861684e05eb15f8ec33008e443bd83",
+  "proxySha256": "66d317b0f94a4fcb7151009b2da988ad22d74ddac8669efd61e814ca17ddd84e",
+  "archiveSha256": "7fcf6b7e23c692df201f529be3cde0f34a2885a1f4d3576dcaa8bf2be73f0b6a",
+  "staticRelease": "/srv/pinkuang-portfolio-upgrade/releases/748038df539471ca719962839559ac8285335f5d",
+  "rpcRelease": "/srv/pinkuang-target-owner-read/releases/41b12acf195b8f901f1d5ca04f9f8a61002214c6",
+  "nonceProof": {
+    "account": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+    "blockNumber": 125887745,
+    "blockHash": "0xd14c5bc22d0f5af1396a9bb879c066b82816adf201e296279166fcff0773c2ba",
+    "confirmed": 170,
+    "pending": 170
+  },
+  "readServiceInvocation": "584a00492980415195fbc5ef03b1f547",
+  "originalCoreEntryUnchanged": true,
+  "formalProductUnchanged": true,
+  "signingConfigAndJournalKeyUnchanged": true,
+  "chainActionsPerformed": false
+}

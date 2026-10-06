@@ -1,0 +1,17 @@
+{
+  "kind": "portfolio-schedule-browser-recovery-v1",
+  "checkedAtUTC": "2026-10-06T01:26:46.553893+00:00",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "releaseSourceCommit": "79f465b3092c653ea4acfc2357ef9ebbb52a9a8c",
+  "browser": "Chrome user original tab",
+  "configSha256": "c01ad9d1e877c3003fb57b0dc129d6998c861684e05eb15f8ec33008e443bd83",
+  "deploymentStatus": "confirmed",
+  "scheduleStatus": "confirmed",
+  "readyAtCST": "2026-10-08 09:12:09",
+  "errorVisible": false,
+  "savedOriginalHashRecoveredAutomatically": true,
+  "journalIdentityUnchanged": true,
+  "agentWalletSigningRequests": 0,
+  "agentChainActionsPerformed": false,
+  "screenshot": "chrome-schedule-restored.png"
+}

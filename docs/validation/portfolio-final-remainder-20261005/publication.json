@@ -1,0 +1,14 @@
+{
+  "kind": "portfolio-dust-entry-publication-v1",
+  "sourceCommit": "a08759f1d4dbca9a958faee1adf90fd6ab1f9087",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "configSha256": "c01ad9d1e877c3003fb57b0dc129d6998c861684e05eb15f8ec33008e443bd83",
+  "archiveSha256": "766c1ff26693a8b6121f40cdeae869e7b7725e78e2e97c2723bed811c0265354",
+  "nginxBeforeSha256": "4580aaecbc5f58da30686b315c23d2038ed8f5bdb47923edb9938020a53c0856",
+  "nginxAfterSha256": "03e77deead7df6eeb1f8d786a0d0e0f992f7a04eb68ecf927937cd74b5de53c9",
+  "release": "/srv/pinkuang-portfolio-upgrade/releases/a08759f1d4dbca9a958faee1adf90fd6ab1f9087",
+  "originalCoreEntryUnchanged": true,
+  "formalProductUnchanged": true,
+  "chainActionsPerformed": false,
+  "candidateDeployed": false
+}

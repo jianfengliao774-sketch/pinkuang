@@ -1,0 +1,9 @@
+# Portfolio upgrade read recovery — 2026-10-06
+
+The deployment and schedule were already finalized. A later progress check failed because the primary archive service returned HTTP 429 / JSON-RPC -32005; the gateway exposed that refusal as HTTP 502. The response alone did not identify monthly credit exhaustion versus a temporary limit. No deployment or schedule was resent.
+
+The UI preserves confirmed records and, after complete verification, stores a display-only historical deadline. A failed read clears the in-progress message, presents a fixed error without provider credentials, and labels saved timing as historical. A confirmed schedule's progress button performs reads without requesting wallet accounts or signatures. Fast transport failures can retry one read once through the pacing queue; slow failures, explicit HTTP 429, RPC refusals and identity failures do not retry. Ethers' implicit HTTP 429 retry is disabled while preserving the original status.
+
+The dedicated upgrade read service can use its already configured independent transaction node only for eligible archive reads after a strict HTTP 429 refusal or transport failure. The alternate must establish exact BSC identity and consistent numeric block hashes before and after the read, including prior canonical witnesses. Alternate results are not cached. Pending/nonce reads and the separate original-transaction path retain their existing rules; one request shares the existing 14 second deadline. Malformed envelopes, canonical disagreement and contract reverts cannot qualify for this switch.
+
+Validation and publication receipts are adjacent. Test inputs are synthetic and public evidence is redacted; wallet signatures, private RPC URLs and actual envelope salt are excluded. The original signing configuration, browser journal key, core upgrade entry and formal product are retained.

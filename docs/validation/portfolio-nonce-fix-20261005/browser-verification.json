@@ -1,0 +1,20 @@
+{
+  "kind": "portfolio-standalone-live-chrome-read-check",
+  "observedAt": "2026-10-05T15:19:31.230267+00:00",
+  "url": "https://bemine.cc.cd/pinkuang-portfolio-upgrade/",
+  "uiSourceCommit": "2629aaf01ae7165e5e3346e5917711da5e6a5e8d",
+  "proxySourceCommit": "7ed6fad646234474d8db23dd662c58652abc519f",
+  "account": "0x042B23288E2316DFb6503488292FD0Ad2F811Ae7",
+  "chain": "BSC mainnet",
+  "finalizedGraphBlock": 125890588,
+  "displayedNonce": {
+    "confirmed": 170,
+    "pending": 170,
+    "walletLatest": 170,
+    "walletPending": 170
+  },
+  "visibleStatus": "只读核对完成，区块 #125890588。 钱包与链上交易序号已同步（170）。",
+  "candidateDeployment": "not yet deployed",
+  "chainActionsPerformed": false,
+  "browserRequestsSent": []
+}

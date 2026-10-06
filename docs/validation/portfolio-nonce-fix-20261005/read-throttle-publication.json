@@ -1,0 +1,18 @@
+{
+  "kind": "upgrade-archive-throttle-read-publication-v1",
+  "proxySourceCommit": "7ed6fad646234474d8db23dd662c58652abc519f",
+  "proxySha256": "fb0c3a4247f8ce3e045a02d591d5bcb93432649e43d96696071d5cfd2808e67d",
+  "priorRpcRelease": "/srv/pinkuang-target-owner-read/releases/41b12acf195b8f901f1d5ca04f9f8a61002214c6",
+  "rpcRelease": "/srv/pinkuang-target-owner-read/releases/7ed6fad646234474d8db23dd662c58652abc519f",
+  "nonceProof": {
+    "blockNumber": 125890437,
+    "blockHash": "0xdb7c1af6ba91e2257436ad6fc439088f716fe96a69072f2f9341a527e30059d9",
+    "confirmed": 170,
+    "pending": 170
+  },
+  "minDelay": 172800,
+  "readServiceInvocation": "a6d86d32c2bc4e63ba730554e941f991",
+  "allWebsitesUnchanged": true,
+  "routesAndProtectedEnvironmentUnchanged": true,
+  "chainActionsPerformed": false
+}
